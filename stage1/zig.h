@@ -61,6 +61,12 @@ typedef char bool;
 #define zig_gnuc
 #endif
 
+#if defined(zig_gnuc) && (defined(__i386__) || defined(__x86_64__))
+#define zig_f128_has_miscompilations 1
+#else
+#define zig_f128_has_miscompilations 0
+#endif
+
 #if _MSC_VER
 #define zig_const_arr
 #define zig_callconv(c) __##c
@@ -190,10 +196,13 @@ typedef char bool;
 
 #if zig_has_attribute(weak) || defined(zig_gnuc)
 #define zig_weak_linkage __attribute__((weak))
+#define zig_weak_linkage_fn __attribute__((weak))
 #elif _MSC_VER
 #define zig_weak_linkage __declspec(selectany)
+#define zig_weak_linkage_fn
 #else
 #define zig_weak_linkage zig_weak_linkage_unavailable
+#define zig_weak_linkage_fn zig_weak_linkage_unavailable
 #endif
 
 #if zig_has_builtin(trap)
@@ -943,6 +952,24 @@ typedef unsigned long zig_Builtin64;
 typedef unsigned long long zig_Builtin64;
 #endif
 
+#define zig_builtin8_rev(name, val) __builtin_##name(val)
+
+#define zig_builtin16_rev(name, val) __builtin_##name(val)
+
+#if INT_MIN <= INT32_MIN
+#define zig_builtin32_rev(name, val) __builtin_##name(val)
+#elif LONG_MIN <= INT32_MIN
+#define zig_builtin32_rev(name, val) __builtin_l##name(val)
+#endif
+
+#if INT_MIN <= INT64_MIN
+#define zig_builtin64_rev(name, val) __builtin_##name(val)
+#elif LONG_MIN <= INT64_MIN
+#define zig_builtin64_rev(name, val) __builtin_l##name(val)
+#elif LLONG_MIN <= INT64_MIN
+#define zig_builtin64_rev(name, val) __builtin_ll##name(val)
+#endif
+
 static inline uint8_t zig_byte_swap_u8(uint8_t val, uint8_t bits) {
     return zig_wrap_u8(val >> (8 - bits), bits);
 }
@@ -1137,6 +1164,24 @@ zig_builtin_clz(8)
 zig_builtin_clz(16)
 zig_builtin_clz(32)
 zig_builtin_clz(64)
+
+#if zig_has_builtin(abs) || defined(zig_gnuc)
+#define zig_builtin_abs(w) \
+    static inline int##w##_t zig_abs_i##w(int##w##_t val) { \
+        return zig_builtin##w##_rev(abs, val); \
+    }
+#else
+#define zig_builtin_abs(w) \
+    static inline int##w##_t zig_abs_i##w(int##w##_t val) { \
+        if (val == INT##w##_MIN) return val; \
+        int##w##_t tmp = val >> (w - 1); \
+        return (val ^ tmp) - tmp; \
+    }
+#endif
+zig_builtin_abs(8)
+zig_builtin_abs(16)
+zig_builtin_abs(32)
+zig_builtin_abs(64)
 
 /* ======================== 128-bit Integer Support ========================= */
 
@@ -1461,6 +1506,11 @@ static inline zig_u128 zig_mulw_u128(zig_u128 lhs, zig_u128 rhs, uint8_t bits) {
 
 static inline zig_i128 zig_mulw_i128(zig_i128 lhs, zig_i128 rhs, uint8_t bits) {
     return zig_wrap_i128(zig_bitCast_i128(zig_mul_u128(zig_bitCast_u128(lhs), zig_bitCast_u128(rhs))), bits);
+}
+
+static inline zig_u128 zig_abs_i128(zig_i128 val) {
+    zig_i128 tmp = zig_shr_i128(val, 127);
+    return zig_bitCast_u128(zig_sub_i128(zig_xor_i128(val, tmp), tmp));
 }
 
 #if zig_has_int128
@@ -3111,22 +3161,22 @@ typedef zig_u128 zig_f80;
 #define zig_has_f128 1
 #define zig_libc_name_f128(name) name##q
 #define zig_init_special_f128(sign, name, arg, repr) zig_make_special_f128(sign, name, arg, repr)
-#if FLT_MANT_DIG == 113
+#if !zig_f128_has_miscompilations && FLT_MANT_DIG == 113
 typedef float zig_f128;
 #define zig_make_f128(fp, repr) fp##f
-#elif DBL_MANT_DIG == 113
+#elif !zig_f128_has_miscompilations && DBL_MANT_DIG == 113
 typedef double zig_f128;
 #define zig_make_f128(fp, repr) fp
-#elif LDBL_MANT_DIG == 113
+#elif !zig_f128_has_miscompilations && LDBL_MANT_DIG == 113
 typedef long double zig_f128;
 #define zig_make_f128(fp, repr) fp##l
-#elif FLT128_MANT_DIG == 113
+#elif !zig_f128_has_miscompilations && FLT128_MANT_DIG == 113
 typedef _Float128 zig_f128;
 #define zig_make_f128(fp, repr) fp##f128
-#elif FLT64X_MANT_DIG == 113
+#elif !zig_f128_has_miscompilations && FLT64X_MANT_DIG == 113
 typedef _Float64x zig_f128;
 #define zig_make_f128(fp, repr) fp##f64x
-#elif defined(__SIZEOF_FLOAT128__)
+#elif !zig_f128_has_miscompilations && defined(__SIZEOF_FLOAT128__)
 typedef __float128 zig_f128;
 #define zig_make_f128(fp, repr) fp##q
 #undef zig_make_special_f128

@@ -14,7 +14,7 @@ const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 const LazyPath = std.Build.LazyPath;
 const PkgConfigPkg = std.Build.PkgConfigPkg;
 const PkgConfigError = std.Build.PkgConfigError;
-const ExecError = std.Build.ExecError;
+const RunError = std.Build.RunError;
 const Module = std.Build.Module;
 const VcpkgRoot = std.Build.VcpkgRoot;
 const InstallDir = std.Build.InstallDir;
@@ -39,7 +39,7 @@ name_only_filename: ?[]const u8,
 strip: ?bool,
 unwind_tables: ?bool,
 // keep in sync with src/link.zig:CompressDebugSections
-compress_debug_sections: enum { none, zlib } = .none,
+compress_debug_sections: enum { none, zlib, zstd } = .none,
 lib_paths: ArrayList(LazyPath),
 rpaths: ArrayList(LazyPath),
 frameworks: StringHashMap(FrameworkLinkInfo),
@@ -68,11 +68,12 @@ c_std: std.Build.CStd,
 /// Set via options; intended to be read-only after that.
 zig_lib_dir: ?LazyPath,
 /// Set via options; intended to be read-only after that.
-main_pkg_path: ?LazyPath,
+main_mod_path: ?LazyPath,
 exec_cmd_args: ?[]const ?[]const u8,
 filter: ?[]const u8,
 test_evented_io: bool = false,
 test_runner: ?[]const u8,
+test_server_mode: bool,
 code_model: std.builtin.CodeModel = .default,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 /// Symbols to be exported when compiling to wasm
@@ -89,6 +90,18 @@ installed_headers: ArrayList(*Step),
 is_linking_libc: bool,
 is_linking_libcpp: bool,
 vcpkg_bin_path: ?[]const u8 = null,
+
+// keep in sync with src/Compilation.zig:RcIncludes
+/// Behavior of automatic detection of include directories when compiling .rc files.
+///  any: Use MSVC if available, fall back to MinGW.
+///  msvc: Use MSVC include paths (must be present on the system).
+///  gnu: Use MinGW include paths (distributed with Zig).
+///  none: Do not use any autodetected include paths.
+rc_includes: enum { any, msvc, gnu, none } = .any,
+
+/// (Windows) .manifest file to embed in the compilation
+/// Set via options; intended to be read-only after that.
+win32_manifest: ?LazyPath = null,
 
 installed_path: ?[]const u8,
 
@@ -114,6 +127,10 @@ link_emit_relocs: bool = false,
 /// Place every function in its own section so that unused ones may be
 /// safely garbage-collected during the linking phase.
 link_function_sections: bool = false,
+
+/// Place every data in its own section so that unused ones may be
+/// safely garbage-collected during the linking phase.
+link_data_sections: bool = false,
 
 /// Remove functions and data that are unreachable by the entry point or
 /// exported symbols.
@@ -172,7 +189,8 @@ dll_export_fns: ?bool = null,
 
 subsystem: ?std.Target.SubSystem = null,
 
-entry_symbol_name: ?[]const u8 = null,
+/// How the linker must handle the entry point of the executable.
+entry: Entry = .default,
 
 /// List of symbols forced as undefined in the symbol table
 /// thus forcing their resolution by the linker.
@@ -187,10 +205,10 @@ use_llvm: ?bool,
 use_lld: ?bool,
 
 /// This is an advanced setting that can change the intent of this Compile step.
-/// If this slice has nonzero length, it means that this Compile step exists to
+/// If this value is non-null, it means that this Compile step exists to
 /// check for compile errors and return *success* if they match, and failure
 /// otherwise.
-expect_errors: []const []const u8 = &.{},
+expect_errors: ?ExpectedCompileErrors = null,
 
 emit_directory: ?*GeneratedFile,
 
@@ -203,8 +221,19 @@ generated_llvm_bc: ?*GeneratedFile,
 generated_llvm_ir: ?*GeneratedFile,
 generated_h: ?*GeneratedFile,
 
+/// The maximum number of distinct errors within a compilation step
+/// Defaults to `std.math.maxInt(u16)`
+error_limit: ?u32 = null,
+
+pub const ExpectedCompileErrors = union(enum) {
+    contains: []const u8,
+    exact: []const []const u8,
+};
+
 pub const CSourceFiles = struct {
-    /// Relative to the build root.
+    dependency: ?*std.Build.Dependency,
+    /// If `dependency` is not null relative to it,
+    /// else relative to the build root.
     files: []const []const u8,
     flags: []const []const u8,
 };
@@ -221,6 +250,28 @@ pub const CSourceFile = struct {
     }
 };
 
+pub const RcSourceFile = struct {
+    file: LazyPath,
+    /// Any option that rc.exe accepts will work here, with the exception of:
+    /// - `/fo`: The output filename is set by the build system
+    /// - `/p`: Only running the preprocessor is not supported in this context
+    /// - `/:no-preprocess` (non-standard option): Not supported in this context
+    /// - Any MUI-related option
+    /// https://learn.microsoft.com/en-us/windows/win32/menurc/using-rc-the-rc-command-line-
+    ///
+    /// Implicitly defined options:
+    ///  /x (ignore the INCLUDE environment variable)
+    ///  /D_DEBUG or /DNDEBUG depending on the optimization mode
+    flags: []const []const u8 = &.{},
+
+    pub fn dupe(self: RcSourceFile, b: *std.Build) RcSourceFile {
+        return .{
+            .file = self.file.dupe(b),
+            .flags = b.dupeStrings(self.flags),
+        };
+    }
+};
+
 pub const LinkObject = union(enum) {
     static_path: LazyPath,
     other_step: *Compile,
@@ -228,6 +279,7 @@ pub const LinkObject = union(enum) {
     assembly_file: LazyPath,
     c_source_file: *CSourceFile,
     c_source_files: *CSourceFiles,
+    win32_resource_file: *RcSourceFile,
 };
 
 pub const SystemLib = struct {
@@ -257,9 +309,22 @@ const FrameworkLinkInfo = struct {
     weak: bool = false,
 };
 
+const Entry = union(enum) {
+    /// Let the compiler decide whether to make an entry point and what to name
+    /// it.
+    default,
+    /// The executable will have no entry point.
+    disabled,
+    /// The executable will have an entry point with the default symbol name.
+    enabled,
+    /// The executable will have an entry point with the specified symbol name.
+    symbol_name: []const u8,
+};
+
 pub const IncludeDir = union(enum) {
     path: LazyPath,
     path_system: LazyPath,
+    path_after: LazyPath,
     framework_path: LazyPath,
     framework_path_system: LazyPath,
     other_step: *Compile,
@@ -282,6 +347,15 @@ pub const Options = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+    /// Embed a `.manifest` file in the compilation if the object format supports it.
+    /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
+    /// Manifest files must have the extension `.manifest`.
+    /// Can be set regardless of target. The `.manifest` file will be ignored
+    /// if the target object format does not support embedded manifests.
+    win32_manifest: ?LazyPath = null,
+
+    /// deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -446,10 +520,11 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .installed_headers = ArrayList(*Step).init(owner.allocator),
         .c_std = std.Build.CStd.C99,
         .zig_lib_dir = null,
-        .main_pkg_path = null,
+        .main_mod_path = null,
         .exec_cmd_args = null,
         .filter = options.filter,
         .test_runner = options.test_runner,
+        .test_server_mode = options.test_runner == null,
         .disable_stack_probing = false,
         .disable_sanitize_c = false,
         .sanitize_thread = false,
@@ -481,9 +556,18 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         lp.addStepDependencies(&self.step);
     }
 
-    if (options.main_pkg_path) |lp| {
-        self.main_pkg_path = lp.dupe(self.step.owner);
+    if (options.main_mod_path orelse options.main_pkg_path) |lp| {
+        self.main_mod_path = lp.dupe(self.step.owner);
         lp.addStepDependencies(&self.step);
+    }
+
+    // Only the PE/COFF format has a Resource Table which is where the manifest
+    // gets embedded, so for any other target the manifest file is just ignored.
+    if (self.target.getObjectFormat() == .coff) {
+        if (options.win32_manifest) |lp| {
+            self.win32_manifest = lp.dupe(self.step.owner);
+            lp.addStepDependencies(&self.step);
+        }
     }
 
     if (self.kind == .lib) {
@@ -792,7 +876,7 @@ fn runPkgConfig(self: *Compile, lib_name: []const u8) ![]const []const u8 {
     };
 
     var code: u8 = undefined;
-    const stdout = if (b.execAllowFail(&[_][]const u8{
+    const stdout = if (b.runAllowFail(&[_][]const u8{
         "pkg-config",
         pkg_name,
         "--cflags",
@@ -887,15 +971,23 @@ pub fn linkSystemLibrary2(
     }) catch @panic("OOM");
 }
 
+pub const AddCSourceFilesOptions = struct {
+    /// When provided, `files` are relative to `dependency` rather than the package that owns the `Compile` step.
+    dependency: ?*std.Build.Dependency = null,
+    files: []const []const u8,
+    flags: []const []const u8 = &.{},
+};
+
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
-pub fn addCSourceFiles(self: *Compile, files: []const []const u8, flags: []const []const u8) void {
+pub fn addCSourceFiles(self: *Compile, options: AddCSourceFilesOptions) void {
     const b = self.step.owner;
     const c_source_files = b.allocator.create(CSourceFiles) catch @panic("OOM");
 
-    const files_copy = b.dupeStrings(files);
-    const flags_copy = b.dupeStrings(flags);
+    const files_copy = b.dupeStrings(options.files);
+    const flags_copy = b.dupeStrings(options.flags);
 
     c_source_files.* = .{
+        .dependency = options.dependency,
         .files = files_copy,
         .flags = flags_copy,
     };
@@ -907,6 +999,21 @@ pub fn addCSourceFile(self: *Compile, source: CSourceFile) void {
     const c_source_file = b.allocator.create(CSourceFile) catch @panic("OOM");
     c_source_file.* = source.dupe(b);
     self.link_objects.append(.{ .c_source_file = c_source_file }) catch @panic("OOM");
+    source.file.addStepDependencies(&self.step);
+}
+
+/// Resource files must have the extension `.rc`.
+/// Can be called regardless of target. The .rc file will be ignored
+/// if the target object format does not support embedded resources.
+pub fn addWin32ResourceFile(self: *Compile, source: RcSourceFile) void {
+    // Only the PE/COFF format has a Resource Table, so for any other target
+    // the resource file is just ignored.
+    if (self.target.getObjectFormat() != .coff) return;
+
+    const b = self.step.owner;
+    const rc_source_file = b.allocator.create(RcSourceFile) catch @panic("OOM");
+    rc_source_file.* = source.dupe(b);
+    self.link_objects.append(.{ .win32_resource_file = rc_source_file }) catch @panic("OOM");
     source.file.addStepDependencies(&self.step);
 }
 
@@ -1019,6 +1126,12 @@ pub fn addObjectFile(self: *Compile, source: LazyPath) void {
 pub fn addObject(self: *Compile, obj: *Compile) void {
     assert(obj.kind == .obj);
     self.linkLibraryOrObject(obj);
+}
+
+pub fn addAfterIncludePath(self: *Compile, path: LazyPath) void {
+    const b = self.step.owner;
+    self.include_dirs.append(IncludeDir{ .path_after = path.dupe(b) }) catch @panic("OOM");
+    path.addStepDependencies(&self.step);
 }
 
 pub fn addSystemIncludePath(self: *Compile, path: LazyPath) void {
@@ -1229,7 +1342,7 @@ fn appendModuleArgs(
             const name = kv.value_ptr.*;
 
             const deps_str = try constructDepString(b.allocator, mod_names, mod.dependencies);
-            const src = mod.builder.pathFromRoot(mod.source_file.getPath(mod.builder));
+            const src = mod.source_file.getPath(mod.builder);
             try zig_args.append("--mod");
             try zig_args.append(try std.fmt.allocPrint(b.allocator, "{s}:{s}:{s}", .{ name, deps_str, src }));
         }
@@ -1322,9 +1435,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(try std.fmt.allocPrint(b.allocator, "-ofmt={s}", .{@tagName(ofmt)}));
     }
 
-    if (self.entry_symbol_name) |entry| {
-        try zig_args.append("--entry");
-        try zig_args.append(entry);
+    switch (self.entry) {
+        .default => {},
+        .disabled => try zig_args.append("-fno-entry"),
+        .enabled => try zig_args.append("-fentry"),
+        .symbol_name => |entry_name| {
+            try zig_args.append(try std.fmt.allocPrint(b.allocator, "-fentry={s}", .{entry_name}));
+        },
     }
 
     {
@@ -1358,6 +1475,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try transitive_deps.add(self.link_objects.items);
 
     var prev_has_cflags = false;
+    var prev_has_rcflags = false;
     var prev_search_strategy: SystemLib.SearchStrategy = .paths_first;
     var prev_preferred_link_mode: std.builtin.LinkMode = .Dynamic;
 
@@ -1496,11 +1614,39 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     try zig_args.append("--");
                     prev_has_cflags = true;
                 }
-                for (c_source_files.files) |file| {
-                    try zig_args.append(b.pathFromRoot(file));
+                if (c_source_files.dependency) |dep| {
+                    for (c_source_files.files) |file| {
+                        try zig_args.append(dep.builder.pathFromRoot(file));
+                    }
+                } else {
+                    for (c_source_files.files) |file| {
+                        try zig_args.append(b.pathFromRoot(file));
+                    }
                 }
             },
+
+            .win32_resource_file => |rc_source_file| {
+                if (rc_source_file.flags.len == 0) {
+                    if (prev_has_rcflags) {
+                        try zig_args.append("-rcflags");
+                        try zig_args.append("--");
+                        prev_has_rcflags = false;
+                    }
+                } else {
+                    try zig_args.append("-rcflags");
+                    for (rc_source_file.flags) |arg| {
+                        try zig_args.append(arg);
+                    }
+                    try zig_args.append("--");
+                    prev_has_rcflags = true;
+                }
+                try zig_args.append(rc_source_file.file.getPath(b));
+            },
         }
+    }
+
+    if (self.win32_manifest) |manifest_file| {
+        try zig_args.append(manifest_file.getPath(b));
     }
 
     if (transitive_deps.is_linking_libcpp) {
@@ -1568,6 +1714,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     switch (self.compress_debug_sections) {
         .none => {},
         .zlib => try zig_args.append("--compress-debug-sections=zlib"),
+        .zstd => try zig_args.append("--compress-debug-sections=zstd"),
     }
 
     if (self.link_eh_frame_hdr) {
@@ -1578,6 +1725,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
     if (self.link_function_sections) {
         try zig_args.append("-ffunction-sections");
+    }
+    if (self.link_data_sections) {
+        try zig_args.append("-fdata-sections");
     }
     if (self.link_gc_sections) |x| {
         try zig_args.append(if (x) "--gc-sections" else "--no-gc-sections");
@@ -1781,6 +1931,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 try zig_args.append("-isystem");
                 try zig_args.append(include_path.getPath(b));
             },
+            .path_after => |include_path| {
+                try zig_args.append("-idirafter");
+                try zig_args.append(include_path.getPath(b));
+            },
             .framework_path => |include_path| {
                 try zig_args.append("-F");
                 try zig_args.append(include_path.getPath2(b, step));
@@ -1836,7 +1990,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     continue;
                 }
             },
-            .generated => {},
+            .generated, .dependency => {},
         };
 
         zig_args.appendAssumeCapacity(rpath.getPath2(b, step));
@@ -1897,6 +2051,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
+    if (self.rc_includes != .any) {
+        try zig_args.append("-rcincludes");
+        try zig_args.append(@tagName(self.rc_includes));
+    }
+
     try addFlag(&zig_args, "valgrind", self.valgrind_support);
     try addFlag(&zig_args, "each-lib-rpath", self.each_lib_rpath);
 
@@ -1914,8 +2073,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(dir.getPath(b));
     }
 
-    if (self.main_pkg_path) |dir| {
-        try zig_args.append("--main-pkg-path");
+    if (self.main_mod_path) |dir| {
+        try zig_args.append("--main-mod-path");
         try zig_args.append(dir.getPath(b));
     }
 
@@ -1936,6 +2095,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             .EfiRuntimeDriver => "efi_runtime_driver",
         });
     }
+
+    if (self.error_limit) |err_limit| try zig_args.appendSlice(&.{
+        "--error-limit",
+        b.fmt("{}", .{err_limit}),
+    });
 
     try zig_args.append("--listen=-");
 
@@ -1998,7 +2162,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const maybe_output_bin_path = step.evalZigProcess(zig_args.items, prog_node) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
-            assert(self.expect_errors.len != 0);
+            assert(self.expect_errors != null);
             try checkCompileErrors(self);
             return;
         },
@@ -2130,8 +2294,8 @@ pub fn doAtomicSymLinks(
     };
 }
 
-fn execPkgConfigList(self: *std.Build, out_code: *u8) (PkgConfigError || ExecError)![]const PkgConfigPkg {
-    const stdout = try self.execAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
+fn execPkgConfigList(self: *std.Build, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
+    const stdout = try self.runAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
     var list = ArrayList(PkgConfigPkg).init(self.allocator);
     errdefer list.deinit();
     var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
@@ -2257,39 +2421,70 @@ fn checkCompileErrors(self: *Compile) !void {
 
     // Render the expected lines into a string that we can compare verbatim.
     var expected_generated = std.ArrayList(u8).init(arena);
+    const expect_errors = self.expect_errors.?;
 
     var actual_line_it = mem.splitScalar(u8, actual_stderr, '\n');
-    for (self.expect_errors) |expect_line| {
-        const actual_line = actual_line_it.next() orelse {
-            try expected_generated.appendSlice(expect_line);
-            try expected_generated.append('\n');
-            continue;
-        };
-        if (mem.endsWith(u8, actual_line, expect_line)) {
-            try expected_generated.appendSlice(actual_line);
-            try expected_generated.append('\n');
-            continue;
-        }
-        if (mem.startsWith(u8, expect_line, ":?:?: ")) {
-            if (mem.endsWith(u8, actual_line, expect_line[":?:?: ".len..])) {
-                try expected_generated.appendSlice(actual_line);
-                try expected_generated.append('\n');
-                continue;
-            }
-        }
-        try expected_generated.appendSlice(expect_line);
-        try expected_generated.append('\n');
-    }
-
-    if (mem.eql(u8, expected_generated.items, actual_stderr)) return;
 
     // TODO merge this with the testing.expectEqualStrings logic, and also CheckFile
-    return self.step.fail(
-        \\
-        \\========= expected: =====================
-        \\{s}
-        \\========= but found: ====================
-        \\{s}
-        \\=========================================
-    , .{ expected_generated.items, actual_stderr });
+    switch (expect_errors) {
+        .contains => |expect_line| {
+            while (actual_line_it.next()) |actual_line| {
+                if (!matchCompileError(actual_line, expect_line)) continue;
+                return;
+            }
+
+            return self.step.fail(
+                \\
+                \\========= should contain: ===============
+                \\{s}
+                \\========= but not found: ================
+                \\{s}
+                \\=========================================
+            , .{ expect_line, actual_stderr });
+        },
+        .exact => |expect_lines| {
+            for (expect_lines) |expect_line| {
+                const actual_line = actual_line_it.next() orelse {
+                    try expected_generated.appendSlice(expect_line);
+                    try expected_generated.append('\n');
+                    continue;
+                };
+                if (matchCompileError(actual_line, expect_line)) {
+                    try expected_generated.appendSlice(actual_line);
+                    try expected_generated.append('\n');
+                    continue;
+                }
+                try expected_generated.appendSlice(expect_line);
+                try expected_generated.append('\n');
+            }
+
+            if (mem.eql(u8, expected_generated.items, actual_stderr)) return;
+
+            return self.step.fail(
+                \\
+                \\========= expected: =====================
+                \\{s}
+                \\========= but found: ====================
+                \\{s}
+                \\=========================================
+            , .{ expected_generated.items, actual_stderr });
+        },
+    }
+}
+
+fn matchCompileError(actual: []const u8, expected: []const u8) bool {
+    if (mem.endsWith(u8, actual, expected)) return true;
+    if (mem.startsWith(u8, expected, ":?:?: ")) {
+        if (mem.endsWith(u8, actual, expected[":?:?: ".len..])) return true;
+    }
+    // We scan for /?/ in expected line and if there is a match, we match everything
+    // up to and after /?/.
+    const expected_trim = mem.trim(u8, expected, " ");
+    if (mem.indexOf(u8, expected_trim, "/?/")) |index| {
+        const actual_trim = mem.trim(u8, actual, " ");
+        const lhs = expected_trim[0..index];
+        const rhs = expected_trim[index + "/?/".len ..];
+        if (mem.startsWith(u8, actual_trim, lhs) and mem.endsWith(u8, actual_trim, rhs)) return true;
+    }
+    return false;
 }

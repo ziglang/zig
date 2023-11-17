@@ -172,7 +172,7 @@ const InitializedDepContext = struct {
     }
 };
 
-pub const ExecError = error{
+pub const RunError = error{
     ReadFailure,
     ExitCodeFailure,
     ProcessTerminated,
@@ -379,7 +379,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .h_dir = parent.h_dir,
         .install_path = parent.install_path,
         .sysroot = parent.sysroot,
-        .search_prefixes = ArrayList([]const u8).init(allocator),
+        .search_prefixes = parent.search_prefixes,
         .libc_file = parent.libc_file,
         .installed_files = ArrayList(InstalledFile).init(allocator),
         .build_root = build_root,
@@ -634,6 +634,15 @@ pub const ExecutableOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+    /// Embed a `.manifest` file in the compilation if the object format supports it.
+    /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
+    /// Manifest files must have the extension `.manifest`.
+    /// Can be set regardless of target. The `.manifest` file will be ignored
+    /// if the target object format does not support embedded manifests.
+    win32_manifest: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -652,7 +661,8 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
+        .win32_manifest = options.win32_manifest,
     });
 }
 
@@ -667,6 +677,9 @@ pub const ObjectOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -683,7 +696,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -699,6 +712,15 @@ pub const SharedLibraryOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+    /// Embed a `.manifest` file in the compilation if the object format supports it.
+    /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
+    /// Manifest files must have the extension `.manifest`.
+    /// Can be set regardless of target. The `.manifest` file will be ignored
+    /// if the target object format does not support embedded manifests.
+    win32_manifest: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -717,7 +739,8 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
+        .win32_manifest = options.win32_manifest,
     });
 }
 
@@ -733,6 +756,9 @@ pub const StaticLibraryOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -751,7 +777,7 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -769,6 +795,9 @@ pub const TestOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    main_mod_path: ?LazyPath = null,
+
+    /// Deprecated; use `main_mod_path`.
     main_pkg_path: ?LazyPath = null,
 };
 
@@ -787,7 +816,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_pkg_path = options.main_pkg_path,
+        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -810,7 +839,7 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
         .max_rss = options.max_rss,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
     });
-    obj_step.addAssemblyLazyPath(options.source_file.dupe(b));
+    obj_step.addAssemblyFile(options.source_file);
     return obj_step;
 }
 
@@ -875,7 +904,7 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
     const run_step = Step.Run.create(b, b.fmt("run {s}", .{exe.name}));
     run_step.addArtifactArg(exe);
 
-    if (exe.kind == .@"test") {
+    if (exe.kind == .@"test" and exe.test_server_mode) {
         run_step.enableTestRunnerMode();
     }
 
@@ -942,9 +971,7 @@ pub fn addWriteFiles(b: *Build) *Step.WriteFile {
 }
 
 pub fn addRemoveDirTree(self: *Build, dir_path: []const u8) *Step.RemoveDir {
-    const remove_dir_step = self.allocator.create(Step.RemoveDir) catch @panic("OOM");
-    remove_dir_step.* = Step.RemoveDir.init(self, dir_path);
-    return remove_dir_step;
+    return Step.RemoveDir.create(self, dir_path);
 }
 
 pub fn addFmt(b: *Build, options: Step.Fmt.Options) *Step.Fmt {
@@ -1600,12 +1627,12 @@ pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []con
     return error.FileNotFound;
 }
 
-pub fn execAllowFail(
+pub fn runAllowFail(
     self: *Build,
     argv: []const []const u8,
     out_code: *u8,
     stderr_behavior: std.ChildProcess.StdIo,
-) ExecError![]u8 {
+) RunError![]u8 {
     assert(argv.len != 0);
 
     if (!process.can_spawn)
@@ -1644,7 +1671,7 @@ pub fn execAllowFail(
 /// This is a helper function to be called from build.zig scripts, *not* from
 /// inside step make() functions. If any errors occur, it fails the build with
 /// a helpful message.
-pub fn exec(b: *Build, argv: []const []const u8) []u8 {
+pub fn run(b: *Build, argv: []const []const u8) []u8 {
     if (!process.can_spawn) {
         std.debug.print("unable to spawn the following command: cannot spawn child process\n{s}\n", .{
             try allocPrintCmd(b.allocator, null, argv),
@@ -1653,7 +1680,7 @@ pub fn exec(b: *Build, argv: []const []const u8) []u8 {
     }
 
     var code: u8 = undefined;
-    return b.execAllowFail(argv, &code, .Inherit) catch |err| {
+    return b.runAllowFail(argv, &code, .Inherit) catch |err| {
         const printed_cmd = allocPrintCmd(b.allocator, null, argv) catch @panic("OOM");
         std.debug.print("unable to spawn the following command: {s}\n{s}\n", .{
             @errorName(err), printed_cmd,
@@ -1707,6 +1734,15 @@ pub const Dependency = struct {
             panic("unable to find module '{s}'", .{name});
         };
     }
+
+    pub fn path(d: *Dependency, sub_path: []const u8) LazyPath {
+        return .{
+            .dependency = .{
+                .dependency = d,
+                .sub_path = sub_path,
+            },
+        };
+    }
 };
 
 pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
@@ -1724,7 +1760,7 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
     inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
         if (mem.eql(u8, decl.name, pkg_hash)) {
             const pkg = @field(deps.packages, decl.name);
-            return dependencyInner(b, name, pkg.build_root, pkg.build_zig, pkg.deps, args);
+            return dependencyInner(b, name, pkg.build_root, if (@hasDecl(pkg, "build_zig")) pkg.build_zig else null, pkg.deps, args);
         }
     }
 
@@ -1801,7 +1837,7 @@ pub fn dependencyInner(
     b: *Build,
     name: []const u8,
     build_root_string: []const u8,
-    comptime build_zig: type,
+    comptime build_zig: ?type,
     pkg_deps: AvailableDeps,
     args: anytype,
 ) *Dependency {
@@ -1821,11 +1857,14 @@ pub fn dependencyInner(
             process.exit(1);
         },
     };
-    const sub_builder = b.createChild(name, build_root, pkg_deps, user_input_options) catch @panic("unhandled error");
-    sub_builder.runBuild(build_zig) catch @panic("unhandled error");
 
-    if (sub_builder.validateUserInputDidItFail()) {
-        std.debug.dumpCurrentStackTrace(@returnAddress());
+    const sub_builder = b.createChild(name, build_root, pkg_deps, user_input_options) catch @panic("unhandled error");
+    if (build_zig) |bz| {
+        sub_builder.runBuild(bz) catch @panic("unhandled error");
+
+        if (sub_builder.validateUserInputDidItFail()) {
+            std.debug.dumpCurrentStackTrace(@returnAddress());
+        }
     }
 
     const dep = b.allocator.create(Dependency) catch @panic("OOM");
@@ -1892,6 +1931,11 @@ pub const LazyPath = union(enum) {
     /// Use of this tag indicates a dependency on the host system.
     cwd_relative: []const u8,
 
+    dependency: struct {
+        dependency: *Dependency,
+        sub_path: []const u8,
+    },
+
     /// Returns a new file source that will have a relative path to the build root guaranteed.
     /// Asserts the parameter is not an absolute path.
     pub fn relative(path: []const u8) LazyPath {
@@ -1905,13 +1949,14 @@ pub const LazyPath = union(enum) {
         return switch (self) {
             .path, .cwd_relative => self.path,
             .generated => "generated",
+            .dependency => "dependency",
         };
     }
 
     /// Adds dependencies this file source implies to the given step.
     pub fn addStepDependencies(self: LazyPath, other_step: *Step) void {
         switch (self) {
-            .path, .cwd_relative => {},
+            .path, .cwd_relative, .dependency => {},
             .generated => |gen| other_step.dependOn(gen.step),
         }
     }
@@ -1937,6 +1982,12 @@ pub const LazyPath = union(enum) {
                 dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
                 @panic("misconfigured build script");
             },
+            .dependency => |dep| {
+                return dep.dependency.builder.pathJoin(&[_][]const u8{
+                    dep.dependency.builder.build_root.path.?,
+                    dep.sub_path,
+                });
+            },
         }
     }
 
@@ -1946,6 +1997,7 @@ pub const LazyPath = union(enum) {
             .path => |p| .{ .path = b.dupePath(p) },
             .cwd_relative => |p| .{ .cwd_relative = b.dupePath(p) },
             .generated => |gen| .{ .generated = gen },
+            .dependency => |dep| .{ .dependency = dep },
         };
     }
 };
@@ -2104,5 +2156,6 @@ pub fn hex64(x: u64) [16]u8 {
 }
 
 test {
+    _ = Cache;
     _ = Step;
 }

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Documentation - Zig</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg==">
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNTMgMTQwIj48ZyBmaWxsPSIjRjdBNDFEIj48Zz48cG9seWdvbiBwb2ludHM9IjQ2LDIyIDI4LDQ0IDE5LDMwIi8+PHBvbHlnb24gcG9pbnRzPSI0NiwyMiAzMywzMyAyOCw0NCAyMiw0NCAyMiw5NSAzMSw5NSAyMCwxMDAgMTIsMTE3IDAsMTE3IDAsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMzEsOTUgMTIsMTE3IDQsMTA2Ii8+PC9nPjxnPjxwb2x5Z29uIHBvaW50cz0iNTYsMjIgNjIsMzYgMzcsNDQiLz48cG9seWdvbiBwb2ludHM9IjU2LDIyIDExMSwyMiAxMTEsNDQgMzcsNDQgNTYsMzIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTE2LDk1IDk3LDExNyA5MCwxMDQiLz48cG9seWdvbiBwb2ludHM9IjExNiw5NSAxMDAsMTA0IDk3LDExNyA0MiwxMTcgNDIsOTUiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTUwLDAgNTIsMTE3IDMsMTQwIDEwMSwyMiIvPjwvZz48Zz48cG9seWdvbiBwb2ludHM9IjE0MSwyMiAxNDAsNDAgMTIyLDQ1Ii8+PHBvbHlnb24gcG9pbnRzPSIxNTMsMjIgMTUzLDExNyAxMDYsMTE3IDEyMCwxMDUgMTI1LDk1IDEzMSw5NSAxMzEsNDUgMTIyLDQ1IDEzMiwzNiAxNDEsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTI1LDk1IDEzMCwxMTAgMTA2LDExNyIvPjwvZz48L2c+PC9zdmc+">
     <style>
       :root {
         font-size: 1em;
@@ -133,6 +134,7 @@
 
       .logo {
         margin: 0.5rem;
+        width: 130px; 
       }
 
       .logo > svg {
@@ -446,7 +448,7 @@
         margin: 0;
         padding: 0;
         overflow: hidden;
-        boackground-color: #f1f1f1;
+        background-color: #f1f1f1;
         display: flex;
         flex-direction: row;
       }
@@ -1016,7 +1018,7 @@
             </div>
           </div>
           <div id="sectNavAPI" style="margin-top: 0.5rem;"><ul id="listNavAPI" class="listNav"></ul></div>
-          <div id="sectNavGuides" class="hidden" style="margin-top:0.5rem;background-color:#333;">
+          <div id="sectNavGuides" class="hidden" style="margin-top: 0.5rem">
             <ul id="listNavGuides" class="listNav">
               <li>
                 <a href="#G;" class="active">Index</a>
@@ -1184,7 +1186,7 @@
               <ul id="listFnExamples" class="examples"></ul>
             </div>
             <div id="sectDocTests" class="hidden">
-              <h2>DocTests</h2>
+              <h2>Usage Examples <span style="font-size:1.1rem; cursor:pointer;" title="See `doctests` in the language reference to learn more.">&#9432;</span></h2>
               <pre id="docTestsCode"></pre>
             </div>
             <div id="sectTests" class="hidden">
@@ -1226,7 +1228,17 @@
         </div>
       </div>
     </div>
-    <script src="data.js"></script>
+    <script src="data-typeKinds.js"></script>
+    <script src="data-rootMod.js"></script>
+    <script src="data-modules.js"></script>
+    <script src="data-files.js"></script>
+    <script src="data-calls.js"></script>
+    <script src="data-types.js"></script>
+    <script src="data-decls.js"></script>
+    <script src="data-exprs.js"></script>
+    <script src="data-astNodes.js"></script>
+    <script src="data-comptimeExprs.js"></script>
+    <script src="data-guideSections.js"></script>
     <script src="commonmark.js"></script>
     <script src="ziglexer.js"></script>
     <script src="main.js"></script>

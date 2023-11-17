@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Documentation - The Zig Programming Language</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg==">
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNTMgMTQwIj48ZyBmaWxsPSIjRjdBNDFEIj48Zz48cG9seWdvbiBwb2ludHM9IjQ2LDIyIDI4LDQ0IDE5LDMwIi8+PHBvbHlnb24gcG9pbnRzPSI0NiwyMiAzMywzMyAyOCw0NCAyMiw0NCAyMiw5NSAzMSw5NSAyMCwxMDAgMTIsMTE3IDAsMTE3IDAsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMzEsOTUgMTIsMTE3IDQsMTA2Ii8+PC9nPjxnPjxwb2x5Z29uIHBvaW50cz0iNTYsMjIgNjIsMzYgMzcsNDQiLz48cG9seWdvbiBwb2ludHM9IjU2LDIyIDExMSwyMiAxMTEsNDQgMzcsNDQgNTYsMzIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTE2LDk1IDk3LDExNyA5MCwxMDQiLz48cG9seWdvbiBwb2ludHM9IjExNiw5NSAxMDAsMTA0IDk3LDExNyA0MiwxMTcgNDIsOTUiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTUwLDAgNTIsMTE3IDMsMTQwIDEwMSwyMiIvPjwvZz48Zz48cG9seWdvbiBwb2ludHM9IjE0MSwyMiAxNDAsNDAgMTIyLDQ1Ii8+PHBvbHlnb24gcG9pbnRzPSIxNTMsMjIgMTUzLDExNyAxMDYsMTE3IDEyMCwxMDUgMTI1LDk1IDEzMSw5NSAxMzEsNDUgMTIyLDQ1IDEzMiwzNiAxNDEsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTI1LDk1IDEzMCwxMTAgMTA2LDExNyIvPjwvZz48L2c+PC9zdmc+">
     <style>
       :root{
          --nav-width: 24em;
@@ -2523,14 +2524,23 @@ test "multidimensional arrays" {
       {#header_open|Sentinel-Terminated Arrays#}
       <p>
       The syntax {#syntax#}[N:x]T{#endsyntax#} describes an array which has a sentinel element of value {#syntax#}x{#endsyntax#} at the
-      index corresponding to {#syntax#}len{#endsyntax#}.
+      index corresponding to the length {#syntax#}N{#endsyntax#}.
       </p>
       {#code_begin|test|test_null_terminated_array#}
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "null terminated array" {
+test "0-terminated sentinel array" {
     const array = [_:0]u8 {1, 2, 3, 4};
+
+    try expect(@TypeOf(array) == [4:0]u8);
+    try expect(array.len == 4);
+    try expect(array[4] == 0);
+}
+
+test "extra 0s in 0-terminated sentinel array" {
+    // The sentinel value may appear earlier, but does not influence the compile-time 'len'.
+    const array = [_:0]u8 {1, 0, 0, 4};
 
     try expect(@TypeOf(array) == [4:0]u8);
     try expect(array.len == 4);
@@ -2639,7 +2649,7 @@ test "Conversion between vectors, arrays, and slices" {
           <li>{#syntax#}[*]T{#endsyntax#} - many-item pointer to unknown number of items.
             <ul>
               <li>Supports index syntax: {#syntax#}ptr[i]{#endsyntax#}</li>
-              <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
+              <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#} and {#syntax#}ptr[start..]{#endsyntax#}</li>
               <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
               <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
               {#syntax#}anyopaque{#endsyntax#} or any other {#link|opaque type|opaque#}.</li>
@@ -2714,6 +2724,10 @@ test "pointer arithmetic with many-item pointer" {
     try expect(ptr[0] == 1);
     ptr += 1;
     try expect(ptr[0] == 2);
+
+    // slicing a many-item pointer without an end is equivalent to
+    // pointer arithmetic: `ptr[start..] == ptr + start`
+    try expect(ptr[1..] == ptr + 1);
 }
 
 test "pointer arithmetic with slices" {
@@ -2980,15 +2994,17 @@ pub fn main() anyerror!void {
       {#header_close#}
 
       {#header_open|Slices#}
+      <p>
+      A slice is a pointer and a length. The difference between an array and
+      a slice is that the array's length is part of the type and known at
+      compile-time, whereas the slice's length is known at runtime.
+      Both can be accessed with the `len` field.
+      </p>
       {#code_begin|test_safety|test_basic_slices|index out of bounds#}
 const expect = @import("std").testing.expect;
 
 test "basic slices" {
     var array = [_]i32{ 1, 2, 3, 4 };
-    // A slice is a pointer and a length. The difference between an array and
-    // a slice is that the array's length is part of the type and known at
-    // compile-time, whereas the slice's length is known at runtime.
-    // Both can be accessed with the `len` field.
     var known_at_runtime_zero: usize = 0;
     const slice = array[known_at_runtime_zero..array.len];
     try expect(@TypeOf(slice) == []i32);
@@ -3052,8 +3068,6 @@ test "using slices for strings" {
 }
 
 test "slice pointer" {
-    var a: []u8 = undefined;
-    try expect(@TypeOf(a) == []u8);
     var array: [10]u8 = undefined;
     const ptr = &array;
     try expect(@TypeOf(ptr) == *[10]u8);
@@ -3062,10 +3076,10 @@ test "slice pointer" {
     var start: usize = 0;
     var end: usize = 5;
     const slice = ptr[start..end];
-    slice[2] = 3;
-    try expect(slice[2] == 3);
     // The slice is mutable because we sliced a mutable pointer.
     try expect(@TypeOf(slice) == []u8);
+    slice[2] = 3;
+    try expect(array[2] == 3);
 
     // Again, slicing with comptime-known indexes will produce another pointer
     // to an array:
@@ -3088,7 +3102,7 @@ test "slice pointer" {
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "null terminated slice" {
+test "0-terminated slice" {
     const slice: [:0]const u8 = "hello";
 
     try expect(slice.len == 5);
@@ -3104,7 +3118,7 @@ test "null terminated slice" {
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "null terminated slicing" {
+test "0-terminated slicing" {
     var array = [_]u8{ 3, 2, 1, 0, 3, 2, 1, 0 };
     var runtime_length: usize = 3;
     const slice = array[0..runtime_length :0];
@@ -3306,10 +3320,12 @@ test "default struct initialization fields" {
       {#header_close#}
 
       {#header_open|extern struct#}
-      <p>An {#syntax#}extern struct{#endsyntax#} has in-memory layout guaranteed to match the
-      C ABI for the target.</p>
-      <p>This kind of struct should only be used for compatibility with the C ABI. Every other
-      use case should be solved with {#link|packed struct#} or normal {#link|struct#}.</p>
+      <p>An {#syntax#}extern struct{#endsyntax#} has in-memory layout matching
+      the C ABI for the target.</p>
+      <p>If well-defined in-memory layout is not required, {#link|struct#} is a better choice
+      because it places fewer restrictions on the compiler.</p>
+      <p>See {#link|packed struct#} for a struct that has the ABI of its backing integer,
+      which can be useful for modeling flags.</p>
       {#see_also|extern union|extern enum#}
       {#header_close#}
 
@@ -3328,9 +3344,6 @@ test "default struct initialization fields" {
         <li>An {#link|enum#} field uses exactly the bit width of its integer tag type.</li>
         <li>A {#link|packed union#} field uses exactly the bit width of the union field with
         the largest bit width.</li>
-        <li>Non-ABI-aligned fields are packed into the smallest possible
-        ABI-aligned integers in accordance with the target endianness.
-        </li>
       </ul>
       <p>
       This means that a {#syntax#}packed struct{#endsyntax#} can participate
@@ -3367,11 +3380,11 @@ fn doTheTest() !void {
 
     var ordered: [2]u8 = @bitCast(full);
     switch (native_endian) {
-        .Big => {
+        .big => {
             try expect(ordered[0] == 0x12);
             try expect(ordered[1] == 0x34);
         },
-        .Little => {
+        .little => {
             try expect(ordered[0] == 0x34);
             try expect(ordered[1] == 0x12);
         },
@@ -3590,7 +3603,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "fully anonymous struct" {
-    try dump(.{
+    try check(.{
         .int = @as(u32, 1234),
         .float = @as(f64, 12.34),
         .b = true,
@@ -3598,7 +3611,7 @@ test "fully anonymous struct" {
     });
 }
 
-fn dump(args: anytype) !void {
+fn check(args: anytype) !void {
     try expect(args.int == 1234);
     try expect(args.float == 12.34);
     try expect(args.b);
@@ -3813,8 +3826,8 @@ test "switch using enum literals" {
 
       {#header_open|Non-exhaustive enum#}
       <p>
-      A Non-exhaustive enum can be created by adding a trailing '_' field.
-      It  must specify a tag type and cannot consume every enumeration value.
+      A non-exhaustive enum can be created by adding a trailing {#syntax#}_{#endsyntax#} field.
+      The enum must specify a tag type and cannot consume every enumeration value.
       </p>
       <p>
       {#link|@enumFromInt#} on a non-exhaustive enum involves the safety semantics
@@ -3822,8 +3835,8 @@ test "switch using enum literals" {
       a well-defined enum value.
       </p>
       <p>
-      A switch on a non-exhaustive enum can include a '_' prong as an alternative to an {#syntax#}else{#endsyntax#} prong
-      with the difference being that it makes it a compile error if all the known tag names are not handled by the switch.
+      A switch on a non-exhaustive enum can include a {#syntax#}_{#endsyntax#} prong as an alternative to an {#syntax#}else{#endsyntax#} prong.
+      With a {#syntax#}_{#endsyntax#} prong the compiler errors if all the known tag names are not handled by the switch.
       </p>
       {#code_begin|test|test_switch_non-exhaustive#}
 const std = @import("std");
@@ -5268,14 +5281,14 @@ fn shiftLeftOne(a: u32) callconv(.Inline) u32 {
 pub fn sub2(a: i8, b: i8) i8 { return a - b; }
 
 // Function pointers are prefixed with `*const `.
-const call2_op = *const fn (a: i8, b: i8) i8;
-fn do_op(fn_call: call2_op, op1: i8, op2: i8) i8 {
-    return fn_call(op1, op2);
+const Call2Op = *const fn (a: i8, b: i8) i8;
+fn doOp(fnCall: Call2Op, op1: i8, op2: i8) i8 {
+    return fnCall(op1, op2);
 }
 
 test "function" {
-    try expect(do_op(add, 5, 6) == 11);
-    try expect(do_op(sub2, 5, 6) == -1);
+    try expect(doOp(add, 5, 6) == 11);
+    try expect(doOp(sub2, 5, 6) == -1);
 }
       {#code_end#}
       <p>There is a difference between a function <em>body</em> and a function <em>pointer</em>.
@@ -5365,8 +5378,9 @@ test "fn reflection" {
       gets assigned the same integer value.
       </p>
       <p>
-      The number of unique error values across the entire compilation should determine the size of the error set type.
-      However right now it is hard coded to be a {#syntax#}u16{#endsyntax#}. See <a href="https://github.com/ziglang/zig/issues/786">#786</a>.
+      The error set type defaults to a {#syntax#}u16{#endsyntax#}, though if the maximum number of distinct
+      error values is provided via the <kbd>--error-limit [num]</kbd> command line parameter an integer type
+      with the minimum number of bits required to represent all of the error values will be used.
       </p>
       <p>
       You can {#link|coerce|Type Coercion#} an error from a subset to a superset:
@@ -6191,7 +6205,7 @@ struct Foo *do_a_thing(void) {
       <p>Zig code</p>
       {#syntax_block|zig|call_malloc_from_zig.zig#}
 // malloc prototype included for reference
-extern fn malloc(size: usize) ?*u8;
+extern fn malloc(size: usize) ?[*]u8;
 
 fn doAThing() ?*Foo {
     const ptr = malloc(1234) orelse return null;
@@ -6200,7 +6214,7 @@ fn doAThing() ?*Foo {
       {#end_syntax_block#}
       <p>
         Here, Zig is at least as convenient, if not more, than C. And, the type of "ptr"
-        is {#syntax#}*u8{#endsyntax#} <em>not</em> {#syntax#}?*u8{#endsyntax#}. The {#syntax#}orelse{#endsyntax#} keyword
+        is {#syntax#}[*]u8{#endsyntax#} <em>not</em> {#syntax#}?[*]u8{#endsyntax#}. The {#syntax#}orelse{#endsyntax#} keyword
                     unwrapped the optional type and therefore {#syntax#}ptr{#endsyntax#} is guaranteed to be non-null everywhere
         it is used in the function.
       </p>
@@ -6515,7 +6529,7 @@ test "coerce to optionals" {
     try expect(y == null);
 }
       {#code_end#}
-      <p>It works nested inside the {#link|Error Union Type#}, too:</p>
+      <p>Optionals work nested inside the {#link|Error Union Type#}, too:</p>
       {#code_begin|test|test_coerce_optional_wrapped_error_union#}
 const std = @import("std");
 const expect = std.testing.expect;
@@ -6649,7 +6663,7 @@ test "coercion from homogenous tuple to array" {
           <li>{#link|@alignCast#} - make a pointer have more alignment</li>
           <li>{#link|@enumFromInt#} - obtain an enum value based on its integer tag value</li>
           <li>{#link|@errorFromInt#} - obtain an error code based on its integer value</li>
-          <li>{#link|@errSetCast#} - convert to a smaller error set</li>
+          <li>{#link|@errorCast#} - convert to a smaller error set</li>
           <li>{#link|@floatCast#} - convert a larger float to a smaller float</li>
           <li>{#link|@floatFromInt#} - convert an integer to a float value</li>
           <li>{#link|@intCast#} - convert between integer types</li>
@@ -6841,7 +6855,8 @@ test "turn HashMap into a set with void" {
       {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}anyopaque{#endsyntax#} has an unknown, but non-zero, size.
       </p>
       <p>
-      Expressions of type {#syntax#}void{#endsyntax#} are the only ones whose value can be ignored. For example:
+      Expressions of type {#syntax#}void{#endsyntax#} are the only ones whose value can be ignored. For example, ignoring
+      a non-{#syntax#}void{#endsyntax#} expression is a compile error:
       </p>
       {#code_begin|test_err|test_expression_ignored|ignored#}
 test "ignoring expression value" {
@@ -6852,7 +6867,7 @@ fn foo() i32 {
     return 1234;
 }
       {#code_end#}
-      <p>However, if the expression has type {#syntax#}void{#endsyntax#}, there will be no error. Function return values can also be explicitly ignored by assigning them to {#syntax#}_{#endsyntax#}. </p>
+      <p>However, if the expression has type {#syntax#}void{#endsyntax#}, there will be no error. Expression results can be explicitly ignored by assigning them to {#syntax#}_{#endsyntax#}. </p>
       {#code_begin|test|test_void_ignored#}
 test "void is ignored" {
     returnsVoid();
@@ -7110,12 +7125,10 @@ fn performFn(start_value: i32) i32 {
 }
       {#end_syntax_block#}
       <p>
-      Note that this happens even in a debug build; in a release build these generated functions still
-      pass through rigorous LLVM optimizations. The important thing to note, however, is not that this
-      is a way to write more optimized code, but that it is a way to make sure that what <em>should</em> happen
-      at compile-time, <em>does</em> happen at compile-time. This catches more errors and as demonstrated
-      later in this article, allows expressiveness that in other languages requires using macros,
-      generated code, or a preprocessor to accomplish.
+      Note that this happens even in a debug build.
+      This is not a way to write more optimized code, but it is a way to make sure that what <em>should</em> happen
+      at compile-time, <em>does</em> happen at compile-time. This catches more errors and allows expressiveness
+      that in other languages requires using macros, generated code, or a preprocessor to accomplish.
       </p>
       {#header_close#}
       {#header_open|Compile-Time Expressions#}
@@ -7297,9 +7310,8 @@ test "variable values" {
       {#header_close#}
       {#header_open|Generic Data Structures#}
       <p>
-      Zig uses these capabilities to implement generic data structures without introducing any
-      special-case syntax. If you followed along so far, you may already know how to create a
-      generic data structure.
+      Zig uses comptime capabilities to implement generic data structures without introducing any
+      special-case syntax.
       </p>
       <p>
 			Here is an example of a generic {#syntax#}List{#endsyntax#} data structure.
@@ -7321,7 +7333,6 @@ var list = List(i32){
       {#code_end#}
       <p>
       That's it. It's a function that returns an anonymous {#syntax#}struct{#endsyntax#}.
-      To keep the language small and uniform, all aggregate types in Zig are anonymous.
       For the purposes of error messages and debugging, Zig infers the name
       {#syntax#}"List(i32)"{#endsyntax#} from the function name and parameters invoked when creating
       the anonymous struct.
@@ -7754,6 +7765,9 @@ test "global assembly" {
       <p>TODO: @fence()</p>
       <p>TODO: @atomic rmw</p>
       <p>TODO: builtin atomic memory ordering enum</p>
+
+      {#see_also|@atomicLoad|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+
       {#header_close#}
 
       {#header_open|Async Functions#}
@@ -7824,7 +7838,7 @@ comptime {
       {#header_open|@atomicLoad#}
       <pre>{#syntax#}@atomicLoad(comptime T: type, ptr: *const T, comptime ordering: builtin.AtomicOrder) T{#endsyntax#}</pre>
       <p>
-      This builtin function atomically dereferences a pointer and returns the value.
+      This builtin function atomically dereferences a pointer to a {#syntax#}T{#endsyntax#} and returns the value.
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
@@ -7836,14 +7850,15 @@ comptime {
       {#header_open|@atomicRmw#}
       <pre>{#syntax#}@atomicRmw(comptime T: type, ptr: *T, comptime op: builtin.AtomicRmwOp, operand: T, comptime ordering: builtin.AtomicOrder) T{#endsyntax#}</pre>
       <p>
-      This builtin function atomically modifies memory and then returns the previous value.
+      This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and atomically
+      modifies the value and returns the previous value.
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
       <p>
-      Supported operations:
+      Supported values for the {#syntax#}op{#endsyntax#} parameter:
       </p>
       <ul>
         <li>{#syntax#}.Xchg{#endsyntax#} - stores the operand unmodified. Supports enums, integers and floats.</li>
@@ -7864,7 +7879,7 @@ comptime {
       {#header_open|@atomicStore#}
       <pre>{#syntax#}@atomicStore(comptime T: type, ptr: *T, value: T, comptime ordering: builtin.AtomicOrder) void{#endsyntax#}</pre>
       <p>
-      This builtin function atomically stores a value.
+      This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and atomically stores the given value.
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
@@ -8122,7 +8137,8 @@ pub const CallModifier = enum {
       {#header_open|@cmpxchgStrong#}
       <pre>{#syntax#}@cmpxchgStrong(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
-      This function performs a strong atomic compare exchange operation. It's the equivalent of this code,
+      This function performs a strong atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
+      if the current value is not the given expected value. It's the equivalent of this code,
       except atomic:
       </p>
       {#code_begin|syntax|not_atomic_cmpxchgStrong#}
@@ -8137,7 +8153,7 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
 }
       {#code_end#}
       <p>
-      If you are using cmpxchg in a loop, {#link|@cmpxchgWeak#} is the better choice, because it can be implemented
+      If you are using cmpxchg in a retry loop, {#link|@cmpxchgWeak#} is the better choice, because it can be implemented
       more efficiently in machine instructions.
       </p>
       <p>
@@ -8151,7 +8167,8 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       {#header_open|@cmpxchgWeak#}
       <pre>{#syntax#}@cmpxchgWeak(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
-      This function performs a weak atomic compare exchange operation. It's the equivalent of this code,
+      This function performs a weak atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
+      if the current value is not the given expected value. It's the equivalent of this code,
       except atomic:
       </p>
       {#syntax_block|zig|cmpxchgWeakButNotAtomic#}
@@ -8166,7 +8183,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
 }
       {#end_syntax_block#}
       <p>
-      If you are using cmpxchg in a loop, the sporadic failure will be no problem, and {#syntax#}cmpxchgWeak{#endsyntax#}
+      If you are using cmpxchg in a retry loop, the sporadic failure will be no problem, and {#syntax#}cmpxchgWeak{#endsyntax#}
       is the better choice, because it can be implemented more efficiently in machine instructions.
       However if you need a stronger guarantee, use {#link|@cmpxchgStrong#}.
       </p>
@@ -8219,24 +8236,6 @@ const num1 = blk: {
 test "main" {
     @compileLog("comptime in main");
 
-    print("Runtime in main, num1 = {}.\n", .{num1});
-}
-      {#code_end#}
-      <p>
-      If all {#syntax#}@compileLog{#endsyntax#} calls are removed or
-      not encountered by analysis, the
-      program compiles successfully and the generated executable prints:
-      </p>
-      {#code_begin|test|test_without_compileLog_builtin#}
-const print = @import("std").debug.print;
-
-const num1 = blk: {
-    var val1: i32 = 99;
-    val1 = val1 + 1;
-    break :blk val1;
-};
-
-test "main" {
     print("Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
@@ -8380,7 +8379,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorFromInt#}
-      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
+      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @bitSizeOf(anyerror))) anyerror{#endsyntax#}</pre>
       <p>
       Converts from the integer representation of an error into {#link|The Global Error Set#} type.
       </p>
@@ -8417,10 +8416,10 @@ test "main" {
       </p>
       {#header_close#}
 
-      {#header_open|@errSetCast#}
-      <pre>{#syntax#}@errSetCast(value: anytype) anytype{#endsyntax#}</pre>
+      {#header_open|@errorCast#}
+      <pre>{#syntax#}@errorCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts an error value from one error set to another error set. The return type is the
+      Converts an error set or error union value from one error set to another error set. The return type is the
 			inferred result type. Attempting to convert an error which is not in the destination error
 			set results in safety-protected {#link|Undefined Behavior#}.
       </p>
@@ -8701,7 +8700,7 @@ test "integer cast panic" {
       {#header_close#}
 
       {#header_open|@intFromError#}
-      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
+      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @bitSizeOf(anyerror)){#endsyntax#}</pre>
       <p>
       Supports the following types:
       </p>
@@ -9020,14 +9019,16 @@ pub const PrefetchOptions = struct {
       {#header_open|@setCold#}
       <pre>{#syntax#}@setCold(comptime is_cold: bool) void{#endsyntax#}</pre>
       <p>
-      Tells the optimizer that a function is rarely called.
+      Tells the optimizer that the current function is (or is not) rarely called.
+
+      This function is only valid within function scope.
       </p>
       {#header_close#}
 
       {#header_open|@setEvalBranchQuota#}
       <pre>{#syntax#}@setEvalBranchQuota(comptime new_quota: u32) void{#endsyntax#}</pre>
       <p>
-      Changes the maximum number of backwards branches that compile-time code
+      Increase the maximum number of backwards branches that compile-time code
       execution can use before giving up and making a compile error.
       </p>
       <p>
@@ -9232,7 +9233,7 @@ test "vector @shuffle" {
       The result is a target-specific compile time constant.
       </p>
       <p>
-      This size may contain padding bytes. If there were two consecutive T in memory, this would be the offset
+      This size may contain padding bytes. If there were two consecutive T in memory, the padding would be the offset
       in bytes between element at index 0 and the element at index 1. For {#link|integer|Integers#},
       consider whether you want to use {#syntax#}@sizeOf(T){#endsyntax#} or
       {#syntax#}@typeInfo(T).Int.bits{#endsyntax#}.
@@ -9247,7 +9248,7 @@ test "vector @shuffle" {
       {#header_open|@splat#}
       <pre>{#syntax#}@splat(scalar: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Produces a vector where each element is the value {#syntax#}scalar{#endsyntax#}. 
+      Produces a vector where each element is the value {#syntax#}scalar{#endsyntax#}.
       The return type and thus the length of the vector is inferred.
       </p>
       {#code_begin|test|test_splat_builtin#}
@@ -9426,14 +9427,17 @@ fn doTheTest() !void {
       Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
-      {#header_open|@fabs#}
-      <pre>{#syntax#}@fabs(value: anytype) @TypeOf(value){#endsyntax#}</pre>
+      {#header_open|@abs#}
+      <pre>{#syntax#}@abs(value: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Returns the absolute value of a floating point number. Uses a dedicated hardware instruction
+      Returns the absolute value of an integer or a floating point number. Uses a dedicated hardware instruction
       when available.
+
+      The return type is always an unsigned integer of the same bit width as the operand if the operand is an integer.
+      Unsigned integer operands are supported. The builtin cannot overflow for signed integer operands.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats.
+      Supports {#link|Floats#}, {#link|Integers#} and {#link|Vectors#} of floats or integers.
       </p>
       {#header_close#}
       {#header_open|@floor#}
@@ -10259,7 +10263,7 @@ const Set2 = error{
     C,
 };
 comptime {
-    _ = @as(Set2, @errSetCast(Set1.B));
+    _ = @as(Set2, @errorCast(Set1.B));
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -10278,7 +10282,7 @@ pub fn main() void {
     foo(Set1.B);
 }
 fn foo(set1: Set1) void {
-    const x: Set2 = @errSetCast(set1);
+    const x: Set2 = @errorCast(set1);
     std.debug.print("value: {}\n", .{x});
 }
       {#code_end#}
@@ -10761,6 +10765,9 @@ const separator = if (builtin.os.tag == .windows) '\\' else '/';
       {#code_begin|syntax|build_executable#}
 const std = @import("std");
 
+// Although this function looks imperative, note that its job is to
+// declaratively construct a build graph that will be executed by an external
+// runner.
 pub fn build(b: *std.Build) void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
@@ -10775,20 +10782,56 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "example",
+        // In this case the main source file is merely a path, however, in more
+        // complicated build scripts, this could be a generated file.
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
     });
-    exe.install();
 
-    const run_cmd = exe.run();
+    // This declares intent for the executable to be installed into the
+    // standard location when the user invokes the "install" step (the default
+    // step when running `zig build`).
+    b.installArtifact(exe);
+
+    // This *creates* a Run step in the build graph, to be executed when another
+    // step is evaluated that depends on it. The next line below will establish
+    // such a dependency.
+    const run_cmd = b.addRunArtifact(exe);
+
+    // By making the run step depend on the install step, it will be run from the
+    // installation directory rather than directly from within the cache directory.
+    // This is not necessary, however, if the application depends on other installed
+    // files, this ensures they will be present and in the expected location.
     run_cmd.step.dependOn(b.getInstallStep());
+
+    // This allows the user to pass arguments to the application in the build
+    // command itself, like this: `zig build run -- arg1 arg2 etc`
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
 
+    // This creates a build step. It will be visible in the `zig build --help` menu,
+    // and can be selected like this: `zig build run`
+    // This will evaluate the `run` step rather than the default, which is "install".
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+
+    // Creates a step for unit testing. This only builds the test executable
+    // but does not run it.
+    const unit_tests = b.addTest(.{
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const run_unit_tests = b.addRunArtifact(unit_tests);
+
+    // Similar to creating the run step earlier, this exposes a `test` step to
+    // the `zig build --help` menu, providing a way for the user to request
+    // running the unit tests.
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_unit_tests.step);
 }
       {#code_end#}
       {#header_close#}
@@ -10799,22 +10842,50 @@ pub fn build(b: *std.Build) void {
       {#code_begin|syntax|build_library#}
 const std = @import("std");
 
+// Although this function looks imperative, note that its job is to
+// declaratively construct a build graph that will be executed by an external
+// runner.
 pub fn build(b: *std.Build) void {
+    // Standard target options allows the person running `zig build` to choose
+    // what target to build for. Here we do not override the defaults, which
+    // means any target is allowed, and the default is native. Other options
+    // for restricting supported target set are available.
+    const target = b.standardTargetOptions(.{});
+
+    // Standard optimization options allow the person running `zig build` to select
+    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
+    // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
+
     const lib = b.addStaticLibrary(.{
         .name = "example",
+        // In this case the main source file is merely a path, however, in more
+        // complicated build scripts, this could be a generated file.
         .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
         .optimize = optimize,
     });
-    lib.install();
 
+    // This declares intent for the library to be installed into the standard
+    // location when the user invokes the "install" step (the default step when
+    // running `zig build`).
+    b.installArtifact(lib);
+
+    // Creates a step for unit testing. This only builds the test executable
+    // but does not run it.
     const main_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
         .optimize = optimize,
     });
 
+    const run_main_tests = b.addRunArtifact(main_tests);
+
+    // This creates a build step. It will be visible in the `zig build --help` menu,
+    // and can be selected like this: `zig build test`
+    // This will evaluate the `test` step rather than the default, which is "install".
     const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&main_tests.step);
+    test_step.dependOn(&run_main_tests.step);
 }
       {#code_end#}
       {#header_close#}
@@ -11133,9 +11204,14 @@ fn add(count: c_int, ...) callconv(.C) c_int {
 }
 
 test "defining a variadic function" {
-    // Variadic functions are currently disabled on some targets due to miscompilations.
-    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .windows and builtin.os.tag != .macos) return error.SkipZigTest;
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos) {
+        // https://github.com/ziglang/zig/issues/14096
+        return error.SkipZigTest;
+    }
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) {
+        // https://github.com/ziglang/zig/issues/16961
+        return error.SkipZigTest;
+    }
 
     try std.testing.expectEqual(@as(c_int, 0), add(0));
     try std.testing.expectEqual(@as(c_int, 1), add(1, @as(c_int, 1)));
@@ -11264,12 +11340,12 @@ all your base are belong to us{#end_shell_samp#}
       {#header_open|WebAssembly#}
       <p>Zig supports building for WebAssembly out of the box.</p>
       {#header_open|Freestanding#}
-      <p>For host environments like the web browser and nodejs, build as a dynamic library using the freestanding
+      <p>For host environments like the web browser and nodejs, build as an executable using the freestanding
       OS target. Here's an example of running Zig code compiled to WebAssembly with nodejs.</p>
-      {#code_begin|lib|math#}
+      {#code_begin|exe|math#}
       {#target_wasm#}
-      {#link_mode_dynamic#}
-      {#additonal_option|-rdynamic#}
+      {#additonal_option|-fno-entry#}
+      {#additonal_option|--export=add#}
 extern fn print(i32) void;
 
 export fn add(a: i32, b: i32) void {
@@ -11740,7 +11816,7 @@ fn readU32Be() u32 {}
       </p>
       <p>
       Each LF may be immediately preceded by a single CR (byte value 0x0d, code point U+000d, {#syntax#}'\r'{#endsyntax#})
-      to form a Windows style line ending, but this is discouraged. Note that in mulitline strings, CRLF sequences will
+      to form a Windows style line ending, but this is discouraged. Note that in multiline strings, CRLF sequences will
       be encoded as LF when compiled into a zig program.
       A CR in any other context is not allowed.
       </p>
@@ -12368,20 +12444,16 @@ fn readU32Be() u32 {}
 Root <- skip container_doc_comment? ContainerMembers eof
 
 # *** Top level ***
-ContainerMembers <- ContainerDeclarations (ContainerField COMMA)* (ContainerField / ContainerDeclarations)
+ContainerMembers <- ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
 
-ContainerDeclarations
-    <- TestDecl ContainerDeclarations
-     / ComptimeDecl ContainerDeclarations
-     / doc_comment? KEYWORD_pub? Decl ContainerDeclarations
-     /
+ContainerDeclaration <- TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl
 
 TestDecl <- KEYWORD_test (STRINGLITERALSINGLE / IDENTIFIER)? Block
 
 ComptimeDecl <- KEYWORD_comptime Block
 
 Decl
-    <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
+    <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? GlobalVarDecl
      / KEYWORD_usingnamespace Expr SEMICOLON
 

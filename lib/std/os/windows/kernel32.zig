@@ -193,7 +193,7 @@ pub extern "kernel32" fn GetExitCodeProcess(hProcess: HANDLE, lpExitCode: *DWORD
 
 pub extern "kernel32" fn GetFileSizeEx(hFile: HANDLE, lpFileSize: *LARGE_INTEGER) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn GetFileAttributesW(lpFileName: [*]const WCHAR) callconv(WINAPI) DWORD;
+pub extern "kernel32" fn GetFileAttributesW(lpFileName: [*:0]const WCHAR) callconv(WINAPI) DWORD;
 
 pub extern "kernel32" fn GetModuleFileNameW(hModule: ?HMODULE, lpFilename: [*]u16, nSize: DWORD) callconv(WINAPI) DWORD;
 
@@ -392,7 +392,7 @@ pub extern "kernel32" fn WriteFileEx(
 
 pub extern "kernel32" fn LoadLibraryW(lpLibFileName: [*:0]const u16) callconv(WINAPI) ?HMODULE;
 
-pub extern "kernel32" fn GetProcAddress(hModule: HMODULE, lpProcName: [*]const u8) callconv(WINAPI) ?FARPROC;
+pub extern "kernel32" fn GetProcAddress(hModule: HMODULE, lpProcName: [*:0]const u8) callconv(WINAPI) ?FARPROC;
 
 pub extern "kernel32" fn FreeLibrary(hModule: HMODULE) callconv(WINAPI) BOOL;
 

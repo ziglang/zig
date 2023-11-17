@@ -1,4 +1,4 @@
-/* Copyright (C) 2004-2021 Free Software Foundation, Inc.
+/* Copyright (C) 2004-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -64,7 +64,7 @@ __NTH (memset (void *__dest, int __ch, size_t __len))
 # include <bits/strings_fortified.h>
 
 void __explicit_bzero_chk (void *__dest, size_t __len, size_t __destlen)
-  __THROW __nonnull ((1)) __attr_access ((__write_only__, 1, 2));
+  __THROW __nonnull ((1)) __fortified_attr_access (__write_only__, 1, 2);
 
 __fortify_function void
 __NTH (explicit_bzero (void *__dest, size_t __len))
@@ -79,7 +79,7 @@ __NTH (strcpy (char *__restrict __dest, const char *__restrict __src))
   return __builtin___strcpy_chk (__dest, __src, __glibc_objsize (__dest));
 }
 
-#ifdef __USE_GNU
+#ifdef __USE_XOPEN2K8
 __fortify_function char *
 __NTH (stpcpy (char *__restrict __dest, const char *__restrict __src))
 {
@@ -96,17 +96,19 @@ __NTH (strncpy (char *__restrict __dest, const char *__restrict __src,
 				  __glibc_objsize (__dest));
 }
 
-#if __GNUC_PREREQ (4, 7) || __glibc_clang_prereq (2, 6)
+#ifdef __USE_XOPEN2K8
+# if __GNUC_PREREQ (4, 7) || __glibc_clang_prereq (2, 6)
 __fortify_function char *
 __NTH (stpncpy (char *__dest, const char *__src, size_t __n))
 {
   return __builtin___stpncpy_chk (__dest, __src, __n,
 				  __glibc_objsize (__dest));
 }
-#else
+# else
 extern char *__stpncpy_chk (char *__dest, const char *__src, size_t __n,
 			    size_t __destlen) __THROW
-  __attr_access ((__write_only__, 1, 3)) __attr_access ((__read_only__, 2));
+  __fortified_attr_access (__write_only__, 1, 3)
+  __attr_access ((__read_only__, 2));
 extern char *__REDIRECT_NTH (__stpncpy_alias, (char *__dest, const char *__src,
 					       size_t __n), stpncpy);
 
@@ -118,6 +120,7 @@ __NTH (stpncpy (char *__dest, const char *__src, size_t __n))
     return __stpncpy_chk (__dest, __src, __n, __bos (__dest));
   return __stpncpy_alias (__dest, __src, __n);
 }
+# endif
 #endif
 
 
@@ -135,5 +138,41 @@ __NTH (strncat (char *__restrict __dest, const char *__restrict __src,
   return __builtin___strncat_chk (__dest, __src, __len,
 				  __glibc_objsize (__dest));
 }
+
+#ifdef __USE_MISC
+extern size_t __strlcpy_chk (char *__dest, const char *__src, size_t __n,
+			     size_t __destlen) __THROW;
+extern size_t __REDIRECT_NTH (__strlcpy_alias,
+			      (char *__dest, const char *__src, size_t __n),
+			      strlcpy);
+
+__fortify_function size_t
+__NTH (strlcpy (char *__restrict __dest, const char *__restrict __src,
+		size_t __n))
+{
+  if (__glibc_objsize (__dest) != (size_t) -1
+      && (!__builtin_constant_p (__n > __glibc_objsize (__dest))
+	  || __n > __glibc_objsize (__dest)))
+    return __strlcpy_chk (__dest, __src, __n, __glibc_objsize (__dest));
+  return __strlcpy_alias (__dest, __src, __n);
+}
+
+extern size_t __strlcat_chk (char *__dest, const char *__src, size_t __n,
+			     size_t __destlen) __THROW;
+extern size_t __REDIRECT_NTH (__strlcat_alias,
+			      (char *__dest, const char *__src, size_t __n),
+			      strlcat);
+
+__fortify_function size_t
+__NTH (strlcat (char *__restrict __dest, const char *__restrict __src,
+		size_t __n))
+{
+  if (__glibc_objsize (__dest) != (size_t) -1
+      && (!__builtin_constant_p (__n > __glibc_objsize (__dest))
+	  || __n > __glibc_objsize (__dest)))
+    return __strlcat_chk (__dest, __src, __n, __glibc_objsize (__dest));
+  return __strlcat_alias (__dest, __src, __n);
+}
+#endif /* __USE_MISC */
 
 #endif /* bits/string_fortified.h */

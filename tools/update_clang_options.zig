@@ -333,6 +333,14 @@ const known_options = [_]KnownOpt{
         .ident = "no_function_sections",
     },
     .{
+        .name = "fdata-sections",
+        .ident = "data_sections",
+    },
+    .{
+        .name = "fno-data-sections",
+        .ident = "no_data_sections",
+    },
+    .{
         .name = "fbuiltin",
         .ident = "builtin",
     },
@@ -605,7 +613,7 @@ pub fn main() anyerror!void {
         try std.fmt.allocPrint(allocator, "-I={s}/clang/include/clang/Driver", .{llvm_src_root}),
     };
 
-    const child_result = try std.ChildProcess.exec(.{
+    const child_result = try std.ChildProcess.run(.{
         .allocator = allocator,
         .argv = &child_args,
         .max_output_bytes = 100 * 1024 * 1024,

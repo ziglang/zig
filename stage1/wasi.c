@@ -178,6 +178,12 @@ struct wasi_ciovec {
     uint32_t len;
 };
 
+enum wasi_whence {
+    wasi_whence_set = 0,
+    wasi_whence_cur = 1,
+    wasi_whence_end = 2,
+};
+
 extern uint8_t **const wasm_memory;
 extern void wasm__start(void);
 
@@ -946,6 +952,43 @@ uint32_t wasi_snapshot_preview1_fd_pread(uint32_t fd, uint32_t iovs, uint32_t io
     return wasi_errno_success;
 }
 
+uint32_t wasi_snapshot_preview1_fd_seek(uint32_t fd, uint64_t in_offset, uint32_t whence, uint32_t res_filesize) {
+    uint8_t *const m = *wasm_memory;
+    int64_t offset = (int64_t)in_offset;
+    uint64_t *res_filesize_ptr = (uint64_t *)&m[res_filesize];
+#if LOG_TRACE
+    fprintf(stderr, "wasi_snapshot_preview1_fd_seek(%u, 0x%lld, %u)\n", fd, (long long)offset, whence);
+#endif
+
+    if (fd >= fd_len || fds[fd].de >= de_len) return wasi_errno_badf;
+    switch (des[fds[fd].de].filetype) {
+        case wasi_filetype_character_device: break;
+        case wasi_filetype_regular_file: break;
+        case wasi_filetype_directory: return wasi_errno_inval;
+        default: panic("unimplemented");
+    }
+
+    int seek_whence;
+    switch (whence) {
+        case wasi_whence_set:
+            seek_whence = SEEK_SET;
+            break;
+        case wasi_whence_cur:
+            seek_whence = SEEK_CUR;
+            break;
+        case wasi_whence_end:
+            seek_whence = SEEK_END;
+            break;
+        default:
+            return wasi_errno_inval;
+    }
+    if (fseek(fds[fd].stream, offset, seek_whence) < 0) return wasi_errno_io;
+    long res_offset = ftell(fds[fd].stream);
+    if (res_offset < 0) return wasi_errno_io;
+    *res_filesize_ptr = (uint64_t)res_offset;
+    return wasi_errno_success;
+}
+
 uint32_t wasi_snapshot_preview1_poll_oneoff(uint32_t in, uint32_t out, uint32_t nsubscriptions, uint32_t res_nevents) {
     (void)in;
     (void)out;
@@ -958,7 +1001,6 @@ uint32_t wasi_snapshot_preview1_poll_oneoff(uint32_t in, uint32_t out, uint32_t 
     panic("unimplemented");
     return wasi_errno_success;
 }
-
 
 void wasi_snapshot_preview1_debug(uint32_t string, uint64_t x) {
     uint8_t *const m = *wasm_memory;

@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2021 Free Software Foundation, Inc.
+/* Copyright (C) 2005-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -46,7 +46,7 @@ typedef struct La_mips_32_retval
 typedef struct La_mips_64_regs
 {
   uint64_t lr_reg[8]; /* $a0 through $a7 */
-  double lr_fpreg[8]; /* $f12 throgh $f19 */
+  double lr_fpreg[8]; /* $f12 through $f19 */
   uint64_t lr_ra;
   uint64_t lr_sp;
 } La_mips_64_regs;

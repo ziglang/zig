@@ -37,6 +37,7 @@ pub const Feature = enum {
     ccdp,
     ccidx,
     ccpp,
+    chk,
     clrbhb,
     cmp_bcc_fusion,
     complxnum,
@@ -68,12 +69,14 @@ pub const Feature = enum {
     fptoint,
     fullfp16,
     fuse_address,
+    fuse_addsub_2reg_const1,
     fuse_adrp_add,
     fuse_aes,
     fuse_arith_logic,
     fuse_crypto_eor,
     fuse_csel,
     fuse_literals,
+    gcs,
     harden_sls_blr,
     harden_sls_nocomdat,
     harden_sls_retbr,
@@ -96,6 +99,7 @@ pub const Feature = enum {
     nmi,
     no_bti_at_return_twice,
     no_neg_immediates,
+    no_sve_fp_ld1r,
     no_zcz_fp,
     nv,
     outline_atomics,
@@ -173,6 +177,7 @@ pub const Feature = enum {
     tpidr_el1,
     tpidr_el2,
     tpidr_el3,
+    tpidrro_el0,
     tracev8_4,
     trbe,
     uaops,
@@ -233,6 +238,7 @@ pub const all_features = blk: {
             .fuse_adrp_add,
             .fuse_aes,
             .fuse_literals,
+            .predictable_select_expensive,
         }),
     };
     result[@intFromEnum(Feature.a710)] = .{
@@ -244,6 +250,7 @@ pub const all_features = blk: {
             .fuse_adrp_add,
             .fuse_aes,
             .lsl_fast,
+            .predictable_select_expensive,
             .use_postra_scheduler,
         }),
     };
@@ -255,6 +262,7 @@ pub const all_features = blk: {
             .fuse_adrp_add,
             .fuse_aes,
             .lsl_fast,
+            .predictable_select_expensive,
         }),
     };
     result[@intFromEnum(Feature.a78)] = .{
@@ -266,6 +274,7 @@ pub const all_features = blk: {
             .fuse_adrp_add,
             .fuse_aes,
             .lsl_fast,
+            .predictable_select_expensive,
             .use_postra_scheduler,
         }),
     };
@@ -278,6 +287,7 @@ pub const all_features = blk: {
             .fuse_adrp_add,
             .fuse_aes,
             .lsl_fast,
+            .predictable_select_expensive,
             .use_postra_scheduler,
         }),
     };
@@ -413,6 +423,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.ccpp)] = .{
         .llvm_name = "ccpp",
         .description = "Enable v8.2 data Cache Clean to Point of Persistence (FEAT_DPB)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.chk)] = .{
+        .llvm_name = "chk",
+        .description = "Enable Armv8.0-A Check Feature Status Extension (FEAT_CHK)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.clrbhb)] = .{
@@ -591,6 +606,11 @@ pub const all_features = blk: {
         .description = "CPU fuses address generation and memory operations",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.fuse_addsub_2reg_const1)] = .{
+        .llvm_name = "fuse-addsub-2reg-const1",
+        .description = "CPU fuses (a + b + 1) and (a - b - 1)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.fuse_adrp_add)] = .{
         .llvm_name = "fuse-adrp-add",
         .description = "CPU fuses adrp+add operations",
@@ -620,6 +640,13 @@ pub const all_features = blk: {
         .llvm_name = "fuse-literals",
         .description = "CPU fuses literal generation operations",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.gcs)] = .{
+        .llvm_name = "gcs",
+        .description = "Enable Armv9.4-A Guarded Call Stack Extension",
+        .dependencies = featureSet(&[_]Feature{
+            .chk,
+        }),
     };
     result[@intFromEnum(Feature.harden_sls_blr)] = .{
         .llvm_name = "harden-sls-blr",
@@ -739,6 +766,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.no_neg_immediates)] = .{
         .llvm_name = "no-neg-immediates",
         .description = "Convert immediates and instructions to their negated or complemented equivalent when the immediate does not fit in the encoding.",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.no_sve_fp_ld1r)] = .{
+        .llvm_name = "no-sve-fp-ld1r",
+        .description = "Avoid using LD1RX instructions for FP",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.no_zcz_fp)] = .{
@@ -1171,6 +1203,11 @@ pub const all_features = blk: {
         .description = "Permit use of TPIDR_EL3 for the TLS base",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.tpidrro_el0)] = .{
+        .llvm_name = "tpidrro-el0",
+        .description = "Permit use of TPIDRRO_EL0 for the TLS base",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.tracev8_4)] = .{
         .llvm_name = "tracev8.4",
         .description = "Enable v8.4-A Trace extension (FEAT_TRF)",
@@ -1311,6 +1348,7 @@ pub const all_features = blk: {
         .llvm_name = "v8.9a",
         .description = "Support ARM v8.9a instructions",
         .dependencies = featureSet(&[_]Feature{
+            .chk,
             .clrbhb,
             .cssc,
             .prfm_slc_target,
@@ -1974,6 +2012,7 @@ pub const cpu = struct {
             .lsl_fast,
             .mte,
             .perfmon,
+            .predictable_select_expensive,
             .spe,
             .sve2_bitperm,
             .use_postra_scheduler,
@@ -1991,6 +2030,7 @@ pub const cpu = struct {
             .fuse_aes,
             .fuse_literals,
             .perfmon,
+            .predictable_select_expensive,
             .v8a,
         }),
     };
@@ -2004,6 +2044,7 @@ pub const cpu = struct {
             .fuse_adrp_add,
             .fuse_aes,
             .perfmon,
+            .predictable_select_expensive,
             .v8a,
         }),
     };
@@ -2018,6 +2059,7 @@ pub const cpu = struct {
             .fuse_adrp_add,
             .fuse_aes,
             .perfmon,
+            .predictable_select_expensive,
             .rcpc,
             .v8_2a,
         }),
@@ -2063,6 +2105,7 @@ pub const cpu = struct {
             .fuse_aes,
             .lsl_fast,
             .perfmon,
+            .predictable_select_expensive,
             .rcpc,
             .ssbs,
             .v8_2a,
@@ -2126,6 +2169,7 @@ pub const cpu = struct {
             .fuse_aes,
             .lsl_fast,
             .perfmon,
+            .predictable_select_expensive,
             .rcpc,
             .spe,
             .ssbs,
@@ -2149,6 +2193,7 @@ pub const cpu = struct {
             .lsl_fast,
             .pauth,
             .perfmon,
+            .predictable_select_expensive,
             .rcpc_immo,
             .spe,
             .ssbs,
@@ -2171,6 +2216,7 @@ pub const cpu = struct {
             .lsl_fast,
             .mte,
             .perfmon,
+            .predictable_select_expensive,
             .sve2_bitperm,
             .use_postra_scheduler,
             .v9a,
@@ -2190,6 +2236,7 @@ pub const cpu = struct {
             .lsl_fast,
             .mte,
             .perfmon,
+            .predictable_select_expensive,
             .spe,
             .sve2_bitperm,
             .use_postra_scheduler,
@@ -2383,6 +2430,7 @@ pub const cpu = struct {
             .i8mm,
             .lsl_fast,
             .perfmon,
+            .predictable_select_expensive,
             .rand,
             .spe,
             .ssbs,
@@ -2419,6 +2467,7 @@ pub const cpu = struct {
             .fuse_aes,
             .lsl_fast,
             .perfmon,
+            .predictable_select_expensive,
             .rcpc,
             .spe,
             .ssbs,
@@ -2440,6 +2489,7 @@ pub const cpu = struct {
             .lsl_fast,
             .mte,
             .perfmon,
+            .predictable_select_expensive,
             .sve2_bitperm,
             .use_postra_scheduler,
             .v8_5a,
@@ -2458,7 +2508,9 @@ pub const cpu = struct {
             .fuse_aes,
             .i8mm,
             .lsl_fast,
+            .no_sve_fp_ld1r,
             .perfmon,
+            .predictable_select_expensive,
             .rand,
             .spe,
             .ssbs,
@@ -2480,6 +2532,7 @@ pub const cpu = struct {
             .lsl_fast,
             .mte,
             .perfmon,
+            .predictable_select_expensive,
             .rand,
             .spe,
             .sve2_bitperm,

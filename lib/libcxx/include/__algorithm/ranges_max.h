@@ -20,6 +20,7 @@
 #include <__iterator/projected.h>
 #include <__ranges/access.h>
 #include <__ranges/concepts.h>
+#include <__type_traits/is_trivially_copyable.h>
 #include <__utility/move.h>
 #include <initializer_list>
 
@@ -27,44 +28,50 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#  include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
 namespace __max {
 struct __fn {
-  template <class _Tp, class _Proj = identity,
+  template <class _Tp,
+            class _Proj                                                    = identity,
             indirect_strict_weak_order<projected<const _Tp*, _Proj>> _Comp = ranges::less>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
-  const _Tp& operator()(const _Tp& __a, const _Tp& __b, _Comp __comp = {}, _Proj __proj = {}) const {
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr const _Tp&
+  operator()(_LIBCPP_LIFETIMEBOUND const _Tp& __a,
+             _LIBCPP_LIFETIMEBOUND const _Tp& __b,
+             _Comp __comp = {},
+             _Proj __proj = {}) const {
     return std::invoke(__comp, std::invoke(__proj, __a), std::invoke(__proj, __b)) ? __b : __a;
   }
 
-  template <copyable _Tp, class _Proj = identity,
+  template <copyable _Tp,
+            class _Proj                                                    = identity,
             indirect_strict_weak_order<projected<const _Tp*, _Proj>> _Comp = ranges::less>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
-  _Tp operator()(initializer_list<_Tp> __il, _Comp __comp = {}, _Proj __proj = {}) const {
-    _LIBCPP_ASSERT(__il.begin() != __il.end(), "initializer_list must contain at least one element");
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr _Tp
+  operator()(initializer_list<_Tp> __il, _Comp __comp = {}, _Proj __proj = {}) const {
+    _LIBCPP_ASSERT_UNCATEGORIZED(__il.begin() != __il.end(), "initializer_list must contain at least one element");
 
     auto __comp_lhs_rhs_swapped = [&](auto&& __lhs, auto&& __rhs) { return std::invoke(__comp, __rhs, __lhs); };
     return *ranges::__min_element_impl(__il.begin(), __il.end(), __comp_lhs_rhs_swapped, __proj);
   }
 
-  template <input_range _Rp, class _Proj = identity,
+  template <input_range _Rp,
+            class _Proj                                                         = identity,
             indirect_strict_weak_order<projected<iterator_t<_Rp>, _Proj>> _Comp = ranges::less>
     requires indirectly_copyable_storable<iterator_t<_Rp>, range_value_t<_Rp>*>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
-  range_value_t<_Rp> operator()(_Rp&& __r, _Comp __comp = {}, _Proj __proj = {}) const {
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr range_value_t<_Rp>
+  operator()(_Rp&& __r, _Comp __comp = {}, _Proj __proj = {}) const {
     auto __first = ranges::begin(__r);
-    auto __last = ranges::end(__r);
+    auto __last  = ranges::end(__r);
 
-    _LIBCPP_ASSERT(__first != __last, "range must contain at least one element");
+    _LIBCPP_ASSERT_UNCATEGORIZED(__first != __last, "range must contain at least one element");
 
-    if constexpr (forward_range<_Rp>) {
+    if constexpr (forward_range<_Rp> && !__is_cheap_to_copy<range_value_t<_Rp>>) {
       auto __comp_lhs_rhs_swapped = [&](auto&& __lhs, auto&& __rhs) { return std::invoke(__comp, __rhs, __lhs); };
       return *ranges::__min_element_impl(std::move(__first), std::move(__last), __comp_lhs_rhs_swapped, __proj);
     } else {
@@ -80,7 +87,7 @@ struct __fn {
 } // namespace __max
 
 inline namespace __cpo {
-  inline constexpr auto max = __max::__fn{};
+inline constexpr auto max = __max::__fn{};
 } // namespace __cpo
 } // namespace ranges
 
@@ -88,6 +95,6 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif // _LIBCPP_STD_VER > 17 &&
+#endif // _LIBCPP_STD_VER >= 20 &&
 
 #endif // _LIBCPP___ALGORITHM_RANGES_MAX_H

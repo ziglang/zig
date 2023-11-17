@@ -19,8 +19,9 @@
 #include <__iterator/iterator_traits.h>
 #include <__memory/construct_at.h>
 #include <__memory/pointer_traits.h>
+#include <__type_traits/conditional.h>
+#include <__utility/swap.h>
 #include <cstring>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -75,7 +76,7 @@ public:
         return *this;
     }
 
-#if _LIBCPP_STD_VER > 20
+#if _LIBCPP_STD_VER >= 23
     _LIBCPP_HIDE_FROM_ABI constexpr const __bit_reference& operator=(bool __x) const noexcept {
         if (__x)
             *__seg_ |= __mask_;
@@ -155,6 +156,8 @@ class __bit_const_reference
     friend typename _Cp::__self;
     friend class __bit_iterator<_Cp, true>;
 public:
+    using __container = typename _Cp::__self;
+
     _LIBCPP_INLINE_VISIBILITY
     __bit_const_reference(const __bit_const_reference&) = default;
 
@@ -728,12 +731,12 @@ move_backward(__bit_iterator<_Cp, _IsConst> __first, __bit_iterator<_Cp, _IsCons
 
 // swap_ranges
 
-template <class __C1, class __C2>
-_LIBCPP_HIDE_FROM_ABI __bit_iterator<__C2, false>
-__swap_ranges_aligned(__bit_iterator<__C1, false> __first, __bit_iterator<__C1, false> __last,
-                      __bit_iterator<__C2, false> __result)
+template <class _Cl, class _Cr>
+_LIBCPP_HIDE_FROM_ABI __bit_iterator<_Cr, false>
+__swap_ranges_aligned(__bit_iterator<_Cl, false> __first, __bit_iterator<_Cl, false> __last,
+                      __bit_iterator<_Cr, false> __result)
 {
-    typedef __bit_iterator<__C1, false> _I1;
+    typedef __bit_iterator<_Cl, false> _I1;
     typedef  typename _I1::difference_type difference_type;
     typedef typename _I1::__storage_type __storage_type;
     const int __bits_per_word = _I1::__bits_per_word;
@@ -778,12 +781,12 @@ __swap_ranges_aligned(__bit_iterator<__C1, false> __first, __bit_iterator<__C1, 
     return __result;
 }
 
-template <class __C1, class __C2>
-_LIBCPP_HIDE_FROM_ABI __bit_iterator<__C2, false>
-__swap_ranges_unaligned(__bit_iterator<__C1, false> __first, __bit_iterator<__C1, false> __last,
-                        __bit_iterator<__C2, false> __result)
+template <class _Cl, class _Cr>
+_LIBCPP_HIDE_FROM_ABI __bit_iterator<_Cr, false>
+__swap_ranges_unaligned(__bit_iterator<_Cl, false> __first, __bit_iterator<_Cl, false> __last,
+                        __bit_iterator<_Cr, false> __result)
 {
-    typedef __bit_iterator<__C1, false> _I1;
+    typedef __bit_iterator<_Cl, false> _I1;
     typedef  typename _I1::difference_type difference_type;
     typedef typename _I1::__storage_type __storage_type;
     const int __bits_per_word = _I1::__bits_per_word;
@@ -878,11 +881,11 @@ __swap_ranges_unaligned(__bit_iterator<__C1, false> __first, __bit_iterator<__C1
     return __result;
 }
 
-template <class __C1, class __C2>
+template <class _Cl, class _Cr>
 inline _LIBCPP_INLINE_VISIBILITY
-__bit_iterator<__C2, false>
-swap_ranges(__bit_iterator<__C1, false> __first1, __bit_iterator<__C1, false> __last1,
-            __bit_iterator<__C2, false> __first2)
+__bit_iterator<_Cr, false>
+swap_ranges(__bit_iterator<_Cl, false> __first1, __bit_iterator<_Cl, false> __last1,
+            __bit_iterator<_Cr, false> __first2)
 {
     if (__first1.__ctz_ == __first2.__ctz_)
         return _VSTD::__swap_ranges_aligned(__first1, __last1, __first2);
@@ -1135,7 +1138,7 @@ private:
 
 public:
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20 __bit_iterator() _NOEXCEPT
-#if _LIBCPP_STD_VER > 11
+#if _LIBCPP_STD_VER >= 14
     : __seg_(nullptr), __ctz_(0)
 #endif
     {}
@@ -1311,15 +1314,15 @@ private:
     friend __bit_iterator<_Dp, false> copy_backward(__bit_iterator<_Dp, _IC> __first,
                                                     __bit_iterator<_Dp, _IC> __last,
                                                     __bit_iterator<_Dp, false> __result);
-    template <class __C1, class __C2>friend __bit_iterator<__C2, false> __swap_ranges_aligned(__bit_iterator<__C1, false>,
-                                                                                           __bit_iterator<__C1, false>,
-                                                                                           __bit_iterator<__C2, false>);
-    template <class __C1, class __C2>friend __bit_iterator<__C2, false> __swap_ranges_unaligned(__bit_iterator<__C1, false>,
-                                                                                             __bit_iterator<__C1, false>,
-                                                                                             __bit_iterator<__C2, false>);
-    template <class __C1, class __C2>friend __bit_iterator<__C2, false> swap_ranges(__bit_iterator<__C1, false>,
-                                                                                 __bit_iterator<__C1, false>,
-                                                                                 __bit_iterator<__C2, false>);
+    template <class _Cl, class _Cr>friend __bit_iterator<_Cr, false> __swap_ranges_aligned(__bit_iterator<_Cl, false>,
+                                                                                           __bit_iterator<_Cl, false>,
+                                                                                           __bit_iterator<_Cr, false>);
+    template <class _Cl, class _Cr>friend __bit_iterator<_Cr, false> __swap_ranges_unaligned(__bit_iterator<_Cl, false>,
+                                                                                             __bit_iterator<_Cl, false>,
+                                                                                             __bit_iterator<_Cr, false>);
+    template <class _Cl, class _Cr>friend __bit_iterator<_Cr, false> swap_ranges(__bit_iterator<_Cl, false>,
+                                                                                 __bit_iterator<_Cl, false>,
+                                                                                 __bit_iterator<_Cr, false>);
     template <class _Dp>
     _LIBCPP_CONSTEXPR_SINCE_CXX20
     friend __bit_iterator<_Dp, false> rotate(__bit_iterator<_Dp, false>,

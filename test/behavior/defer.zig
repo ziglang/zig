@@ -5,8 +5,6 @@ const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 
 test "break and continue inside loop inside defer expression" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     testBreakContInDefer(10);
     comptime testBreakContInDefer(10);
 }
@@ -36,7 +34,6 @@ test "defer and labeled break" {
 test "errdefer does not apply to fn inside fn" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (testNestedFnErrDefer()) |_| @panic("expected error") else |e| try expect(e == error.Bad);
 }
@@ -97,7 +94,6 @@ test "mixing normal and error defers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(runSomeErrorDefers(true) catch unreachable);
     try expect(result[0] == 'c');
@@ -135,7 +131,6 @@ test "errdefer with payload" {
 }
 
 test "reference to errdefer payload" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -163,7 +158,6 @@ test "reference to errdefer payload" {
 test "simple else prong doesn't emit an error for unreachable else prong" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo() error{Foo}!void {

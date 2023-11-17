@@ -8,6 +8,6 @@ test "@unionInit on union w/ tag but no fields" {
 }
 
 // error
-// is_test=1
+// is_test=true
 //
 // :4:13: error: 'try' outside function scope

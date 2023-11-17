@@ -13,7 +13,7 @@ fn formatId(
         return writer.writeAll(bytes);
     }
     try writer.writeAll("@\"");
-    try formatEscapes(bytes, "", options, writer);
+    try stringEscape(bytes, "", options, writer);
     try writer.writeByte('"');
 }
 
@@ -47,7 +47,7 @@ test "isValidId" {
 /// Print the string as escaped contents of a double quoted or single-quoted string.
 /// Format `{}` treats contents as a double-quoted string.
 /// Format `{'}` treats contents as a single-quoted string.
-fn formatEscapes(
+pub fn stringEscape(
     bytes: []const u8,
     comptime fmt: []const u8,
     options: std.fmt.FormatOptions,
@@ -90,7 +90,7 @@ fn formatEscapes(
 /// The format specifier must be one of:
 ///  * `{}` treats contents as a double-quoted string.
 ///  * `{'}` treats contents as a single-quoted string.
-pub fn fmtEscapes(bytes: []const u8) std.fmt.Formatter(formatEscapes) {
+pub fn fmtEscapes(bytes: []const u8) std.fmt.Formatter(stringEscape) {
     return .{ .data = bytes };
 }
 

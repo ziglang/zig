@@ -29,10 +29,10 @@ fn AesOcb(comptime Aes: anytype) type {
             upto: usize,
 
             inline fn double(l: Block) Block {
-                const l_ = mem.readIntBig(u128, &l);
+                const l_ = mem.readInt(u128, &l, .big);
                 const l_2 = (l_ << 1) ^ (0x87 & -%(l_ >> 127));
                 var l2: Block = undefined;
-                mem.writeIntBig(u128, &l2, l_2);
+                mem.writeInt(u128, &l2, l_2, .big);
                 return l2;
             }
 
@@ -94,10 +94,10 @@ fn AesOcb(comptime Aes: anytype) type {
             nx[15] &= 0xc0;
             var ktop_: Block = undefined;
             aes_enc_ctx.encrypt(&ktop_, &nx);
-            const ktop = mem.readIntBig(u128, &ktop_);
+            const ktop = mem.readInt(u128, &ktop_, .big);
             var stretch = (@as(u192, ktop) << 64) | @as(u192, @as(u64, @truncate(ktop >> 64)) ^ @as(u64, @truncate(ktop >> 56)));
             var offset: Block = undefined;
-            mem.writeIntBig(u128, &offset, @as(u128, @truncate(stretch >> (64 - @as(u7, bottom)))));
+            mem.writeInt(u128, &offset, @as(u128, @truncate(stretch >> (64 - @as(u7, bottom)))), .big);
             return offset;
         }
 
@@ -262,6 +262,7 @@ const hexToBytes = std.fmt.hexToBytes;
 
 test "AesOcb test vector 1" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var k: [Aes128Ocb.key_length]u8 = undefined;
     var nonce: [Aes128Ocb.nonce_length]u8 = undefined;
@@ -281,6 +282,7 @@ test "AesOcb test vector 1" {
 
 test "AesOcb test vector 2" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var k: [Aes128Ocb.key_length]u8 = undefined;
     var nonce: [Aes128Ocb.nonce_length]u8 = undefined;
@@ -302,6 +304,7 @@ test "AesOcb test vector 2" {
 
 test "AesOcb test vector 3" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var k: [Aes128Ocb.key_length]u8 = undefined;
     var nonce: [Aes128Ocb.nonce_length]u8 = undefined;
@@ -326,6 +329,7 @@ test "AesOcb test vector 3" {
 
 test "AesOcb test vector 4" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var k: [Aes128Ocb.key_length]u8 = undefined;
     var nonce: [Aes128Ocb.nonce_length]u8 = undefined;

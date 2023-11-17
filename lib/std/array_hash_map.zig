@@ -574,6 +574,19 @@ pub fn ArrayHashMapUnmanaged(
             };
         }
 
+        pub fn init(allocator: Allocator, key_list: []const K, value_list: []const V) !Self {
+            var self: Self = .{};
+            try self.entries.resize(allocator, key_list.len);
+            errdefer self.entries.deinit(allocator);
+            @memcpy(self.keys(), key_list);
+            if (@sizeOf(V) != 0) {
+                assert(key_list.len == value_list.len);
+                @memcpy(self.values(), value_list);
+            }
+            try self.reIndex(allocator);
+            return self;
+        }
+
         /// Frees the backing allocation and leaves the map in an undefined state.
         /// Note that this does not free keys or values.  You must take care of that
         /// before calling this function, if it is needed.
@@ -1229,14 +1242,41 @@ pub fn ArrayHashMapUnmanaged(
         /// Sorts the entries and then rebuilds the index.
         /// `sort_ctx` must have this method:
         /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        /// Uses a stable sorting algorithm.
         pub inline fn sort(self: *Self, sort_ctx: anytype) void {
             if (@sizeOf(ByIndexContext) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call sortContext instead.");
-            return self.sortContext(sort_ctx, undefined);
+            return sortContextInternal(self, .stable, sort_ctx, undefined);
         }
 
-        pub fn sortContext(self: *Self, sort_ctx: anytype, ctx: Context) void {
-            self.entries.sort(sort_ctx);
+        /// Sorts the entries and then rebuilds the index.
+        /// `sort_ctx` must have this method:
+        /// `fn lessThan(ctx: @TypeOf(ctx), a_index: usize, b_index: usize) bool`
+        /// Uses an unstable sorting algorithm.
+        pub inline fn sortUnstable(self: *Self, sort_ctx: anytype) void {
+            if (@sizeOf(ByIndexContext) != 0)
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call sortUnstableContext instead.");
+            return self.sortContextInternal(.unstable, sort_ctx, undefined);
+        }
+
+        pub inline fn sortContext(self: *Self, sort_ctx: anytype, ctx: Context) void {
+            return sortContextInternal(self, .stable, sort_ctx, ctx);
+        }
+
+        pub inline fn sortUnstableContext(self: *Self, sort_ctx: anytype, ctx: Context) void {
+            return sortContextInternal(self, .unstable, sort_ctx, ctx);
+        }
+
+        fn sortContextInternal(
+            self: *Self,
+            comptime mode: std.sort.Mode,
+            sort_ctx: anytype,
+            ctx: Context,
+        ) void {
+            switch (mode) {
+                .stable => self.entries.sort(sort_ctx),
+                .unstable => self.entries.sortUnstable(sort_ctx),
+            }
             const header = self.index_header orelse return;
             header.reset();
             self.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, header);
@@ -2334,6 +2374,35 @@ test "sort" {
         try testing.expect(map.values()[i] == x * 3);
         x += 1;
     }
+}
+
+test "0 sized key" {
+    var map = AutoArrayHashMap(u0, i32).init(std.testing.allocator);
+    defer map.deinit();
+
+    try testing.expectEqual(map.get(0), null);
+
+    try map.put(0, 5);
+    try testing.expectEqual(map.get(0), 5);
+
+    try map.put(0, 10);
+    try testing.expectEqual(map.get(0), 10);
+
+    try testing.expectEqual(map.swapRemove(0), true);
+    try testing.expectEqual(map.get(0), null);
+}
+
+test "0 sized key and 0 sized value" {
+    var map = AutoArrayHashMap(u0, u0).init(std.testing.allocator);
+    defer map.deinit();
+
+    try testing.expectEqual(map.get(0), null);
+
+    try map.put(0, 0);
+    try testing.expectEqual(map.get(0), 0);
+
+    try testing.expectEqual(map.swapRemove(0), true);
+    try testing.expectEqual(map.get(0), null);
 }
 
 pub fn getHashPtrAddrFn(comptime K: type, comptime Context: type) (fn (Context, K) u32) {

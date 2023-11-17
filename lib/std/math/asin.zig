@@ -60,7 +60,7 @@ fn asin32(x: f32) f32 {
     }
 
     // 1 > |x| >= 0.5
-    const z = (1 - @fabs(x)) * 0.5;
+    const z = (1 - @abs(x)) * 0.5;
     const s = @sqrt(z);
     const fx = pio2 - 2 * (s + s * r32(z));
 
@@ -119,7 +119,7 @@ fn asin64(x: f64) f64 {
     }
 
     // 1 > |x| >= 0.5
-    const z = (1 - @fabs(x)) * 0.5;
+    const z = (1 - @abs(x)) * 0.5;
     const s = @sqrt(z);
     const r = r64(z);
     var fx: f64 = undefined;
@@ -169,15 +169,15 @@ test "math.asin64" {
 }
 
 test "math.asin32.special" {
-    try expect(asin32(0.0) == 0.0);
-    try expect(asin32(-0.0) == -0.0);
+    try expect(math.isPositiveZero(asin32(0.0)));
+    try expect(math.isNegativeZero(asin32(-0.0)));
     try expect(math.isNan(asin32(-2)));
     try expect(math.isNan(asin32(1.5)));
 }
 
 test "math.asin64.special" {
-    try expect(asin64(0.0) == 0.0);
-    try expect(asin64(-0.0) == -0.0);
+    try expect(math.isPositiveZero(asin64(0.0)));
+    try expect(math.isNegativeZero(asin64(-0.0)));
     try expect(math.isNan(asin64(-2)));
     try expect(math.isNan(asin64(1.5)));
 }

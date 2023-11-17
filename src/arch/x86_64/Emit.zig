@@ -1,7 +1,6 @@
 //! This file contains the functionality for emitting x86_64 MIR as machine code
 
 lower: Lower,
-bin_file: *link.File,
 debug_output: DebugInfoOutput,
 code: *std.ArrayList(u8),
 
@@ -19,18 +18,18 @@ pub const Error = Lower.Error || error{
 
 pub fn emitMir(emit: *Emit) Error!void {
     for (0..emit.lower.mir.instructions.len) |mir_i| {
-        const mir_index = @as(Mir.Inst.Index, @intCast(mir_i));
+        const mir_index: Mir.Inst.Index = @intCast(mir_i);
         try emit.code_offset_mapping.putNoClobber(
             emit.lower.allocator,
             mir_index,
-            @as(u32, @intCast(emit.code.items.len)),
+            @intCast(emit.code.items.len),
         );
         const lowered = try emit.lower.lowerMir(mir_index);
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
-            const start_offset = @as(u32, @intCast(emit.code.items.len));
+            const start_offset: u32 = @intCast(emit.code.items.len);
             try lowered_inst.encode(emit.code.writer(), .{});
-            const end_offset = @as(u32, @intCast(emit.code.items.len));
+            const end_offset: u32 = @intCast(emit.code.items.len);
             while (lowered_relocs.len > 0 and
                 lowered_relocs[0].lowered_inst_index == lowered_index) : ({
                 lowered_relocs = lowered_relocs[1..];
@@ -39,9 +38,9 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .source = start_offset,
                     .target = target,
                     .offset = end_offset - 4,
-                    .length = @as(u5, @intCast(end_offset - start_offset)),
+                    .length = @intCast(end_offset - start_offset),
                 }),
-                .linker_extern_fn => |symbol| if (emit.bin_file.cast(link.File.Elf)) |elf_file| {
+                .linker_extern_fn => |symbol| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
                     // Add relocation to the decl.
                     const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
                     try atom_ptr.addReloc(elf_file, .{
@@ -49,10 +48,14 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | std.elf.R_X86_64_PLT32,
                         .r_addend = -4,
                     });
-                } else if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+                } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
                     // Add relocation to the decl.
-                    const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
-                    const target = macho_file.getGlobalByIndex(symbol.sym_index);
+                    const atom_index =
+                        macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
+                    const target = if (link.File.MachO.global_symbol_bit & symbol.sym_index != 0)
+                        macho_file.getGlobalByIndex(link.File.MachO.global_symbol_mask & symbol.sym_index)
+                    else
+                        link.File.MachO.SymbolWithLoc{ .sym_index = symbol.sym_index };
                     try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
                         .type = .branch,
                         .target = target,
@@ -61,12 +64,15 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .pcrel = true,
                         .length = 2,
                     });
-                } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+                } else if (emit.lower.bin_file.cast(link.File.Coff)) |coff_file| {
                     // Add relocation to the decl.
                     const atom_index = coff_file.getAtomIndexForSymbol(
                         .{ .sym_index = symbol.atom_index, .file = null },
                     ).?;
-                    const target = coff_file.getGlobalByIndex(symbol.sym_index);
+                    const target = if (link.File.Coff.global_symbol_bit & symbol.sym_index != 0)
+                        coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & symbol.sym_index)
+                    else
+                        link.File.Coff.SymbolWithLoc{ .sym_index = symbol.sym_index, .file = null };
                     try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
                         .type = .direct,
                         .target = target,
@@ -76,14 +82,87 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .length = 2,
                     });
                 } else return emit.fail("TODO implement extern reloc for {s}", .{
-                    @tagName(emit.bin_file.tag),
+                    @tagName(emit.lower.bin_file.tag),
                 }),
+                .linker_tlsld => |data| {
+                    const elf_file = emit.lower.bin_file.cast(link.File.Elf).?;
+                    const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
+                    try atom.addReloc(elf_file, .{
+                        .r_offset = end_offset - 4,
+                        .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | std.elf.R_X86_64_TLSLD,
+                        .r_addend = -4,
+                    });
+                },
+                .linker_dtpoff => |data| {
+                    const elf_file = emit.lower.bin_file.cast(link.File.Elf).?;
+                    const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
+                    try atom.addReloc(elf_file, .{
+                        .r_offset = end_offset - 4,
+                        .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | std.elf.R_X86_64_DTPOFF32,
+                        .r_addend = 0,
+                    });
+                },
+                .linker_reloc => |data| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
+                    const is_obj_or_static_lib = switch (emit.lower.bin_file.options.output_mode) {
+                        .Exe => false,
+                        .Obj => true,
+                        .Lib => emit.lower.bin_file.options.link_mode == .Static,
+                    };
+                    const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
+                    const sym_index = elf_file.zigObjectPtr().?.symbol(data.sym_index);
+                    const sym = elf_file.symbol(sym_index);
+                    if (sym.flags.needs_zig_got and !is_obj_or_static_lib) {
+                        _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
+                    }
+                    if (emit.lower.bin_file.options.pic) {
+                        const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
+                            link.File.Elf.R_X86_64_ZIG_GOTPCREL
+                        else if (sym.flags.needs_got)
+                            std.elf.R_X86_64_GOTPCREL
+                        else
+                            std.elf.R_X86_64_PC32;
+                        try atom.addReloc(elf_file, .{
+                            .r_offset = end_offset - 4,
+                            .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
+                            .r_addend = -4,
+                        });
+                    } else {
+                        if (lowered_inst.encoding.mnemonic == .call and sym.flags.needs_zig_got and is_obj_or_static_lib) {
+                            try atom.addReloc(elf_file, .{
+                                .r_offset = end_offset - 4,
+                                .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | std.elf.R_X86_64_PC32,
+                                .r_addend = -4,
+                            });
+                        } else {
+                            const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
+                                link.File.Elf.R_X86_64_ZIG_GOT32
+                            else if (sym.flags.needs_got)
+                                std.elf.R_X86_64_GOT32
+                            else if (sym.flags.is_tls)
+                                std.elf.R_X86_64_TPOFF32
+                            else
+                                std.elf.R_X86_64_32;
+                            try atom.addReloc(elf_file, .{
+                                .r_offset = end_offset - 4,
+                                .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
+                                .r_addend = 0,
+                            });
+                        }
+                    }
+                } else unreachable,
                 .linker_got,
                 .linker_direct,
                 .linker_import,
                 .linker_tlv,
-                => |symbol| if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
-                    const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
+                => |symbol| if (emit.lower.bin_file.cast(link.File.Elf)) |_| {
+                    unreachable;
+                } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
+                    const atom_index =
+                        macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
+                    const target = if (link.File.MachO.global_symbol_bit & symbol.sym_index != 0)
+                        macho_file.getGlobalByIndex(link.File.MachO.global_symbol_mask & symbol.sym_index)
+                    else
+                        link.File.MachO.SymbolWithLoc{ .sym_index = symbol.sym_index };
                     try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
                         .type = switch (lowered_relocs[0].target) {
                             .linker_got => .got,
@@ -91,17 +170,21 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .linker_tlv => .tlv,
                             else => unreachable,
                         },
-                        .target = .{ .sym_index = symbol.sym_index },
-                        .offset = @as(u32, @intCast(end_offset - 4)),
+                        .target = target,
+                        .offset = @intCast(end_offset - 4),
                         .addend = 0,
                         .pcrel = true,
                         .length = 2,
                     });
-                } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+                } else if (emit.lower.bin_file.cast(link.File.Coff)) |coff_file| {
                     const atom_index = coff_file.getAtomIndexForSymbol(.{
                         .sym_index = symbol.atom_index,
                         .file = null,
                     }).?;
+                    const target = if (link.File.Coff.global_symbol_bit & symbol.sym_index != 0)
+                        coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & symbol.sym_index)
+                    else
+                        link.File.Coff.SymbolWithLoc{ .sym_index = symbol.sym_index, .file = null };
                     try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
                         .type = switch (lowered_relocs[0].target) {
                             .linker_got => .got,
@@ -109,28 +192,22 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .linker_import => .import,
                             else => unreachable,
                         },
-                        .target = switch (lowered_relocs[0].target) {
-                            .linker_got,
-                            .linker_direct,
-                            => .{ .sym_index = symbol.sym_index, .file = null },
-                            .linker_import => coff_file.getGlobalByIndex(symbol.sym_index),
-                            else => unreachable,
-                        },
-                        .offset = @as(u32, @intCast(end_offset - 4)),
+                        .target = target,
+                        .offset = @intCast(end_offset - 4),
                         .addend = 0,
                         .pcrel = true,
                         .length = 2,
                     });
-                } else if (emit.bin_file.cast(link.File.Plan9)) |p9_file| {
+                } else if (emit.lower.bin_file.cast(link.File.Plan9)) |p9_file| {
                     const atom_index = symbol.atom_index;
                     try p9_file.addReloc(atom_index, .{ // TODO we may need to add a .type field to the relocs if they are .linker_got instead of just .linker_direct
                         .target = symbol.sym_index, // we set sym_index to just be the atom index
-                        .offset = @as(u32, @intCast(end_offset - 4)),
+                        .offset = @intCast(end_offset - 4),
                         .addend = 0,
                         .type = .pcrel,
                     });
                 } else return emit.fail("TODO implement linker reloc for {s}", .{
-                    @tagName(emit.bin_file.tag),
+                    @tagName(emit.lower.bin_file.tag),
                 }),
             };
         }
@@ -172,6 +249,18 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .none => {},
                         }
                     },
+                    .pseudo_dbg_inline_func => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| {
+                                log.debug("mirDbgInline (line={d}, col={d})", .{
+                                    emit.prev_di_line, emit.prev_di_column,
+                                });
+                                try dw.setInlineFunc(mir_inst.data.func);
+                            },
+                            .plan9 => {},
+                            .none => {},
+                        }
+                    },
                     .pseudo_dead_none => {},
                 },
             }
@@ -199,7 +288,7 @@ const Reloc = struct {
     /// Target of the relocation.
     target: Mir.Inst.Index,
     /// Offset of the relocation within the instruction.
-    offset: usize,
+    offset: u32,
     /// Length of the instruction.
     length: u5,
 };
@@ -212,17 +301,18 @@ fn fixupRelocs(emit: *Emit) Error!void {
     for (emit.relocs.items) |reloc| {
         const target = emit.code_offset_mapping.get(reloc.target) orelse
             return emit.fail("JMP/CALL relocation target not found!", .{});
-        const disp = @as(i32, @intCast(@as(i64, @intCast(target)) - @as(i64, @intCast(reloc.source + reloc.length))));
-        mem.writeIntLittle(i32, emit.code.items[reloc.offset..][0..4], disp);
+        const disp = @as(i64, @intCast(target)) - @as(i64, @intCast(reloc.source + reloc.length));
+        mem.writeInt(i32, emit.code.items[reloc.offset..][0..4], @intCast(disp), .little);
     }
 }
 
 fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
-    const delta_line = @as(i32, @intCast(line)) - @as(i32, @intCast(emit.prev_di_line));
+    const delta_line = @as(i33, line) - @as(i33, emit.prev_di_line);
     const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
     log.debug("  (advance pc={d} and line={d})", .{ delta_line, delta_pc });
     switch (emit.debug_output) {
         .dwarf => |dw| {
+            if (column != emit.prev_di_column) try dw.setColumn(column);
             try dw.advancePCAndLine(delta_line, delta_pc);
             emit.prev_di_line = line;
             emit.prev_di_column = column;
@@ -230,34 +320,32 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
         },
         .plan9 => |dbg_out| {
             if (delta_pc <= 0) return; // only do this when the pc changes
-            // we have already checked the target in the linker to make sure it is compatable
-            const quant = @import("../../link/Plan9/aout.zig").getPCQuant(emit.lower.target.cpu.arch) catch unreachable;
 
             // increasing the line number
-            try @import("../../link/Plan9.zig").changeLine(dbg_out.dbg_line, delta_line);
+            try link.File.Plan9.changeLine(&dbg_out.dbg_line, @intCast(delta_line));
             // increasing the pc
-            const d_pc_p9 = @as(i64, @intCast(delta_pc)) - quant;
+            const d_pc_p9 = @as(i64, @intCast(delta_pc)) - dbg_out.pc_quanta;
             if (d_pc_p9 > 0) {
-                // minus one because if its the last one, we want to leave space to change the line which is one quanta
-                var diff = @divExact(d_pc_p9, quant) - quant;
+                // minus one because if its the last one, we want to leave space to change the line which is one pc quanta
+                var diff = @divExact(d_pc_p9, dbg_out.pc_quanta) - dbg_out.pc_quanta;
                 while (diff > 0) {
                     if (diff < 64) {
-                        try dbg_out.dbg_line.append(@as(u8, @intCast(diff + 128)));
+                        try dbg_out.dbg_line.append(@intCast(diff + 128));
                         diff = 0;
                     } else {
-                        try dbg_out.dbg_line.append(@as(u8, @intCast(64 + 128)));
+                        try dbg_out.dbg_line.append(@intCast(64 + 128));
                         diff -= 64;
                     }
                 }
-                if (dbg_out.pcop_change_index.*) |pci|
+                if (dbg_out.pcop_change_index) |pci|
                     dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index.* = @as(u32, @intCast(dbg_out.dbg_line.items.len - 1));
+                dbg_out.pcop_change_index = @intCast(dbg_out.dbg_line.items.len - 1);
             } else if (d_pc_p9 == 0) {
-                // we don't need to do anything, because adding the quant does it for us
+                // we don't need to do anything, because adding the pc quanta does it for us
             } else unreachable;
-            if (dbg_out.start_line.* == null)
-                dbg_out.start_line.* = emit.prev_di_line;
-            dbg_out.end_line.* = line;
+            if (dbg_out.start_line == null)
+                dbg_out.start_line = emit.prev_di_line;
+            dbg_out.end_line = line;
             // only do this if the pc changed
             emit.prev_di_line = line;
             emit.prev_di_column = column;

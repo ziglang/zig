@@ -13,6 +13,6 @@ fn foo(comptime info: std.builtin.Type) !void {
 }
 
 // run
-// is_test=1
+// is_test=true
 // backend=llvm
 //

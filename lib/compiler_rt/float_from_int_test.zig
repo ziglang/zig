@@ -43,7 +43,7 @@ test "floatsisf" {
     try test__floatsisf(1, 0x3f800000);
     try test__floatsisf(-1, 0xbf800000);
     try test__floatsisf(0x7FFFFFFF, 0x4f000000);
-    try test__floatsisf(@as(i32, @bitCast(@as(u32, @intCast(0x80000000)))), 0xcf000000);
+    try test__floatsisf(@bitCast(@as(u32, @intCast(0x80000000))), 0xcf000000);
 }
 
 test "floatunsisf" {
@@ -72,10 +72,10 @@ test "floatdisf" {
     try test__floatdisf(-2, -2.0);
     try test__floatdisf(0x7FFFFF8000000000, 0x1.FFFFFEp+62);
     try test__floatdisf(0x7FFFFF0000000000, 0x1.FFFFFCp+62);
-    try test__floatdisf(@as(i64, @bitCast(@as(u64, 0x8000008000000000))), -0x1.FFFFFEp+62);
-    try test__floatdisf(@as(i64, @bitCast(@as(u64, 0x8000010000000000))), -0x1.FFFFFCp+62);
-    try test__floatdisf(@as(i64, @bitCast(@as(u64, 0x8000000000000000))), -0x1.000000p+63);
-    try test__floatdisf(@as(i64, @bitCast(@as(u64, 0x8000000000000001))), -0x1.000000p+63);
+    try test__floatdisf(@bitCast(@as(u64, 0x8000008000000000)), -0x1.FFFFFEp+62);
+    try test__floatdisf(@bitCast(@as(u64, 0x8000010000000000)), -0x1.FFFFFCp+62);
+    try test__floatdisf(@bitCast(@as(u64, 0x8000000000000000)), -0x1.000000p+63);
+    try test__floatdisf(@bitCast(@as(u64, 0x8000000000000001)), -0x1.000000p+63);
     try test__floatdisf(0x0007FB72E8000000, 0x1.FEDCBAp+50);
     try test__floatdisf(0x0007FB72EA000000, 0x1.FEDCBAp+50);
     try test__floatdisf(0x0007FB72EB000000, 0x1.FEDCBAp+50);
@@ -228,7 +228,7 @@ test "floatuntisf" {
     try test__floatuntisf(make_uti(0x0000000000001FED, 0xCBE0000000000000), 0x1.FEDCBEp+76);
 
     // Test overflow to infinity
-    try test__floatuntisf(@as(u128, math.maxInt(u128)), @as(f32, @bitCast(math.inf(f32))));
+    try test__floatuntisf(math.maxInt(u128), @bitCast(math.inf(f32)));
 }
 
 fn test_one_floatsidf(a: i32, expected: u64) !void {
@@ -246,15 +246,15 @@ test "floatsidf" {
     try test_one_floatsidf(1, 0x3ff0000000000000);
     try test_one_floatsidf(-1, 0xbff0000000000000);
     try test_one_floatsidf(0x7FFFFFFF, 0x41dfffffffc00000);
-    try test_one_floatsidf(@as(i32, @bitCast(@as(u32, @intCast(0x80000000)))), 0xc1e0000000000000);
+    try test_one_floatsidf(@bitCast(@as(u32, @intCast(0x80000000))), 0xc1e0000000000000);
 }
 
 test "floatunsidf" {
     try test_one_floatunsidf(0, 0x0000000000000000);
     try test_one_floatunsidf(1, 0x3ff0000000000000);
     try test_one_floatunsidf(0x7FFFFFFF, 0x41dfffffffc00000);
-    try test_one_floatunsidf(@as(u32, @intCast(0x80000000)), 0x41e0000000000000);
-    try test_one_floatunsidf(@as(u32, @intCast(0xFFFFFFFF)), 0x41efffffffe00000);
+    try test_one_floatunsidf(@intCast(0x80000000), 0x41e0000000000000);
+    try test_one_floatunsidf(@intCast(0xFFFFFFFF), 0x41efffffffe00000);
 }
 
 fn test__floatdidf(a: i64, expected: f64) !void {
@@ -279,12 +279,12 @@ test "floatdidf" {
     try test__floatdidf(0x7FFFFFFFFFFFF800, 0x1.FFFFFFFFFFFFEp+62);
     try test__floatdidf(0x7FFFFF0000000000, 0x1.FFFFFCp+62);
     try test__floatdidf(0x7FFFFFFFFFFFF000, 0x1.FFFFFFFFFFFFCp+62);
-    try test__floatdidf(@as(i64, @bitCast(@as(u64, @intCast(0x8000008000000000)))), -0x1.FFFFFEp+62);
-    try test__floatdidf(@as(i64, @bitCast(@as(u64, @intCast(0x8000000000000800)))), -0x1.FFFFFFFFFFFFEp+62);
-    try test__floatdidf(@as(i64, @bitCast(@as(u64, @intCast(0x8000010000000000)))), -0x1.FFFFFCp+62);
-    try test__floatdidf(@as(i64, @bitCast(@as(u64, @intCast(0x8000000000001000)))), -0x1.FFFFFFFFFFFFCp+62);
-    try test__floatdidf(@as(i64, @bitCast(@as(u64, @intCast(0x8000000000000000)))), -0x1.000000p+63);
-    try test__floatdidf(@as(i64, @bitCast(@as(u64, @intCast(0x8000000000000001)))), -0x1.000000p+63); // 0x8000000000000001
+    try test__floatdidf(@bitCast(@as(u64, @intCast(0x8000008000000000))), -0x1.FFFFFEp+62);
+    try test__floatdidf(@bitCast(@as(u64, @intCast(0x8000000000000800))), -0x1.FFFFFFFFFFFFEp+62);
+    try test__floatdidf(@bitCast(@as(u64, @intCast(0x8000010000000000))), -0x1.FFFFFCp+62);
+    try test__floatdidf(@bitCast(@as(u64, @intCast(0x8000000000001000))), -0x1.FFFFFFFFFFFFCp+62);
+    try test__floatdidf(@bitCast(@as(u64, @intCast(0x8000000000000000))), -0x1.000000p+63);
+    try test__floatdidf(@bitCast(@as(u64, @intCast(0x8000000000000001))), -0x1.000000p+63); // 0x8000000000000001
     try test__floatdidf(0x0007FB72E8000000, 0x1.FEDCBAp+50);
     try test__floatdidf(0x0007FB72EA000000, 0x1.FEDCBA8p+50);
     try test__floatdidf(0x0007FB72EB000000, 0x1.FEDCBACp+50);
@@ -513,8 +513,8 @@ test "floatsitf" {
     try test__floatsitf(0x7FFFFFFF, 0x401dfffffffc00000000000000000000);
     try test__floatsitf(0x12345678, 0x401b2345678000000000000000000000);
     try test__floatsitf(-0x12345678, 0xc01b2345678000000000000000000000);
-    try test__floatsitf(@as(i32, @bitCast(@as(u32, @intCast(0xffffffff)))), 0xbfff0000000000000000000000000000);
-    try test__floatsitf(@as(i32, @bitCast(@as(u32, @intCast(0x80000000)))), 0xc01e0000000000000000000000000000);
+    try test__floatsitf(@bitCast(@as(u32, @intCast(0xffffffff))), 0xbfff0000000000000000000000000000);
+    try test__floatsitf(@bitCast(@as(u32, @intCast(0x80000000))), 0xc01e0000000000000000000000000000);
 }
 
 fn test__floatunsitf(a: u32, expected_hi: u64, expected_lo: u64) !void {
@@ -575,10 +575,10 @@ test "floatditf" {
     try test__floatditf(0x2, make_tf(0x4000000000000000, 0x0));
     try test__floatditf(0x1, make_tf(0x3fff000000000000, 0x0));
     try test__floatditf(0x0, make_tf(0x0, 0x0));
-    try test__floatditf(@as(i64, @bitCast(@as(u64, 0xffffffffffffffff))), make_tf(0xbfff000000000000, 0x0));
-    try test__floatditf(@as(i64, @bitCast(@as(u64, 0xfffffffffffffffe))), make_tf(0xc000000000000000, 0x0));
+    try test__floatditf(@bitCast(@as(u64, 0xffffffffffffffff)), make_tf(0xbfff000000000000, 0x0));
+    try test__floatditf(@bitCast(@as(u64, 0xfffffffffffffffe)), make_tf(0xc000000000000000, 0x0));
     try test__floatditf(-0x123456789abcdef1, make_tf(0xc03b23456789abcd, 0xef10000000000000));
-    try test__floatditf(@as(i64, @bitCast(@as(u64, 0x8000000000000000))), make_tf(0xc03e000000000000, 0x0));
+    try test__floatditf(@bitCast(@as(u64, 0x8000000000000000)), make_tf(0xc03e000000000000, 0x0));
 }
 
 test "floatunditf" {
@@ -773,7 +773,7 @@ fn make_ti(high: u64, low: u64) i128 {
     var result: u128 = high;
     result <<= 64;
     result |= low;
-    return @as(i128, @bitCast(result));
+    return @bitCast(result);
 }
 
 fn make_uti(high: u64, low: u64) u128 {
@@ -787,7 +787,7 @@ fn make_tf(high: u64, low: u64) f128 {
     var result: u128 = high;
     result <<= 64;
     result |= low;
-    return @as(f128, @bitCast(result));
+    return @bitCast(result);
 }
 
 test "conversion to f16" {

@@ -107,14 +107,14 @@ fn testBitCastuXToBytes(comptime N: usize) !void {
 
         const byte_count = (N + 7) / 8;
         switch (native_endian) {
-            .Little => {
+            .little => {
                 var byte_i = 0;
                 while (byte_i < (byte_count - 1)) : (byte_i += 1) {
                     try expect(bytes[byte_i] == 0xff);
                 }
                 try expect(((bytes[byte_i] ^ 0xff) << -%@as(u3, @truncate(N))) == 0);
             },
-            .Big => {
+            .big => {
                 var byte_i = byte_count - 1;
                 while (byte_i > 0) : (byte_i -= 1) {
                     try expect(bytes[byte_i] == 0xff);
@@ -149,8 +149,6 @@ test "bitcast literal [4]u8 param to u32" {
 }
 
 test "bitcast generates a temporary value" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var y = @as(u16, 0x55AA);
     const x = @as(u16, @bitCast(@as([2]u8, @bitCast(y))));
     try expect(y == x);
@@ -186,7 +184,6 @@ test "@bitCast packed structs at runtime and comptime" {
 test "@bitCast extern structs at runtime and comptime" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Full = extern struct {
         number: u16,
@@ -200,11 +197,11 @@ test "@bitCast extern structs at runtime and comptime" {
             var full = Full{ .number = 0x1234 };
             var two_halves = @as(TwoHalves, @bitCast(full));
             switch (native_endian) {
-                .Big => {
+                .big => {
                     try expect(two_halves.half1 == 0x12);
                     try expect(two_halves.half2 == 0x34);
                 },
-                .Little => {
+                .little => {
                     try expect(two_halves.half1 == 0x34);
                     try expect(two_halves.half2 == 0x12);
                 },
@@ -241,7 +238,6 @@ test "bitcast packed struct to integer and back" {
 test "implicit cast to error union by returning" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry() !void {
@@ -293,11 +289,11 @@ test "triple level result location with bitcast sandwich passed as tuple element
 test "@bitCast packed struct of floats" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
     const Foo = packed struct {
         a: f16 = 0,
@@ -336,7 +332,7 @@ test "comptime @bitCast packed struct to int and back" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and native_endian == .Big) {
+    if (builtin.zig_backend == .stage2_llvm and native_endian == .big) {
         // https://github.com/ziglang/zig/issues/13782
         return error.SkipZigTest;
     }
@@ -371,11 +367,11 @@ test "comptime @bitCast packed struct to int and back" {
 
 test "comptime bitcast with fields following f80" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
     const FloatT = extern struct { f: f80, x: u128 align(16) };
     const x: FloatT = .{ .f = 0.5, .x = 123 };
@@ -415,8 +411,9 @@ test "bitcast nan float does not modify signaling bit" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+
     // TODO: https://github.com/ziglang/zig/issues/14366
     if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
@@ -466,7 +463,6 @@ test "@bitCast of packed struct of bools all true" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
@@ -488,7 +484,6 @@ test "@bitCast of packed struct of bools all false" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 

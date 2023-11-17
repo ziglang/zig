@@ -1,5 +1,5 @@
 /* Declaration for error-reporting function
-   Copyright (C) 1995-2021 Free Software Foundation, Inc.
+   Copyright (C) 1995-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -29,11 +29,11 @@ __BEGIN_DECLS
    If STATUS is nonzero, terminate the program with `exit (STATUS)'.  */
 
 extern void error (int __status, int __errnum, const char *__format, ...)
-     __attribute__ ((__format__ (__printf__, 3, 4)));
+     __attribute__ ((__format__ (__printf__, 3, 4))) __COLD;
 
 extern void error_at_line (int __status, int __errnum, const char *__fname,
 			   unsigned int __lineno, const char *__format, ...)
-     __attribute__ ((__format__ (__printf__, 5, 6)));
+     __attribute__ ((__format__ (__printf__, 5, 6))) __COLD;
 
 /* If NULL, error will flush stdout, then print on stderr the program
    name, a colon and a space.  Otherwise, error will call this

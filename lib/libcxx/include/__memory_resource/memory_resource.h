@@ -9,14 +9,16 @@
 #ifndef _LIBCPP___MEMORY_RESOURCE_MEMORY_RESOURCE_H
 #define _LIBCPP___MEMORY_RESOURCE_MEMORY_RESOURCE_H
 
+#include <__availability>
 #include <__config>
+#include <__fwd/memory_resource.h>
 #include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -24,7 +26,7 @@ namespace pmr {
 
 // [mem.res.class]
 
-class _LIBCPP_TYPE_VIS memory_resource {
+class _LIBCPP_AVAILABILITY_PMR _LIBCPP_EXPORTED_FROM_ABI memory_resource {
   static const size_t __max_align = alignof(max_align_t);
 
 public:
@@ -51,25 +53,38 @@ private:
 
 // [mem.res.eq]
 
-inline _LIBCPP_HIDE_FROM_ABI bool operator==(const memory_resource& __lhs, const memory_resource& __rhs) noexcept {
+inline _LIBCPP_AVAILABILITY_PMR _LIBCPP_HIDE_FROM_ABI bool
+operator==(const memory_resource& __lhs, const memory_resource& __rhs) noexcept {
   return &__lhs == &__rhs || __lhs.is_equal(__rhs);
 }
 
-inline _LIBCPP_HIDE_FROM_ABI bool operator!=(const memory_resource& __lhs, const memory_resource& __rhs) noexcept {
+#  if _LIBCPP_STD_VER <= 17
+
+inline _LIBCPP_AVAILABILITY_PMR _LIBCPP_HIDE_FROM_ABI bool
+operator!=(const memory_resource& __lhs, const memory_resource& __rhs) noexcept {
   return !(__lhs == __rhs);
 }
 
+#  endif
+
 // [mem.res.global]
 
-[[__gnu__::__returns_nonnull__]] _LIBCPP_FUNC_VIS memory_resource* get_default_resource() noexcept;
-[[__gnu__::__returns_nonnull__]] _LIBCPP_FUNC_VIS memory_resource* set_default_resource(memory_resource*) noexcept;
-[[using __gnu__: __returns_nonnull__, __const__]] _LIBCPP_FUNC_VIS memory_resource* new_delete_resource() noexcept;
-[[using __gnu__: __returns_nonnull__, __const__]] _LIBCPP_FUNC_VIS memory_resource* null_memory_resource() noexcept;
+[[__gnu__::__returns_nonnull__]] _LIBCPP_AVAILABILITY_PMR _LIBCPP_EXPORTED_FROM_ABI memory_resource*
+get_default_resource() noexcept;
+
+[[__gnu__::__returns_nonnull__]] _LIBCPP_AVAILABILITY_PMR _LIBCPP_EXPORTED_FROM_ABI memory_resource*
+set_default_resource(memory_resource*) noexcept;
+
+[[using __gnu__: __returns_nonnull__, __const__]] _LIBCPP_AVAILABILITY_PMR _LIBCPP_EXPORTED_FROM_ABI memory_resource*
+new_delete_resource() noexcept;
+
+[[using __gnu__: __returns_nonnull__, __const__]] _LIBCPP_AVAILABILITY_PMR _LIBCPP_EXPORTED_FROM_ABI memory_resource*
+null_memory_resource() noexcept;
 
 } // namespace pmr
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 #endif // _LIBCPP___MEMORY_RESOURCE_MEMORY_RESOURCE_H

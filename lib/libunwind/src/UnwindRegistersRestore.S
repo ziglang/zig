@@ -194,9 +194,20 @@ DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind15Registers_ppc646jumptoEv)
   addi  4, 3, PPC64_OFFS_FP
 
 // load VS register
+#ifdef __LITTLE_ENDIAN__
+// For little-endian targets, we need a swap since lxvd2x will load the register
+// in the incorrect doubleword order.
+// FIXME: when supporting targets older than Power9 on LE is no longer required,
+//        this can be changed to simply `lxv n, (16 * n)(4)`.
+#define PPC64_LVS(n)         \
+  lxvd2x  n, 0, 4           ;\
+  xxswapd n, n              ;\
+  addi    4, 4, 16
+#else
 #define PPC64_LVS(n)         \
   lxvd2x  n, 0, 4           ;\
   addi    4, 4, 16
+#endif
 
   // restore the first 32 VS regs (and also all floating point regs)
   PPC64_LVS(0)
@@ -232,9 +243,16 @@ DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind15Registers_ppc646jumptoEv)
   PPC64_LVS(30)
   PPC64_LVS(31)
 
+#ifdef __LITTLE_ENDIAN__
+#define PPC64_CLVS_RESTORE(n)                    \
+  addi   4, 3, PPC64_OFFS_FP + n * 16           ;\
+  lxvd2x n, 0, 4                                ;\
+  xxswapd n, n
+#else
 #define PPC64_CLVS_RESTORE(n)                    \
   addi   4, 3, PPC64_OFFS_FP + n * 16           ;\
   lxvd2x n, 0, 4
+#endif
 
 #if !defined(_AIX)
   // use VRSAVE to conditionally restore the remaining VS regs, that are
@@ -1203,8 +1221,8 @@ DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind19Registers_loongarch6jumptoEv)
     ld.d $r\i, $a0, (8 * \i)
   .endr
 
-  ld.d    $r4,  $a0, (8 * 4)   // restore $a0 last
-  ld.d    $r1,  $a0, (8 * 32)  // load new pc into $ra
+  ld.d    $ra,  $a0, (8 * 32)  // load new pc into $ra
+  ld.d    $a0,  $a0, (8 * 4)   // restore $a0 last
 
   jr      $ra
 

@@ -24,13 +24,13 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if __has_builtin(__is_destructible)
 
-template<class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_destructible : _BoolConstant<__is_destructible(_Tp)> { };
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_destructible : _BoolConstant<__is_destructible(_Tp)> {};
 
-#if _LIBCPP_STD_VER > 14
+#  if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 inline constexpr bool is_destructible_v = __is_destructible(_Tp);
-#endif
+#  endif
 
 #else // __has_builtin(__is_destructible)
 
@@ -42,19 +42,19 @@ inline constexpr bool is_destructible_v = __is_destructible(_Tp);
 //    where _Up is remove_all_extents<_Tp>::type
 
 template <class>
-struct __is_destructible_apply { typedef int type; };
+struct __is_destructible_apply {
+  typedef int type;
+};
 
 template <typename _Tp>
 struct __is_destructor_wellformed {
-    template <typename _Tp1>
-    static true_type  __test (
-        typename __is_destructible_apply<decltype(std::declval<_Tp1&>().~_Tp1())>::type
-    );
+  template <typename _Tp1>
+  static true_type __test(typename __is_destructible_apply<decltype(std::declval<_Tp1&>().~_Tp1())>::type);
 
-    template <typename _Tp1>
-    static false_type __test (...);
+  template <typename _Tp1>
+  static false_type __test(...);
 
-    static const bool value = decltype(__test<_Tp>(12))::value;
+  static const bool value = decltype(__test<_Tp>(12))::value;
 };
 
 template <class _Tp, bool>
@@ -62,12 +62,10 @@ struct __destructible_imp;
 
 template <class _Tp>
 struct __destructible_imp<_Tp, false>
-   : public integral_constant<bool,
-        __is_destructor_wellformed<__remove_all_extents_t<_Tp> >::value> {};
+    : public integral_constant<bool, __is_destructor_wellformed<__remove_all_extents_t<_Tp> >::value> {};
 
 template <class _Tp>
-struct __destructible_imp<_Tp, true>
-    : public true_type {};
+struct __destructible_imp<_Tp, true> : public true_type {};
 
 template <class _Tp, bool>
 struct __destructible_false;
@@ -79,21 +77,18 @@ template <class _Tp>
 struct __destructible_false<_Tp, true> : public false_type {};
 
 template <class _Tp>
-struct is_destructible
-    : public __destructible_false<_Tp, is_function<_Tp>::value> {};
+struct is_destructible : public __destructible_false<_Tp, is_function<_Tp>::value> {};
 
 template <class _Tp>
-struct is_destructible<_Tp[]>
-    : public false_type {};
+struct is_destructible<_Tp[]> : public false_type {};
 
 template <>
-struct is_destructible<void>
-    : public false_type {};
+struct is_destructible<void> : public false_type {};
 
-#if _LIBCPP_STD_VER > 14
+#  if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 inline constexpr bool is_destructible_v = is_destructible<_Tp>::value;
-#endif
+#  endif
 
 #endif // __has_builtin(__is_destructible)
 

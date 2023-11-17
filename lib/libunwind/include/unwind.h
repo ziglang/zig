@@ -56,9 +56,9 @@ typedef enum {
 typedef struct _Unwind_Context _Unwind_Context;   // opaque
 
 #if defined(_LIBUNWIND_ARM_EHABI)
-#include "unwind_arm_ehabi.h"
+#include <unwind_arm_ehabi.h>
 #else
-#include "unwind_itanium.h"
+#include <unwind_itanium.h>
 #endif
 
 typedef _Unwind_Reason_Code (*_Unwind_Stop_Fn)

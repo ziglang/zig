@@ -39,6 +39,7 @@
 #include <sys/_types/_u_char.h>
 #include <sys/_types/_u_int16_t.h>
 #include <sys/_types/_u_int32_t.h>
+#include <sys/_types/_u_int64_t.h>
 
 /*
  * Define Controller event subclass, and associated events.

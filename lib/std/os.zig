@@ -33,10 +33,12 @@ pub const haiku = std.c;
 pub const netbsd = std.c;
 pub const openbsd = std.c;
 pub const solaris = std.c;
+pub const illumos = std.c;
 pub const linux = @import("os/linux.zig");
 pub const plan9 = @import("os/plan9.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
+pub const emscripten = @import("os/emscripten.zig");
 pub const windows = @import("os/windows.zig");
 
 comptime {
@@ -147,6 +149,7 @@ pub const cpu_set_t = system.cpu_set_t;
 pub const dev_t = system.dev_t;
 pub const dl_phdr_info = system.dl_phdr_info;
 pub const empty_sigset = system.empty_sigset;
+pub const filled_sigset = system.filled_sigset;
 pub const fd_t = system.fd_t;
 pub const fdflags_t = system.fdflags_t;
 pub const fdstat_t = system.fdstat_t;
@@ -508,6 +511,13 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
         }
         return;
     }
+    if (builtin.os.tag == .emscripten) {
+        const err = std.c.getErrno(std.c.getentropy(buffer.ptr, buffer.len));
+        switch (err) {
+            .SUCCESS => return,
+            else => return unexpectedErrno(err),
+        }
+    }
     switch (builtin.os.tag) {
         .netbsd, .openbsd, .macos, .ios, .tvos, .watchos => {
             system.arc4random_buf(buffer.ptr, buffer.len);
@@ -629,14 +639,14 @@ pub fn raise(sig: u8) RaiseError!void {
     @compileError("std.os.raise unimplemented for this target");
 }
 
-pub const KillError = error{PermissionDenied} || UnexpectedError;
+pub const KillError = error{ ProcessNotFound, PermissionDenied } || UnexpectedError;
 
 pub fn kill(pid: pid_t, sig: u8) KillError!void {
     switch (errno(system.kill(pid, sig))) {
         .SUCCESS => return,
         .INVAL => unreachable, // invalid signal
         .PERM => return error.PermissionDenied,
-        .SRCH => unreachable, // always a race condition
+        .SRCH => return error.ProcessNotFound,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1813,7 +1823,7 @@ pub fn execveZ(
                 .BADARCH => return error.InvalidExe,
                 else => return unexpectedErrno(err),
             },
-            .linux, .solaris => switch (err) {
+            .linux => switch (err) {
                 .LIBBAD => return error.InvalidExe,
                 else => return unexpectedErrno(err),
             },
@@ -1893,6 +1903,9 @@ pub fn execvpeZ(
 /// Get an environment variable.
 /// See also `getenvZ`.
 pub fn getenv(key: []const u8) ?[:0]const u8 {
+    if (builtin.os.tag == .windows) {
+        @compileError("std.os.getenv is unavailable for Windows because environment strings are in WTF-16 format. See std.process.getEnvVarOwned for a cross-platform API or std.os.getenvW for a Windows-specific API.");
+    }
     if (builtin.link_libc) {
         var ptr = std.c.environ;
         while (ptr[0]) |line| : (ptr += 1) {
@@ -1906,9 +1919,7 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
         }
         return null;
     }
-    if (builtin.os.tag == .windows) {
-        @compileError("std.os.getenv is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
-    } else if (builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .wasi) {
         @compileError("std.os.getenv is unavailable for WASI. See std.process.getEnvMap or std.process.getEnvVarOwned for a cross-platform API.");
     }
     // The simplified start logic doesn't populate environ.
@@ -2344,7 +2355,10 @@ pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
 
 /// Windows-only. Same as `unlink` except the parameter is null-terminated, WTF16 encoded.
 pub fn unlinkW(file_path_w: []const u16) UnlinkError!void {
-    return windows.DeleteFile(file_path_w, .{ .dir = std.fs.cwd().fd });
+    windows.DeleteFile(file_path_w, .{ .dir = std.fs.cwd().fd }) catch |err| switch (err) {
+        error.DirNotEmpty => unreachable, // we're not passing .remove_dir = true
+        else => |e| return e,
+    };
 }
 
 pub const UnlinkatError = UnlinkError || error{
@@ -3015,6 +3029,7 @@ pub const FchdirError = error{
 } || UnexpectedError;
 
 pub fn fchdir(dirfd: fd_t) FchdirError!void {
+    if (dirfd == AT.FDCWD) return;
     while (true) {
         switch (errno(system.fchdir(dirfd))) {
             .SUCCESS => return,
@@ -3981,7 +3996,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .WSAEINVAL => unreachable,
             .WSAEISCONN => unreachable,
             .WSAENOTSOCK => unreachable,
-            .WSAEWOULDBLOCK => unreachable,
+            .WSAEWOULDBLOCK => return error.WouldBlock,
             .WSAEACCES => unreachable,
             .WSAENOBUFS => return error.SystemResources,
             .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
@@ -4327,6 +4342,73 @@ pub fn inotify_rm_watch(inotify_fd: i32, wd: i32) void {
         .BADF => unreachable,
         .INVAL => unreachable,
         else => unreachable,
+    }
+}
+
+pub const FanotifyInitError = error{
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    SystemResources,
+    OperationNotSupported,
+    PermissionDenied,
+} || UnexpectedError;
+
+pub fn fanotify_init(flags: u32, event_f_flags: u32) FanotifyInitError!i32 {
+    const rc = system.fanotify_init(flags, event_f_flags);
+    switch (errno(rc)) {
+        .SUCCESS => return @as(i32, @intCast(rc)),
+        .INVAL => unreachable,
+        .MFILE => return error.ProcessFdQuotaExceeded,
+        .NFILE => return error.SystemFdQuotaExceeded,
+        .NOMEM => return error.SystemResources,
+        .NOSYS => return error.OperationNotSupported,
+        .PERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const FanotifyMarkError = error{
+    MarkAlreadyExists,
+    IsDir,
+    NotAssociatedWithFileSystem,
+    FileNotFound,
+    SystemResources,
+    UserMarkQuotaExceeded,
+    NotImplemented,
+    NotDir,
+    OperationNotSupported,
+    PermissionDenied,
+    NotSameFileSystem,
+    NameTooLong,
+} || UnexpectedError;
+
+pub fn fanotify_mark(fanotify_fd: i32, flags: u32, mask: u64, dirfd: i32, pathname: ?[]const u8) FanotifyMarkError!void {
+    if (pathname) |path| {
+        const path_c = try toPosixPath(path);
+        return fanotify_markZ(fanotify_fd, flags, mask, dirfd, &path_c);
+    }
+
+    return fanotify_markZ(fanotify_fd, flags, mask, dirfd, null);
+}
+
+pub fn fanotify_markZ(fanotify_fd: i32, flags: u32, mask: u64, dirfd: i32, pathname: ?[*:0]const u8) FanotifyMarkError!void {
+    const rc = system.fanotify_mark(fanotify_fd, flags, mask, dirfd, pathname);
+    switch (errno(rc)) {
+        .SUCCESS => return,
+        .BADF => unreachable,
+        .EXIST => return error.MarkAlreadyExists,
+        .INVAL => unreachable,
+        .ISDIR => return error.IsDir,
+        .NODEV => return error.NotAssociatedWithFileSystem,
+        .NOENT => return error.FileNotFound,
+        .NOMEM => return error.SystemResources,
+        .NOSPC => return error.UserMarkQuotaExceeded,
+        .NOSYS => return error.NotImplemented,
+        .NOTDIR => return error.NotDir,
+        .OPNOTSUPP => return error.OperationNotSupported,
+        .PERM => return error.PermissionDenied,
+        .XDEV => return error.NotSameFileSystem,
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -5217,6 +5299,7 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
         .macos, .ios, .watchos, .tvos,
         .linux,
         .solaris,
+        .illumos,
         .freebsd,
         => true,
         // zig fmt: on
@@ -5271,7 +5354,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             };
             return target;
         },
-        .solaris => {
+        .solaris, .illumos => {
             var procfs_buf: ["/proc/self/path/-2147483648\x00".len]u8 = undefined;
             const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/path/{d}", .{fd}) catch unreachable;
 
@@ -5410,7 +5493,7 @@ pub fn dl_iterate_phdr(
             }
         }.callbackC, @as(?*anyopaque, @ptrFromInt(@intFromPtr(&context))))) {
             0 => return,
-            else => |err| return @as(Error, @errSetCast(@errorFromInt(@as(u16, @intCast(err))))), // TODO don't hardcode u16
+            else => |err| return @as(Error, @errorCast(@errorFromInt(@as(u16, @intCast(err))))), // TODO don't hardcode u16
         }
     }
 

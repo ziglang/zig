@@ -64,7 +64,7 @@ pub fn classifyWindows(ty: Type, mod: *Module) Class {
     }
 }
 
-pub const Context = enum { ret, arg, other };
+pub const Context = enum { ret, arg, field, other };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
@@ -120,7 +120,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
         },
         .Float => switch (ty.floatBits(target)) {
             16 => {
-                if (ctx == .other) {
+                if (ctx == .field) {
                     result[0] = .memory;
                 } else {
                     // TODO clang doesn't allow __fp16 as .ret or .arg
@@ -137,10 +137,10 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
                 return result;
             },
             128 => {
-                // "Arguments of types__float128, _Decimal128 and__m128 are
+                // "Arguments of types __float128, _Decimal128 and __m128 are
                 // split into two halves.  The least significant ones belong
                 // to class SSE, the most significant one to class SSEUP."
-                if (ctx == .other) {
+                if (ctx == .field) {
                     result[0] = .memory;
                     return result;
                 }
@@ -210,11 +210,12 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             // it contains unaligned fields, it has class MEMORY"
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
+            const struct_type = mod.typeToStruct(ty).?;
             const ty_size = ty.abiSize(mod);
-            if (ty.containerLayout(mod) == .Packed) {
-                assert(ty_size <= 128);
+            if (struct_type.layout == .Packed) {
+                assert(ty_size <= 16);
                 result[0] = .integer;
-                if (ty_size > 64) result[1] = .integer;
+                if (ty_size > 8) result[1] = .integer;
                 return result;
             }
             if (ty_size > 64)
@@ -222,15 +223,13 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
 
             var result_i: usize = 0; // out of 8
             var byte_i: usize = 0; // out of 8
-            const fields = ty.structFields(mod);
-            for (fields.values()) |field| {
-                if (field.abi_align != .none) {
-                    if (field.abi_align.toByteUnitsOptional().? < field.ty.abiAlignment(mod)) {
-                        return memory_class;
-                    }
-                }
-                const field_size = field.ty.abiSize(mod);
-                const field_class_array = classifySystemV(field.ty, mod, .other);
+            for (struct_type.field_types.get(ip), 0..) |field_ty_ip, i| {
+                const field_ty = field_ty_ip.toType();
+                const field_align = struct_type.fieldAlign(ip, i);
+                if (field_align != .none and field_align.compare(.lt, field_ty.abiAlignment(mod)))
+                    return memory_class;
+                const field_size = field_ty.abiSize(mod);
+                const field_class_array = classifySystemV(field_ty, mod, .field);
                 const field_class = std.mem.sliceTo(&field_class_array, .none);
                 if (byte_i + field_size <= 8) {
                     // Combine this field with the previous one.
@@ -332,22 +331,23 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             const union_obj = mod.typeToUnion(ty).?;
             const ty_size = mod.unionAbiSize(union_obj);
             if (union_obj.getLayout(ip) == .Packed) {
-                assert(ty_size <= 128);
+                assert(ty_size <= 16);
                 result[0] = .integer;
-                if (ty_size > 64) result[1] = .integer;
+                if (ty_size > 8) result[1] = .integer;
                 return result;
             }
             if (ty_size > 64)
                 return memory_class;
 
             for (union_obj.field_types.get(ip), 0..) |field_ty, field_index| {
-                if (union_obj.fieldAlign(ip, @intCast(field_index)).toByteUnitsOptional()) |a| {
-                    if (a < field_ty.toType().abiAlignment(mod)) {
-                        return memory_class;
-                    }
+                const field_align = union_obj.fieldAlign(ip, @intCast(field_index));
+                if (field_align != .none and
+                    field_align.compare(.lt, field_ty.toType().abiAlignment(mod)))
+                {
+                    return memory_class;
                 }
                 // Combine this field with the previous one.
-                const field_class = classifySystemV(field_ty.toType(), mod, .other);
+                const field_class = classifySystemV(field_ty.toType(), mod, .field);
                 for (&result, 0..) |*result_item, i| {
                     const field_item = field_class[i];
                     // "If both classes are equal, this is the resulting class."
@@ -422,11 +422,11 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
         },
         .Array => {
             const ty_size = ty.abiSize(mod);
-            if (ty_size <= 64) {
+            if (ty_size <= 8) {
                 result[0] = .integer;
                 return result;
             }
-            if (ty_size <= 128) {
+            if (ty_size <= 16) {
                 result[0] = .integer;
                 result[1] = .integer;
                 return result;
@@ -444,10 +444,12 @@ pub const SysV = struct {
     /// These registers need to be preserved (saved on the stack) and restored by the caller before
     /// the caller relinquishes control to a subroutine via call instruction (or similar).
     /// In other words, these registers are free to use by the callee.
-    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
+    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 } ++ x87_regs ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
+    pub const c_abi_sse_param_regs = sse_avx_regs[0..8].*;
     pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
+    pub const c_abi_sse_return_regs = sse_avx_regs[0..2].*;
 };
 
 pub const Win64 = struct {
@@ -457,74 +459,110 @@ pub const Win64 = struct {
     /// These registers need to be preserved (saved on the stack) and restored by the caller before
     /// the caller relinquishes control to a subroutine via call instruction (or similar).
     /// In other words, these registers are free to use by the callee.
-    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .r8, .r9, .r10, .r11 };
+    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .r8, .r9, .r10, .r11 } ++ x87_regs ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rcx, .rdx, .r8, .r9 };
+    pub const c_abi_sse_param_regs = sse_avx_regs[0..4].*;
     pub const c_abi_int_return_regs = [_]Register{.rax};
+    pub const c_abi_sse_return_regs = sse_avx_regs[0..1].*;
 };
 
-pub fn getCalleePreservedRegs(target: Target) []const Register {
-    return switch (target.os.tag) {
-        .windows => &Win64.callee_preserved_regs,
-        else => &SysV.callee_preserved_regs,
+pub fn resolveCallingConvention(
+    cc: std.builtin.CallingConvention,
+    target: std.Target,
+) std.builtin.CallingConvention {
+    return switch (cc) {
+        .Unspecified, .C => switch (target.os.tag) {
+            else => .SysV,
+            .windows => .Win64,
+        },
+        else => cc,
     };
 }
 
-pub fn getCallerPreservedRegs(target: Target) []const Register {
-    return switch (target.os.tag) {
-        .windows => &Win64.caller_preserved_regs,
-        else => &SysV.caller_preserved_regs,
+pub fn getCalleePreservedRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.callee_preserved_regs,
+        .Win64 => &Win64.callee_preserved_regs,
+        else => unreachable,
     };
 }
 
-pub fn getCAbiIntParamRegs(target: Target) []const Register {
-    return switch (target.os.tag) {
-        .windows => &Win64.c_abi_int_param_regs,
-        else => &SysV.c_abi_int_param_regs,
+pub fn getCallerPreservedRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.caller_preserved_regs,
+        .Win64 => &Win64.caller_preserved_regs,
+        else => unreachable,
     };
 }
 
-pub fn getCAbiIntReturnRegs(target: Target) []const Register {
-    return switch (target.os.tag) {
-        .windows => &Win64.c_abi_int_return_regs,
-        else => &SysV.c_abi_int_return_regs,
+pub fn getCAbiIntParamRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.c_abi_int_param_regs,
+        .Win64 => &Win64.c_abi_int_param_regs,
+        else => unreachable,
+    };
+}
+
+pub fn getCAbiSseParamRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.c_abi_sse_param_regs,
+        .Win64 => &Win64.c_abi_sse_param_regs,
+        else => unreachable,
+    };
+}
+
+pub fn getCAbiIntReturnRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.c_abi_int_return_regs,
+        .Win64 => &Win64.c_abi_int_return_regs,
+        else => unreachable,
+    };
+}
+
+pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention) []const Register {
+    return switch (cc) {
+        .SysV => &SysV.c_abi_sse_return_regs,
+        .Win64 => &Win64.c_abi_sse_return_regs,
+        else => unreachable,
     };
 }
 
 const gp_regs = [_]Register{
     .rax, .rcx, .rdx, .rbx, .rsi, .rdi, .r8, .r9, .r10, .r11, .r12, .r13, .r14, .r15,
 };
+const x87_regs = [_]Register{
+    .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7,
+};
 const sse_avx_regs = [_]Register{
     .ymm0, .ymm1, .ymm2,  .ymm3,  .ymm4,  .ymm5,  .ymm6,  .ymm7,
     .ymm8, .ymm9, .ymm10, .ymm11, .ymm12, .ymm13, .ymm14, .ymm15,
 };
-const allocatable_regs = gp_regs ++ sse_avx_regs;
-pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, &allocatable_regs);
+const allocatable_regs = gp_regs ++ x87_regs[0 .. x87_regs.len - 1] ++ sse_avx_regs;
+pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, allocatable_regs);
 
 // Register classes
 const RegisterBitSet = RegisterManager.RegisterBitSet;
 pub const RegisterClass = struct {
     pub const gp: RegisterBitSet = blk: {
         var set = RegisterBitSet.initEmpty();
-        set.setRangeValue(.{
-            .start = 0,
-            .end = gp_regs.len,
-        }, true);
+        for (allocatable_regs, 0..) |reg, index| if (reg.class() == .general_purpose) set.set(index);
+        break :blk set;
+    };
+    pub const x87: RegisterBitSet = blk: {
+        var set = RegisterBitSet.initEmpty();
+        for (allocatable_regs, 0..) |reg, index| if (reg.class() == .x87) set.set(index);
         break :blk set;
     };
     pub const sse: RegisterBitSet = blk: {
         var set = RegisterBitSet.initEmpty();
-        set.setRangeValue(.{
-            .start = gp_regs.len,
-            .end = allocatable_regs.len,
-        }, true);
+        for (allocatable_regs, 0..) |reg, index| if (reg.class() == .sse) set.set(index);
         break :blk set;
     };
 };
 
 const builtin = @import("builtin");
 const std = @import("std");
-const Target = std.Target;
 const assert = std.debug.assert;
 const testing = std.testing;
 
@@ -533,13 +571,3 @@ const Register = @import("bits.zig").Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
 const Value = @import("../../value.zig").Value;
-
-fn _field(comptime tag: Type.Tag, offset: u32) Module.Struct.Field {
-    return .{
-        .ty = Type.initTag(tag),
-        .default_val = Value.initTag(.unreachable_value),
-        .abi_align = 0,
-        .offset = offset,
-        .is_comptime = false,
-    };
-}

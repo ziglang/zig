@@ -709,7 +709,7 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
     // Update info about this frame.
     unw_proc_info_t frameInfo;
     if (__unw_get_proc_info(cursor, &frameInfo) != UNW_ESUCCESS) {
-      _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): __unw_step "
+      _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): __unw_get_proc_info "
                                  "failed => _URC_END_OF_STACK",
                                  (void *)exception_object);
       return _URC_FATAL_PHASE2_ERROR;
@@ -885,8 +885,11 @@ _Unwind_GetLanguageSpecificData(struct _Unwind_Context *context) {
   return result;
 }
 
-static uint64_t ValueAsBitPattern(_Unwind_VRS_DataRepresentation representation,
-                                  void* valuep) {
+// Only used in _LIBUNWIND_TRACE_API, which is a no-op when assertions are
+// disabled.
+[[gnu::unused]] static uint64_t
+ValueAsBitPattern(_Unwind_VRS_DataRepresentation representation,
+                  const void *valuep) {
   uint64_t value = 0;
   switch (representation) {
     case _UVRSD_UINT32:

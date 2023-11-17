@@ -9,6 +9,20 @@ pub const Directory = struct {
     path: ?[]const u8,
     handle: fs.Dir,
 
+    pub fn clone(d: Directory, arena: Allocator) Allocator.Error!Directory {
+        return .{
+            .path = if (d.path) |p| try arena.dupe(u8, p) else null,
+            .handle = d.handle,
+        };
+    }
+
+    pub fn cwd() Directory {
+        return .{
+            .path = null,
+            .handle = fs.cwd(),
+        };
+    }
+
     pub fn join(self: Directory, allocator: Allocator, paths: []const []const u8) ![]u8 {
         if (self.path) |p| {
             // TODO clean way to do this with only 1 allocation
@@ -47,11 +61,15 @@ pub const Directory = struct {
         writer: anytype,
     ) !void {
         _ = options;
-        if (fmt_string.len != 0) fmt.invalidFmtError(fmt, self);
+        if (fmt_string.len != 0) fmt.invalidFmtError(fmt_string, self);
         if (self.path) |p| {
             try writer.writeAll(p);
             try writer.writeAll(fs.path.sep_str);
         }
+    }
+
+    pub fn eql(self: Directory, other: Directory) bool {
+        return self.handle.fd == other.handle.fd;
     }
 };
 
@@ -1054,6 +1072,7 @@ test "check that changing a file makes cache fail" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1175,6 +1194,7 @@ test "Manifest with files added after initial hash work" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 

@@ -11,7 +11,7 @@ const Encoding = @import("Encoding.zig");
 const Immediate = bits.Immediate;
 const Instruction = encoder.Instruction;
 const LegacyPrefixes = encoder.LegacyPrefixes;
-const Memory = bits.Memory;
+const Memory = Instruction.Memory;
 const Register = bits.Register;
 const Rex = encoder.Rex;
 
@@ -38,7 +38,7 @@ pub fn next(dis: *Disassembler) Error!?Instruction {
 
     const enc = try dis.parseEncoding(prefixes) orelse return error.UnknownOpcode;
     switch (enc.data.op_en) {
-        .np => return inst(enc, .{}),
+        .zo => return inst(enc, .{}),
         .d, .i => {
             const imm = try dis.parseImm(enc.data.ops[0]);
             return inst(enc, .{
@@ -360,13 +360,13 @@ fn parseImm(dis: *Disassembler, kind: Encoding.Op) !Immediate {
     var creader = std.io.countingReader(stream.reader());
     const reader = creader.reader();
     const imm = switch (kind) {
-        .imm8s, .rel8 => Immediate.s(try reader.readInt(i8, .Little)),
-        .imm16s, .rel16 => Immediate.s(try reader.readInt(i16, .Little)),
-        .imm32s, .rel32 => Immediate.s(try reader.readInt(i32, .Little)),
-        .imm8 => Immediate.u(try reader.readInt(u8, .Little)),
-        .imm16 => Immediate.u(try reader.readInt(u16, .Little)),
-        .imm32 => Immediate.u(try reader.readInt(u32, .Little)),
-        .imm64 => Immediate.u(try reader.readInt(u64, .Little)),
+        .imm8s, .rel8 => Immediate.s(try reader.readInt(i8, .little)),
+        .imm16s, .rel16 => Immediate.s(try reader.readInt(i16, .little)),
+        .imm32s, .rel32 => Immediate.s(try reader.readInt(i32, .little)),
+        .imm8 => Immediate.u(try reader.readInt(u8, .little)),
+        .imm16 => Immediate.u(try reader.readInt(u16, .little)),
+        .imm32 => Immediate.u(try reader.readInt(u32, .little)),
+        .imm64 => Immediate.u(try reader.readInt(u64, .little)),
         else => unreachable,
     };
     dis.pos += std.math.cast(usize, creader.bytes_read) orelse return error.Overflow;
@@ -376,7 +376,7 @@ fn parseImm(dis: *Disassembler, kind: Encoding.Op) !Immediate {
 fn parseOffset(dis: *Disassembler) !u64 {
     var stream = std.io.fixedBufferStream(dis.code[dis.pos..]);
     const reader = stream.reader();
-    const offset = try reader.readInt(u64, .Little);
+    const offset = try reader.readInt(u64, .little);
     dis.pos += 8;
     return offset;
 }
@@ -457,16 +457,16 @@ fn parseDisplacement(dis: *Disassembler, modrm: ModRm, sib: ?Sib) !i32 {
     const disp = disp: {
         if (sib) |info| {
             if (info.base == 0b101 and modrm.mod == 0) {
-                break :disp try reader.readInt(i32, .Little);
+                break :disp try reader.readInt(i32, .little);
             }
         }
         if (modrm.rip()) {
-            break :disp try reader.readInt(i32, .Little);
+            break :disp try reader.readInt(i32, .little);
         }
         break :disp switch (modrm.mod) {
             0b00 => 0,
-            0b01 => try reader.readInt(i8, .Little),
-            0b10 => try reader.readInt(i32, .Little),
+            0b01 => try reader.readInt(i8, .little),
+            0b10 => try reader.readInt(i32, .little),
             0b11 => unreachable,
         };
     };

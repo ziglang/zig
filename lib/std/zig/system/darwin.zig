@@ -13,7 +13,7 @@ pub const macos = @import("darwin/macos.zig");
 /// stderr from xcode-select is ignored.
 /// If error.OutOfMemory occurs in Allocator, this function returns null.
 pub fn isSdkInstalled(allocator: Allocator) bool {
-    const result = std.process.Child.exec(.{
+    const result = std.process.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "/usr/bin/xcode-select", "--print-path" },
     }) catch return false;
@@ -44,7 +44,7 @@ pub fn getSdk(allocator: Allocator, target: Target) ?[]const u8 {
         else => return null,
     };
     const argv = &[_][]const u8{ "/usr/bin/xcrun", "--sdk", sdk, "--show-sdk-path" };
-    const result = std.process.Child.exec(.{ .allocator = allocator, .argv = argv }) catch return null;
+    const result = std.process.Child.run(.{ .allocator = allocator, .argv = argv }) catch return null;
     defer {
         allocator.free(result.stderr);
         allocator.free(result.stdout);

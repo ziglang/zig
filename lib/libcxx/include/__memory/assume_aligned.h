@@ -22,7 +22,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 template <size_t _Np, class _Tp>
 [[nodiscard]]
@@ -34,12 +34,12 @@ constexpr _Tp* assume_aligned(_Tp* __ptr) {
   if (is_constant_evaluated()) {
     return __ptr;
   } else {
-    _LIBCPP_ASSERT(reinterpret_cast<uintptr_t>(__ptr) % _Np == 0, "Alignment assumption is violated");
+    _LIBCPP_ASSERT_UNCATEGORIZED(reinterpret_cast<uintptr_t>(__ptr) % _Np == 0, "Alignment assumption is violated");
     return static_cast<_Tp*>(__builtin_assume_aligned(__ptr, _Np));
   }
 }
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

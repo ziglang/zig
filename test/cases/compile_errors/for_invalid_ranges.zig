@@ -31,5 +31,6 @@ export fn e() void {
 // :2:13: error: expected type 'usize', found '*const [5:0]u8'
 // :7:10: error: type 'usize' cannot represent integer value '-1'
 // :12:10: error: expected type 'usize', found '*const [5:0]u8'
-// :17:13: error: expected type 'usize', found '*const struct{comptime comptime_int = 97, comptime comptime_int = 98, comptime comptime_int = 99}'
+// :17:13: error: expected type 'usize', found pointer
+// :17:13: note: address-of operator always returns a pointer
 // :22:20: error: overflow of integer type 'usize' with value '-1'

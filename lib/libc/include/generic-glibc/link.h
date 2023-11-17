@@ -1,6 +1,6 @@
 /* Data structure for communication from the run-time dynamic linker for
    loaded ELF shared objects.
-   Copyright (C) 1995-2021 Free Software Foundation, Inc.
+   Copyright (C) 1995-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -34,14 +34,13 @@
 #include <bits/elfclass.h>		/* Defines __ELF_NATIVE_CLASS.  */
 #include <bits/link.h>
 
-/* Rendezvous structure used by the run-time dynamic linker to communicate
-   details of shared object loading to the debugger.  If the executable's
-   dynamic section has a DT_DEBUG element, the run-time linker sets that
-   element's value to the address where this structure can be found.  */
+/* The legacy rendezvous structure used by the run-time dynamic linker to
+   communicate details of shared object loading to the debugger.  */
 
 struct r_debug
   {
-    int r_version;		/* Version number for this protocol.  */
+    /* Version number for this protocol.  It should be greater than 0.  */
+    int r_version;
 
     struct link_map *r_map;	/* Head of the chain of loaded objects.  */
 
@@ -63,16 +62,34 @@ struct r_debug
     ElfW(Addr) r_ldbase;	/* Base address the linker is loaded at.  */
   };
 
-/* This is the instance of that structure used by the dynamic linker.  */
+/* This is the symbol of that structure provided by the dynamic linker.  */
 extern struct r_debug _r_debug;
+
+/* The extended rendezvous structure used by the run-time dynamic linker
+   to communicate details of shared object loading to the debugger.  If
+   the executable's dynamic section has a DT_DEBUG element, the run-time
+   linker sets that element's value to the address where this structure
+   can be found.  */
+
+struct r_debug_extended
+  {
+    struct r_debug base;
+
+    /* The following field is added by r_version == 2.  */
+
+    /* Link to the next r_debug_extended structure.  Each r_debug_extended
+       structure represents a different namespace.  The first
+       r_debug_extended structure is for the default namespace.  */
+    struct r_debug_extended *r_next;
+  };
 
 /* This symbol refers to the "dynamic structure" in the `.dynamic' section
    of whatever module refers to `_DYNAMIC'.  So, to find its own
-   `struct r_debug', a program could do:
+   `struct r_debug_extended', a program could do:
      for (dyn = _DYNAMIC; dyn->d_tag != DT_NULL; ++dyn)
        if (dyn->d_tag == DT_DEBUG)
-	 r_debug = (struct r_debug *) dyn->d_un.d_ptr;
-   */
+	 r_debug_extended = (struct r_debug_extended *) dyn->d_un.d_ptr;
+ */
 extern ElfW(Dyn) _DYNAMIC[];
 
 /* Structure describing a loaded shared object.  The `l_next' and `l_prev'
@@ -96,7 +113,7 @@ struct link_map
 #ifdef __USE_GNU
 
 /* Version numbers for la_version handshake interface.  */
-#define LAV_CURRENT	1
+#include <bits/link_lavcurrent.h>
 
 /* Activity types signaled through la_activity.  */
 enum

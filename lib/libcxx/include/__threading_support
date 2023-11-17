@@ -13,13 +13,9 @@
 #include <__availability>
 #include <__chrono/convert_to_timespec.h>
 #include <__chrono/duration.h>
-#include <__compare/ordering.h>
 #include <__config>
-#include <__fwd/hash.h>
 #include <__thread/poll_with_backoff.h>
 #include <errno.h>
-#include <iosfwd>
-#include <limits>
 
 #ifdef __MVS__
 # include <__support/ibm/nanosleep.h>
@@ -34,24 +30,24 @@
 #elif !defined(_LIBCPP_HAS_NO_THREADS)
 
 #if defined(_LIBCPP_HAS_THREAD_API_PTHREAD)
+// Some platforms require <bits/atomic_wide_counter.h> in order for
+// PTHREAD_COND_INITIALIZER to be expanded. Normally that would come
+// in via <pthread.h>, but it's a non-modular header on those platforms,
+// so libc++'s <math.h> usually absorbs atomic_wide_counter.h into the
+// module with <math.h> and makes atomic_wide_counter.h invisible.
+// Include <math.h> here to work around that.
+# include <math.h>
+
 # include <pthread.h>
 # include <sched.h>
 #elif defined(_LIBCPP_HAS_THREAD_API_C11)
 # include <threads.h>
 #endif
 
-#if defined(_LIBCPP_HAS_THREAD_LIBRARY_EXTERNAL) || \
-    defined(_LIBCPP_BUILDING_THREAD_LIBRARY_EXTERNAL) || \
-    defined(_LIBCPP_HAS_THREAD_API_WIN32)
-#define _LIBCPP_THREAD_ABI_VISIBILITY _LIBCPP_FUNC_VIS
+#if defined(_LIBCPP_HAS_THREAD_API_WIN32)
+#define _LIBCPP_THREAD_ABI_VISIBILITY _LIBCPP_EXPORTED_FROM_ABI
 #else
 #define _LIBCPP_THREAD_ABI_VISIBILITY inline _LIBCPP_INLINE_VISIBILITY
-#endif
-
-#if defined(__FreeBSD__) && defined(__clang__) && __has_attribute(no_thread_safety_analysis)
-#define _LIBCPP_NO_THREAD_SAFETY_ANALYSIS __attribute__((no_thread_safety_analysis))
-#else
-#define _LIBCPP_NO_THREAD_SAFETY_ANALYSIS
 #endif
 
 typedef ::timespec __libcpp_timespec_t;
@@ -252,28 +248,25 @@ int __libcpp_tls_set(__libcpp_tls_key __key, void *__p);
 
 #endif // !defined(_LIBCPP_HAS_THREAD_API_EXTERNAL)
 
-#if (!defined(_LIBCPP_HAS_THREAD_LIBRARY_EXTERNAL) || \
-     defined(_LIBCPP_BUILDING_THREAD_LIBRARY_EXTERNAL))
-
 #if defined(_LIBCPP_HAS_THREAD_API_PTHREAD)
 
 int __libcpp_recursive_mutex_init(__libcpp_recursive_mutex_t *__m)
 {
-  pthread_mutexattr_t attr;
-  int __ec = pthread_mutexattr_init(&attr);
+  pthread_mutexattr_t __attr;
+  int __ec = pthread_mutexattr_init(&__attr);
   if (__ec)
     return __ec;
-  __ec = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+  __ec = pthread_mutexattr_settype(&__attr, PTHREAD_MUTEX_RECURSIVE);
   if (__ec) {
-    pthread_mutexattr_destroy(&attr);
+    pthread_mutexattr_destroy(&__attr);
     return __ec;
   }
-  __ec = pthread_mutex_init(__m, &attr);
+  __ec = pthread_mutex_init(__m, &__attr);
   if (__ec) {
-    pthread_mutexattr_destroy(&attr);
+    pthread_mutexattr_destroy(&__attr);
     return __ec;
   }
-  __ec = pthread_mutexattr_destroy(&attr);
+  __ec = pthread_mutexattr_destroy(&__attr);
   if (__ec) {
     pthread_mutex_destroy(__m);
     return __ec;
@@ -380,8 +373,8 @@ int __libcpp_thread_create(__libcpp_thread_t *__t, void *(*__func)(void *),
 
 __libcpp_thread_id __libcpp_thread_get_current_id()
 {
-  const __libcpp_thread_t thread = pthread_self();
-  return __libcpp_thread_get_id(&thread);
+  const __libcpp_thread_t __current_thread = pthread_self();
+  return __libcpp_thread_get_id(&__current_thread);
 }
 
 __libcpp_thread_id __libcpp_thread_get_id(const __libcpp_thread_t *__t)
@@ -588,116 +581,6 @@ int __libcpp_tls_set(__libcpp_tls_key __key, void *__p)
 }
 
 #endif
-
-
-#endif // !_LIBCPP_HAS_THREAD_LIBRARY_EXTERNAL || _LIBCPP_BUILDING_THREAD_LIBRARY_EXTERNAL
-
-class _LIBCPP_TYPE_VIS thread;
-class _LIBCPP_TYPE_VIS __thread_id;
-
-namespace this_thread
-{
-
-_LIBCPP_INLINE_VISIBILITY __thread_id get_id() _NOEXCEPT;
-
-} // namespace this_thread
-
-template<> struct hash<__thread_id>;
-
-class _LIBCPP_TEMPLATE_VIS __thread_id
-{
-    // FIXME: pthread_t is a pointer on Darwin but a long on Linux.
-    // NULL is the no-thread value on Darwin.  Someone needs to check
-    // on other platforms.  We assume 0 works everywhere for now.
-    __libcpp_thread_id __id_;
-
-    static _LIBCPP_HIDE_FROM_ABI
-        bool __lt_impl(__thread_id __x, __thread_id __y) _NOEXCEPT
-        { // id==0 is always less than any other thread_id
-        if (__x.__id_ == 0) return __y.__id_ != 0;
-        if (__y.__id_ == 0) return false;
-        return  __libcpp_thread_id_less(__x.__id_, __y.__id_);
-        }
-
-public:
-    _LIBCPP_INLINE_VISIBILITY
-    __thread_id() _NOEXCEPT : __id_(0) {}
-
-    _LIBCPP_INLINE_VISIBILITY
-    void __reset() { __id_ = 0; }
-
-    friend _LIBCPP_HIDE_FROM_ABI bool operator==(__thread_id __x, __thread_id __y) _NOEXCEPT;
-#if _LIBCPP_STD_VER <= 17
-    friend _LIBCPP_HIDE_FROM_ABI bool operator<(__thread_id __x, __thread_id __y) _NOEXCEPT;
-#else // _LIBCPP_STD_VER <= 17
-    friend _LIBCPP_HIDE_FROM_ABI strong_ordering operator<=>(__thread_id __x, __thread_id __y) noexcept;
-#endif // _LIBCPP_STD_VER <= 17
-
-    template<class _CharT, class _Traits>
-    friend
-    _LIBCPP_INLINE_VISIBILITY
-    basic_ostream<_CharT, _Traits>&
-    operator<<(basic_ostream<_CharT, _Traits>& __os, __thread_id __id);
-
-private:
-    _LIBCPP_INLINE_VISIBILITY
-    __thread_id(__libcpp_thread_id __id) : __id_(__id) {}
-
-    friend __thread_id this_thread::get_id() _NOEXCEPT;
-    friend class _LIBCPP_TYPE_VIS thread;
-    friend struct _LIBCPP_TEMPLATE_VIS hash<__thread_id>;
-};
-
-inline _LIBCPP_HIDE_FROM_ABI
-bool operator==(__thread_id __x, __thread_id __y) _NOEXCEPT {
-  // Don't pass id==0 to underlying routines
-  if (__x.__id_ == 0)
-    return __y.__id_ == 0;
-  if (__y.__id_ == 0)
-    return false;
-  return __libcpp_thread_id_equal(__x.__id_, __y.__id_);
-}
-
-#if _LIBCPP_STD_VER <= 17
-
-inline _LIBCPP_HIDE_FROM_ABI
-bool operator!=(__thread_id __x, __thread_id __y) _NOEXCEPT {
-  return !(__x == __y);
-}
-
-inline _LIBCPP_HIDE_FROM_ABI
-bool operator<(__thread_id __x, __thread_id __y) _NOEXCEPT {
-  return __thread_id::__lt_impl(__x.__id_, __y.__id_);
-}
-
-inline _LIBCPP_HIDE_FROM_ABI bool operator<=(__thread_id __x, __thread_id __y) _NOEXCEPT { return !(__y < __x); }
-inline _LIBCPP_HIDE_FROM_ABI bool operator>(__thread_id __x, __thread_id __y) _NOEXCEPT { return __y < __x; }
-inline _LIBCPP_HIDE_FROM_ABI bool operator>=(__thread_id __x, __thread_id __y) _NOEXCEPT { return !(__x < __y); }
-
-#else // _LIBCPP_STD_VER <= 17
-
-inline _LIBCPP_HIDE_FROM_ABI
-strong_ordering operator<=>(__thread_id __x, __thread_id __y) noexcept {
-  if (__x == __y)
-    return strong_ordering::equal;
-  if (__thread_id::__lt_impl(__x, __y))
-    return strong_ordering::less;
-  return strong_ordering::greater;
-}
-
-#endif // _LIBCPP_STD_VER <= 17
-
-namespace this_thread
-{
-
-inline _LIBCPP_INLINE_VISIBILITY
-__thread_id
-get_id() _NOEXCEPT
-{
-    return __libcpp_thread_get_current_id();
-}
-
-} // namespace this_thread
 
 #endif // !_LIBCPP_HAS_NO_THREADS
 

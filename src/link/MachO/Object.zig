@@ -382,7 +382,7 @@ pub fn splitRegularSections(self: *Object, macho_file: *MachO, object_id: u32) !
             const out_sect_id = (try Atom.getOutputSection(macho_file, sect)) orelse continue;
             if (sect.size == 0) continue;
 
-            const sect_id = @as(u8, @intCast(id));
+            const sect_id: u8 = @intCast(id);
             const sym_index = self.getSectionAliasSymbolIndex(sect_id);
             const atom_index = try self.createAtomFromSubsection(
                 macho_file,
@@ -391,7 +391,7 @@ pub fn splitRegularSections(self: *Object, macho_file: *MachO, object_id: u32) !
                 sym_index,
                 1,
                 sect.size,
-                sect.@"align",
+                Alignment.fromLog2Units(sect.@"align"),
                 out_sect_id,
             );
             macho_file.addAtomToSection(atom_index);
@@ -470,7 +470,7 @@ pub fn splitRegularSections(self: *Object, macho_file: *MachO, object_id: u32) !
                     sym_index,
                     1,
                     atom_size,
-                    sect.@"align",
+                    Alignment.fromLog2Units(sect.@"align"),
                     out_sect_id,
                 );
                 if (!sect.isZerofill()) {
@@ -494,10 +494,10 @@ pub fn splitRegularSections(self: *Object, macho_file: *MachO, object_id: u32) !
                 else
                     sect.addr + sect.size - addr;
 
-                const atom_align = if (addr > 0)
+                const atom_align = Alignment.fromLog2Units(if (addr > 0)
                     @min(@ctz(addr), sect.@"align")
                 else
-                    sect.@"align";
+                    sect.@"align");
 
                 const atom_index = try self.createAtomFromSubsection(
                     macho_file,
@@ -532,7 +532,7 @@ pub fn splitRegularSections(self: *Object, macho_file: *MachO, object_id: u32) !
                 sect_start_index,
                 sect_loc.len,
                 sect.size,
-                sect.@"align",
+                Alignment.fromLog2Units(sect.@"align"),
                 out_sect_id,
             );
             if (!sect.isZerofill()) {
@@ -551,11 +551,14 @@ fn createAtomFromSubsection(
     inner_sym_index: u32,
     inner_nsyms_trailing: u32,
     size: u64,
-    alignment: u32,
+    alignment: Alignment,
     out_sect_id: u8,
 ) !Atom.Index {
     const gpa = macho_file.base.allocator;
-    const atom_index = try macho_file.createAtom(sym_index, .{ .size = size, .alignment = alignment });
+    const atom_index = try macho_file.createAtom(sym_index, .{
+        .size = size,
+        .alignment = alignment,
+    });
     const atom = macho_file.getAtomPtr(atom_index);
     atom.inner_sym_index = inner_sym_index;
     atom.inner_nsyms_trailing = inner_nsyms_trailing;
@@ -1115,3 +1118,4 @@ const MachO = @import("../MachO.zig");
 const Platform = @import("load_commands.zig").Platform;
 const SymbolWithLoc = MachO.SymbolWithLoc;
 const UnwindInfo = @import("UnwindInfo.zig");
+const Alignment = Atom.Alignment;

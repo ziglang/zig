@@ -27,9 +27,8 @@ template <class _Tp, class _Up, class = void>
 struct __is_core_convertible : public false_type {};
 
 template <class _Tp, class _Up>
-struct __is_core_convertible<_Tp, _Up, decltype(
-    static_cast<void(*)(_Up)>(0) ( static_cast<_Tp(*)()>(0)() )
-)> : public true_type {};
+struct __is_core_convertible<_Tp, _Up, decltype(static_cast<void (*)(_Up)>(0)(static_cast<_Tp (*)()>(0)()))>
+    : public true_type {};
 
 _LIBCPP_END_NAMESPACE_STD
 

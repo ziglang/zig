@@ -14,4 +14,4 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :7:15: error: expected type 'type', found 'fn() type'
+// :7:15: error: expected type 'type', found 'fn () type'

@@ -110,27 +110,27 @@ fn initHash(
     var parameters: [24]u8 = undefined;
     var tmp: [4]u8 = undefined;
     var b2 = Blake2b512.init(.{});
-    mem.writeIntLittle(u32, parameters[0..4], params.p);
-    mem.writeIntLittle(u32, parameters[4..8], @as(u32, @intCast(dk_len)));
-    mem.writeIntLittle(u32, parameters[8..12], params.m);
-    mem.writeIntLittle(u32, parameters[12..16], params.t);
-    mem.writeIntLittle(u32, parameters[16..20], version);
-    mem.writeIntLittle(u32, parameters[20..24], @intFromEnum(mode));
+    mem.writeInt(u32, parameters[0..4], params.p, .little);
+    mem.writeInt(u32, parameters[4..8], @as(u32, @intCast(dk_len)), .little);
+    mem.writeInt(u32, parameters[8..12], params.m, .little);
+    mem.writeInt(u32, parameters[12..16], params.t, .little);
+    mem.writeInt(u32, parameters[16..20], version, .little);
+    mem.writeInt(u32, parameters[20..24], @intFromEnum(mode), .little);
     b2.update(&parameters);
-    mem.writeIntLittle(u32, &tmp, @as(u32, @intCast(password.len)));
+    mem.writeInt(u32, &tmp, @as(u32, @intCast(password.len)), .little);
     b2.update(&tmp);
     b2.update(password);
-    mem.writeIntLittle(u32, &tmp, @as(u32, @intCast(salt.len)));
+    mem.writeInt(u32, &tmp, @as(u32, @intCast(salt.len)), .little);
     b2.update(&tmp);
     b2.update(salt);
     const secret = params.secret orelse "";
     std.debug.assert(secret.len <= max_int);
-    mem.writeIntLittle(u32, &tmp, @as(u32, @intCast(secret.len)));
+    mem.writeInt(u32, &tmp, @as(u32, @intCast(secret.len)), .little);
     b2.update(&tmp);
     b2.update(secret);
     const ad = params.ad orelse "";
     std.debug.assert(ad.len <= max_int);
-    mem.writeIntLittle(u32, &tmp, @as(u32, @intCast(ad.len)));
+    mem.writeInt(u32, &tmp, @as(u32, @intCast(ad.len)), .little);
     b2.update(&tmp);
     b2.update(ad);
     b2.final(h0[0..Blake2b512.digest_length]);
@@ -140,7 +140,7 @@ fn initHash(
 fn blake2bLong(out: []u8, in: []const u8) void {
     const H = Blake2b512;
     var outlen_bytes: [4]u8 = undefined;
-    mem.writeIntLittle(u32, &outlen_bytes, @as(u32, @intCast(out.len)));
+    mem.writeInt(u32, &outlen_bytes, @as(u32, @intCast(out.len)), .little);
 
     var out_buf: [H.digest_length]u8 = undefined;
 
@@ -183,18 +183,18 @@ fn initBlocks(
     var lane: u24 = 0;
     while (lane < threads) : (lane += 1) {
         const j = lane * (memory / threads);
-        mem.writeIntLittle(u32, h0[Blake2b512.digest_length + 4 ..][0..4], lane);
+        mem.writeInt(u32, h0[Blake2b512.digest_length + 4 ..][0..4], lane, .little);
 
-        mem.writeIntLittle(u32, h0[Blake2b512.digest_length..][0..4], 0);
+        mem.writeInt(u32, h0[Blake2b512.digest_length..][0..4], 0, .little);
         blake2bLong(&block0, h0);
         for (&blocks.items[j + 0], 0..) |*v, i| {
-            v.* = mem.readIntLittle(u64, block0[i * 8 ..][0..8]);
+            v.* = mem.readInt(u64, block0[i * 8 ..][0..8], .little);
         }
 
-        mem.writeIntLittle(u32, h0[Blake2b512.digest_length..][0..4], 1);
+        mem.writeInt(u32, h0[Blake2b512.digest_length..][0..4], 1, .little);
         blake2bLong(&block0, h0);
         for (&blocks.items[j + 1], 0..) |*v, i| {
-            v.* = mem.readIntLittle(u64, block0[i * 8 ..][0..8]);
+            v.* = mem.readInt(u64, block0[i * 8 ..][0..8], .little);
         }
     }
 }
@@ -433,7 +433,7 @@ fn finalize(
     }
     var block: [1024]u8 = undefined;
     for (blocks.items[memory - 1], 0..) |v, i| {
-        mem.writeIntLittle(u64, block[i * 8 ..][0..8], v);
+        mem.writeInt(u64, block[i * 8 ..][0..8], v, .little);
     }
     blake2bLong(out, &block);
 }

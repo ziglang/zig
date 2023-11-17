@@ -159,6 +159,9 @@
     void swap(path& lhs, path& rhs) noexcept;
     size_t hash_value(const path& p) noexcept;
 
+    // [fs.path.hash], hash support
+    template<> struct hash<filesystem::path>;
+
     template <class Source>
       path u8path(const Source& source);
     template <class InputIterator>
@@ -233,19 +236,120 @@
       friend class directory_iterator;    // exposition only
     };
 
-    class directory_iterator;
+  class directory_iterator {
+  public:
+    using iterator_category = input_iterator_tag;
+    using value_type        = directory_entry;
+    using difference_type   = ptrdiff_t;
+    using pointer           = const directory_entry*;
+    using reference         = const directory_entry&;
+
+    // [fs.dir.itr.members], member functions
+    directory_iterator() noexcept;
+    explicit directory_iterator(const path& p);
+    directory_iterator(const path& p, directory_options options);
+    directory_iterator(const path& p, error_code& ec);
+    directory_iterator(const path& p, directory_options options,
+                       error_code& ec);
+    directory_iterator(const directory_iterator& rhs);
+    directory_iterator(directory_iterator&& rhs) noexcept;
+    ~directory_iterator();
+
+    directory_iterator& operator=(const directory_iterator& rhs);
+    directory_iterator& operator=(directory_iterator&& rhs) noexcept;
+
+    const directory_entry& operator*() const;
+    const directory_entry* operator->() const;
+    directory_iterator&    operator++();
+    directory_iterator&    increment(error_code& ec);
+
+    bool operator==(default_sentinel_t) const noexcept {          // since C++20
+      return *this == directory_iterator();
+    }
+
+    // other members as required by [input.iterators], input iterators
+  };
 
     // enable directory_iterator range-based for statements
     directory_iterator begin(directory_iterator iter) noexcept;
     directory_iterator end(directory_iterator) noexcept;
 
-    class recursive_directory_iterator;
+class recursive_directory_iterator {
+  public:
+    using iterator_category = input_iterator_tag;
+    using value_type        = directory_entry;
+    using difference_type   = ptrdiff_t;
+    using pointer           = const directory_entry*;
+    using reference         = const directory_entry&;
+
+    // [fs.rec.dir.itr.members], constructors and destructor
+    recursive_directory_iterator() noexcept;
+    explicit recursive_directory_iterator(const path& p);
+    recursive_directory_iterator(const path& p, directory_options options);
+    recursive_directory_iterator(const path& p, directory_options options,
+                                 error_code& ec);
+    recursive_directory_iterator(const path& p, error_code& ec);
+    recursive_directory_iterator(const recursive_directory_iterator& rhs);
+    recursive_directory_iterator(recursive_directory_iterator&& rhs) noexcept;
+    ~recursive_directory_iterator();
+
+    // [fs.rec.dir.itr.members], observers
+    directory_options  options() const;
+    int                depth() const;
+    bool               recursion_pending() const;
+
+    const directory_entry& operator*() const;
+    const directory_entry* operator->() const;
+
+    // [fs.rec.dir.itr.members], modifiers
+    recursive_directory_iterator&
+      operator=(const recursive_directory_iterator& rhs);
+    recursive_directory_iterator&
+      operator=(recursive_directory_iterator&& rhs) noexcept;
+
+    recursive_directory_iterator& operator++();
+    recursive_directory_iterator& increment(error_code& ec);
+
+    void pop();
+    void pop(error_code& ec);
+    void disable_recursion_pending();
+
+    bool operator==(default_sentinel_t) const noexcept {          // since C++20
+      return *this == recursive_directory_iterator();
+    }
+
+    // other members as required by [input.iterators], input iterators
+  };
 
     // enable recursive_directory_iterator range-based for statements
     recursive_directory_iterator begin(recursive_directory_iterator iter) noexcept;
     recursive_directory_iterator end(recursive_directory_iterator) noexcept;
 
-    class file_status;
+  class file_status {
+  public:
+    // [fs.file.status.cons], constructors and destructor
+    file_status() noexcept : file_status(file_type::none) {}
+    explicit file_status(file_type ft,
+                         perms prms = perms::unknown) noexcept;
+    file_status(const file_status&) noexcept = default;
+    file_status(file_status&&) noexcept = default;
+    ~file_status();
+
+    // assignments
+    file_status& operator=(const file_status&) noexcept = default;
+    file_status& operator=(file_status&&) noexcept = default;
+
+    // [fs.file.status.mods], modifiers
+    void       type(file_type ft) noexcept;
+    void       permissions(perms prms) noexcept;
+
+    // [fs.file.status.obs], observers
+    file_type  type() const noexcept;
+    perms      permissions() const noexcept;
+
+    friend bool operator==(const file_status& lhs, const file_status& rhs) noexcept
+      { return lhs.type() == rhs.type() && lhs.permissions() == rhs.permissions(); } // C++20
+  };
 
     struct space_info
     {
@@ -454,16 +558,14 @@ inline constexpr bool std::ranges::enable_view<std::filesystem::recursive_direct
 // [fs.filesystem.syn]
 #include <compare>
 
-#if defined(_LIBCPP_HAS_NO_FILESYSTEM_LIBRARY)
-# error "The <filesystem> library is not supported since libc++ has been configured without support for a filesystem."
-#endif
-
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
 #  include <concepts>
+#  include <cstdlib>
+#  include <system_error>
 #endif
 
 #endif // _LIBCPP_FILESYSTEM

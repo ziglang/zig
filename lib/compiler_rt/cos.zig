@@ -1,6 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const arch = builtin.cpu.arch;
 const math = std.math;
 const expect = std.testing.expect;
 const common = @import("common.zig");
@@ -25,7 +23,7 @@ comptime {
 
 pub fn __cosh(a: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(cosf(a)));
+    return @floatCast(cosf(a));
 }
 
 pub fn cosf(x: f32) callconv(.C) f32 {

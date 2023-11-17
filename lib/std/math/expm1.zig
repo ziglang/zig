@@ -293,7 +293,7 @@ test "math.exp1m" {
 test "math.expm1_32" {
     const epsilon = 0.000001;
 
-    try expect(expm1_32(0.0) == 0.0);
+    try expect(math.isPositiveZero(expm1_32(0.0)));
     try expect(math.approxEqAbs(f32, expm1_32(0.0), 0.0, epsilon));
     try expect(math.approxEqAbs(f32, expm1_32(0.2), 0.221403, epsilon));
     try expect(math.approxEqAbs(f32, expm1_32(0.8923), 1.440737, epsilon));
@@ -303,7 +303,7 @@ test "math.expm1_32" {
 test "math.expm1_64" {
     const epsilon = 0.000001;
 
-    try expect(expm1_64(0.0) == 0.0);
+    try expect(math.isPositiveZero(expm1_64(0.0)));
     try expect(math.approxEqAbs(f64, expm1_64(0.0), 0.0, epsilon));
     try expect(math.approxEqAbs(f64, expm1_64(0.2), 0.221403, epsilon));
     try expect(math.approxEqAbs(f64, expm1_64(0.8923), 1.440737, epsilon));

@@ -884,6 +884,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
             s.inner_reader = new_reader;
             s.step = nextBlock;
             s.err = null;
+            s.nb = 0;
 
             s.dict.deinit();
             try s.dict.init(s.allocator, max_match_offset, new_dict);
@@ -897,6 +898,35 @@ pub fn Decompressor(comptime ReaderType: type) type {
 const expectError = std.testing.expectError;
 const io = std.io;
 const testing = std.testing;
+
+test "confirm decompressor resets" {
+    var compressed = std.ArrayList(u8).init(std.testing.allocator);
+    defer compressed.deinit();
+
+    inline for (.{
+        &[_]u8{ 0x5d, 0xc0, 0x21, 0x01, 0x00, 0x00, 0x00, 0x80, 0x20, 0xff, 0xaf, 0xa6, 0x4b, 0x03 },
+        &[_]u8{ 0x55, 0xc1, 0x41, 0x0d, 0x00, 0x00, 0x00, 0x02, 0xa1, 0x94, 0x96, 0x34, 0x25, 0xef, 0x1b, 0x5f, 0x01 },
+    }) |data| {
+        try compressed.writer().writeAll(data);
+    }
+
+    var stream = std.io.fixedBufferStream(compressed.items);
+    var decomp = try decompressor(std.testing.allocator, stream.reader(), null);
+    defer decomp.deinit();
+
+    while (true) {
+        if (try stream.getPos() == try stream.getEndPos()) break;
+
+        const buf = try decomp.reader().readAllAlloc(std.testing.allocator, 1024 * 100);
+        defer std.testing.allocator.free(buf);
+
+        if (decomp.close()) |err| {
+            return err;
+        }
+
+        try decomp.reset(stream.reader(), null);
+    }
+}
 
 test "truncated input" {
     const TruncatedTest = struct {

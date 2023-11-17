@@ -9,6 +9,7 @@ const target_util = @import("target.zig");
 const TypedValue = @import("TypedValue.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
+const Alignment = InternPool.Alignment;
 
 /// Both types and values are canonically represented by a single 32-bit integer
 /// which is an index into an `InternPool` data structure.
@@ -196,9 +197,11 @@ pub const Type = struct {
                     info.packed_offset.host_size != 0 or
                     info.flags.vector_index != .none)
                 {
-                    const alignment = info.flags.alignment.toByteUnitsOptional() orelse
+                    const alignment = if (info.flags.alignment != .none)
+                        info.flags.alignment
+                    else
                         info.child.toType().abiAlignment(mod);
-                    try writer.print("align({d}", .{alignment});
+                    try writer.print("align({d}", .{alignment.toByteUnits(0)});
 
                     if (info.packed_offset.bit_offset != 0 or info.packed_offset.host_size != 0) {
                         try writer.print(":{d}:{d}", .{
@@ -315,8 +318,8 @@ pub const Type = struct {
                 .generic_poison => unreachable,
             },
             .struct_type => |struct_type| {
-                if (mod.structPtrUnwrap(struct_type.index)) |struct_obj| {
-                    const decl = mod.declPtr(struct_obj.owner_decl);
+                if (struct_type.decl.unwrap()) |decl_index| {
+                    const decl = mod.declPtr(decl_index);
                     try decl.renderFullyQualifiedName(mod, writer);
                 } else if (struct_type.namespace.unwrap()) |namespace_index| {
                     const namespace = mod.namespacePtr(namespace_index);
@@ -364,7 +367,7 @@ pub const Type = struct {
                 if (fn_info.is_noinline) {
                     try writer.writeAll("noinline ");
                 }
-                try writer.writeAll("fn(");
+                try writer.writeAll("fn (");
                 const param_types = fn_info.param_types.get(&mod.intern_pool);
                 for (param_types, 0..) |param_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
@@ -411,7 +414,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -467,14 +469,15 @@ pub const Type = struct {
             .empty_struct_type => false,
             else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| int_type.bits != 0,
-                .ptr_type => |ptr_type| {
+                .ptr_type => {
                     // Pointers to zero-bit types still have a runtime address; however, pointers
                     // to comptime-only types do not, with the exception of function pointers.
                     if (ignore_comptime_only) return true;
-                    const child_ty = ptr_type.child.toType();
-                    if (child_ty.zigTypeTag(mod) == .Fn) return !mod.typeToFunc(child_ty).?.is_generic;
-                    if (strat == .sema) return !(try strat.sema.typeRequiresComptime(ty));
-                    return !comptimeOnly(ty, mod);
+                    return switch (strat) {
+                        .sema => |sema| !(try sema.typeRequiresComptime(ty)),
+                        .eager => !comptimeOnly(ty, mod),
+                        .lazy => error.NeedLazy,
+                    };
                 },
                 .anyframe_type => true,
                 .array_type => |array_type| {
@@ -495,13 +498,12 @@ pub const Type = struct {
                         // Then the optional is comptime-known to be null.
                         return false;
                     }
-                    if (ignore_comptime_only) {
-                        return true;
-                    } else if (strat == .sema) {
-                        return !(try strat.sema.typeRequiresComptime(child_ty));
-                    } else {
-                        return !comptimeOnly(child_ty, mod);
-                    }
+                    if (ignore_comptime_only) return true;
+                    return switch (strat) {
+                        .sema => |sema| !(try sema.typeRequiresComptime(child_ty)),
+                        .eager => !comptimeOnly(child_ty, mod),
+                        .lazy => error.NeedLazy,
+                    };
                 },
                 .error_union_type,
                 .error_set_type,
@@ -563,24 +565,20 @@ pub const Type = struct {
                     .generic_poison => unreachable,
                 },
                 .struct_type => |struct_type| {
-                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse {
-                        // This struct has no fields.
-                        return false;
-                    };
-                    if (struct_obj.status == .field_types_wip) {
+                    if (struct_type.assumeRuntimeBitsIfFieldTypesWip(ip)) {
                         // In this case, we guess that hasRuntimeBits() for this type is true,
                         // and then later if our guess was incorrect, we emit a compile error.
-                        struct_obj.assumed_runtime_bits = true;
                         return true;
                     }
                     switch (strat) {
                         .sema => |sema| _ = try sema.resolveTypeFields(ty),
-                        .eager => assert(struct_obj.haveFieldTypes()),
-                        .lazy => if (!struct_obj.haveFieldTypes()) return error.NeedLazy,
+                        .eager => assert(struct_type.haveFieldTypes(ip)),
+                        .lazy => if (!struct_type.haveFieldTypes(ip)) return error.NeedLazy,
                     }
-                    for (struct_obj.fields.values()) |field| {
-                        if (field.is_comptime) continue;
-                        if (try field.ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
+                    for (0..struct_type.field_types.len) |i| {
+                        if (struct_type.comptime_bits.getBit(ip, i)) continue;
+                        const field_ty = struct_type.field_types.get(ip)[i].toType();
+                        if (try field_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
                             return true;
                     } else {
                         return false;
@@ -636,7 +634,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -730,11 +727,8 @@ pub const Type = struct {
                 => false,
             },
             .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse {
-                    // Struct with no fields has a well-defined layout of no bits.
-                    return true;
-                };
-                return struct_obj.layout != .Auto;
+                // Struct with no fields have a well-defined layout of no bits.
+                return struct_type.layout != .Auto or struct_type.field_types.len == 0;
             },
             .union_type => |union_type| switch (union_type.flagsPtr(ip).runtime_tag) {
                 .none, .safety => union_type.flagsPtr(ip).layout != .Auto,
@@ -747,7 +741,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -777,21 +770,25 @@ pub const Type = struct {
         return hasRuntimeBitsAdvanced(ty, mod, true, .eager) catch unreachable;
     }
 
+    pub fn fnHasRuntimeBits(ty: Type, mod: *Module) bool {
+        return ty.fnHasRuntimeBitsAdvanced(mod, null) catch unreachable;
+    }
+
+    /// Determines whether a function type has runtime bits, i.e. whether a
+    /// function with this type can exist at runtime.
+    /// Asserts that `ty` is a function type.
+    /// If `opt_sema` is not provided, asserts that the return type is sufficiently resolved.
+    pub fn fnHasRuntimeBitsAdvanced(ty: Type, mod: *Module, opt_sema: ?*Sema) Module.CompileError!bool {
+        const fn_info = mod.typeToFunc(ty).?;
+        if (fn_info.is_generic) return false;
+        if (fn_info.is_var_args) return true;
+        if (fn_info.cc == .Inline) return false;
+        return !try fn_info.return_type.toType().comptimeOnlyAdvanced(mod, opt_sema);
+    }
+
     pub fn isFnOrHasRuntimeBits(ty: Type, mod: *Module) bool {
         switch (ty.zigTypeTag(mod)) {
-            .Fn => {
-                const fn_info = mod.typeToFunc(ty).?;
-                if (fn_info.is_generic) return false;
-                if (fn_info.is_var_args) return true;
-                switch (fn_info.cc) {
-                    // If there was a comptime calling convention,
-                    // it should also return false here.
-                    .Inline => return false,
-                    else => {},
-                }
-                if (fn_info.return_type.toType().comptimeOnly(mod)) return false;
-                return true;
-            },
+            .Fn => return ty.fnHasRuntimeBits(mod),
             else => return ty.hasRuntimeBits(mod),
         }
     }
@@ -808,22 +805,23 @@ pub const Type = struct {
         return mod.intern_pool.isNoReturn(ty.toIntern());
     }
 
-    /// Returns 0 if the pointer is naturally aligned and the element type is 0-bit.
-    pub fn ptrAlignment(ty: Type, mod: *Module) u32 {
+    /// Returns `none` if the pointer is naturally aligned and the element type is 0-bit.
+    pub fn ptrAlignment(ty: Type, mod: *Module) Alignment {
         return ptrAlignmentAdvanced(ty, mod, null) catch unreachable;
     }
 
-    pub fn ptrAlignmentAdvanced(ty: Type, mod: *Module, opt_sema: ?*Sema) !u32 {
+    pub fn ptrAlignmentAdvanced(ty: Type, mod: *Module, opt_sema: ?*Sema) !Alignment {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .ptr_type => |ptr_type| {
-                if (ptr_type.flags.alignment.toByteUnitsOptional()) |a| {
-                    return @as(u32, @intCast(a));
-                } else if (opt_sema) |sema| {
+                if (ptr_type.flags.alignment != .none)
+                    return ptr_type.flags.alignment;
+
+                if (opt_sema) |sema| {
                     const res = try ptr_type.child.toType().abiAlignmentAdvanced(mod, .{ .sema = sema });
                     return res.scalar;
-                } else {
-                    return (ptr_type.child.toType().abiAlignmentAdvanced(mod, .eager) catch unreachable).scalar;
                 }
+
+                return (ptr_type.child.toType().abiAlignmentAdvanced(mod, .eager) catch unreachable).scalar;
             },
             .opt_type => |child| child.toType().ptrAlignmentAdvanced(mod, opt_sema),
             else => unreachable,
@@ -838,8 +836,8 @@ pub const Type = struct {
         };
     }
 
-    /// Returns 0 for 0-bit types.
-    pub fn abiAlignment(ty: Type, mod: *Module) u32 {
+    /// Never returns `none`. Asserts that all necessary type resolution is already done.
+    pub fn abiAlignment(ty: Type, mod: *Module) Alignment {
         return (ty.abiAlignmentAdvanced(mod, .eager) catch unreachable).scalar;
     }
 
@@ -848,12 +846,12 @@ pub const Type = struct {
     pub fn lazyAbiAlignment(ty: Type, mod: *Module) !Value {
         switch (try ty.abiAlignmentAdvanced(mod, .lazy)) {
             .val => |val| return val,
-            .scalar => |x| return mod.intValue(Type.comptime_int, x),
+            .scalar => |x| return mod.intValue(Type.comptime_int, x.toByteUnits(0)),
         }
     }
 
     pub const AbiAlignmentAdvanced = union(enum) {
-        scalar: u32,
+        scalar: Alignment,
         val: Value,
     };
 
@@ -883,36 +881,39 @@ pub const Type = struct {
         };
 
         switch (ty.toIntern()) {
-            .empty_struct_type => return AbiAlignmentAdvanced{ .scalar = 0 },
+            .empty_struct_type => return AbiAlignmentAdvanced{ .scalar = .@"1" },
             else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| {
-                    if (int_type.bits == 0) return AbiAlignmentAdvanced{ .scalar = 0 };
-                    return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(int_type.bits, target) };
+                    if (int_type.bits == 0) return AbiAlignmentAdvanced{ .scalar = .@"1" };
+                    return .{ .scalar = intAbiAlignment(int_type.bits, target) };
                 },
                 .ptr_type, .anyframe_type => {
-                    return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
+                    return .{ .scalar = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8)) };
                 },
                 .array_type => |array_type| {
                     return array_type.child.toType().abiAlignmentAdvanced(mod, strat);
                 },
                 .vector_type => |vector_type| {
                     const bits_u64 = try bitSizeAdvanced(vector_type.child.toType(), mod, opt_sema);
-                    const bits = @as(u32, @intCast(bits_u64));
+                    const bits: u32 = @intCast(bits_u64);
                     const bytes = ((bits * vector_type.len) + 7) / 8;
                     const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
-                    return AbiAlignmentAdvanced{ .scalar = alignment };
+                    return .{ .scalar = Alignment.fromByteUnits(alignment) };
                 },
 
                 .opt_type => return abiAlignmentAdvancedOptional(ty, mod, strat),
                 .error_union_type => |info| return abiAlignmentAdvancedErrorUnion(ty, mod, strat, info.payload_type.toType()),
 
-                // TODO revisit this when we have the concept of the error tag type
-                .error_set_type, .inferred_error_set_type => return AbiAlignmentAdvanced{ .scalar = 2 },
+                .error_set_type, .inferred_error_set_type => {
+                    const bits = mod.errorSetBits();
+                    if (bits == 0) return AbiAlignmentAdvanced{ .scalar = .@"1" };
+                    return .{ .scalar = intAbiAlignment(bits, target) };
+                },
 
                 // represents machine code; not a pointer
-                .func_type => |func_type| return AbiAlignmentAdvanced{
-                    .scalar = if (func_type.alignment.toByteUnitsOptional()) |a|
-                        @as(u32, @intCast(a))
+                .func_type => |func_type| return .{
+                    .scalar = if (func_type.alignment != .none)
+                        func_type.alignment
                     else
                         target_util.defaultFunctionAlignment(target),
                 },
@@ -928,47 +929,51 @@ pub const Type = struct {
                     .call_modifier,
                     .prefetch_options,
                     .anyopaque,
-                    => return AbiAlignmentAdvanced{ .scalar = 1 },
+                    => return .{ .scalar = .@"1" },
 
                     .usize,
                     .isize,
                     .export_options,
                     .extern_options,
-                    => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
+                    .type_info,
+                    => return .{
+                        .scalar = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8)),
+                    },
 
-                    .c_char => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.char) },
-                    .c_short => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.short) },
-                    .c_ushort => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ushort) },
-                    .c_int => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.int) },
-                    .c_uint => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.uint) },
-                    .c_long => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.long) },
-                    .c_ulong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ulong) },
-                    .c_longlong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longlong) },
-                    .c_ulonglong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ulonglong) },
-                    .c_longdouble => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
+                    .c_char => return .{ .scalar = cTypeAlign(target, .char) },
+                    .c_short => return .{ .scalar = cTypeAlign(target, .short) },
+                    .c_ushort => return .{ .scalar = cTypeAlign(target, .ushort) },
+                    .c_int => return .{ .scalar = cTypeAlign(target, .int) },
+                    .c_uint => return .{ .scalar = cTypeAlign(target, .uint) },
+                    .c_long => return .{ .scalar = cTypeAlign(target, .long) },
+                    .c_ulong => return .{ .scalar = cTypeAlign(target, .ulong) },
+                    .c_longlong => return .{ .scalar = cTypeAlign(target, .longlong) },
+                    .c_ulonglong => return .{ .scalar = cTypeAlign(target, .ulonglong) },
+                    .c_longdouble => return .{ .scalar = cTypeAlign(target, .longdouble) },
 
-                    .f16 => return AbiAlignmentAdvanced{ .scalar = 2 },
-                    .f32 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.float) },
+                    .f16 => return .{ .scalar = .@"2" },
+                    .f32 => return .{ .scalar = cTypeAlign(target, .float) },
                     .f64 => switch (target.c_type_bit_size(.double)) {
-                        64 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.double) },
-                        else => return AbiAlignmentAdvanced{ .scalar = 8 },
+                        64 => return .{ .scalar = cTypeAlign(target, .double) },
+                        else => return .{ .scalar = .@"8" },
                     },
                     .f80 => switch (target.c_type_bit_size(.longdouble)) {
-                        80 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
+                        80 => return .{ .scalar = cTypeAlign(target, .longdouble) },
                         else => {
                             const u80_ty: Type = .{ .ip_index = .u80_type };
-                            return AbiAlignmentAdvanced{ .scalar = abiAlignment(u80_ty, mod) };
+                            return .{ .scalar = abiAlignment(u80_ty, mod) };
                         },
                     },
                     .f128 => switch (target.c_type_bit_size(.longdouble)) {
-                        128 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
-                        else => return AbiAlignmentAdvanced{ .scalar = 16 },
+                        128 => return .{ .scalar = cTypeAlign(target, .longdouble) },
+                        else => return .{ .scalar = .@"16" },
                     },
 
-                    // TODO revisit this when we have the concept of the error tag type
-                    .anyerror,
-                    .adhoc_inferred_error_set,
-                    => return AbiAlignmentAdvanced{ .scalar = 2 },
+                    .anyerror, .adhoc_inferred_error_set => {
+                        const bits = mod.errorSetBits();
+                        if (bits == 0) return AbiAlignmentAdvanced{ .scalar = .@"1" };
+                        return .{ .scalar = intAbiAlignment(bits, target) };
+                    },
 
                     .void,
                     .type,
@@ -977,90 +982,46 @@ pub const Type = struct {
                     .null,
                     .undefined,
                     .enum_literal,
-                    .type_info,
-                    => return AbiAlignmentAdvanced{ .scalar = 0 },
+                    => return .{ .scalar = .@"1" },
 
                     .noreturn => unreachable,
                     .generic_poison => unreachable,
                 },
                 .struct_type => |struct_type| {
-                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse
-                        return AbiAlignmentAdvanced{ .scalar = 0 };
-
-                    if (opt_sema) |sema| {
-                        if (struct_obj.status == .field_types_wip) {
-                            // We'll guess "pointer-aligned", if the struct has an
-                            // underaligned pointer field then some allocations
-                            // might require explicit alignment.
-                            return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
+                    if (struct_type.layout == .Packed) {
+                        switch (strat) {
+                            .sema => |sema| try sema.resolveTypeLayout(ty),
+                            .lazy => if (struct_type.backingIntType(ip).* == .none) return .{
+                                .val = (try mod.intern(.{ .int = .{
+                                    .ty = .comptime_int_type,
+                                    .storage = .{ .lazy_align = ty.toIntern() },
+                                } })).toValue(),
+                            },
+                            .eager => {},
                         }
-                        _ = try sema.resolveTypeFields(ty);
+                        return .{ .scalar = struct_type.backingIntType(ip).toType().abiAlignment(mod) };
                     }
-                    if (!struct_obj.haveFieldTypes()) switch (strat) {
-                        .eager => unreachable, // struct layout not resolved
-                        .sema => unreachable, // handled above
-                        .lazy => return .{ .val = (try mod.intern(.{ .int = .{
+
+                    const flags = struct_type.flagsPtr(ip).*;
+                    if (flags.alignment != .none) return .{ .scalar = flags.alignment };
+
+                    return switch (strat) {
+                        .eager => unreachable, // struct alignment not resolved
+                        .sema => |sema| .{
+                            .scalar = try sema.resolveStructAlignment(ty.toIntern(), struct_type),
+                        },
+                        .lazy => .{ .val = (try mod.intern(.{ .int = .{
                             .ty = .comptime_int_type,
                             .storage = .{ .lazy_align = ty.toIntern() },
                         } })).toValue() },
                     };
-                    if (struct_obj.layout == .Packed) {
-                        switch (strat) {
-                            .sema => |sema| try sema.resolveTypeLayout(ty),
-                            .lazy => if (!struct_obj.haveLayout()) return .{ .val = (try mod.intern(.{ .int = .{
-                                .ty = .comptime_int_type,
-                                .storage = .{ .lazy_align = ty.toIntern() },
-                            } })).toValue() },
-                            .eager => {},
-                        }
-                        assert(struct_obj.haveLayout());
-                        return AbiAlignmentAdvanced{ .scalar = struct_obj.backing_int_ty.abiAlignment(mod) };
-                    }
-
-                    const fields = ty.structFields(mod);
-                    var big_align: u32 = 0;
-                    for (fields.values()) |field| {
-                        if (!(field.ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                            error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
-                                .ty = .comptime_int_type,
-                                .storage = .{ .lazy_align = ty.toIntern() },
-                            } })).toValue() },
-                            else => |e| return e,
-                        })) continue;
-
-                        const field_align = @as(u32, @intCast(field.abi_align.toByteUnitsOptional() orelse
-                            switch (try field.ty.abiAlignmentAdvanced(mod, strat)) {
-                            .scalar => |a| a,
-                            .val => switch (strat) {
-                                .eager => unreachable, // struct layout not resolved
-                                .sema => unreachable, // handled above
-                                .lazy => return .{ .val = (try mod.intern(.{ .int = .{
-                                    .ty = .comptime_int_type,
-                                    .storage = .{ .lazy_align = ty.toIntern() },
-                                } })).toValue() },
-                            },
-                        }));
-                        big_align = @max(big_align, field_align);
-
-                        // This logic is duplicated in Module.Struct.Field.alignment.
-                        if (struct_obj.layout == .Extern or target.ofmt == .c) {
-                            if (field.ty.isAbiInt(mod) and field.ty.intInfo(mod).bits >= 128) {
-                                // The C ABI requires 128 bit integer fields of structs
-                                // to be 16-bytes aligned.
-                                big_align = @max(big_align, 16);
-                            }
-                        }
-                    }
-                    return AbiAlignmentAdvanced{ .scalar = big_align };
                 },
                 .anon_struct_type => |tuple| {
-                    var big_align: u32 = 0;
+                    var big_align: Alignment = .@"1";
                     for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, val| {
                         if (val != .none) continue; // comptime field
-                        if (!(field_ty.toType().hasRuntimeBits(mod))) continue;
-
                         switch (try field_ty.toType().abiAlignmentAdvanced(mod, strat)) {
-                            .scalar => |field_align| big_align = @max(big_align, field_align),
+                            .scalar => |field_align| big_align = big_align.max(field_align),
                             .val => switch (strat) {
                                 .eager => unreachable, // field type alignment not resolved
                                 .sema => unreachable, // passed to abiAlignmentAdvanced above
@@ -1071,76 +1032,30 @@ pub const Type = struct {
                             },
                         }
                     }
-                    return AbiAlignmentAdvanced{ .scalar = big_align };
+                    return .{ .scalar = big_align };
                 },
-
                 .union_type => |union_type| {
-                    if (opt_sema) |sema| {
-                        if (union_type.flagsPtr(ip).status == .field_types_wip) {
-                            // We'll guess "pointer-aligned", if the union has an
-                            // underaligned pointer field then some allocations
-                            // might require explicit alignment.
-                            return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
-                        }
-                        _ = try sema.resolveTypeFields(ty);
-                    }
-                    if (!union_type.haveFieldTypes(ip)) switch (strat) {
+                    const flags = union_type.flagsPtr(ip).*;
+                    if (flags.alignment != .none) return .{ .scalar = flags.alignment };
+
+                    if (!union_type.haveLayout(ip)) switch (strat) {
                         .eager => unreachable, // union layout not resolved
-                        .sema => unreachable, // handled above
+                        .sema => |sema| return .{ .scalar = try sema.resolveUnionAlignment(ty, union_type) },
                         .lazy => return .{ .val = (try mod.intern(.{ .int = .{
                             .ty = .comptime_int_type,
                             .storage = .{ .lazy_align = ty.toIntern() },
                         } })).toValue() },
                     };
-                    const union_obj = ip.loadUnionType(union_type);
-                    if (union_obj.field_names.len == 0) {
-                        if (union_obj.hasTag(ip)) {
-                            return abiAlignmentAdvanced(union_obj.enum_tag_ty.toType(), mod, strat);
-                        } else {
-                            return AbiAlignmentAdvanced{
-                                .scalar = @intFromBool(union_obj.flagsPtr(ip).layout == .Extern),
-                            };
-                        }
-                    }
 
-                    var max_align: u32 = 0;
-                    if (union_obj.hasTag(ip)) max_align = union_obj.enum_tag_ty.toType().abiAlignment(mod);
-                    for (0..union_obj.field_names.len) |field_index| {
-                        const field_ty = union_obj.field_types.get(ip)[field_index].toType();
-                        const field_align = if (union_obj.field_aligns.len == 0)
-                            .none
-                        else
-                            union_obj.field_aligns.get(ip)[field_index];
-                        if (!(field_ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                            error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
-                                .ty = .comptime_int_type,
-                                .storage = .{ .lazy_align = ty.toIntern() },
-                            } })).toValue() },
-                            else => |e| return e,
-                        })) continue;
-
-                        const field_align_bytes: u32 = @intCast(field_align.toByteUnitsOptional() orelse
-                            switch (try field_ty.abiAlignmentAdvanced(mod, strat)) {
-                            .scalar => |a| a,
-                            .val => switch (strat) {
-                                .eager => unreachable, // struct layout not resolved
-                                .sema => unreachable, // handled above
-                                .lazy => return .{ .val = (try mod.intern(.{ .int = .{
-                                    .ty = .comptime_int_type,
-                                    .storage = .{ .lazy_align = ty.toIntern() },
-                                } })).toValue() },
-                            },
-                        });
-                        max_align = @max(max_align, field_align_bytes);
-                    }
-                    return AbiAlignmentAdvanced{ .scalar = max_align };
+                    return .{ .scalar = union_type.flagsPtr(ip).alignment };
                 },
-                .opaque_type => return AbiAlignmentAdvanced{ .scalar = 1 },
-                .enum_type => |enum_type| return AbiAlignmentAdvanced{ .scalar = enum_type.tag_ty.toType().abiAlignment(mod) },
+                .opaque_type => return .{ .scalar = .@"1" },
+                .enum_type => |enum_type| return .{
+                    .scalar = enum_type.tag_ty.toType().abiAlignment(mod),
+                },
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -1181,20 +1096,15 @@ pub const Type = struct {
                     } })).toValue() },
                     else => |e| return e,
                 })) {
-                    return AbiAlignmentAdvanced{ .scalar = code_align };
+                    return .{ .scalar = code_align };
                 }
-                return AbiAlignmentAdvanced{ .scalar = @max(
-                    code_align,
+                return .{ .scalar = code_align.max(
                     (try payload_ty.abiAlignmentAdvanced(mod, strat)).scalar,
                 ) };
             },
             .lazy => {
                 switch (try payload_ty.abiAlignmentAdvanced(mod, strat)) {
-                    .scalar => |payload_align| {
-                        return AbiAlignmentAdvanced{
-                            .scalar = @max(code_align, payload_align),
-                        };
-                    },
+                    .scalar => |payload_align| return .{ .scalar = code_align.max(payload_align) },
                     .val => {},
                 }
                 return .{ .val = (try mod.intern(.{ .int = .{
@@ -1214,9 +1124,11 @@ pub const Type = struct {
         const child_type = ty.optionalChild(mod);
 
         switch (child_type.zigTypeTag(mod)) {
-            .Pointer => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
+            .Pointer => return .{
+                .scalar = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8)),
+            },
             .ErrorSet => return abiAlignmentAdvanced(Type.anyerror, mod, strat),
-            .NoReturn => return AbiAlignmentAdvanced{ .scalar = 0 },
+            .NoReturn => return .{ .scalar = .@"1" },
             else => {},
         }
 
@@ -1229,12 +1141,12 @@ pub const Type = struct {
                     } })).toValue() },
                     else => |e| return e,
                 })) {
-                    return AbiAlignmentAdvanced{ .scalar = 1 };
+                    return .{ .scalar = .@"1" };
                 }
                 return child_type.abiAlignmentAdvanced(mod, strat);
             },
             .lazy => switch (try child_type.abiAlignmentAdvanced(mod, strat)) {
-                .scalar => |x| return AbiAlignmentAdvanced{ .scalar = @max(x, 1) },
+                .scalar => |x| return .{ .scalar = x.max(.@"1") },
                 .val => return .{ .val = (try mod.intern(.{ .int = .{
                     .ty = .comptime_int_type,
                     .storage = .{ .lazy_align = ty.toIntern() },
@@ -1292,6 +1204,7 @@ pub const Type = struct {
 
                 .array_type => |array_type| {
                     const len = array_type.len + @intFromBool(array_type.sentinel != .none);
+                    if (len == 0) return .{ .scalar = 0 };
                     switch (try array_type.child.toType().abiSizeAdvanced(mod, strat)) {
                         .scalar => |elem_size| return .{ .scalar = len * elem_size },
                         .val => switch (strat) {
@@ -1312,8 +1225,7 @@ pub const Type = struct {
                             .storage = .{ .lazy_size = ty.toIntern() },
                         } })).toValue() },
                     };
-                    const elem_bits_u64 = try vector_type.child.toType().bitSizeAdvanced(mod, opt_sema);
-                    const elem_bits = @as(u32, @intCast(elem_bits_u64));
+                    const elem_bits = try vector_type.child.toType().bitSizeAdvanced(mod, opt_sema);
                     const total_bits = elem_bits * vector_type.len;
                     const total_bytes = (total_bits + 7) / 8;
                     const alignment = switch (try ty.abiAlignmentAdvanced(mod, strat)) {
@@ -1323,14 +1235,16 @@ pub const Type = struct {
                             .storage = .{ .lazy_size = ty.toIntern() },
                         } })).toValue() },
                     };
-                    const result = std.mem.alignForward(u32, total_bytes, alignment);
-                    return AbiSizeAdvanced{ .scalar = result };
+                    return AbiSizeAdvanced{ .scalar = alignment.forward(total_bytes) };
                 },
 
                 .opt_type => return ty.abiSizeAdvancedOptional(mod, strat),
 
-                // TODO revisit this when we have the concept of the error tag type
-                .error_set_type, .inferred_error_set_type => return AbiSizeAdvanced{ .scalar = 2 },
+                .error_set_type, .inferred_error_set_type => {
+                    const bits = mod.errorSetBits();
+                    if (bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
+                    return AbiSizeAdvanced{ .scalar = intAbiSize(bits, target) };
+                },
 
                 .error_union_type => |error_union_type| {
                     const payload_ty = error_union_type.payload_type.toType();
@@ -1362,16 +1276,16 @@ pub const Type = struct {
                     };
 
                     var size: u64 = 0;
-                    if (code_align > payload_align) {
+                    if (code_align.compare(.gt, payload_align)) {
                         size += code_size;
-                        size = std.mem.alignForward(u64, size, payload_align);
+                        size = payload_align.forward(size);
                         size += payload_size;
-                        size = std.mem.alignForward(u64, size, code_align);
+                        size = code_align.forward(size);
                     } else {
                         size += payload_size;
-                        size = std.mem.alignForward(u64, size, code_align);
+                        size = code_align.forward(size);
                         size += code_size;
-                        size = std.mem.alignForward(u64, size, payload_align);
+                        size = payload_align.forward(size);
                     }
                     return AbiSizeAdvanced{ .scalar = size };
                 },
@@ -1424,10 +1338,11 @@ pub const Type = struct {
                     .enum_literal,
                     => return AbiSizeAdvanced{ .scalar = 0 },
 
-                    // TODO revisit this when we have the concept of the error tag type
-                    .anyerror,
-                    .adhoc_inferred_error_set,
-                    => return AbiSizeAdvanced{ .scalar = 2 },
+                    .anyerror, .adhoc_inferred_error_set => {
+                        const bits = mod.errorSetBits();
+                        if (bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
+                        return AbiSizeAdvanced{ .scalar = intAbiSize(bits, target) };
+                    },
 
                     .prefetch_options => unreachable, // missing call to resolveTypeFields
                     .export_options => unreachable, // missing call to resolveTypeFields
@@ -1437,41 +1352,35 @@ pub const Type = struct {
                     .noreturn => unreachable,
                     .generic_poison => unreachable,
                 },
-                .struct_type => |struct_type| switch (ty.containerLayout(mod)) {
-                    .Packed => {
-                        const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse
-                            return AbiSizeAdvanced{ .scalar = 0 };
-
-                        switch (strat) {
-                            .sema => |sema| try sema.resolveTypeLayout(ty),
-                            .lazy => if (!struct_obj.haveLayout()) return .{ .val = (try mod.intern(.{ .int = .{
-                                .ty = .comptime_int_type,
-                                .storage = .{ .lazy_size = ty.toIntern() },
-                            } })).toValue() },
-                            .eager => {},
-                        }
-                        assert(struct_obj.haveLayout());
-                        return AbiSizeAdvanced{ .scalar = struct_obj.backing_int_ty.abiSize(mod) };
-                    },
-                    else => {
-                        switch (strat) {
-                            .sema => |sema| try sema.resolveTypeLayout(ty),
-                            .lazy => {
-                                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse
-                                    return AbiSizeAdvanced{ .scalar = 0 };
-                                if (!struct_obj.haveLayout()) return .{ .val = (try mod.intern(.{ .int = .{
-                                    .ty = .comptime_int_type,
-                                    .storage = .{ .lazy_size = ty.toIntern() },
-                                } })).toValue() };
+                .struct_type => |struct_type| {
+                    switch (strat) {
+                        .sema => |sema| try sema.resolveTypeLayout(ty),
+                        .lazy => switch (struct_type.layout) {
+                            .Packed => {
+                                if (struct_type.backingIntType(ip).* == .none) return .{
+                                    .val = (try mod.intern(.{ .int = .{
+                                        .ty = .comptime_int_type,
+                                        .storage = .{ .lazy_size = ty.toIntern() },
+                                    } })).toValue(),
+                                };
                             },
-                            .eager => {},
-                        }
-                        const field_count = ty.structFieldCount(mod);
-                        if (field_count == 0) {
-                            return AbiSizeAdvanced{ .scalar = 0 };
-                        }
-                        return AbiSizeAdvanced{ .scalar = ty.structFieldOffset(field_count, mod) };
-                    },
+                            .Auto, .Extern => {
+                                if (!struct_type.haveLayout(ip)) return .{
+                                    .val = (try mod.intern(.{ .int = .{
+                                        .ty = .comptime_int_type,
+                                        .storage = .{ .lazy_size = ty.toIntern() },
+                                    } })).toValue(),
+                                };
+                            },
+                        },
+                        .eager => {},
+                    }
+                    return switch (struct_type.layout) {
+                        .Packed => .{
+                            .scalar = struct_type.backingIntType(ip).toType().abiSize(mod),
+                        },
+                        .Auto, .Extern => .{ .scalar = struct_type.size(ip).* },
+                    };
                 },
                 .anon_struct_type => |tuple| {
                     switch (strat) {
@@ -1496,15 +1405,14 @@ pub const Type = struct {
                         },
                         .eager => {},
                     }
-                    const union_obj = ip.loadUnionType(union_type);
-                    return AbiSizeAdvanced{ .scalar = mod.unionAbiSize(union_obj) };
+
+                    return .{ .scalar = union_type.size(ip).* };
                 },
                 .opaque_type => unreachable, // no size available
                 .enum_type => |enum_type| return AbiSizeAdvanced{ .scalar = enum_type.tag_ty.toType().abiSize(mod) },
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -1567,20 +1475,19 @@ pub const Type = struct {
         // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal
         // to the child type's ABI alignment.
         return AbiSizeAdvanced{
-            .scalar = child_ty.abiAlignment(mod) + payload_size,
+            .scalar = child_ty.abiAlignment(mod).toByteUnits(0) + payload_size,
         };
     }
 
     fn intAbiSize(bits: u16, target: Target) u64 {
-        const alignment = intAbiAlignment(bits, target);
-        return std.mem.alignForward(u64, @as(u16, @intCast((@as(u17, bits) + 7) / 8)), alignment);
+        return intAbiAlignment(bits, target).forward(@as(u16, @intCast((@as(u17, bits) + 7) / 8)));
     }
 
-    fn intAbiAlignment(bits: u16, target: Target) u32 {
-        return @min(
+    fn intAbiAlignment(bits: u16, target: Target) Alignment {
+        return Alignment.fromByteUnits(@min(
             std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
             target.maxIntAlignment(),
-        );
+        ));
     }
 
     pub fn bitSize(ty: Type, mod: *Module) u64 {
@@ -1612,7 +1519,10 @@ pub const Type = struct {
                 const len = array_type.len + @intFromBool(array_type.sentinel != .none);
                 if (len == 0) return 0;
                 const elem_ty = array_type.child.toType();
-                const elem_size = @max(elem_ty.abiAlignment(mod), elem_ty.abiSize(mod));
+                const elem_size = @max(
+                    (try elem_ty.abiAlignmentAdvanced(mod, strat)).scalar.toByteUnits(0),
+                    (try elem_ty.abiSizeAdvanced(mod, strat)).scalar,
+                );
                 if (elem_size == 0) return 0;
                 const elem_bit_size = try bitSizeAdvanced(elem_ty, mod, opt_sema);
                 return (len - 1) * 8 * elem_size + elem_bit_size;
@@ -1628,8 +1538,7 @@ pub const Type = struct {
                 return (try abiSizeAdvanced(ty, mod, strat)).scalar * 8;
             },
 
-            // TODO revisit this when we have the concept of the error tag type
-            .error_set_type, .inferred_error_set_type => return 16,
+            .error_set_type, .inferred_error_set_type => return mod.errorSetBits(),
 
             .error_union_type => {
                 // Optionals and error unions are not packed so their bitsize
@@ -1662,10 +1571,9 @@ pub const Type = struct {
                 .bool => return 1,
                 .void => return 0,
 
-                // TODO revisit this when we have the concept of the error tag type
                 .anyerror,
                 .adhoc_inferred_error_set,
-                => return 16,
+                => return mod.errorSetBits(),
 
                 .anyopaque => unreachable,
                 .type => unreachable,
@@ -1677,36 +1585,38 @@ pub const Type = struct {
                 .enum_literal => unreachable,
                 .generic_poison => unreachable,
 
-                .atomic_order => unreachable, // missing call to resolveTypeFields
-                .atomic_rmw_op => unreachable, // missing call to resolveTypeFields
-                .calling_convention => unreachable, // missing call to resolveTypeFields
-                .address_space => unreachable, // missing call to resolveTypeFields
-                .float_mode => unreachable, // missing call to resolveTypeFields
-                .reduce_op => unreachable, // missing call to resolveTypeFields
-                .call_modifier => unreachable, // missing call to resolveTypeFields
-                .prefetch_options => unreachable, // missing call to resolveTypeFields
-                .export_options => unreachable, // missing call to resolveTypeFields
-                .extern_options => unreachable, // missing call to resolveTypeFields
-                .type_info => unreachable, // missing call to resolveTypeFields
+                .atomic_order => unreachable,
+                .atomic_rmw_op => unreachable,
+                .calling_convention => unreachable,
+                .address_space => unreachable,
+                .float_mode => unreachable,
+                .reduce_op => unreachable,
+                .call_modifier => unreachable,
+                .prefetch_options => unreachable,
+                .export_options => unreachable,
+                .extern_options => unreachable,
+                .type_info => unreachable,
             },
             .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return 0;
-                if (struct_obj.layout != .Packed) {
-                    return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
+                if (struct_type.layout == .Packed) {
+                    if (opt_sema) |sema| try sema.resolveTypeLayout(ty);
+                    return try struct_type.backingIntType(ip).*.toType().bitSizeAdvanced(mod, opt_sema);
                 }
-                if (opt_sema) |sema| _ = try sema.resolveTypeLayout(ty);
-                assert(struct_obj.haveLayout());
-                return try struct_obj.backing_int_ty.bitSizeAdvanced(mod, opt_sema);
+                return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
             },
 
             .anon_struct_type => {
-                if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
+                if (opt_sema) |sema| try sema.resolveTypeFields(ty);
                 return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
             },
 
             .union_type => |union_type| {
-                if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
-                if (ty.containerLayout(mod) != .Packed) {
+                const is_packed = ty.containerLayout(mod) == .Packed;
+                if (opt_sema) |sema| {
+                    try sema.resolveTypeFields(ty);
+                    if (is_packed) try sema.resolveTypeLayout(ty);
+                }
+                if (!is_packed) {
                     return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
                 }
                 const union_obj = ip.loadUnionType(union_type);
@@ -1717,6 +1627,7 @@ pub const Type = struct {
                     const field_ty = union_obj.field_types.get(ip)[field_index];
                     size = @max(size, try bitSizeAdvanced(field_ty.toType(), mod, opt_sema));
                 }
+
                 return size;
             },
             .opaque_type => unreachable,
@@ -1724,7 +1635,6 @@ pub const Type = struct {
 
             // values, not types
             .undef,
-            .runtime_value,
             .simple_value,
             .variable,
             .extern_func,
@@ -1751,13 +1661,7 @@ pub const Type = struct {
     pub fn layoutIsResolved(ty: Type, mod: *Module) bool {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
-            .struct_type => |struct_type| {
-                if (mod.structPtrUnwrap(struct_type.index)) |struct_obj| {
-                    return struct_obj.haveLayout();
-                } else {
-                    return true;
-                }
-            },
+            .struct_type => |struct_type| struct_type.haveLayout(ip),
             .union_type => |union_type| union_type.haveLayout(ip),
             .array_type => |array_type| {
                 if ((array_type.len + @intFromBool(array_type.sentinel != .none)) == 0) return true;
@@ -1991,11 +1895,12 @@ pub const Type = struct {
         return union_obj.enum_tag_ty.toType();
     }
 
-    pub fn unionFieldType(ty: Type, enum_tag: Value, mod: *Module) Type {
+    pub fn unionFieldType(ty: Type, enum_tag: Value, mod: *Module) ?Type {
         const ip = &mod.intern_pool;
         const union_obj = mod.typeToUnion(ty).?;
-        const index = mod.unionTagFieldIndex(union_obj, enum_tag).?;
-        return union_obj.field_types.get(ip)[index].toType();
+        const union_fields = union_obj.field_types.get(ip);
+        const index = mod.unionTagFieldIndex(union_obj, enum_tag) orelse return null;
+        return union_fields[index].toType();
     }
 
     pub fn unionTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?u32 {
@@ -2012,6 +1917,16 @@ pub const Type = struct {
         return true;
     }
 
+    /// Returns the type used for backing storage of this union during comptime operations.
+    /// Asserts the type is either an extern or packed union.
+    pub fn unionBackingType(ty: Type, mod: *Module) !Type {
+        return switch (ty.containerLayout(mod)) {
+            .Extern => try mod.arrayType(.{ .len = ty.abiSize(mod), .child = .u8_type }),
+            .Packed => try mod.intType(.unsigned, @intCast(ty.bitSize(mod))),
+            .Auto => unreachable,
+        };
+    }
+
     pub fn unionGetLayout(ty: Type, mod: *Module) Module.UnionLayout {
         const ip = &mod.intern_pool;
         const union_type = ip.indexToKey(ty.toIntern()).union_type;
@@ -2022,10 +1937,7 @@ pub const Type = struct {
     pub fn containerLayout(ty: Type, mod: *Module) std.builtin.Type.ContainerLayout {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
-            .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return .Auto;
-                return struct_obj.layout;
-            },
+            .struct_type => |struct_type| struct_type.layout,
             .anon_struct_type => .Auto,
             .union_type => |union_type| union_type.flagsPtr(ip).layout,
             else => unreachable,
@@ -2138,10 +2050,7 @@ pub const Type = struct {
         return switch (ip.indexToKey(ty.toIntern())) {
             .vector_type => |vector_type| vector_type.len,
             .array_type => |array_type| array_type.len,
-            .struct_type => |struct_type| {
-                const struct_obj = ip.structPtrUnwrapConst(struct_type.index) orelse return 0;
-                return struct_obj.fields.count();
-            },
+            .struct_type => |struct_type| struct_type.field_types.len,
             .anon_struct_type => |tuple| tuple.types.len,
 
             else => unreachable,
@@ -2216,13 +2125,13 @@ pub const Type = struct {
 
     /// Asserts the type is an integer, enum, error set, or vector of one of them.
     pub fn intInfo(starting_ty: Type, mod: *Module) InternPool.Key.IntType {
+        const ip = &mod.intern_pool;
         const target = mod.getTarget();
         var ty = starting_ty;
 
         while (true) switch (ty.toIntern()) {
             .anyerror_type, .adhoc_inferred_error_set_type => {
-                // TODO revisit this when error sets support custom int types
-                return .{ .signedness = .unsigned, .bits = 16 };
+                return .{ .signedness = .unsigned, .bits = mod.errorSetBits() };
             },
             .usize_type => return .{ .signedness = .unsigned, .bits = target.ptrBitWidth() },
             .isize_type => return .{ .signedness = .signed, .bits = target.ptrBitWidth() },
@@ -2235,18 +2144,15 @@ pub const Type = struct {
             .c_ulong_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulong) },
             .c_longlong_type => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.longlong) },
             .c_ulonglong_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulonglong) },
-            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| return int_type,
-                .struct_type => |struct_type| {
-                    const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-                    assert(struct_obj.layout == .Packed);
-                    ty = struct_obj.backing_int_ty;
-                },
+                .struct_type => |t| ty = t.backingIntType(ip).*.toType(),
                 .enum_type => |enum_type| ty = enum_type.tag_ty.toType(),
                 .vector_type => |vector_type| ty = vector_type.child.toType(),
 
-                // TODO revisit this when error sets support custom int types
-                .error_set_type, .inferred_error_set_type => return .{ .signedness = .unsigned, .bits = 16 },
+                .error_set_type, .inferred_error_set_type => {
+                    return .{ .signedness = .unsigned, .bits = mod.errorSetBits() };
+                },
 
                 .anon_struct_type => unreachable,
 
@@ -2264,7 +2170,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -2505,33 +2410,29 @@ pub const Type = struct {
                     .generic_poison => unreachable,
                 },
                 .struct_type => |struct_type| {
-                    if (mod.structPtrUnwrap(struct_type.index)) |s| {
-                        assert(s.haveFieldTypes());
-                        const field_vals = try mod.gpa.alloc(InternPool.Index, s.fields.count());
-                        defer mod.gpa.free(field_vals);
-                        for (field_vals, s.fields.values()) |*field_val, field| {
-                            if (field.is_comptime) {
-                                field_val.* = field.default_val;
-                                continue;
-                            }
-                            if (try field.ty.onePossibleValue(mod)) |field_opv| {
-                                field_val.* = try field_opv.intern(field.ty, mod);
-                            } else return null;
+                    assert(struct_type.haveFieldTypes(ip));
+                    if (struct_type.knownNonOpv(ip))
+                        return null;
+                    const field_vals = try mod.gpa.alloc(InternPool.Index, struct_type.field_types.len);
+                    defer mod.gpa.free(field_vals);
+                    for (field_vals, 0..) |*field_val, i_usize| {
+                        const i: u32 = @intCast(i_usize);
+                        if (struct_type.fieldIsComptime(ip, i)) {
+                            assert(struct_type.haveFieldInits(ip));
+                            field_val.* = struct_type.field_inits.get(ip)[i];
+                            continue;
                         }
-
-                        // In this case the struct has no runtime-known fields and
-                        // therefore has one possible value.
-                        return (try mod.intern(.{ .aggregate = .{
-                            .ty = ty.toIntern(),
-                            .storage = .{ .elems = field_vals },
-                        } })).toValue();
+                        const field_ty = struct_type.field_types.get(ip)[i].toType();
+                        if (try field_ty.onePossibleValue(mod)) |field_opv| {
+                            field_val.* = try field_opv.intern(field_ty, mod);
+                        } else return null;
                     }
 
-                    // In this case the struct has no fields at all and
+                    // In this case the struct has no runtime-known fields and
                     // therefore has one possible value.
                     return (try mod.intern(.{ .aggregate = .{
                         .ty = ty.toIntern(),
-                        .storage = .{ .elems = &.{} },
+                        .storage = .{ .elems = field_vals },
                     } })).toValue();
                 },
 
@@ -2612,7 +2513,6 @@ pub const Type = struct {
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -2637,9 +2537,14 @@ pub const Type = struct {
 
     /// During semantic analysis, instead call `Sema.typeRequiresComptime` which
     /// resolves field types rather than asserting they are already resolved.
-    /// TODO merge these implementations together with the "advanced" pattern seen
-    /// elsewhere in this file.
     pub fn comptimeOnly(ty: Type, mod: *Module) bool {
+        return ty.comptimeOnlyAdvanced(mod, null) catch unreachable;
+    }
+
+    /// `generic_poison` will return false.
+    /// May return false negatives when structs and unions are having their field types resolved.
+    /// If `opt_sema` is not provided, asserts that the type is sufficiently resolved.
+    pub fn comptimeOnlyAdvanced(ty: Type, mod: *Module, opt_sema: ?*Sema) Module.CompileError!bool {
         const ip = &mod.intern_pool;
         return switch (ty.toIntern()) {
             .empty_struct_type => false,
@@ -2649,19 +2554,19 @@ pub const Type = struct {
                 .ptr_type => |ptr_type| {
                     const child_ty = ptr_type.child.toType();
                     switch (child_ty.zigTypeTag(mod)) {
-                        .Fn => return mod.typeToFunc(child_ty).?.is_generic,
+                        .Fn => return !try child_ty.fnHasRuntimeBitsAdvanced(mod, opt_sema),
                         .Opaque => return false,
-                        else => return child_ty.comptimeOnly(mod),
+                        else => return child_ty.comptimeOnlyAdvanced(mod, opt_sema),
                     }
                 },
                 .anyframe_type => |child| {
                     if (child == .none) return false;
-                    return child.toType().comptimeOnly(mod);
+                    return child.toType().comptimeOnlyAdvanced(mod, opt_sema);
                 },
-                .array_type => |array_type| array_type.child.toType().comptimeOnly(mod),
-                .vector_type => |vector_type| vector_type.child.toType().comptimeOnly(mod),
-                .opt_type => |child| child.toType().comptimeOnly(mod),
-                .error_union_type => |error_union_type| error_union_type.payload_type.toType().comptimeOnly(mod),
+                .array_type => |array_type| return array_type.child.toType().comptimeOnlyAdvanced(mod, opt_sema),
+                .vector_type => |vector_type| return vector_type.child.toType().comptimeOnlyAdvanced(mod, opt_sema),
+                .opt_type => |child| return child.toType().comptimeOnlyAdvanced(mod, opt_sema),
+                .error_union_type => |error_union_type| return error_union_type.payload_type.toType().comptimeOnlyAdvanced(mod, opt_sema),
 
                 .error_set_type,
                 .inferred_error_set_type,
@@ -2717,48 +2622,90 @@ pub const Type = struct {
                     => true,
                 },
                 .struct_type => |struct_type| {
+                    // packed structs cannot be comptime-only because they have a well-defined
+                    // memory layout and every field has a well-defined bit pattern.
+                    if (struct_type.layout == .Packed)
+                        return false;
+
                     // A struct with no fields is not comptime-only.
-                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
-                    switch (struct_obj.requires_comptime) {
-                        .wip, .unknown => {
-                            // Return false to avoid incorrect dependency loops.
-                            // This will be handled correctly once merged with
-                            // `Sema.typeRequiresComptime`.
+                    return switch (struct_type.flagsPtr(ip).requires_comptime) {
+                        .no, .wip => false,
+                        .yes => true,
+                        .unknown => {
+                            // The type is not resolved; assert that we have a Sema.
+                            const sema = opt_sema.?;
+
+                            if (struct_type.flagsPtr(ip).field_types_wip)
+                                return false;
+
+                            struct_type.flagsPtr(ip).requires_comptime = .wip;
+                            errdefer struct_type.flagsPtr(ip).requires_comptime = .unknown;
+
+                            try sema.resolveTypeFieldsStruct(ty.toIntern(), struct_type);
+
+                            for (0..struct_type.field_types.len) |i_usize| {
+                                const i: u32 = @intCast(i_usize);
+                                if (struct_type.fieldIsComptime(ip, i)) continue;
+                                const field_ty = struct_type.field_types.get(ip)[i];
+                                if (try field_ty.toType().comptimeOnlyAdvanced(mod, opt_sema)) {
+                                    // Note that this does not cause the layout to
+                                    // be considered resolved. Comptime-only types
+                                    // still maintain a layout of their
+                                    // runtime-known fields.
+                                    struct_type.flagsPtr(ip).requires_comptime = .yes;
+                                    return true;
+                                }
+                            }
+
+                            struct_type.flagsPtr(ip).requires_comptime = .no;
                             return false;
                         },
-                        .no => return false,
-                        .yes => return true,
-                    }
+                    };
                 },
 
                 .anon_struct_type => |tuple| {
                     for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, val| {
                         const have_comptime_val = val != .none;
-                        if (!have_comptime_val and field_ty.toType().comptimeOnly(mod)) return true;
+                        if (!have_comptime_val and try field_ty.toType().comptimeOnlyAdvanced(mod, opt_sema)) return true;
                     }
                     return false;
                 },
 
-                .union_type => |union_type| {
-                    switch (union_type.flagsPtr(ip).requires_comptime) {
-                        .wip, .unknown => {
-                            // Return false to avoid incorrect dependency loops.
-                            // This will be handled correctly once merged with
-                            // `Sema.typeRequiresComptime`.
+                .union_type => |union_type| switch (union_type.flagsPtr(ip).requires_comptime) {
+                    .no, .wip => false,
+                    .yes => true,
+                    .unknown => {
+                        // The type is not resolved; assert that we have a Sema.
+                        const sema = opt_sema.?;
+
+                        if (union_type.flagsPtr(ip).status == .field_types_wip)
                             return false;
-                        },
-                        .no => return false,
-                        .yes => return true,
-                    }
+
+                        union_type.flagsPtr(ip).requires_comptime = .wip;
+                        errdefer union_type.flagsPtr(ip).requires_comptime = .unknown;
+
+                        try sema.resolveTypeFieldsUnion(ty, union_type);
+
+                        const union_obj = ip.loadUnionType(union_type);
+                        for (0..union_obj.field_types.len) |field_idx| {
+                            const field_ty = union_obj.field_types.get(ip)[field_idx];
+                            if (try field_ty.toType().comptimeOnlyAdvanced(mod, opt_sema)) {
+                                union_obj.flagsPtr(ip).requires_comptime = .yes;
+                                return true;
+                            }
+                        }
+
+                        union_obj.flagsPtr(ip).requires_comptime = .no;
+                        return false;
+                    },
                 },
 
                 .opaque_type => false,
 
-                .enum_type => |enum_type| enum_type.tag_ty.toType().comptimeOnly(mod),
+                .enum_type => |enum_type| return enum_type.tag_ty.toType().comptimeOnlyAdvanced(mod, opt_sema),
 
                 // values, not types
                 .undef,
-                .runtime_value,
                 .simple_value,
                 .variable,
                 .extern_func,
@@ -2984,37 +2931,31 @@ pub const Type = struct {
         return enum_type.tagValueIndex(ip, int_tag);
     }
 
-    pub fn structFields(ty: Type, mod: *Module) Module.Struct.Fields {
-        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return .{};
-                assert(struct_obj.haveFieldTypes());
-                return struct_obj.fields;
-            },
-            else => unreachable,
-        }
-    }
-
-    pub fn structFieldName(ty: Type, field_index: usize, mod: *Module) InternPool.NullTerminatedString {
+    /// Returns none in the case of a tuple which uses the integer index as the field name.
+    pub fn structFieldName(ty: Type, field_index: u32, mod: *Module) InternPool.OptionalNullTerminatedString {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
-            .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-                assert(struct_obj.haveFieldTypes());
-                return struct_obj.fields.keys()[field_index];
-            },
-            .anon_struct_type => |anon_struct| anon_struct.names.get(ip)[field_index],
+            .struct_type => |struct_type| struct_type.fieldName(ip, field_index),
+            .anon_struct_type => |anon_struct| anon_struct.fieldName(ip, field_index),
             else => unreachable,
         };
     }
 
-    pub fn structFieldCount(ty: Type, mod: *Module) usize {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return 0;
-                assert(struct_obj.haveFieldTypes());
-                return struct_obj.fields.count();
-            },
+    /// When struct types have no field names, the names are implicitly understood to be
+    /// strings corresponding to the field indexes in declaration order. It used to be the
+    /// case that a NullTerminatedString would be stored for each field in this case, however,
+    /// now, callers must handle the possibility that there are no names stored at all.
+    /// Here we fake the previous behavior. Probably something better could be done by examining
+    /// all the callsites of this function.
+    pub fn legacyStructFieldName(ty: Type, i: u32, mod: *Module) InternPool.NullTerminatedString {
+        return ty.structFieldName(i, mod).unwrap() orelse
+            mod.intern_pool.getOrPutStringFmt(mod.gpa, "{d}", .{i}) catch @panic("OOM");
+    }
+
+    pub fn structFieldCount(ty: Type, mod: *Module) u32 {
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
+            .struct_type => |struct_type| struct_type.field_types.len,
             .anon_struct_type => |anon_struct| anon_struct.types.len,
             else => unreachable,
         };
@@ -3024,11 +2965,7 @@ pub const Type = struct {
     pub fn structFieldType(ty: Type, index: usize, mod: *Module) Type {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
-            .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-                assert(struct_obj.haveFieldTypes());
-                return struct_obj.fields.values()[index].ty;
-            },
+            .struct_type => |struct_type| struct_type.field_types.get(ip)[index].toType(),
             .union_type => |union_type| {
                 const union_obj = ip.loadUnionType(union_type);
                 return union_obj.field_types.get(ip)[index].toType();
@@ -3038,13 +2975,14 @@ pub const Type = struct {
         };
     }
 
-    pub fn structFieldAlign(ty: Type, index: usize, mod: *Module) u32 {
+    pub fn structFieldAlign(ty: Type, index: usize, mod: *Module) Alignment {
         const ip = &mod.intern_pool;
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-                assert(struct_obj.layout != .Packed);
-                return struct_obj.fields.values()[index].alignment(mod, struct_obj.layout);
+                assert(struct_type.layout != .Packed);
+                const explicit_align = struct_type.fieldAlign(ip, index);
+                const field_ty = struct_type.field_types.get(ip)[index].toType();
+                return mod.structFieldAlignment(explicit_align, field_ty, struct_type.layout);
             },
             .anon_struct_type => |anon_struct| {
                 return anon_struct.types.get(ip)[index].toType().abiAlignment(mod);
@@ -3061,8 +2999,7 @@ pub const Type = struct {
         const ip = &mod.intern_pool;
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-                const val = struct_obj.fields.values()[index].default_val;
+                const val = struct_type.fieldInit(ip, index);
                 // TODO: avoid using `unreachable` to indicate this.
                 if (val == .none) return Value.@"unreachable";
                 return val.toValue();
@@ -3081,12 +3018,11 @@ pub const Type = struct {
         const ip = &mod.intern_pool;
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-                const field = struct_obj.fields.values()[index];
-                if (field.is_comptime) {
-                    return field.default_val.toValue();
+                assert(struct_type.haveFieldInits(ip));
+                if (struct_type.fieldIsComptime(ip, index)) {
+                    return struct_type.field_inits.get(ip)[index].toValue();
                 } else {
-                    return field.ty.onePossibleValue(mod);
+                    return struct_type.field_types.get(ip)[index].toType().onePossibleValue(mod);
                 }
             },
             .anon_struct_type => |tuple| {
@@ -3104,38 +3040,10 @@ pub const Type = struct {
     pub fn structFieldIsComptime(ty: Type, index: usize, mod: *Module) bool {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
-            .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-                if (struct_obj.layout == .Packed) return false;
-                const field = struct_obj.fields.values()[index];
-                return field.is_comptime;
-            },
+            .struct_type => |struct_type| struct_type.fieldIsComptime(ip, index),
             .anon_struct_type => |anon_struct| anon_struct.values.get(ip)[index] != .none,
             else => unreachable,
         };
-    }
-
-    pub fn packedStructFieldByteOffset(ty: Type, field_index: usize, mod: *Module) u32 {
-        const struct_type = mod.intern_pool.indexToKey(ty.toIntern()).struct_type;
-        const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-        assert(struct_obj.layout == .Packed);
-        comptime assert(Type.packed_struct_layout_version == 2);
-
-        var bit_offset: u16 = undefined;
-        var elem_size_bits: u16 = undefined;
-        var running_bits: u16 = 0;
-        for (struct_obj.fields.values(), 0..) |f, i| {
-            if (!f.ty.hasRuntimeBits(mod)) continue;
-
-            const field_bits = @as(u16, @intCast(f.ty.bitSize(mod)));
-            if (i == field_index) {
-                bit_offset = running_bits;
-                elem_size_bits = field_bits;
-            }
-            running_bits += field_bits;
-        }
-        const byte_offset = bit_offset / 8;
-        return byte_offset;
     }
 
     pub const FieldOffset = struct {
@@ -3143,68 +3051,19 @@ pub const Type = struct {
         offset: u64,
     };
 
-    pub const StructOffsetIterator = struct {
-        field: usize = 0,
-        offset: u64 = 0,
-        big_align: u32 = 0,
-        struct_obj: *Module.Struct,
-        module: *Module,
-
-        pub fn next(it: *StructOffsetIterator) ?FieldOffset {
-            const mod = it.module;
-            var i = it.field;
-            if (it.struct_obj.fields.count() <= i)
-                return null;
-
-            if (it.struct_obj.optimized_order) |some| {
-                i = some[i];
-                if (i == Module.Struct.omitted_field) return null;
-            }
-            const field = it.struct_obj.fields.values()[i];
-            it.field += 1;
-
-            if (field.is_comptime or !field.ty.hasRuntimeBits(mod)) {
-                return FieldOffset{ .field = i, .offset = it.offset };
-            }
-
-            const field_align = field.alignment(mod, it.struct_obj.layout);
-            it.big_align = @max(it.big_align, field_align);
-            const field_offset = std.mem.alignForward(u64, it.offset, field_align);
-            it.offset = field_offset + field.ty.abiSize(mod);
-            return FieldOffset{ .field = i, .offset = field_offset };
-        }
-    };
-
-    /// Get an iterator that iterates over all the struct field, returning the field and
-    /// offset of that field. Asserts that the type is a non-packed struct.
-    pub fn iterateStructOffsets(ty: Type, mod: *Module) StructOffsetIterator {
-        const struct_type = mod.intern_pool.indexToKey(ty.toIntern()).struct_type;
-        const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-        assert(struct_obj.haveLayout());
-        assert(struct_obj.layout != .Packed);
-        return .{ .struct_obj = struct_obj, .module = mod };
-    }
-
     /// Supports structs and unions.
     pub fn structFieldOffset(ty: Type, index: usize, mod: *Module) u64 {
         const ip = &mod.intern_pool;
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-                assert(struct_obj.haveLayout());
-                assert(struct_obj.layout != .Packed);
-                var it = ty.iterateStructOffsets(mod);
-                while (it.next()) |field_offset| {
-                    if (index == field_offset.field)
-                        return field_offset.offset;
-                }
-
-                return std.mem.alignForward(u64, it.offset, @max(it.big_align, 1));
+                assert(struct_type.haveLayout(ip));
+                assert(struct_type.layout != .Packed);
+                return struct_type.offsets.get(ip)[index];
             },
 
             .anon_struct_type => |tuple| {
                 var offset: u64 = 0;
-                var big_align: u32 = 0;
+                var big_align: Alignment = .none;
 
                 for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty, field_val, i| {
                     if (field_val != .none or !field_ty.toType().hasRuntimeBits(mod)) {
@@ -3214,12 +3073,12 @@ pub const Type = struct {
                     }
 
                     const field_align = field_ty.toType().abiAlignment(mod);
-                    big_align = @max(big_align, field_align);
-                    offset = std.mem.alignForward(u64, offset, field_align);
+                    big_align = big_align.max(field_align);
+                    offset = field_align.forward(offset);
                     if (i == index) return offset;
                     offset += field_ty.toType().abiSize(mod);
                 }
-                offset = std.mem.alignForward(u64, offset, @max(big_align, 1));
+                offset = big_align.max(.@"1").forward(offset);
                 return offset;
             },
 
@@ -3228,9 +3087,9 @@ pub const Type = struct {
                     return 0;
                 const union_obj = ip.loadUnionType(union_type);
                 const layout = mod.getUnionLayout(union_obj);
-                if (layout.tag_align >= layout.payload_align) {
+                if (layout.tag_align.compare(.gte, layout.payload_align)) {
                     // {Tag, Payload}
-                    return std.mem.alignForward(u64, layout.tag_size, layout.payload_align);
+                    return layout.payload_align.forward(layout.tag_size);
                 } else {
                     // {Payload, Tag}
                     return 0;
@@ -3248,8 +3107,7 @@ pub const Type = struct {
     pub fn declSrcLocOrNull(ty: Type, mod: *Module) ?Module.SrcLoc {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-                return struct_obj.srcLoc(mod);
+                return mod.declPtr(struct_type.decl.unwrap() orelse return null).srcLoc(mod);
             },
             .union_type => |union_type| {
                 return mod.declPtr(union_type.decl).srcLoc(mod);
@@ -3266,10 +3124,7 @@ pub const Type = struct {
 
     pub fn getOwnerDeclOrNull(ty: Type, mod: *Module) ?Module.Decl.Index {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return null;
-                return struct_obj.owner_decl;
-            },
+            .struct_type => |struct_type| struct_type.decl.unwrap(),
             .union_type => |union_type| union_type.decl,
             .opaque_type => |opaque_type| opaque_type.decl,
             .enum_type => |enum_type| enum_type.decl,
@@ -3282,10 +3137,12 @@ pub const Type = struct {
     }
 
     pub fn isTuple(ty: Type, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
-                return struct_obj.is_tuple;
+                if (struct_type.layout == .Packed) return false;
+                if (struct_type.decl == .none) return false;
+                return struct_type.flagsPtr(ip).is_tuple;
             },
             .anon_struct_type => |anon_struct| anon_struct.names.len == 0,
             else => false,
@@ -3301,10 +3158,12 @@ pub const Type = struct {
     }
 
     pub fn isTupleOrAnonStruct(ty: Type, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
-                return struct_obj.is_tuple;
+                if (struct_type.layout == .Packed) return false;
+                if (struct_type.decl == .none) return false;
+                return struct_type.flagsPtr(ip).is_tuple;
             },
             .anon_struct_type => true,
             else => false,
@@ -3322,6 +3181,28 @@ pub const Type = struct {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .anon_struct_type => true,
             else => false,
+        };
+    }
+
+    /// Traverses optional child types and error union payloads until the type
+    /// is not a pointer. For `E!?u32`, returns `u32`; for `*u8`, returns `*u8`.
+    pub fn optEuBaseType(ty: Type, mod: *Module) Type {
+        var cur = ty;
+        while (true) switch (cur.zigTypeTag(mod)) {
+            .Optional => cur = cur.optionalChild(mod),
+            .ErrorUnion => cur = cur.errorUnionPayload(mod),
+            else => return cur,
+        };
+    }
+
+    pub fn toUnsigned(ty: Type, mod: *Module) !Type {
+        return switch (ty.zigTypeTag(mod)) {
+            .Int => mod.intType(.unsigned, ty.intInfo(mod).bits),
+            .Vector => try mod.vectorType(.{
+                .len = ty.vectorLen(mod),
+                .child = (try ty.childType(mod).toUnsigned(mod)).toIntern(),
+            }),
+            else => unreachable,
         };
     }
 
@@ -3380,8 +3261,6 @@ pub const Type = struct {
 
     pub const generic_poison: Type = .{ .ip_index = .generic_poison_type };
 
-    pub const err_int = Type.u16;
-
     pub fn smallestUnsignedBits(max: u64) u16 {
         if (max == 0) return 0;
         const base = std.math.log2(max);
@@ -3393,3 +3272,7 @@ pub const Type = struct {
     /// to packed struct layout to find out all the places in the codebase you need to edit!
     pub const packed_struct_layout_version = 2;
 };
+
+fn cTypeAlign(target: Target, c_type: Target.CType) Alignment {
+    return Alignment.fromByteUnits(target.c_type_alignment(c_type));
+}

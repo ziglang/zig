@@ -55,12 +55,18 @@ public:
     template <class... _ArgTypes>
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
     typename __invoke_of<type&, _ArgTypes...>::type
-    operator() (_ArgTypes&&... __args) const {
+    operator() (_ArgTypes&&... __args) const
+#if _LIBCPP_STD_VER >= 17
+        // Since is_nothrow_invocable requires C++17 LWG3764 is not backported
+        // to earlier versions.
+        noexcept(is_nothrow_invocable_v<_Tp&, _ArgTypes...>)
+#endif
+    {
         return std::__invoke(get(), std::forward<_ArgTypes>(__args)...);
     }
 };
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 reference_wrapper(_Tp&) -> reference_wrapper<_Tp>;
 #endif

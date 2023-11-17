@@ -18,13 +18,13 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace __itoa
 {
 
-_LIBCPP_FUNC_VIS char*
+_LIBCPP_EXPORTED_FROM_ABI char*
 __u32toa(uint32_t value, char* buffer) noexcept
 {
   return __base_10_u32(buffer, value);
 }
 
-_LIBCPP_FUNC_VIS char*
+_LIBCPP_EXPORTED_FROM_ABI char*
 __u64toa(uint64_t value, char* buffer) noexcept
 {
   return __base_10_u64(buffer, value);

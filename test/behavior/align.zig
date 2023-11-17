@@ -15,10 +15,18 @@ test "global variable alignment" {
     }
 }
 
+test "large alignment of local constant" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // flaky
+
+    const x: f32 align(128) = 12.34;
+    try std.testing.expect(@intFromPtr(&x) % 128 == 0);
+}
+
 test "slicing array of length 1 can not assume runtime index is always zero" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var runtime_index: usize = 1;
     const slice = @as(*align(4) [1]u8, &foo)[runtime_index..];
@@ -226,7 +234,6 @@ fn fnWithAlignedStack() i32 {
 test "implicitly decreasing slice alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
@@ -396,7 +403,6 @@ test "function align expression depends on generic parameter" {
 
 test "function callconv expression depends on generic parameter" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -414,7 +420,6 @@ test "function callconv expression depends on generic parameter" {
 
 test "runtime-known array index has best alignment possible" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     // take full advantage of over-alignment
     var array align(4) = [_]u8{ 1, 2, 3, 4 };
@@ -546,11 +551,14 @@ test "align(N) on functions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    // This is not supported on MSVC
+    if (builtin.zig_backend == .stage2_c) {
+        // https://github.com/ziglang/zig/issues/16845
+        return error.SkipZigTest;
+    }
+
     if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) {
+        // This is not supported on MSVC.
         return error.SkipZigTest;
     }
 
@@ -567,7 +575,6 @@ fn overaligned_fn() align(0x1000) i32 {
 test "comptime alloc alignment" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -582,7 +589,6 @@ test "comptime alloc alignment" {
 test "@alignCast null" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var ptr: ?*anyopaque = null;
     const aligned: ?*anyopaque = @alignCast(ptr);
@@ -598,7 +604,6 @@ test "sub-aligned pointer field access" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     // Originally reported at https://github.com/ziglang/zig/issues/14904
@@ -611,7 +616,62 @@ test "sub-aligned pointer field access" {
     const ptr: *align(1) Header = @ptrCast(buf[1..][0..8]);
     const x = ptr.bytes_len;
     switch (builtin.cpu.arch.endian()) {
-        .Big => try expect(x == 0x06070809),
-        .Little => try expect(x == 0x09080706),
+        .big => try expect(x == 0x06070809),
+        .little => try expect(x == 0x09080706),
     }
+}
+
+test "alignment of zero-bit types is respected" {
+    if (true) return error.SkipZigTest; // TODO
+
+    const S = struct { arr: [0]usize = .{} };
+
+    comptime assert(@alignOf(void) == 1);
+    comptime assert(@alignOf(u0) == 1);
+    comptime assert(@alignOf([0]usize) == @alignOf(usize));
+    comptime assert(@alignOf(S) == @alignOf(usize));
+
+    var s: S = .{};
+    var v32: void align(32) = {};
+    var x32: u0 align(32) = 0;
+    var s32: S align(32) = .{};
+
+    var zero: usize = 0;
+
+    try expect(@intFromPtr(&s) % @alignOf(usize) == 0);
+    try expect(@intFromPtr(&s.arr) % @alignOf(usize) == 0);
+    try expect(@intFromPtr(s.arr[zero..zero].ptr) % @alignOf(usize) == 0);
+    try expect(@intFromPtr(&v32) % 32 == 0);
+    try expect(@intFromPtr(&x32) % 32 == 0);
+    try expect(@intFromPtr(&s32) % 32 == 0);
+    try expect(@intFromPtr(&s32.arr) % 32 == 0);
+    try expect(@intFromPtr(s32.arr[zero..zero].ptr) % 32 == 0);
+}
+
+test "zero-bit fields in extern struct pad fields appropriately" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    const S = extern struct {
+        x: u8,
+        a: [0]u16 = .{},
+        y: u8,
+    };
+
+    // `a` should give `S` alignment 2, and pad the `arr` field.
+    comptime assert(@alignOf(S) == 2);
+    comptime assert(@sizeOf(S) == 4);
+    comptime assert(@offsetOf(S, "x") == 0);
+    comptime assert(@offsetOf(S, "a") == 2);
+    comptime assert(@offsetOf(S, "y") == 2);
+
+    var s: S = .{ .x = 100, .y = 200 };
+
+    try expect(@intFromPtr(&s) % 2 == 0);
+    try expect(@intFromPtr(&s.y) - @intFromPtr(&s.x) == 2);
+    try expect(@intFromPtr(&s.y) == @intFromPtr(&s.a));
+    try expect(@fieldParentPtr(S, "a", &s.a) == &s);
 }

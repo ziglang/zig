@@ -1,4 +1,4 @@
-//===------------------ mach-o/compact_unwind_encoding.h ------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -33,7 +33,7 @@
 
 
 //
-// The compact unwind endoding is a 32-bit value which encoded in an
+// The compact unwind encoding is a 32-bit value which encoded in an
 // architecture specific way, which registers to restore from where, and how
 // to unwind out of the function.
 //
@@ -116,7 +116,7 @@ enum {
 //    on the stack immediately after the return address.  The stack_size/4 is
 //    encoded in the UNWIND_X86_FRAMELESS_STACK_SIZE (max stack size is 1024).
 //    The number of registers saved is encoded in UNWIND_X86_FRAMELESS_STACK_REG_COUNT.
-//    UNWIND_X86_FRAMELESS_STACK_REG_PERMUTATION constains which registers were
+//    UNWIND_X86_FRAMELESS_STACK_REG_PERMUTATION contains which registers were
 //    saved and their order.
 // UNWIND_X86_MODE_STACK_IND:
 //    A "frameless" (EBP not used as frame pointer) function large constant 
@@ -250,7 +250,7 @@ enum {
 //    on the stack immediately after the return address.  The stack_size/8 is
 //    encoded in the UNWIND_X86_64_FRAMELESS_STACK_SIZE (max stack size is 2048).
 //    The number of registers saved is encoded in UNWIND_X86_64_FRAMELESS_STACK_REG_COUNT.
-//    UNWIND_X86_64_FRAMELESS_STACK_REG_PERMUTATION constains which registers were
+//    UNWIND_X86_64_FRAMELESS_STACK_REG_PERMUTATION contains which registers were
 //    saved and their order.  
 // UNWIND_X86_64_MODE_STACK_IND:
 //    A "frameless" (RBP not used as frame pointer) function large constant 
@@ -530,3 +530,4 @@ struct unwind_info_compressed_second_level_page_header
 
 
 #endif
+

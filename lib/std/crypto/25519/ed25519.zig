@@ -1,4 +1,3 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const crypto = std.crypto;
 const debug = std.debug;
@@ -276,8 +275,8 @@ pub const Ed25519 = struct {
         pub fn fromSecretKey(secret_key: SecretKey) (NonCanonicalError || EncodingError || IdentityElementError)!KeyPair {
             // It is critical for EdDSA to use the correct public key.
             // In order to enforce this, a SecretKey implicitly includes a copy of the public key.
-            // In Debug mode, we can still afford checking that the public key is correct for extra safety.
-            if (builtin.mode == .Debug) {
+            // With runtime safety, we can still afford checking that the public key is correct.
+            if (std.debug.runtime_safety) {
                 const pk_p = try Curve.fromBytes(secret_key.publicKeyBytes());
                 const recomputed_kp = try create(secret_key.seed());
                 debug.assert(mem.eql(u8, &recomputed_kp.public_key.toBytes(), &pk_p.toBytes()));

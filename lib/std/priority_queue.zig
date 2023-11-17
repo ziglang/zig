@@ -231,7 +231,8 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         };
 
         /// Return an iterator that walks the queue without consuming
-        /// it. Invalidated if the heap is modified.
+        /// it. The iteration order may differ from the priority order.
+        /// Invalidated if the heap is modified.
         pub fn iterator(self: *Self) Iterator {
             return Iterator{
                 .queue = self,

@@ -170,11 +170,6 @@ namespace std {
 */
 
 #include <__assert> // all public C++ headers provide the assertion handler
-// Make sure all feature-test macros are available.
-#include <version>
-// Enable the contents of the header only when libc++ was built with experimental features enabled.
-#if !defined(_LIBCPP_HAS_NO_INCOMPLETE_FORMAT)
-
 #include <__config>
 #include <__format/buffer.h>
 #include <__format/concepts.h>
@@ -202,11 +197,10 @@ namespace std {
 #include <__format/range_default_formatter.h>
 #include <__format/range_formatter.h>
 #include <__format/unicode.h>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
-
-#endif // !defined(_LIBCPP_HAS_NO_INCOMPLETE_FORMAT)
 
 #endif // _LIBCPP_FORMAT

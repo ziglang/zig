@@ -93,7 +93,9 @@ pub fn main() !void {
     var dir_list = std.Build.DirList{};
     var summary: ?Summary = null;
     var max_rss: usize = 0;
+    var skip_oom_steps: bool = false;
     var color: Color = .auto;
+    var seed: u32 = 0;
 
     const stderr_stream = io.getStdErr().writer();
     const stdout_stream = io.getStdOut().writer();
@@ -158,6 +160,8 @@ pub fn main() !void {
                     });
                     process.exit(1);
                 };
+            } else if (mem.eql(u8, arg, "--skip-oom-steps")) {
+                skip_oom_steps = true;
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const search_prefix = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});
@@ -193,6 +197,17 @@ pub fn main() !void {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});
                     usageAndErr(builder, false, stderr_stream);
                 } };
+            } else if (mem.eql(u8, arg, "--seed")) {
+                const next_arg = nextArg(args, &arg_idx) orelse {
+                    std.debug.print("Expected u32 after {s}\n\n", .{arg});
+                    usageAndErr(builder, false, stderr_stream);
+                };
+                seed = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err| {
+                    std.debug.print("unable to parse seed '{s}' as 32-bit integer: {s}\n", .{
+                        next_arg, @errorName(err),
+                    });
+                    process.exit(1);
+                };
             } else if (mem.eql(u8, arg, "--debug-log")) {
                 const next_arg = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});
@@ -305,6 +320,7 @@ pub fn main() !void {
         .max_rss = max_rss,
         .max_rss_is_default = false,
         .max_rss_mutex = .{},
+        .skip_oom_steps = skip_oom_steps,
         .memory_blocked_steps = std.ArrayList(*Step).init(arena),
 
         .claimed_rss = 0,
@@ -325,6 +341,7 @@ pub fn main() !void {
         main_progress_node,
         thread_pool_options,
         &run,
+        seed,
     ) catch |err| switch (err) {
         error.UncleanExit => process.exit(1),
         else => return err,
@@ -335,6 +352,7 @@ const Run = struct {
     max_rss: usize,
     max_rss_is_default: bool,
     max_rss_mutex: std.Thread.Mutex,
+    skip_oom_steps: bool,
     memory_blocked_steps: std.ArrayList(*Step),
 
     claimed_rss: usize,
@@ -350,6 +368,7 @@ fn runStepNames(
     parent_prog_node: *std.Progress.Node,
     thread_pool_options: std.Thread.Pool.Options,
     run: *Run,
+    seed: u32,
 ) !void {
     const gpa = b.allocator;
     var step_stack: std.AutoArrayHashMapUnmanaged(*Step, void) = .{};
@@ -370,8 +389,13 @@ fn runStepNames(
     }
 
     const starting_steps = try arena.dupe(*Step, step_stack.keys());
+
+    var rng = std.rand.DefaultPrng.init(seed);
+    const rand = rng.random();
+    rand.shuffle(*Step, starting_steps);
+
     for (starting_steps) |s| {
-        checkForDependencyLoop(b, s, &step_stack) catch |err| switch (err) {
+        constructGraphAndCheckForDependencyLoop(b, s, &step_stack, rand) catch |err| switch (err) {
             error.DependencyLoopDetected => return error.UncleanExit,
             else => |e| return e,
         };
@@ -383,10 +407,14 @@ fn runStepNames(
         for (step_stack.keys()) |s| {
             if (s.max_rss == 0) continue;
             if (s.max_rss > run.max_rss) {
-                std.debug.print("{s}{s}: this step declares an upper bound of {d} bytes of memory, exceeding the available {d} bytes of memory\n", .{
-                    s.owner.dep_prefix, s.name, s.max_rss, run.max_rss,
-                });
-                any_problems = true;
+                if (run.skip_oom_steps) {
+                    s.state = .skipped_oom;
+                } else {
+                    std.debug.print("{s}{s}: this step declares an upper bound of {d} bytes of memory, exceeding the available {d} bytes of memory\n", .{
+                        s.owner.dep_prefix, s.name, s.max_rss, run.max_rss,
+                    });
+                    any_problems = true;
+                }
             }
         }
         if (any_problems) {
@@ -416,6 +444,7 @@ fn runStepNames(
         const steps_slice = step_stack.keys();
         for (0..steps_slice.len) |i| {
             const step = steps_slice[steps_slice.len - i - 1];
+            if (step.state == .skipped_oom) continue;
 
             wait_group.start();
             thread_pool.spawn(workerMakeOneStep, .{
@@ -461,7 +490,7 @@ fn runStepNames(
             },
             .dependency_failure => pending_count += 1,
             .success => success_count += 1,
-            .skipped => skipped_count += 1,
+            .skipped, .skipped_oom => skipped_count += 1,
             .failure => {
                 failure_count += 1;
                 const compile_errors_len = s.result_error_bundle.errorMessageCount();
@@ -506,7 +535,7 @@ fn runStepNames(
         var print_node: PrintNode = .{ .parent = null };
         if (step_names.len == 0) {
             print_node.last = true;
-            printTreeStep(b, b.default_step, stderr, ttyconf, &print_node, &step_stack, failures_only) catch {};
+            printTreeStep(b, b.default_step, run, stderr, ttyconf, &print_node, &step_stack, failures_only) catch {};
         } else {
             const last_index = if (!failures_only) b.top_level_steps.count() else blk: {
                 var i: usize = step_names.len;
@@ -519,7 +548,7 @@ fn runStepNames(
             for (step_names, 0..) |step_name, i| {
                 const tls = b.top_level_steps.get(step_name).?;
                 print_node.last = i + 1 == last_index;
-                printTreeStep(b, &tls.step, stderr, ttyconf, &print_node, &step_stack, failures_only) catch {};
+                printTreeStep(b, &tls.step, run, stderr, ttyconf, &print_node, &step_stack, failures_only) catch {};
             }
         }
     }
@@ -567,6 +596,7 @@ fn printPrefix(node: *PrintNode, stderr: std.fs.File, ttyconf: std.io.tty.Config
 fn printTreeStep(
     b: *std.Build,
     s: *Step,
+    run: *const Run,
     stderr: std.fs.File,
     ttyconf: std.io.tty.Config,
     parent_node: *PrintNode,
@@ -654,13 +684,18 @@ fn printTreeStep(
                 }
                 try stderr.writeAll("\n");
             },
-
-            .skipped => {
+            .skipped, .skipped_oom => |skip| {
                 try ttyconf.setColor(stderr, .yellow);
-                try stderr.writeAll(" skipped\n");
+                try stderr.writeAll(" skipped");
+                if (skip == .skipped_oom) {
+                    try stderr.writeAll(" (not enough memory)");
+                    try ttyconf.setColor(stderr, .dim);
+                    try stderr.writer().print(" upper bound of {d} exceeded runner limit ({d})", .{ s.max_rss, run.max_rss });
+                    try ttyconf.setColor(stderr, .yellow);
+                }
+                try stderr.writeAll("\n");
                 try ttyconf.setColor(stderr, .reset);
             },
-
             .failure => {
                 if (s.result_error_bundle.errorMessageCount() > 0) {
                     try ttyconf.setColor(stderr, .red);
@@ -718,7 +753,7 @@ fn printTreeStep(
                 .parent = parent_node,
                 .last = i == last_index,
             };
-            try printTreeStep(b, dep, stderr, ttyconf, &print_node, step_stack, failures_only);
+            try printTreeStep(b, dep, run, stderr, ttyconf, &print_node, step_stack, failures_only);
         }
     } else {
         if (s.dependencies.items.len == 0) {
@@ -732,10 +767,22 @@ fn printTreeStep(
     }
 }
 
-fn checkForDependencyLoop(
+/// Traverse the dependency graph depth-first and make it undirected by having
+/// steps know their dependants (they only know dependencies at start).
+/// Along the way, check that there is no dependency loop, and record the steps
+/// in traversal order in `step_stack`.
+/// Each step has its dependencies traversed in random order, this accomplishes
+/// two things:
+/// - `step_stack` will be in randomized-depth-first order, so the build runner
+///   spawns steps in a random (but optimized) order
+/// - each step's `dependants` list is also filled in a random order, so that
+///   when it finishes executing in `workerMakeOneStep`, it spawns next steps
+///   to run in random order
+fn constructGraphAndCheckForDependencyLoop(
     b: *std.Build,
     s: *Step,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
+    rand: std.rand.Random,
 ) !void {
     switch (s.state) {
         .precheck_started => {
@@ -746,10 +793,16 @@ fn checkForDependencyLoop(
             s.state = .precheck_started;
 
             try step_stack.ensureUnusedCapacity(b.allocator, s.dependencies.items.len);
-            for (s.dependencies.items) |dep| {
+
+            // We dupe to avoid shuffling the steps in the summary, it depends
+            // on s.dependencies' order.
+            const deps = b.allocator.dupe(*Step, s.dependencies.items) catch @panic("OOM");
+            rand.shuffle(*Step, deps);
+
+            for (deps) |dep| {
                 try step_stack.put(b.allocator, dep, {});
                 try dep.dependants.append(b.allocator, s);
-                checkForDependencyLoop(b, dep, step_stack) catch |err| {
+                constructGraphAndCheckForDependencyLoop(b, dep, step_stack, rand) catch |err| {
                     if (err == error.DependencyLoopDetected) {
                         std.debug.print("  {s}\n", .{s.name});
                     }
@@ -767,6 +820,7 @@ fn checkForDependencyLoop(
         .success => unreachable,
         .failure => unreachable,
         .skipped => unreachable,
+        .skipped_oom => unreachable,
     }
 }
 
@@ -786,7 +840,7 @@ fn workerMakeOneStep(
     for (s.dependencies.items) |dep| {
         switch (@atomicLoad(Step.State, &dep.state, .SeqCst)) {
             .success, .skipped => continue,
-            .failure, .dependency_failure => {
+            .failure, .dependency_failure, .skipped_oom => {
                 @atomicStore(Step.State, &s.state, .dependency_failure, .SeqCst);
                 return;
             },
@@ -979,6 +1033,8 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\    none                       Do not print the build summary
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
         \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
+        \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
+        \\  --fetch                      Exit after fetching dependency tree
         \\
         \\Project-Specific Options:
         \\
@@ -1015,6 +1071,7 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\  --global-cache-dir [path]    Override path to global Zig cache directory
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
         \\  --build-runner [file]        Override path to build runner
+        \\  --seed [integer]             For shuffling dependency traversal order (default: random)
         \\  --debug-log [scope]          Enable debugging the compiler
         \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
         \\  --verbose-link               Enable compiler debug output for linking

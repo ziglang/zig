@@ -21,7 +21,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 11
+#if _LIBCPP_STD_VER >= 14
 
 template <class _Tp, size_t _Np>
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX17
@@ -93,7 +93,7 @@ auto crend(const _Cp& __c) -> decltype(_VSTD::rend(__c))
     return _VSTD::rend(__c);
 }
 
-#endif // _LIBCPP_STD_VER > 11
+#endif // _LIBCPP_STD_VER >= 14
 
 _LIBCPP_END_NAMESPACE_STD
 

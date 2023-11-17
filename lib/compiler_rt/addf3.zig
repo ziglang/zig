@@ -9,7 +9,6 @@ const normalize = common.normalize;
 pub inline fn addf3(comptime T: type, a: T, b: T) T {
     const bits = @typeInfo(T).Float.bits;
     const Z = std.meta.Int(.unsigned, bits);
-    const S = std.meta.Int(.unsigned, bits - @clz(@as(Z, bits) - 1));
 
     const typeWidth = bits;
     const significandBits = math.floatMantissaBits(T);
@@ -26,12 +25,12 @@ pub inline fn addf3(comptime T: type, a: T, b: T) T {
     const absMask = signBit - 1;
     const qnanRep = @as(Z, @bitCast(math.nan(T))) | quietBit;
 
-    var aRep = @as(Z, @bitCast(a));
-    var bRep = @as(Z, @bitCast(b));
+    var aRep: Z = @bitCast(a);
+    var bRep: Z = @bitCast(b);
     const aAbs = aRep & absMask;
     const bAbs = bRep & absMask;
 
-    const infRep = @as(Z, @bitCast(math.inf(T)));
+    const infRep: Z = @bitCast(math.inf(T));
 
     // Detect if a or b is zero, infinity, or NaN.
     if (aAbs -% @as(Z, 1) >= infRep - @as(Z, 1) or
@@ -104,8 +103,8 @@ pub inline fn addf3(comptime T: type, a: T, b: T) T {
     const @"align": u32 = @intCast(aExponent - bExponent);
     if (@"align" != 0) {
         if (@"align" < typeWidth) {
-            const sticky = if (bSignificand << @as(S, @intCast(typeWidth - @"align")) != 0) @as(Z, 1) else 0;
-            bSignificand = (bSignificand >> @as(S, @truncate(@"align"))) | sticky;
+            const sticky = if (bSignificand << @intCast(typeWidth - @"align") != 0) @as(Z, 1) else 0;
+            bSignificand = (bSignificand >> @truncate(@"align")) | sticky;
         } else {
             bSignificand = 1; // sticky; b is known to be non-zero.
         }
@@ -119,7 +118,7 @@ pub inline fn addf3(comptime T: type, a: T, b: T) T {
         // and adjust the exponent:
         if (aSignificand < integerBit << 3) {
             const shift = @as(i32, @intCast(@clz(aSignificand))) - @as(i32, @intCast(@clz(integerBit << 3)));
-            aSignificand <<= @as(S, @intCast(shift));
+            aSignificand <<= @intCast(shift);
             aExponent -= shift;
         }
     } else { // addition
@@ -140,7 +139,7 @@ pub inline fn addf3(comptime T: type, a: T, b: T) T {
     if (aExponent <= 0) {
         // Result is denormal; the exponent and round/sticky bits are zero.
         // All we need to do is shift the significand and apply the correct sign.
-        aSignificand >>= @as(S, @intCast(4 - aExponent));
+        aSignificand >>= @intCast(4 - aExponent);
         return @bitCast(resultSign | aSignificand);
     }
 

@@ -238,13 +238,6 @@ pub const Value = opaque {
     pub const constAddrSpaceCast = LLVMConstAddrSpaceCast;
     extern fn LLVMConstAddrSpaceCast(ConstantVal: *Value, ToType: *Type) *Value;
 
-    pub const constSelect = LLVMConstSelect;
-    extern fn LLVMConstSelect(
-        ConstantCondition: *Value,
-        ConstantIfTrue: *Value,
-        ConstantIfFalse: *Value,
-    ) *Value;
-
     pub const constExtractElement = LLVMConstExtractElement;
     extern fn LLVMConstExtractElement(VectorConstant: *Value, IndexConstant: *Value) *Value;
 
@@ -279,6 +272,9 @@ pub const Value = opaque {
 
     pub const setAlignment = LLVMSetAlignment;
     extern fn LLVMSetAlignment(V: *Value, Bytes: c_uint) void;
+
+    pub const getAlignment = LLVMGetAlignment;
+    extern fn LLVMGetAlignment(V: *Value) c_uint;
 
     pub const setFunctionCallConv = LLVMSetFunctionCallConv;
     extern fn LLVMSetFunctionCallConv(Fn: *Value, CC: CallConv) void;
@@ -336,8 +332,8 @@ pub const Type = opaque {
     pub const constReal = LLVMConstReal;
     extern fn LLVMConstReal(RealTy: *Type, N: f64) *Value;
 
-    pub const constArray = LLVMConstArray;
-    extern fn LLVMConstArray(ElementTy: *Type, ConstantVals: [*]const *Value, Length: c_uint) *Value;
+    pub const constArray2 = LLVMConstArray2;
+    extern fn LLVMConstArray2(ElementTy: *Type, ConstantVals: [*]const *Value, Length: u64) *Value;
 
     pub const constNamedStruct = LLVMConstNamedStruct;
     extern fn LLVMConstNamedStruct(
@@ -352,8 +348,8 @@ pub const Type = opaque {
     pub const getPoison = LLVMGetPoison;
     extern fn LLVMGetPoison(Ty: *Type) *Value;
 
-    pub const arrayType = LLVMArrayType;
-    extern fn LLVMArrayType(ElementType: *Type, ElementCount: c_uint) *Type;
+    pub const arrayType2 = LLVMArrayType2;
+    extern fn LLVMArrayType2(ElementType: *Type, ElementCount: u64) *Type;
 
     pub const vectorType = LLVMVectorType;
     extern fn LLVMVectorType(ElementType: *Type, ElementCount: c_uint) *Type;
@@ -926,6 +922,7 @@ pub const TargetMachine = opaque {
         Reloc: RelocMode,
         CodeModel: CodeModel,
         function_sections: bool,
+        data_sections: bool,
         float_abi: ABIType,
         abi_name: ?[*:0]const u8,
     ) *TargetMachine;
@@ -1167,6 +1164,7 @@ pub const OSType = enum(c_int) {
     NetBSD,
     OpenBSD,
     Solaris,
+    UEFI,
     Win32,
     ZOS,
     Haiku,
@@ -1191,6 +1189,7 @@ pub const OSType = enum(c_int) {
     WASI,
     Emscripten,
     ShaderModel,
+    LiteOS,
 };
 
 pub const ArchType = enum(c_int) {

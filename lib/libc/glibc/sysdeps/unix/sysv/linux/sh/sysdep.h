@@ -1,7 +1,5 @@
-/* Copyright (C) 1992-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
-   Contributed by Ulrich Drepper, <drepper@gnu.ai.mit.edu>, August 1995.
-   Changed by Kaz Kojima, <kkojima@rr.iij4u.or.jp>.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -43,7 +41,7 @@
    might return a large offset.  Therefore we must not anymore test
    for < 0, but test for a real error by making sure the value in R0
    is a real error number.  Linus said he will make sure the no syscall
-   returns a value in -1 .. -4095 as a valid result so we can savely
+   returns a value in -1 .. -4095 as a valid result so we can safely
    test with -4095.  */
 
 #define _IMM1 #-1
@@ -316,24 +314,5 @@
     (int) resultvar; })
 
 #endif	/* __ASSEMBLER__ */
-
-/* Pointer mangling support.  */
-#if IS_IN (rtld)
-/* We cannot use the thread descriptor because in ld.so we use setjmp
-   earlier than the descriptor is initialized.  Using a global variable
-   is too complicated here since we have no PC-relative addressing mode.  */
-#else
-# ifdef __ASSEMBLER__
-#  define PTR_MANGLE(reg, tmp) \
-     stc gbr,tmp; mov.l @(POINTER_GUARD,tmp),tmp; xor tmp,reg
-#  define PTR_MANGLE2(reg, tmp)	xor tmp,reg
-#  define PTR_DEMANGLE(reg, tmp)	PTR_MANGLE (reg, tmp)
-#  define PTR_DEMANGLE2(reg, tmp)	PTR_MANGLE2 (reg, tmp)
-# else
-#  define PTR_MANGLE(var) \
-     (var) = (void *) ((uintptr_t) (var) ^ THREAD_GET_POINTER_GUARD ())
-#  define PTR_DEMANGLE(var)	PTR_MANGLE (var)
-# endif
-#endif
 
 #endif /* linux/sh/sysdep.h */

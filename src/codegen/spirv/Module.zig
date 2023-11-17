@@ -11,9 +11,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-const ZigModule = @import("../../Module.zig");
-const ZigDecl = ZigModule.Decl;
-
 const spec = @import("spec.zig");
 const Word = spec.Word;
 const IdRef = spec.IdRef;
@@ -94,6 +91,8 @@ pub const Global = struct {
     begin_inst: u32,
     /// The past-end offset into `self.flobals.section`.
     end_inst: u32,
+    /// The result-id of the function that initializes this value.
+    initializer_id: IdRef,
 };
 
 /// This models a kernel entry point.
@@ -101,14 +100,11 @@ pub const EntryPoint = struct {
     /// The declaration that should be exported.
     decl_index: Decl.Index,
     /// The name of the kernel to be exported.
-    name: []const u8,
+    name: CacheString,
 };
 
 /// A general-purpose allocator which may be used to allocate resources for this module
 gpa: Allocator,
-
-/// An arena allocator used to store things that have the same lifetime as this module.
-arena: Allocator,
 
 /// Module layout, according to SPIR-V Spec section 2.4, "Logical Layout of a Module".
 sections: struct {
@@ -148,7 +144,7 @@ next_result_id: Word,
 /// Cache for results of OpString instructions for module file names fed to OpSource.
 /// Since OpString is pretty much only used for those, we don't need to keep track of all strings,
 /// just the ones for OpLine. Note that OpLine needs the result of OpString, and not that of OpSource.
-source_file_names: std.StringHashMapUnmanaged(IdRef) = .{},
+source_file_names: std.AutoArrayHashMapUnmanaged(CacheString, IdRef) = .{},
 
 /// SPIR-V type- and constant cache. This structure is used to store information about these in a more
 /// efficient manner.
@@ -174,10 +170,9 @@ globals: struct {
     section: Section = .{},
 } = .{},
 
-pub fn init(gpa: Allocator, arena: Allocator) Module {
+pub fn init(gpa: Allocator) Module {
     return .{
         .gpa = gpa,
-        .arena = arena,
         .next_result_id = 1, // 0 is an invalid SPIR-V result id, so start counting at 1.
     };
 }
@@ -284,6 +279,10 @@ fn addEntryPointDeps(
     const decl = self.declPtr(decl_index);
     const deps = self.decl_deps.items[decl.begin_dep..decl.end_dep];
 
+    if (seen.isSet(@intFromEnum(decl_index))) {
+        return;
+    }
+
     seen.set(@intFromEnum(decl_index));
 
     if (self.globalPtr(decl_index)) |global| {
@@ -291,9 +290,7 @@ fn addEntryPointDeps(
     }
 
     for (deps) |dep| {
-        if (!seen.isSet(@intFromEnum(dep))) {
-            try self.addEntryPointDeps(dep, seen, interface);
-        }
+        try self.addEntryPointDeps(dep, seen, interface);
     }
 }
 
@@ -317,7 +314,7 @@ fn entryPoints(self: *Module) !Section {
         try entry_points.emit(self.gpa, .OpEntryPoint, .{
             .execution_model = .Kernel,
             .entry_point = entry_point_id,
-            .name = entry_point.name,
+            .name = self.cache.getString(entry_point.name).?,
             .interface = interface.items,
         });
     }
@@ -325,19 +322,75 @@ fn entryPoints(self: *Module) !Section {
     return entry_points;
 }
 
+/// Generate a function that calls all initialization functions,
+/// in unspecified order (an order should not be required here).
+/// It generated as follows:
+/// %init = OpFunction %void None
+/// foreach %initializer:
+/// OpFunctionCall %initializer
+/// OpReturn
+/// OpFunctionEnd
+fn initializer(self: *Module, entry_points: *Section) !Section {
+    var section = Section{};
+    errdefer section.deinit(self.gpa);
+
+    // const void_ty_ref = try self.resolveType(Type.void, .direct);
+    const void_ty_ref = try self.resolve(.void_type);
+    const void_ty_id = self.resultId(void_ty_ref);
+    const init_proto_ty_ref = try self.resolve(.{ .function_type = .{
+        .return_type = void_ty_ref,
+        .parameters = &.{},
+    } });
+
+    const init_id = self.allocId();
+    try section.emit(self.gpa, .OpFunction, .{
+        .id_result_type = void_ty_id,
+        .id_result = init_id,
+        .function_control = .{},
+        .function_type = self.resultId(init_proto_ty_ref),
+    });
+    try section.emit(self.gpa, .OpLabel, .{
+        .id_result = self.allocId(),
+    });
+
+    var seen = try std.DynamicBitSetUnmanaged.initEmpty(self.gpa, self.decls.items.len);
+    defer seen.deinit(self.gpa);
+
+    var interface = std.ArrayList(IdRef).init(self.gpa);
+    defer interface.deinit();
+
+    for (self.globals.globals.keys(), self.globals.globals.values()) |decl_index, global| {
+        try self.addEntryPointDeps(decl_index, &seen, &interface);
+        try section.emit(self.gpa, .OpFunctionCall, .{
+            .id_result_type = void_ty_id,
+            .id_result = self.allocId(),
+            .function = global.initializer_id,
+        });
+    }
+
+    try section.emit(self.gpa, .OpReturn, {});
+    try section.emit(self.gpa, .OpFunctionEnd, {});
+
+    try entry_points.emit(self.gpa, .OpEntryPoint, .{
+        // TODO: Rusticl does not support this because its poorly defined.
+        // Do we need to generate a workaround here?
+        .execution_model = .Kernel,
+        .entry_point = init_id,
+        .name = "zig global initializer",
+        .interface = interface.items,
+    });
+
+    try self.sections.execution_modes.emit(self.gpa, .OpExecutionMode, .{
+        .entry_point = init_id,
+        .mode = .Initializer,
+    });
+
+    return section;
+}
+
 /// Emit this module as a spir-v binary.
 pub fn flush(self: *Module, file: std.fs.File) !void {
     // See SPIR-V Spec section 2.3, "Physical Layout of a SPIR-V Module and Instruction"
-
-    const header = [_]Word{
-        spec.magic_number,
-        // TODO: From cpu features
-        //   Emit SPIR-V 1.4 for now. This is the highest version that Intel's CPU OpenCL supports.
-        (1 << 16) | (4 << 8),
-        0, // TODO: Register Zig compiler magic number.
-        self.idBound(),
-        0, // Schema (currently reserved for future use)
-    };
 
     // TODO: Perform topological sort on the globals.
     var globals = try self.orderGlobals();
@@ -349,6 +402,31 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
     var types_constants = try self.cache.materialize(self);
     defer types_constants.deinit(self.gpa);
 
+    var init_func = try self.initializer(&entry_points);
+    defer init_func.deinit(self.gpa);
+
+    const header = [_]Word{
+        spec.magic_number,
+        // TODO: From cpu features
+        //   Emit SPIR-V 1.4 for now. This is the highest version that Intel's CPU OpenCL supports.
+        (1 << 16) | (4 << 8),
+        0, // TODO: Register Zig compiler magic number.
+        self.idBound(),
+        0, // Schema (currently reserved for future use)
+    };
+
+    var source = Section{};
+    defer source.deinit(self.gpa);
+    try self.sections.debug_strings.emit(self.gpa, .OpSource, .{
+        .source_language = .Unknown,
+        .version = 0,
+        // We cannot emit these because the Khronos translator does not parse this instruction
+        // correctly.
+        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/2188
+        .file = null,
+        .source = null,
+    });
+
     // Note: needs to be kept in order according to section 2.3!
     const buffers = &[_][]const Word{
         &header,
@@ -356,6 +434,7 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
         self.sections.extensions.toWords(),
         entry_points.toWords(),
         self.sections.execution_modes.toWords(),
+        source.toWords(),
         self.sections.debug_strings.toWords(),
         self.sections.debug_names.toWords(),
         self.sections.annotations.toWords(),
@@ -363,6 +442,7 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
         self.sections.types_globals_constants.toWords(),
         globals.toWords(),
         self.sections.functions.toWords(),
+        init_func.toWords(),
     };
 
     var iovc_buffers: [buffers.len]std.os.iovec_const = undefined;
@@ -390,22 +470,15 @@ pub fn addFunction(self: *Module, decl_index: Decl.Index, func: Fn) !void {
 /// Fetch the result-id of an OpString instruction that encodes the path of the source
 /// file of the decl. This function may also emit an OpSource with source-level information regarding
 /// the decl.
-pub fn resolveSourceFileName(self: *Module, zig_module: *ZigModule, zig_decl: *ZigDecl) !IdRef {
-    const path = zig_decl.getFileScope(zig_module).sub_file_path;
-    const result = try self.source_file_names.getOrPut(self.gpa, path);
+pub fn resolveSourceFileName(self: *Module, path: []const u8) !IdRef {
+    const path_ref = try self.resolveString(path);
+    const result = try self.source_file_names.getOrPut(self.gpa, path_ref);
     if (!result.found_existing) {
         const file_result_id = self.allocId();
         result.value_ptr.* = file_result_id;
         try self.sections.debug_strings.emit(self.gpa, .OpString, .{
             .id_result = file_result_id,
             .string = path,
-        });
-
-        try self.sections.debug_strings.emit(self.gpa, .OpSource, .{
-            .source_language = .Unknown, // TODO: Register Zig source language.
-            .version = 0, // TODO: Zig version as u32?
-            .file = file_result_id,
-            .source = null, // TODO: Store actual source also?
         });
     }
 
@@ -431,17 +504,6 @@ pub fn arrayType(self: *Module, len: u32, elem_ty_ref: CacheRef) !CacheRef {
     return try self.resolve(.{ .array_type = .{
         .element_type = elem_ty_ref,
         .length = len_ref,
-    } });
-}
-
-pub fn ptrType(
-    self: *Module,
-    child: CacheRef,
-    storage_class: spec.StorageClass,
-) !CacheRef {
-    return try self.resolve(.{ .ptr_type = .{
-        .storage_class = storage_class,
-        .child_type = child,
     } });
 }
 
@@ -524,6 +586,7 @@ pub fn allocDecl(self: *Module, kind: DeclKind) !Decl.Index {
             .result_id = undefined,
             .begin_inst = undefined,
             .end_inst = undefined,
+            .initializer_id = undefined,
         }),
     }
 
@@ -553,31 +616,37 @@ pub fn beginGlobal(self: *Module) u32 {
     return @as(u32, @intCast(self.globals.section.instructions.items.len));
 }
 
-pub fn endGlobal(self: *Module, global_index: Decl.Index, begin_inst: u32) void {
+pub fn endGlobal(self: *Module, global_index: Decl.Index, begin_inst: u32, result_id: IdRef, initializer_id: IdRef) void {
     const global = self.globalPtr(global_index).?;
-    global.begin_inst = begin_inst;
-    global.end_inst = @as(u32, @intCast(self.globals.section.instructions.items.len));
+    global.* = .{
+        .result_id = result_id,
+        .begin_inst = begin_inst,
+        .end_inst = @intCast(self.globals.section.instructions.items.len),
+        .initializer_id = initializer_id,
+    };
 }
 
 pub fn declareEntryPoint(self: *Module, decl_index: Decl.Index, name: []const u8) !void {
     try self.entry_points.append(self.gpa, .{
         .decl_index = decl_index,
-        .name = try self.arena.dupe(u8, name),
+        .name = try self.resolveString(name),
     });
 }
 
-pub fn debugName(self: *Module, target: IdResult, comptime fmt: []const u8, args: anytype) !void {
-    const name = try std.fmt.allocPrint(self.gpa, fmt, args);
-    defer self.gpa.free(name);
+pub fn debugName(self: *Module, target: IdResult, name: []const u8) !void {
     try self.sections.debug_names.emit(self.gpa, .OpName, .{
         .target = target,
         .name = name,
     });
 }
 
-pub fn memberDebugName(self: *Module, target: IdResult, member: u32, comptime fmt: []const u8, args: anytype) !void {
+pub fn debugNameFmt(self: *Module, target: IdResult, comptime fmt: []const u8, args: anytype) !void {
     const name = try std.fmt.allocPrint(self.gpa, fmt, args);
     defer self.gpa.free(name);
+    try self.debugName(target, name);
+}
+
+pub fn memberDebugName(self: *Module, target: IdResult, member: u32, name: []const u8) !void {
     try self.sections.debug_names.emit(self.gpa, .OpMemberName, .{
         .type = target,
         .member = member,

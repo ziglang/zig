@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const other = struct {
     const std = @import("std");

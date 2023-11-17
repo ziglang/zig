@@ -33,7 +33,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -42,24 +42,23 @@ namespace __partial_sort {
 
 struct __fn {
   template <class _Iter, class _Sent, class _Comp, class _Proj>
-  _LIBCPP_HIDE_FROM_ABI constexpr static
-  _Iter __partial_sort_fn_impl(_Iter __first, _Iter __middle, _Sent __last, _Comp& __comp, _Proj& __proj) {
+  _LIBCPP_HIDE_FROM_ABI constexpr static _Iter
+  __partial_sort_fn_impl(_Iter __first, _Iter __middle, _Sent __last, _Comp& __comp, _Proj& __proj) {
     auto&& __projected_comp = std::__make_projected(__comp, __proj);
     return std::__partial_sort<_RangeAlgPolicy>(std::move(__first), std::move(__middle), __last, __projected_comp);
   }
 
   template <random_access_iterator _Iter, sentinel_for<_Iter> _Sent, class _Comp = ranges::less, class _Proj = identity>
     requires sortable<_Iter, _Comp, _Proj>
-  _LIBCPP_HIDE_FROM_ABI constexpr
-  _Iter operator()(_Iter __first, _Iter __middle, _Sent __last, _Comp __comp = {}, _Proj __proj = {}) const {
+  _LIBCPP_HIDE_FROM_ABI constexpr _Iter
+  operator()(_Iter __first, _Iter __middle, _Sent __last, _Comp __comp = {}, _Proj __proj = {}) const {
     return __partial_sort_fn_impl(std::move(__first), std::move(__middle), std::move(__last), __comp, __proj);
   }
 
   template <random_access_range _Range, class _Comp = ranges::less, class _Proj = identity>
     requires sortable<iterator_t<_Range>, _Comp, _Proj>
-  _LIBCPP_HIDE_FROM_ABI constexpr
-  borrowed_iterator_t<_Range> operator()(_Range&& __r, iterator_t<_Range> __middle, _Comp __comp = {},
-                                         _Proj __proj = {}) const {
+  _LIBCPP_HIDE_FROM_ABI constexpr borrowed_iterator_t<_Range>
+  operator()(_Range&& __r, iterator_t<_Range> __middle, _Comp __comp = {}, _Proj __proj = {}) const {
     return __partial_sort_fn_impl(ranges::begin(__r), std::move(__middle), ranges::end(__r), __comp, __proj);
   }
 };
@@ -67,12 +66,12 @@ struct __fn {
 } // namespace __partial_sort
 
 inline namespace __cpo {
-  inline constexpr auto partial_sort = __partial_sort::__fn{};
+inline constexpr auto partial_sort = __partial_sort::__fn{};
 } // namespace __cpo
 } // namespace ranges
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___ALGORITHM_RANGES_PARTIAL_SORT_H

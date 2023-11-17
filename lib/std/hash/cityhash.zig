@@ -6,11 +6,11 @@ inline fn offsetPtr(ptr: [*]const u8, offset: usize) [*]const u8 {
 }
 
 fn fetch32(ptr: [*]const u8, offset: usize) u32 {
-    return std.mem.readIntLittle(u32, offsetPtr(ptr, offset)[0..4]);
+    return std.mem.readInt(u32, offsetPtr(ptr, offset)[0..4], .little);
 }
 
 fn fetch64(ptr: [*]const u8, offset: usize) u64 {
-    return std.mem.readIntLittle(u64, offsetPtr(ptr, offset)[0..8]);
+    return std.mem.readInt(u64, offsetPtr(ptr, offset)[0..8], .little);
 }
 
 pub const CityHash32 = struct {

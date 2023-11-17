@@ -24,9 +24,9 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // TODO: remove this implementation once https://gcc.gnu.org/bugzilla/show_bug.cgi?id=106611 is fixed
 #ifdef _LIBCPP_COMPILER_GCC
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_nothrow_copy_constructible
-    : public is_nothrow_constructible<_Tp,
-                  __add_lvalue_reference_t<typename add_const<_Tp>::type> > {};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_nothrow_copy_constructible
+    : public is_nothrow_constructible<_Tp, __add_lvalue_reference_t<typename add_const<_Tp>::type> > {};
 
 #else // _LIBCPP_COMPILER_GCC
 
@@ -38,7 +38,7 @@ struct _LIBCPP_TEMPLATE_VIS is_nothrow_copy_constructible
 
 #endif // _LIBCPP_COMPILER_GCC
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 inline constexpr bool is_nothrow_copy_constructible_v = is_nothrow_copy_constructible<_Tp>::value;
 #endif

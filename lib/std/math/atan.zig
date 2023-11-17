@@ -73,7 +73,7 @@ fn atan32(x_: f32) f32 {
         }
         id = null;
     } else {
-        x = @fabs(x);
+        x = @abs(x);
         // |x| < 1.1875
         if (ix < 0x3F980000) {
             // 7/16 <= |x| < 11/16
@@ -171,7 +171,7 @@ fn atan64(x_: f64) f64 {
         }
         id = null;
     } else {
-        x = @fabs(x);
+        x = @abs(x);
         // |x| < 1.1875
         if (ix < 0x3FF30000) {
             // 7/16 <= |x| < 11/16
@@ -239,8 +239,8 @@ test "math.atan64" {
 test "math.atan32.special" {
     const epsilon = 0.000001;
 
-    try expect(atan32(0.0) == 0.0);
-    try expect(atan32(-0.0) == -0.0);
+    try expect(math.isPositiveZero(atan32(0.0)));
+    try expect(math.isNegativeZero(atan32(-0.0)));
     try expect(math.approxEqAbs(f32, atan32(math.inf(f32)), math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f32, atan32(-math.inf(f32)), -math.pi / 2.0, epsilon));
 }
@@ -248,8 +248,8 @@ test "math.atan32.special" {
 test "math.atan64.special" {
     const epsilon = 0.000001;
 
-    try expect(atan64(0.0) == 0.0);
-    try expect(atan64(-0.0) == -0.0);
+    try expect(math.isPositiveZero(atan64(0.0)));
+    try expect(math.isNegativeZero(atan64(-0.0)));
     try expect(math.approxEqAbs(f64, atan64(math.inf(f64)), math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f64, atan64(-math.inf(f64)), -math.pi / 2.0, epsilon));
 }

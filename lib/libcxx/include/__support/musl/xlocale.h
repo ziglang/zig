@@ -37,7 +37,8 @@ inline _LIBCPP_HIDE_FROM_ABI_C long long wcstoll_l(const wchar_t* __nptr, wchar_
   return ::wcstoll(__nptr, __endptr, __base);
 }
 
-inline _LIBCPP_HIDE_FROM_ABI_C long long wcstoull_l(const wchar_t* __nptr, wchar_t** __endptr, int __base, locale_t) {
+inline _LIBCPP_HIDE_FROM_ABI_C unsigned long long
+wcstoull_l(const wchar_t* __nptr, wchar_t** __endptr, int __base, locale_t) {
   return ::wcstoull(__nptr, __endptr, __base);
 }
 

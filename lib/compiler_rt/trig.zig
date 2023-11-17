@@ -70,7 +70,7 @@ pub fn __cosdf(x: f64) f32 {
     const z = x * x;
     const w = z * z;
     const r = C2 + z * C3;
-    return @as(f32, @floatCast(((1.0 + z * C0) + w * C1) + (w * z) * r));
+    return @floatCast(((1.0 + z * C0) + w * C1) + (w * z) * r);
 }
 
 /// kernel sin function on ~[-pi/4, pi/4] (except on -0), pi/4 ~ 0.7854
@@ -131,7 +131,7 @@ pub fn __sindf(x: f64) f32 {
     const w = z * z;
     const r = S3 + z * S4;
     const s = z * x;
-    return @as(f32, @floatCast((x + s * (S1 + z * S2)) + s * w * r));
+    return @floatCast((x + s * (S1 + z * S2)) + s * w * r);
 }
 
 /// kernel tan function on ~[-pi/4, pi/4] (except on -0), pi/4 ~ 0.7854
@@ -231,11 +231,11 @@ pub fn __tan(x_: f64, y_: f64, odd: bool) f64 {
     }
     // -1.0/(x+r) has up to 2ulp error, so compute it accurately
     w0 = w;
-    w0 = @as(f64, @bitCast(@as(u64, @bitCast(w0)) & 0xffffffff00000000));
+    w0 = @bitCast(@as(u64, @bitCast(w0)) & 0xffffffff00000000);
     v = r - (w0 - x); // w0+v = r+x
     a = -1.0 / w;
     a0 = a;
-    a0 = @as(f64, @bitCast(@as(u64, @bitCast(a0)) & 0xffffffff00000000));
+    a0 = @bitCast(@as(u64, @bitCast(a0)) & 0xffffffff00000000);
     return a0 + a * (1.0 + a0 * w0 + a0 * v);
 }
 
@@ -269,5 +269,5 @@ pub fn __tandf(x: f64, odd: bool) f32 {
     const s = z * x;
     const u = T[0] + z * T[1];
     const r0 = (x + s * u) + (s * w) * (t + w * r);
-    return @as(f32, @floatCast(if (odd) -1.0 / r0 else r0));
+    return @floatCast(if (odd) -1.0 / r0 else r0);
 }

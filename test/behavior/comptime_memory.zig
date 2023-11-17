@@ -1,3 +1,4 @@
+const std = @import("std");
 const builtin = @import("builtin");
 const endian = builtin.cpu.arch.endian();
 const testing = @import("std").testing;
@@ -72,7 +73,7 @@ test "type pun value and struct" {
 }
 
 fn bigToNativeEndian(comptime T: type, v: T) T {
-    return if (endian == .Big) v else @byteSwap(v);
+    return if (endian == .big) v else @byteSwap(v);
 }
 test "type pun endianness" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -384,7 +385,7 @@ test "accessing reinterpreted memory of parent object" {
         b: [4]u8,
         c: f32,
     };
-    const expected = if (endian == .Little) 102 else 38;
+    const expected = if (endian == .little) 102 else 38;
 
     comptime {
         const x = S{
@@ -433,8 +434,6 @@ test "dereference undefined pointer to zero-bit type" {
 }
 
 test "type pun extern struct" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = extern struct { f: u8 };
     comptime var s = S{ .f = 123 };
     @as(*u8, @ptrCast(&s)).* = 72;
@@ -451,4 +450,12 @@ test "type pun null pointer-like optional" {
     const p: ?*u8 = null;
     // note that expectEqual hides the bug
     try testing.expect(@as(*const ?*i8, @ptrCast(&p)).* == null);
+}
+
+test "write empty array to end" {
+    comptime var array: [5]u8 = "hello".*;
+    array[5..5].* = .{};
+    array[5..5].* = [0]u8{};
+    array[5..5].* = [_]u8{};
+    try testing.expectEqualStrings("hello", &array);
 }

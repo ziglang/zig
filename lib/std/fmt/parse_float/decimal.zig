@@ -260,7 +260,7 @@ pub fn Decimal(comptime T: type) type {
                     if (!isEightDigits(v)) {
                         break;
                     }
-                    std.mem.writeIntSliceLittle(u64, d.digits[d.num_digits..], v - 0x3030_3030_3030_3030);
+                    std.mem.writeInt(u64, d.digits[d.num_digits..][0..8], v - 0x3030_3030_3030_3030, .little);
                     d.num_digits += 8;
                     stream.advance(8);
                 }

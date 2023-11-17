@@ -1700,11 +1700,12 @@ fn appendSlice(list: *std.ArrayList(u8), buf: []const u8, max_value_len: usize) 
 }
 
 /// For the slice you get from a `Token.number` or `Token.allocated_number`,
-/// this function returns true if the number doesn't contain any fraction or exponent components.
+/// this function returns true if the number doesn't contain any fraction or exponent components, and is not `-0`.
 /// Note, the numeric value encoded by the value may still be an integer, such as `1.0`.
 /// This function is meant to give a hint about whether integer parsing or float parsing should be used on the value.
 /// This function will not give meaningful results on non-numeric input.
 pub fn isNumberFormattedLikeAnInteger(value: []const u8) bool {
+    if (std.mem.eql(u8, value, "-0")) return false;
     return std.mem.indexOfAny(u8, value, ".eE") == null;
 }
 

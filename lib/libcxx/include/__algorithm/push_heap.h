@@ -14,12 +14,16 @@
 #include <__algorithm/iterator_operations.h>
 #include <__config>
 #include <__iterator/iterator_traits.h>
+#include <__type_traits/is_copy_assignable.h>
+#include <__type_traits/is_copy_constructible.h>
 #include <__utility/move.h>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
+
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -68,10 +72,11 @@ void push_heap(_RandomAccessIterator __first, _RandomAccessIterator __last, _Com
 template <class _RandomAccessIterator>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 void push_heap(_RandomAccessIterator __first, _RandomAccessIterator __last) {
-  std::push_heap(std::move(__first), std::move(__last),
-      __less<typename iterator_traits<_RandomAccessIterator>::value_type>());
+  std::push_heap(std::move(__first), std::move(__last), __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_PUSH_HEAP_H

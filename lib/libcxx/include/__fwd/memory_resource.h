@@ -9,6 +9,7 @@
 #ifndef _LIBCPP___FWD_MEMORY_RESOURCE_H
 #define _LIBCPP___FWD_MEMORY_RESOURCE_H
 
+#include <__availability>
 #include <__config>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -19,7 +20,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace pmr {
 template <class _ValueType>
-class _LIBCPP_TEMPLATE_VIS polymorphic_allocator;
+class _LIBCPP_AVAILABILITY_PMR _LIBCPP_TEMPLATE_VIS polymorphic_allocator;
 } // namespace pmr
 
 _LIBCPP_END_NAMESPACE_STD

@@ -74,6 +74,7 @@
 #include <dispatch/data.h>
 #include <dispatch/io.h>
 #include <dispatch/workloop.h>
+#include <dispatch/dispatch_swift_shims.h>
 
 #undef __DISPATCH_INDIRECT__
 

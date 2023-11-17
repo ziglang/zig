@@ -18,7 +18,7 @@ pub const Murmur2_32 = struct {
         var h1: u32 = seed ^ len;
         for (@as([*]align(1) const u32, @ptrCast(str.ptr))[0..(len >> 2)]) |v| {
             var k1: u32 = v;
-            if (native_endian == .Big)
+            if (native_endian == .big)
                 k1 = @byteSwap(k1);
             k1 *%= m;
             k1 ^= k1 >> 24;
@@ -102,7 +102,7 @@ pub const Murmur2_64 = struct {
         var h1: u64 = seed ^ (@as(u64, str.len) *% m);
         for (@as([*]align(1) const u64, @ptrCast(str.ptr))[0 .. str.len / 8]) |v| {
             var k1: u64 = v;
-            if (native_endian == .Big)
+            if (native_endian == .big)
                 k1 = @byteSwap(k1);
             k1 *%= m;
             k1 ^= k1 >> 47;
@@ -115,7 +115,7 @@ pub const Murmur2_64 = struct {
         if (rest > 0) {
             var k1: u64 = 0;
             @memcpy(@as([*]u8, @ptrCast(&k1))[0..rest], str[offset..]);
-            if (native_endian == .Big)
+            if (native_endian == .big)
                 k1 = @byteSwap(k1);
             h1 ^= k1;
             h1 *%= m;
@@ -182,7 +182,7 @@ pub const Murmur3_32 = struct {
         var h1: u32 = seed;
         for (@as([*]align(1) const u32, @ptrCast(str.ptr))[0..(len >> 2)]) |v| {
             var k1: u32 = v;
-            if (native_endian == .Big)
+            if (native_endian == .big)
                 k1 = @byteSwap(k1);
             k1 *%= c1;
             k1 = rotl32(k1, 15);
@@ -286,7 +286,7 @@ test "murmur2_32" {
     var v1: u64 = 0x1234567812345678;
     var v0le: u32 = v0;
     var v1le: u64 = v1;
-    if (native_endian == .Big) {
+    if (native_endian == .big) {
         v0le = @byteSwap(v0le);
         v1le = @byteSwap(v1le);
     }
@@ -310,7 +310,7 @@ test "murmur2_64" {
     var v1: u64 = 0x1234567812345678;
     var v0le: u32 = v0;
     var v1le: u64 = v1;
-    if (native_endian == .Big) {
+    if (native_endian == .big) {
         v0le = @byteSwap(v0le);
         v1le = @byteSwap(v1le);
     }
@@ -334,7 +334,7 @@ test "murmur3_32" {
     var v1: u64 = 0x1234567812345678;
     var v0le: u32 = v0;
     var v1le: u64 = v1;
-    if (native_endian == .Big) {
+    if (native_endian == .big) {
         v0le = @byteSwap(v0le);
         v1le = @byteSwap(v1le);
     }

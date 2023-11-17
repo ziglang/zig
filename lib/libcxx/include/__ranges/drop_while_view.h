@@ -20,8 +20,8 @@
 #include <__ranges/access.h>
 #include <__ranges/all.h>
 #include <__ranges/concepts.h>
-#include <__ranges/copyable_box.h>
 #include <__ranges/enable_borrowed_range.h>
+#include <__ranges/movable_box.h>
 #include <__ranges/non_propagating_cache.h>
 #include <__ranges/range_adaptor.h>
 #include <__ranges/view_interface.h>
@@ -51,7 +51,7 @@ public:
     requires default_initializable<_View> && default_initializable<_Pred>
   = default;
 
-  _LIBCPP_HIDE_FROM_ABI constexpr drop_while_view(_View __base, _Pred __pred)
+  _LIBCPP_HIDE_FROM_ABI constexpr _LIBCPP_EXPLICIT_SINCE_CXX23 drop_while_view(_View __base, _Pred __pred)
       : __base_(std::move(__base)), __pred_(std::in_place, std::move(__pred)) {}
 
   _LIBCPP_HIDE_FROM_ABI constexpr _View base() const&
@@ -65,9 +65,10 @@ public:
   _LIBCPP_HIDE_FROM_ABI constexpr const _Pred& pred() const { return *__pred_; }
 
   _LIBCPP_HIDE_FROM_ABI constexpr auto begin() {
-    _LIBCPP_ASSERT(__pred_.__has_value(),
-                   "drop_while_view needs to have a non-empty predicate before calling begin() -- did a previous "
-                   "assignment to this drop_while_view fail?");
+    _LIBCPP_ASSERT_UNCATEGORIZED(
+        __pred_.__has_value(),
+        "drop_while_view needs to have a non-empty predicate before calling begin() -- did a previous "
+        "assignment to this drop_while_view fail?");
     if constexpr (_UseCache) {
       if (!__cached_begin_.__has_value()) {
         __cached_begin_.__emplace(ranges::find_if_not(__base_, std::cref(*__pred_)));
@@ -82,7 +83,7 @@ public:
 
 private:
   _LIBCPP_NO_UNIQUE_ADDRESS _View __base_ = _View();
-  _LIBCPP_NO_UNIQUE_ADDRESS __copyable_box<_Pred> __pred_;
+  _LIBCPP_NO_UNIQUE_ADDRESS __movable_box<_Pred> __pred_;
 
   static constexpr bool _UseCache = forward_range<_View>;
   using _Cache                    = _If<_UseCache, __non_propagating_cache<iterator_t<_View>>, __empty_cache>;

@@ -28,6 +28,7 @@ const TestTarget = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    force_pic: ?bool = null,
 };
 
 const test_targets = blk: {
@@ -88,6 +89,27 @@ const test_targets = blk: {
         .{
             .target = .{
                 .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+            .force_pic = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
                 .os_tag = .linux,
                 .abi = .none,
             },
@@ -196,6 +218,15 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+            .use_lld = false,
+        },
 
         .{
             .target = .{
@@ -275,22 +306,24 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mips,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
+        // https://github.com/ziglang/zig/issues/16846
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mips,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mips,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // https://github.com/ziglang/zig/issues/16846
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mips,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //},
 
         // https://github.com/ziglang/zig/issues/4927
         //.{
@@ -302,22 +335,24 @@ const test_targets = blk: {
         //    .link_libc = true,
         //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mipsel,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
+        // https://github.com/ziglang/zig/issues/16846
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mipsel,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //},
 
-        .{
-            .target = .{
-                .cpu_arch = .mipsel,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // https://github.com/ziglang/zig/issues/16846
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .mipsel,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //},
 
         // https://github.com/ziglang/zig/issues/4927
         //.{
@@ -457,62 +492,125 @@ const test_targets = blk: {
     };
 };
 
-const c_abi_targets = [_]CrossTarget{
+const CAbiTarget = struct {
+    target: CrossTarget = .{},
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
+    force_pic: ?bool = null,
+    c_defines: []const []const u8 = &.{},
+};
+
+const c_abi_targets = [_]CAbiTarget{
     .{},
     .{
-        .cpu_arch = .x86_64,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
     },
     .{
-        .cpu_arch = .x86,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
+        .use_llvm = false,
+        .use_lld = false,
+        .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
     },
     .{
-        .cpu_arch = .aarch64,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
+            .os_tag = .linux,
+            .abi = .musl,
+        },
+        .use_llvm = false,
+        .use_lld = false,
+        .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
     },
     .{
-        .cpu_arch = .arm,
-        .os_tag = .linux,
-        .abi = .musleabihf,
+        .target = .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
+            .os_tag = .linux,
+            .abi = .musl,
+        },
+        .use_llvm = false,
+        .use_lld = false,
+        .force_pic = true,
+        .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
     },
     .{
-        .cpu_arch = .mips,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .x86,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
     },
     .{
-        .cpu_arch = .riscv64,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .aarch64,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
     },
     .{
-        .cpu_arch = .wasm32,
-        .os_tag = .wasi,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .arm,
+            .os_tag = .linux,
+            .abi = .musleabihf,
+        },
     },
     .{
-        .cpu_arch = .powerpc,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .mips,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
     },
     .{
-        .cpu_arch = .powerpc64le,
-        .os_tag = .linux,
-        .abi = .musl,
+        .target = .{
+            .cpu_arch = .riscv64,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
     },
     .{
-        .cpu_arch = .x86,
-        .os_tag = .windows,
-        .abi = .gnu,
+        .target = .{
+            .cpu_arch = .wasm32,
+            .os_tag = .wasi,
+            .abi = .musl,
+        },
     },
     .{
-        .cpu_arch = .x86_64,
-        .os_tag = .windows,
-        .abi = .gnu,
+        .target = .{
+            .cpu_arch = .powerpc,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
+    },
+    .{
+        .target = .{
+            .cpu_arch = .powerpc64le,
+            .os_tag = .linux,
+            .abi = .musl,
+        },
+    },
+    .{
+        .target = .{
+            .cpu_arch = .x86,
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
+    },
+    .{
+        .target = .{
+            .cpu_arch = .x86_64,
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
     },
 };
 
@@ -682,7 +780,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test `zig init-lib`.
         const tmp_path = b.makeTempPath();
         const init_lib = b.addSystemCommand(&.{ b.zig_exe, "init-lib" });
-        init_lib.cwd = tmp_path;
+        init_lib.setCwd(.{ .cwd_relative = tmp_path });
         init_lib.setName("zig init-lib");
         init_lib.expectStdOutEqual("");
         init_lib.expectStdErrEqual("info: Created build.zig\n" ++
@@ -690,7 +788,7 @@ pub fn addCliTests(b: *std.Build) *Step {
             "info: Next, try `zig build --help` or `zig build test`\n");
 
         const run_test = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
-        run_test.cwd = tmp_path;
+        run_test.setCwd(.{ .cwd_relative = tmp_path });
         run_test.setName("zig build test");
         run_test.expectStdOutEqual("");
         run_test.step.dependOn(&init_lib.step);
@@ -705,7 +803,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test `zig init-exe`.
         const tmp_path = b.makeTempPath();
         const init_exe = b.addSystemCommand(&.{ b.zig_exe, "init-exe" });
-        init_exe.cwd = tmp_path;
+        init_exe.setCwd(.{ .cwd_relative = tmp_path });
         init_exe.setName("zig init-exe");
         init_exe.expectStdOutEqual("");
         init_exe.expectStdErrEqual("info: Created build.zig\n" ++
@@ -724,13 +822,13 @@ pub fn addCliTests(b: *std.Build) *Step {
         run_bad.step.dependOn(&init_exe.step);
 
         const run_test = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
-        run_test.cwd = tmp_path;
+        run_test.setCwd(.{ .cwd_relative = tmp_path });
         run_test.setName("zig build test");
         run_test.expectStdOutEqual("");
         run_test.step.dependOn(&init_exe.step);
 
         const run_run = b.addSystemCommand(&.{ b.zig_exe, "build", "run" });
-        run_run.cwd = tmp_path;
+        run_run.setCwd(.{ .cwd_relative = tmp_path });
         run_run.setName("zig build run");
         run_run.expectStdOutEqual("Run `zig build test` to run the tests.\n");
         run_run.expectStdErrEqual("All your codebase are belong to us.\n");
@@ -808,7 +906,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test zig fmt affecting only the appropriate files.
         const run1 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "fmt1.zig" });
         run1.setName("run zig fmt one file");
-        run1.cwd = tmp_path;
+        run1.setCwd(.{ .cwd_relative = tmp_path });
         run1.has_side_effects = true;
         // stdout should be file path + \n
         run1.expectStdOutEqual("fmt1.zig\n");
@@ -816,7 +914,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test excluding files and directories from a run
         const run2 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "--exclude", "fmt2.zig", "--exclude", "subdir", "." });
         run2.setName("run zig fmt on directory with exclusions");
-        run2.cwd = tmp_path;
+        run2.setCwd(.{ .cwd_relative = tmp_path });
         run2.has_side_effects = true;
         run2.expectStdOutEqual("");
         run2.step.dependOn(&run1.step);
@@ -824,7 +922,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test excluding non-existent file
         const run3 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "--exclude", "fmt2.zig", "--exclude", "nonexistent.zig", "." });
         run3.setName("run zig fmt on directory with non-existent exclusion");
-        run3.cwd = tmp_path;
+        run3.setCwd(.{ .cwd_relative = tmp_path });
         run3.has_side_effects = true;
         run3.expectStdOutEqual("." ++ s ++ "subdir" ++ s ++ "fmt3.zig\n");
         run3.step.dependOn(&run2.step);
@@ -832,7 +930,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // running it on the dir, only the new file should be changed
         const run4 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
         run4.setName("run zig fmt the directory");
-        run4.cwd = tmp_path;
+        run4.setCwd(.{ .cwd_relative = tmp_path });
         run4.has_side_effects = true;
         run4.expectStdOutEqual("." ++ s ++ "fmt2.zig\n");
         run4.step.dependOn(&run3.step);
@@ -840,7 +938,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // both files have been formatted, nothing should change now
         const run5 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
         run5.setName("run zig fmt with nothing to do");
-        run5.cwd = tmp_path;
+        run5.setCwd(.{ .cwd_relative = tmp_path });
         run5.has_side_effects = true;
         run5.expectStdOutEqual("");
         run5.step.dependOn(&run4.step);
@@ -854,7 +952,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         // Test `zig fmt` handling UTF-16 decoding.
         const run6 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
         run6.setName("run zig fmt convert UTF-16 to UTF-8");
-        run6.cwd = tmp_path;
+        run6.setCwd(.{ .cwd_relative = tmp_path });
         run6.has_side_effects = true;
         run6.expectStdOutEqual("." ++ s ++ "fmt6.zig\n");
         run6.step.dependOn(&write6.step);
@@ -972,7 +1070,9 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             continue;
 
         // TODO get compiler-rt tests passing for self-hosted backends.
-        if (test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
+        if ((test_target.target.getCpuArch() != .x86_64 or
+            test_target.target.getObjectFormat() != .elf) and
+            test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
             continue;
 
         // TODO get compiler-rt tests passing for wasm32-wasi
@@ -984,13 +1084,26 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             continue;
         }
 
-        // TODO get universal-libc tests passing for self-hosted backends.
-        if (test_target.use_llvm == false and mem.eql(u8, options.name, "universal-libc"))
+        // TODO get universal-libc tests passing for other self-hosted backends.
+        if (test_target.target.getCpuArch() != .x86_64 and
+            test_target.use_llvm == false and mem.eql(u8, options.name, "universal-libc"))
             continue;
 
-        // TODO get std lib tests passing for self-hosted backends.
-        if (test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
+        // TODO get std lib tests passing for other self-hosted backends.
+        if ((test_target.target.getCpuArch() != .x86_64 or
+            test_target.target.getOsTag() != .linux) and
+            test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
             continue;
+
+        if (test_target.target.getCpuArch() == .x86_64 and
+            test_target.target.getOsTag() == .windows and
+            test_target.target.cpu_arch == null and
+            test_target.optimize_mode != .Debug and
+            mem.eql(u8, options.name, "std"))
+        {
+            // https://github.com/ziglang/zig/issues/17902
+            continue;
+        }
 
         const want_this_mode = for (options.optimize_modes) |m| {
             if (m == test_target.optimize_mode) break true;
@@ -999,6 +1112,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         const libc_suffix = if (test_target.link_libc == true) "-libc" else "";
         const triple_txt = test_target.target.zigTriple(b.allocator) catch @panic("OOM");
+        const model_txt = test_target.target.getCpuModel().name;
 
         // wasm32-wasi builds need more RAM, idk why
         const max_rss = if (test_target.target.getOs().tag == .wasi)
@@ -1018,6 +1132,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .use_lld = test_target.use_lld,
             .zig_lib_dir = .{ .path = "lib" },
         });
+        these_tests.force_pic = test_target.force_pic;
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
             "-llvm"
@@ -1027,16 +1142,26 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             "-selfhosted"
         else
             "";
+        const use_lld = if (test_target.use_lld == false) "-no-lld" else "";
+        const use_pic = if (test_target.force_pic == true) "-pic" else "";
 
         these_tests.addIncludePath(.{ .path = "test" });
 
-        const qualified_name = b.fmt("{s}-{s}-{s}{s}{s}{s}", .{
+        if (test_target.target.getOs().tag == .wasi) {
+            // WASI's default stack size can be too small for some big tests.
+            these_tests.stack_size = 2 * 1024 * 1024;
+        }
+
+        const qualified_name = b.fmt("{s}-{s}-{s}-{s}{s}{s}{s}{s}{s}", .{
             options.name,
             triple_txt,
+            model_txt,
             @tagName(test_target.optimize_mode),
             libc_suffix,
             single_threaded_suffix,
             backend_suffix,
+            use_lld,
+            use_pic,
         });
 
         if (test_target.target.ofmt == std.Target.ObjectFormat.c) {
@@ -1119,33 +1244,47 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
         if (optimize_mode != .Debug and skip_release) continue;
 
         for (c_abi_targets) |c_abi_target| {
-            if (skip_non_native and !c_abi_target.isNative()) continue;
+            if (skip_non_native and !c_abi_target.target.isNative()) continue;
 
-            if (c_abi_target.isWindows() and c_abi_target.getCpuArch() == .aarch64) {
+            if (c_abi_target.target.isWindows() and c_abi_target.target.getCpuArch() == .aarch64) {
                 // https://github.com/ziglang/zig/issues/14908
                 continue;
             }
 
-            const triple_prefix = c_abi_target.zigTriple(b.allocator) catch @panic("OOM");
-
             const test_step = b.addTest(.{
-                .root_source_file = .{ .path = "test/c_abi/main.zig" },
-                .optimize = optimize_mode,
-                .target = c_abi_target,
-                .name = b.fmt("test-c-abi-{s}-{s}", .{
-                    triple_prefix, @tagName(optimize_mode),
+                .name = b.fmt("test-c-abi-{s}-{s}-{s}{s}{s}{s}", .{
+                    c_abi_target.target.zigTriple(b.allocator) catch @panic("OOM"),
+                    c_abi_target.target.getCpuModel().name,
+                    @tagName(optimize_mode),
+                    if (c_abi_target.use_llvm == true)
+                        "-llvm"
+                    else if (c_abi_target.target.ofmt == std.Target.ObjectFormat.c)
+                        "-cbe"
+                    else if (c_abi_target.use_llvm == false)
+                        "-selfhosted"
+                    else
+                        "",
+                    if (c_abi_target.use_lld == false) "-no-lld" else "",
+                    if (c_abi_target.force_pic == true) "-pic" else "",
                 }),
+                .root_source_file = .{ .path = "test/c_abi/main.zig" },
+                .target = c_abi_target.target,
+                .optimize = optimize_mode,
+                .link_libc = true,
+                .use_llvm = c_abi_target.use_llvm,
+                .use_lld = c_abi_target.use_lld,
             });
-            if (c_abi_target.abi != null and c_abi_target.abi.?.isMusl()) {
+            test_step.force_pic = c_abi_target.force_pic;
+            if (c_abi_target.target.abi != null and c_abi_target.target.abi.?.isMusl()) {
                 // TODO NativeTargetInfo insists on dynamically linking musl
                 // for some reason?
                 test_step.target_info.dynamic_linker.max_byte = null;
             }
-            test_step.linkLibC();
             test_step.addCSourceFile(.{
                 .file = .{ .path = "test/c_abi/cfuncs.c" },
                 .flags = &.{"-std=c99"},
             });
+            for (c_abi_target.c_defines) |define| test_step.defineCMacro(define, null);
 
             // This test is intentionally trying to check if the external ABI is
             // done properly. LTO would be a hindrance to this.

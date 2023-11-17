@@ -36,7 +36,7 @@ pub fn DecompressStream(comptime ReaderType: type) type {
 
         fn init(allocator: mem.Allocator, source: ReaderType) !Self {
             // Zlib header format is specified in RFC1950
-            const header_u16 = try source.readIntBig(u16);
+            const header_u16 = try source.readInt(u16, .big);
 
             // verify the header checksum
             if (header_u16 % 31 != 0)
@@ -81,7 +81,7 @@ pub fn DecompressStream(comptime ReaderType: type) type {
             }
 
             // We've reached the end of stream, check if the checksum matches
-            const hash = try self.in_reader.readIntBig(u32);
+            const hash = try self.in_reader.readInt(u32, .big);
             if (hash != self.hasher.final())
                 return error.WrongChecksum;
 
@@ -132,7 +132,7 @@ pub fn CompressStream(comptime WriterType: type) type {
             };
             header.checksum = @as(u5, @truncate(31 - @as(u16, @bitCast(header)) % 31));
 
-            try dest.writeIntBig(u16, @as(u16, @bitCast(header)));
+            try dest.writeInt(u16, @as(u16, @bitCast(header)), .big);
 
             const compression_level: deflate.Compression = switch (options.level) {
                 .no_compression => .no_compression,
@@ -171,7 +171,7 @@ pub fn CompressStream(comptime WriterType: type) type {
         pub fn finish(self: *Self) !void {
             const hash = self.hasher.final();
             try self.deflator.close();
-            try self.in_writer.writeIntBig(u32, hash);
+            try self.in_writer.writeInt(u32, hash, .big);
         }
     };
 }

@@ -416,7 +416,8 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
         };
 
         /// Return an iterator that walks the queue without consuming
-        /// it. Invalidated if the queue is modified.
+        /// it. The iteration order may differ from the priority order.
+        /// Invalidated if the queue is modified.
         pub fn iterator(self: *Self) Iterator {
             return Iterator{
                 .queue = self,

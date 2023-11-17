@@ -1,5 +1,5 @@
-/* termios tcflag symbolic contants definitions.  Linux/generic version.
-   Copyright (C) 2019-2021 Free Software Foundation, Inc.
+/* termios tcflag symbolic constant definitions.  Linux/generic version.
+   Copyright (C) 2019-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or

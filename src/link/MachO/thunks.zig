@@ -104,7 +104,7 @@ pub fn createThunks(macho_file: *MachO, sect_id: u8) !void {
 
         while (true) {
             const atom = macho_file.getAtom(group_end);
-            offset = mem.alignForward(u64, offset, try math.powi(u32, 2, atom.alignment));
+            offset = atom.alignment.forward(offset);
 
             const sym = macho_file.getSymbolPtr(atom.getSymbolWithLoc());
             sym.n_value = offset;
@@ -112,7 +112,7 @@ pub fn createThunks(macho_file: *MachO, sect_id: u8) !void {
 
             macho_file.logAtom(group_end, log);
 
-            header.@"align" = @max(header.@"align", atom.alignment);
+            header.@"align" = @max(header.@"align", atom.alignment.toLog2Units());
 
             allocated.putAssumeCapacityNoClobber(group_end, {});
 
@@ -196,7 +196,7 @@ fn allocateThunk(
 
         macho_file.logAtom(atom_index, log);
 
-        header.@"align" = @max(header.@"align", atom.alignment);
+        header.@"align" = @max(header.@"align", atom.alignment.toLog2Units());
 
         if (end_atom_index == atom_index) break;
 
@@ -326,7 +326,10 @@ fn isReachable(
 
 fn createThunkAtom(macho_file: *MachO) !Atom.Index {
     const sym_index = try macho_file.allocateSymbol();
-    const atom_index = try macho_file.createAtom(sym_index, .{ .size = @sizeOf(u32) * 3, .alignment = 2 });
+    const atom_index = try macho_file.createAtom(sym_index, .{
+        .size = @sizeOf(u32) * 3,
+        .alignment = .@"4",
+    });
     const sym = macho_file.getSymbolPtr(.{ .sym_index = sym_index });
     sym.n_type = macho.N_SECT;
     sym.n_sect = macho_file.text_section_index.? + 1;
@@ -346,10 +349,10 @@ pub fn writeThunkCode(macho_file: *MachO, thunk: *const Thunk, writer: anytype) 
             .atom => macho_file.getSymbol(target).n_value,
         };
         const pages = Relocation.calcNumberOfPages(source_addr, target_addr);
-        try writer.writeIntLittle(u32, aarch64.Instruction.adrp(.x16, pages).toU32());
+        try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
         const off = try Relocation.calcPageOffset(target_addr, .arithmetic);
-        try writer.writeIntLittle(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32());
-        try writer.writeIntLittle(u32, aarch64.Instruction.br(.x16).toU32());
+        try writer.writeInt(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32(), .little);
+        try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
     }
 }
 

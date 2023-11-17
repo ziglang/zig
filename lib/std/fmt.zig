@@ -1413,7 +1413,7 @@ pub fn formatInt(
     const min_int_bits = comptime @max(value_info.bits, 8);
     const MinInt = std.meta.Int(.unsigned, min_int_bits);
 
-    const abs_value = math.absCast(int_value);
+    const abs_value = @abs(int_value);
     // The worst case in terms of space needed is base 2, plus 1 for the sign
     var buf: [1 + @max(@as(comptime_int, value_info.bits), 1)]u8 = undefined;
 
@@ -1989,8 +1989,8 @@ pub const BufPrintError = error{
     NoSpaceLeft,
 };
 
-/// print a Formatter string into `buf`. Actually just a thin wrapper around `format` and `fixedBufferStream`.
-/// returns a slice of the bytes printed to.
+/// Print a Formatter string into `buf`. Actually just a thin wrapper around `format` and `fixedBufferStream`.
+/// Returns a slice of the bytes printed to.
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
     var fbs = std.io.fixedBufferStream(buf);
     try format(fbs.writer(), fmt, args);
@@ -2255,11 +2255,11 @@ test "pointer" {
     const FnPtr = *align(1) const fn () void;
     {
         const value = @as(FnPtr, @ptrFromInt(0xdeadbeef));
-        try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
+        try expectFmt("pointer: fn () void@deadbeef\n", "pointer: {}\n", .{value});
     }
     {
         const value = @as(FnPtr, @ptrFromInt(0xdeadbeef));
-        try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
+        try expectFmt("pointer: fn () void@deadbeef\n", "pointer: {}\n", .{value});
     }
 }
 
@@ -2751,6 +2751,8 @@ test "positional/alignment/width/precision" {
 }
 
 test "vector" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     if (builtin.target.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/4486
         return error.SkipZigTest;

@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const Lock = std.event.Lock;
 
-/// This is a value that starts out unavailable, until resolve() is called
+/// This is a value that starts out unavailable, until resolve() is called.
 /// While it is unavailable, functions suspend when they try to get() it,
 /// and then are resumed when resolve() is called.
 /// At this point the value remains forever available, and another resolve() is not allowed.

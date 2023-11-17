@@ -149,7 +149,7 @@ const Page = struct {
 
                 for (page.page_encodings[0..page.page_encodings_count]) |record_id| {
                     const enc = info.records.items[record_id].compactUnwindEncoding;
-                    try writer.writeIntLittle(u32, enc);
+                    try writer.writeInt(u32, enc, .little);
                 }
 
                 assert(page.count > 0);

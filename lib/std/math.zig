@@ -130,7 +130,7 @@ pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
     if (isNan(x) or isNan(y))
         return false;
 
-    return @fabs(x - y) <= tolerance;
+    return @abs(x - y) <= tolerance;
 }
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
@@ -158,7 +158,7 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
     if (isNan(x) or isNan(y))
         return false;
 
-    return @fabs(x - y) <= @max(@fabs(x), @fabs(y)) * tolerance;
+    return @abs(x - y) <= @max(@abs(x), @abs(y)) * tolerance;
 }
 
 test "approxEqAbs and approxEqRel" {
@@ -222,7 +222,10 @@ pub const isFinite = @import("math/isfinite.zig").isFinite;
 pub const isInf = @import("math/isinf.zig").isInf;
 pub const isPositiveInf = @import("math/isinf.zig").isPositiveInf;
 pub const isNegativeInf = @import("math/isinf.zig").isNegativeInf;
+pub const isPositiveZero = @import("math/iszero.zig").isPositiveZero;
+pub const isNegativeZero = @import("math/iszero.zig").isNegativeZero;
 pub const isNormal = @import("math/isnormal.zig").isNormal;
+pub const nextAfter = @import("math/nextafter.zig").nextAfter;
 pub const signbit = @import("math/signbit.zig").signbit;
 pub const scalbn = @import("math/scalbn.zig").scalbn;
 pub const ldexp = @import("math/ldexp.zig").ldexp;
@@ -345,6 +348,7 @@ test {
     _ = isPositiveInf;
     _ = isNegativeInf;
     _ = isNormal;
+    _ = nextAfter;
     _ = signbit;
     _ = scalbn;
     _ = ldexp;
@@ -466,7 +470,7 @@ pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
 /// Shifts left. Overflowed bits are truncated.
 /// A negative shift amount results in a right shift.
 pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
-    const abs_shift_amt = absCast(shift_amt);
+    const abs_shift_amt = @abs(shift_amt);
 
     const casted_shift_amt = blk: {
         if (@typeInfo(T) == .Vector) {
@@ -494,6 +498,7 @@ test "shl" {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+
     try testing.expect(shl(u8, 0b11111111, @as(usize, 3)) == 0b11111000);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -510,7 +515,7 @@ test "shl" {
 /// Shifts right. Overflowed bits are truncated.
 /// A negative shift amount results in a left shift.
 pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
-    const abs_shift_amt = absCast(shift_amt);
+    const abs_shift_amt = @abs(shift_amt);
 
     const casted_shift_amt = blk: {
         if (@typeInfo(T) == .Vector) {
@@ -538,6 +543,7 @@ test "shr" {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+
     try testing.expect(shr(u8, 0b11111111, @as(usize, 3)) == 0b00011111);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -583,6 +589,7 @@ test "rotr" {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+
     try testing.expect(rotr(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotr(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotr(u6, 0b000001, @as(usize, 7)) == 0b100000);
@@ -627,6 +634,7 @@ test "rotl" {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+
     try testing.expect(rotl(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotl(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotl(u6, 0b000001, @as(usize, 7)) == 0b000010);
@@ -738,51 +746,6 @@ fn testOverflow() !void {
     try testing.expect((add(i32, 3, 4) catch unreachable) == 7);
     try testing.expect((sub(i32, 3, 4) catch unreachable) == -1);
     try testing.expect((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
-}
-
-/// Returns the absolute value of x, where x is a value of a signed integer type.
-/// Does not convert and returns a value of a signed integer type.
-/// Use `absCast` if you want to convert the result and get an unsigned type.
-pub fn absInt(x: anytype) !@TypeOf(x) {
-    const T = @TypeOf(x);
-    return switch (@typeInfo(T)) {
-        .Int => |info| {
-            comptime assert(info.signedness == .signed); // must pass a signed integer to absInt
-            if (x == minInt(T)) {
-                return error.Overflow;
-            } else {
-                @setRuntimeSafety(false);
-                return if (x < 0) -x else x;
-            }
-        },
-        .Vector => |vinfo| blk: {
-            switch (@typeInfo(vinfo.child)) {
-                .Int => |info| {
-                    comptime assert(info.signedness == .signed); // must pass a signed integer to absInt
-                    if (@reduce(.Or, x == @as(T, @splat(minInt(vinfo.child))))) {
-                        return error.Overflow;
-                    }
-                    const zero: T = @splat(0);
-                    break :blk @select(vinfo.child, x > zero, x, -x);
-                },
-                else => @compileError("Expected vector of ints, found " ++ @typeName(T)),
-            }
-        },
-        else => @compileError("Expected an int or vector, found " ++ @typeName(T)),
-    };
-}
-
-test "absInt" {
-    try testAbsInt();
-    try comptime testAbsInt();
-}
-fn testAbsInt() !void {
-    try testing.expect((absInt(@as(i32, -10)) catch unreachable) == 10);
-    try testing.expect((absInt(@as(i32, 10)) catch unreachable) == 10);
-    try testing.expectEqual(@Vector(3, i32){ 10, 10, 0 }, (absInt(@Vector(3, i32){ -10, 10, 0 }) catch unreachable));
-
-    try testing.expectError(error.Overflow, absInt(@as(i32, minInt(i32))));
-    try testing.expectError(error.Overflow, absInt(@Vector(3, i32){ 10, -10, minInt(i32) }));
 }
 
 /// Divide numerator by denominator, rounding toward zero. Returns an
@@ -965,50 +928,6 @@ fn testRem() !void {
     try testing.expect((rem(f32, 5, 3) catch unreachable) == 2);
     try testing.expectError(error.NegativeDenominator, rem(f32, 10, -1));
     try testing.expectError(error.DivisionByZero, rem(f32, 10, 0));
-}
-
-/// Returns the absolute value of a floating point number.
-/// Uses a dedicated hardware instruction when available.
-/// This is the same as calling the builtin @fabs
-pub inline fn fabs(value: anytype) @TypeOf(value) {
-    return @fabs(value);
-}
-
-/// Returns the absolute value of the integer parameter.
-/// Converts result type to unsigned if needed and returns a value of an unsigned integer type.
-/// Use `absInt` if you want to keep your integer type signed.
-pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
-    .ComptimeInt => comptime_int,
-    .Int => |int_info| std.meta.Int(.unsigned, int_info.bits),
-    else => @compileError("absCast only accepts integers"),
-} {
-    switch (@typeInfo(@TypeOf(x))) {
-        .ComptimeInt => {
-            if (x < 0) {
-                return -x;
-            } else {
-                return x;
-            }
-        },
-        .Int => |int_info| {
-            if (int_info.signedness == .unsigned) return x;
-            const Uint = std.meta.Int(.unsigned, int_info.bits);
-            if (x < 0) {
-                return ~@as(Uint, @bitCast(x +% -1));
-            } else {
-                return @as(Uint, @intCast(x));
-            }
-        },
-        else => unreachable,
-    }
-}
-
-test "absCast" {
-    try testing.expectEqual(@as(u1, 1), absCast(@as(i1, -1)));
-    try testing.expectEqual(@as(u32, 999), absCast(@as(i32, -999)));
-    try testing.expectEqual(@as(u32, 999), absCast(@as(i32, 999)));
-    try testing.expectEqual(@as(u32, -minInt(i32)), absCast(@as(i32, minInt(i32))));
-    try testing.expectEqual(999, absCast(-999));
 }
 
 /// Returns the negation of the integer parameter.
@@ -1301,7 +1220,9 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
                     }
                 },
                 .Float, .ComptimeFloat => {
-                    if (value >= maxInt(T)) {
+                    if (isNan(value)) {
+                        return 0;
+                    } else if (value >= maxInt(T)) {
                         return @as(T, maxInt(T));
                     } else if (value <= minInt(T)) {
                         return @as(T, minInt(T));
@@ -1321,6 +1242,7 @@ test "lossyCast" {
     try testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
     try testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
     try testing.expect(lossyCast(u32, @as(f32, maxInt(u32))) == maxInt(u32));
+    try testing.expect(lossyCast(u32, nan(f32)) == 0);
 }
 
 /// Performs linear interpolation between *a* and *b* based on *t*.
@@ -1345,6 +1267,9 @@ pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
 }
 
 test "lerp" {
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .fma)) return error.SkipZigTest;
+
     try testing.expectEqual(@as(f64, 75), lerp(50, 100, 0.5));
     try testing.expectEqual(@as(f32, 43.75), lerp(50, 25, 0.25));
     try testing.expectEqual(@as(f64, -31.25), lerp(-50, 25, 0.25));

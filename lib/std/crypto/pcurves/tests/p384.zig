@@ -5,12 +5,12 @@ const testing = std.testing;
 const P384 = @import("../p384.zig").P384;
 
 test "p384 ECDH key exchange" {
-    const dha = P384.scalar.random(.Little);
-    const dhb = P384.scalar.random(.Little);
-    const dhA = try P384.basePoint.mul(dha, .Little);
-    const dhB = try P384.basePoint.mul(dhb, .Little);
-    const shareda = try dhA.mul(dhb, .Little);
-    const sharedb = try dhB.mul(dha, .Little);
+    const dha = P384.scalar.random(.little);
+    const dhb = P384.scalar.random(.little);
+    const dhA = try P384.basePoint.mul(dha, .little);
+    const dhB = try P384.basePoint.mul(dhb, .little);
+    const shareda = try dhA.mul(dhb, .little);
+    const sharedb = try dhB.mul(dha, .little);
     try testing.expect(shareda.equivalent(sharedb));
 }
 
@@ -21,7 +21,7 @@ test "p384 point from affine coordinates" {
     _ = try fmt.hexToBytes(&xs, xh);
     var ys: [48]u8 = undefined;
     _ = try fmt.hexToBytes(&ys, yh);
-    var p = try P384.fromSerializedAffineCoordinates(xs, ys, .Big);
+    var p = try P384.fromSerializedAffineCoordinates(xs, ys, .big);
     try testing.expect(p.equivalent(P384.basePoint));
 }
 
@@ -45,7 +45,7 @@ test "p384 test vectors" {
         p = p.add(P384.basePoint);
         var xs: [48]u8 = undefined;
         _ = try fmt.hexToBytes(&xs, xh);
-        try testing.expectEqualSlices(u8, &x.toBytes(.Big), &xs);
+        try testing.expectEqualSlices(u8, &x.toBytes(.big), &xs);
     }
 }
 
@@ -62,7 +62,7 @@ test "p384 test vectors - doubling" {
         p = p.dbl();
         var xs: [48]u8 = undefined;
         _ = try fmt.hexToBytes(&xs, xh);
-        try testing.expectEqualSlices(u8, &x.toBytes(.Big), &xs);
+        try testing.expectEqualSlices(u8, &x.toBytes(.big), &xs);
     }
 }
 
@@ -83,20 +83,20 @@ test "p384 uncompressed sec1 encoding/decoding" {
 }
 
 test "p384 public key is the neutral element" {
-    const n = P384.scalar.Scalar.zero.toBytes(.Little);
+    const n = P384.scalar.Scalar.zero.toBytes(.little);
     const p = P384.random();
-    try testing.expectError(error.IdentityElement, p.mul(n, .Little));
+    try testing.expectError(error.IdentityElement, p.mul(n, .little));
 }
 
 test "p384 public key is the neutral element (public verification)" {
-    const n = P384.scalar.Scalar.zero.toBytes(.Little);
+    const n = P384.scalar.Scalar.zero.toBytes(.little);
     const p = P384.random();
-    try testing.expectError(error.IdentityElement, p.mulPublic(n, .Little));
+    try testing.expectError(error.IdentityElement, p.mulPublic(n, .little));
 }
 
 test "p384 field element non-canonical encoding" {
     const s = [_]u8{0xff} ** 48;
-    try testing.expectError(error.NonCanonical, P384.Fe.fromBytes(s, .Little));
+    try testing.expectError(error.NonCanonical, P384.Fe.fromBytes(s, .little));
 }
 
 test "p384 neutral element decoding" {
@@ -110,8 +110,8 @@ test "p384 double base multiplication" {
     const p2 = P384.basePoint.dbl();
     const s1 = [_]u8{0x01} ** 48;
     const s2 = [_]u8{0x02} ** 48;
-    const pr1 = try P384.mulDoubleBasePublic(p1, s1, p2, s2, .Little);
-    const pr2 = (try p1.mul(s1, .Little)).add(try p2.mul(s2, .Little));
+    const pr1 = try P384.mulDoubleBasePublic(p1, s1, p2, s2, .little);
+    const pr2 = (try p1.mul(s1, .little)).add(try p2.mul(s2, .little));
     try testing.expect(pr1.equivalent(pr2));
 }
 
@@ -120,8 +120,8 @@ test "p384 double base multiplication with large scalars" {
     const p2 = P384.basePoint.dbl();
     const s1 = [_]u8{0xee} ** 48;
     const s2 = [_]u8{0xdd} ** 48;
-    const pr1 = try P384.mulDoubleBasePublic(p1, s1, p2, s2, .Little);
-    const pr2 = (try p1.mul(s1, .Little)).add(try p2.mul(s2, .Little));
+    const pr1 = try P384.mulDoubleBasePublic(p1, s1, p2, s2, .little);
+    const pr2 = (try p1.mul(s1, .little)).add(try p2.mul(s2, .little));
     try testing.expect(pr1.equivalent(pr2));
 }
 
@@ -134,10 +134,10 @@ test "p384 scalar inverse" {
         0x94, 0xa1, 0xbb, 0xb1, 0x4b, 0x90, 0x6a, 0x61, 0xa2, 0x80, 0xf2, 0x45, 0xf9, 0xe9, 0x3c, 0x7f,
         0x3b, 0x4a, 0x62, 0x47, 0x82, 0x4f, 0x5d, 0x33, 0xb9, 0x67, 0x07, 0x87, 0x64, 0x2a, 0x68, 0xde,
         0x38, 0x36, 0xe8, 0x0f, 0xa2, 0x84, 0x6b, 0x4e, 0xf3, 0x9a, 0x02, 0x31, 0x24, 0x41, 0x22, 0xca,
-    }, .Big);
+    }, .big);
     const inverse = scalar.invert();
     const inverse2 = inverse.invert();
-    try testing.expectEqualSlices(u8, &out, &inverse.toBytes(.Big));
+    try testing.expectEqualSlices(u8, &out, &inverse.toBytes(.big));
     try testing.expect(inverse2.equivalent(scalar));
 
     const sq = scalar.sq();

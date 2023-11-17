@@ -19,7 +19,7 @@ relocs: std.ArrayListUnmanaged(types.Relocation) = .{},
 /// Contains the binary data of an atom, which can be non-relocated
 code: std.ArrayListUnmanaged(u8) = .{},
 /// For code this is 1, for data this is set to the highest value of all segments
-alignment: u32,
+alignment: Wasm.Alignment,
 /// Offset into the section where the atom lives, this already accounts
 /// for alignment.
 offset: u32,
@@ -43,7 +43,7 @@ pub const Index = u32;
 
 /// Represents a default empty wasm `Atom`
 pub const empty: Atom = .{
-    .alignment = 1,
+    .alignment = .@"1",
     .file = null,
     .next = null,
     .offset = 0,
@@ -114,10 +114,10 @@ pub fn resolveRelocs(atom: *Atom, wasm_bin: *const Wasm) void {
             .R_WASM_GLOBAL_INDEX_I32,
             .R_WASM_MEMORY_ADDR_I32,
             .R_WASM_SECTION_OFFSET_I32,
-            => std.mem.writeIntLittle(u32, atom.code.items[reloc.offset..][0..4], @as(u32, @intCast(value))),
+            => std.mem.writeInt(u32, atom.code.items[reloc.offset..][0..4], @as(u32, @intCast(value)), .little),
             .R_WASM_TABLE_INDEX_I64,
             .R_WASM_MEMORY_ADDR_I64,
-            => std.mem.writeIntLittle(u64, atom.code.items[reloc.offset..][0..8], value),
+            => std.mem.writeInt(u64, atom.code.items[reloc.offset..][0..8], value, .little),
             .R_WASM_GLOBAL_INDEX_LEB,
             .R_WASM_EVENT_INDEX_LEB,
             .R_WASM_FUNCTION_INDEX_LEB,

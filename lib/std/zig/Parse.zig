@@ -205,13 +205,9 @@ pub fn parseZon(p: *Parse) !void {
     };
 }
 
-/// ContainerMembers <- ContainerDeclarations (ContainerField COMMA)* (ContainerField / ContainerDeclarations)
+/// ContainerMembers <- ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
 ///
-/// ContainerDeclarations
-///     <- TestDecl ContainerDeclarations
-///      / ComptimeDecl ContainerDeclarations
-///      / doc_comment? KEYWORD_pub? Decl ContainerDeclarations
-///      /
+/// ContainerDeclaration <- TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl
 ///
 /// ComptimeDecl <- KEYWORD_comptime Block
 fn parseContainerMembers(p: *Parse) !Members {
@@ -599,7 +595,7 @@ fn expectTestDeclRecoverable(p: *Parse) error{OutOfMemory}!Node.Index {
 }
 
 /// Decl
-///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
+///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
 ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
 ///      / KEYWORD_usingnamespace Expr SEMICOLON
 fn expectTopLevelDecl(p: *Parse) !Node.Index {
@@ -2349,10 +2345,7 @@ fn forPrefix(p: *Parse) Error!usize {
         _ = p.eatToken(.asterisk);
         const identifier = try p.expectToken(.identifier);
         captures += 1;
-        if (!warned_excess and inputs == 1 and captures == 2) {
-            // TODO remove the above condition after 0.11.0 release. this silences
-            // the error so that zig fmt can fix it.
-        } else if (captures > inputs and !warned_excess) {
+        if (captures > inputs and !warned_excess) {
             try p.warnMsg(.{ .tag = .extra_for_capture, .token = identifier });
             warned_excess = true;
         }

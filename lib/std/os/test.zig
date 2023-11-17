@@ -234,7 +234,7 @@ test "link with relative paths" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
     switch (native_os) {
-        .wasi, .linux, .solaris => {},
+        .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
     if (true) {
@@ -277,7 +277,7 @@ test "linkat with different directories" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
     switch (native_os) {
-        .wasi, .linux, .solaris => {},
+        .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
     if (true) {
@@ -417,6 +417,7 @@ test "cpu count" {
 
 test "thread local storage" {
     if (builtin.single_threaded) return error.SkipZigTest;
+
     const thread1 = try Thread.spawn(.{}, testTls, .{});
     const thread2 = try Thread.spawn(.{}, testTls, .{});
     try testTls();
@@ -604,7 +605,7 @@ test "mmap" {
 
         var i: u32 = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            try stream.writeIntNative(u32, i);
+            try stream.writeInt(u32, i, .little);
         }
     }
 
@@ -628,7 +629,7 @@ test "mmap" {
 
         var i: u32 = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            try testing.expectEqual(i, try stream.readIntNative(u32));
+            try testing.expectEqual(i, try stream.readInt(u32, .little));
         }
     }
 
@@ -652,7 +653,7 @@ test "mmap" {
 
         var i: u32 = alloc_size / 2 / @sizeOf(u32);
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            try testing.expectEqual(i, try stream.readIntNative(u32));
+            try testing.expectEqual(i, try stream.readInt(u32, .little));
         }
     }
 
@@ -706,7 +707,7 @@ test "fcntl" {
 
 test "signalfd" {
     switch (native_os) {
-        .linux, .solaris => {},
+        .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
     _ = &os.signalfd;
@@ -732,7 +733,7 @@ test "sync" {
 
 test "fsync" {
     switch (native_os) {
-        .linux, .windows, .solaris => {},
+        .linux, .windows, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
 
@@ -870,7 +871,7 @@ test "sigaction" {
 
 test "dup & dup2" {
     switch (native_os) {
-        .linux, .solaris => {},
+        .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
 

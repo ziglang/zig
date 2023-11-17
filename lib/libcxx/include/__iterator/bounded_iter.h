@@ -23,6 +23,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 // Iterator wrapper that carries the valid range it is allowed to access.
@@ -35,14 +38,14 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // Arithmetic operations are allowed and the bounds of the resulting iterator
 // are not checked. Hence, it is possible to create an iterator pointing outside
 // its range, but it is not possible to dereference it.
-template <class _Iterator, class = __enable_if_t< __is_cpp17_contiguous_iterator<_Iterator>::value > >
+template <class _Iterator, class = __enable_if_t< __libcpp_is_contiguous_iterator<_Iterator>::value > >
 struct __bounded_iter {
   using value_type        = typename iterator_traits<_Iterator>::value_type;
   using difference_type   = typename iterator_traits<_Iterator>::difference_type;
   using pointer           = typename iterator_traits<_Iterator>::pointer;
   using reference         = typename iterator_traits<_Iterator>::reference;
   using iterator_category = typename iterator_traits<_Iterator>::iterator_category;
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
   using iterator_concept = contiguous_iterator_tag;
 #endif
 
@@ -78,7 +81,7 @@ private:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 explicit __bounded_iter(
       _Iterator __current, _Iterator __begin, _Iterator __end)
       : __current_(__current), __begin_(__begin), __end_(__end) {
-    _LIBCPP_ASSERT(__begin <= __end, "__bounded_iter(current, begin, end): [begin, end) is not a valid range");
+    _LIBCPP_ASSERT_INTERNAL(__begin <= __end, "__bounded_iter(current, begin, end): [begin, end) is not a valid range");
   }
 
   template <class _It>
@@ -89,19 +92,19 @@ public:
   //
   // These operations check that the iterator is dereferenceable, that is within [begin, end).
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 reference operator*() const _NOEXCEPT {
-    _LIBCPP_ASSERT(
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
         __in_bounds(__current_), "__bounded_iter::operator*: Attempt to dereference an out-of-range iterator");
     return *__current_;
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pointer operator->() const _NOEXCEPT {
-    _LIBCPP_ASSERT(
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
         __in_bounds(__current_), "__bounded_iter::operator->: Attempt to dereference an out-of-range iterator");
     return std::__to_address(__current_);
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 reference operator[](difference_type __n) const _NOEXCEPT {
-    _LIBCPP_ASSERT(
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
         __in_bounds(__current_ + __n), "__bounded_iter::operator[]: Attempt to index an iterator out-of-range");
     return __current_[__n];
   }
@@ -212,7 +215,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR __bounded_iter<_It> __make_bounded_iter(
 
 #if _LIBCPP_STD_VER <= 17
 template <class _Iterator>
-struct __is_cpp17_contiguous_iterator<__bounded_iter<_Iterator> > : true_type {};
+struct __libcpp_is_contiguous_iterator<__bounded_iter<_Iterator> > : true_type {};
 #endif
 
 template <class _Iterator>
@@ -227,5 +230,7 @@ struct pointer_traits<__bounded_iter<_Iterator> > {
 };
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ITERATOR_BOUNDED_ITER_H

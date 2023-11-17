@@ -7,6 +7,10 @@ const Client = http.Client;
 const mem = std.mem;
 const testing = std.testing;
 
+pub const std_options = struct {
+    pub const http_disable_tls = true;
+};
+
 const max_header_size = 8192;
 
 var gpa_server = std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 12 }){};
@@ -20,7 +24,19 @@ var server: Server = undefined;
 fn handleRequest(res: *Server.Response) !void {
     const log = std.log.scoped(.server);
 
-    log.info("{s} {s} {s}", .{ @tagName(res.request.method), @tagName(res.request.version), res.request.target });
+    log.info("{} {s} {s}", .{ res.request.method, @tagName(res.request.version), res.request.target });
+
+    if (res.request.headers.contains("expect")) {
+        if (mem.eql(u8, res.request.headers.getFirstValue("expect").?, "100-continue")) {
+            res.status = .@"continue";
+            try res.send();
+            res.status = .ok;
+        } else {
+            res.status = .expectation_failed;
+            try res.send();
+            return;
+        }
+    }
 
     const body = try res.reader().readAllAlloc(salloc, 8192);
     defer salloc.free(body);
@@ -38,16 +54,18 @@ fn handleRequest(res: *Server.Response) !void {
 
         try res.headers.append("content-type", "text/plain");
 
-        try res.do();
+        try res.send();
         if (res.request.method != .HEAD) {
             try res.writeAll("Hello, ");
             try res.writeAll("World!\n");
             try res.finish();
+        } else {
+            try testing.expectEqual(res.writeAll("errors"), error.NotWriteable);
         }
     } else if (mem.startsWith(u8, res.request.target, "/large")) {
         res.transfer_encoding = .{ .content_length = 14 * 1024 + 14 * 10 };
 
-        try res.do();
+        try res.send();
 
         var i: u32 = 0;
         while (i < 5) : (i += 1) {
@@ -62,7 +80,7 @@ fn handleRequest(res: *Server.Response) !void {
         }
 
         try res.finish();
-    } else if (mem.eql(u8, res.request.target, "/echo-content")) {
+    } else if (mem.startsWith(u8, res.request.target, "/echo-content")) {
         try testing.expectEqualStrings("Hello, World!\n", body);
         try testing.expectEqualStrings("text/plain", res.request.headers.getFirstValue("content-type").?);
 
@@ -74,14 +92,14 @@ fn handleRequest(res: *Server.Response) !void {
             try testing.expectEqualStrings("14", res.request.headers.getFirstValue("content-length").?);
         }
 
-        try res.do();
+        try res.send();
         try res.writeAll("Hello, ");
         try res.writeAll("World!\n");
         try res.finish();
     } else if (mem.eql(u8, res.request.target, "/trailer")) {
         res.transfer_encoding = .chunked;
 
-        try res.do();
+        try res.send();
         try res.writeAll("Hello, ");
         try res.writeAll("World!\n");
         // try res.finish();
@@ -92,7 +110,7 @@ fn handleRequest(res: *Server.Response) !void {
         res.status = .found;
         try res.headers.append("location", "../../get");
 
-        try res.do();
+        try res.send();
         try res.writeAll("Hello, ");
         try res.writeAll("Redirected!\n");
         try res.finish();
@@ -102,7 +120,7 @@ fn handleRequest(res: *Server.Response) !void {
         res.status = .found;
         try res.headers.append("location", "/redirect/1");
 
-        try res.do();
+        try res.send();
         try res.writeAll("Hello, ");
         try res.writeAll("Redirected!\n");
         try res.finish();
@@ -115,7 +133,7 @@ fn handleRequest(res: *Server.Response) !void {
         res.status = .found;
         try res.headers.append("location", location);
 
-        try res.do();
+        try res.send();
         try res.writeAll("Hello, ");
         try res.writeAll("Redirected!\n");
         try res.finish();
@@ -125,7 +143,7 @@ fn handleRequest(res: *Server.Response) !void {
         res.status = .found;
         try res.headers.append("location", "/redirect/3");
 
-        try res.do();
+        try res.send();
         try res.writeAll("Hello, ");
         try res.writeAll("Redirected!\n");
         try res.finish();
@@ -136,11 +154,11 @@ fn handleRequest(res: *Server.Response) !void {
 
         res.status = .found;
         try res.headers.append("location", location);
-        try res.do();
+        try res.send();
         try res.finish();
     } else {
         res.status = .not_found;
-        try res.do();
+        try res.send();
     }
 }
 
@@ -212,7 +230,10 @@ pub fn main() !void {
     const server_thread = try std.Thread.spawn(.{}, serverThread, .{&server});
 
     var client = Client{ .allocator = calloc };
+    errdefer client.deinit();
     // defer client.deinit(); handled below
+
+    try client.loadDefaultProxies();
 
     { // read content-length response
         var h = http.Headers{ .allocator = calloc };
@@ -223,10 +244,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.GET, uri, h, .{});
+        var req = try client.open(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.send(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -237,7 +258,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // read large content-length response
         var h = http.Headers{ .allocator = calloc };
@@ -248,10 +269,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.GET, uri, h, .{});
+        var req = try client.open(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.send(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192 * 1024);
@@ -261,7 +282,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // send head request and not read chunked
         var h = http.Headers{ .allocator = calloc };
@@ -272,10 +293,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.HEAD, uri, h, .{});
+        var req = try client.open(.HEAD, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.send(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -287,7 +308,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // read chunked response
         var h = http.Headers{ .allocator = calloc };
@@ -298,10 +319,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.GET, uri, h, .{});
+        var req = try client.open(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.send(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -312,7 +333,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // send head request and not read chunked
         var h = http.Headers{ .allocator = calloc };
@@ -323,10 +344,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.HEAD, uri, h, .{});
+        var req = try client.open(.HEAD, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.send(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -338,7 +359,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // check trailing headers
         var h = http.Headers{ .allocator = calloc };
@@ -349,10 +370,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.GET, uri, h, .{});
+        var req = try client.open(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.send(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -363,7 +384,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // send content-length request
         var h = http.Headers{ .allocator = calloc };
@@ -376,12 +397,12 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.POST, uri, h, .{});
+        var req = try client.open(.POST, uri, h, .{});
         defer req.deinit();
 
         req.transfer_encoding = .{ .content_length = 14 };
 
-        try req.start();
+        try req.send(.{});
         try req.writeAll("Hello, ");
         try req.writeAll("World!\n");
         try req.finish();
@@ -395,7 +416,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // read content-length response with connection close
         var h = http.Headers{ .allocator = calloc };
@@ -408,10 +429,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.GET, uri, h, .{});
+        var req = try client.open(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.send(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -435,12 +456,12 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.POST, uri, h, .{});
+        var req = try client.open(.POST, uri, h, .{});
         defer req.deinit();
 
         req.transfer_encoding = .chunked;
 
-        try req.start();
+        try req.send(.{});
         try req.writeAll("Hello, ");
         try req.writeAll("World!\n");
         try req.finish();
@@ -454,7 +475,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // relative redirect
         var h = http.Headers{ .allocator = calloc };
@@ -465,10 +486,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.GET, uri, h, .{});
+        var req = try client.open(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.send(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -478,7 +499,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // redirect from root
         var h = http.Headers{ .allocator = calloc };
@@ -489,10 +510,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.GET, uri, h, .{});
+        var req = try client.open(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.send(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -502,7 +523,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // absolute redirect
         var h = http.Headers{ .allocator = calloc };
@@ -513,10 +534,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.GET, uri, h, .{});
+        var req = try client.open(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.send(.{});
         try req.wait();
 
         const body = try req.reader().readAllAlloc(calloc, 8192);
@@ -526,7 +547,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // too many redirects
         var h = http.Headers{ .allocator = calloc };
@@ -537,10 +558,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.GET, uri, h, .{});
+        var req = try client.open(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.send(.{});
         req.wait() catch |err| switch (err) {
             error.TooManyHttpRedirects => {},
             else => return err,
@@ -548,7 +569,7 @@ pub fn main() !void {
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // check client without segfault by connection error after redirection
         var h = http.Headers{ .allocator = calloc };
@@ -559,19 +580,96 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.request(.GET, uri, h, .{});
+        var req = try client.open(.GET, uri, h, .{});
         defer req.deinit();
 
-        try req.start();
+        try req.send(.{});
         const result = req.wait();
 
-        try testing.expectError(error.ConnectionRefused, result); // expects not segfault but the regular error
+        // a proxy without an upstream is likely to return a 5xx status.
+        if (client.http_proxy == null) {
+            try testing.expectError(error.ConnectionRefused, result); // expects not segfault but the regular error
+        }
     }
 
     // connection has been kept alive
-    try testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
-    { // issue 16282
+    { // Client.fetch()
+        var h = http.Headers{ .allocator = calloc };
+        defer h.deinit();
+
+        try h.append("content-type", "text/plain");
+
+        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/echo-content#fetch", .{port});
+        defer calloc.free(location);
+
+        log.info("{s}", .{location});
+        var res = try client.fetch(calloc, .{
+            .location = .{ .url = location },
+            .method = .POST,
+            .headers = h,
+            .payload = .{ .string = "Hello, World!\n" },
+        });
+        defer res.deinit();
+
+        try testing.expectEqualStrings("Hello, World!\n", res.body.?);
+    }
+
+    { // expect: 100-continue
+        var h = http.Headers{ .allocator = calloc };
+        defer h.deinit();
+
+        try h.append("expect", "100-continue");
+        try h.append("content-type", "text/plain");
+
+        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/echo-content#expect-100", .{port});
+        defer calloc.free(location);
+        const uri = try std.Uri.parse(location);
+
+        log.info("{s}", .{location});
+        var req = try client.open(.POST, uri, h, .{});
+        defer req.deinit();
+
+        req.transfer_encoding = .chunked;
+
+        try req.send(.{});
+        try req.writeAll("Hello, ");
+        try req.writeAll("World!\n");
+        try req.finish();
+
+        try req.wait();
+        try testing.expectEqual(http.Status.ok, req.response.status);
+
+        const body = try req.reader().readAllAlloc(calloc, 8192);
+        defer calloc.free(body);
+
+        try testing.expectEqualStrings("Hello, World!\n", body);
+    }
+
+    { // expect: garbage
+        var h = http.Headers{ .allocator = calloc };
+        defer h.deinit();
+
+        try h.append("content-type", "text/plain");
+        try h.append("expect", "garbage");
+
+        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/echo-content#expect-garbage", .{port});
+        defer calloc.free(location);
+        const uri = try std.Uri.parse(location);
+
+        log.info("{s}", .{location});
+        var req = try client.open(.POST, uri, h, .{});
+        defer req.deinit();
+
+        req.transfer_encoding = .chunked;
+
+        try req.send(.{});
+        try req.wait();
+        try testing.expectEqual(http.Status.expectation_failed, req.response.status);
+    }
+
+    { // issue 16282 *** This test leaves the client in an invalid state, it must be last ***
         const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/get", .{port});
         defer calloc.free(location);
         const uri = try std.Uri.parse(location);
@@ -581,9 +679,9 @@ pub fn main() !void {
         defer calloc.free(requests);
 
         for (0..total_connections) |i| {
-            var req = try client.request(.GET, uri, .{ .allocator = calloc }, .{});
+            var req = try client.open(.GET, uri, .{ .allocator = calloc }, .{});
             req.response.parser.done = true;
-            req.connection.?.data.closing = false;
+            req.connection.?.closing = false;
             requests[i] = req;
         }
 

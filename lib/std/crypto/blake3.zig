@@ -200,7 +200,7 @@ const CompressGeneric = struct {
     }
 };
 
-const compress = if (builtin.cpu.arch == .x86_64)
+const compress = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_x86_64)
     CompressVectorized.compress
 else
     CompressGeneric.compress;
@@ -212,7 +212,7 @@ fn first8Words(words: [16]u32) [8]u32 {
 fn wordsFromLittleEndianBytes(comptime count: usize, bytes: [count * 4]u8) [count]u32 {
     var words: [count]u32 = undefined;
     for (&words, 0..) |*word, i| {
-        word.* = mem.readIntSliceLittle(u32, bytes[4 * i ..]);
+        word.* = mem.readInt(u32, bytes[4 * i ..][0..4], .little);
     }
     return words;
 }
@@ -252,7 +252,7 @@ const Output = struct {
             var word_counter: usize = 0;
             while (out_word_it.next()) |out_word| {
                 var word_bytes: [4]u8 = undefined;
-                mem.writeIntLittle(u32, &word_bytes, words[word_counter]);
+                mem.writeInt(u32, &word_bytes, words[word_counter], .little);
                 @memcpy(out_word, word_bytes[0..out_word.len]);
                 word_counter += 1;
             }

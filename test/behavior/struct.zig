@@ -109,7 +109,6 @@ fn testMutation(foo: *StructFoo) void {
 
 test "struct byval assign" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var foo1: StructFoo = undefined;
     var foo2: StructFoo = undefined;
@@ -129,8 +128,6 @@ test "call struct static method" {
 const should_be_11 = StructWithNoFields.add(5, 6);
 
 test "invoke static method in global scope" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try expect(should_be_11 == 11);
 }
 
@@ -253,7 +250,6 @@ test "usingnamespace within struct scope" {
 test "struct field init with catch" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -296,7 +292,6 @@ const Val = struct {
 test "struct point to self" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var root: Node = undefined;
     root.val.x = 1;
@@ -313,7 +308,6 @@ test "struct point to self" {
 test "void struct fields" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const foo = VoidStructFieldsFoo{
         .a = void{},
@@ -341,7 +335,6 @@ fn testReturnEmptyStructFromFn() EmptyStruct2 {
 
 test "pass slice of empty struct to fn" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(testPassSliceOfEmptyStructToFn(&[_]EmptyStruct2{EmptyStruct2{}}) == 1);
 }
@@ -353,7 +346,6 @@ test "self-referencing struct via array member" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const T = struct {
         children: [1]*@This(),
@@ -364,8 +356,6 @@ test "self-referencing struct via array member" {
 }
 
 test "empty struct method call" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const es = EmptyStruct{};
     try expect(es.method() == 1234);
 }
@@ -378,7 +368,6 @@ const EmptyStruct = struct {
 
 test "align 1 field before self referential align 8 field as slice return type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const result = alloc(Expr);
     try expect(result.len == 0);
@@ -550,7 +539,6 @@ test "implicit cast packed struct field to const ptr" {
 
 test "zero-bit field in packed struct" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = packed struct {
         x: u10,
@@ -745,7 +733,6 @@ test "packed struct with u0 field access" {
 test "access to global struct fields" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     g_foo.bar.value = 42;
     try expect(g_foo.bar.value == 42);
@@ -942,8 +929,6 @@ test "tuple assigned to variable" {
 }
 
 test "comptime struct field" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest; // TODO
 
@@ -962,7 +947,6 @@ test "tuple element initialized with fn call" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -981,7 +965,6 @@ test "struct with union field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Value = struct {
         ref: u32 = 2,
@@ -996,6 +979,24 @@ test "struct with union field" {
     };
     try expect(@as(u32, 2) == True.ref);
     try expect(True.kind.Bool);
+}
+
+test "struct with 0-length union array field" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const U = union {
+        a: u32,
+        b: u64,
+    };
+
+    const S = struct {
+        zero_length: [0]U,
+    };
+
+    var s: S = undefined;
+    try expectEqual(@as(usize, 0), s.zero_length.len);
 }
 
 test "type coercion of anon struct literal to struct" {
@@ -1076,7 +1077,6 @@ test "type coercion of pointer to anon struct literal to pointer to struct" {
 
 test "packed struct with undefined initializers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
@@ -1215,7 +1215,6 @@ test "typed init through error unions and optionals" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         a: u32,
@@ -1365,7 +1364,7 @@ test "under-aligned struct field" {
     var runtime: usize = 1234;
     const ptr = &S{ .events = 0, .data = .{ .u64 = runtime } };
     const array = @as(*const [12]u8, @ptrCast(ptr));
-    const result = std.mem.readIntNative(u64, array[4..12]);
+    const result = std.mem.readInt(u64, array[4..12], native_endian);
     try expect(result == 1234);
 }
 
@@ -1420,7 +1419,6 @@ test "fieldParentPtr of a zero-bit field" {
 
 test "struct field has a pointer to an aligned version of itself" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const E = struct {
         next: *align(1) @This(),
@@ -1432,8 +1430,6 @@ test "struct field has a pointer to an aligned version of itself" {
 }
 
 test "struct has only one reference" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn optionalStructParam(_: ?struct { x: u8 }) void {}
         fn errorUnionStructParam(_: error{}!struct { x: u8 }) void {}
@@ -1503,7 +1499,6 @@ test "discarded struct initialization works as expected" {
 
 test "function pointer in struct returns the struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const A = struct {
         const A = @This();
@@ -1519,7 +1514,6 @@ test "function pointer in struct returns the struct" {
 
 test "no dependency loop on optional field wrapped in generic function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn Atomic(comptime T: type) type {
@@ -1539,7 +1533,6 @@ test "no dependency loop on optional field wrapped in generic function" {
 test "optional field init with tuple" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         a: ?struct { b: u32 },
@@ -1553,7 +1546,6 @@ test "optional field init with tuple" {
 
 test "if inside struct init inside if" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const MyStruct = struct { x: u32 };
     const b: u32 = 5;
@@ -1639,12 +1631,9 @@ test "instantiate struct with comptime field" {
 
 test "struct field pointer has correct alignment" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -1672,12 +1661,9 @@ test "struct field pointer has correct alignment" {
 
 test "extern struct field pointer has correct alignment" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -1740,6 +1726,8 @@ test "struct init with no result pointer sets field result types" {
 }
 
 test "runtime side-effects in comptime-known struct init" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var side_effects: u4 = 0;
     const S = struct { a: u4, b: u4, c: u4, d: u4 };
     const init = S{
@@ -1762,4 +1750,110 @@ test "runtime side-effects in comptime-known struct init" {
     };
     try expectEqual(S{ .a = 1, .b = 2, .c = 4, .d = 8 }, init);
     try expectEqual(@as(u4, std.math.maxInt(u4)), side_effects);
+}
+
+test "pointer to struct initialized through reference to anonymous initializer provides result types" {
+    const S = struct { a: u8, b: u16, c: *const anyopaque };
+    var my_u16: u16 = 0xABCD;
+    const s: *const S = &.{
+        // intentionally out of order
+        .c = @ptrCast("hello"),
+        .b = my_u16,
+        .a = @truncate(my_u16),
+    };
+    try expect(s.a == 0xCD);
+    try expect(s.b == 0xABCD);
+    const str: *const [5]u8 = @ptrCast(s.c);
+    try std.testing.expectEqualSlices(u8, "hello", str);
+}
+
+test "comptimeness of optional and error union payload is analyzed properly" {
+    // This is primarily a semantic analysis integrity test.
+    // The original failure mode for this was a crash.
+    // Both structs and unions work for this, the point is that
+    // their comptimeness is lazily evaluated.
+    const S = struct {};
+    // Original form of bug #17511, regressed in #17471
+    const a = @sizeOf(?*S);
+    _ = a;
+    // Error union case, fails assertion in debug versions of release 0.11.0
+    _ = @sizeOf(anyerror!*S);
+    _ = @sizeOf(anyerror!?S);
+    // Evaluation case, crashes the actual release 0.11.0
+    const C = struct { x: comptime_int };
+    const c: anyerror!?C = .{ .x = 3 };
+    const x = (try c).?.x;
+    try std.testing.expectEqual(3, x);
+}
+
+test "initializer uses own alignment" {
+    const S = struct {
+        x: u32 = @alignOf(@This()) + 1,
+    };
+
+    var s: S = .{};
+    try expectEqual(4, @alignOf(S));
+    try expectEqual(@as(usize, 5), s.x);
+}
+
+test "initializer uses own size" {
+    const S = struct {
+        x: u32 = @sizeOf(@This()) + 1,
+    };
+
+    var s: S = .{};
+    try expectEqual(4, @sizeOf(S));
+    try expectEqual(@as(usize, 5), s.x);
+}
+
+test "initializer takes a pointer to a variable inside its struct" {
+    const namespace = struct {
+        const S = struct {
+            s: *S = &S.instance,
+            var instance: S = undefined;
+        };
+
+        fn doTheTest() !void {
+            var foo: S = .{};
+            try expectEqual(&S.instance, foo.s);
+        }
+    };
+
+    try namespace.doTheTest();
+    comptime try namespace.doTheTest();
+}
+
+test "circular dependency through pointer field of a struct" {
+    const S = struct {
+        const StructInner = extern struct {
+            outer: StructOuter = std.mem.zeroes(StructOuter),
+        };
+
+        const StructMiddle = extern struct {
+            outer: ?*StructInner,
+            inner: ?*StructOuter,
+        };
+
+        const StructOuter = extern struct {
+            middle: StructMiddle = std.mem.zeroes(StructMiddle),
+        };
+    };
+    var outer: S.StructOuter = .{};
+    try expect(outer.middle.outer == null);
+    try expect(outer.middle.inner == null);
+}
+
+test "field calls do not force struct field init resolution" {
+    const S = struct {
+        x: u32 = blk: {
+            _ = @TypeOf(make().dummyFn()); // runtime field call - S not fully resolved - dummyFn call should not force field init resolution
+            break :blk 123;
+        },
+        dummyFn: *const fn () void = undefined,
+        fn make() @This() {
+            return .{};
+        }
+    };
+    var s: S = .{};
+    try expect(s.x == 123);
 }

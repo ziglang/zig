@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const io = std.io;
 const meta = std.meta;
 const trait = std.trait;
@@ -10,7 +9,7 @@ const expectError = std.testing.expectError;
 const mem = std.mem;
 const fs = std.fs;
 const File = std.fs.File;
-const native_endian = builtin.target.cpu.arch.endian();
+const native_endian = @import("builtin").target.cpu.arch.endian();
 
 const tmpDir = std.testing.tmpDir;
 
@@ -177,4 +176,17 @@ test "updateTimes" {
     var stat_new = try file.stat();
     try expect(stat_new.atime < stat_old.atime);
     try expect(stat_new.mtime < stat_old.mtime);
+}
+
+test "GenericReader methods can return error.EndOfStream" {
+    // https://github.com/ziglang/zig/issues/17733
+    var fbs = std.io.fixedBufferStream("");
+    try std.testing.expectError(
+        error.EndOfStream,
+        fbs.reader().readEnum(enum(u8) { a, b }, .little),
+    );
+    try std.testing.expectError(
+        error.EndOfStream,
+        fbs.reader().isBytes("foo"),
+    );
 }

@@ -1853,7 +1853,7 @@ pub const data_in_code_entry = extern struct {
 
 pub const LoadCommandIterator = struct {
     ncmds: usize,
-    buffer: []align(@alignOf(u64)) const u8,
+    buffer: []const u8,
     index: usize = 0,
 
     pub const LoadCommand = struct {

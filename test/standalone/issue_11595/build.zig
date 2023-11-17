@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) void {
         "test.c",
     };
 
-    exe.addCSourceFiles(&c_sources, &.{});
+    exe.addCSourceFiles(.{ .files = &c_sources });
     exe.linkLibC();
 
     var i: i32 = 0;

@@ -30,6 +30,11 @@
 #ifndef __cplusplus
 #include <complex.h>
 
+#if __has_include(<realtime_safety/realtime_safety.h>)
+#include <realtime_safety/realtime_safety.h>
+REALTIME_SAFE_BEGIN
+#endif
+
 #define _TG_ATTRSp __attribute__((__overloadable__))
 #define _TG_ATTRS __attribute__((__overloadable__, __always_inline__))
 
@@ -1367,6 +1372,10 @@ static long double
 
 #undef _TG_ATTRSp
 #undef _TG_ATTRS
+
+#if __has_include(<realtime_safety/realtime_safety.h>)
+REALTIME_SAFE_END
+#endif
 
 #endif /* __cplusplus */
 #endif /* __TGMATH_H */

@@ -25,8 +25,6 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-const allocator_arg_t allocator_arg = allocator_arg_t();
-
 bad_weak_ptr::~bad_weak_ptr() noexcept {}
 
 const char*

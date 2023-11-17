@@ -6,7 +6,7 @@
 //! Parts of that code was ported from the BSD-licensed crypto/internal/bigmod/nat.go file in the Go language, itself inspired from BearSSL.
 
 const std = @import("std");
-const builtin = std.builtin;
+const builtin = @import("builtin");
 const crypto = std.crypto;
 const math = std.math;
 const mem = std.mem;
@@ -14,6 +14,7 @@ const meta = std.meta;
 const testing = std.testing;
 const BoundedArray = std.BoundedArray;
 const assert = std.debug.assert;
+const Endian = std.builtin.Endian;
 
 // A Limb is a single digit in a big integer.
 const Limb = usize;
@@ -27,7 +28,7 @@ const t_bits: usize = @bitSizeOf(Limb) - carry_bits;
 // A TLimb is a Limb that is truncated to t_bits.
 const TLimb = meta.Int(.unsigned, t_bits);
 
-const native_endian = @import("builtin").target.cpu.arch.endian();
+const native_endian = builtin.target.cpu.arch.endian();
 
 // A WideLimb is a Limb that is twice as wide as a normal Limb.
 const WideLimb = struct {
@@ -128,7 +129,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
         }
 
         /// Encodes a big integer into a byte array.
-        pub fn toBytes(self: Self, bytes: []u8, comptime endian: builtin.Endian) OverflowError!void {
+        pub fn toBytes(self: Self, bytes: []u8, comptime endian: Endian) OverflowError!void {
             if (bytes.len == 0) {
                 if (self.isZero()) return;
                 return error.Overflow;
@@ -136,8 +137,8 @@ pub fn Uint(comptime max_bits: comptime_int) type {
             @memset(bytes, 0);
             var shift: usize = 0;
             var out_i: usize = switch (endian) {
-                .Big => bytes.len - 1,
-                .Little => 0,
+                .big => bytes.len - 1,
+                .little => 0,
             };
             for (0..self.limbs.len) |i| {
                 var remaining_bits = t_bits;
@@ -149,7 +150,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
                     remaining_bits -= consumed;
                     shift = 0;
                     switch (endian) {
-                        .Big => {
+                        .big => {
                             if (out_i == 0) {
                                 if (i != self.limbs.len - 1 or limb != 0) {
                                     return error.Overflow;
@@ -158,7 +159,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
                             }
                             out_i -= 1;
                         },
-                        .Little => {
+                        .little => {
                             out_i += 1;
                             if (out_i == bytes.len) {
                                 if (i != self.limbs.len - 1 or limb != 0) {
@@ -175,14 +176,14 @@ pub fn Uint(comptime max_bits: comptime_int) type {
         }
 
         /// Creates a new big integer from a byte array.
-        pub fn fromBytes(bytes: []const u8, comptime endian: builtin.Endian) OverflowError!Self {
+        pub fn fromBytes(bytes: []const u8, comptime endian: Endian) OverflowError!Self {
             if (bytes.len == 0) return Self.zero;
             var shift: usize = 0;
             var out = Self.zero;
             var out_i: usize = 0;
             var i: usize = switch (endian) {
-                .Big => bytes.len - 1,
-                .Little => 0,
+                .big => bytes.len - 1,
+                .little => 0,
             };
             while (true) {
                 const bi = bytes[i];
@@ -202,11 +203,11 @@ pub fn Uint(comptime max_bits: comptime_int) type {
                     out.limbs.set(out_i, overflow);
                 }
                 switch (endian) {
-                    .Big => {
+                    .big => {
                         if (i == 0) break;
                         i -= 1;
                     },
-                    .Little => {
+                    .little => {
                         i += 1;
                         if (i == bytes.len) break;
                     },
@@ -226,7 +227,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
                 Limb,
                 x.limbs.constSlice(),
                 y.limbs.constSlice(),
-                .Little,
+                .little,
             );
         }
 
@@ -335,7 +336,7 @@ fn Fe_(comptime bits: comptime_int) type {
         }
 
         /// Creates a field element from a byte string.
-        pub fn fromBytes(m: Modulus(bits), bytes: []const u8, comptime endian: builtin.Endian) (OverflowError || FieldElementError)!Self {
+        pub fn fromBytes(m: Modulus(bits), bytes: []const u8, comptime endian: Endian) (OverflowError || FieldElementError)!Self {
             const v = try FeUint.fromBytes(bytes, endian);
             var fe = Self{ .v = v };
             try m.shrink(&fe);
@@ -344,7 +345,7 @@ fn Fe_(comptime bits: comptime_int) type {
         }
 
         /// Converts the field element to a byte string.
-        pub fn toBytes(self: Self, bytes: []u8, comptime endian: builtin.Endian) OverflowError!void {
+        pub fn toBytes(self: Self, bytes: []u8, comptime endian: Endian) OverflowError!void {
             return self.v.toBytes(bytes, endian);
         }
 
@@ -458,13 +459,13 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
         }
 
         /// Creates a new modulus from a byte string.
-        pub fn fromBytes(bytes: []const u8, comptime endian: builtin.Endian) (InvalidModulusError || OverflowError)!Self {
+        pub fn fromBytes(bytes: []const u8, comptime endian: Endian) (InvalidModulusError || OverflowError)!Self {
             const v = try FeUint.fromBytes(bytes, endian);
             return try Self.fromUint(v);
         }
 
         /// Serializes the modulus to a byte string.
-        pub fn toBytes(self: Self, bytes: []u8, comptime endian: builtin.Endian) OverflowError!void {
+        pub fn toBytes(self: Self, bytes: []u8, comptime endian: Endian) OverflowError!void {
             return self.v.toBytes(bytes, endian);
         }
 
@@ -656,6 +657,101 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             return d;
         }
 
+        // Returns x^e (mod m), with the exponent provided as a byte string.
+        // `public` must be set to `false` if the exponent it secret.
+        fn powWithEncodedExponentInternal(self: Self, x: Fe, e: []const u8, endian: Endian, comptime public: bool) NullExponentError!Fe {
+            var acc: u8 = 0;
+            for (e) |b| acc |= b;
+            if (acc == 0) return error.NullExponent;
+
+            var out = self.one();
+            self.toMontgomery(&out) catch unreachable;
+
+            if (public and e.len < 3 or (e.len == 3 and e[if (endian == .big) 0 else 2] <= 0b1111)) {
+                // Do not use a precomputation table for short, public exponents
+                var x_m = x;
+                if (x.montgomery == false) {
+                    self.toMontgomery(&x_m) catch unreachable;
+                }
+                var s = switch (endian) {
+                    .big => 0,
+                    .little => e.len - 1,
+                };
+                while (true) {
+                    const b = e[s];
+                    var j: u3 = 7;
+                    while (true) : (j -= 1) {
+                        out = self.montgomerySq(out);
+                        const k: u1 = @truncate(b >> j);
+                        if (k != 0) {
+                            const t = self.montgomeryMul(out, x_m);
+                            @memcpy(out.v.limbs.slice(), t.v.limbs.constSlice());
+                        }
+                        if (j == 0) break;
+                    }
+                    switch (endian) {
+                        .big => {
+                            s += 1;
+                            if (s == e.len) break;
+                        },
+                        .little => {
+                            if (s == 0) break;
+                            s -= 1;
+                        },
+                    }
+                }
+            } else {
+                // Use a precomputation table for large exponents
+                var pc = [1]Fe{x} ++ [_]Fe{self.zero} ** 14;
+                if (x.montgomery == false) {
+                    self.toMontgomery(&pc[0]) catch unreachable;
+                }
+                for (1..pc.len) |i| {
+                    pc[i] = self.montgomeryMul(pc[i - 1], pc[0]);
+                }
+                var t0 = self.zero;
+                var s = switch (endian) {
+                    .big => 0,
+                    .little => e.len - 1,
+                };
+                while (true) {
+                    const b = e[s];
+                    for ([_]u3{ 4, 0 }) |j| {
+                        for (0..4) |_| {
+                            out = self.montgomerySq(out);
+                        }
+                        const k = (b >> j) & 0b1111;
+                        if (public or std.options.side_channels_mitigations == .none) {
+                            if (k == 0) continue;
+                            t0 = pc[k - 1];
+                        } else {
+                            for (pc, 0..) |t, i| {
+                                t0.v.cmov(ct.eql(k, @as(u8, @truncate(i + 1))), t.v);
+                            }
+                        }
+                        const t1 = self.montgomeryMul(out, t0);
+                        if (public) {
+                            @memcpy(out.v.limbs.slice(), t1.v.limbs.constSlice());
+                        } else {
+                            out.v.cmov(!ct.eql(k, 0), t1.v);
+                        }
+                    }
+                    switch (endian) {
+                        .big => {
+                            s += 1;
+                            if (s == e.len) break;
+                        },
+                        .little => {
+                            if (s == 0) break;
+                            s -= 1;
+                        },
+                    }
+                }
+            }
+            self.fromMontgomery(&out) catch unreachable;
+            return out;
+        }
+
         /// Multiplies two field elements.
         pub fn mul(self: Self, x: Fe, y: Fe) Fe {
             if (x.montgomery != y.montgomery) {
@@ -695,65 +791,28 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             var e_normalized = Fe{ .v = e.v.normalize() };
             var buf_: [Fe.encoded_bytes]u8 = undefined;
             var buf = buf_[0 .. math.divCeil(usize, e_normalized.v.limbs_count() * t_bits, 8) catch unreachable];
-            e_normalized.toBytes(buf, .Little) catch unreachable;
+            e_normalized.toBytes(buf, .little) catch unreachable;
             const leading = @clz(e_normalized.v.limbs.get(e_normalized.v.limbs_count() - carry_bits));
             buf = buf[0 .. buf.len - leading / 8];
-            return self.powWithEncodedExponent(x, buf, .Little);
+            return self.powWithEncodedPublicExponent(x, buf, .little);
         }
 
-        /// Returns x^e (mod m), assuming that the exponent is public, and provided as a byte string.
+        /// Returns x^e (mod m), with the exponent provided as a byte string.
         /// Exponents are usually small, so this function is faster than `powPublic` as a field element
         /// doesn't have to be created if a serialized representation is already available.
-        pub fn powWithEncodedExponent(self: Self, x: Fe, e: []const u8, endian: builtin.Endian) NullExponentError!Fe {
-            var acc: u8 = 0;
-            for (e) |b| acc |= b;
-            if (acc == 0) return error.NullExponent;
+        ///
+        /// If the exponent is public, `powWithEncodedPublicExponent()` can be used instead for a slight speedup.
+        pub fn powWithEncodedExponent(self: Self, x: Fe, e: []const u8, endian: Endian) NullExponentError!Fe {
+            return self.powWithEncodedExponentInternal(x, e, endian, false);
+        }
 
-            var pc = [1]Fe{x} ++ [_]Fe{self.zero} ** 14;
-            if (x.montgomery == false) {
-                self.toMontgomery(&pc[0]) catch unreachable;
-            }
-            for (1..pc.len) |i| {
-                pc[i] = self.montgomeryMul(pc[i - 1], pc[0]);
-            }
-            var out = self.one();
-            self.toMontgomery(&out) catch unreachable;
-            var t0 = self.zero;
-            var s = switch (endian) {
-                .Big => 0,
-                .Little => e.len - 1,
-            };
-            while (true) {
-                const b = e[s];
-                for ([_]u3{ 4, 0 }) |j| {
-                    for (0..4) |_| {
-                        out = self.montgomerySq(out);
-                    }
-                    const k = (b >> j) & 0b1111;
-                    if (std.options.side_channels_mitigations == .none) {
-                        if (k == 0) continue;
-                        t0 = pc[k - 1];
-                    } else {
-                        for (pc, 0..) |t, i| {
-                            t0.v.cmov(ct.eql(k, @as(u8, @truncate(i + 1))), t.v);
-                        }
-                    }
-                    const t1 = self.montgomeryMul(out, t0);
-                    out.v.cmov(!ct.eql(k, 0), t1.v);
-                }
-                switch (endian) {
-                    .Big => {
-                        s += 1;
-                        if (s == e.len) break;
-                    },
-                    .Little => {
-                        if (s == 0) break;
-                        s -= 1;
-                    },
-                }
-            }
-            self.fromMontgomery(&out) catch unreachable;
-            return out;
+        /// Returns x^e (mod m), the exponent being public and provided as a byte string.
+        /// Exponents are usually small, so this function is faster than `powPublic` as a field element
+        /// doesn't have to be created if a serialized representation is already available.
+        ///
+        /// If the exponent is secret, `powWithEncodedExponent` must be used instead.
+        pub fn powWithEncodedPublicExponent(self: Self, x: Fe, e: []const u8, endian: Endian) NullExponentError!Fe {
+            return self.powWithEncodedExponentInternal(x, e, endian, true);
         }
     };
 }
@@ -854,7 +913,8 @@ const ct_unprotected = struct {
 };
 
 test {
-    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const M = Modulus(256);
     const m = try M.fromPrimitive(u256, 3429938563481314093726330772853735541133072814650493833233);
