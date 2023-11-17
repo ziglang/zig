@@ -2522,3 +2522,8 @@ test "@intCast vector of signed integer" {
     try expect(y[2] == 3);
     try expect(y[3] == 4);
 }
+
+test "result type is preserved into comptime block" {
+    const x: u32 = comptime @intCast(123);
+    try expect(x == 123);
+}
