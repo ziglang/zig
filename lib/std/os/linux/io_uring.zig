@@ -655,7 +655,19 @@ pub const IO_Uring = struct {
     }
 
     /// Queues (but does not submit) an SQE to perform an async zerocopy `send(2)`.
-    /// Returns a pointer to the SQE.
+    ///
+    /// This operation will most likely produce two CQEs. The flags field of the
+    /// first cqe may likely contain IORING_CQE_F_MORE, which means that there will
+    /// be a second cqe with the user_data field set to the same value. The user
+    /// must not modify the data buffer until the notification is posted. The first
+    /// cqe follows the usual rules and so its res field will contain the number of
+    /// bytes sent or a negative error code. The notification's res field will be
+    /// set to zero and the flags field will contain IORING_CQE_F_NOTIF. The two
+    /// step model is needed because the kernel may hold on to buffers for a long
+    /// time, e.g. waiting for a TCP ACK. Notifications responsible for controlling
+    /// the lifetime of the buffers. Even errored requests may generate a
+    /// notification.
+    ///
     /// Available since 6.0
     pub fn send_zc(
         self: *IO_Uring,
@@ -3805,8 +3817,7 @@ test "accept/connect/send_zc/recv" {
     const send = try ring.send_zc(0xeeeeeeee, socket_test_harness.client, buffer_send[0..], 0, 0);
     send.flags |= linux.IOSQE_IO_LINK;
     _ = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
-    const submitted = try ring.submit();
-    if (submitted != 2) return error.SkipZigTest; // on kernel 5.8 (without zc support)
+    try testing.expectEqual(@as(u32, 2), try ring.submit());
 
     // First completion of zero-copy send.
     // IORING_CQE_F_MORE, means that there
@@ -4112,16 +4123,5 @@ test "openat_direct/close_direct" {
 /// For use in tests. Returns SkipZigTest is kernel version is less than required.
 fn skipKernelLessThan(required: std.SemanticVersion) !void {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
-
-    var uts: linux.utsname = undefined;
-    const res = linux.uname(&uts);
-    switch (linux.getErrno(res)) {
-        .SUCCESS => {},
-        else => |errno| return os.unexpectedErrno(errno),
-    }
-
-    const release = mem.sliceTo(&uts.release, 0);
-    var current = try std.SemanticVersion.parse(release);
-    current.pre = null; // don't check pre field
-    if (required.order(current) == .gt) return error.SkipZigTest;
+    if (required.order(builtin.os.version_range.linux.range.max) == .gt) return error.SkipZigTest;
 }
