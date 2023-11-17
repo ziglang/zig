@@ -917,8 +917,7 @@ pub const PltSection = struct {
     }
 
     pub fn writeSymtab(plt: PltSection, elf_file: *Elf) void {
-        var ilocal = plt.output_symtab_ctx.ilocal;
-        for (plt.symbols.items) |sym_index| {
+        for (plt.symbols.items, plt.output_symtab_ctx.ilocal..) |sym_index, ilocal| {
             const sym = elf_file.symbol(sym_index);
             const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
             elf_file.strtab.appendSliceAssumeCapacity(sym.name(elf_file));
@@ -932,7 +931,36 @@ pub const PltSection = struct {
                 .st_value = sym.pltAddress(elf_file),
                 .st_size = 16,
             };
-            ilocal += 1;
+        }
+    }
+
+    const FormatCtx = struct {
+        plt: PltSection,
+        elf_file: *Elf,
+    };
+
+    pub fn fmt(plt: PltSection, elf_file: *Elf) std.fmt.Formatter(format2) {
+        return .{ .data = .{ .plt = plt, .elf_file = elf_file } };
+    }
+
+    pub fn format2(
+        ctx: FormatCtx,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = options;
+        _ = unused_fmt_string;
+        try writer.writeAll("PLT\n");
+        for (ctx.plt.symbols.items, 0..) |symbol_index, i| {
+            const symbol = ctx.elf_file.symbol(symbol_index);
+            try writer.print("  {d}@0x{x} => {d}@0x{x} ({s})\n", .{
+                i,
+                symbol.pltAddress(ctx.elf_file),
+                symbol_index,
+                symbol.address(.{}, ctx.elf_file),
+                symbol.name(ctx.elf_file),
+            });
         }
     }
 };
@@ -1016,8 +1044,7 @@ pub const PltGotSection = struct {
     }
 
     pub fn writeSymtab(plt_got: PltGotSection, elf_file: *Elf) void {
-        var ilocal = plt_got.output_symtab_ctx.ilocal;
-        for (plt_got.symbols.items) |sym_index| {
+        for (plt_got.symbols.items, plt_got.output_symtab_ctx.ilocal..) |sym_index, ilocal| {
             const sym = elf_file.symbol(sym_index);
             const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
             elf_file.strtab.appendSliceAssumeCapacity(sym.name(elf_file));
@@ -1031,7 +1058,6 @@ pub const PltGotSection = struct {
                 .st_value = sym.pltGotAddress(elf_file),
                 .st_size = 16,
             };
-            ilocal += 1;
         }
     }
 };

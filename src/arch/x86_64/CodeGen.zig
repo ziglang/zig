@@ -1107,6 +1107,7 @@ fn formatWipMir(
         .cc = .Unspecified,
         .src_loc = data.self.src_loc,
     };
+    var first = true;
     for ((lower.lowerMir(data.inst) catch |err| switch (err) {
         error.LowerFail => {
             defer {
@@ -1125,7 +1126,11 @@ fn formatWipMir(
             return;
         },
         else => |e| return e,
-    }).insts) |lowered_inst| try writer.print("  | {}", .{lowered_inst});
+    }).insts) |lowered_inst| {
+        if (!first) try writer.writeAll("\ndebug(wip_mir): ");
+        try writer.print("  | {}", .{lowered_inst});
+        first = false;
+    }
 }
 fn fmtWipMir(self: *Self, inst: Mir.Inst.Index) std.fmt.Formatter(formatWipMir) {
     return .{ .data = .{ .self = self, .inst = inst } };
@@ -3230,6 +3235,7 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                 var callee_buf: ["__udiv?i3".len]u8 = undefined;
                 const signed_div_floor_state: struct {
                     frame_index: FrameIndex,
+                    state: State,
                     reloc: Mir.Inst.Index,
                 } = if (signed and tag == .div_floor) state: {
                     const frame_index = try self.allocFrameIndex(FrameAlloc.initType(Type.usize, mod));
@@ -3290,9 +3296,10 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                         tmp_reg,
                         mat_rhs_mcv.register_pair[1],
                     );
+                    const state = try self.saveState();
                     const reloc = try self.asmJccReloc(.ns, undefined);
 
-                    break :state .{ .frame_index = frame_index, .reloc = reloc };
+                    break :state .{ .frame_index = frame_index, .state = state, .reloc = reloc };
                 } else undefined;
                 const call_mcv = try self.genCall(
                     .{ .lib = .{
@@ -3322,6 +3329,12 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                         try self.asmSetccMemory(.nz, .{
                             .base = .{ .frame = signed_div_floor_state.frame_index },
                             .mod = .{ .rm = .{ .size = .byte } },
+                        });
+                        try self.restoreState(signed_div_floor_state.state, &.{}, .{
+                            .emit_instructions = true,
+                            .update_tracking = true,
+                            .resurrect = true,
+                            .close_scope = true,
                         });
                         try self.performReloc(signed_div_floor_state.reloc);
                         const dst_mcv = try self.genCall(
@@ -10802,7 +10815,6 @@ fn genCall(self: *Self, info: union(enum) {
                     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                         const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                         const sym = elf_file.symbol(sym_index);
-                        sym.flags.needs_zig_got = true;
                         if (self.bin_file.options.pic) {
                             const callee_reg: Register = switch (resolved_cc) {
                                 .SysV => callee: {
@@ -13382,35 +13394,25 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
         },
         .lea_direct, .lea_got => |sym_index| {
             const atom_index = try self.owner.getSymbolIndex(self);
-            if (self.bin_file.cast(link.File.Elf)) |_| {
-                try self.asmRegisterMemory(.{ ._, .lea }, dst_reg.to64(), .{
-                    .base = .{ .reloc = .{
+            _ = try self.addInst(.{
+                .tag = switch (src_mcv) {
+                    .lea_direct => .lea,
+                    .lea_got => .mov,
+                    else => unreachable,
+                },
+                .ops = switch (src_mcv) {
+                    .lea_direct => .direct_reloc,
+                    .lea_got => .got_reloc,
+                    else => unreachable,
+                },
+                .data = .{ .rx = .{
+                    .r1 = dst_reg.to64(),
+                    .payload = try self.addExtra(bits.Symbol{
                         .atom_index = atom_index,
                         .sym_index = sym_index,
-                    } },
-                    .mod = .{ .rm = .{ .size = .qword } },
-                });
-            } else {
-                _ = try self.addInst(.{
-                    .tag = switch (src_mcv) {
-                        .lea_direct => .lea,
-                        .lea_got => .mov,
-                        else => unreachable,
-                    },
-                    .ops = switch (src_mcv) {
-                        .lea_direct => .direct_reloc,
-                        .lea_got => .got_reloc,
-                        else => unreachable,
-                    },
-                    .data = .{ .rx = .{
-                        .r1 = dst_reg.to64(),
-                        .payload = try self.addExtra(bits.Symbol{
-                            .atom_index = atom_index,
-                            .sym_index = sym_index,
-                        }),
-                    } },
-                });
-            }
+                    }),
+                } },
+            });
         },
         .lea_tlv => |sym_index| {
             const atom_index = try self.owner.getSymbolIndex(self);
@@ -13690,7 +13692,6 @@ fn genLazySymbolRef(
         const sym_index = elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
         const sym = elf_file.symbol(sym_index);
-        sym.flags.needs_zig_got = true;
         if (self.bin_file.options.pic) {
             switch (tag) {
                 .lea, .call => try self.genSetReg(reg, Type.usize, .{
@@ -15810,11 +15811,30 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
     } else mcv: {
         const ip_index = Air.refToInterned(ref).?;
         const gop = try self.const_tracking.getOrPut(self.gpa, ip_index);
-        const mcv = try self.genTypedValue(.{
-            .ty = ty,
-            .val = ip_index.toValue(),
+        if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(init: {
+            const const_mcv = try self.genTypedValue(.{ .ty = ty, .val = ip_index.toValue() });
+            switch (const_mcv) {
+                .lea_tlv => |tlv_sym| if (self.bin_file.cast(link.File.Elf)) |_| {
+                    if (self.bin_file.options.pic) {
+                        try self.spillRegisters(&.{ .rdi, .rax });
+                    } else {
+                        try self.spillRegisters(&.{.rax});
+                    }
+                    const frame_index = try self.allocFrameIndex(FrameAlloc.init(.{
+                        .size = 8,
+                        .alignment = .@"8",
+                    }));
+                    try self.genSetMem(
+                        .{ .frame = frame_index },
+                        0,
+                        Type.usize,
+                        .{ .lea_symbol = .{ .sym = tlv_sym } },
+                    );
+                    break :init .{ .load_frame = .{ .index = frame_index } };
+                } else break :init const_mcv,
+                else => break :init const_mcv,
+            }
         });
-        if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(mcv);
         break :mcv gop.value_ptr.short;
     };
 

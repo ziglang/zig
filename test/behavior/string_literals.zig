@@ -74,3 +74,9 @@ test "@src() returns a struct containing 0-terminated string slices" {
     const ptr_src_fn_name: [*:0]const u8 = src.fn_name;
     _ = ptr_src_fn_name; // unused
 }
+
+test "string literal pointer sentinel" {
+    const string_literal = "something";
+
+    try std.testing.expect(@TypeOf(string_literal.ptr) == [*:0]const u8);
+}

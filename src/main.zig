@@ -4335,14 +4335,15 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
 
         var tree = switch (comp.c_frontend) {
             .aro => tree: {
+                const aro = @import("aro");
                 const translate_c = @import("aro_translate_c.zig");
-                var aro_comp = translate_c.Compilation.init(comp.gpa);
+                var aro_comp = aro.Compilation.init(comp.gpa);
                 defer aro_comp.deinit();
 
                 break :tree translate_c.translate(comp.gpa, &aro_comp, argv.items) catch |err| switch (err) {
                     error.SemanticAnalyzeFail, error.FatalError => {
                         // TODO convert these to zig errors
-                        aro_comp.renderErrors();
+                        aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
                         process.exit(1);
                     },
                     error.OutOfMemory => return error.OutOfMemory,

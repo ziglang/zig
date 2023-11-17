@@ -221,6 +221,10 @@ generated_llvm_bc: ?*GeneratedFile,
 generated_llvm_ir: ?*GeneratedFile,
 generated_h: ?*GeneratedFile,
 
+/// The maximum number of distinct errors within a compilation step
+/// Defaults to `std.math.maxInt(u16)`
+error_limit: ?u32 = null,
+
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
     exact: []const []const u8,
@@ -2091,6 +2095,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             .EfiRuntimeDriver => "efi_runtime_driver",
         });
     }
+
+    if (self.error_limit) |err_limit| try zig_args.appendSlice(&.{
+        "--error-limit",
+        b.fmt("{}", .{err_limit}),
+    });
 
     try zig_args.append("--listen=-");
 

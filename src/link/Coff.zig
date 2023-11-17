@@ -388,7 +388,6 @@ fn populateMissingMetadata(self: *Coff) !void {
         self.rdata_section_index = try self.allocateSection(".rdata", file_size, .{
             .CNT_INITIALIZED_DATA = 1,
             .MEM_READ = 1,
-            .MEM_WRITE = 1,
         });
     }
 
@@ -920,7 +919,7 @@ fn markRelocsDirtyByTarget(self: *Coff, target: SymbolWithLoc) void {
 fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
     const got_moved = blk: {
         const sect_id = self.got_section_index orelse break :blk false;
-        break :blk self.sections.items(.header)[sect_id].virtual_address > addr;
+        break :blk self.sections.items(.header)[sect_id].virtual_address >= addr;
     };
 
     // TODO: dirty relocations targeting import table if that got moved in memory
@@ -931,7 +930,7 @@ fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
                 reloc.dirty = reloc.dirty or got_moved;
             } else {
                 const target_vaddr = reloc.getTargetAddress(self) orelse continue;
-                if (target_vaddr > addr) reloc.dirty = true;
+                if (target_vaddr >= addr) reloc.dirty = true;
             }
         }
     }
@@ -939,7 +938,7 @@ fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
     // TODO: dirty only really affected GOT cells
     for (self.got_table.entries.items) |entry| {
         const target_addr = self.getSymbol(entry).value;
-        if (target_addr > addr) {
+        if (target_addr >= addr) {
             self.got_table_contents_dirty = true;
             break;
         }
@@ -1722,6 +1721,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         var code = std.ArrayList(u8).init(gpa);
         defer code.deinit();
         try code.resize(math.cast(usize, atom.size) orelse return error.Overflow);
+        assert(atom.size > 0);
 
         const amt = try self.base.file.?.preadAll(code.items, file_offset);
         if (amt != code.items.len) return error.InputOutput;
