@@ -616,6 +616,7 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform a `recv(2)`.
     /// Returns a pointer to the SQE.
+    /// Available since 5.6
     pub fn recv(
         self: *IO_Uring,
         user_data: u64,
@@ -639,6 +640,7 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform a `send(2)`.
     /// Returns a pointer to the SQE.
+    /// Available since 5.6
     pub fn send(
         self: *IO_Uring,
         user_data: u64,
@@ -654,6 +656,7 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform an async zerocopy `send(2)`.
     /// Returns a pointer to the SQE.
+    /// Available since 6.0
     pub fn send_zc(
         self: *IO_Uring,
         user_data: u64,
@@ -670,6 +673,7 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform an async zerocopy `send(2)`.
     /// Returns a pointer to the SQE.
+    /// Available since 6.0
     pub fn send_zc_fixed(
         self: *IO_Uring,
         user_data: u64,
@@ -687,6 +691,7 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform a `recvmsg(2)`.
     /// Returns a pointer to the SQE.
+    /// Available since 5.3
     pub fn recvmsg(
         self: *IO_Uring,
         user_data: u64,
@@ -702,6 +707,7 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform a `sendmsg(2)`.
     /// Returns a pointer to the SQE.
+    /// Available since 5.3
     pub fn sendmsg(
         self: *IO_Uring,
         user_data: u64,
@@ -717,6 +723,7 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform an async zerocopy `sendmsg(2)`.
     /// Returns a pointer to the SQE.
+    /// Available since 6.1
     pub fn sendmsg_zc(
         self: *IO_Uring,
         user_data: u64,
@@ -3783,13 +3790,9 @@ test "accept multishot" {
 }
 
 test "accept/connect/send_zc/recv" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    try skipKernelLessThan(.{ .major = 6, .minor = 0, .patch = 0 });
 
-    var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
-        error.SystemOutdated => return error.SkipZigTest,
-        error.PermissionDenied => return error.SkipZigTest,
-        else => return err,
-    };
+    var ring = try IO_Uring.init(16, 0);
     defer ring.deinit();
 
     const socket_test_harness = try createSocketTestHarness(&ring);
@@ -3811,7 +3814,6 @@ test "accept/connect/send_zc/recv" {
     // request, with the user_data field set to the same value.
     // buffer_send must be keep alive until second cqe.
     var cqe_send = try ring.copy_cqe();
-    if (cqe_send.err() == .INVAL) return error.SkipZigTest;
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xeeeeeeee,
         .res = buffer_send.len,
@@ -3819,7 +3821,6 @@ test "accept/connect/send_zc/recv" {
     }, cqe_send);
 
     const cqe_recv = try ring.copy_cqe();
-    if (cqe_recv.err() == .INVAL) return error.SkipZigTest;
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xffffffff,
         .res = buffer_recv.len,
@@ -3831,7 +3832,6 @@ test "accept/connect/send_zc/recv" {
     // Second completion of zero-copy send.
     // IORING_CQE_F_NOTIF in flags signals that kernel is done with send_buffer
     cqe_send = try ring.copy_cqe();
-    if (cqe_send.err() == .INVAL) return error.SkipZigTest;
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xeeeeeeee,
         .res = 0,
