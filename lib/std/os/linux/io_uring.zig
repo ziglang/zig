@@ -4121,7 +4121,7 @@ test "openat_direct/close_direct" {
 }
 
 /// For use in tests. Returns SkipZigTest is kernel version is less than required.
-fn skipKernelLessThan(required: std.SemanticVersion) !void {
+inline fn skipKernelLessThan(required: std.SemanticVersion) !void {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
     var uts: linux.utsname = undefined;
