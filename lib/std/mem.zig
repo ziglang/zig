@@ -4029,19 +4029,8 @@ fn SliceAsBytesReturnType(comptime Slice: type) type {
 
 /// Given a slice, returns a slice of the underlying bytes, preserving pointer attributes.
 ///
-/// If slice is sentinel-terminated the sentinel value is not included.
-pub fn sliceAsBytes(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
-    return sliceAsBytesAdvanced(slice, false);
-}
-
-/// Given a slice, returns a slice of the underlying bytes, preserving pointer attributes.
-///
 /// If slice is sentinel-terminated the sentinel value is included.
-pub fn sliceAsBytesSentinel(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
-    return sliceAsBytesAdvanced(slice, true);
-}
-
-fn sliceAsBytesAdvanced(slice: anytype, include_sentinel: bool) SliceAsBytesReturnType(@TypeOf(slice)) {
+pub fn sliceAsBytes(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
     const Slice = @TypeOf(slice);
 
     // a slice of zero-bit values always occupies zero bytes
@@ -4055,7 +4044,7 @@ fn sliceAsBytesAdvanced(slice: anytype, include_sentinel: bool) SliceAsBytesRetu
 
     const cast_target = CopyPtrAttrs(Slice, .Many, u8, null);
 
-    const length = if (include_sentinel and has_sentinel) slice.len + 1 else slice.len;
+    const length = if (has_sentinel) slice.len + 1 else slice.len;
 
     return @as(cast_target, @ptrCast(slice))[0 .. length * @sizeOf(meta.Elem(Slice))];
 }
@@ -4070,9 +4059,9 @@ test "sliceAsBytes" {
     }));
 }
 
-test "sliceAsBytesSentinel" {
+test "sliceAsBytes with sentinel" {
     const bytes = [_:1]u16{ 0xDEAD, 0xBEEF };
-    const slice = sliceAsBytesSentinel(bytes[0..]);
+    const slice = sliceAsBytes(bytes[0..]);
     try testing.expect(slice.len == 6);
     try testing.expect(eql(u8, slice, switch (native_endian) {
         .big => "\xDE\xAD\xBE\xEF\x00\x01",
@@ -4080,20 +4069,16 @@ test "sliceAsBytesSentinel" {
     }));
 }
 
-test "sliceAsBytesSentinel without sentinel" {
-    const bytes = [_]u16{ 0xDEAD, 0xBEEF };
-    const slice = sliceAsBytesSentinel(bytes[0..]);
-    try testing.expect(slice.len == 4);
-    try testing.expect(eql(u8, slice, switch (native_endian) {
-        .big => "\xDE\xAD\xBE\xEF",
-        .little => "\xAD\xDE\xEF\xBE",
-    }));
+test "sliceAsBytes with empty slice" {
+    const empty_string: []const u8 = &[0]u8{};
+    const bytes = sliceAsBytes(empty_string);
+    try testing.expect(bytes.len == 0);
 }
 
 test "sliceAsBytes with empty sentinel slice" {
     const empty_string: [:0]const u8 = "";
     const bytes = sliceAsBytes(empty_string);
-    try testing.expect(bytes.len == 0);
+    try testing.expect(bytes.len == 1);
 }
 
 test "sliceAsBytes with zero-bit element type" {
@@ -4159,13 +4144,13 @@ test "sliceAsBytes preserves pointer attributes" {
     try testing.expectEqual(in.alignment, out.alignment);
 }
 
-test "sliceAsBytesSentinel and bytesAsSliceSentinel roundtrip with sentinel" {
+test "sliceAsBytes and bytesAsSliceSentinel roundtrip with sentinel" {
     try testing.expect(@sizeOf(i32) == 4);
 
     var array = [_:5]i32{ 1, 2, 3, 4 };
     const slice: [:5]i32 = array[0..];
 
-    const bytes = sliceAsBytesSentinel(slice);
+    const bytes = sliceAsBytes(slice);
     try testing.expect(bytes.len == 4 * 5);
 
     var new_bytes = [_]u8{0} ** (4 * 5);

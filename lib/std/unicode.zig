@@ -1049,13 +1049,13 @@ test "utf8ToUtf16LeWithNull" {
     {
         const utf16 = try utf8ToUtf16LeWithNull(testing.allocator, "𐐷");
         defer testing.allocator.free(utf16);
-        try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16[0..]));
+        try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc\x00\x00", mem.sliceAsBytes(utf16[0..]));
         try testing.expect(utf16[2] == 0);
     }
     {
         const utf16 = try utf8ToUtf16LeWithNull(testing.allocator, "\u{10FFFF}");
         defer testing.allocator.free(utf16);
-        try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16[0..]));
+        try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf\x00\x00", mem.sliceAsBytes(utf16[0..]));
         try testing.expect(utf16[2] == 0);
     }
     {

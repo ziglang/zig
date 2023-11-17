@@ -241,7 +241,7 @@ pub fn resize(self: Allocator, old_mem: anytype, new_n: usize) bool {
     if (old_mem.len == 0) {
         return false;
     }
-    const old_byte_slice = mem.sliceAsBytesSentinel(old_mem);
+    const old_byte_slice = mem.sliceAsBytes(old_mem);
     // I would like to use saturating multiplication here, but LLVM cannot lower it
     // on WebAssembly: https://github.com/ziglang/zig/issues/9660
     //const new_byte_count = new_n *| @sizeOf(T);
@@ -279,7 +279,7 @@ pub fn reallocAdvanced(
         return @as([*]align(Slice.alignment) T, @ptrFromInt(ptr))[0..0];
     }
 
-    const old_byte_slice = mem.sliceAsBytesSentinel(old_mem);
+    const old_byte_slice = mem.sliceAsBytes(old_mem);
     const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
     // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
     if (mem.isAligned(@intFromPtr(old_byte_slice.ptr), Slice.alignment)) {
@@ -305,7 +305,7 @@ pub fn reallocAdvanced(
 /// see `destroy`.
 pub fn free(self: Allocator, memory: anytype) void {
     const Slice = @typeInfo(@TypeOf(memory)).Pointer;
-    const bytes = mem.sliceAsBytesSentinel(memory);
+    const bytes = mem.sliceAsBytes(memory);
     if (bytes.len == 0) return;
     const non_const_ptr = @constCast(bytes.ptr);
     // TODO: https://github.com/ziglang/zig/issues/4298
