@@ -2629,7 +2629,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
     };
 }
 
-pub fn forceRuntimeEvaluation(val: anytype) @TypeOf(val) {
+pub fn forceRuntimeValue(val: anytype) @TypeOf(val) {
     if (@inComptime()) @compileError("This function must be run at runtime");
     return val;
 }
