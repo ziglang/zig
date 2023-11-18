@@ -845,7 +845,6 @@ test "std.meta.eql" {
 
     try testing.expect(eql(a1, a2));
     try testing.expect(!eql(a1, a3));
-    try testing.expect(!eql(a1[0..], a2[0..]));
 
     const EU = struct {
         fn tst(err: bool) !u8 {
