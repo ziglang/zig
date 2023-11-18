@@ -901,11 +901,20 @@ pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTa
         return error.InvalidEnumTag;
     }
 
-    inline for (enum_info.fields) |f| {
-        const this_tag_value = @field(EnumTag, f.name);
-        if (tag_int == @intFromEnum(this_tag_value)) {
-            return this_tag_value;
+    // We don't direcly iterate over the fields of EnumTag, as that
+    // would require an inline loop. Instead, we create an array of
+    // values that is comptime-know, but can be iterated at runtime
+    // without requiring an inline loop. This generates better
+    // machine code.
+    const values = comptime blk: {
+        var result: [enum_info.fields.len]enum_info.tag_type = undefined;
+        for (&result, enum_info.fields) |*dst, src| {
+            dst.* = src.value;
         }
+        break :blk result;
+    };
+    for (values) |v| {
+        if (v == tag_int) return @enumFromInt(tag_int);
     }
     return error.InvalidEnumTag;
 }
