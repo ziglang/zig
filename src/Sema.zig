@@ -5241,15 +5241,19 @@ fn failWithBadMemberAccess(
         .Enum => "enum",
         else => unreachable,
     };
-    if (agg_ty.getOwnerDeclOrNull(mod)) |some| if (mod.declIsRoot(some)) {
-        return sema.fail(block, field_src, "root struct of file '{}' has no member named '{}'", .{
-            agg_ty.fmt(mod), field_name.fmt(&mod.intern_pool),
-        });
-    };
     const msg = msg: {
-        const msg = try sema.errMsg(block, field_src, "{s} '{}' has no member named '{}'", .{
-            kw_name, agg_ty.fmt(mod), field_name.fmt(&mod.intern_pool),
-        });
+        const msg = blk: {
+            if (agg_ty.getOwnerDeclOrNull(mod)) |some| if (mod.declIsRoot(some)) {
+                break :blk try sema.errMsg(block, field_src, "root struct of file '{}' has no member named '{}'", .{
+                    agg_ty.fmt(mod), field_name.fmt(&mod.intern_pool),
+                });
+            };
+
+            break :blk try sema.errMsg(block, field_src, "{s} '{}' has no member named '{}'", .{
+                kw_name, agg_ty.fmt(mod), field_name.fmt(&mod.intern_pool),
+            });
+        };
+
         errdefer msg.destroy(sema.gpa);
         try sema.addDeclaredHereNote(msg, agg_ty);
         break :msg msg;
