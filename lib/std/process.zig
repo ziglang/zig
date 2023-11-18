@@ -867,6 +867,15 @@ pub fn argsAlloc(allocator: Allocator) ![][:0]u8 {
     return result_slice_list;
 }
 
+test argsAlloc {
+    const allocator = std.heap.page_allocator;
+    const arg_iterator = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, arg_iterator);
+    for (arg_iterator) |arg| {
+        std.debug.print("{s}\n", .{arg});
+    }
+}
+
 pub fn argsFree(allocator: Allocator, args_alloc: []const [:0]u8) void {
     var total_bytes: usize = 0;
     for (args_alloc) |arg| {
