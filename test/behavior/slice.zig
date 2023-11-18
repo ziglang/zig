@@ -375,14 +375,12 @@ test "slice multi-pointer without end" {
             var array = [5:0]u8{ 1, 2, 3, 4, 5 };
             const pointer: [*:0]u8 = &array;
 
-            try comptime expect(@TypeOf(pointer[1..3]) == *[2]u8);
-            try comptime expect(@TypeOf(pointer[1..3 :4]) == *[2:4]u8);
-            try comptime expect(@TypeOf(pointer[1..5 :0]) == *[4:0]u8);
-
             const slice = pointer[1..];
             try comptime expect(@TypeOf(slice) == [*:0]u8);
             try expect(slice[0] == 2);
             try expect(slice[1] == 3);
+
+            try comptime expect(@TypeOf(pointer[1.. :0]) == [*:0]u8);
         }
     };
 

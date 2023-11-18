@@ -32214,6 +32214,42 @@ fn analyzeSlice(
                 break :e try sema.coerce(block, Type.usize, uncasted_end, end_src);
             } else break :e try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
         }
+
+        if (sentinel_opt != .none) sentinel_check: {
+            const provided = provided: {
+                const casted = try sema.coerce(block, elem_ty, sentinel_opt, sentinel_src);
+                break :provided try sema.resolveConstDefinedValue(block, sentinel_src, casted, .{
+                    .needed_comptime_reason = "slice sentinel must be comptime-known",
+                });
+            };
+
+            const msg = msg: {
+                const parent = if (ptr_sentinel) |expected| parent: {
+                    if (expected.eql(provided, elem_ty, mod)) break :sentinel_check;
+                    break :parent try sema.errMsg(
+                        block,
+                        sentinel_src,
+                        "cannot perform slice with sentinel '{}' on pointer with sentinel '{}'",
+                        .{
+                            provided.fmtValue(elem_ty, mod),
+                            expected.fmtValue(elem_ty, mod),
+                        },
+                    );
+                } else parent: {
+                    break :parent try sema.errMsg(
+                        block,
+                        sentinel_src,
+                        "cannot perform slice with sentinel '{}' on pointer without sentinel",
+                        .{provided.fmtValue(elem_ty, mod)},
+                    );
+                };
+                errdefer parent.destroy(sema.gpa);
+
+                try sema.errNote(block, src, parent, "use @ptrCast to cast pointer sentinel", .{});
+                break :msg parent;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        }
         return sema.analyzePtrArithmetic(block, src, ptr, start, .ptr_add, ptr_src, start_src);
     };
 
