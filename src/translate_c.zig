@@ -5452,6 +5452,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                         const str_node = try Tag.string_literal.create(c.arena, "\"\"");
                         const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = name, .init = str_node });
                         try c.global_scope.macro_table.put(name, var_decl);
+                        try c.global_scope.blank_macros.put(name, {});
                         continue;
                     },
                     .LParen => {
@@ -5942,6 +5943,25 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
 
 fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCPrimaryExprInner(c, m, scope);
+    while (node.castTag(.identifier)) |identifier_tag| {
+        // If the given macro is blank, simply ignore it and skip to the next.
+        if (c.global_scope.blank_macros.contains(identifier_tag.data)) {
+            switch (m.peek().?) {
+                .Nl, .Eof => {
+                    // Every token in this macro is blank,
+                    // so we can treat this macro as also blank.
+                    try c.global_scope.blank_macros.put(m.name, {});
+                    return Tag.string_literal.create(c.arena, "\"\"");
+                },
+                else => {
+                    node = try parseCPrimaryExprInner(c, m, scope);
+                    continue;
+                },
+            }
+        } else {
+            break;
+        }
+    }
     // In C the preprocessor would handle concatting strings while expanding macros.
     // This should do approximately the same by concatting any strings and identifiers
     // after a primary expression.
@@ -5950,7 +5970,11 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             .StringLiteral, .Identifier => {},
             else => break,
         }
-        node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = try parseCPrimaryExprInner(c, m, scope) });
+        const rhs = try parseCPrimaryExprInner(c, m, scope);
+        if (c.global_scope.blank_macros.contains(m.slice())) {
+            continue;
+        }
+        node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = rhs });
     }
     return node;
 }
@@ -6166,7 +6190,24 @@ fn parseCCastExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     switch (m.next().?) {
         .LParen => {
             if (try parseCTypeName(c, m, scope, true)) |type_name| {
-                try m.skip(c, .RParen);
+                while (true) {
+                    const next_token = m.next().?;
+                    switch (next_token) {
+                        .RParen => break,
+                        else => |next_tag| {
+                            // Skip trailing blank defined before the RParen.
+                            if (next_tag == .Identifier and c.global_scope.blank_macros.contains(m.slice())) {
+                                continue;
+                            }
+                            try m.fail(
+                                c,
+                                "unable to translate C expr: expected ')' instead got '{s}'",
+                                .{next_token.symbol()},
+                            );
+                            return error.ParseError;
+                        },
+                    }
+                }
                 if (m.peek().? == .LBrace) {
                     // initializer list
                     return parseCPostfixExpr(c, m, scope, type_name);
@@ -6194,6 +6235,9 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_
     const tok = m.next().?;
     switch (tok) {
         .Identifier => {
+            if (c.global_scope.blank_macros.contains(m.slice())) {
+                return try parseCSpecifierQualifierList(c, m, scope, allow_fail);
+            }
             const mangled_name = scope.getAlias(m.slice());
             if (!allow_fail or c.typedefs.contains(mangled_name)) {
                 if (builtin_typedef_map.get(mangled_name)) |ty| return try Tag.type.create(c.arena, ty);
