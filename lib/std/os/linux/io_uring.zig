@@ -3804,7 +3804,11 @@ test "accept multishot" {
 test "accept/connect/send_zc/recv" {
     try skipKernelLessThan(.{ .major = 6, .minor = 0, .patch = 0 });
 
-    var ring = try IO_Uring.init(16, 0);
+    var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
     defer ring.deinit();
 
     const socket_test_harness = try createSocketTestHarness(&ring);
@@ -3853,7 +3857,11 @@ test "accept/connect/send_zc/recv" {
 test "accept_direct" {
     try skipKernelLessThan(.{ .major = 5, .minor = 19, .patch = 0 });
 
-    var ring = try IO_Uring.init(1, 0);
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
     defer ring.deinit();
     var address = try net.Address.parseIp4("127.0.0.1", 0);
 
@@ -3929,7 +3937,11 @@ test "accept_direct" {
 test "accept_multishot_direct" {
     try skipKernelLessThan(.{ .major = 5, .minor = 19, .patch = 0 });
 
-    var ring = try IO_Uring.init(1, 0);
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
     defer ring.deinit();
 
     var address = try net.Address.parseIp4("127.0.0.1", 0);
@@ -3983,7 +3995,11 @@ test "accept_multishot_direct" {
 test "socket" {
     try skipKernelLessThan(.{ .major = 5, .minor = 19, .patch = 0 });
 
-    var ring = try IO_Uring.init(2, 0);
+    var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
     defer ring.deinit();
 
     // prepare, submit socket operation
@@ -4002,7 +4018,11 @@ test "socket" {
 test "socket_direct/socket_direct_alloc/close_direct" {
     try skipKernelLessThan(.{ .major = 5, .minor = 19, .patch = 0 });
 
-    var ring = try IO_Uring.init(2, 0);
+    var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
     defer ring.deinit();
 
     var registered_fds = [_]os.fd_t{-1} ** 3;
@@ -4076,7 +4096,11 @@ test "socket_direct/socket_direct_alloc/close_direct" {
 test "openat_direct/close_direct" {
     try skipKernelLessThan(.{ .major = 5, .minor = 19, .patch = 0 });
 
-    var ring = try IO_Uring.init(2, 0);
+    var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
     defer ring.deinit();
 
     var registered_fds = [_]os.fd_t{-1} ** 3;
