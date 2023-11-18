@@ -1,10 +1,10 @@
 const x = @extern(*const fn() callconv(.C) void, .{ .name = "foo" });
 
-pub fn entry0() void {
+export fn entry0() void {
     comptime x();
 }
 
-pub fn entry1() void {
+export fn entry1() void {
     @call(.always_inline, x, .{});
 }
 

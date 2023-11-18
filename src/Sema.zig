@@ -6173,6 +6173,7 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
         };
         return sema.failWithOwnedErrorMsg(block, msg);
     }
+    sema.prev_stack_alignment_src = src;
 
     const ip = &mod.intern_pool;
     const a = ip.funcAnalysis(sema.func_index);
