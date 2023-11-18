@@ -868,7 +868,7 @@ pub fn argsAlloc(allocator: Allocator) ![][:0]u8 {
 }
 
 test argsAlloc {
-    const allocator = std.heap.page_allocator;
+    const allocator = std.testing.allocator;
     const arg_iterator = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, arg_iterator);
     for (arg_iterator) |arg| {
