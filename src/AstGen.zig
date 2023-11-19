@@ -1280,6 +1280,7 @@ fn fnProtoExpr(
     const block_inst = try gz.makeBlockInst(.block_inline, node);
 
     var noalias_bits: u32 = 0;
+    var params_scope = &block_scope.base;
     const is_var_args = is_var_args: {
         var param_type_i: usize = 0;
         var it = fn_proto.iterate(tree);
@@ -1303,26 +1304,29 @@ fn fnProtoExpr(
             } else false;
 
             const param_name: u32 = if (param.name_token) |name_token| blk: {
-                if (mem.eql(u8, "_", tree.tokenSlice(name_token)))
+                const name_bytes = tree.tokenSlice(name_token);
+                if (mem.eql(u8, "_", name_bytes))
                     break :blk 0;
 
-                break :blk try astgen.identAsString(name_token);
+                const param_name = try astgen.identAsString(name_token);
+                try astgen.detectLocalShadowing(params_scope, param_name, name_token, name_bytes, .@"function parameter");
+                break :blk param_name;
             } else 0;
 
-            if (is_anytype) {
+            const param_inst = if (is_anytype) param: {
                 const name_token = param.name_token orelse param.anytype_ellipsis3.?;
 
                 const tag: Zir.Inst.Tag = if (is_comptime)
                     .param_anytype_comptime
                 else
                     .param_anytype;
-                _ = try block_scope.addStrTok(tag, param_name, name_token);
-            } else {
+                break :param try block_scope.addStrTok(tag, param_name, name_token);
+            } else param: {
                 const param_type_node = param.type_expr;
                 assert(param_type_node != 0);
                 var param_gz = block_scope.makeSubBlock(scope);
                 defer param_gz.unstack();
-                const param_type = try expr(&param_gz, scope, coerced_type_ri, param_type_node);
+                const param_type = try expr(&param_gz, params_scope, coerced_type_ri, param_type_node);
                 const param_inst_expected: Zir.Inst.Index = @enumFromInt(astgen.instructions.len + 1);
                 _ = try param_gz.addBreakWithSrcNode(.break_inline, param_inst_expected, param_type, param_type_node);
                 const main_tokens = tree.nodes.items(.main_token);
@@ -1330,53 +1334,99 @@ fn fnProtoExpr(
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
                 const param_inst = try block_scope.addParam(&param_gz, tag, name_token, param_name, param.first_doc_comment);
                 assert(param_inst_expected == param_inst);
-            }
+                break :param param_inst.toRef();
+            };
+
+            if (param_name == 0) continue;
+
+            const sub_scope = try astgen.arena.create(Scope.LocalVal);
+            sub_scope.* = .{
+                .parent = params_scope,
+                .gen_zir = &block_scope,
+                .name = param_name,
+                .inst = param_inst,
+                .token_src = param.name_token.?,
+                .id_cat = .@"function parameter",
+            };
+            params_scope = &sub_scope.base;
         }
         break :is_var_args false;
     };
 
+    var align_gz = block_scope.makeSubBlock(params_scope);
+    defer align_gz.unstack();
     const align_ref: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
-        break :inst try expr(&block_scope, scope, align_ri, fn_proto.ast.align_expr);
+        const inst = try expr(&block_scope, params_scope, coerced_align_ri, fn_proto.ast.align_expr);
+        if (align_gz.instructionsSlice().len == 0) {
+            // In this case we will send a len=0 body which can be encoded more efficiently.
+            break :inst inst;
+        }
+        const param_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len + 1);
+        _ = try align_gz.addBreakWithSrcNode(.break_inline, param_index, inst, fn_proto.ast.align_expr);
+        break :inst inst;
     };
 
     if (fn_proto.ast.addrspace_expr != 0) {
         return astgen.failNode(fn_proto.ast.addrspace_expr, "addrspace not allowed on function prototypes", .{});
     }
+    var addrspace_gz = block_scope.makeSubBlock(params_scope);
+    defer addrspace_gz.unstack();
 
     if (fn_proto.ast.section_expr != 0) {
         return astgen.failNode(fn_proto.ast.section_expr, "linksection not allowed on function prototypes", .{});
     }
+    var section_gz = block_scope.makeSubBlock(params_scope);
+    defer section_gz.unstack();
 
-    const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
-        try expr(
+    var cc_gz = block_scope.makeSubBlock(params_scope);
+    defer cc_gz.unstack();
+    const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr == 0) .none else inst: {
+        const inst = try expr(
             &block_scope,
-            scope,
-            .{ .rl = .{ .ty = .calling_convention_type } },
+            params_scope,
+            .{ .rl = .{ .coerced_ty = .calling_convention_type } },
             fn_proto.ast.callconv_expr,
-        )
-    else
-        Zir.Inst.Ref.none;
+        );
+        if (cc_gz.instructionsSlice().len == 0) {
+            // In this case we will send a len=0 body which can be encoded more efficiently.
+            break :inst inst;
+        }
+        const param_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len + 1);
+        _ = try cc_gz.addBreakWithSrcNode(.break_inline, param_index, inst, fn_proto.ast.callconv_expr);
+        break :inst inst;
+    };
 
     const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
     const is_inferred_error = token_tags[maybe_bang] == .bang;
     if (is_inferred_error) {
         return astgen.failTok(maybe_bang, "function prototype may not have inferred error set", .{});
     }
-    const ret_ty = try expr(&block_scope, scope, coerced_type_ri, fn_proto.ast.return_type);
+    var ret_gz = block_scope.makeSubBlock(params_scope);
+    defer ret_gz.unstack();
+    const ret_ty = inst: {
+        const inst = try expr(&block_scope, params_scope, coerced_type_ri, fn_proto.ast.return_type);
+        if (ret_gz.instructionsSlice().len == 0) {
+            // In this case we will send a len=0 body which can be encoded more efficiently.
+            break :inst inst;
+        }
+        const param_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len + 1);
+        _ = try ret_gz.addBreakWithSrcNode(.break_inline, param_index, inst, fn_proto.ast.return_type);
+        break :inst inst;
+    };
 
     const result = try block_scope.addFunc(.{
         .src_node = fn_proto.ast.proto_node,
 
         .cc_ref = cc,
-        .cc_gz = null,
+        .cc_gz = &cc_gz,
         .align_ref = align_ref,
-        .align_gz = null,
+        .align_gz = &align_gz,
         .ret_ref = ret_ty,
-        .ret_gz = null,
+        .ret_gz = &ret_gz,
         .section_ref = .none,
-        .section_gz = null,
+        .section_gz = &section_gz,
         .addrspace_ref = .none,
-        .addrspace_gz = null,
+        .addrspace_gz = &addrspace_gz,
 
         .param_block = block_inst,
         .body_gz = null,
