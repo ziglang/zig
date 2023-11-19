@@ -1190,11 +1190,11 @@ const expect = std.testing.expect;
 const imported_file = @import("testing_introduction.zig");
 
 test {
-    // To run nested container tests, either, call `refAllDecls` which will
+    // To run nested container tests, either, call `refAllDeclsRecursive` which will
     // reference all declarations located in the given argument.
     // `@This()` is a builtin function that returns the innermost container it is called from.
     // In this example, the innermost container is this file (implicitly a struct).
-    std.testing.refAllDecls(@This());
+    std.testing.refAllDeclsRecursive(@This());
 
     // or, reference each container individually from a top-level test declaration.
     // The `_ = C;` syntax is a no-op reference to the identifier `C`.
@@ -1218,7 +1218,7 @@ const S = struct {
     };
 };
 
-const U = union { // U is referenced by the file's top-level test declaration
+pub const U = union { // U is referenced by the file's top-level test declaration
     s: US,        // and US is referenced here; therefore, "U.Us demo test" will run
 
     const US = struct {
