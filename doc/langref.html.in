@@ -6806,8 +6806,269 @@ fn foo() i32 {
 
       {#header_open|Result Location Semantics#}
       <p>
-      <a href="https://github.com/ziglang/zig/issues/2809">TODO add documentation for this</a>
+      During compilation, every Zig expression and sub-expression is assigned optional result location
+      information. This information dictates what type the expression should have (its result type), and
+      where the resulting value should be placed in memory (its result location). The information is
+      optional in the sense that not every expression has this information: assignment to
+      {#syntax#}_{#endsyntax#}, for instance, does not provide any information about the type of an
+      expression, nor does it provide a concrete memory location to place it in.
       </p>
+      <p>
+      As a motivating example, consider the statement {#syntax#}const x: u32 = 42;{#endsyntax#}. The type
+      annotation here provides a result type of {#syntax#}u32{#endsyntax#} to the initialization expression
+      {#syntax#}42{#endsyntax#}, instructing the compiler to coerce this integer (initally of type
+      {#syntax#}comptime_int{#endsyntax#}) to this type. We will see more examples shortly.
+      </p>
+      <p>
+      This is not an implementation detail: the logic outlined above is codified into the Zig language
+      specification, and is the primary mechanism of type inference in the language. This system is
+      collectively referred to as "Result Location Semantics".
+      </p>
+      {#header_open|Result Types#}
+      <p>
+      Result types are propagated recursively through expressions where possible. For instance, if the
+      expression {#syntax#}&e{#endsyntax#} has result type {#syntax#}*u32{#endsyntax#}, then
+      {#syntax#}e{#endsyntax#} is given a result type of {#syntax#}u32{#endsyntax#}, allowing the
+      language to perform this coercion before taking a reference.
+      </p>
+      <p>
+      The result type mechanism is utilized by casting builtins such as {#syntax#}@intCast{#endsyntax#}.
+      Rather than taking as an argument the type to cast to, these builtins use their result type to
+      determine this information. The result type is often known from context; where it is not, the
+      {#syntax#}@as{#endsyntax#} builtin can be used to explicitly provide a result type.
+      </p>
+      <p>
+      We can break down the result types for each component of a simple expression as follows:
+      </p>
+      {#code_begin|test|result_type_propagation#}
+const expectEqual = @import("std").testing.expectEqual;
+test "result type propagates through struct initializer" {
+    const S = struct { x: u32 };
+    const val: u64 = 123;
+    const s: S = .{ .x = @intCast(val) };
+    // .{ .x = @intCast(val) }   has result type `S` due to the type annotation
+    //         @intCast(val)     has result type `u32` due to the type of the field `S.x`
+    //                  val      has no result type, as it is permitted to be any integer type
+    try expectEqual(@as(u32, 123), s.x);
+}
+      {#code_end#}
+      <p>
+      This result type information is useful for the aforementioned cast builtins, as well as to avoid
+      the construction of pre-coercion values, and to avoid the need for explicit type coercions in some
+      cases. The following table details how some common expressions propagate result types, where
+      {#syntax#}x{#endsyntax#} and {#syntax#}y{#endsyntax#} are arbitrary sub-expressions.
+      </p>
+      <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Expression</th>
+            <th scope="col">Parent Result Type</th>
+            <th scope="col">Sub-expression Result Type</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">{#syntax#}const val: T = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}var val: T = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}val = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@TypeOf(val){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@as(T, x){#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}&x{#endsyntax#}</th>
+            <td>{#syntax#}*T{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}&x{#endsyntax#}</th>
+            <td>{#syntax#}[]T{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is some array of {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}f(x){#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} has the type of the first parameter of {#syntax#}f{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}.{x}{#endsyntax#}</th>
+            <td>{#syntax#}T{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .@"0"){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}.{ .a = x }{#endsyntax#}</th>
+            <td>{#syntax#}T{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .a){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}T{x}{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .@"0"){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}T{ .a = x }{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .a){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@Type(x){#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.builtin.Type{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@typeInfo(x){#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}type{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}x << y{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}y{#endsyntax#} is a {#syntax#}std.math.Log2IntCeil(@TypeOf(x)){#endsyntax#}</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      {#header_close#}
+      {#header_open|Result Locations#}
+      <p>
+      In addition to result type information, every expression may be optionally assigned a result
+      location: a pointer to which the value must be directly written. This system can be used to prevent
+      intermediate copies when initializing data structures, which can be important for types which must
+      have a fixed memory address ("pinned" types).
+      </p>
+      <p>
+      When compiling the simple assignment expression {#syntax#}x = e{#endsyntax#}, many languages would
+      create the temporary value {#syntax#}e{#endsyntax#} on the stack, and then assign it to
+      {#syntax#}x{#endsyntax#}, potentially performing a type coercion in the process. Zig approaches this
+      differently. The expression {#syntax#}e{#endsyntax#} is given a result type matching the type of
+      {#syntax#}x{#endsyntax#}, and a result location of {#syntax#}&x{#endsyntax#}. For many syntactic
+      forms of {#syntax#}e{#endsyntax#}, this has no practical impact. However, it can have important
+      semantic effects when working with more complex syntax forms.
+      </p>
+      <p>
+      For instance, if the expression {#syntax#}.{ .a = x, .b = y }{#endsyntax#} has a result location of
+      {#syntax#}ptr{#endsyntax#}, then {#syntax#}x{#endsyntax#} is given a result location of
+      {#syntax#}&ptr.a{#endsyntax#}, and {#syntax#}y{#endsyntax#} a result location of {#syntax#}&ptr.b{#endsyntax#}.
+      Without this system, this expression would construct a temporary struct value entirely on the stack, and
+      only then copy it to the destination address. In essence, Zig desugars the assignment
+      {#syntax#}foo = .{ .a = x, .b = y }{#endsyntax#} to the two statements {#syntax#}foo.a = x; foo.b = y;{#endsyntax#}.
+      </p>
+      <p>
+      This can sometimes be important when assigning an aggregate value where the initialization
+      expression depends on the previous value of the aggregate. The easiest way to demonstrate this is by
+      attempting to swap fields of a struct or array - the following logic looks sound, but in fact is not:
+      </p>
+      {#code_begin|test_err|result_location_interfering_with_swap#}
+const expect = @import("std").testing.expect;
+test "attempt to swap array elements with array initializer" {
+    var arr: [2]u32 = .{ 1, 2 };
+    arr = .{ arr[1], arr[0] };
+    // The previous line is equivalent to the following two lines:
+    //   arr[0] = arr[1];
+    //   arr[1] = arr[0];
+    // So this fails!
+    try expect(arr[0] == 2); // succeeds
+    try expect(arr[1] == 1); // fails
+}
+      {#code_end#}
+      <p>
+      The following table details how some common expressions propagate result locations, where
+      {#syntax#}x{#endsyntax#} and {#syntax#}y{#endsyntax#} are arbitrary sub-expressions. Note that
+      some expressions cannot provide meaningful result locations to sub-expressions, even if they
+      themselves have a result location.
+      </p>
+      <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Expression</th>
+            <th scope="col">Result Location</th>
+            <th scope="col">Sub-expression Result Locations</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">{#syntax#}const val: T = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&val{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}var val: T = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&val{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}val = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&val{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@as(T, x){#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}&x{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}f(x){#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}.{x}{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&ptr[0]{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}.{ .a = x }{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&ptr.a{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}T{x}{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location (typed initializers do not propagate result locations)</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}T{ .a = x }{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location (typed initializers do not propagate result locations)</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@Type(x){#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@typeInfo(x){#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}x << y{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} and {#syntax#}y{#endsyntax#} do not have result locations</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      {#header_close#}
       {#header_close#}
 
       {#header_open|usingnamespace#}
