@@ -415,7 +415,7 @@ pub fn evalZigProcess(
         .Exited => {
             // Note that the exit code may be 0 in this case due to the
             // compiler server protocol.
-            if (compile.expect_errors != null and s.result_error_bundle.errorMessageCount() > 0) {
+            if (compile.expect_errors != null) {
                 return error.NeedCompileErrorCheck;
             }
         },

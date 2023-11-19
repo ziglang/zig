@@ -1,6 +1,6 @@
 comptime {
     var a: anyerror!bool = undefined;
-    _ = a catch false;
+    if (a catch false) {}
 }
 
 // error
