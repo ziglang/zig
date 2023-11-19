@@ -777,9 +777,8 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
                     }
 
                     var fmt: [256]u8 = undefined;
-                    var slice = try std.fmt.bufPrint(&fmt, "\r\nerr: {s}\r\n", .{exit_msg});
-
-                    var len = try std.unicode.utf8ToUtf16Le(utf16, slice);
+                    const slice = try std.fmt.bufPrint(&fmt, "\r\nerr: {s}\r\n", .{exit_msg});
+                    const len = try std.unicode.utf8ToUtf16Le(utf16, slice);
 
                     utf16[len] = 0;
 
@@ -790,7 +789,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
             };
 
             var exit_size: usize = 0;
-            var exit_data = ExitData.create_exit_data(msg, &exit_size) catch null;
+            const exit_data = ExitData.create_exit_data(msg, &exit_size) catch null;
 
             if (exit_data) |data| {
                 if (uefi.system_table.std_err) |out| {

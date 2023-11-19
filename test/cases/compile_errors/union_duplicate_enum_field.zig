@@ -5,7 +5,7 @@ const U = union(E) {
 };
 
 export fn foo() void {
-    var u: U = .{ .a = 123 };
+    const u: U = .{ .a = 123 };
     _ = u;
 }
 

@@ -13,7 +13,9 @@ test "@shuffle int" {
     const S = struct {
         fn doTheTest() !void {
             var v: @Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
+            _ = &v;
             var x: @Vector(4, i32) = [4]i32{ 1, 2147483647, 3, 4 };
+            _ = &x;
             const mask = [4]i32{ 0, ~@as(i32, 2), 3, ~@as(i32, 3) };
             var res = @shuffle(i32, v, x, mask);
             try expect(mem.eql(i32, &@as([4]i32, res), &[4]i32{ 2147483647, 3, 40, 4 }));
@@ -29,12 +31,14 @@ test "@shuffle int" {
 
             // Upcasting of b
             var v2: @Vector(2, i32) = [2]i32{ 2147483647, undefined };
+            _ = &v2;
             const mask3 = [4]i32{ ~@as(i32, 0), 2, ~@as(i32, 0), 3 };
             res = @shuffle(i32, x, v2, mask3);
             try expect(mem.eql(i32, &@as([4]i32, res), &[4]i32{ 2147483647, 3, 2147483647, 4 }));
 
             // Upcasting of a
             var v3: @Vector(2, i32) = [2]i32{ 2147483647, -2 };
+            _ = &v3;
             const mask4 = [4]i32{ 0, ~@as(i32, 2), 1, ~@as(i32, 3) };
             res = @shuffle(i32, v3, x, mask4);
             try expect(mem.eql(i32, &@as([4]i32, res), &[4]i32{ 2147483647, 3, -2, 4 }));
@@ -55,9 +59,11 @@ test "@shuffle bool 1" {
     const S = struct {
         fn doTheTest() !void {
             var x: @Vector(4, bool) = [4]bool{ false, true, false, true };
+            _ = &x;
             var v: @Vector(2, bool) = [2]bool{ true, false };
+            _ = &v;
             const mask = [4]i32{ 0, ~@as(i32, 1), 1, 2 };
-            var res = @shuffle(bool, x, v, mask);
+            const res = @shuffle(bool, x, v, mask);
             try expect(mem.eql(bool, &@as([4]bool, res), &[4]bool{ false, false, true, false }));
         }
     };
@@ -81,9 +87,11 @@ test "@shuffle bool 2" {
     const S = struct {
         fn doTheTest() !void {
             var x: @Vector(3, bool) = [3]bool{ false, true, false };
+            _ = &x;
             var v: @Vector(2, bool) = [2]bool{ true, false };
+            _ = &v;
             const mask = [4]i32{ 0, ~@as(i32, 1), 1, 2 };
-            var res = @shuffle(bool, x, v, mask);
+            const res = @shuffle(bool, x, v, mask);
             try expect(mem.eql(bool, &@as([4]bool, res), &[4]bool{ false, false, true, false }));
         }
     };

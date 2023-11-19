@@ -4479,7 +4479,7 @@ fn cmdRc(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         try stdout_writer.writeByte('\n');
     }
 
-    var full_input = full_input: {
+    const full_input = full_input: {
         if (options.preprocess != .no) {
             if (!build_options.have_llvm) {
                 fatal("clang not available: compiler built without LLVM extensions", .{});
@@ -4526,7 +4526,7 @@ fn cmdRc(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             }
 
             if (process.can_spawn) {
-                var result = std.ChildProcess.run(.{
+                const result = std.ChildProcess.run(.{
                     .allocator = gpa,
                     .argv = argv.items,
                     .max_output_bytes = std.math.maxInt(u32),
@@ -4593,7 +4593,7 @@ fn cmdRc(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var mapping_results = try resinator.source_mapping.parseAndRemoveLineCommands(gpa, full_input, full_input, .{ .initial_filename = options.input_filename });
     defer mapping_results.mappings.deinit(gpa);
 
-    var final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
+    const final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
 
     var output_file = std.fs.cwd().createFile(options.output_filename, .{}) catch |err| {
         try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to create output file '{s}': {s}", .{ options.output_filename, @errorName(err) });
@@ -4762,7 +4762,7 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
 
         const libc_installation: ?*LibCInstallation = libc: {
             if (input_file) |libc_file| {
-                var libc = try arena.create(LibCInstallation);
+                const libc = try arena.create(LibCInstallation);
                 libc.* = LibCInstallation.parse(arena, libc_file, cross_target) catch |err| {
                     fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
                 };
@@ -4781,7 +4781,7 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
         const target = cross_target.toTarget();
         const is_native_abi = cross_target.isNativeAbi();
 
-        var libc_dirs = Compilation.detectLibCIncludeDirs(
+        const libc_dirs = Compilation.detectLibCIncludeDirs(
             arena,
             zig_lib_directory.path.?,
             target,
@@ -4960,7 +4960,7 @@ pub const usage_build =
 pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const work_around_btrfs_bug = builtin.os.tag == .linux and
         EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
-    var color: Color = .auto;
+    const color: Color = .auto;
 
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
@@ -6001,7 +6001,7 @@ const ArgIteratorResponseFile = process.ArgIteratorGeneral(.{ .comments = true, 
 /// Initialize the arguments from a Response File. "*.rsp"
 fn initArgIteratorResponseFile(allocator: Allocator, resp_file_path: []const u8) !ArgIteratorResponseFile {
     const max_bytes = 10 * 1024 * 1024; // 10 MiB of command line arguments is a reasonable limit
-    var cmd_line = try fs.cwd().readFileAlloc(allocator, resp_file_path, max_bytes);
+    const cmd_line = try fs.cwd().readFileAlloc(allocator, resp_file_path, max_bytes);
     errdefer allocator.free(cmd_line);
 
     return ArgIteratorResponseFile.initTakeOwnership(allocator, cmd_line);

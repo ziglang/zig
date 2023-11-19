@@ -81,10 +81,10 @@ const CAllocator = struct {
         // Thin wrapper around regular malloc, overallocate to account for
         // alignment padding and store the original malloc()'ed pointer before
         // the aligned address.
-        var unaligned_ptr = @as([*]u8, @ptrCast(c.malloc(len + alignment - 1 + @sizeOf(usize)) orelse return null));
+        const unaligned_ptr = @as([*]u8, @ptrCast(c.malloc(len + alignment - 1 + @sizeOf(usize)) orelse return null));
         const unaligned_addr = @intFromPtr(unaligned_ptr);
         const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), alignment);
-        var aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
+        const aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
         getHeader(aligned_ptr).* = unaligned_ptr;
 
         return aligned_ptr;
@@ -661,12 +661,12 @@ test "FixedBufferAllocator.reset" {
     const X = 0xeeeeeeeeeeeeeeee;
     const Y = 0xffffffffffffffff;
 
-    var x = try allocator.create(u64);
+    const x = try allocator.create(u64);
     x.* = X;
     try testing.expectError(error.OutOfMemory, allocator.create(u64));
 
     fba.reset();
-    var y = try allocator.create(u64);
+    const y = try allocator.create(u64);
     y.* = Y;
 
     // we expect Y to have overwritten X.
@@ -691,9 +691,9 @@ test "FixedBufferAllocator Reuse memory on realloc" {
         var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
         const allocator = fixed_buffer_allocator.allocator();
 
-        var slice0 = try allocator.alloc(u8, 5);
+        const slice0 = try allocator.alloc(u8, 5);
         try testing.expect(slice0.len == 5);
-        var slice1 = try allocator.realloc(slice0, 10);
+        const slice1 = try allocator.realloc(slice0, 10);
         try testing.expect(slice1.ptr == slice0.ptr);
         try testing.expect(slice1.len == 10);
         try testing.expectError(error.OutOfMemory, allocator.realloc(slice1, 11));
@@ -706,8 +706,8 @@ test "FixedBufferAllocator Reuse memory on realloc" {
         var slice0 = try allocator.alloc(u8, 2);
         slice0[0] = 1;
         slice0[1] = 2;
-        var slice1 = try allocator.alloc(u8, 2);
-        var slice2 = try allocator.realloc(slice0, 4);
+        const slice1 = try allocator.alloc(u8, 2);
+        const slice2 = try allocator.realloc(slice0, 4);
         try testing.expect(slice0.ptr != slice2.ptr);
         try testing.expect(slice1.ptr != slice2.ptr);
         try testing.expect(slice2[0] == 1);
@@ -757,7 +757,7 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
     allocator.free(slice);
 
     // Zero-length allocation
-    var empty = try allocator.alloc(u8, 0);
+    const empty = try allocator.alloc(u8, 0);
     allocator.free(empty);
     // Allocation with zero-sized types
     const zero_bit_ptr = try allocator.create(u0);

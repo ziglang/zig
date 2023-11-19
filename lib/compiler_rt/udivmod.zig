@@ -52,7 +52,7 @@ fn divwide_generic(comptime T: type, _u1: T, _u0: T, v_: T, r: *T) T {
         if (rhat >= b) break;
     }
 
-    var un21 = un64 *% b +% un1 -% q1 *% v;
+    const un21 = un64 *% b +% un1 -% q1 *% v;
 
     // Compute the second quotient digit
     var q0 = un21 / vn1;
@@ -101,8 +101,8 @@ pub fn udivmod(comptime T: type, a_: T, b_: T, maybe_rem: ?*T) T {
         return 0;
     }
 
-    var a: [2]HalfT = @bitCast(a_);
-    var b: [2]HalfT = @bitCast(b_);
+    const a: [2]HalfT = @bitCast(a_);
+    const b: [2]HalfT = @bitCast(b_);
     var q: [2]HalfT = undefined;
     var r: [2]HalfT = undefined;
 
@@ -125,7 +125,7 @@ pub fn udivmod(comptime T: type, a_: T, b_: T, maybe_rem: ?*T) T {
     }
 
     // 0 <= shift <= 63
-    var shift: Log2Int(T) = @clz(b[hi]) - @clz(a[hi]);
+    const shift: Log2Int(T) = @clz(b[hi]) - @clz(a[hi]);
     var af: T = @bitCast(a);
     var bf = @as(T, @bitCast(b)) << shift;
     q = @bitCast(@as(T, 0));

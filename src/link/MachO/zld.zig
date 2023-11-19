@@ -503,7 +503,7 @@ pub fn linkWithZld(
             const size = math.cast(usize, linkedit.fileoff - start) orelse return error.Overflow;
             if (size > 0) {
                 log.debug("zeroing out zerofill area of length {x} at {x}", .{ size, start });
-                var padding = try gpa.alloc(u8, size);
+                const padding = try gpa.alloc(u8, size);
                 defer gpa.free(padding);
                 @memset(padding, 0);
                 try macho_file.base.file.?.pwriteAll(padding, start);

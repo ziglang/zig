@@ -11,5 +11,6 @@ test {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var t: T = .{ .next = null };
+    _ = &t;
     try std.testing.expect(t.next == null);
 }

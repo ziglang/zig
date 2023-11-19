@@ -1,5 +1,6 @@
 export fn entry() void {
     var p: i32 = undefined;
+    _ = &p;
     comptime var q = true;
     inline while (q) {
         switch (p) {
@@ -14,5 +15,5 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :6:19: error: comptime control flow inside runtime block
-// :5:17: note: runtime control flow here
+// :7:19: error: comptime control flow inside runtime block
+// :6:17: note: runtime control flow here

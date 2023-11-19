@@ -143,8 +143,8 @@ fn atan64(x_: f64) f64 {
     };
 
     var x = x_;
-    var ux = @as(u64, @bitCast(x));
-    var ix = @as(u32, @intCast(ux >> 32));
+    const ux: u64 = @bitCast(x);
+    var ix: u32 = @intCast(ux >> 32);
     const sign = ix >> 31;
     ix &= 0x7FFFFFFF;
 

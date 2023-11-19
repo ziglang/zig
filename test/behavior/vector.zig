@@ -40,6 +40,7 @@ test "vector wrap operators" {
             try expect(mem.eql(i32, &@as([4]i32, v *% x), &[4]i32{ 2147483647, 2, 90, 160 }));
             var z: @Vector(4, i32) = [4]i32{ 1, 2, 3, -2147483648 };
             try expect(mem.eql(i32, &@as([4]i32, -%z), &[4]i32{ -1, -2, -3, -2147483648 }));
+            _ = .{ &v, &x, &z };
         }
     };
     try S.doTheTest();
@@ -57,6 +58,7 @@ test "vector bin compares with mem.eql" {
         fn doTheTest() !void {
             var v: @Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
             var x: @Vector(4, i32) = [4]i32{ 1, 2147483647, 30, 4 };
+            _ = .{ &v, &x };
             try expect(mem.eql(bool, &@as([4]bool, v == x), &[4]bool{ false, false, true, false }));
             try expect(mem.eql(bool, &@as([4]bool, v != x), &[4]bool{ true, true, false, true }));
             try expect(mem.eql(bool, &@as([4]bool, v < x), &[4]bool{ false, true, false, false }));
@@ -81,6 +83,7 @@ test "vector int operators" {
         fn doTheTest() !void {
             var v: @Vector(4, i32) = [4]i32{ 10, 20, 30, 40 };
             var x: @Vector(4, i32) = [4]i32{ 1, 2, 3, 4 };
+            _ = .{ &v, &x };
             try expect(mem.eql(i32, &@as([4]i32, v + x), &[4]i32{ 11, 22, 33, 44 }));
             try expect(mem.eql(i32, &@as([4]i32, v - x), &[4]i32{ 9, 18, 27, 36 }));
             try expect(mem.eql(i32, &@as([4]i32, v * x), &[4]i32{ 10, 40, 90, 160 }));
@@ -105,6 +108,7 @@ test "vector float operators" {
             fn doTheTest() !void {
                 var v: @Vector(4, T) = [4]T{ 10, 20, 30, 40 };
                 var x: @Vector(4, T) = [4]T{ 1, 2, 3, 4 };
+                _ = .{ &v, &x };
                 try expect(mem.eql(T, &@as([4]T, v + x), &[4]T{ 11, 22, 33, 44 }));
                 try expect(mem.eql(T, &@as([4]T, v - x), &[4]T{ 9, 18, 27, 36 }));
                 try expect(mem.eql(T, &@as([4]T, v * x), &[4]T{ 10, 40, 90, 160 }));
@@ -126,6 +130,7 @@ test "vector bit operators" {
         fn doTheTest() !void {
             var v: @Vector(4, u8) = [4]u8{ 0b10101010, 0b10101010, 0b10101010, 0b10101010 };
             var x: @Vector(4, u8) = [4]u8{ 0b11110000, 0b00001111, 0b10101010, 0b01010101 };
+            _ = .{ &v, &x };
             try expect(mem.eql(u8, &@as([4]u8, v ^ x), &[4]u8{ 0b01011010, 0b10100101, 0b00000000, 0b11111111 }));
             try expect(mem.eql(u8, &@as([4]u8, v | x), &[4]u8{ 0b11111010, 0b10101111, 0b10101010, 0b11111111 }));
             try expect(mem.eql(u8, &@as([4]u8, v & x), &[4]u8{ 0b10100000, 0b00001010, 0b10101010, 0b00000000 }));
@@ -143,6 +148,7 @@ test "implicit cast vector to array" {
     const S = struct {
         fn doTheTest() !void {
             var a: @Vector(4, i32) = [_]i32{ 1, 2, 3, 4 };
+            _ = &a;
             var result_array: [4]i32 = a;
             result_array = a;
             try expect(mem.eql(i32, &result_array, &[4]i32{ 1, 2, 3, 4 }));
@@ -160,8 +166,9 @@ test "array to vector" {
     const S = struct {
         fn doTheTest() !void {
             var foo: f32 = 3.14;
-            var arr = [4]f32{ foo, 1.5, 0.0, 0.0 };
-            var vec: @Vector(4, f32) = arr;
+            _ = &foo;
+            const arr = [4]f32{ foo, 1.5, 0.0, 0.0 };
+            const vec: @Vector(4, f32) = arr;
             try expect(mem.eql(f32, &@as([4]f32, vec), &arr));
         }
     };
@@ -180,25 +187,28 @@ test "array vector coercion - odd sizes" {
     const S = struct {
         fn doTheTest() !void {
             var foo1: i48 = 124578;
-            var vec1: @Vector(2, i48) = [2]i48{ foo1, 1 };
-            var arr1: [2]i48 = vec1;
+            _ = &foo1;
+            const vec1: @Vector(2, i48) = [2]i48{ foo1, 1 };
+            const arr1: [2]i48 = vec1;
             try expect(vec1[0] == foo1 and vec1[1] == 1);
             try expect(arr1[0] == foo1 and arr1[1] == 1);
 
             var foo2: u4 = 5;
-            var vec2: @Vector(2, u4) = [2]u4{ foo2, 1 };
-            var arr2: [2]u4 = vec2;
+            _ = &foo2;
+            const vec2: @Vector(2, u4) = [2]u4{ foo2, 1 };
+            const arr2: [2]u4 = vec2;
             try expect(vec2[0] == foo2 and vec2[1] == 1);
             try expect(arr2[0] == foo2 and arr2[1] == 1);
 
             var foo3: u13 = 13;
-            var vec3: @Vector(3, u13) = [3]u13{ foo3, 0, 1 };
-            var arr3: [3]u13 = vec3;
+            _ = &foo3;
+            const vec3: @Vector(3, u13) = [3]u13{ foo3, 0, 1 };
+            const arr3: [3]u13 = vec3;
             try expect(vec3[0] == foo3 and vec3[1] == 0 and vec3[2] == 1);
             try expect(arr3[0] == foo3 and arr3[1] == 0 and arr3[2] == 1);
 
-            var arr4 = [4:0]u24{ foo3, foo2, 0, 1 };
-            var vec4: @Vector(4, u24) = arr4;
+            const arr4 = [4:0]u24{ foo3, foo2, 0, 1 };
+            const vec4: @Vector(4, u24) = arr4;
             try expect(vec4[0] == foo3 and vec4[1] == foo2 and vec4[2] == 0 and vec4[3] == 1);
         }
     };
@@ -217,8 +227,9 @@ test "array to vector with element type coercion" {
     const S = struct {
         fn doTheTest() !void {
             var foo: f16 = 3.14;
-            var arr32 = [4]f32{ foo, 1.5, 0.0, 0.0 };
-            var vec: @Vector(4, f32) = [4]f16{ foo, 1.5, 0.0, 0.0 };
+            _ = &foo;
+            const arr32 = [4]f32{ foo, 1.5, 0.0, 0.0 };
+            const vec: @Vector(4, f32) = [4]f16{ foo, 1.5, 0.0, 0.0 };
             try std.testing.expect(std.mem.eql(f32, &@as([4]f32, vec), &arr32));
         }
     };
@@ -237,7 +248,8 @@ test "peer type resolution with coercible element types" {
             var b: @Vector(2, u8) = .{ 1, 2 };
             var a: @Vector(2, u16) = .{ 2, 1 };
             var t: bool = true;
-            var c = if (t) a else b;
+            _ = .{ &a, &b, &t };
+            const c = if (t) a else b;
             try std.testing.expect(@TypeOf(c) == @Vector(2, u16));
         }
     };
@@ -285,22 +297,26 @@ test "vector casts of sizes not divisible by 8" {
         fn doTheTest() !void {
             {
                 var v: @Vector(4, u3) = [4]u3{ 5, 2, 3, 0 };
-                var x: [4]u3 = v;
+                _ = &v;
+                const x: [4]u3 = v;
                 try expect(mem.eql(u3, &x, &@as([4]u3, v)));
             }
             {
                 var v: @Vector(4, u2) = [4]u2{ 1, 2, 3, 0 };
-                var x: [4]u2 = v;
+                _ = &v;
+                const x: [4]u2 = v;
                 try expect(mem.eql(u2, &x, &@as([4]u2, v)));
             }
             {
                 var v: @Vector(4, u1) = [4]u1{ 1, 0, 1, 0 };
-                var x: [4]u1 = v;
+                _ = &v;
+                const x: [4]u1 = v;
                 try expect(mem.eql(u1, &x, &@as([4]u1, v)));
             }
             {
                 var v: @Vector(4, bool) = [4]bool{ false, false, true, false };
-                var x: [4]bool = v;
+                _ = &v;
+                const x: [4]bool = v;
                 try expect(mem.eql(bool, &x, &@as([4]bool, v)));
             }
         }
@@ -327,7 +343,8 @@ test "vector @splat" {
         fn testForT(comptime N: comptime_int, v: anytype) !void {
             const T = @TypeOf(v);
             var vec: @Vector(N, T) = @splat(v);
-            var as_array = @as([N]T, vec);
+            _ = &vec;
+            const as_array = @as([N]T, vec);
             for (as_array) |elem| try expect(v == elem);
         }
         fn doTheTest() !void {
@@ -412,6 +429,7 @@ test "load vector elements via runtime index" {
     const S = struct {
         fn doTheTest() !void {
             var v: @Vector(4, i32) = [_]i32{ 1, 2, 3, undefined };
+            _ = &v;
             var i: u32 = 0;
             try expect(v[i] == 1);
             i += 1;
@@ -461,7 +479,7 @@ test "initialize vector which is a struct field" {
             var foo = Vec4Obj{
                 .data = [_]f32{ 1, 2, 3, 4 },
             };
-            _ = foo;
+            _ = &foo;
         }
     };
     try S.doTheTest();
@@ -481,6 +499,7 @@ test "vector comparison operators" {
                 const V = @Vector(4, bool);
                 var v1: V = [_]bool{ true, false, true, false };
                 var v2: V = [_]bool{ false, true, false, true };
+                _ = .{ &v1, &v2 };
                 try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(true))), &@as([4]bool, v1 == v1)));
                 try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(false))), &@as([4]bool, v1 == v2)));
                 try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(true))), &@as([4]bool, v1 != v2)));
@@ -491,6 +510,7 @@ test "vector comparison operators" {
                 var v1: @Vector(4, u32) = @splat(0xc0ffeeee);
                 var v2: @Vector(4, c_uint) = v1;
                 var v3: @Vector(4, u32) = @splat(0xdeadbeef);
+                _ = .{ &v1, &v2, &v3 };
                 try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(true))), &@as([4]bool, v1 == v2)));
                 try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(false))), &@as([4]bool, v1 == v3)));
                 try expect(mem.eql(bool, &@as([4]bool, @as(V, @splat(true))), &@as([4]bool, v1 != v3)));
@@ -499,6 +519,7 @@ test "vector comparison operators" {
             {
                 // Comptime-known LHS/RHS
                 var v1: @Vector(4, u32) = [_]u32{ 2, 1, 2, 1 };
+                _ = &v1;
                 const v2: @Vector(4, u32) = @splat(2);
                 const v3: @Vector(4, bool) = [_]bool{ true, false, true, false };
                 try expect(mem.eql(bool, &@as([4]bool, v3), &@as([4]bool, v1 == v2)));
@@ -604,7 +625,7 @@ test "vector bitwise not operator" {
 
     const S = struct {
         fn doTheTestNot(comptime T: type, x: @Vector(4, T)) !void {
-            var y = ~x;
+            const y = ~x;
             for (@as([4]T, y), 0..) |v, i| {
                 try expect(~x[i] == v);
             }
@@ -640,14 +661,14 @@ test "vector shift operators" {
             const TX = @typeInfo(@TypeOf(x)).Array.child;
             const TY = @typeInfo(@TypeOf(y)).Array.child;
 
-            var xv = @as(@Vector(N, TX), x);
-            var yv = @as(@Vector(N, TY), y);
+            const xv = @as(@Vector(N, TX), x);
+            const yv = @as(@Vector(N, TY), y);
 
-            var z0 = xv >> yv;
+            const z0 = xv >> yv;
             for (@as([N]TX, z0), 0..) |v, i| {
                 try expect(x[i] >> y[i] == v);
             }
-            var z1 = xv << yv;
+            const z1 = xv << yv;
             for (@as([N]TX, z1), 0..) |v, i| {
                 try expect(x[i] << y[i] == v);
             }
@@ -657,10 +678,10 @@ test "vector shift operators" {
             const TX = @typeInfo(@TypeOf(x)).Array.child;
             const TY = @typeInfo(@TypeOf(y)).Array.child;
 
-            var xv = @as(@Vector(N, TX), x);
-            var yv = @as(@Vector(N, TY), y);
+            const xv = @as(@Vector(N, TX), x);
+            const yv = @as(@Vector(N, TY), y);
 
-            var z = if (dir == .Left) @shlExact(xv, yv) else @shrExact(xv, yv);
+            const z = if (dir == .Left) @shlExact(xv, yv) else @shrExact(xv, yv);
             for (@as([N]TX, z), 0..) |v, i| {
                 const check = if (dir == .Left) x[i] << y[i] else x[i] >> y[i];
                 try expect(check == v);
@@ -734,7 +755,7 @@ test "vector reduce operation" {
             const N = @typeInfo(@TypeOf(x)).Array.len;
             const TX = @typeInfo(@TypeOf(x)).Array.child;
 
-            var r = @reduce(op, @as(@Vector(N, TX), x));
+            const r = @reduce(op, @as(@Vector(N, TX), x));
             switch (@typeInfo(TX)) {
                 .Int, .Bool => try expect(expected == r),
                 .Float => {
@@ -892,7 +913,8 @@ test "mask parameter of @shuffle is comptime scope" {
     const __v4hi = @Vector(4, i16);
     var v4_a = __v4hi{ 0, 0, 0, 0 };
     var v4_b = __v4hi{ 0, 0, 0, 0 };
-    var shuffled: __v4hi = @shuffle(i16, v4_a, v4_b, @Vector(4, i32){
+    _ = .{ &v4_a, &v4_b };
+    const shuffled: __v4hi = @shuffle(i16, v4_a, v4_b, @Vector(4, i32){
         std.zig.c_translation.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).Vector.len),
         std.zig.c_translation.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).Vector.len),
         std.zig.c_translation.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).Vector.len),
@@ -915,7 +937,8 @@ test "saturating add" {
                 const u8x3 = @Vector(3, u8);
                 var lhs = u8x3{ 255, 254, 1 };
                 var rhs = u8x3{ 1, 2, 255 };
-                var result = lhs +| rhs;
+                _ = .{ &lhs, &rhs };
+                const result = lhs +| rhs;
                 const expected = u8x3{ 255, 255, 255 };
                 try expect(mem.eql(u8, &@as([3]u8, expected), &@as([3]u8, result)));
             }
@@ -923,7 +946,8 @@ test "saturating add" {
                 const i8x3 = @Vector(3, i8);
                 var lhs = i8x3{ 127, 126, 1 };
                 var rhs = i8x3{ 1, 2, 127 };
-                var result = lhs +| rhs;
+                _ = .{ &lhs, &rhs };
+                const result = lhs +| rhs;
                 const expected = i8x3{ 127, 127, 127 };
                 try expect(mem.eql(i8, &@as([3]i8, expected), &@as([3]i8, result)));
             }
@@ -947,7 +971,8 @@ test "saturating subtraction" {
             const u8x3 = @Vector(3, u8);
             var lhs = u8x3{ 0, 0, 0 };
             var rhs = u8x3{ 255, 255, 255 };
-            var result = lhs -| rhs;
+            _ = .{ &lhs, &rhs };
+            const result = lhs -| rhs;
             const expected = u8x3{ 0, 0, 0 };
             try expect(mem.eql(u8, &@as([3]u8, expected), &@as([3]u8, result)));
         }
@@ -973,7 +998,8 @@ test "saturating multiplication" {
             const u8x3 = @Vector(3, u8);
             var lhs = u8x3{ 2, 2, 2 };
             var rhs = u8x3{ 255, 255, 255 };
-            var result = lhs *| rhs;
+            _ = .{ &lhs, &rhs };
+            const result = lhs *| rhs;
             const expected = u8x3{ 255, 255, 255 };
             try expect(mem.eql(u8, &@as([3]u8, expected), &@as([3]u8, result)));
         }
@@ -997,7 +1023,8 @@ test "saturating shift-left" {
             const u8x3 = @Vector(3, u8);
             var lhs = u8x3{ 1, 1, 1 };
             var rhs = u8x3{ 255, 255, 255 };
-            var result = lhs <<| rhs;
+            _ = .{ &lhs, &rhs };
+            const result = lhs <<| rhs;
             const expected = u8x3{ 255, 255, 255 };
             try expect(mem.eql(u8, &@as([3]u8, expected), &@as([3]u8, result)));
         }
@@ -1040,29 +1067,33 @@ test "@addWithOverflow" {
             {
                 var lhs = @Vector(4, u8){ 250, 250, 250, 250 };
                 var rhs = @Vector(4, u8){ 0, 5, 6, 10 };
-                var overflow = @addWithOverflow(lhs, rhs)[1];
-                var expected: @Vector(4, u1) = .{ 0, 0, 1, 1 };
+                _ = .{ &lhs, &rhs };
+                const overflow = @addWithOverflow(lhs, rhs)[1];
+                const expected: @Vector(4, u1) = .{ 0, 0, 1, 1 };
                 try expectEqual(expected, overflow);
             }
             {
                 var lhs = @Vector(4, i8){ -125, -125, 125, 125 };
                 var rhs = @Vector(4, i8){ -3, -4, 2, 3 };
-                var overflow = @addWithOverflow(lhs, rhs)[1];
-                var expected: @Vector(4, u1) = .{ 0, 1, 0, 1 };
+                _ = .{ &lhs, &rhs };
+                const overflow = @addWithOverflow(lhs, rhs)[1];
+                const expected: @Vector(4, u1) = .{ 0, 1, 0, 1 };
                 try expectEqual(expected, overflow);
             }
             {
                 var lhs = @Vector(4, u1){ 0, 0, 1, 1 };
                 var rhs = @Vector(4, u1){ 0, 1, 0, 1 };
-                var overflow = @addWithOverflow(lhs, rhs)[1];
-                var expected: @Vector(4, u1) = .{ 0, 0, 0, 1 };
+                _ = .{ &lhs, &rhs };
+                const overflow = @addWithOverflow(lhs, rhs)[1];
+                const expected: @Vector(4, u1) = .{ 0, 0, 0, 1 };
                 try expectEqual(expected, overflow);
             }
             {
                 var lhs = @Vector(4, u0){ 0, 0, 0, 0 };
                 var rhs = @Vector(4, u0){ 0, 0, 0, 0 };
-                var overflow = @addWithOverflow(lhs, rhs)[1];
-                var expected: @Vector(4, u1) = .{ 0, 0, 0, 0 };
+                _ = .{ &lhs, &rhs };
+                const overflow = @addWithOverflow(lhs, rhs)[1];
+                const expected: @Vector(4, u1) = .{ 0, 0, 0, 0 };
                 try expectEqual(expected, overflow);
             }
         }
@@ -1084,15 +1115,17 @@ test "@subWithOverflow" {
             {
                 var lhs = @Vector(2, u8){ 5, 5 };
                 var rhs = @Vector(2, u8){ 5, 6 };
-                var overflow = @subWithOverflow(lhs, rhs)[1];
-                var expected: @Vector(2, u1) = .{ 0, 1 };
+                _ = .{ &lhs, &rhs };
+                const overflow = @subWithOverflow(lhs, rhs)[1];
+                const expected: @Vector(2, u1) = .{ 0, 1 };
                 try expectEqual(expected, overflow);
             }
             {
                 var lhs = @Vector(4, i8){ -120, -120, 120, 120 };
                 var rhs = @Vector(4, i8){ 8, 9, -7, -8 };
-                var overflow = @subWithOverflow(lhs, rhs)[1];
-                var expected: @Vector(4, u1) = .{ 0, 1, 0, 1 };
+                _ = .{ &lhs, &rhs };
+                const overflow = @subWithOverflow(lhs, rhs)[1];
+                const expected: @Vector(4, u1) = .{ 0, 1, 0, 1 };
                 try expectEqual(expected, overflow);
             }
         }
@@ -1113,8 +1146,9 @@ test "@mulWithOverflow" {
         fn doTheTest() !void {
             var lhs = @Vector(4, u8){ 10, 10, 10, 10 };
             var rhs = @Vector(4, u8){ 25, 26, 0, 30 };
-            var overflow = @mulWithOverflow(lhs, rhs)[1];
-            var expected: @Vector(4, u1) = .{ 0, 1, 0, 1 };
+            _ = .{ &lhs, &rhs };
+            const overflow = @mulWithOverflow(lhs, rhs)[1];
+            const expected: @Vector(4, u1) = .{ 0, 1, 0, 1 };
             try expectEqual(expected, overflow);
         }
     };
@@ -1134,8 +1168,9 @@ test "@shlWithOverflow" {
         fn doTheTest() !void {
             var lhs = @Vector(4, u8){ 0, 1, 8, 255 };
             var rhs = @Vector(4, u3){ 7, 7, 7, 7 };
-            var overflow = @shlWithOverflow(lhs, rhs)[1];
-            var expected: @Vector(4, u1) = .{ 0, 0, 1, 1 };
+            _ = .{ &lhs, &rhs };
+            const overflow = @shlWithOverflow(lhs, rhs)[1];
+            const expected: @Vector(4, u1) = .{ 0, 0, 1, 1 };
             try expectEqual(expected, overflow);
         }
     };
@@ -1161,8 +1196,8 @@ test "loading the second vector from a slice of vectors" {
         @Vector(2, u8){ 0, 1 },
         @Vector(2, u8){ 2, 3 },
     };
-    var a: []const @Vector(2, u8) = &small_bases;
-    var a4 = a[1][1];
+    const a: []const @Vector(2, u8) = &small_bases;
+    const a4 = a[1][1];
     try expect(a4 == 3);
 }
 
@@ -1183,6 +1218,7 @@ test "array of vectors is copied" {
         Vec3{ -345, -311, 381 },
         Vec3{ -661, -816, -575 },
     };
+    _ = &points;
     var points2: [20]Vec3 = undefined;
     points2[0..points.len].* = points;
     try std.testing.expectEqual(points2[6], Vec3{ -345, -311, 381 });
@@ -1244,6 +1280,7 @@ test "zero multiplicand" {
 
     const zeros = @Vector(2, u32){ 0.0, 0.0 };
     var ones = @Vector(2, u32){ 1.0, 1.0 };
+    _ = &ones;
 
     _ = (ones * zeros)[0];
     _ = (zeros * zeros)[0];
@@ -1266,6 +1303,7 @@ test "@intCast to u0" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var zeros = @Vector(2, u32){ 0, 0 };
+    _ = &zeros;
     const casted = @as(@Vector(2, u0), @intCast(zeros));
 
     _ = casted[0];
@@ -1292,7 +1330,8 @@ test "array operands to shuffle are coerced to vectors" {
     const mask = [5]i32{ -1, 0, 1, 2, 3 };
 
     var a = [5]u32{ 3, 5, 7, 9, 0 };
-    var b = @shuffle(u32, a, @as(@Vector(5, u24), @splat(0)), mask);
+    _ = &a;
+    const b = @shuffle(u32, a, @as(@Vector(5, u24), @splat(0)), mask);
     try expectEqual([_]u32{ 0, 3, 5, 7, 9 }, b);
 }
 
@@ -1320,6 +1359,7 @@ test "store packed vector element" {
     var v = @Vector(4, u1){ 1, 1, 1, 1 };
     try expectEqual(@Vector(4, u1){ 1, 1, 1, 1 }, v);
     var index: usize = 0;
+    _ = &index;
     v[index] = 0;
     try expectEqual(@Vector(4, u1){ 0, 1, 1, 1 }, v);
 }
@@ -1337,6 +1377,7 @@ test "store to vector in slice" {
     };
     var s: []@Vector(3, f32) = &v;
     var i: usize = 1;
+    _ = &i;
     s[i] = s[0];
     try expectEqual(v[1], v[0]);
 }
@@ -1378,6 +1419,7 @@ test "store vector with memset" {
     var kc = @Vector(2, i4){ 2, 3 };
     var kd = @Vector(2, u8){ 4, 5 };
     var ke = @Vector(2, i9){ 6, 7 };
+    _ = .{ &ka, &kb, &kc, &kd, &ke };
     @memset(&a, ka);
     @memset(&b, kb);
     @memset(&c, kc);
@@ -1410,6 +1452,7 @@ test "compare vectors with different element types" {
 
     var a: @Vector(2, u8) = .{ 1, 2 };
     var b: @Vector(2, u9) = .{ 3, 0 };
+    _ = .{ &a, &b };
     try expectEqual(@Vector(2, bool){ true, false }, a < b);
 }
 
@@ -1465,8 +1508,9 @@ test "bitcast to vector with different child type" {
             const VecB = @Vector(4, u32);
 
             var vec_a = VecA{ 1, 1, 1, 1, 1, 1, 1, 1 };
-            var vec_b: VecB = @bitCast(vec_a);
-            var vec_c: VecA = @bitCast(vec_b);
+            _ = &vec_a;
+            const vec_b: VecB = @bitCast(vec_a);
+            const vec_c: VecA = @bitCast(vec_b);
             try expectEqual(vec_a, vec_c);
         }
     };

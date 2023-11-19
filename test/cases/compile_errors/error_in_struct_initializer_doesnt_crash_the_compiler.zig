@@ -4,7 +4,7 @@ pub export fn entry() void {
         e: u8,
     };
     var a = .{@sizeOf(bitfield)};
-    _ = a;
+    _ = &a;
 }
 
 // error

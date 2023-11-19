@@ -579,6 +579,7 @@ test "enum literal cast to enum" {
 
     var color1: Color = .Auto;
     var color2 = Color.Auto;
+    _ = .{ &color1, &color2 };
     try expect(color1 == color2);
 }
 
@@ -663,7 +664,8 @@ test "empty non-exhaustive enum" {
         const E = enum(u8) { _ };
 
         fn doTheTest(y: u8) !void {
-            var e = @as(E, @enumFromInt(y));
+            var e: E = @enumFromInt(y);
+            _ = &e;
             try expect(switch (e) {
                 _ => true,
             });
@@ -858,6 +860,7 @@ test "comparison operator on enum with one member is comptime-known" {
 const State = enum { Start };
 test "switch on enum with one member is comptime-known" {
     var state = State.Start;
+    _ = &state;
     switch (state) {
         State.Start => return,
     }
@@ -917,7 +920,8 @@ test "enum literal casting to tagged union" {
 
     var t = true;
     var x: Arch = .x86_64;
-    var y = if (t) x else .x86_64;
+    _ = .{ &t, &x };
+    const y = if (t) x else .x86_64;
     switch (y) {
         .x86_64 => {},
         else => @panic("fail"),
@@ -1031,6 +1035,7 @@ test "tag name with assigned enum values" {
         B = 0,
     };
     var b = LocalFoo.B;
+    _ = &b;
     try expect(mem.eql(u8, @tagName(b), "B"));
 }
 
@@ -1055,6 +1060,7 @@ test "tag name with signed enum values" {
         delta = 65,
     };
     var b = LocalFoo.bravo;
+    _ = &b;
     try expect(mem.eql(u8, @tagName(b), "bravo"));
 }
 
@@ -1135,13 +1141,13 @@ test "tag name functions are unique" {
         const E = enum { a, b };
         var b = E.a;
         var a = @tagName(b);
-        _ = a;
+        _ = .{ &a, &b };
     }
     {
         const E = enum { a, b, c, d, e, f };
         var b = E.a;
         var a = @tagName(b);
-        _ = a;
+        _ = .{ &a, &b };
     }
 }
 
@@ -1189,6 +1195,7 @@ test "Non-exhaustive enum with nonstandard int size behaves correctly" {
 test "runtime int to enum with one possible value" {
     const E = enum { one };
     var runtime: usize = 0;
+    _ = &runtime;
     if (@as(E, @enumFromInt(runtime)) != .one) {
         @compileError("test failed");
     }

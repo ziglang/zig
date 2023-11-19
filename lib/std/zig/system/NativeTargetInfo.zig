@@ -189,7 +189,7 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
     // native CPU architecture as being different than the current target), we use this:
     const cpu_arch = cross_target.getCpuArch();
 
-    var cpu = switch (cross_target.cpu_model) {
+    const cpu = switch (cross_target.cpu_model) {
         .native => detectNativeCpuAndFeatures(cpu_arch, os, cross_target),
         .baseline => Target.Cpu.baseline(cpu_arch),
         .determined_by_cpu_arch => if (cross_target.cpu_arch == null)

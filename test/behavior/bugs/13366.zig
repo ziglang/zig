@@ -18,9 +18,11 @@ test {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var a: u32 = 16;
+    _ = &a;
     var reason = .{ .c_import = .{ .a = a } };
     var block = Block{
         .reason = &reason,
     };
+    _ = &block;
     try expect(block.reason.?.c_import.a == 16);
 }

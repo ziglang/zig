@@ -118,6 +118,7 @@ fn thisIsAColdFn() void {
 
 test "unicode escape in character literal" {
     var a: u24 = '\u{01f4a9}';
+    _ = &a;
     try expect(a == 128169);
 }
 
@@ -362,6 +363,7 @@ test "variable is allowed to be a pointer to an opaque type" {
 }
 fn hereIsAnOpaqueType(ptr: *OpaqueA) *OpaqueA {
     var a = ptr;
+    _ = &a;
     return a;
 }
 
@@ -441,6 +443,7 @@ test "double implicit cast in same expression" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x = @as(i32, @as(u16, nine()));
+    _ = &x;
     try expect(x == 9);
 }
 fn nine() u8 {
@@ -570,6 +573,7 @@ test "comptime cast fn to ptr" {
 
 test "equality compare fn ptrs" {
     var a = &emptyFn;
+    _ = &a;
     try expect(a == a);
 }
 
@@ -611,6 +615,7 @@ test "global constant is loaded with a runtime-known index" {
     const S = struct {
         fn doTheTest() !void {
             var index: usize = 1;
+            _ = &index;
             const ptr = &pieces[index].field;
             try expect(ptr.* == 2);
         }
@@ -785,6 +790,7 @@ test "variable name containing underscores does not shadow int primitive" {
 
 test "if expression type coercion" {
     var cond: bool = true;
+    _ = &cond;
     const x: u16 = if (cond) 1 else 0;
     try expect(@as(u16, x) == 1);
 }
@@ -825,6 +831,7 @@ test "discarding the result of various expressions" {
 
 test "labeled block implicitly ends in a break" {
     var a = false;
+    _ = &a;
     blk: {
         if (a) break :blk;
     }
@@ -852,6 +859,7 @@ test "catch in block has correct result location" {
 test "labeled block with runtime branch forwards its result location type to break statements" {
     const E = enum { a, b };
     var a = false;
+    _ = &a;
     const e: E = blk: {
         if (a) {
             break :blk .a;
@@ -872,8 +880,7 @@ test "try in labeled block doesn't cast to wrong type" {
     };
     const s: ?*S = blk: {
         var a = try S.foo();
-
-        _ = a;
+        _ = &a;
         break :blk null;
     };
     _ = s;
@@ -894,6 +901,7 @@ test "weird array and tuple initializations" {
     const E = enum { a, b };
     const S = struct { e: E };
     var a = false;
+    _ = &a;
     const b = S{ .e = .a };
 
     _ = &[_]S{
@@ -1009,6 +1017,7 @@ test "switch inside @as gets correct type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var a: u32 = 0;
+    _ = &a;
     var b: [2]u32 = undefined;
     b[0] = @as(u32, switch (a) {
         1 => 1,
@@ -1110,7 +1119,8 @@ test "orelse coercion as function argument" {
         }
     };
     var optional: ?Loc = .{};
-    var foo = Container.init(optional orelse .{});
+    _ = &optional;
+    const foo = Container.init(optional orelse .{});
     try expect(foo.a.?.start == -1);
 }
 
@@ -1153,6 +1163,7 @@ test "arrays and vectors with big integers" {
 test "pointer to struct literal with runtime field is constant" {
     const S = struct { data: usize };
     var runtime_zero: usize = 0;
+    _ = &runtime_zero;
     const ptr = &S{ .data = runtime_zero };
     try expect(@typeInfo(@TypeOf(ptr)).Pointer.is_const);
 }
@@ -1163,6 +1174,7 @@ test "integer compare" {
             var z: T = 0;
             var p: T = 123;
             var n: T = -123;
+            _ = .{ &z, &p, &n };
             try expect(z == z and z != p and z != n);
             try expect(p == p and p != n and n == n);
             try expect(z > n and z < p and z >= n and z <= p);
@@ -1180,6 +1192,7 @@ test "integer compare" {
         fn doTheTestUnsigned(comptime T: type) !void {
             var z: T = 0;
             var p: T = 123;
+            _ = .{ &z, &p };
             try expect(z == z and z != p);
             try expect(p == p);
             try expect(z < p and z <= p);

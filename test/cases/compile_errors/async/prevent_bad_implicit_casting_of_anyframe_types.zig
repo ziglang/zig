@@ -1,17 +1,17 @@
 export fn a() void {
     var x: anyframe = undefined;
     var y: anyframe->i32 = x;
-    _ = y;
+    _ = .{ &x, &y };
 }
 export fn b() void {
     var x: i32 = undefined;
     var y: anyframe->i32 = x;
-    _ = y;
+    _ = .{ &x, &y };
 }
 export fn c() void {
     var x: @Frame(func) = undefined;
     var y: anyframe->i32 = &x;
-    _ = y;
+    _ = .{ &x, &y };
 }
 fn func() void {}
 

@@ -213,7 +213,7 @@ pub const DevicePath = union(Type) {
             // multiple adr entries can optionally follow
             pub fn adrs(self: *const AdrDevicePath) []align(1) const u32 {
                 // self.length is a minimum of 8 with one adr which is size 4.
-                var entries = (self.length - 4) / @sizeOf(u32);
+                const entries = (self.length - 4) / @sizeOf(u32);
                 return @as([*]align(1) const u32, @ptrCast(&self.adr))[0..entries];
             }
         };
@@ -431,7 +431,7 @@ pub const DevicePath = union(Type) {
             device_product_id: u16 align(1),
 
             pub fn serial_number(self: *const UsbWwidDevicePath) []align(1) const u16 {
-                var serial_len = (self.length - @sizeOf(UsbWwidDevicePath)) / @sizeOf(u16);
+                const serial_len = (self.length - @sizeOf(UsbWwidDevicePath)) / @sizeOf(u16);
                 return @as([*]align(1) const u16, @ptrCast(@as([*]const u8, @ptrCast(self)) + @sizeOf(UsbWwidDevicePath)))[0..serial_len];
             }
         };

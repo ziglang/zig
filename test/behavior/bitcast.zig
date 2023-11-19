@@ -149,8 +149,9 @@ test "bitcast literal [4]u8 param to u32" {
 }
 
 test "bitcast generates a temporary value" {
-    var y = @as(u16, 0x55AA);
-    const x = @as(u16, @bitCast(@as([2]u8, @bitCast(y))));
+    var y: u16 = 0x55AA;
+    _ = &y;
+    const x: u16 = @bitCast(@as([2]u8, @bitCast(y)));
     try expect(y == x);
 }
 
@@ -171,7 +172,8 @@ test "@bitCast packed structs at runtime and comptime" {
     const S = struct {
         fn doTheTest() !void {
             var full = Full{ .number = 0x1234 };
-            var two_halves = @as(Divided, @bitCast(full));
+            _ = &full;
+            const two_halves: Divided = @bitCast(full);
             try expect(two_halves.half1 == 0x34);
             try expect(two_halves.quarter3 == 0x2);
             try expect(two_halves.quarter4 == 0x1);
@@ -195,7 +197,8 @@ test "@bitCast extern structs at runtime and comptime" {
     const S = struct {
         fn doTheTest() !void {
             var full = Full{ .number = 0x1234 };
-            var two_halves = @as(TwoHalves, @bitCast(full));
+            _ = &full;
+            const two_halves: TwoHalves = @bitCast(full);
             switch (native_endian) {
                 .big => {
                     try expect(two_halves.half1 == 0x12);
@@ -225,8 +228,9 @@ test "bitcast packed struct to integer and back" {
     const S = struct {
         fn doTheTest() !void {
             var move = LevelUpMove{ .move_id = 1, .level = 2 };
-            var v = @as(u16, @bitCast(move));
-            var back_to_a_move = @as(LevelUpMove, @bitCast(v));
+            _ = &move;
+            const v: u16 = @bitCast(move);
+            const back_to_a_move: LevelUpMove = @bitCast(v);
             try expect(back_to_a_move.move_id == 1);
             try expect(back_to_a_move.level == 2);
         }
@@ -312,7 +316,8 @@ test "@bitCast packed struct of floats" {
     const S = struct {
         fn doTheTest() !void {
             var foo = Foo{};
-            var v = @as(Foo2, @bitCast(foo));
+            _ = &foo;
+            const v: Foo2 = @bitCast(foo);
             try expect(v.a == foo.a);
             try expect(v.b == foo.b);
             try expect(v.c == foo.c);
@@ -354,10 +359,12 @@ test "comptime @bitCast packed struct to int and back" {
 
     // S -> Int
     var s: S = .{};
+    _ = &s;
     try expectEqual(@as(Int, @bitCast(s)), comptime @as(Int, @bitCast(S{})));
 
     // Int -> S
     var i: Int = 0;
+    _ = &i;
     const rt_cast = @as(S, @bitCast(i));
     const ct_cast = comptime @as(S, @bitCast(@as(Int, 0)));
     inline for (@typeInfo(S).Struct.fields) |field| {
@@ -376,6 +383,7 @@ test "comptime bitcast with fields following f80" {
     const FloatT = extern struct { f: f80, x: u128 align(16) };
     const x: FloatT = .{ .f = 0.5, .x = 123 };
     var x_as_uint: u256 = comptime @as(u256, @bitCast(x));
+    _ = &x_as_uint;
 
     try expect(x.f == @as(FloatT, @bitCast(x_as_uint)).f);
     try expect(x.x == @as(FloatT, @bitCast(x_as_uint)).x);
@@ -428,6 +436,7 @@ test "bitcast nan float does not modify signaling bit" {
     try expectEqual(snan_u16, bitCastWrapper16(snan_f16_const));
 
     var snan_f16_var = math.snan(f16);
+    _ = &snan_f16_var;
     try expectEqual(snan_u16, @as(u16, @bitCast(snan_f16_var)));
     try expectEqual(snan_u16, bitCastWrapper16(snan_f16_var));
 
@@ -437,6 +446,7 @@ test "bitcast nan float does not modify signaling bit" {
     try expectEqual(snan_u32, bitCastWrapper32(snan_f32_const));
 
     var snan_f32_var = math.snan(f32);
+    _ = &snan_f32_var;
     try expectEqual(snan_u32, @as(u32, @bitCast(snan_f32_var)));
     try expectEqual(snan_u32, bitCastWrapper32(snan_f32_var));
 
@@ -446,6 +456,7 @@ test "bitcast nan float does not modify signaling bit" {
     try expectEqual(snan_u64, bitCastWrapper64(snan_f64_const));
 
     var snan_f64_var = math.snan(f64);
+    _ = &snan_f64_var;
     try expectEqual(snan_u64, @as(u64, @bitCast(snan_f64_var)));
     try expectEqual(snan_u64, bitCastWrapper64(snan_f64_var));
 
@@ -455,6 +466,7 @@ test "bitcast nan float does not modify signaling bit" {
     try expectEqual(snan_u128, bitCastWrapper128(snan_f128_const));
 
     var snan_f128_var = math.snan(f128);
+    _ = &snan_f128_var;
     try expectEqual(snan_u128, @as(u128, @bitCast(snan_f128_var)));
     try expectEqual(snan_u128, bitCastWrapper128(snan_f128_var));
 }

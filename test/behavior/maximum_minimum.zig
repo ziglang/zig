@@ -15,6 +15,7 @@ test "@max" {
             var x: i32 = 10;
             var y: f32 = 0.68;
             var nan: f32 = std.math.nan(f32);
+            _ = .{ &x, &y, &nan };
             try expect(@as(i32, 10) == @max(@as(i32, -3), x));
             try expect(@as(f32, 3.2) == @max(@as(f32, 3.2), y));
             try expect(y == @max(nan, y));
@@ -38,17 +39,20 @@ test "@max on vectors" {
         fn doTheTest() !void {
             var a: @Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
             var b: @Vector(4, i32) = [4]i32{ 1, 2147483647, 3, 4 };
-            var x = @max(a, b);
+            const x = @max(a, b);
+            _ = .{ &a, &b };
             try expect(mem.eql(i32, &@as([4]i32, x), &[4]i32{ 2147483647, 2147483647, 30, 40 }));
 
             var c: @Vector(4, f32) = [4]f32{ 0, 0.4, -2.4, 7.8 };
             var d: @Vector(4, f32) = [4]f32{ -0.23, 0.42, -0.64, 0.9 };
-            var y = @max(c, d);
+            const y = @max(c, d);
+            _ = .{ &c, &d };
             try expect(mem.eql(f32, &@as([4]f32, y), &[4]f32{ 0, 0.42, -0.64, 7.8 }));
 
             var e: @Vector(2, f32) = [2]f32{ 0, std.math.nan(f32) };
             var f: @Vector(2, f32) = [2]f32{ std.math.nan(f32), 0 };
-            var z = @max(e, f);
+            const z = @max(e, f);
+            _ = .{ &e, &f };
             try expect(mem.eql(f32, &@as([2]f32, z), &[2]f32{ 0, 0 }));
         }
     };
@@ -66,6 +70,7 @@ test "@min" {
             var x: i32 = 10;
             var y: f32 = 0.68;
             var nan: f32 = std.math.nan(f32);
+            _ = .{ &x, &y, &nan };
             try expect(@as(i32, -3) == @min(@as(i32, -3), x));
             try expect(@as(f32, 0.68) == @min(@as(f32, 3.2), y));
             try expect(y == @min(nan, y));
@@ -89,17 +94,20 @@ test "@min for vectors" {
         fn doTheTest() !void {
             var a: @Vector(4, i32) = [4]i32{ 2147483647, -2, 30, 40 };
             var b: @Vector(4, i32) = [4]i32{ 1, 2147483647, 3, 4 };
-            var x = @min(a, b);
+            _ = .{ &a, &b };
+            const x = @min(a, b);
             try expect(mem.eql(i32, &@as([4]i32, x), &[4]i32{ 1, -2, 3, 4 }));
 
             var c: @Vector(4, f32) = [4]f32{ 0, 0.4, -2.4, 7.8 };
             var d: @Vector(4, f32) = [4]f32{ -0.23, 0.42, -0.64, 0.9 };
-            var y = @min(c, d);
+            _ = .{ &c, &d };
+            const y = @min(c, d);
             try expect(mem.eql(f32, &@as([4]f32, y), &[4]f32{ -0.23, 0.4, -2.4, 0.9 }));
 
             var e: @Vector(2, f32) = [2]f32{ 0, std.math.nan(f32) };
             var f: @Vector(2, f32) = [2]f32{ std.math.nan(f32), 0 };
-            var z = @max(e, f);
+            _ = .{ &e, &f };
+            const z = @max(e, f);
             try expect(mem.eql(f32, &@as([2]f32, z), &[2]f32{ 0, 0 }));
         }
     };
@@ -119,6 +127,7 @@ test "@min/max for floats" {
         fn doTheTest(comptime T: type) !void {
             var x: T = -3.14;
             var y: T = 5.27;
+            _ = .{ &x, &y };
             try expectEqual(x, @min(x, y));
             try expectEqual(x, @min(y, x));
             try expectEqual(y, @max(x, y));
@@ -126,6 +135,7 @@ test "@min/max for floats" {
 
             if (T != comptime_float) {
                 var nan: T = std.math.nan(T);
+                _ = &nan;
                 try expectEqual(y, @max(nan, y));
                 try expectEqual(y, @max(y, nan));
             }
@@ -175,6 +185,7 @@ test "@min/@max notices bounds" {
     var x: u16 = 20;
     const y = 30;
     var z: u32 = 100;
+    _ = .{ &x, &z };
     const min = @min(x, y, z);
     const max = @max(x, y, z);
     try expectEqual(x, min);
@@ -194,6 +205,7 @@ test "@min/@max notices vector bounds" {
     var x: @Vector(2, u16) = .{ 140, 40 };
     const y: @Vector(2, u64) = .{ 5, 100 };
     var z: @Vector(2, u32) = .{ 10, 300 };
+    _ = .{ &x, &z };
     const min = @min(x, y, z);
     const max = @max(x, y, z);
     try expectEqual(@Vector(2, u32){ 5, 40 }, min);
@@ -224,6 +236,7 @@ test "@min/@max notices bounds from types" {
     var x: u16 = 123;
     var y: u32 = 456;
     var z: u8 = 10;
+    _ = .{ &x, &y, &z };
 
     const min = @min(x, y, z);
     const max = @max(x, y, z);
@@ -246,6 +259,7 @@ test "@min/@max notices bounds from vector types" {
     var x: @Vector(2, u16) = .{ 30, 67 };
     var y: @Vector(2, u32) = .{ 20, 500 };
     var z: @Vector(2, u8) = .{ 60, 15 };
+    _ = .{ &x, &y, &z };
 
     const min = @min(x, y, z);
     const max = @max(x, y, z);
@@ -263,6 +277,7 @@ test "@min/@max notices bounds from types when comptime-known value is undef" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x: u32 = 1_000_000;
+    _ = &x;
     const y: u16 = undefined;
     // y is comptime-known, but is undef, so bounds cannot be refined using its value
 
@@ -285,6 +300,7 @@ test "@min/@max notices bounds from vector types when element of comptime-known 
         !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .avx)) return error.SkipZigTest;
 
     var x: @Vector(2, u32) = .{ 1_000_000, 12345 };
+    _ = &x;
     const y: @Vector(2, u16) = .{ 10, undefined };
     // y is comptime-known, but an element is undef, so bounds cannot be refined using its value
 
@@ -302,6 +318,7 @@ test "@min/@max notices bounds from vector types when element of comptime-known 
 test "@min/@max of signed and unsigned runtime integers" {
     var x: i32 = -1;
     var y: u31 = 1;
+    _ = .{ &x, &y };
 
     const min = @min(x, y);
     const max = @max(x, y);

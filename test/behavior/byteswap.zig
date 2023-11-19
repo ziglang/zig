@@ -56,7 +56,8 @@ test "@byteSwap integers" {
 
 fn vector8() !void {
     var v = @Vector(2, u8){ 0x12, 0x13 };
-    var result = @byteSwap(v);
+    _ = &v;
+    const result = @byteSwap(v);
     try expect(result[0] == 0x12);
     try expect(result[1] == 0x13);
 }
@@ -75,7 +76,8 @@ test "@byteSwap vectors u8" {
 
 fn vector16() !void {
     var v = @Vector(2, u16){ 0x1234, 0x2345 };
-    var result = @byteSwap(v);
+    _ = &v;
+    const result = @byteSwap(v);
     try expect(result[0] == 0x3412);
     try expect(result[1] == 0x4523);
 }
@@ -94,7 +96,8 @@ test "@byteSwap vectors u16" {
 
 fn vector24() !void {
     var v = @Vector(2, u24){ 0x123456, 0x234567 };
-    var result = @byteSwap(v);
+    _ = &v;
+    const result = @byteSwap(v);
     try expect(result[0] == 0x563412);
     try expect(result[1] == 0x674523);
 }
@@ -113,7 +116,8 @@ test "@byteSwap vectors u24" {
 
 fn vector0() !void {
     var v = @Vector(2, u0){ 0, 0 };
-    var result = @byteSwap(v);
+    _ = &v;
+    const result = @byteSwap(v);
     try expect(result[0] == 0);
     try expect(result[1] == 0);
 }

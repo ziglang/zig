@@ -1759,7 +1759,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             const digest = hash.final();
             const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
-            var artifact_dir = try options.local_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
+            const artifact_dir = try options.local_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
             owned_link_dir = artifact_dir;
             const link_artifact_directory: Directory = .{
                 .handle = artifact_dir,
@@ -2173,7 +2173,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // LLD might drop some symbols as unused during LTO and GCing, therefore,
             // we force mark them for resolution here.
 
-            var tls_index_sym = switch (comp.getTarget().cpu.arch) {
+            const tls_index_sym = switch (comp.getTarget().cpu.arch) {
                 .x86 => "__tls_index",
                 else => "_tls_index",
             };
@@ -2576,7 +2576,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             var artifact_dir = try comp.local_cache_directory.handle.openDir(o_sub_path, .{});
             defer artifact_dir.close();
 
-            var dir_path = try comp.local_cache_directory.join(comp.gpa, &.{o_sub_path});
+            const dir_path = try comp.local_cache_directory.join(comp.gpa, &.{o_sub_path});
             defer comp.gpa.free(dir_path);
 
             module.zig_cache_artifact_directory = .{
@@ -4961,7 +4961,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
             var cli_diagnostics = resinator.cli.Diagnostics.init(comp.gpa);
             defer cli_diagnostics.deinit();
-            var options = resinator.cli.parse(comp.gpa, resinator_args.items, &cli_diagnostics) catch |err| switch (err) {
+            const options = resinator.cli.parse(comp.gpa, resinator_args.items, &cli_diagnostics) catch |err| switch (err) {
                 error.ParseError => {
                     return comp.failWin32ResourceCli(win32_resource, &cli_diagnostics);
                 },
@@ -5062,7 +5062,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             log.warn("failed to delete '{s}': {s}", .{ out_dep_path, @errorName(err) });
         };
 
-        var full_input = std.fs.cwd().readFileAlloc(arena, out_rcpp_path, std.math.maxInt(usize)) catch |err| switch (err) {
+        const full_input = std.fs.cwd().readFileAlloc(arena, out_rcpp_path, std.math.maxInt(usize)) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => |e| {
                 return comp.failWin32Resource(win32_resource, "failed to read preprocessed file '{s}': {s}", .{ out_rcpp_path, @errorName(e) });
@@ -5072,7 +5072,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         var mapping_results = try resinator.source_mapping.parseAndRemoveLineCommands(arena, full_input, full_input, .{ .initial_filename = rc_src.src_path });
         defer mapping_results.mappings.deinit(arena);
 
-        var final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
+        const final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
 
         var output_file = zig_cache_tmp_dir.createFile(out_res_path, .{}) catch |err| {
             return comp.failWin32Resource(win32_resource, "failed to create output file '{s}': {s}", .{ out_res_path, @errorName(err) });

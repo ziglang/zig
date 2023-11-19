@@ -1,5 +1,5 @@
 comptime {
-    var a: i64 = undefined;
+    const a: i64 = undefined;
     _ = a + a;
 }
 

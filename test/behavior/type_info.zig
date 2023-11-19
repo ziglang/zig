@@ -417,7 +417,7 @@ test "typeInfo with comptime parameter in struct fn def" {
         }
     };
     comptime var info = @typeInfo(S);
-    _ = info;
+    _ = &info;
 }
 
 test "type info: vectors" {

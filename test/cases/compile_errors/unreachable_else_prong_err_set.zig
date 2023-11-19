@@ -1,5 +1,6 @@
 pub export fn complex() void {
     var a: error{ Foo, Bar } = error.Foo;
+    _ = &a;
     switch (a) {
         error.Foo => unreachable,
         error.Bar => unreachable,
@@ -11,6 +12,7 @@ pub export fn complex() void {
 
 pub export fn simple() void {
     var a: error{ Foo, Bar } = error.Foo;
+    _ = &a;
     switch (a) {
         error.Foo => unreachable,
         error.Bar => unreachable,
@@ -22,4 +24,4 @@ pub export fn simple() void {
 // backend=llvm
 // target=native
 //
-// :6:14: error: unreachable else prong; all cases already handled
+// :7:14: error: unreachable else prong; all cases already handled

@@ -34,7 +34,7 @@ const UefiPoolAllocator = struct {
         const unaligned_addr = @intFromPtr(unaligned_ptr);
         const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), ptr_align);
 
-        var aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
+        const aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
         getHeader(aligned_ptr).* = unaligned_ptr;
 
         return aligned_ptr;

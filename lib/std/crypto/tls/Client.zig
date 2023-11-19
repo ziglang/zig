@@ -491,7 +491,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                 try all_extd.ensure(4);
                                 const et = all_extd.decode(tls.ExtensionType);
                                 const ext_size = all_extd.decode(u16);
-                                var extd = try all_extd.sub(ext_size);
+                                const extd = try all_extd.sub(ext_size);
                                 _ = extd;
                                 switch (et) {
                                     .server_name => {},
@@ -516,7 +516,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                             while (!certs_decoder.eof()) {
                                 try certs_decoder.ensure(3);
                                 const cert_size = certs_decoder.decode(u24);
-                                var certd = try certs_decoder.sub(cert_size);
+                                const certd = try certs_decoder.sub(cert_size);
 
                                 const subject_cert: Certificate = .{
                                     .buffer = certd.buf,
@@ -552,7 +552,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
 
                                 try certs_decoder.ensure(2);
                                 const total_ext_size = certs_decoder.decode(u16);
-                                var all_extd = try certs_decoder.sub(total_ext_size);
+                                const all_extd = try certs_decoder.sub(total_ext_size);
                                 _ = all_extd;
                             }
                         },

@@ -622,7 +622,7 @@ fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, en
                 return parseFormValue(allocator, in_stream, child_form_id, endian, is_64);
             }
             const F = @TypeOf(async parseFormValue(allocator, in_stream, child_form_id, endian, is_64));
-            var frame = try allocator.create(F);
+            const frame = try allocator.create(F);
             defer allocator.destroy(frame);
             return await @asyncCall(frame, {}, parseFormValue, .{ allocator, in_stream, child_form_id, endian, is_64 });
         },
@@ -1034,7 +1034,7 @@ pub const DwarfInfo = struct {
             // specified by DW_AT.low_pc or to some other value encoded
             // in the list itself.
             // If no starting value is specified use zero.
-            var base_address = compile_unit.die.getAttrAddr(di, AT.low_pc, compile_unit.*) catch |err| switch (err) {
+            const base_address = compile_unit.die.getAttrAddr(di, AT.low_pc, compile_unit.*) catch |err| switch (err) {
                 error.MissingDebugInfo => @as(u64, 0), // TODO https://github.com/ziglang/zig/issues/11135
                 else => return err,
             };
@@ -1438,7 +1438,7 @@ pub const DwarfInfo = struct {
             if (opcode == LNS.extended_op) {
                 const op_size = try leb.readULEB128(u64, in);
                 if (op_size < 1) return badDwarf();
-                var sub_op = try in.readByte();
+                const sub_op = try in.readByte();
                 switch (sub_op) {
                     LNE.end_sequence => {
                         prog.end_sequence = true;
@@ -2308,7 +2308,7 @@ fn readEhPointer(reader: anytype, enc: u8, addr_size_bytes: u8, ctx: EhPointerCo
         else => return badDwarf(),
     };
 
-    var base = switch (enc & EH.PE.rel_mask) {
+    const base = switch (enc & EH.PE.rel_mask) {
         EH.PE.pcrel => ctx.pc_rel_base,
         EH.PE.textrel => ctx.text_rel_base orelse return error.PointerBaseNotSpecified,
         EH.PE.datarel => ctx.data_rel_base orelse return error.PointerBaseNotSpecified,
@@ -2624,7 +2624,7 @@ pub const CommonInformationEntry = struct {
         var has_aug_data = false;
 
         var aug_str_len: usize = 0;
-        var aug_str_start = stream.pos;
+        const aug_str_start = stream.pos;
         var aug_byte = try reader.readByte();
         while (aug_byte != 0) : (aug_byte = try reader.readByte()) {
             switch (aug_byte) {

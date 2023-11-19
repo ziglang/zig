@@ -5,6 +5,7 @@ const U = union {
 comptime {
     var u: U = .{ .a = {} };
     const v = u.b;
+    _ = &u;
     _ = v;
 }
 
