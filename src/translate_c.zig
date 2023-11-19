@@ -5488,6 +5488,11 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     if (last != .Eof and last != .Nl)
         return m.fail(c, "unable to translate C expr: unexpected token '{s}'", .{last.symbol()});
 
+    if (init_node.castTag(.string_literal)) |ident| {
+        if (std.mem.eql(u8, ident.data, "\"\"")) {
+            try c.global_scope.blank_macros.put(m.name, {});
+        }
+    }
     const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
     try c.global_scope.macro_table.put(m.name, var_decl);
 }
@@ -5948,9 +5953,8 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         if (c.global_scope.blank_macros.contains(identifier_tag.data)) {
             switch (m.peek().?) {
                 .Nl, .Eof => {
-                    // Every token in this macro is blank,
-                    // so we can treat this macro as also blank.
-                    try c.global_scope.blank_macros.put(m.name, {});
+                    // Every token in this primary expr is an identifier contained in the blank_macros set,
+                    // so we can treat this expression as also blank.
                     return Tag.string_literal.create(c.arena, "\"\"");
                 },
                 else => {
