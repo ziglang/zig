@@ -2,7 +2,7 @@ pub fn sort(
     comptime T: type,
     items: []T,
     context: anytype,
-    lessThan: *const fn (context: @TypeOf(context), lhs: T, rhs: T) u32,
+    lessThan: *const fn (@TypeOf(context), lhs: T, rhs: T) u32,
 ) void {
     _ = items;
     _ = lessThan;
