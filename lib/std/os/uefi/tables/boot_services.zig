@@ -44,7 +44,7 @@ pub const BootServices = extern struct {
     freePool: *const fn (buffer: [*]align(8) u8) callconv(cc) Status,
 
     /// Creates an event.
-    createEvent: *const fn (type: u32, notify_tpl: usize, notify_func: ?*const fn (Event, ?*anyopaque) callconv(cc) void, notifyCtx: ?*const anyopaque, event: *Event) callconv(cc) Status,
+    createEvent: *const fn (u32, notify_tpl: usize, notify_func: ?*const fn (Event, ?*anyopaque) callconv(cc) void, notifyCtx: ?*const anyopaque, event: *Event) callconv(cc) Status,
 
     /// Sets the type of timer and the trigger time for a timer event.
     setTimer: *const fn (event: Event, type: TimerDelay, triggerTime: u64) callconv(cc) Status,

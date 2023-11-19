@@ -404,7 +404,7 @@ pub fn binarySearch(
     key: anytype,
     items: []const T,
     context: anytype,
-    comptime compareFn: fn (context: @TypeOf(context), key: @TypeOf(key), mid_item: T) math.Order,
+    comptime compareFn: fn (@TypeOf(context), @TypeOf(key), mid_item: T) math.Order,
 ) ?usize {
     var left: usize = 0;
     var right: usize = items.len;
@@ -538,7 +538,7 @@ pub fn min(
     comptime T: type,
     items: []const T,
     context: anytype,
-    comptime lessThan: fn (context: @TypeOf(context), lhs: T, rhs: T) bool,
+    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) ?T {
     const i = argMin(T, items, context, lessThan) orelse return null;
     return items[i];
@@ -558,7 +558,7 @@ pub fn argMax(
     comptime T: type,
     items: []const T,
     context: anytype,
-    comptime lessThan: fn (context: @TypeOf(context), lhs: T, rhs: T) bool,
+    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) ?usize {
     if (items.len == 0) {
         return null;
@@ -590,7 +590,7 @@ pub fn max(
     comptime T: type,
     items: []const T,
     context: anytype,
-    comptime lessThan: fn (context: @TypeOf(context), lhs: T, rhs: T) bool,
+    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) ?T {
     const i = argMax(T, items, context, lessThan) orelse return null;
     return items[i];
@@ -610,7 +610,7 @@ pub fn isSorted(
     comptime T: type,
     items: []const T,
     context: anytype,
-    comptime lessThan: fn (context: @TypeOf(context), lhs: T, rhs: T) bool,
+    comptime lessThan: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) bool {
     var i: usize = 1;
     while (i < items.len) : (i += 1) {

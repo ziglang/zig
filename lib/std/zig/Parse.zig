@@ -3997,7 +3997,7 @@ fn parseBuiltinCall(p: *Parse) !Node.Index {
 }
 
 /// IfPrefix <- KEYWORD_if LPAREN Expr RPAREN PtrPayload?
-fn parseIf(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !Node.Index {
+fn parseIf(p: *Parse, comptime bodyParseFn: fn (*Parse) Error!Node.Index) !Node.Index {
     const if_token = p.eatToken(.keyword_if) orelse return null_node;
     _ = try p.expectToken(.l_paren);
     const condition = try p.expectExpr();

@@ -12,7 +12,7 @@ pub fn pdq(
     comptime T: type,
     items: []T,
     context: anytype,
-    comptime lessThanFn: fn (context: @TypeOf(context), lhs: T, rhs: T) bool,
+    comptime lessThanFn: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) void {
     const Context = struct {
         items: []T,

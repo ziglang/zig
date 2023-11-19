@@ -5475,7 +5475,7 @@ pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
 pub fn dl_iterate_phdr(
     context: anytype,
     comptime Error: type,
-    comptime callback: fn (info: *dl_phdr_info, size: usize, context: @TypeOf(context)) Error!void,
+    comptime callback: fn (info: *dl_phdr_info, size: usize, @TypeOf(context)) Error!void,
 ) Error!void {
     const Context = @TypeOf(context);
 
