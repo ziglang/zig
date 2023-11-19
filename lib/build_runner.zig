@@ -24,7 +24,7 @@ pub fn main() !void {
     };
     const arena = thread_safe_arena.allocator();
 
-    var args = try process.argsAlloc(arena);
+    const args = try process.argsAlloc(arena);
 
     // skip my own exe name
     var arg_idx: usize = 1;

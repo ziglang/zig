@@ -3,7 +3,7 @@ const Foo = struct {
     b: i32,
 };
 export fn entry() void {
-    var x = Foo{
+    const x: Foo = .{
         .b = 5,
     };
     _ = x;

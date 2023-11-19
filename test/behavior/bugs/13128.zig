@@ -18,6 +18,7 @@ test "runtime union init, most-aligned field != largest" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: u8 = 1;
+    _ = &x;
     try foo(.{ .x = x });
 
     const val: U = @unionInit(U, "x", x);

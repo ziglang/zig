@@ -479,10 +479,9 @@ test "load pointer from packed struct" {
         y: u32,
     };
     var a: A = .{ .index = 123 };
-    var b_list: []const B = &.{.{ .x = &a, .y = 99 }};
+    const b_list: []const B = &.{.{ .x = &a, .y = 99 }};
     for (b_list) |b| {
-        var i = b.x.index;
-        try expect(i == 123);
+        try expect(b.x.index == 123);
     }
 }
 
@@ -770,6 +769,7 @@ test "nested packed struct field access test" {
     };
 
     var arg = a{ .b = hld{ .c = 1, .d = 2 }, .g = mld{ .h = 6, .i = 8 } };
+    _ = &arg;
     try std.testing.expect(arg.b.c == 1);
     try std.testing.expect(arg.b.d == 2);
     try std.testing.expect(arg.g.h == 6);
@@ -790,6 +790,7 @@ test "nested packed struct at non-zero offset" {
     };
 
     var k: u8 = 123;
+    _ = &k;
     var v: A = .{
         .p1 = .{ .a = k + 1, .b = k },
         .p2 = .{ .a = k + 1, .b = k },
@@ -833,6 +834,7 @@ test "nested packed struct at non-zero offset 2" {
 
         fn doTheTest() !void {
             var k: u8 = 123;
+            _ = &k;
             var v: A = .{
                 .p1 = .{ .a = k + 1, .b = k },
                 .p2 = .{ .a = k + 1, .b = k },
@@ -877,6 +879,7 @@ test "runtime init of unnamed packed struct type" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var z: u8 = 123;
+    _ = &z;
     try (packed struct {
         x: u8,
         pub fn m(s: @This()) !void {
@@ -941,6 +944,7 @@ test "packed struct initialized in bitcast" {
 
     const T = packed struct { val: u8 };
     var val: u8 = 123;
+    _ = &val;
     const t = @as(u8, @bitCast(T{ .val = val }));
     try expect(t == val);
 }
@@ -976,7 +980,8 @@ test "store undefined to packed result location" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: u4 = 0;
-    var s = packed struct { x: u4, y: u4 }{ .x = x, .y = if (x > 0) x else undefined };
+    _ = &x;
+    const s = packed struct { x: u4, y: u4 }{ .x = x, .y = if (x > 0) x else undefined };
     try expectEqual(x, s.x);
 }
 
@@ -1004,7 +1009,7 @@ test "field access of packed struct smaller than its abi size inside struct init
         }
     };
 
-    var s = S.init(true);
+    const s = S.init(true);
     // note: this bug is triggered by the == operator, expectEqual will hide it
     try expect(@as(i2, 0) == s.ps.x);
     try expect(@as(i2, 1) == s.ps.y);

@@ -71,7 +71,7 @@ pub fn Field(comptime params: FieldParams) type {
 
         /// Unpack a field element.
         pub fn fromBytes(s_: [encoded_length]u8, endian: std.builtin.Endian) NonCanonicalError!Fe {
-            var s = if (endian == .little) s_ else orderSwap(s_);
+            const s = if (endian == .little) s_ else orderSwap(s_);
             try rejectNonCanonical(s, .little);
             var limbs_z: NonMontgomeryDomainFieldElement = undefined;
             fiat.fromBytes(&limbs_z, s);

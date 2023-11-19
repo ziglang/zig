@@ -1,6 +1,7 @@
 pub export fn entry() void {
     var a: *u32 = undefined;
     _ = *a;
+    _ = &a;
 }
 
 // error

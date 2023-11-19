@@ -1284,7 +1284,7 @@ const DeclGen = struct {
 
                 const elem_ty = ty.childType(mod);
                 const elem_ty_ref = try self.resolveType(elem_ty, .indirect);
-                var total_len = std.math.cast(u32, ty.arrayLenIncludingSentinel(mod)) orelse {
+                const total_len = std.math.cast(u32, ty.arrayLenIncludingSentinel(mod)) orelse {
                     return self.fail("array type of {} elements is too large", .{ty.arrayLenIncludingSentinel(mod)});
                 };
                 const ty_ref = if (!elem_ty.hasRuntimeBitsIgnoreComptime(mod)) blk: {
@@ -2115,7 +2115,7 @@ const DeclGen = struct {
             const child_ty = ty.childType(mod);
             const vector_len = ty.vectorLen(mod);
 
-            var constituents = try self.gpa.alloc(IdRef, vector_len);
+            const constituents = try self.gpa.alloc(IdRef, vector_len);
             defer self.gpa.free(constituents);
 
             for (constituents, 0..) |*constituent, i| {
@@ -2312,7 +2312,7 @@ const DeclGen = struct {
         if (ty.isVector(mod)) {
             const child_ty = ty.childType(mod);
             const vector_len = ty.vectorLen(mod);
-            var constituents = try self.gpa.alloc(IdRef, vector_len);
+            const constituents = try self.gpa.alloc(IdRef, vector_len);
             defer self.gpa.free(constituents);
 
             for (constituents, 0..) |*constituent, i| {
@@ -2727,7 +2727,7 @@ const DeclGen = struct {
                 const child_ty = ty.childType(mod);
                 const vector_len = ty.vectorLen(mod);
 
-                var constituents = try self.gpa.alloc(IdRef, vector_len);
+                const constituents = try self.gpa.alloc(IdRef, vector_len);
                 defer self.gpa.free(constituents);
 
                 for (constituents, 0..) |*constituent, i| {

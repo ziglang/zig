@@ -13,8 +13,9 @@ pub fn main() !void {
     }
     var bytes: [1]u8 align(16) = undefined;
     var ptr = other;
+    _ = &ptr;
     var frame = @asyncCall(&bytes, {}, ptr, .{});
-    _ = frame;
+    _ = &frame;
     return error.TestFailed;
 }
 fn other() callconv(.Async) void {

@@ -300,20 +300,18 @@ test "big.int twos complement limit set" {
     };
 
     inline for (test_types) |T| {
-        // To work around 'control flow attempts to use compile-time variable at runtime'
-        const U = T;
-        const int_info = @typeInfo(U).Int;
+        const int_info = @typeInfo(T).Int;
 
         var a = try Managed.init(testing.allocator);
         defer a.deinit();
 
         try a.setTwosCompIntLimit(.max, int_info.signedness, int_info.bits);
-        var max: U = maxInt(U);
-        try testing.expect(max == try a.to(U));
+        const max: T = maxInt(T);
+        try testing.expect(max == try a.to(T));
 
         try a.setTwosCompIntLimit(.min, int_info.signedness, int_info.bits);
-        var min: U = minInt(U);
-        try testing.expect(min == try a.to(U));
+        const min: T = minInt(T);
+        try testing.expect(min == try a.to(T));
     }
 }
 
@@ -519,6 +517,9 @@ test "big.int add multi-single" {
 test "big.int add multi-multi" {
     var op1: u128 = 0xefefefef7f7f7f7f;
     var op2: u128 = 0xfefefefe9f9f9f9f;
+    // These must be runtime-known to prevent this comparison being tautological, as the
+    // compiler uses `std.math.big.int` internally to add these values at comptime.
+    _ = .{ &op1, &op2 };
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, op2);
@@ -833,6 +834,7 @@ test "big.int sub multi-single" {
 test "big.int sub multi-multi" {
     var op1: u128 = 0xefefefefefefefefefefefef;
     var op2: u128 = 0xabababababababababababab;
+    _ = .{ &op1, &op2 };
 
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
@@ -920,6 +922,8 @@ test "big.int mul multi-multi" {
 
     var op1: u256 = 0x998888efefefefefefefef;
     var op2: u256 = 0x333000abababababababab;
+    _ = .{ &op1, &op2 };
+
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, op2);
@@ -1042,6 +1046,8 @@ test "big.int mulWrap multi-multi unsigned" {
 
     var op1: u256 = 0x998888efefefefefefefef;
     var op2: u256 = 0x333000abababababababab;
+    _ = .{ &op1, &op2 };
+
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, op2);
@@ -1164,6 +1170,7 @@ test "big.int div single-single with rem" {
 test "big.int div multi-single no rem" {
     var op1: u128 = 0xffffeeeeddddcccc;
     var op2: u128 = 34;
+    _ = .{ &op1, &op2 };
 
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
@@ -1183,6 +1190,7 @@ test "big.int div multi-single no rem" {
 test "big.int div multi-single with rem" {
     var op1: u128 = 0xffffeeeeddddcccf;
     var op2: u128 = 34;
+    _ = .{ &op1, &op2 };
 
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
@@ -1202,6 +1210,7 @@ test "big.int div multi-single with rem" {
 test "big.int div multi>2-single" {
     var op1: u128 = 0xfefefefefefefefefefefefefefefefe;
     var op2: u128 = 0xefab8;
+    _ = .{ &op1, &op2 };
 
     var a = try Managed.initSet(testing.allocator, op1);
     defer a.deinit();
@@ -2106,6 +2115,8 @@ test "big.int sat shift-left signed multi positive" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var x: SignedDoubleLimb = 1;
+    _ = &x;
+
     const shift = @bitSizeOf(SignedDoubleLimb) - 1;
 
     var a = try Managed.initSet(testing.allocator, x);
@@ -2119,6 +2130,8 @@ test "big.int sat shift-left signed multi negative" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var x: SignedDoubleLimb = -1;
+    _ = &x;
+
     const shift = @bitSizeOf(SignedDoubleLimb) - 1;
 
     var a = try Managed.initSet(testing.allocator, x);
@@ -2130,6 +2143,8 @@ test "big.int sat shift-left signed multi negative" {
 
 test "big.int bitNotWrap unsigned simple" {
     var x: u10 = 123;
+    _ = &x;
+
     var a = try Managed.initSet(testing.allocator, x);
     defer a.deinit();
 
@@ -2149,6 +2164,8 @@ test "big.int bitNotWrap unsigned multi" {
 
 test "big.int bitNotWrap signed simple" {
     var x: i11 = -456;
+    _ = &x;
+
     var a = try Managed.initSet(testing.allocator, -456);
     defer a.deinit();
 
@@ -2306,6 +2323,8 @@ test "big.int bitwise xor simple" {
 test "big.int bitwise xor multi-limb" {
     var x: DoubleLimb = maxInt(Limb) + 1;
     var y: DoubleLimb = maxInt(Limb);
+    _ = .{ &x, &y };
+
     var a = try Managed.initSet(testing.allocator, x);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, y);
@@ -2548,7 +2567,7 @@ test "big.int gcd one large" {
 
 test "big.int mutable to managed" {
     const allocator = testing.allocator;
-    var limbs_buf = try allocator.alloc(Limb, 8);
+    const limbs_buf = try allocator.alloc(Limb, 8);
     defer allocator.free(limbs_buf);
 
     var a = Mutable.init(limbs_buf, 0xdeadbeef);
@@ -2965,7 +2984,7 @@ test "big int conversion write twos complement zero" {
     // (2) should correctly interpret bytes based on the provided endianness
     // (3) should ignore any bits from bit_count to 8 * abi_size
 
-    var bit_count: usize = 12 * 8 + 1;
+    const bit_count: usize = 12 * 8 + 1;
     var buffer: []const u8 = undefined;
 
     buffer = &([_]u8{0} ** 13);

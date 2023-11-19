@@ -102,8 +102,7 @@ test "widen cast integer payload of error union function call" {
 
     const S = struct {
         fn errorable() !u64 {
-            var x = @as(u64, try number());
-            return x;
+            return @as(u64, try number());
         }
 
         fn number() anyerror!u32 {
@@ -119,7 +118,7 @@ test "debug info for optional error set" {
 
     const SomeError = error{ Hello, Hello2 };
     var a_local_variable: ?SomeError = null;
-    _ = a_local_variable;
+    _ = &a_local_variable;
 }
 
 test "implicit cast to optional to error union to return result loc" {
@@ -160,6 +159,7 @@ fn entry() void {
 
 fn entryPtr() void {
     var ptr = &bar2;
+    _ = &ptr;
     fooPtr(ptr);
 }
 
@@ -226,9 +226,9 @@ const Set1 = error{ A, B };
 const Set2 = error{ A, C };
 
 fn testExplicitErrorSetCast(set1: Set1) !void {
-    var x = @as(Set2, @errorCast(set1));
+    const x: Set2 = @errorCast(set1);
     try expect(@TypeOf(x) == Set2);
-    var y = @as(Set1, @errorCast(x));
+    const y: Set1 = @errorCast(x);
     try expect(@TypeOf(y) == Set1);
     try expect(y == error.A);
 }
@@ -408,17 +408,17 @@ test "nested error union function call in optional unwrap" {
         };
 
         fn errorable() !i32 {
-            var x: Foo = (try getFoo()) orelse return error.Other;
+            const x: Foo = (try getFoo()) orelse return error.Other;
             return x.a;
         }
 
         fn errorable2() !i32 {
-            var x: Foo = (try getFoo2()) orelse return error.Other;
+            const x: Foo = (try getFoo2()) orelse return error.Other;
             return x.a;
         }
 
         fn errorable3() !i32 {
-            var x: Foo = (try getFoo3()) orelse return error.Other;
+            const x: Foo = (try getFoo3()) orelse return error.Other;
             return x.a;
         }
 
@@ -673,6 +673,7 @@ test "peer type resolution of two different error unions" {
     const a: error{B}!void = {};
     const b: error{A}!void = {};
     var cond = true;
+    _ = &cond;
     const err = if (cond) a else b;
     try err;
 }
@@ -681,6 +682,7 @@ test "coerce error set to the current inferred error set" {
     const S = struct {
         fn foo() !void {
             var a = false;
+            _ = &a;
             if (a) {
                 const b: error{A}!void = error.A;
                 return b;
@@ -831,6 +833,7 @@ test "alignment of wrapping an error union payload" {
 
         fn foo() anyerror!I {
             var i: I = .{ .x = 1234 };
+            _ = &i;
             return i;
         }
     };
@@ -842,6 +845,7 @@ test "compare error union and error set" {
 
     var a: anyerror = error.Foo;
     var b: anyerror!u32 = error.Bar;
+    _ = &a;
 
     try expect(a != b);
     try expect(b != a);
@@ -863,6 +867,7 @@ fn non_errorable() void {
     // This test is needed because stage 2's fix for #1923 means that catch blocks interact
     // with the error return trace index.
     var x: error{Foo}!void = {};
+    _ = &x;
     return x catch {};
 }
 
@@ -902,6 +907,7 @@ test "optional error union return type" {
     const S = struct {
         fn foo() ?anyerror!u32 {
             var x: u32 = 1234;
+            _ = &x;
             return @as(anyerror!u32, x);
         }
     };

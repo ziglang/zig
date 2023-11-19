@@ -1,7 +1,7 @@
 export fn a() void {
     var x: *anyopaque = undefined;
     var y: [*c]anyopaque = x;
-    _ = y;
+    _ = .{ &x, &y };
 }
 
 // error

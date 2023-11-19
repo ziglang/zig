@@ -129,6 +129,7 @@ test "cast" {
     try testing.expectEqual(@as(?*anyopaque, @ptrFromInt(2)), cast(?*anyopaque, @as(*u8, @ptrFromInt(2))));
 
     var foo: c_int = -1;
+    _ = &foo;
     try testing.expect(cast(*anyopaque, -1) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
     try testing.expect(cast(*anyopaque, foo) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
     try testing.expect(cast(?*anyopaque, -1) == @as(?*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
@@ -601,22 +602,22 @@ test "WL_CONTAINER_OF" {
         a: u32 = 0,
         b: u32 = 0,
     };
-    var x = S{};
-    var y = S{};
-    var ptr = Macros.WL_CONTAINER_OF(&x.b, &y, "b");
+    const x = S{};
+    const y = S{};
+    const ptr = Macros.WL_CONTAINER_OF(&x.b, &y, "b");
     try testing.expectEqual(&x, ptr);
 }
 
 test "CAST_OR_CALL casting" {
-    var arg = @as(c_int, 1000);
-    var casted = Macros.CAST_OR_CALL(u8, arg);
+    const arg: c_int = 1000;
+    const casted = Macros.CAST_OR_CALL(u8, arg);
     try testing.expectEqual(cast(u8, arg), casted);
 
     const S = struct {
         x: u32 = 0,
     };
-    var s = S{};
-    var casted_ptr = Macros.CAST_OR_CALL(*u8, &s);
+    var s: S = .{};
+    const casted_ptr = Macros.CAST_OR_CALL(*u8, &s);
     try testing.expectEqual(cast(*u8, &s), casted_ptr);
 }
 

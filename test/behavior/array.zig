@@ -138,6 +138,7 @@ test "array literal with specified size" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var array = [2]u8{ 1, 2 };
+    _ = &array;
     try expect(array[0] == 1);
     try expect(array[1] == 2);
 }
@@ -146,7 +147,7 @@ test "array len field" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var arr = [4]u8{ 0, 0, 0, 0 };
-    var ptr = &arr;
+    const ptr = &arr;
     try expect(arr.len == 4);
     try comptime expect(arr.len == 4);
     try expect(ptr.len == 4);
@@ -163,7 +164,8 @@ test "array with sentinels" {
             {
                 var zero_sized: [0:0xde]u8 = [_:0xde]u8{};
                 try expect(zero_sized[0] == 0xde);
-                var reinterpreted = @as(*[1]u8, @ptrCast(&zero_sized));
+                var reinterpreted: *[1]u8 = @ptrCast(&zero_sized);
+                _ = &reinterpreted;
                 try expect(reinterpreted[0] == 0xde);
             }
             var arr: [3:0x55]u8 = undefined;
@@ -225,6 +227,7 @@ test "implicit comptime in array type size" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var arr: [plusOne(10)]bool = undefined;
+    _ = &arr;
     try expect(arr.len == 11);
 }
 
@@ -281,6 +284,7 @@ test "anonymous list literal syntax" {
     const S = struct {
         fn doTheTest() !void {
             var array: [4]u8 = .{ 1, 2, 3, 4 };
+            _ = &array;
             try expect(array[0] == 1);
             try expect(array[1] == 2);
             try expect(array[2] == 3);
@@ -365,6 +369,7 @@ test "runtime initialize array elem and then implicit cast to slice" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var two: i32 = 2;
+    _ = &two;
     const x: []const i32 = &[_]i32{two};
     try expect(x[0] == 2);
 }
@@ -472,6 +477,7 @@ test "anonymous literal in array" {
                 .{ .a = 3 },
                 .{ .b = 3 },
             };
+            _ = &array;
             try expect(array[0].a == 3);
             try expect(array[0].b == 4);
             try expect(array[1].a == 2);
@@ -489,8 +495,10 @@ test "access the null element of a null terminated array" {
     const S = struct {
         fn doTheTest() !void {
             var array: [4:0]u8 = .{ 'a', 'o', 'e', 'u' };
+            _ = &array;
             try expect(array[4] == 0);
             var len: usize = 4;
+            _ = &len;
             try expect(array[len] == 0);
         }
     };
@@ -510,6 +518,7 @@ test "type deduction for array subscript expression" {
             try expect(@as(u8, 0xAA) == array[if (v0) 1 else 0]);
             var v1 = false;
             try expect(@as(u8, 0x55) == array[if (v1) 1 else 0]);
+            _ = .{ &array, &v0, &v1 };
         }
     };
     try S.doTheTest();
@@ -529,7 +538,7 @@ test "sentinel element count towards the ABI size calculation" {
                 fill_post: u8 = 0xAA,
             };
             var x = T{};
-            var as_slice = mem.asBytes(&x);
+            const as_slice = mem.asBytes(&x);
             try expect(@as(usize, 3) == as_slice.len);
             try expect(@as(u8, 0x55) == as_slice[0]);
             try expect(@as(u8, 0xAA) == as_slice[2]);
@@ -559,6 +568,7 @@ test "zero-sized array with recursive type definition" {
     };
 
     var t: S = .{ .list = .{ .s = undefined } };
+    _ = &t;
     try expect(@as(usize, 0) == t.list.x);
 }
 
@@ -576,15 +586,17 @@ test "type coercion of anon struct literal to array" {
 
         fn doTheTest() !void {
             var x1: u8 = 42;
+            _ = &x1;
             const t1 = .{ x1, 56, 54 };
-            var arr1: [3]u8 = t1;
+            const arr1: [3]u8 = t1;
             try expect(arr1[0] == 42);
             try expect(arr1[1] == 56);
             try expect(arr1[2] == 54);
 
             var x2: U = .{ .a = 42 };
+            _ = &x2;
             const t2 = .{ x2, .{ .b = true }, .{ .c = "hello" } };
-            var arr2: [3]U = t2;
+            const arr2: [3]U = t2;
             try expect(arr2[0].a == 42);
             try expect(arr2[1].b == true);
             try expect(mem.eql(u8, arr2[2].c, "hello"));
@@ -608,15 +620,17 @@ test "type coercion of pointer to anon struct literal to pointer to array" {
 
         fn doTheTest() !void {
             var x1: u8 = 42;
+            _ = &x1;
             const t1 = &.{ x1, 56, 54 };
-            var arr1: *const [3]u8 = t1;
+            const arr1: *const [3]u8 = t1;
             try expect(arr1[0] == 42);
             try expect(arr1[1] == 56);
             try expect(arr1[2] == 54);
 
             var x2: U = .{ .a = 42 };
+            _ = &x2;
             const t2 = &.{ x2, .{ .b = true }, .{ .c = "hello" } };
-            var arr2: *const [3]U = t2;
+            const arr2: *const [3]U = t2;
             try expect(arr2[0].a == 42);
             try expect(arr2[1].b == true);
             try expect(mem.eql(u8, arr2[2].c, "hello"));
@@ -656,6 +670,7 @@ test "array init of container level array variable" {
         }
         noinline fn bar(x: usize, y: usize) void {
             var tmp: [2]usize = .{ x, y };
+            _ = &tmp;
             pair = tmp;
         }
     };
@@ -668,6 +683,7 @@ test "array init of container level array variable" {
 
 test "runtime initialized sentinel-terminated array literal" {
     var c: u16 = 300;
+    _ = &c;
     const f = &[_:0x9999]u16{c};
     const g = @as(*const [4]u8, @ptrCast(f));
     try std.testing.expect(g[2] == 0x99);
@@ -681,6 +697,7 @@ test "array of array agregate init" {
 
     var a = [1]u32{11} ** 10;
     var b = [1][10]u32{a} ** 2;
+    _ = .{ &a, &b };
     try std.testing.expect(b[1][1] == 11);
 }
 
@@ -778,6 +795,7 @@ test "runtime side-effects in comptime-known array init" {
 test "slice initialized through reference to anonymous array init provides result types" {
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
+    _ = .{ &my_u32, &my_u64 };
     const foo: []const u16 = &.{
         @intCast(my_u32),
         @intCast(my_u64),
@@ -790,6 +808,7 @@ test "slice initialized through reference to anonymous array init provides resul
 test "pointer to array initialized through reference to anonymous array init provides result types" {
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
+    _ = .{ &my_u32, &my_u64 };
     const foo: *const [4]u16 = &.{
         @intCast(my_u32),
         @intCast(my_u64),

@@ -102,7 +102,7 @@ fn cbrt64(x: f64) f64 {
 
     // cbrt to 23 bits
     // cbrt(x) = t * cbrt(x / t^3) ~= t * P(t^3 / x)
-    var r = (t * t) * (t / x);
+    const r = (t * t) * (t / x);
     t = t * ((P0 + r * (P1 + r * P2)) + ((r * r) * r) * (P3 + r * P4));
 
     // Round t away from 0 to 23 bits
@@ -113,7 +113,7 @@ fn cbrt64(x: f64) f64 {
     // one step newton to 53 bits
     const s = t * t;
     var q = x / s;
-    var w = t + t;
+    const w = t + t;
     q = (q - t) / (w + q);
 
     return t + t * q;

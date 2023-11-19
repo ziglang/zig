@@ -14,7 +14,7 @@ test "coroutine await struct" {
 
     await_seq('a');
     var p = async await_amain();
-    _ = p;
+    _ = &p;
     await_seq('f');
     resume await_a_promise;
     await_seq('i');

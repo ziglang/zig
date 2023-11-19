@@ -218,7 +218,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 if (file_size == 0 and unstripped_file_name.len == 0) return;
                 const file_name = try stripComponents(unstripped_file_name, options.strip_components);
 
-                var file = dir.createFile(file_name, .{}) catch |err| switch (err) {
+                const file = dir.createFile(file_name, .{}) catch |err| switch (err) {
                     error.FileNotFound => again: {
                         const code = code: {
                             if (std.fs.path.dirname(file_name)) |dir_name| {

@@ -162,7 +162,7 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
     // Two cases: quotient is in [0.5, 1.0) or quotient is in [1.0, 2.0).
     // Right shift the quotient if it falls in the [1,2) range and adjust the
     // exponent accordingly.
-    var quotient: u64 = if (quotient128 < (integerBit << 1)) b: {
+    const quotient: u64 = if (quotient128 < (integerBit << 1)) b: {
         quotientExponent -= 1;
         break :b @intCast(quotient128);
     } else @intCast(quotient128 >> 1);
@@ -177,7 +177,7 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
     //
     // If r is greater than 1/2 ulp(q)*b, then q rounds up.  Otherwise, we
     // already have the correct result.  The exact halfway case cannot occur.
-    var residual: u64 = -%(quotient *% q63b);
+    const residual: u64 = -%(quotient *% q63b);
 
     const writtenExponent = quotientExponent + exponentBias;
     if (writtenExponent >= maxExponent) {

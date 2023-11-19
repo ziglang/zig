@@ -379,7 +379,7 @@ test "std.Treap: insert, find, replace, remove" {
         const key = node.key;
 
         // find the entry by-key and by-node after having been inserted.
-        var entry = treap.getEntryFor(node.key);
+        const entry = treap.getEntryFor(node.key);
         try testing.expectEqual(entry.key, key);
         try testing.expectEqual(entry.node, node);
         try testing.expectEqual(entry.node, treap.getEntryForExisting(node).node);

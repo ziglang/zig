@@ -860,7 +860,7 @@ fn resolveSymbolsInArchives(wasm: *Wasm) !void {
             // Parse object and and resolve symbols again before we check remaining
             // undefined symbols.
             const object_file_index = @as(u16, @intCast(wasm.objects.items.len));
-            var object = try archive.parseObject(wasm.base.allocator, offset.items[0]);
+            const object = try archive.parseObject(wasm.base.allocator, offset.items[0]);
             try wasm.objects.append(wasm.base.allocator, object);
             try wasm.resolveSymbolsInObject(object_file_index);
 
@@ -1344,7 +1344,7 @@ pub fn deinit(wasm: *Wasm) void {
 /// Will re-use slots when a symbol was freed at an earlier stage.
 pub fn allocateSymbol(wasm: *Wasm) !u32 {
     try wasm.symbols.ensureUnusedCapacity(wasm.base.allocator, 1);
-    var symbol: Symbol = .{
+    const symbol: Symbol = .{
         .name = std.math.maxInt(u32), // will be set after updateDecl as well as during atom creation for decls
         .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
         .tag = .undefined, // will be set after updateDecl
@@ -1655,7 +1655,7 @@ pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !u3
     symbol.setUndefined(true);
 
     const sym_index = if (wasm.symbols_free_list.popOrNull()) |index| index else blk: {
-        var index = @as(u32, @intCast(wasm.symbols.items.len));
+        const index: u32 = @intCast(wasm.symbols.items.len);
         try wasm.symbols.ensureUnusedCapacity(wasm.base.allocator, 1);
         wasm.symbols.items.len += 1;
         break :blk index;
@@ -2632,7 +2632,7 @@ fn setupImports(wasm: *Wasm) !void {
 
         // We copy the import to a new import to ensure the names contain references
         // to the internal string table, rather than of the object file.
-        var new_imp: types.Import = .{
+        const new_imp: types.Import = .{
             .module_name = try wasm.string_table.put(wasm.base.allocator, object.string_table.get(import.module_name)),
             .name = try wasm.string_table.put(wasm.base.allocator, object.string_table.get(import.name)),
             .kind = import.kind,
@@ -3800,7 +3800,7 @@ fn writeToFile(
         const table_loc = wasm.findGlobalSymbol("__indirect_function_table").?;
         const table_sym = table_loc.getSymbol(wasm);
 
-        var flags: u32 = if (table_sym.index == 0) 0x0 else 0x02; // passive with implicit 0-index table or set table index manually
+        const flags: u32 = if (table_sym.index == 0) 0x0 else 0x02; // passive with implicit 0-index table or set table index manually
         try leb.writeULEB128(binary_writer, flags);
         if (flags == 0x02) {
             try leb.writeULEB128(binary_writer, table_sym.index);

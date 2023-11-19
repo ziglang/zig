@@ -1,5 +1,6 @@
 pub fn main() void {
     var i: u64 = 0xFFEEDDCCBBAA9988;
+    _ = &i;
     assert(i == 0xFFEEDDCCBBAA9988);
 }
 

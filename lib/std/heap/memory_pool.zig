@@ -172,7 +172,7 @@ test "memory pool: preheating (success)" {
 }
 
 test "memory pool: preheating (failure)" {
-    var failer = std.testing.failing_allocator;
+    const failer = std.testing.failing_allocator;
     try std.testing.expectError(error.OutOfMemory, MemoryPool(u32).initPreheated(failer, 5));
 }
 

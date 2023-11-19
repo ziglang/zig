@@ -31,6 +31,7 @@ test "correct alignment for elements and slices of aligned array" {
     var buf: [1024]u8 align(64) = undefined;
     var start: usize = 1;
     var end: usize = undefined;
+    _ = .{ &start, &end };
     try expect(@alignOf(@TypeOf(buf[start..end])) == @alignOf(*u8));
     try expect(@alignOf(@TypeOf(&buf[start..end])) == @alignOf(*u8));
     try expect(@alignOf(@TypeOf(&buf[start])) == @alignOf(*u8));

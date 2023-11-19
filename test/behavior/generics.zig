@@ -102,6 +102,7 @@ test "type constructed by comptime function call" {
 
 fn SimpleList(comptime L: usize) type {
     var mutable_T = u8;
+    _ = &mutable_T;
     const T = mutable_T;
     return struct {
         array: [L]T,
@@ -238,6 +239,7 @@ test "function parameter is generic" {
         }
     };
     var rng: u32 = 2;
+    _ = &rng;
     S.init(rng, S.fill);
 }
 

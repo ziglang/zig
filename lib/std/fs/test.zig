@@ -80,7 +80,7 @@ const TestContext = struct {
     transform_fn: *const PathType.TransformFn,
 
     pub fn init(path_type: PathType, allocator: mem.Allocator, transform_fn: *const PathType.TransformFn) TestContext {
-        var tmp = tmpIterableDir(.{});
+        const tmp = tmpIterableDir(.{});
         return .{
             .path_type = path_type,
             .arena = ArenaAllocator.init(allocator),

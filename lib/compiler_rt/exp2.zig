@@ -38,7 +38,7 @@ pub fn exp2f(x: f32) callconv(.C) f32 {
     const P3: f32 = 0x1.c6b348p-5;
     const P4: f32 = 0x1.3b2c9cp-7;
 
-    var u: u32 = @bitCast(x);
+    const u: u32 = @bitCast(x);
     const ix = u & 0x7FFFFFFF;
 
     // |x| > 126
