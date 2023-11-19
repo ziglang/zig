@@ -47,7 +47,7 @@ pub const BootServices = extern struct {
     createEvent: *const fn (u32, notify_tpl: usize, notify_func: ?*const fn (Event, ?*anyopaque) callconv(cc) void, notifyCtx: ?*const anyopaque, event: *Event) callconv(cc) Status,
 
     /// Sets the type of timer and the trigger time for a timer event.
-    setTimer: *const fn (event: Event, type: TimerDelay, triggerTime: u64) callconv(cc) Status,
+    setTimer: *const fn (event: Event, timerDelay: TimerDelay, triggerTime: u64) callconv(cc) Status,
 
     /// Stops execution until an event is signaled.
     waitForEvent: *const fn (event_len: usize, events: [*]const Event, index: *usize) callconv(cc) Status,
@@ -156,7 +156,7 @@ pub const BootServices = extern struct {
     setMem: *const fn (buffer: [*]u8, size: usize, value: u8) callconv(cc) void,
 
     /// Creates an event in a group.
-    createEventEx: *const fn (type: u32, notify_tpl: usize, notify_func: EfiEventNotify, notify_ctx: *const anyopaque, event_group: *align(8) const Guid, event: *Event) callconv(cc) Status,
+    createEventEx: *const fn (u32, notify_tpl: usize, notify_func: EfiEventNotify, notify_ctx: *const anyopaque, event_group: *align(8) const Guid, event: *Event) callconv(cc) Status,
 
     /// Opens a protocol with a structure as the loaded image for a UEFI application
     pub fn openProtocolSt(self: *BootServices, comptime protocol: type, handle: Handle) !*protocol {

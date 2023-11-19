@@ -24,7 +24,7 @@ const ARMRes = extern struct {
 };
 
 fn test__aeabi_uldivmod(a: u64, b: u64, expected_q: u64, expected_r: u64) !void {
-    const actualUldivmod = @as(*const fn (a: u64, b: u64) callconv(.AAPCS) ARMRes, @ptrCast(&__aeabi_uldivmod));
+    const actualUldivmod = @as(*const fn (u64, u64) callconv(.AAPCS) ARMRes, @ptrCast(&__aeabi_uldivmod));
     const arm_res = actualUldivmod(a, b);
     try testing.expectEqual(expected_q, arm_res.q);
     try testing.expectEqual(expected_r, arm_res.r);

@@ -107,7 +107,7 @@ fn test_one_aeabi_ldivmod(a: i64, b: i64, expected_q: i64, expected_r: i64) !voi
         q: i64, // r1:r0
         r: i64, // r3:r2
     };
-    const actualIdivmod = @as(*const fn (a: i64, b: i64) callconv(.AAPCS) LdivmodRes, @ptrCast(&arm.__aeabi_ldivmod));
+    const actualIdivmod = @as(*const fn (i64, i64) callconv(.AAPCS) LdivmodRes, @ptrCast(&arm.__aeabi_ldivmod));
     const arm_res = actualIdivmod(a, b);
     try testing.expectEqual(expected_q, arm_res.q);
     try testing.expectEqual(expected_r, arm_res.r);
@@ -266,7 +266,7 @@ fn test_one_aeabi_idivmod(a: i32, b: i32, expected_q: i32, expected_r: i32) !voi
         q: i32, // r0
         r: i32, // r1
     };
-    const actualIdivmod = @as(*const fn (a: i32, b: i32) callconv(.AAPCS) IdivmodRes, @ptrCast(&arm.__aeabi_idivmod));
+    const actualIdivmod = @as(*const fn (i32, i32) callconv(.AAPCS) IdivmodRes, @ptrCast(&arm.__aeabi_idivmod));
     const arm_res = actualIdivmod(a, b);
     try testing.expectEqual(expected_q, arm_res.q);
     try testing.expectEqual(expected_r, arm_res.r);
