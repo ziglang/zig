@@ -1309,7 +1309,7 @@ fn fnProtoExpr(
                     break :blk 0;
 
                 const param_name = try astgen.identAsString(name_token);
-                try astgen.detectLocalShadowing(params_scope, param_name, name_token, name_bytes, .@"function parameter");
+                try astgen.detectLocalShadowing(params_scope, param_name, name_token, name_bytes, .@"function prototype parameter");
                 break :blk param_name;
             } else 0;
 
@@ -1346,7 +1346,7 @@ fn fnProtoExpr(
                 .name = param_name,
                 .inst = param_inst,
                 .token_src = param.name_token.?,
-                .id_cat = .@"function parameter",
+                .id_cat = .@"function prototype parameter",
             };
             params_scope = &sub_scope.base;
         }
@@ -10951,6 +10951,7 @@ const Scope = struct {
     /// The category of identifier. These tag names are user-visible in compile errors.
     const IdCat = enum {
         @"function parameter",
+        @"function prototype parameter",
         @"local constant",
         @"local variable",
         @"switch tag capture",
