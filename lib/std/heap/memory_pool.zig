@@ -42,12 +42,15 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
         /// as `@sizeOf(Item)` as the pool also uses the items for internal means.
         pub const item_size = @max(@sizeOf(Node), @sizeOf(Item));
 
+        // This needs to be kept in sync with Node.
+        const node_alignment = @alignOf(*anyopaque);
+
         /// Alignment of the memory pool items. This is not necessarily the same
         /// as `@alignOf(Item)` as the pool also uses the items for internal means.
-        pub const item_alignment = @max(@alignOf(Node), pool_options.alignment orelse @alignOf(Item));
+        pub const item_alignment = @max(node_alignment, pool_options.alignment orelse @alignOf(Item));
 
         const Node = struct {
-            next: ?*@This(),
+            next: ?*align(item_alignment) @This(),
         };
         const NodePtr = *align(item_alignment) Node;
         const ItemPtr = *align(item_alignment) Item;
@@ -111,7 +114,7 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
         /// Creates a new item and adds it to the memory pool.
         pub fn create(pool: *Pool) !ItemPtr {
             const node = if (pool.free_list) |item| blk: {
-                pool.free_list = @alignCast(item.next);
+                pool.free_list = item.next;
                 break :blk item;
             } else if (pool_options.growable)
                 @as(NodePtr, @ptrCast(try pool.allocNew()))
