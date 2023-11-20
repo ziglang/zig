@@ -42,14 +42,14 @@ test "multiTrait" {
     try testing.expect(!isVector(u8));
 }
 
-pub fn hasArchetype(comptime name: []const u8, comptime signature: fn (comptime Self: type) type) TraitFn {
+pub fn hasArchetype(comptime name: []const u8, comptime Signature: fn (comptime Self: type) type) TraitFn {
     const Closure = struct {
         pub fn trait(comptime Self: type) bool {
             if (!comptime isContainer(Self)) return false;
             if (!comptime @hasDecl(Self, name)) return false;
             const DeclType = @TypeOf(@field(Self, name));
             if (@typeInfo(DeclType) != .Fn) return false;
-            return DeclType == signature(Self);
+            return DeclType == Signature(Self);
         }
     };
     return Closure.trait;
