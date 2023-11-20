@@ -236,7 +236,7 @@ pub fn set(d: *Diagnostics, name: []const u8, to: Kind) !void {
     try d.addExtra(.{}, .{
         .tag = .unknown_warning,
         .extra = .{ .str = name },
-    }, &.{});
+    }, &.{}, true);
 }
 
 pub fn init(gpa: Allocator) Diagnostics {
@@ -251,7 +251,7 @@ pub fn deinit(d: *Diagnostics) void {
 }
 
 pub fn add(comp: *Compilation, msg: Message, expansion_locs: []const Source.Location) Compilation.Error!void {
-    return comp.diagnostics.addExtra(comp.langopts, msg, expansion_locs);
+    return comp.diagnostics.addExtra(comp.langopts, msg, expansion_locs, true);
 }
 
 pub fn addExtra(
@@ -259,6 +259,7 @@ pub fn addExtra(
     langopts: LangOpts,
     msg: Message,
     expansion_locs: []const Source.Location,
+    note_msg_loc: bool,
 ) Compilation.Error!void {
     const kind = d.tagKind(msg.tag, langopts);
     if (kind == .off) return;
@@ -301,7 +302,7 @@ pub fn addExtra(
             }
         }
 
-        d.list.appendAssumeCapacity(.{
+        if (note_msg_loc) d.list.appendAssumeCapacity(.{
             .tag = .expanded_from_here,
             .kind = .note,
             .loc = msg.loc,
