@@ -6,7 +6,6 @@ const testing = std.testing;
 const meta = @import("../meta.zig");
 
 pub const TraitFn = fn (type) bool;
-pub const SignatureFn = fn (comptime Self: type) type;
 
 pub fn multiTrait(comptime traits: anytype) TraitFn {
     const Closure = struct {
@@ -43,7 +42,7 @@ test "multiTrait" {
     try testing.expect(!isVector(u8));
 }
 
-pub fn hasArchetype(comptime name: []const u8, comptime signature: SignatureFn) TraitFn {
+pub fn hasArchetype(comptime name: []const u8, comptime signature: fn (comptime Self: type) type) TraitFn {
     const Closure = struct {
         pub fn trait(comptime Self: type) bool {
             if (!comptime isContainer(Self)) return false;
