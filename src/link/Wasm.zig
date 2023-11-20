@@ -4293,6 +4293,9 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const symbol = sym_loc.getSymbol(wasm).*;
+        if (symbol.isDead()) {
+            continue;
+        }
         const name = sym_loc.getName(wasm);
         switch (symbol.tag) {
             .function => {
