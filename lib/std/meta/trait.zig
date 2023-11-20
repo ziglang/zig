@@ -67,7 +67,7 @@ test "hasArchetype" {
     };
     const TestStruct = struct {
         used: usize = 0,
-        pub fn use(self: @This()) @This {
+        pub fn use(self: @This()) @This() {
             return @This(){ .used = self.used + 1 };
         }
     };
