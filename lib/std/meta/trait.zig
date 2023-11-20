@@ -6,7 +6,7 @@ const testing = std.testing;
 const meta = @import("../meta.zig");
 
 pub const TraitFn = fn (type) bool;
-pub const SignatureFn = fn(comptime Self: type) type; 
+pub const SignatureFn = fn (comptime Self: type) type;
 
 pub fn multiTrait(comptime traits: anytype) TraitFn {
     const Closure = struct {
@@ -59,10 +59,10 @@ pub fn hasArchetype(comptime name: []const u8, comptime signature: SignatureFn) 
 test "hasArchetype" {
     const env = struct {
         pub fn Use(comptime Self: type) type {
-            return fn(Self) Self;
+            return fn (Self) Self;
         }
         pub fn Add(comptime Self: type) type {
-            return fn(self: Self, other: Self) Self;
+            return fn (self: Self, other: Self) Self;
         }
     };
     const TestStruct = struct {
@@ -72,9 +72,9 @@ test "hasArchetype" {
         }
     };
 
-    try testing.expect(hasArchetype("use",env.Use)(TestStruct));
-    try testing.expect(!hasArchetype("use",env.Add)(TestStruct));
-    try testing.expect(!hasArchetype("add",env.Add)(TestStruct));
+    try testing.expect(hasArchetype("use", env.Use)(TestStruct));
+    try testing.expect(!hasArchetype("use", env.Add)(TestStruct));
+    try testing.expect(!hasArchetype("add", env.Add)(TestStruct));
 }
 
 pub fn hasFn(comptime name: []const u8) TraitFn {
