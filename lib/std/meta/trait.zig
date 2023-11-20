@@ -6,6 +6,7 @@ const testing = std.testing;
 const meta = @import("../meta.zig");
 
 pub const TraitFn = fn (type) bool;
+pub const SignatureFn = fn(comptime Self: type) type; 
 
 pub fn multiTrait(comptime traits: anytype) TraitFn {
     const Closure = struct {
@@ -40,6 +41,40 @@ test "multiTrait" {
     });
     try testing.expect(isVector(Vector2));
     try testing.expect(!isVector(u8));
+}
+
+pub fn hasArchetype(comptime name: []const u8, comptime signature: SignatureFn) TraitFn {
+    const Closure = struct {
+        pub fn trait(comptime Self: type) bool {
+            if (!comptime isContainer(Self)) return false;
+            if (!comptime @hasDecl(Self, name)) return false;
+            const DeclType = @TypeOf(@field(Self, name));
+            if (@typeInfo(DeclType) != .Fn) return false;
+            return DeclType == signature(Self);
+        }
+    };
+    return Closure.trait;
+}
+
+test "hasArchetype" {
+    const env = struct {
+        pub fn Use(comptime Self: type) type {
+            return fn(Self) Self;
+        }
+        pub fn Add(comptime Self: type) type {
+            return fn(self: Self, other: Self) Self;
+        }
+    };
+    const TestStruct = struct {
+        used: usize = 0,
+        pub fn use(self: @This()) @This {
+            return @This(){ .used = self.used + 1 };
+        }
+    };
+
+    try testing.expect(hasArchetype("use",Use)(TestStruct));
+    try testing.expect(!hasArchetype("use",Add)(TestStruct));
+    try testing.expect(!hasArchetype("add",Add)(TestStruct));
 }
 
 pub fn hasFn(comptime name: []const u8) TraitFn {
