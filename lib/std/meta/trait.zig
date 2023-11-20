@@ -72,9 +72,9 @@ test "hasArchetype" {
         }
     };
 
-    try testing.expect(hasArchetype("use",Use)(TestStruct));
-    try testing.expect(!hasArchetype("use",Add)(TestStruct));
-    try testing.expect(!hasArchetype("add",Add)(TestStruct));
+    try testing.expect(hasArchetype("use",env.Use)(TestStruct));
+    try testing.expect(!hasArchetype("use",env.Add)(TestStruct));
+    try testing.expect(!hasArchetype("add",env.Add)(TestStruct));
 }
 
 pub fn hasFn(comptime name: []const u8) TraitFn {
