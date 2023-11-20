@@ -100,6 +100,10 @@ pub fn mark(symbol: *Symbol) void {
     symbol.flags |= @intFromEnum(Flag.alive);
 }
 
+pub fn unmark(symbol: *Symbol) void {
+    symbol.flags &= ~@intFromEnum(Flag.alive);
+}
+
 pub fn isAlive(symbol: Symbol) bool {
     return symbol.flags & @intFromEnum(Flag.alive) != 0;
 }
