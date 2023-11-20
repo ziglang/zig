@@ -139,7 +139,7 @@ pub fn translate(
     // For memory that has the same lifetime as the Ast that we return
     // from this function.
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    errdefer arena_allocator.deinit();
+    defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
     var context = Context{
@@ -5483,6 +5483,29 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
         .invalid_arg_usage => unreachable, // no args
     };
 
+    // Check if the macro only uses other blank macros.
+    while (true) {
+        switch (m.peek().?) {
+            .Identifier => {
+                const tok = m.list[m.i + 1];
+                const slice = m.source[tok.start..tok.end];
+                if (c.global_scope.blank_macros.contains(slice)) {
+                    m.i += 1;
+                    continue;
+                }
+            },
+            .Eof, .Nl => {
+                try c.global_scope.blank_macros.put(m.name, {});
+                const init_node = try Tag.string_literal.create(c.arena, "\"\"");
+                const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
+                try c.global_scope.macro_table.put(m.name, var_decl);
+                return;
+            },
+            else => {},
+        }
+        break;
+    }
+
     const init_node = try parseCExpr(c, m, scope);
     const last = m.next().?;
     if (last != .Eof and last != .Nl)
@@ -5897,7 +5920,7 @@ fn escapeUnprintables(ctx: *Context, m: *MacroCtx) ![]const u8 {
     };
 }
 
-fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope, skipped_tokens: usize) ParseError!Node {
+fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     const tok = m.next().?;
     const slice = m.slice();
     switch (tok) {
@@ -5916,27 +5939,14 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope, skipped_toke
             return parseCNumLit(c, m);
         },
         .Identifier => {
-            if (!c.global_scope.blank_macros.contains(slice)) {
-                const mangled_name = scope.getAlias(slice);
-                if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
-                const identifier = try Tag.identifier.create(c.arena, mangled_name);
-                scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);
-                return identifier;
+            if (c.global_scope.blank_macros.contains(slice)) {
+                return parseCPrimaryExprInner(c, m, scope);
             }
-            switch (m.peek().?) {
-                .Nl, .Eof => {
-                    // We know this entire macro is blank if all tokens except 3 were skipped.
-                    // The not skipped token are this current token, the macro name, and Eof.
-                    if (skipped_tokens + 3 == m.list.len) {
-                        try c.global_scope.blank_macros.put(m.name, {});
-                    }
-                    return Tag.string_literal.create(c.arena, "\"\"");
-                },
-                else => {
-                    // Skip this token entirely.
-                    return parseCPrimaryExprInner(c, m, scope, skipped_tokens + 1);
-                },
-            }
+            const mangled_name = scope.getAlias(slice);
+            if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
+            const identifier = try Tag.identifier.create(c.arena, mangled_name);
+            scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);
+            return identifier;
         },
         .LParen => {
             const inner_node = try parseCExpr(c, m, scope);
@@ -5958,19 +5968,23 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope, skipped_toke
 }
 
 fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
-    var node = try parseCPrimaryExprInner(c, m, scope, 0);
+    var node = try parseCPrimaryExprInner(c, m, scope);
     // In C the preprocessor would handle concatting strings while expanding macros.
     // This should do approximately the same by concatting any strings and identifiers
     // after a primary expression.
     while (true) {
         switch (m.peek().?) {
-            .StringLiteral, .Identifier => {},
+            .StringLiteral => {},
+            .Identifier => {
+                const tok = m.list[m.i + 1];
+                const slice = m.source[tok.start..tok.end];
+                if (c.global_scope.blank_macros.contains(slice)) {
+                    continue;
+                }
+            },
             else => break,
         }
-        const rhs = try parseCPrimaryExprInner(c, m, scope, 0);
-        if (c.global_scope.blank_macros.contains(m.slice())) {
-            continue;
-        }
+        const rhs = try parseCPrimaryExprInner(c, m, scope);
         node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = rhs });
     }
     return node;
