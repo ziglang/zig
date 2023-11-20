@@ -1923,6 +1923,8 @@ fn resolveBoundarySymbols(self: *MachO) !void {
             _ = self.unresolved.swapRemove(global_index);
             continue;
         }
+
+        next_sym += 1;
     }
 }
 
@@ -2250,7 +2252,7 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
     else
         try codegen.generateFunction(&self.base, decl.srcLoc(mod), func_index, air, liveness, &code_buffer, .none);
 
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2330,7 +2332,7 @@ fn lowerConst(
     const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| return .{ .fail = em },
     };
@@ -2416,7 +2418,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
             .parent_atom_index = sym_index,
         });
 
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2585,7 +2587,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
             .parent_atom_index = init_sym_index,
         });
 
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -3425,7 +3427,7 @@ fn allocateAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignm
 
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
-    var vaddr = blk: {
+    const vaddr = blk: {
         var i: usize = 0;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
@@ -3969,7 +3971,7 @@ fn writeDyldInfoData(self: *MachO) !void {
     link_seg.filesize = needed_size;
     assert(mem.isAlignedGeneric(u64, link_seg.fileoff + link_seg.filesize, @alignOf(u64)));
 
-    var buffer = try gpa.alloc(u8, needed_size);
+    const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
     @memset(buffer, 0);
 
@@ -5226,7 +5228,7 @@ fn reportMissingLibraryError(
 ) error{OutOfMemory}!void {
     const gpa = self.base.allocator;
     try self.misc_errors.ensureUnusedCapacity(gpa, 1);
-    var notes = try gpa.alloc(File.ErrorMsg, checked_paths.len);
+    const notes = try gpa.alloc(File.ErrorMsg, checked_paths.len);
     errdefer gpa.free(notes);
     for (checked_paths, notes) |path, *note| {
         note.* = .{ .msg = try std.fmt.allocPrint(gpa, "tried {s}", .{path}) };

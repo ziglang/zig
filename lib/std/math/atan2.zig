@@ -104,7 +104,7 @@ fn atan2_32(y: f32, x: f32) f32 {
     }
 
     // z = atan(|y / x|) with correct underflow
-    var z = z: {
+    const z = z: {
         if ((m & 2) != 0 and iy + (26 << 23) < ix) {
             break :z 0.0;
         } else {
@@ -129,13 +129,13 @@ fn atan2_64(y: f64, x: f64) f64 {
         return x + y;
     }
 
-    var ux = @as(u64, @bitCast(x));
-    var ix = @as(u32, @intCast(ux >> 32));
-    var lx = @as(u32, @intCast(ux & 0xFFFFFFFF));
+    const ux: u64 = @bitCast(x);
+    var ix: u32 = @intCast(ux >> 32);
+    const lx: u32 = @intCast(ux & 0xFFFFFFFF);
 
-    var uy = @as(u64, @bitCast(y));
-    var iy = @as(u32, @intCast(uy >> 32));
-    var ly = @as(u32, @intCast(uy & 0xFFFFFFFF));
+    const uy: u64 = @bitCast(y);
+    var iy: u32 = @intCast(uy >> 32);
+    const ly: u32 = @intCast(uy & 0xFFFFFFFF);
 
     // x = 1.0
     if ((ix -% 0x3FF00000) | lx == 0) {
@@ -194,7 +194,7 @@ fn atan2_64(y: f64, x: f64) f64 {
     }
 
     // z = atan(|y / x|) with correct underflow
-    var z = z: {
+    const z = z: {
         if ((m & 2) != 0 and iy +% (64 << 20) < ix) {
             break :z 0.0;
         } else {

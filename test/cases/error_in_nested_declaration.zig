@@ -19,7 +19,7 @@ const S2 = struct {
 
 pub export fn entry2() void {
     var s: S2 = undefined;
-    _ = s;
+    _ = &s;
 }
 
 // error

@@ -268,7 +268,7 @@ test "zstandard decompression" {
     const compressed3 = @embedFile("testdata/rfc8478.txt.zst.3");
     const compressed19 = @embedFile("testdata/rfc8478.txt.zst.19");
 
-    var buffer = try std.testing.allocator.alloc(u8, uncompressed.len);
+    const buffer = try std.testing.allocator.alloc(u8, uncompressed.len);
     defer std.testing.allocator.free(buffer);
 
     const res3 = try decompress.decode(buffer, compressed3, true);

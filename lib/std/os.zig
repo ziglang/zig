@@ -4642,7 +4642,7 @@ pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessErr
         const path_w = try windows.sliceToPrefixedFileW(dirfd, path);
         return faccessatW(dirfd, path_w.span().ptr, mode, flags);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        var resolved = RelativePathWasi{ .dir_fd = dirfd, .relative_path = path };
+        const resolved = RelativePathWasi{ .dir_fd = dirfd, .relative_path = path };
 
         const file = blk: {
             break :blk fstatat(dirfd, path, flags);
@@ -4775,7 +4775,7 @@ pub fn pipe2(flags: u32) PipeError![2]fd_t {
         }
     }
 
-    var fds: [2]fd_t = try pipe();
+    const fds: [2]fd_t = try pipe();
     errdefer {
         close(fds[0]);
         close(fds[1]);
@@ -6709,7 +6709,7 @@ pub fn dn_expand(
         // loop invariants: p<end, dest<dend
         if ((p[0] & 0xc0) != 0) {
             if (p + 1 == end) return error.InvalidDnsPacket;
-            var j = ((p[0] & @as(usize, 0x3f)) << 8) | p[1];
+            const j = ((p[0] & @as(usize, 0x3f)) << 8) | p[1];
             if (len == std.math.maxInt(usize)) len = @intFromPtr(p) + 2 - @intFromPtr(comp_dn.ptr);
             if (j >= msg.len) return error.InvalidDnsPacket;
             p = msg.ptr + j;
@@ -7285,7 +7285,7 @@ pub const TimerFdGetError = error{InvalidHandle} || UnexpectedError;
 pub const TimerFdSetError = TimerFdGetError || error{Canceled};
 
 pub fn timerfd_create(clokid: i32, flags: u32) TimerFdCreateError!fd_t {
-    var rc = linux.timerfd_create(clokid, flags);
+    const rc = linux.timerfd_create(clokid, flags);
     return switch (errno(rc)) {
         .SUCCESS => @as(fd_t, @intCast(rc)),
         .INVAL => unreachable,
@@ -7299,7 +7299,7 @@ pub fn timerfd_create(clokid: i32, flags: u32) TimerFdCreateError!fd_t {
 }
 
 pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const linux.itimerspec, old_value: ?*linux.itimerspec) TimerFdSetError!void {
-    var rc = linux.timerfd_settime(fd, flags, new_value, old_value);
+    const rc = linux.timerfd_settime(fd, flags, new_value, old_value);
     return switch (errno(rc)) {
         .SUCCESS => {},
         .BADF => error.InvalidHandle,
@@ -7312,7 +7312,7 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const linux.itimerspec, 
 
 pub fn timerfd_gettime(fd: i32) TimerFdGetError!linux.itimerspec {
     var curr_value: linux.itimerspec = undefined;
-    var rc = linux.timerfd_gettime(fd, &curr_value);
+    const rc = linux.timerfd_gettime(fd, &curr_value);
     return switch (errno(rc)) {
         .SUCCESS => return curr_value,
         .BADF => error.InvalidHandle,

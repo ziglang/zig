@@ -4,8 +4,8 @@ const testing = @import("std").testing;
 fn test__addosi4(a: i32, b: i32) !void {
     var result_ov: c_int = undefined;
     var expected_ov: c_int = undefined;
-    var result = addv.__addosi4(a, b, &result_ov);
-    var expected: i32 = simple_addosi4(a, b, &expected_ov);
+    const result = addv.__addosi4(a, b, &result_ov);
+    const expected: i32 = simple_addosi4(a, b, &expected_ov);
     try testing.expectEqual(expected, result);
     try testing.expectEqual(expected_ov, result_ov);
 }

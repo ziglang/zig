@@ -303,7 +303,7 @@ pub const DeclState = struct {
                                 // DW.AT.name, DW.FORM.string
                                 try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
                                 // DW.AT.type, DW.FORM.ref4
-                                var index = dbg_info_buffer.items.len;
+                                const index = dbg_info_buffer.items.len;
                                 try dbg_info_buffer.resize(index + 4);
                                 try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
                                 // DW.AT.data_member_location, DW.FORM.udata
@@ -329,7 +329,7 @@ pub const DeclState = struct {
                                     // DW.AT.name, DW.FORM.string
                                     try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
                                     // DW.AT.type, DW.FORM.ref4
-                                    var index = dbg_info_buffer.items.len;
+                                    const index = dbg_info_buffer.items.len;
                                     try dbg_info_buffer.resize(index + 4);
                                     try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
                                     // DW.AT.data_member_location, DW.FORM.udata
@@ -350,7 +350,7 @@ pub const DeclState = struct {
                                     dbg_info_buffer.appendSliceAssumeCapacity(field_name);
                                     dbg_info_buffer.appendAssumeCapacity(0);
                                     // DW.AT.type, DW.FORM.ref4
-                                    var index = dbg_info_buffer.items.len;
+                                    const index = dbg_info_buffer.items.len;
                                     try dbg_info_buffer.resize(index + 4);
                                     try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
                                     // DW.AT.data_member_location, DW.FORM.udata

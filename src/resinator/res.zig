@@ -357,7 +357,7 @@ pub const NameOrOrdinal = union(enum) {
     /// RC compiler would have allowed them, so that a proper warning/error
     /// can be emitted.
     pub fn maybeNonAsciiOrdinalFromString(bytes: SourceBytes) ?NameOrOrdinal {
-        var buf = bytes.slice;
+        const buf = bytes.slice;
         const radix = 10;
         if (buf.len > 2 and buf[0] == '0') {
             switch (buf[1]) {
@@ -514,7 +514,7 @@ test "NameOrOrdinal" {
     {
         var expected = blk: {
             // the input before the 𐐷 character, but uppercased
-            var expected_u8_bytes = "00614982008907933748980730280674788429543776231864944218790698304852300002973622122844631429099469274282385299397783838528QFFL7SHNSIETG0QKLR1UYPBTUV1PMFQRRA0VJDG354GQEDJMUPGPP1W1EXVNTZVEIZ6K3IPQM1AWGEYALMEODYVEZGOD3MFMGEY8FNR4JUETTB1PZDEWSNDRGZUA8SNXP3NGO";
+            const expected_u8_bytes = "00614982008907933748980730280674788429543776231864944218790698304852300002973622122844631429099469274282385299397783838528QFFL7SHNSIETG0QKLR1UYPBTUV1PMFQRRA0VJDG354GQEDJMUPGPP1W1EXVNTZVEIZ6K3IPQM1AWGEYALMEODYVEZGOD3MFMGEY8FNR4JUETTB1PZDEWSNDRGZUA8SNXP3NGO";
             var buf: [256:0]u16 = undefined;
             for (expected_u8_bytes, 0..) |byte, i| {
                 buf[i] = std.mem.nativeToLittle(u16, byte);

@@ -163,15 +163,15 @@ pub const Options = struct {
             // we shouldn't change anything.
             if (val_ptr.* == .undefine) return;
             // Otherwise, the new value takes precedence.
-            var duped_value = try self.allocator.dupe(u8, value);
+            const duped_value = try self.allocator.dupe(u8, value);
             errdefer self.allocator.free(duped_value);
             val_ptr.deinit(self.allocator);
             val_ptr.* = .{ .define = duped_value };
             return;
         }
-        var duped_key = try self.allocator.dupe(u8, identifier);
+        const duped_key = try self.allocator.dupe(u8, identifier);
         errdefer self.allocator.free(duped_key);
-        var duped_value = try self.allocator.dupe(u8, value);
+        const duped_value = try self.allocator.dupe(u8, value);
         errdefer self.allocator.free(duped_value);
         try self.symbols.put(self.allocator, duped_key, .{ .define = duped_value });
     }
@@ -183,7 +183,7 @@ pub const Options = struct {
             action.* = .{ .undefine = {} };
             return;
         }
-        var duped_key = try self.allocator.dupe(u8, identifier);
+        const duped_key = try self.allocator.dupe(u8, identifier);
         errdefer self.allocator.free(duped_key);
         try self.symbols.put(self.allocator, duped_key, .{ .undefine = {} });
     }
@@ -828,7 +828,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
         }
     }
 
-    var positionals = args[arg_i..];
+    const positionals = args[arg_i..];
 
     if (positionals.len < 1) {
         var err_details = Diagnostics.ErrorDetails{ .print_args = false, .arg_index = arg_i };

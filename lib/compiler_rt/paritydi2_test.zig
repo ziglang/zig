@@ -13,8 +13,8 @@ fn paritydi2Naive(a: i64) i32 {
 }
 
 fn test__paritydi2(a: i64) !void {
-    var x = parity.__paritydi2(a);
-    var expected: i64 = paritydi2Naive(a);
+    const x = parity.__paritydi2(a);
+    const expected: i64 = paritydi2Naive(a);
     try testing.expectEqual(expected, x);
 }
 
@@ -30,7 +30,7 @@ test "paritydi2" {
     var rnd = RndGen.init(42);
     var i: u32 = 0;
     while (i < 10_000) : (i += 1) {
-        var rand_num = rnd.random().int(i64);
+        const rand_num = rnd.random().int(i64);
         try test__paritydi2(rand_num);
     }
 }

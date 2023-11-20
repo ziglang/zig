@@ -20,6 +20,7 @@ test "union that needs padding bytes inside an array" {
         A{ .B = B{ .D = 1 } },
         A{ .B = B{ .D = 1 } },
     };
+    _ = &as;
 
     const a = as[0].B;
     try std.testing.expect(a.D == 1);

@@ -8,11 +8,11 @@ const Bar = union {
 };
 export fn a() void {
     var foo: Foo = undefined;
-    _ = foo;
+    _ = &foo;
 }
 export fn b() void {
     var bar: Bar = undefined;
-    _ = bar;
+    _ = &bar;
 }
 export fn c() void {
     const baz = &@as(O, undefined);

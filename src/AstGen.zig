@@ -1226,7 +1226,7 @@ fn awaitExpr(
             try astgen.errNoteNode(gz.suspend_node, "suspend block here", .{}),
         });
     }
-    const operand = try expr(gz, scope, .{ .rl = .none }, rhs_node);
+    const operand = try expr(gz, scope, .{ .rl = .ref }, rhs_node);
     const result = if (gz.nosuspend_node != 0)
         try gz.addExtendedPayload(.await_nosuspend, Zir.Inst.UnNode{
             .node = gz.nodeIndexToRelative(node),
@@ -1248,7 +1248,7 @@ fn resumeExpr(
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
     const rhs_node = node_datas[node].lhs;
-    const operand = try expr(gz, scope, .{ .rl = .none }, rhs_node);
+    const operand = try expr(gz, scope, .{ .rl = .ref }, rhs_node);
     const result = try gz.addUnNode(.@"resume", operand, node);
     return rvalue(gz, ri, result, node);
 }
@@ -1971,6 +1971,17 @@ fn comptimeExpr(
         .block_two, .block_two_semicolon, .block, .block_semicolon => {
             const token_tags = tree.tokens.items(.tag);
             const lbrace = main_tokens[node];
+            // Careful! We can't pass in the real result location here, since it may
+            // refer to runtime memory. A runtime-to-comptime boundary has to remove
+            // result location information, compute the result, and copy it to the true
+            // result location at runtime. We do this below as well.
+            const ty_only_ri: ResultInfo = .{
+                .ctx = ri.ctx,
+                .rl = if (try ri.rl.resultType(gz, node)) |res_ty|
+                    .{ .coerced_ty = res_ty }
+                else
+                    .none,
+            };
             if (token_tags[lbrace - 1] == .colon and
                 token_tags[lbrace - 2] == .identifier)
             {
@@ -1985,17 +1996,13 @@ fn comptimeExpr(
                         else
                             stmts[0..2];
 
-                        // Careful! We can't pass in the real result location here, since it may
-                        // refer to runtime memory. A runtime-to-comptime boundary has to remove
-                        // result location information, compute the result, and copy it to the true
-                        // result location at runtime. We do this below as well.
-                        const block_ref = try labeledBlockExpr(gz, scope, .{ .rl = .none }, node, stmt_slice, true);
+                        const block_ref = try labeledBlockExpr(gz, scope, ty_only_ri, node, stmt_slice, true);
                         return rvalue(gz, ri, block_ref, node);
                     },
                     .block, .block_semicolon => {
                         const stmts = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
                         // Replace result location and copy back later - see above.
-                        const block_ref = try labeledBlockExpr(gz, scope, .{ .rl = .none }, node, stmts, true);
+                        const block_ref = try labeledBlockExpr(gz, scope, ty_only_ri, node, stmts, true);
                         return rvalue(gz, ri, block_ref, node);
                     },
                     else => unreachable,
@@ -2013,7 +2020,14 @@ fn comptimeExpr(
 
     const block_inst = try gz.makeBlockInst(.block_comptime, node);
     // Replace result location and copy back later - see above.
-    const block_result = try expr(&block_scope, scope, .{ .rl = .none }, node);
+    const ty_only_ri: ResultInfo = .{
+        .ctx = ri.ctx,
+        .rl = if (try ri.rl.resultType(gz, node)) |res_ty|
+            .{ .coerced_ty = res_ty }
+        else
+            .none,
+    };
+    const block_result = try expr(&block_scope, scope, ty_only_ri, node);
     if (!gz.refIsNoReturn(block_result)) {
         _ = try block_scope.addBreak(.@"break", block_inst, block_result);
     }
@@ -2941,11 +2955,19 @@ fn checkUsed(gz: *GenZir, outer_scope: *Scope, inner_scope: *Scope) InnerError!v
                 const s = scope.cast(Scope.LocalPtr).?;
                 if (s.used == 0 and s.discarded == 0) {
                     try astgen.appendErrorTok(s.token_src, "unused {s}", .{@tagName(s.id_cat)});
-                } else if (s.used != 0 and s.discarded != 0) {
-                    try astgen.appendErrorTokNotes(s.discarded, "pointless discard of {s}", .{@tagName(s.id_cat)}, &[_]u32{
-                        try gz.astgen.errNoteTok(s.used, "used here", .{}),
-                    });
+                } else {
+                    if (s.used != 0 and s.discarded != 0) {
+                        try astgen.appendErrorTokNotes(s.discarded, "pointless discard of {s}", .{@tagName(s.id_cat)}, &[_]u32{
+                            try astgen.errNoteTok(s.used, "used here", .{}),
+                        });
+                    }
+                    if (s.id_cat == .@"local variable" and !s.used_as_lvalue) {
+                        try astgen.appendErrorTokNotes(s.token_src, "local variable is never mutated", .{}, &.{
+                            try astgen.errNoteTok(s.token_src, "consider using 'const'", .{}),
+                        });
+                    }
                 }
+
                 scope = s.parent;
             },
             .defer_normal, .defer_error => scope = scope.cast(Scope.Defer).?.parent,
@@ -6699,7 +6721,7 @@ fn forExpr(
         };
     }
 
-    var then_node = for_full.ast.then_expr;
+    const then_node = for_full.ast.then_expr;
     var then_scope = parent_gz.makeSubBlock(&cond_scope.base);
     defer then_scope.unstack();
 
@@ -7579,7 +7601,10 @@ fn localVarRef(
                 );
 
                 switch (ri.rl) {
-                    .ref, .ref_coerced_ty => return ptr_inst,
+                    .ref, .ref_coerced_ty => {
+                        local_ptr.used_as_lvalue = true;
+                        return ptr_inst;
+                    },
                     else => {
                         const loaded = try gz.addUnNode(.load, ptr_inst, ident);
                         return rvalueNoCoercePreRef(gz, ri, loaded, ident);
@@ -8149,7 +8174,7 @@ fn typeOf(
     }
     const payload_size: u32 = std.meta.fields(Zir.Inst.TypeOfPeer).len;
     const payload_index = try reserveExtra(astgen, payload_size + args.len);
-    var args_index = payload_index + payload_size;
+    const args_index = payload_index + payload_size;
 
     const typeof_inst = try gz.addExtendedMultiOpPayloadIndex(.typeof_peer, payload_index, args.len);
 
@@ -10948,6 +10973,9 @@ const Scope = struct {
         /// Track the identifier where it is discarded, like this `_ = foo;`.
         /// 0 means never discarded.
         discarded: Ast.TokenIndex = 0,
+        /// Whether this value is used as an lvalue after inititialization.
+        /// If not, we know it can be `const`, so will emit a compile error if it is `var`.
+        used_as_lvalue: bool = false,
         /// String table index.
         name: u32,
         id_cat: IdCat,

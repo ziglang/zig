@@ -12,6 +12,7 @@ pub fn main() !void {
     var buf = [4]u8{ 'a', 'b', 'c', 0 };
     const input: []u8 = &buf;
     var len: usize = 4;
+    _ = &len;
     const slice = input[0..len :0];
     _ = slice;
     return error.TestFailed;

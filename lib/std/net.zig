@@ -662,7 +662,7 @@ pub fn connectUnixSocket(path: []const u8) !Stream {
 fn if_nametoindex(name: []const u8) !u32 {
     if (builtin.target.os.tag == .linux) {
         var ifr: os.ifreq = undefined;
-        var sockfd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM | os.SOCK.CLOEXEC, 0);
+        const sockfd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM | os.SOCK.CLOEXEC, 0);
         defer os.closeSocket(sockfd);
 
         @memcpy(ifr.ifrn.name[0..name.len], name);
@@ -1375,7 +1375,7 @@ fn linuxLookupNameFromDns(
     rc: ResolvConf,
     port: u16,
 ) !void {
-    var ctx = dpc_ctx{
+    const ctx = dpc_ctx{
         .addrs = addrs,
         .canon = canon,
         .port = port,
@@ -1591,8 +1591,8 @@ fn resMSendRc(
     }};
     const retry_interval = timeout / attempts;
     var next: u32 = 0;
-    var t2: u64 = @as(u64, @bitCast(std.time.milliTimestamp()));
-    var t0 = t2;
+    var t2: u64 = @bitCast(std.time.milliTimestamp());
+    const t0 = t2;
     var t1 = t2 - retry_interval;
 
     var servfail_retry: usize = undefined;

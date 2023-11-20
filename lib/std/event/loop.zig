@@ -753,7 +753,7 @@ pub const Loop = struct {
             }
         };
 
-        var run_frame = try alloc.create(@Frame(Wrapper.run));
+        const run_frame = try alloc.create(@Frame(Wrapper.run));
         run_frame.* = async Wrapper.run(args, self, alloc);
     }
 

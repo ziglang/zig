@@ -1,5 +1,5 @@
 comptime {
-    var a: anyerror!bool = undefined;
+    const a: anyerror!bool = undefined;
     if (a catch false) {}
 }
 

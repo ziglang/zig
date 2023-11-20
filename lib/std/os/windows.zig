@@ -1166,7 +1166,7 @@ test "QueryObjectName" {
     const handle = tmp.dir.fd;
     var out_buffer: [PATH_MAX_WIDE]u16 = undefined;
 
-    var result_path = try QueryObjectName(handle, &out_buffer);
+    const result_path = try QueryObjectName(handle, &out_buffer);
     const required_len_in_u16 = result_path.len + @divExact(@intFromPtr(result_path.ptr) - @intFromPtr(&out_buffer), 2) + 1;
     //insufficient size
     try std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. required_len_in_u16 - 1]));
@@ -2045,8 +2045,8 @@ pub fn eqlIgnoreCaseUtf8(a: []const u8, b: []const u8) bool {
     };
 
     while (true) {
-        var a_cp = a_utf8_it.nextCodepoint() orelse break;
-        var b_cp = b_utf8_it.nextCodepoint() orelse return false;
+        const a_cp = a_utf8_it.nextCodepoint() orelse break;
+        const b_cp = b_utf8_it.nextCodepoint() orelse return false;
 
         if (a_cp <= std.math.maxInt(u16) and b_cp <= std.math.maxInt(u16)) {
             if (a_cp != b_cp and upcaseImpl(@intCast(a_cp)) != upcaseImpl(@intCast(b_cp))) {

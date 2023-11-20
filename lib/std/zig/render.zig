@@ -3495,7 +3495,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         /// Turns all one-shot indents into regular indents
         /// Returns number of indents that must now be manually popped
         pub fn lockOneShotIndent(self: *Self) usize {
-            var locked_count = self.indent_one_shot_count;
+            const locked_count = self.indent_one_shot_count;
             self.indent_one_shot_count = 0;
             return locked_count;
         }

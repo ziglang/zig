@@ -1,36 +1,36 @@
 // operator ==
 comptime {
-    var a: i64 = undefined;
+    const a: i64 = undefined;
     var x: i32 = 0;
     if (a == a) x += 1;
 }
 // operator !=
 comptime {
-    var a: i64 = undefined;
+    const a: i64 = undefined;
     var x: i32 = 0;
     if (a != a) x += 1;
 }
 // operator >
 comptime {
-    var a: i64 = undefined;
+    const a: i64 = undefined;
     var x: i32 = 0;
     if (a > a) x += 1;
 }
 // operator <
 comptime {
-    var a: i64 = undefined;
+    const a: i64 = undefined;
     var x: i32 = 0;
     if (a < a) x += 1;
 }
 // operator >=
 comptime {
-    var a: i64 = undefined;
+    const a: i64 = undefined;
     var x: i32 = 0;
     if (a >= a) x += 1;
 }
 // operator <=
 comptime {
-    var a: i64 = undefined;
+    const a: i64 = undefined;
     var x: i32 = 0;
     if (a <= a) x += 1;
 }

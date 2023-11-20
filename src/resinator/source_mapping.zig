@@ -251,7 +251,7 @@ pub fn handleLineCommand(allocator: Allocator, line_command: []const u8, current
 }
 
 pub fn parseAndRemoveLineCommandsAlloc(allocator: Allocator, source: []const u8, options: ParseAndRemoveLineCommandsOptions) !ParseLineCommandsResult {
-    var buf = try allocator.alloc(u8, source.len);
+    const buf = try allocator.alloc(u8, source.len);
     errdefer allocator.free(buf);
     var result = try parseAndRemoveLineCommands(allocator, source, buf, options);
     result.result = try allocator.realloc(buf, result.result.len);
@@ -440,7 +440,7 @@ pub const SourceMappings = struct {
     }
 
     pub fn set(self: *SourceMappings, allocator: Allocator, line_num: usize, span: SourceSpan) !void {
-        var ptr = try self.expandAndGet(allocator, line_num);
+        const ptr = try self.expandAndGet(allocator, line_num);
         ptr.* = span;
     }
 

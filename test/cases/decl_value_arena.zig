@@ -14,7 +14,7 @@ pub const Connection = struct {
 
 pub fn main() void {
     var conn: Connection = undefined;
-    _ = conn;
+    _ = &conn;
 }
 
 // run

@@ -563,7 +563,7 @@ fn allocateAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignme
 
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
-    var vaddr = blk: {
+    const vaddr = blk: {
         var i: usize = 0;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
@@ -815,7 +815,7 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
 }
 
 fn debugMem(allocator: Allocator, handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
-    var buffer = try allocator.alloc(u8, code.len);
+    const buffer = try allocator.alloc(u8, code.len);
     defer allocator.free(buffer);
     const memread = try std.os.windows.ReadProcessMemory(handle, pvaddr, buffer);
     log.debug("to write: {x}", .{std.fmt.fmtSliceHexLower(code)});
@@ -1071,7 +1071,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
         &code_buffer,
         .none,
     );
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1132,7 +1132,7 @@ fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, required_alignment:
     const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| return .{ .fail = em },
     };
@@ -1196,7 +1196,7 @@ pub fn updateDecl(
     }, &code_buffer, .none, .{
         .parent_atom_index = atom.getSymbolIndex().?,
     });
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;

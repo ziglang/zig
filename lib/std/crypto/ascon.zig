@@ -42,8 +42,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
 
         /// Initialize the state from u64 words in native endianness.
         pub fn initFromWords(initial_state: [5]u64) Self {
-            var state = Self{ .st = initial_state };
-            return state;
+            return .{ .st = initial_state };
         }
 
         /// Initialize the state for Ascon XOF

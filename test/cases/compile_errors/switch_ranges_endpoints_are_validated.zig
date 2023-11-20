@@ -1,12 +1,12 @@
 pub export fn entry1() void {
-    var x: i32 = 0;
+    const x: i32 = 0;
     switch (x) {
         6...1 => {},
         else => unreachable,
     }
 }
 pub export fn entr2() void {
-    var x: i32 = 0;
+    const x: i32 = 0;
     switch (x) {
         -1...-5 => {},
         else => unreachable,

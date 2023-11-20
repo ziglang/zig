@@ -58,7 +58,7 @@ test "chdir smoke test" {
     {
         // Create a tmp directory
         var tmp_dir_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-        var tmp_dir_path = path: {
+        const tmp_dir_path = path: {
             var allocator = std.heap.FixedBufferAllocator.init(&tmp_dir_buf);
             break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{ old_cwd, "zig-test-tmp" });
         };
@@ -72,7 +72,7 @@ test "chdir smoke test" {
 
         // On Windows, fs.path.resolve returns an uppercase drive letter, but the drive letter returned by getcwd may be lowercase
         var resolved_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-        var resolved_cwd = path: {
+        const resolved_cwd = path: {
             var allocator = std.heap.FixedBufferAllocator.init(&resolved_cwd_buf);
             break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{new_cwd});
         };
@@ -523,7 +523,7 @@ test "pipe" {
     if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
-    var fds = try os.pipe();
+    const fds = try os.pipe();
     try expect((try os.write(fds[1], "hello")) == 5);
     var buf: [16]u8 = undefined;
     try expect((try os.read(fds[0], buf[0..])) == 5);
@@ -533,7 +533,7 @@ test "pipe" {
 }
 
 test "argsAlloc" {
-    var args = try std.process.argsAlloc(std.testing.allocator);
+    const args = try std.process.argsAlloc(std.testing.allocator);
     std.process.argsFree(std.testing.allocator, args);
 }
 
@@ -1087,7 +1087,7 @@ test "timerfd" {
         return error.SkipZigTest;
 
     const linux = os.linux;
-    var tfd = try os.timerfd_create(linux.CLOCK.MONOTONIC, linux.TFD.CLOEXEC);
+    const tfd = try os.timerfd_create(linux.CLOCK.MONOTONIC, linux.TFD.CLOEXEC);
     defer os.close(tfd);
 
     // Fire event 10_000_000ns = 10ms after the os.timerfd_settime call.
@@ -1097,8 +1097,8 @@ test "timerfd" {
     var fds: [1]os.pollfd = .{.{ .fd = tfd, .events = os.linux.POLL.IN, .revents = 0 }};
     try expectEqual(@as(usize, 1), try os.poll(&fds, -1)); // -1 => infinite waiting
 
-    var git = try os.timerfd_gettime(tfd);
-    var expect_disarmed_timer: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 0 } };
+    const git = try os.timerfd_gettime(tfd);
+    const expect_disarmed_timer: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 0 } };
     try expectEqual(expect_disarmed_timer, git);
 }
 
@@ -1128,11 +1128,11 @@ test "read with empty buffer" {
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
-    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    const file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
     var file = try fs.cwd().createFile(file_path, .{ .read = true });
     defer file.close();
 
-    var bytes = try allocator.alloc(u8, 0);
+    const bytes = try allocator.alloc(u8, 0);
 
     _ = try os.read(file.handle, bytes);
 }
@@ -1153,11 +1153,11 @@ test "pread with empty buffer" {
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
-    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    const file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
     var file = try fs.cwd().createFile(file_path, .{ .read = true });
     defer file.close();
 
-    var bytes = try allocator.alloc(u8, 0);
+    const bytes = try allocator.alloc(u8, 0);
 
     _ = try os.pread(file.handle, bytes, 0);
 }
@@ -1178,11 +1178,11 @@ test "write with empty buffer" {
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
-    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    const file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
     var file = try fs.cwd().createFile(file_path, .{});
     defer file.close();
 
-    var bytes = try allocator.alloc(u8, 0);
+    const bytes = try allocator.alloc(u8, 0);
 
     _ = try os.write(file.handle, bytes);
 }
@@ -1203,11 +1203,11 @@ test "pwrite with empty buffer" {
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
-    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    const file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
     var file = try fs.cwd().createFile(file_path, .{});
     defer file.close();
 
-    var bytes = try allocator.alloc(u8, 0);
+    const bytes = try allocator.alloc(u8, 0);
 
     _ = try os.pwrite(file.handle, bytes, 0);
 }

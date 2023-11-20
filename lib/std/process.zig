@@ -298,9 +298,9 @@ pub fn getEnvMap(allocator: Allocator) !EnvMap {
             return result;
         }
 
-        var environ = try allocator.alloc([*:0]u8, environ_count);
+        const environ = try allocator.alloc([*:0]u8, environ_count);
         defer allocator.free(environ);
-        var environ_buf = try allocator.alloc(u8, environ_buf_size);
+        const environ_buf = try allocator.alloc(u8, environ_buf_size);
         defer allocator.free(environ_buf);
 
         const environ_get_ret = os.wasi.environ_get(environ.ptr, environ_buf.ptr);
@@ -412,7 +412,7 @@ pub fn hasEnvVar(allocator: Allocator, key: []const u8) error{OutOfMemory}!bool 
 }
 
 test "os.getEnvVarOwned" {
-    var ga = std.testing.allocator;
+    const ga = std.testing.allocator;
     try testing.expectError(error.EnvironmentVariableNotFound, getEnvVarOwned(ga, "BADENV"));
 }
 
@@ -477,10 +477,10 @@ pub const ArgIteratorWasi = struct {
             return &[_][:0]u8{};
         }
 
-        var argv = try allocator.alloc([*:0]u8, count);
+        const argv = try allocator.alloc([*:0]u8, count);
         defer allocator.free(argv);
 
-        var argv_buf = try allocator.alloc(u8, buf_size);
+        const argv_buf = try allocator.alloc(u8, buf_size);
 
         switch (w.args_get(argv.ptr, argv_buf.ptr)) {
             .SUCCESS => {},
@@ -551,7 +551,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
 
         /// cmd_line_utf8 MUST remain valid and constant while using this instance
         pub fn init(allocator: Allocator, cmd_line_utf8: []const u8) InitError!Self {
-            var buffer = try allocator.alloc(u8, cmd_line_utf8.len + 1);
+            const buffer = try allocator.alloc(u8, cmd_line_utf8.len + 1);
             errdefer allocator.free(buffer);
 
             return Self{
@@ -564,7 +564,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
 
         /// cmd_line_utf8 will be free'd (with the allocator) on deinit()
         pub fn initTakeOwnership(allocator: Allocator, cmd_line_utf8: []const u8) InitError!Self {
-            var buffer = try allocator.alloc(u8, cmd_line_utf8.len + 1);
+            const buffer = try allocator.alloc(u8, cmd_line_utf8.len + 1);
             errdefer allocator.free(buffer);
 
             return Self{
@@ -577,8 +577,8 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
 
         /// cmd_line_utf16le MUST be encoded UTF16-LE, and is converted to UTF-8 in an internal buffer
         pub fn initUtf16le(allocator: Allocator, cmd_line_utf16le: [*:0]const u16) InitUtf16leError!Self {
-            var utf16le_slice = mem.sliceTo(cmd_line_utf16le, 0);
-            var cmd_line = std.unicode.utf16leToUtf8Alloc(allocator, utf16le_slice) catch |err| switch (err) {
+            const utf16le_slice = mem.sliceTo(cmd_line_utf16le, 0);
+            const cmd_line = std.unicode.utf16leToUtf8Alloc(allocator, utf16le_slice) catch |err| switch (err) {
                 error.ExpectedSecondSurrogateHalf,
                 error.DanglingSurrogateHalf,
                 error.UnexpectedSecondSurrogateHalf,
@@ -588,7 +588,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
             };
             errdefer allocator.free(cmd_line);
 
-            var buffer = try allocator.alloc(u8, cmd_line.len + 1);
+            const buffer = try allocator.alloc(u8, cmd_line.len + 1);
             errdefer allocator.free(buffer);
 
             return Self{
@@ -681,7 +681,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
                     0 => {
                         self.emitBackslashes(backslash_count);
                         self.buffer[self.end] = 0;
-                        var token = self.buffer[self.start..self.end :0];
+                        const token = self.buffer[self.start..self.end :0];
                         self.end += 1;
                         self.start = self.end;
                         return token;
@@ -713,7 +713,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
                             self.emitCharacter(character);
                         } else {
                             self.buffer[self.end] = 0;
-                            var token = self.buffer[self.start..self.end :0];
+                            const token = self.buffer[self.start..self.end :0];
                             self.end += 1;
                             self.start = self.end;
                             return token;

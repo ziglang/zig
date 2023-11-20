@@ -4,7 +4,7 @@ const U = union {
 };
 pub export fn entry() void {
     var u: U = undefined;
-    _ = u;
+    _ = &u;
 }
 
 // error

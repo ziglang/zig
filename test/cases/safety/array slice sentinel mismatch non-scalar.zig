@@ -11,7 +11,7 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 pub fn main() !void {
     const S = struct { a: u32 };
     var arr = [_]S{ .{ .a = 1 }, .{ .a = 2 } };
-    var s = arr[0..1 :.{ .a = 1 }];
+    const s = arr[0..1 :.{ .a = 1 }];
     _ = s;
     return error.TestFailed;
 }

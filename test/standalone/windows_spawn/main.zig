@@ -158,7 +158,7 @@ fn testExec(allocator: std.mem.Allocator, command: []const u8, expected_stdout: 
 }
 
 fn testExecWithCwd(allocator: std.mem.Allocator, command: []const u8, cwd: ?[]const u8, expected_stdout: []const u8) !void {
-    var result = try std.ChildProcess.run(.{
+    const result = try std.ChildProcess.run(.{
         .allocator = allocator,
         .argv = &[_][]const u8{command},
         .cwd = cwd,

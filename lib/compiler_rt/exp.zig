@@ -117,7 +117,7 @@ pub fn exp(x_: f64) callconv(.C) f64 {
     const P5: f64 = 4.13813679705723846039e-08;
 
     var x = x_;
-    var ux: u64 = @bitCast(x);
+    const ux: u64 = @bitCast(x);
     var hx = ux >> 32;
     const sign: i32 = @intCast(hx >> 31);
     hx &= 0x7FFFFFFF;
