@@ -5488,11 +5488,6 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     if (last != .Eof and last != .Nl)
         return m.fail(c, "unable to translate C expr: unexpected token '{s}'", .{last.symbol()});
 
-    if (init_node.castTag(.string_literal)) |ident| {
-        if (std.mem.eql(u8, ident.data, "\"\"")) {
-            try c.global_scope.blank_macros.put(m.name, {});
-        }
-    }
     const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
     try c.global_scope.macro_table.put(m.name, var_decl);
 }
@@ -5902,7 +5897,7 @@ fn escapeUnprintables(ctx: *Context, m: *MacroCtx) ![]const u8 {
     };
 }
 
-fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
+fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope, skipped_tokens: usize) ParseError!Node {
     const tok = m.next().?;
     const slice = m.slice();
     switch (tok) {
@@ -5921,11 +5916,27 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
             return parseCNumLit(c, m);
         },
         .Identifier => {
-            const mangled_name = scope.getAlias(slice);
-            if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
-            const identifier = try Tag.identifier.create(c.arena, mangled_name);
-            scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);
-            return identifier;
+            if (!c.global_scope.blank_macros.contains(slice)) {
+                const mangled_name = scope.getAlias(slice);
+                if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
+                const identifier = try Tag.identifier.create(c.arena, mangled_name);
+                scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);
+                return identifier;
+            }
+            switch (m.peek().?) {
+                .Nl, .Eof => {
+                    // We know this entire macro is blank if all tokens except 3 were skipped.
+                    // The not skipped token are this current token, the macro name, and Eof.
+                    if (skipped_tokens + 3 == m.list.len) {
+                        try c.global_scope.blank_macros.put(m.name, {});
+                    }
+                    return Tag.string_literal.create(c.arena, "\"\"");
+                },
+                else => {
+                    // Skip this token entirely.
+                    return parseCPrimaryExprInner(c, m, scope, skipped_tokens + 1);
+                },
+            }
         },
         .LParen => {
             const inner_node = try parseCExpr(c, m, scope);
@@ -5947,25 +5958,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
 }
 
 fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
-    var node = try parseCPrimaryExprInner(c, m, scope);
-    while (node.castTag(.identifier)) |identifier_tag| {
-        // If the given macro is blank, simply ignore it and skip to the next.
-        if (c.global_scope.blank_macros.contains(identifier_tag.data)) {
-            switch (m.peek().?) {
-                .Nl, .Eof => {
-                    // Every token in this primary expr is an identifier contained in the blank_macros set,
-                    // so we can treat this expression as also blank.
-                    return Tag.string_literal.create(c.arena, "\"\"");
-                },
-                else => {
-                    node = try parseCPrimaryExprInner(c, m, scope);
-                    continue;
-                },
-            }
-        } else {
-            break;
-        }
-    }
+    var node = try parseCPrimaryExprInner(c, m, scope, 0);
     // In C the preprocessor would handle concatting strings while expanding macros.
     // This should do approximately the same by concatting any strings and identifiers
     // after a primary expression.
@@ -5974,7 +5967,7 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             .StringLiteral, .Identifier => {},
             else => break,
         }
-        const rhs = try parseCPrimaryExprInner(c, m, scope);
+        const rhs = try parseCPrimaryExprInner(c, m, scope, 0);
         if (c.global_scope.blank_macros.contains(m.slice())) {
             continue;
         }
