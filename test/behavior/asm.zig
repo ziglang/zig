@@ -180,6 +180,7 @@ test "asm modifiers (AArch64)" {
     if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // MSVC doesn't support inline assembly
 
     var x: u32 = 15;
+    _ = &x;
     const double = asm ("add %[ret:w], %[in:w], %[in:w]"
         : [ret] "=r" (-> u32),
         : [in] "r" (x),

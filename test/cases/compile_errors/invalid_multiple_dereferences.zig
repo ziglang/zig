@@ -1,11 +1,12 @@
 export fn a() void {
     var box = Box{ .field = 0 };
+    _ = &box;
     box.*.field = 1;
 }
 export fn b() void {
     var box = Box{ .field = 0 };
-    var boxPtr = &box;
-    boxPtr.*.*.field = 1;
+    const box_ptr = &box;
+    box_ptr.*.*.field = 1;
 }
 pub const Box = struct {
     field: i32,
@@ -15,5 +16,5 @@ pub const Box = struct {
 // backend=stage2
 // target=native
 //
-// :3:8: error: cannot dereference non-pointer type 'tmp.Box'
-// :8:13: error: cannot dereference non-pointer type 'tmp.Box'
+// :4:8: error: cannot dereference non-pointer type 'tmp.Box'
+// :9:14: error: cannot dereference non-pointer type 'tmp.Box'

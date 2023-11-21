@@ -90,8 +90,8 @@ pub const Poly1305 = struct {
             h2 = t2 & 3;
 
             // Add c*(4+1)
-            var cclo = t2 & ~@as(u64, 3);
-            var cchi = t3;
+            const cclo = t2 & ~@as(u64, 3);
+            const cchi = t3;
             v = @addWithOverflow(h0, cclo);
             h0 = v[0];
             v = add(h1, cchi, v[1]);
@@ -163,7 +163,7 @@ pub const Poly1305 = struct {
 
         var h0 = st.h[0];
         var h1 = st.h[1];
-        var h2 = st.h[2];
+        const h2 = st.h[2];
 
         // H - (2^130 - 5)
         var v = @subWithOverflow(h0, 0xfffffffffffffffb);

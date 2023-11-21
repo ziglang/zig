@@ -1,25 +1,31 @@
 const std = @import("std");
-const GenerateDef = @This();
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
 const GeneratedFile = std.Build.GeneratedFile;
 
+const GenerateDef = @This();
+
 step: Step,
 path: []const u8,
+name: []const u8,
+kind: Options.Kind,
 generated_file: GeneratedFile,
 
 pub const base_id: Step.Id = .custom;
 
-pub fn add(
-    owner: *std.Build,
-    def_file_path: []const u8,
-    import_path: []const u8,
-    compile_step: *Step.Compile,
-    aro_module: *std.Build.Module,
-) void {
-    const self = owner.allocator.create(GenerateDef) catch @panic("OOM");
+pub const Options = struct {
+    name: []const u8,
+    src_prefix: []const u8 = "src/aro",
+    kind: Kind = .dafsa,
 
-    const name = owner.fmt("GenerateDef {s}", .{def_file_path});
+    pub const Kind = enum { dafsa, named };
+};
+
+pub fn create(owner: *std.Build, options: Options) std.Build.ModuleDependency {
+    const self = owner.allocator.create(GenerateDef) catch @panic("OOM");
+    const path = owner.pathJoin(&.{ options.src_prefix, options.name });
+
+    const name = owner.fmt("GenerateDef {s}", .{options.name});
     self.* = .{
         .step = Step.init(.{
             .id = base_id,
@@ -27,16 +33,18 @@ pub fn add(
             .owner = owner,
             .makeFn = make,
         }),
-        .path = def_file_path,
+        .path = path,
+        .name = options.name,
+        .kind = options.kind,
         .generated_file = .{ .step = &self.step },
     };
-
-    const module = owner.createModule(.{
+    const module = self.step.owner.createModule(.{
         .source_file = .{ .generated = &self.generated_file },
     });
-    compile_step.addModule(import_path, module);
-    compile_step.step.dependOn(&self.step);
-    aro_module.dependencies.put(import_path, module) catch @panic("OOM");
+    return .{
+        .module = module,
+        .name = self.name,
+    };
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
@@ -132,7 +140,7 @@ fn generate(self: *GenerateDef, input: []const u8) ![]const u8 {
     }
 
     {
-        var sorted_list = try arena.dupe([]const u8, values.keys());
+        const sorted_list = try arena.dupe([]const u8, values.keys());
         defer arena.free(sorted_list);
         std.mem.sort([]const u8, sorted_list, {}, struct {
             pub fn lessThan(_: void, a: []const u8, b: []const u8) bool {
@@ -168,15 +176,6 @@ fn generate(self: *GenerateDef, input: []const u8) ![]const u8 {
             }
         }
 
-        var values_array = try arena.alloc(Value, values.count());
-        defer arena.free(values_array);
-
-        for (values.keys(), values.values()) |name, props| {
-            const unique_index = builder.getUniqueIndex(name).?;
-            const data_index = unique_index - 1;
-            values_array[data_index] = .{ .name = name, .properties = props };
-        }
-
         var out_buf = std.ArrayList(u8).init(arena);
         defer out_buf.deinit();
         const writer = out_buf.writer();
@@ -193,6 +192,49 @@ fn generate(self: *GenerateDef, input: []const u8) ![]const u8 {
         for (headers.items) |line| {
             try writer.print("{s}\n", .{line});
         }
+        if (self.kind == .named) {
+            try writer.writeAll("pub const Tag = enum {\n");
+            for (values.keys()) |property| {
+                try writer.print("    {s},\n", .{std.zig.fmtId(property)});
+            }
+            try writer.writeAll(
+                \\
+                \\    pub fn property(tag: Tag) Properties {
+                \\        return named_data[@intFromEnum(tag)];
+                \\    }
+                \\
+                \\    const named_data = [_]Properties{
+                \\
+            );
+            for (values.values()) |val_props| {
+                try writer.writeAll("        .{");
+                for (val_props, 0..) |val_prop, j| {
+                    if (j != 0) try writer.writeByte(',');
+                    try writer.writeByte(' ');
+                    try writer.writeAll(val_prop);
+                }
+                try writer.writeAll(" },\n");
+            }
+            try writer.writeAll(
+                \\    };
+                \\};
+                \\};
+                \\}
+                \\
+            );
+
+            return out_buf.toOwnedSlice();
+        }
+
+        var values_array = try arena.alloc(Value, values.count());
+        defer arena.free(values_array);
+
+        for (values.keys(), values.values()) |name, props| {
+            const unique_index = builder.getUniqueIndex(name).?;
+            const data_index = unique_index - 1;
+            values_array[data_index] = .{ .name = name, .properties = props };
+        }
+
         try writer.writeAll(
             \\
             \\tag: Tag,
@@ -418,7 +460,7 @@ const DafsaBuilder = struct {
         var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
 
-        var root = try arena.allocator().create(Node);
+        const root = try arena.allocator().create(Node);
         root.* = .{};
         return DafsaBuilder{
             .root = root,
@@ -498,7 +540,7 @@ const DafsaBuilder = struct {
             std.debug.assert(node.children[c] == null);
 
             var arena = self.arena.promote(self.allocator);
-            var child = try arena.allocator().create(Node);
+            const child = try arena.allocator().create(Node);
             self.arena = arena.state;
 
             child.* = .{};

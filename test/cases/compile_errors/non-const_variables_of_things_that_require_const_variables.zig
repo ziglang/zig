@@ -1,30 +1,30 @@
 export fn entry1() void {
     var m2 = &2;
-    _ = m2;
+    _ = &m2;
 }
 export fn entry2() void {
     var a = undefined;
-    _ = a;
+    _ = &a;
 }
 export fn entry3() void {
     var b = 1;
-    _ = b;
+    _ = &b;
 }
 export fn entry4() void {
     var c = 1.0;
-    _ = c;
+    _ = &c;
 }
 export fn entry5() void {
     var d = null;
-    _ = d;
+    _ = &d;
 }
 export fn entry6(opaque_: *Opaque) void {
     var e = opaque_.*;
-    _ = e;
+    _ = &e;
 }
 export fn entry7() void {
     var f = i32;
-    _ = f;
+    _ = &f;
 }
 const Opaque = opaque {};
 export fn entry8() void {

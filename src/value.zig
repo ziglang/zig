@@ -597,10 +597,10 @@ pub const Value = struct {
         var check = val;
         while (true) switch (mod.intern_pool.indexToKey(check.toIntern())) {
             .ptr => |ptr| switch (ptr.addr) {
-                .decl, .mut_decl, .comptime_field => return true,
+                .decl, .mut_decl, .comptime_field, .anon_decl => return true,
                 .eu_payload, .opt_payload => |base| check = base.toValue(),
                 .elem, .field => |base_index| check = base_index.base.toValue(),
-                else => return false,
+                .int => return false,
             },
             else => return false,
         };
@@ -2136,7 +2136,7 @@ pub const Value = struct {
             lhs_bigint.limbs.len + rhs_bigint.limbs.len,
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-        var limbs_buffer = try arena.alloc(
+        const limbs_buffer = try arena.alloc(
             std.math.big.Limb,
             std.math.big.int.calcMulLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len, 1),
         );
@@ -2249,7 +2249,7 @@ pub const Value = struct {
             ),
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-        var limbs_buffer = try arena.alloc(
+        const limbs_buffer = try arena.alloc(
             std.math.big.Limb,
             std.math.big.int.calcMulLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len, 1),
         );
@@ -2788,7 +2788,7 @@ pub const Value = struct {
             lhs_bigint.limbs.len + rhs_bigint.limbs.len,
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-        var limbs_buffer = try allocator.alloc(
+        const limbs_buffer = try allocator.alloc(
             std.math.big.Limb,
             std.math.big.int.calcMulLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len, 1),
         );

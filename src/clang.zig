@@ -506,6 +506,9 @@ pub const FloatingLiteral = opaque {
     pub const getValueAsApproximateDouble = ZigClangFloatingLiteral_getValueAsApproximateDouble;
     extern fn ZigClangFloatingLiteral_getValueAsApproximateDouble(*const FloatingLiteral) f64;
 
+    pub const getValueAsApproximateQuadBits = ZigClangFloatingLiteral_getValueAsApproximateQuadBits;
+    extern fn ZigClangFloatingLiteral_getValueAsApproximateQuadBits(*const FloatingLiteral, low: *u64, high: *u64) void;
+
     pub const getBeginLoc = ZigClangFloatingLiteral_getBeginLoc;
     extern fn ZigClangFloatingLiteral_getBeginLoc(*const FloatingLiteral) SourceLocation;
 

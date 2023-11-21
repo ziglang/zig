@@ -9,6 +9,7 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 }
 pub fn main() !void {
     var a: @Vector(4, i16) = [_]i16{ 1, -32768, 200, 4 };
+    _ = &a;
     const x = neg(a);
     _ = x;
     return error.TestFailed;

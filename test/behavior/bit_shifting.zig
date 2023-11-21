@@ -99,9 +99,9 @@ fn testShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, c
 // #2225
 test "comptime shr of BigInt" {
     comptime {
-        var n0 = 0xdeadbeef0000000000000000;
+        const n0 = 0xdeadbeef0000000000000000;
         try expect(n0 >> 64 == 0xdeadbeef);
-        var n1 = 17908056155735594659;
+        const n1 = 17908056155735594659;
         try expect(n1 >> 64 == 0);
     }
 }

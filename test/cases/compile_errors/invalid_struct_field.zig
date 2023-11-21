@@ -8,6 +8,7 @@ export fn f() void {
 export fn g() void {
     var a: A = undefined;
     const y = a.bar;
+    _ = &a;
     _ = y;
 }
 export fn e() void {
@@ -26,5 +27,5 @@ export fn e() void {
 // :1:11: note: struct declared here
 // :10:17: error: no field named 'bar' in struct 'tmp.A'
 // :1:11: note: struct declared here
-// :18:45: error: no field named 'f' in struct 'tmp.e.B'
-// :14:15: note: struct declared here
+// :19:45: error: no field named 'f' in struct 'tmp.e.B'
+// :15:15: note: struct declared here

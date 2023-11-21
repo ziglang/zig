@@ -300,7 +300,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Plan9 {
         else => return error.UnsupportedP9Architecture,
     };
 
-    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+    const arena_allocator = std.heap.ArenaAllocator.init(gpa);
 
     const self = try gpa.create(Plan9);
     self.* = .{
@@ -467,7 +467,7 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: Module.Decl.I
 
     const sym_index = try self.allocateSymbolIndex();
     const new_atom_idx = try self.createAtom();
-    var info: Atom = .{
+    const info: Atom = .{
         .type = .d,
         .offset = null,
         .sym_index = sym_index,
@@ -496,7 +496,7 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: Module.Decl.I
         },
     };
     // duped_code is freed when the unnamed const is freed
-    var duped_code = try self.base.allocator.dupe(u8, code);
+    const duped_code = try self.base.allocator.dupe(u8, code);
     errdefer self.base.allocator.free(duped_code);
     const new_atom = self.getAtomPtr(new_atom_idx);
     new_atom.* = info;
@@ -1024,7 +1024,7 @@ pub fn freeDecl(self: *Plan9, decl_index: Module.Decl.Index) void {
     const decl = mod.declPtr(decl_index);
     const is_fn = decl.val.isFuncBody(mod);
     if (is_fn) {
-        var symidx_and_submap = self.fn_decl_table.get(decl.getFileScope(mod)).?;
+        const symidx_and_submap = self.fn_decl_table.get(decl.getFileScope(mod)).?;
         var submap = symidx_and_submap.functions;
         if (submap.fetchSwapRemove(decl_index)) |removed_entry| {
             self.base.allocator.free(removed_entry.value.code);
@@ -1204,7 +1204,7 @@ fn updateLazySymbolAtom(self: *Plan9, sym: File.LazySymbol, atom_index: Atom.Ind
         },
     };
     // duped_code is freed when the atom is freed
-    var duped_code = try self.base.allocator.dupe(u8, code);
+    const duped_code = try self.base.allocator.dupe(u8, code);
     errdefer self.base.allocator.free(duped_code);
     self.getAtomPtr(atom_index).code = .{
         .code_ptr = duped_code.ptr,
@@ -1489,7 +1489,7 @@ pub fn lowerAnonDecl(self: *Plan9, decl_val: InternPool.Index, src_loc: Module.S
     // to put it in some location.
     // ...
     const gpa = self.base.allocator;
-    var gop = try self.anon_decls.getOrPut(gpa, decl_val);
+    const gop = try self.anon_decls.getOrPut(gpa, decl_val);
     const mod = self.base.options.module.?;
     if (!gop.found_existing) {
         const ty = mod.intern_pool.typeOf(decl_val).toType();

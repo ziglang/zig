@@ -43,7 +43,7 @@ pub const DevicePath = extern struct {
 
     /// Creates a file device path from the existing device path and a file path.
     pub fn create_file_device_path(self: *DevicePath, allocator: Allocator, path: [:0]align(1) const u16) !*DevicePath {
-        var path_size = self.size();
+        const path_size = self.size();
 
         // 2 * (path.len + 1) for the path and its null terminator, which are u16s
         // DevicePath for the extra node before the end
@@ -82,8 +82,7 @@ pub const DevicePath = extern struct {
             // Got the associated union type for self.type, now
             // we need to initialize it and its subtype
             if (self.type == enum_value) {
-                var subtype = self.initSubtype(ufield.type);
-
+                const subtype = self.initSubtype(ufield.type);
                 if (subtype) |sb| {
                     // e.g. return .{ .Hardware = .{ .Pci = @ptrCast(...) } }
                     return @unionInit(uefi.DevicePath, ufield.name, sb);

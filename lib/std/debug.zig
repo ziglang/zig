@@ -812,7 +812,7 @@ pub fn writeStackTraceWindows(
     var addr_buf: [1024]usize = undefined;
     const n = walkStackWindows(addr_buf[0..], context);
     const addrs = addr_buf[0..n];
-    var start_i: usize = if (start_addr) |saddr| blk: {
+    const start_i: usize = if (start_addr) |saddr| blk: {
         for (addrs, 0..) |addr, i| {
             if (addr == saddr) break :blk i;
         }
@@ -1158,7 +1158,7 @@ pub fn readElfDebugInfo(
                 var zlib_stream = std.compress.zlib.decompressStream(allocator, section_stream.reader()) catch continue;
                 defer zlib_stream.deinit();
 
-                var decompressed_section = try allocator.alloc(u8, chdr.ch_size);
+                const decompressed_section = try allocator.alloc(u8, chdr.ch_size);
                 errdefer allocator.free(decompressed_section);
 
                 const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
@@ -2046,7 +2046,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             };
 
             try DW.openDwarfDebugInfo(&di, allocator);
-            var info = OFileInfo{
+            const info = OFileInfo{
                 .di = di,
                 .addr_table = addr_table,
             };
@@ -2122,7 +2122,7 @@ pub const ModuleDebugInfo = switch (native_os) {
 
                 // Check if its debug infos are already in the cache
                 const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
-                var o_file_info = self.ofiles.getPtr(o_file_path) orelse
+                const o_file_info = self.ofiles.getPtr(o_file_path) orelse
                     (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
                     error.FileNotFound,
                     error.MissingDebugInfo,
@@ -2401,14 +2401,14 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
                 panic_mutex.lock();
                 defer panic_mutex.unlock();
 
-                dumpSegfaultInfoPosix(sig, addr, ctx_ptr);
+                dumpSegfaultInfoPosix(sig, info.code, addr, ctx_ptr);
             }
 
             waitForOtherThreadToFinishPanicking();
         },
         else => {
             // panic mutex already locked
-            dumpSegfaultInfoPosix(sig, addr, ctx_ptr);
+            dumpSegfaultInfoPosix(sig, info.code, addr, ctx_ptr);
         },
     };
 
@@ -2418,10 +2418,20 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
     os.abort();
 }
 
-fn dumpSegfaultInfoPosix(sig: i32, addr: usize, ctx_ptr: ?*const anyopaque) void {
+fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*const anyopaque) void {
     const stderr = io.getStdErr().writer();
     _ = switch (sig) {
-        os.SIG.SEGV => stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
+        os.SIG.SEGV => if (native_arch == .x86_64 and native_os == .linux and code == 128) // SI_KERNEL
+            // x86_64 doesn't have a full 64-bit virtual address space.
+            // Addresses outside of that address space are non-canonical
+            // and the CPU won't provide the faulting address to us.
+            // This happens when accessing memory addresses such as 0xaaaaaaaaaaaaaaaa
+            // but can also happen when no addressable memory is involved;
+            // for example when reading/writing model-specific registers
+            // by executing `rdmsr` or `wrmsr` in user-space (unprivileged mode).
+            stderr.print("General protection exception (no address available)\n", .{})
+        else
+            stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
         os.SIG.ILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
         os.SIG.BUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
         os.SIG.FPE => stderr.print("Arithmetic exception at address 0x{x}\n", .{addr}),

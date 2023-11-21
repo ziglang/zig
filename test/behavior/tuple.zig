@@ -15,9 +15,10 @@ test "tuple concatenation" {
         fn doTheTest() !void {
             var a: i32 = 1;
             var b: i32 = 2;
-            var x = .{a};
-            var y = .{b};
-            var c = x ++ y;
+            _ = .{ &a, &b };
+            const x = .{a};
+            const y = .{b};
+            const c = x ++ y;
             try expect(@as(i32, 1) == c[0]);
             try expect(@as(i32, 2) == c[1]);
         }
@@ -119,7 +120,7 @@ test "tuple initializer for var" {
                 .id = @as(usize, 2),
                 .name = Bytes{ .id = 20 },
             };
-            _ = tmp;
+            _ = &tmp;
         }
     };
 
@@ -157,6 +158,7 @@ test "array-like initializer for tuple types" {
     const S = struct {
         fn doTheTest() !void {
             var obj: T = .{ -1234, 128 };
+            _ = &obj;
             try expect(@as(i32, -1234) == obj[0]);
             try expect(@as(u8, 128) == obj[1]);
         }
@@ -171,6 +173,7 @@ test "anon struct as the result from a labeled block" {
         fn doTheTest() !void {
             const precomputed = comptime blk: {
                 var x: i32 = 1234;
+                _ = &x;
                 break :blk .{
                     .x = x,
                 };
@@ -188,6 +191,7 @@ test "tuple as the result from a labeled block" {
         fn doTheTest() !void {
             const precomputed = comptime blk: {
                 var x: i32 = 1234;
+                _ = &x;
                 break :blk .{x};
             };
             try expect(precomputed[0] == 1234);
@@ -201,13 +205,13 @@ test "tuple as the result from a labeled block" {
 test "initializing tuple with explicit type" {
     const T = @TypeOf(.{ @as(i32, 0), @as(u32, 0) });
     var a = T{ 0, 0 };
-    _ = a;
+    _ = &a;
 }
 
 test "initializing anon struct with explicit type" {
     const T = @TypeOf(.{ .foo = @as(i32, 1), .bar = @as(i32, 2) });
     var a = T{ .foo = 1, .bar = 2 };
-    _ = a;
+    _ = &a;
 }
 
 test "fieldParentPtr of tuple" {
@@ -216,6 +220,7 @@ test "fieldParentPtr of tuple" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x: u32 = 0;
+    _ = &x;
     const tuple = .{ x, x };
     try testing.expect(&tuple == @fieldParentPtr(@TypeOf(tuple), "1", &tuple[1]));
 }
@@ -226,18 +231,21 @@ test "fieldParentPtr of anon struct" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x: u32 = 0;
+    _ = &x;
     const anon_st = .{ .foo = x, .bar = x };
     try testing.expect(&anon_st == @fieldParentPtr(@TypeOf(anon_st), "bar", &anon_st.bar));
 }
 
 test "offsetOf tuple" {
     var x: u32 = 0;
+    _ = &x;
     const T = @TypeOf(.{ x, x });
     try expect(@offsetOf(T, "1") == @sizeOf(u32));
 }
 
 test "offsetOf anon struct" {
     var x: u32 = 0;
+    _ = &x;
     const T = @TypeOf(.{ .foo = x, .bar = x });
     try expect(@offsetOf(T, "bar") == @sizeOf(u32));
 }
@@ -247,8 +255,10 @@ test "initializing tuple with mixed comptime-runtime fields" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: u32 = 15;
+    _ = &x;
     const T = @TypeOf(.{ @as(i32, -1234), @as(u32, 5678), x });
     var a: T = .{ -1234, 5678, x + 1 };
+    _ = &a;
     try expect(a[2] == 16);
 }
 
@@ -257,8 +267,10 @@ test "initializing anon struct with mixed comptime-runtime fields" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: u32 = 15;
+    _ = &x;
     const T = @TypeOf(.{ .foo = @as(i32, -1234), .bar = x });
     var a: T = .{ .foo = -1234, .bar = x + 1 };
+    _ = &a;
     try expect(a.bar == 16);
 }
 
@@ -338,6 +350,7 @@ test "tuple type with void field and a runtime field" {
 
     const T = std.meta.Tuple(&[_]type{ usize, void });
     var t: T = .{ 5, {} };
+    _ = &t;
     try expect(t[0] == 5);
 }
 
@@ -352,6 +365,7 @@ test "branching inside tuple literal" {
         }
     };
     var a = false;
+    _ = &a;
     try S.foo(.{if (a) @as(u32, 5678) else @as(u32, 1234)});
 }
 
@@ -363,6 +377,7 @@ test "tuple initialized with a runtime known value" {
     const E = union(enum) { e: []const u8 };
     const W = union(enum) { w: E };
     var e = E{ .e = "test" };
+    _ = &e;
     const w = .{W{ .w = e }};
     try expectEqualStrings(w[0].w.e, "test");
 }
@@ -388,6 +403,7 @@ test "nested runtime conditionals in tuple initializer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var data: u8 = 0;
+    _ = &data;
     const x = .{
         if (data != 0) "" else switch (@as(u1, @truncate(data))) {
             0 => "up",
@@ -446,8 +462,9 @@ test "coerce anon tuple to tuple" {
 
     var x: u8 = 1;
     var y: u16 = 2;
-    var t = .{ x, y };
-    var s: struct { u8, u16 } = t;
+    _ = .{ &x, &y };
+    const t = .{ x, y };
+    const s: struct { u8, u16 } = t;
     try expectEqual(x, s[0]);
     try expectEqual(y, s[1]);
 }

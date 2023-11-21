@@ -738,7 +738,7 @@ test "std.meta.TagPayload" {
         },
     };
     const MovedEvent = TagPayload(Event, Event.Moved);
-    var e: Event = undefined;
+    const e: Event = .{ .Moved = undefined };
     try testing.expect(MovedEvent == @TypeOf(e.Moved));
 }
 
@@ -839,13 +839,12 @@ test "std.meta.eql" {
     try testing.expect(eql(u_1, u_3));
     try testing.expect(!eql(u_1, u_2));
 
-    var a1 = "abcdef".*;
-    var a2 = "abcdef".*;
-    var a3 = "ghijkl".*;
+    const a1 = "abcdef".*;
+    const a2 = "abcdef".*;
+    const a3 = "ghijkl".*;
 
     try testing.expect(eql(a1, a2));
     try testing.expect(!eql(a1, a3));
-    try testing.expect(!eql(a1[0..], a2[0..]));
 
     const EU = struct {
         fn tst(err: bool) !u8 {
@@ -859,9 +858,9 @@ test "std.meta.eql" {
     try testing.expect(!eql(EU.tst(false), EU.tst(true)));
 
     const V = @Vector(4, u32);
-    var v1: V = @splat(1);
-    var v2: V = @splat(1);
-    var v3: V = @splat(2);
+    const v1: V = @splat(1);
+    const v2: V = @splat(1);
+    const v3: V = @splat(2);
 
     try testing.expect(eql(v1, v2));
     try testing.expect(!eql(v1, v3));
@@ -879,6 +878,8 @@ test "intToEnum with error return" {
 
     var zero: u8 = 0;
     var one: u16 = 1;
+    _ = &zero;
+    _ = &one;
     try testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
     try testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
     try testing.expect(intToEnum(E3, zero) catch unreachable == E3.A);
@@ -901,11 +902,20 @@ pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTa
         return error.InvalidEnumTag;
     }
 
-    inline for (enum_info.fields) |f| {
-        const this_tag_value = @field(EnumTag, f.name);
-        if (tag_int == @intFromEnum(this_tag_value)) {
-            return this_tag_value;
+    // We don't direcly iterate over the fields of EnumTag, as that
+    // would require an inline loop. Instead, we create an array of
+    // values that is comptime-know, but can be iterated at runtime
+    // without requiring an inline loop. This generates better
+    // machine code.
+    const values = comptime blk: {
+        var result: [enum_info.fields.len]enum_info.tag_type = undefined;
+        for (&result, enum_info.fields) |*dst, src| {
+            dst.* = src.value;
         }
+        break :blk result;
+    };
+    for (values) |v| {
+        if (v == tag_int) return @enumFromInt(tag_int);
     }
     return error.InvalidEnumTag;
 }

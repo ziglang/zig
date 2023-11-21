@@ -255,10 +255,8 @@ test "Very large dk_len" {
     const c = 1;
     const dk_len = 1 << 33;
 
-    var dk = try std.testing.allocator.alloc(u8, dk_len);
-    defer {
-        std.testing.allocator.free(dk);
-    }
+    const dk = try std.testing.allocator.alloc(u8, dk_len);
+    defer std.testing.allocator.free(dk);
 
     // Just verify this doesn't crash with an overflow
     try pbkdf2(dk, p, s, c, HmacSha1);

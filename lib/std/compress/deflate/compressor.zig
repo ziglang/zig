@@ -156,8 +156,8 @@ fn levels(compression: Compression) CompressionLevel {
 // up to length 'max'. Both slices must be at least 'max'
 // bytes in size.
 fn matchLen(a: []u8, b: []u8, max: u32) u32 {
-    var bounded_a = a[0..max];
-    var bounded_b = b[0..max];
+    const bounded_a = a[0..max];
+    const bounded_b = b[0..max];
     for (bounded_a, 0..) |av, i| {
         if (bounded_b[i] != av) {
             return @as(u32, @intCast(i));
@@ -191,7 +191,7 @@ fn bulkHash4(b: []u8, dst: []u32) u32 {
         @as(u32, b[0]) << 24;
 
     dst[0] = (hb *% hash_mul) >> (32 - hash_bits);
-    var end = b.len - min_match_length + 1;
+    const end = b.len - min_match_length + 1;
     var i: u32 = 1;
     while (i < end) : (i += 1) {
         hb = (hb << 8) | @as(u32, b[i + 3]);
@@ -305,7 +305,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
                 }
                 self.hash_offset += window_size;
                 if (self.hash_offset > max_hash_offset) {
-                    var delta = self.hash_offset - 1;
+                    const delta = self.hash_offset - 1;
                     self.hash_offset -= delta;
                     self.chain_head -|= delta;
 
@@ -369,31 +369,31 @@ pub fn Compressor(comptime WriterType: anytype) type {
             }
             // Add all to window.
             @memcpy(self.window[0..b.len], b);
-            var n = b.len;
+            const n = b.len;
 
             // Calculate 256 hashes at the time (more L1 cache hits)
-            var loops = (n + 256 - min_match_length) / 256;
+            const loops = (n + 256 - min_match_length) / 256;
             var j: usize = 0;
             while (j < loops) : (j += 1) {
-                var index = j * 256;
+                const index = j * 256;
                 var end = index + 256 + min_match_length - 1;
                 if (end > n) {
                     end = n;
                 }
-                var to_check = self.window[index..end];
-                var dst_size = to_check.len - min_match_length + 1;
+                const to_check = self.window[index..end];
+                const dst_size = to_check.len - min_match_length + 1;
 
                 if (dst_size <= 0) {
                     continue;
                 }
 
-                var dst = self.hash_match[0..dst_size];
+                const dst = self.hash_match[0..dst_size];
                 _ = self.bulk_hasher(to_check, dst);
                 var new_h: u32 = 0;
                 for (dst, 0..) |val, i| {
-                    var di = i + index;
+                    const di = i + index;
                     new_h = val;
-                    var hh = &self.hash_head[new_h & hash_mask];
+                    const hh = &self.hash_head[new_h & hash_mask];
                     // Get previous value with the same hash.
                     // Our chain should point to the previous value.
                     self.hash_prev[di & window_mask] = hh.*;
@@ -447,13 +447,13 @@ pub fn Compressor(comptime WriterType: anytype) type {
             }
 
             var w_end = win[pos + length];
-            var w_pos = win[pos..];
-            var min_index = pos -| window_size;
+            const w_pos = win[pos..];
+            const min_index = pos -| window_size;
 
             var i = prev_head;
             while (tries > 0) : (tries -= 1) {
                 if (w_end == win[i + length]) {
-                    var n = matchLen(win[i..], w_pos, min_match_look);
+                    const n = matchLen(win[i..], w_pos, min_match_look);
 
                     if (n > length and (n > min_match_length or pos - i <= 4096)) {
                         length = n;
@@ -565,7 +565,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
             while (true) {
                 assert(self.index <= self.window_end);
 
-                var lookahead = self.window_end -| self.index;
+                const lookahead = self.window_end -| self.index;
                 if (lookahead < min_match_length + max_match_length) {
                     if (!self.sync) {
                         break;
@@ -590,16 +590,16 @@ pub fn Compressor(comptime WriterType: anytype) type {
                 if (self.index < self.max_insert_index) {
                     // Update the hash
                     self.hash = hash4(self.window[self.index .. self.index + min_match_length]);
-                    var hh = &self.hash_head[self.hash & hash_mask];
+                    const hh = &self.hash_head[self.hash & hash_mask];
                     self.chain_head = @as(u32, @intCast(hh.*));
                     self.hash_prev[self.index & window_mask] = @as(u32, @intCast(self.chain_head));
                     hh.* = @as(u32, @intCast(self.index + self.hash_offset));
                 }
-                var prev_length = self.length;
-                var prev_offset = self.offset;
+                const prev_length = self.length;
+                const prev_offset = self.offset;
                 self.length = min_match_length - 1;
                 self.offset = 0;
-                var min_index = self.index -| window_size;
+                const min_index = self.index -| window_size;
 
                 if (self.hash_offset <= self.chain_head and
                     self.chain_head - self.hash_offset >= min_index and
@@ -610,7 +610,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
                     prev_length < self.compression_level.lazy))
                 {
                     {
-                        var fmatch = self.findMatch(
+                        const fmatch = self.findMatch(
                             self.index,
                             self.chain_head -| self.hash_offset,
                             min_match_length - 1,
@@ -658,7 +658,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
                                 self.hash = hash4(self.window[index .. index + min_match_length]);
                                 // Get previous value with the same hash.
                                 // Our chain should point to the previous value.
-                                var hh = &self.hash_head[self.hash & hash_mask];
+                                const hh = &self.hash_head[self.hash & hash_mask];
                                 self.hash_prev[index & window_mask] = hh.*;
                                 // Set the head of the hash chain to us.
                                 hh.* = @as(u32, @intCast(index + self.hash_offset));
@@ -740,7 +740,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
             // compressed form of data to its underlying writer.
             while (buf.len > 0) {
                 try self.step();
-                var filled = self.fill(buf);
+                const filled = self.fill(buf);
                 buf = buf[filled..];
             }
 
@@ -1097,12 +1097,12 @@ test "bulkHash4" {
         while (j < out.len) : (j += 1) {
             var y = out[0..j];
 
-            var dst = try testing.allocator.alloc(u32, y.len - min_match_length + 1);
+            const dst = try testing.allocator.alloc(u32, y.len - min_match_length + 1);
             defer testing.allocator.free(dst);
 
             _ = bulkHash4(y, dst);
             for (dst, 0..) |got, i| {
-                var want = hash4(y[i..]);
+                const want = hash4(y[i..]);
                 try testing.expectEqual(want, got);
             }
         }

@@ -291,6 +291,14 @@ pub fn ScopeExtra(comptime Context: type, comptime Type: type) type {
         }
 
         pub fn skipVariableDiscard(inner: *Scope, name: []const u8) void {
+            if (true) {
+                // TODO: due to 'local variable is never mutated' errors, we can
+                // only skip discards if a variable is used as an lvalue, which
+                // we don't currently have detection for in translate-c.
+                // Once #17584 is completed, perhaps we can do away with this
+                // logic entirely, and instead rely on render to fixup code.
+                return;
+            }
             var scope = inner;
             while (true) {
                 switch (scope.id) {

@@ -85,6 +85,7 @@ test {
     var param: ParamType = .{
         .one_of = .{ .name = "name" },
     };
+    _ = &param;
     var arg: CallArg = .{
         .value = .{
             .literal_enum_value = .{
@@ -92,6 +93,7 @@ test {
             },
         },
     };
+    _ = &arg;
 
     const result = try genExpression(arg.value);
     switch (result) {

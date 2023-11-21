@@ -9,6 +9,7 @@ test "casting integer address to function pointer" {
 
 fn addressToFunction() void {
     var addr: usize = 0xdeadbee0;
+    _ = &addr;
     _ = @as(*const fn () void, @ptrFromInt(addr));
 }
 

@@ -96,7 +96,7 @@ pub const HuffmanEncoder = struct {
         mem.sort(LiteralNode, self.lfs, {}, byFreq);
 
         // Get the number of literals for each bit count
-        var bit_count = self.bitCounts(list, max_bits);
+        const bit_count = self.bitCounts(list, max_bits);
         // And do the assignment
         self.assignEncodingAndSize(bit_count, list);
     }
@@ -128,7 +128,7 @@ pub const HuffmanEncoder = struct {
     // that should be encoded in i bits.
     fn bitCounts(self: *HuffmanEncoder, list: []LiteralNode, max_bits_to_use: usize) []u32 {
         var max_bits = max_bits_to_use;
-        var n = list.len;
+        const n = list.len;
 
         assert(max_bits < max_bits_limit);
 
@@ -184,10 +184,10 @@ pub const HuffmanEncoder = struct {
                     continue;
                 }
 
-                var prev_freq = l.last_freq;
+                const prev_freq = l.last_freq;
                 if (l.next_char_freq < l.next_pair_freq) {
                     // The next item on this row is a leaf node.
-                    var next = leaf_counts[level][level] + 1;
+                    const next = leaf_counts[level][level] + 1;
                     l.last_freq = l.next_char_freq;
                     // Lower leaf_counts are the same of the previous node.
                     leaf_counts[level][level] = next;
@@ -236,7 +236,7 @@ pub const HuffmanEncoder = struct {
 
         var bit_count = self.bit_count[0 .. max_bits + 1];
         var bits: u32 = 1;
-        var counts = &leaf_counts[max_bits];
+        const counts = &leaf_counts[max_bits];
         {
             var level = max_bits;
             while (level > 0) : (level -= 1) {
@@ -267,7 +267,7 @@ pub const HuffmanEncoder = struct {
             // are encoded using "bits" bits, and get the values
             // code, code + 1, ....  The code values are
             // assigned in literal order (not frequency order).
-            var chunk = list[list.len - @as(u32, @intCast(bits)) ..];
+            const chunk = list[list.len - @as(u32, @intCast(bits)) ..];
 
             self.lns = chunk;
             mem.sort(LiteralNode, self.lns, {}, byLiteral);
@@ -303,7 +303,7 @@ pub fn newHuffmanEncoder(allocator: Allocator, size: u32) !HuffmanEncoder {
 
 // Generates a HuffmanCode corresponding to the fixed literal table
 pub fn generateFixedLiteralEncoding(allocator: Allocator) !HuffmanEncoder {
-    var h = try newHuffmanEncoder(allocator, deflate_const.max_num_frequencies);
+    const h = try newHuffmanEncoder(allocator, deflate_const.max_num_frequencies);
     var codes = h.codes;
     var ch: u16 = 0;
 
@@ -338,7 +338,7 @@ pub fn generateFixedLiteralEncoding(allocator: Allocator) !HuffmanEncoder {
 }
 
 pub fn generateFixedOffsetEncoding(allocator: Allocator) !HuffmanEncoder {
-    var h = try newHuffmanEncoder(allocator, 30);
+    const h = try newHuffmanEncoder(allocator, 30);
     var codes = h.codes;
     for (codes, 0..) |_, ch| {
         codes[ch] = HuffCode{ .code = bu.bitReverse(u16, @as(u16, @intCast(ch)), 5), .len = 5 };

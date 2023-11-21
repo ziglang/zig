@@ -342,7 +342,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
         .Lib => lower.bin_file.options.link_mode == .Static,
     };
 
-    var emit_prefix = prefix;
+    const emit_prefix = prefix;
     var emit_mnemonic = mnemonic;
     var emit_ops_storage: [4]Operand = undefined;
     const emit_ops = emit_ops_storage[0..ops.len];

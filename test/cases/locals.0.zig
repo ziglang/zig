@@ -3,8 +3,8 @@ pub fn main() void {
     var y: f32 = 42.0;
     var x: u8 = 10;
     if (false) {
-        y;
-        x;
+        &y;
+        &x / &i;
     }
     if (i != 5) unreachable;
 }

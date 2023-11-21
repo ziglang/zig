@@ -23,7 +23,7 @@ pub fn main() !void {
     var scanner = std.json.Scanner.initCompleteInput(allocator, spec);
     var diagnostics = std.json.Diagnostics{};
     scanner.enableDiagnostics(&diagnostics);
-    var parsed = std.json.parseFromTokenSource(g.CoreRegistry, allocator, &scanner, .{}) catch |err| {
+    const parsed = std.json.parseFromTokenSource(g.CoreRegistry, allocator, &scanner, .{}) catch |err| {
         std.debug.print("line,col: {},{}\n", .{ diagnostics.getLine(), diagnostics.getColumn() });
         return err;
     };
@@ -466,7 +466,7 @@ fn renderBitEnum(
 
         std.debug.assert(@popCount(value) == 1);
 
-        var bitpos = std.math.log2_int(u32, value);
+        const bitpos = std.math.log2_int(u32, value);
         if (flags_by_bitpos[bitpos]) |*existing| {
             const tag_index = std.mem.indexOfDiff(u8, enumerant.enumerant, enumerants[existing.*].enumerant).?;
             const enum_priority = tagPriorityScore(enumerant.enumerant[tag_index..]);

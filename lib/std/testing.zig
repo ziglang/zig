@@ -399,7 +399,7 @@ fn SliceDiffer(comptime T: type) type {
 
         pub fn write(self: Self, writer: anytype) !void {
             for (self.expected, 0..) |value, i| {
-                var full_index = self.start_index + i;
+                const full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
                 if (diff) try self.ttyconf.setColor(writer, .red);
                 if (@typeInfo(T) == .Pointer) {
@@ -424,7 +424,7 @@ const BytesDiffer = struct {
             // to avoid having to calculate diffs twice per chunk
             var diffs: std.bit_set.IntegerBitSet(16) = .{ .mask = 0 };
             for (chunk, 0..) |byte, i| {
-                var absolute_byte_index = (expected_iterator.index - chunk.len) + i;
+                const absolute_byte_index = (expected_iterator.index - chunk.len) + i;
                 const diff = if (absolute_byte_index < self.actual.len) self.actual[absolute_byte_index] != byte else true;
                 if (diff) diffs.set(i);
                 try self.writeByteDiff(writer, "{X:0>2} ", byte, diff);
@@ -565,13 +565,13 @@ pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
     var sub_path: [TmpDir.sub_path_len]u8 = undefined;
     _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
 
-    var cwd = std.fs.cwd();
+    const cwd = std.fs.cwd();
     var cache_dir = cwd.makeOpenPath("zig-cache", .{}) catch
         @panic("unable to make tmp dir for testing: unable to make and open zig-cache dir");
     defer cache_dir.close();
-    var parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
+    const parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
         @panic("unable to make tmp dir for testing: unable to make and open zig-cache/tmp dir");
-    var dir = parent_dir.makeOpenPath(&sub_path, opts) catch
+    const dir = parent_dir.makeOpenPath(&sub_path, opts) catch
         @panic("unable to make tmp dir for testing: unable to make and open the tmp dir");
 
     return .{
@@ -587,13 +587,13 @@ pub fn tmpIterableDir(opts: std.fs.Dir.OpenDirOptions) TmpIterableDir {
     var sub_path: [TmpIterableDir.sub_path_len]u8 = undefined;
     _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
 
-    var cwd = std.fs.cwd();
+    const cwd = std.fs.cwd();
     var cache_dir = cwd.makeOpenPath("zig-cache", .{}) catch
         @panic("unable to make tmp dir for testing: unable to make and open zig-cache dir");
     defer cache_dir.close();
-    var parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
+    const parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
         @panic("unable to make tmp dir for testing: unable to make and open zig-cache/tmp dir");
-    var dir = parent_dir.makeOpenPathIterable(&sub_path, opts) catch
+    const dir = parent_dir.makeOpenPathIterable(&sub_path, opts) catch
         @panic("unable to make tmp dir for testing: unable to make and open the tmp dir");
 
     return .{
@@ -618,8 +618,8 @@ test "expectEqual nested array" {
 }
 
 test "expectEqual vector" {
-    var a: @Vector(4, u32) = @splat(4);
-    var b: @Vector(4, u32) = @splat(4);
+    const a: @Vector(4, u32) = @splat(4);
+    const b: @Vector(4, u32) = @splat(4);
 
     try expectEqual(a, b);
 }

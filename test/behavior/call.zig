@@ -47,6 +47,7 @@ test "basic invocations" {
     {
         // call of non comptime-known function
         var alias_foo = &foo;
+        _ = &alias_foo;
         try expect(@call(.no_async, alias_foo, .{}) == 1234);
         try expect(@call(.never_tail, alias_foo, .{}) == 1234);
         try expect(@call(.never_inline, alias_foo, .{}) == 1234);
@@ -66,6 +67,7 @@ test "tuple parameters" {
     }.add;
     var a: i32 = 12;
     var b: i32 = 34;
+    _ = .{ &a, &b };
     try expect(@call(.auto, add, .{ a, 34 }) == 46);
     try expect(@call(.auto, add, .{ 12, b }) == 46);
     try expect(@call(.auto, add, .{ a, b }) == 46);
@@ -101,6 +103,7 @@ test "result location of function call argument through runtime condition and st
         }
     };
     var runtime = true;
+    _ = &runtime;
     try namespace.foo(.{
         .e = if (!runtime) .a else .b,
     });
@@ -445,6 +448,7 @@ test "non-anytype generic parameters provide result type" {
 
     var rt_u16: u16 = 123;
     var rt_u32: u32 = 0x10000222;
+    _ = .{ &rt_u16, &rt_u32 };
 
     try S.f(u8, @intCast(rt_u16));
     try S.f(u8, @intCast(123));
@@ -470,6 +474,7 @@ test "argument to generic function has correct result type" {
 
         fn doTheTest() !void {
             var t = true;
+            _ = &t;
 
             // Since the enum literal passes through a runtime conditional here, these can only
             // compile if RLS provides the correct result type to the argument

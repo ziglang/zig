@@ -12,5 +12,6 @@ test "const error union field alignment" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var union_or_err: anyerror!Union = Union{ .Color = 1234 };
+    _ = &union_or_err;
     try std.testing.expect((union_or_err catch unreachable).Color == 1234);
 }

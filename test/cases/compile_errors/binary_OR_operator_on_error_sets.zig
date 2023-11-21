@@ -1,7 +1,7 @@
 pub const A = error.A;
 pub const AB = A | error.B;
 export fn entry() void {
-    var x: AB = undefined;
+    const x: AB = undefined;
     _ = x;
 }
 

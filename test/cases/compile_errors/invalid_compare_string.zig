@@ -1,20 +1,20 @@
 comptime {
-    var a = "foo";
+    const a = "foo";
     if (a == "foo") unreachable;
 }
 comptime {
-    var a = "foo";
+    const a = "foo";
     if (a == ("foo")) unreachable; // intentionally allow
 }
 comptime {
-    var a = "foo";
+    const a = "foo";
     switch (a) {
         "foo" => unreachable,
         else => {},
     }
 }
 comptime {
-    var a = "foo";
+    const a = "foo";
     switch (a) {
         ("foo") => unreachable, // intentionally allow
         else => {},

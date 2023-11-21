@@ -244,7 +244,7 @@ pub const Instruction = struct {
                     }),
                 },
                 .imm => |imm| if (enc_op.isSigned()) {
-                    var imms = imm.asSigned(enc_op.immBitSize());
+                    const imms = imm.asSigned(enc_op.immBitSize());
                     if (imms < 0) try writer.writeByte('-');
                     try writer.print("0x{x}", .{@abs(imms)});
                 } else try writer.print("0x{x}", .{imm.asUnsigned(enc_op.immBitSize())}),
@@ -1077,7 +1077,7 @@ fn expectEqualHexStrings(expected: []const u8, given: []const u8, assembly: []co
     const given_fmt = try std.fmt.allocPrint(testing.allocator, "{x}", .{std.fmt.fmtSliceHexLower(given)});
     defer testing.allocator.free(given_fmt);
     const idx = std.mem.indexOfDiff(u8, expected_fmt, given_fmt).?;
-    var padding = try testing.allocator.alloc(u8, idx + 5);
+    const padding = try testing.allocator.alloc(u8, idx + 5);
     defer testing.allocator.free(padding);
     @memset(padding, ' ');
     std.debug.print("\nASM: {s}\nEXP: {s}\nGIV: {s}\n{s}^ -- first differing byte\n", .{

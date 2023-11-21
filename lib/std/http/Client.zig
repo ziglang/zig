@@ -144,7 +144,7 @@ pub const ConnectionPool = struct {
         pool.mutex.lock();
         defer pool.mutex.unlock();
 
-        var next = pool.free.first;
+        const next = pool.free.first;
         _ = next;
         while (pool.free_len > new_size) {
             const popped = pool.free.popFirst() orelse unreachable;
