@@ -4883,6 +4883,7 @@ pub fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void
     const max_bytes = 10 * 1024 * 1024;
     const template_paths = [_][]const u8{
         "build.zig",
+        "build.zig.zon",
         "src" ++ s ++ "main.zig",
         "src" ++ s ++ "root.zig",
     };
