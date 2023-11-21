@@ -198,10 +198,6 @@ fn writeExtendedMask(section: *Section, comptime Operand: type, operand: Operand
         }
     }
 
-    if (mask == 0) {
-        return;
-    }
-
     section.writeWord(mask);
 
     inline for (@typeInfo(Operand).Struct.fields) |field| {
@@ -303,9 +299,6 @@ fn extendedMaskSize(comptime Operand: type, operand: Operand) usize {
             },
             else => unreachable,
         }
-    }
-    if (!any_set) {
-        return 0;
     }
     return total + 1; // Add one for the mask itself.
 }
