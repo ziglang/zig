@@ -176,7 +176,7 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
 
         var end_of_host: usize = authority.len;
 
-        // if  we see `]` firsst without `@`
+        // if  we see `]` first without `@`
         if (authority[start_of_host] == ']') {
             return error.InvalidFormat;
         }
@@ -788,7 +788,6 @@ test "format" {
 }
 
 test "URI malformed input" {
-    // Originally reported at https://github.com/ziglang/zig/issues/17869
     try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://]["));
     try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://]@["));
     try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://lo]s\x85hc@[/8\x10?0Q"));
