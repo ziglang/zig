@@ -2,7 +2,6 @@ const std = @import("../std.zig");
 const io = std.io;
 const assert = std.debug.assert;
 const testing = std.testing;
-const trait = std.meta.trait;
 const meta = std.meta;
 const math = std.math;
 
@@ -43,8 +42,6 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime ReaderType: type)
         ///  containing them in the least significant end. The number of bits successfully
         ///  read is placed in `out_bits`, as reaching the end of the stream is not an error.
         pub fn readBits(self: *Self, comptime U: type, bits: usize, out_bits: *usize) Error!U {
-            comptime assert(trait.isUnsignedInt(U));
-
             //by extending the buffer to a minimum of u8 we can cover a number of edge cases
             // related to shifting and casting.
             const u_bit_count = @bitSizeOf(U);

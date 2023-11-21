@@ -4,8 +4,6 @@ const assert = std.debug.assert;
 const autoHash = std.hash.autoHash;
 const math = std.math;
 const mem = std.mem;
-const meta = std.meta;
-const trait = meta.trait;
 const Allocator = mem.Allocator;
 const Wyhash = std.hash.Wyhash;
 
@@ -24,7 +22,7 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
     return struct {
         fn hash(ctx: Context, key: K) u64 {
             _ = ctx;
-            if (comptime trait.hasUniqueRepresentation(K)) {
+            if (std.meta.hasUniqueRepresentation(K)) {
                 return Wyhash.hash(0, std.mem.asBytes(&key));
             } else {
                 var hasher = Wyhash.init(0);
@@ -39,7 +37,7 @@ pub fn getAutoEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K
     return struct {
         fn eql(ctx: Context, a: K, b: K) bool {
             _ = ctx;
-            return meta.eql(a, b);
+            return std.meta.eql(a, b);
         }
     }.eql;
 }

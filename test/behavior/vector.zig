@@ -542,7 +542,11 @@ test "vector division operators" {
 
     const S = struct {
         fn doTheTestDiv(comptime T: type, x: @Vector(4, T), y: @Vector(4, T)) !void {
-            if (!comptime std.meta.trait.isSignedInt(T)) {
+            const is_signed_int = switch (@typeInfo(T)) {
+                .Int => |info| info.signedness == .signed,
+                else => false,
+            };
+            if (!is_signed_int) {
                 const d0 = x / y;
                 for (@as([4]T, d0), 0..) |v, i| {
                     try expect(x[i] / y[i] == v);
@@ -563,7 +567,11 @@ test "vector division operators" {
         }
 
         fn doTheTestMod(comptime T: type, x: @Vector(4, T), y: @Vector(4, T)) !void {
-            if ((!comptime std.meta.trait.isSignedInt(T)) and @typeInfo(T) != .Float) {
+            const is_signed_int = switch (@typeInfo(T)) {
+                .Int => |info| info.signedness == .signed,
+                else => false,
+            };
+            if (!is_signed_int and @typeInfo(T) != .Float) {
                 const r0 = x % y;
                 for (@as([4]T, r0), 0..) |v, i| {
                     try expect(x[i] % y[i] == v);
