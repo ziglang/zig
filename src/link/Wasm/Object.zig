@@ -838,11 +838,10 @@ fn ElementType(comptime ptr: type) type {
 /// signedness of the given type `T`.
 /// Asserts `T` is an integer.
 fn readLeb(comptime T: type, reader: anytype) !T {
-    if (comptime std.meta.trait.isSignedInt(T)) {
-        return try leb.readILEB128(T, reader);
-    } else {
-        return try leb.readULEB128(T, reader);
-    }
+    return switch (@typeInfo(T).Int.signedness) {
+        .signed => try leb.readILEB128(T, reader),
+        .unsigned => try leb.readULEB128(T, reader),
+    };
 }
 
 /// Reads an enum type from the given reader.

@@ -153,163 +153,155 @@ pub fn Atomic(comptime T: type) type {
             return @atomicRmw(T, &self.value, op, value, ordering);
         }
 
-        fn exportWhen(comptime condition: bool, comptime functions: type) type {
-            return if (condition) functions else struct {};
+        pub inline fn fetchAdd(self: *Self, value: T, comptime ordering: Ordering) T {
+            return self.rmw(.Add, value, ordering);
         }
 
-        pub usingnamespace exportWhen(std.meta.trait.isNumber(T), struct {
-            pub inline fn fetchAdd(self: *Self, value: T, comptime ordering: Ordering) T {
-                return self.rmw(.Add, value, ordering);
+        pub inline fn fetchSub(self: *Self, value: T, comptime ordering: Ordering) T {
+            return self.rmw(.Sub, value, ordering);
+        }
+
+        pub inline fn fetchMin(self: *Self, value: T, comptime ordering: Ordering) T {
+            return self.rmw(.Min, value, ordering);
+        }
+
+        pub inline fn fetchMax(self: *Self, value: T, comptime ordering: Ordering) T {
+            return self.rmw(.Max, value, ordering);
+        }
+
+        pub inline fn fetchAnd(self: *Self, value: T, comptime ordering: Ordering) T {
+            return self.rmw(.And, value, ordering);
+        }
+
+        pub inline fn fetchNand(self: *Self, value: T, comptime ordering: Ordering) T {
+            return self.rmw(.Nand, value, ordering);
+        }
+
+        pub inline fn fetchOr(self: *Self, value: T, comptime ordering: Ordering) T {
+            return self.rmw(.Or, value, ordering);
+        }
+
+        pub inline fn fetchXor(self: *Self, value: T, comptime ordering: Ordering) T {
+            return self.rmw(.Xor, value, ordering);
+        }
+
+        const Bit = std.math.Log2Int(T);
+        const BitRmwOp = enum {
+            Set,
+            Reset,
+            Toggle,
+        };
+
+        pub inline fn bitSet(self: *Self, bit: Bit, comptime ordering: Ordering) u1 {
+            return bitRmw(self, .Set, bit, ordering);
+        }
+
+        pub inline fn bitReset(self: *Self, bit: Bit, comptime ordering: Ordering) u1 {
+            return bitRmw(self, .Reset, bit, ordering);
+        }
+
+        pub inline fn bitToggle(self: *Self, bit: Bit, comptime ordering: Ordering) u1 {
+            return bitRmw(self, .Toggle, bit, ordering);
+        }
+
+        inline fn bitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: Ordering) u1 {
+            // x86 supports dedicated bitwise instructions
+            if (comptime builtin.target.cpu.arch.isX86() and @sizeOf(T) >= 2 and @sizeOf(T) <= 8) {
+                // TODO: this causes std lib test failures when enabled
+                if (false) {
+                    return x86BitRmw(self, op, bit, ordering);
+                }
             }
 
-            pub inline fn fetchSub(self: *Self, value: T, comptime ordering: Ordering) T {
-                return self.rmw(.Sub, value, ordering);
-            }
-
-            pub inline fn fetchMin(self: *Self, value: T, comptime ordering: Ordering) T {
-                return self.rmw(.Min, value, ordering);
-            }
-
-            pub inline fn fetchMax(self: *Self, value: T, comptime ordering: Ordering) T {
-                return self.rmw(.Max, value, ordering);
-            }
-        });
-
-        pub usingnamespace exportWhen(std.meta.trait.isIntegral(T), struct {
-            pub inline fn fetchAnd(self: *Self, value: T, comptime ordering: Ordering) T {
-                return self.rmw(.And, value, ordering);
-            }
-
-            pub inline fn fetchNand(self: *Self, value: T, comptime ordering: Ordering) T {
-                return self.rmw(.Nand, value, ordering);
-            }
-
-            pub inline fn fetchOr(self: *Self, value: T, comptime ordering: Ordering) T {
-                return self.rmw(.Or, value, ordering);
-            }
-
-            pub inline fn fetchXor(self: *Self, value: T, comptime ordering: Ordering) T {
-                return self.rmw(.Xor, value, ordering);
-            }
-
-            const Bit = std.math.Log2Int(T);
-            const BitRmwOp = enum {
-                Set,
-                Reset,
-                Toggle,
+            const mask = @as(T, 1) << bit;
+            const value = switch (op) {
+                .Set => self.fetchOr(mask, ordering),
+                .Reset => self.fetchAnd(~mask, ordering),
+                .Toggle => self.fetchXor(mask, ordering),
             };
 
-            pub inline fn bitSet(self: *Self, bit: Bit, comptime ordering: Ordering) u1 {
-                return bitRmw(self, .Set, bit, ordering);
-            }
+            return @intFromBool(value & mask != 0);
+        }
 
-            pub inline fn bitReset(self: *Self, bit: Bit, comptime ordering: Ordering) u1 {
-                return bitRmw(self, .Reset, bit, ordering);
-            }
+        inline fn x86BitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: Ordering) u1 {
+            const old_bit: u8 = switch (@sizeOf(T)) {
+                2 => switch (op) {
+                    .Set => asm volatile ("lock btsw %[bit], %[ptr]"
+                        // LLVM doesn't support u1 flag register return values
+                        : [result] "={@ccc}" (-> u8),
+                        : [ptr] "*m" (&self.value),
+                          [bit] "X" (@as(T, bit)),
+                        : "cc", "memory"
+                    ),
+                    .Reset => asm volatile ("lock btrw %[bit], %[ptr]"
+                        // LLVM doesn't support u1 flag register return values
+                        : [result] "={@ccc}" (-> u8),
+                        : [ptr] "*m" (&self.value),
+                          [bit] "X" (@as(T, bit)),
+                        : "cc", "memory"
+                    ),
+                    .Toggle => asm volatile ("lock btcw %[bit], %[ptr]"
+                        // LLVM doesn't support u1 flag register return values
+                        : [result] "={@ccc}" (-> u8),
+                        : [ptr] "*m" (&self.value),
+                          [bit] "X" (@as(T, bit)),
+                        : "cc", "memory"
+                    ),
+                },
+                4 => switch (op) {
+                    .Set => asm volatile ("lock btsl %[bit], %[ptr]"
+                        // LLVM doesn't support u1 flag register return values
+                        : [result] "={@ccc}" (-> u8),
+                        : [ptr] "*m" (&self.value),
+                          [bit] "X" (@as(T, bit)),
+                        : "cc", "memory"
+                    ),
+                    .Reset => asm volatile ("lock btrl %[bit], %[ptr]"
+                        // LLVM doesn't support u1 flag register return values
+                        : [result] "={@ccc}" (-> u8),
+                        : [ptr] "*m" (&self.value),
+                          [bit] "X" (@as(T, bit)),
+                        : "cc", "memory"
+                    ),
+                    .Toggle => asm volatile ("lock btcl %[bit], %[ptr]"
+                        // LLVM doesn't support u1 flag register return values
+                        : [result] "={@ccc}" (-> u8),
+                        : [ptr] "*m" (&self.value),
+                          [bit] "X" (@as(T, bit)),
+                        : "cc", "memory"
+                    ),
+                },
+                8 => switch (op) {
+                    .Set => asm volatile ("lock btsq %[bit], %[ptr]"
+                        // LLVM doesn't support u1 flag register return values
+                        : [result] "={@ccc}" (-> u8),
+                        : [ptr] "*m" (&self.value),
+                          [bit] "X" (@as(T, bit)),
+                        : "cc", "memory"
+                    ),
+                    .Reset => asm volatile ("lock btrq %[bit], %[ptr]"
+                        // LLVM doesn't support u1 flag register return values
+                        : [result] "={@ccc}" (-> u8),
+                        : [ptr] "*m" (&self.value),
+                          [bit] "X" (@as(T, bit)),
+                        : "cc", "memory"
+                    ),
+                    .Toggle => asm volatile ("lock btcq %[bit], %[ptr]"
+                        // LLVM doesn't support u1 flag register return values
+                        : [result] "={@ccc}" (-> u8),
+                        : [ptr] "*m" (&self.value),
+                          [bit] "X" (@as(T, bit)),
+                        : "cc", "memory"
+                    ),
+                },
+                else => @compileError("Invalid atomic type " ++ @typeName(T)),
+            };
 
-            pub inline fn bitToggle(self: *Self, bit: Bit, comptime ordering: Ordering) u1 {
-                return bitRmw(self, .Toggle, bit, ordering);
-            }
+            // TODO: emit appropriate tsan fence if compiling with tsan
+            _ = ordering;
 
-            inline fn bitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: Ordering) u1 {
-                // x86 supports dedicated bitwise instructions
-                if (comptime builtin.target.cpu.arch.isX86() and @sizeOf(T) >= 2 and @sizeOf(T) <= 8) {
-                    // TODO: this causes std lib test failures when enabled
-                    if (false) {
-                        return x86BitRmw(self, op, bit, ordering);
-                    }
-                }
-
-                const mask = @as(T, 1) << bit;
-                const value = switch (op) {
-                    .Set => self.fetchOr(mask, ordering),
-                    .Reset => self.fetchAnd(~mask, ordering),
-                    .Toggle => self.fetchXor(mask, ordering),
-                };
-
-                return @intFromBool(value & mask != 0);
-            }
-
-            inline fn x86BitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: Ordering) u1 {
-                const old_bit: u8 = switch (@sizeOf(T)) {
-                    2 => switch (op) {
-                        .Set => asm volatile ("lock btsw %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                        .Reset => asm volatile ("lock btrw %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                        .Toggle => asm volatile ("lock btcw %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                    },
-                    4 => switch (op) {
-                        .Set => asm volatile ("lock btsl %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                        .Reset => asm volatile ("lock btrl %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                        .Toggle => asm volatile ("lock btcl %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                    },
-                    8 => switch (op) {
-                        .Set => asm volatile ("lock btsq %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                        .Reset => asm volatile ("lock btrq %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                        .Toggle => asm volatile ("lock btcq %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                    },
-                    else => @compileError("Invalid atomic type " ++ @typeName(T)),
-                };
-
-                // TODO: emit appropriate tsan fence if compiling with tsan
-                _ = ordering;
-
-                return @as(u1, @intCast(old_bit));
-            }
-        });
+            return @intCast(old_bit);
+        }
     };
 }
 

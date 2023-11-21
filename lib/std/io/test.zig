@@ -1,7 +1,5 @@
 const std = @import("std");
 const io = std.io;
-const meta = std.meta;
-const trait = std.trait;
 const DefaultPrng = std.rand.DefaultPrng;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
