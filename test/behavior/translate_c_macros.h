@@ -62,3 +62,9 @@ typedef _Bool uintptr_t;
 
 #define LONG(x) x##L
 #define X LONG(10)
+
+#define BLANK_MACRO
+#define BLANK_CHILD_MACRO BLANK_MACRO BLANK_MACRO BLANK_MACRO
+#define MACRO_VALUE 0
+typedef long def_type;
+#define BLANK_MACRO_CAST (BLANK_CHILD_MACRO def_type BLANK_CHILD_MACRO)MACRO_VALUE
