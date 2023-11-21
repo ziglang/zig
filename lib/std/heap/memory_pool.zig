@@ -192,25 +192,25 @@ test "memory pool: growable" {
 }
 
 test "memory pool: greater than pointer default alignment" {
-	const Foo = struct {
-		data: u64 align(16),
-	};
+    const Foo = struct {
+        data: u64 align(16),
+    };
 
     var pool = MemoryPool(Foo).init(std.testing.allocator);
     defer pool.deinit();
 
     const foo: *Foo = try pool.create();
-	_ = foo;
+    _ = foo;
 }
 
 test "memory pool: greater than pointer manual alignment" {
-	const Foo = struct {
-		data: u64,
-	};
+    const Foo = struct {
+        data: u64,
+    };
 
     var pool = MemoryPoolAligned(Foo, 16).init(std.testing.allocator);
     defer pool.deinit();
 
     const foo: *align(16) Foo = try pool.create();
-	_ = foo;
+    _ = foo;
 }
