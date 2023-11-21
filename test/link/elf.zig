@@ -2,9 +2,8 @@
 //! Currently, we support linking x86_64 Linux, but in the future we
 //! will progressively relax those to exercise more combinations.
 
-pub fn build(b: *Build) void {
+pub fn testAll(b: *Build) *Step {
     const elf_step = b.step("test-elf", "Run ELF tests");
-    b.default_step = elf_step;
 
     const default_target = CrossTarget{
         .cpu_arch = .x86_64, // TODO relax this once ELF linker is able to handle other archs
@@ -20,6 +19,16 @@ pub fn build(b: *Build) void {
         .os_tag = .linux,
         .abi = .gnu,
     };
+
+    // Exercise linker in -r mode
+    elf_step.dependOn(testEmitRelocatable(b, .{ .use_llvm = false, .target = musl_target }));
+    elf_step.dependOn(testEmitRelocatable(b, .{ .target = musl_target }));
+    elf_step.dependOn(testRelocatableArchive(b, .{ .target = musl_target }));
+    elf_step.dependOn(testRelocatableEhFrame(b, .{ .target = musl_target }));
+    elf_step.dependOn(testRelocatableNoEhFrame(b, .{ .target = musl_target }));
+
+    // Exercise linker in ar mode
+    elf_step.dependOn(testEmitStaticLib(b, .{ .target = musl_target }));
 
     // Exercise linker with self-hosted backend (no LLVM)
     elf_step.dependOn(testGcSectionsZig(b, .{ .use_llvm = false, .target = default_target }));
@@ -115,6 +124,8 @@ pub fn build(b: *Build) void {
     elf_step.dependOn(testZNow(b, .{ .target = glibc_target }));
     elf_step.dependOn(testZStackSize(b, .{ .target = glibc_target }));
     elf_step.dependOn(testZText(b, .{ .target = glibc_target }));
+
+    return elf_step;
 }
 
 fn testAbsSymbols(b: *Build, opts: Options) *Step {
@@ -626,6 +637,112 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testEmitRelocatable(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "emit-relocatable", opts);
+
+    const obj1 = addObject(b, "obj1", opts);
+    addZigSourceBytes(obj1,
+        \\const std = @import("std");
+        \\extern var bar: i32;
+        \\export fn foo() i32 {
+        \\   return bar;
+        \\}
+        \\export fn printFoo() void {
+        \\    std.debug.print("foo={d}\n", .{foo()});
+        \\}
+    );
+    addCSourceBytes(obj1,
+        \\#include <stdio.h>
+        \\int bar = 42;
+        \\void printBar() {
+        \\  fprintf(stderr, "bar=%d\n", bar);
+        \\}
+    , &.{});
+    obj1.linkLibC();
+
+    const exe = addExecutable(b, "test", opts);
+    addZigSourceBytes(exe,
+        \\const std = @import("std");
+        \\extern fn printFoo() void;
+        \\extern fn printBar() void;
+        \\pub fn main() void {
+        \\    printFoo();
+        \\    printBar();
+        \\}
+    );
+    exe.addObject(obj1);
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdErrEqual(
+        \\foo=42
+        \\bar=42
+        \\
+    );
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testEmitStaticLib(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "emit-static-lib", opts);
+
+    const obj1 = addObject(b, "obj1", opts);
+    addCSourceBytes(obj1,
+        \\int foo = 0;
+        \\int bar = 2;
+        \\int fooBar() {
+        \\  return foo + bar;
+        \\}
+    , &.{});
+
+    const obj2 = addObject(b, "obj2", opts);
+    addCSourceBytes(obj2, "int tentative;", &.{"-fcommon"});
+
+    const obj3 = addObject(b, "a_very_long_file_name_so_that_it_ends_up_in_strtab", opts);
+    addZigSourceBytes(obj3,
+        \\fn weakFoo() callconv(.C) usize {
+        \\    return 42;
+        \\}
+        \\export var strongBar: usize = 100;
+        \\comptime {
+        \\    @export(weakFoo, .{ .name = "weakFoo", .linkage = .Weak });
+        \\    @export(strongBar, .{ .name = "strongBarAlias", .linkage = .Strong });
+        \\}
+    );
+
+    const lib = addStaticLibrary(b, "lib", opts);
+    lib.addObject(obj1);
+    lib.addObject(obj2);
+    lib.addObject(obj3);
+
+    const check = lib.checkObject();
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj1.getEmittedBin());
+    check.checkExact("foo");
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj1.getEmittedBin());
+    check.checkExact("bar");
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj1.getEmittedBin());
+    check.checkExact("fooBar");
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj2.getEmittedBin());
+    check.checkExact("tentative");
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj3.getEmittedBin());
+    check.checkExact("weakFoo");
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj3.getEmittedBin());
+    check.checkExact("strongBar");
+    check.checkInArchiveSymtab();
+    check.checkExactPath("in object", obj3.getEmittedBin());
+    check.checkExact("strongBarAlias");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
 fn testEmptyObject(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "empty-object", opts);
 
@@ -889,7 +1006,6 @@ fn testGcSectionsZig(b: *Build, opts: Options) *Step {
     const obj = addObject(b, "obj", .{
         .target = opts.target,
         .use_llvm = true,
-        .use_lld = true,
     });
     addCSourceBytes(obj,
         \\int live_var1 = 1;
@@ -1858,34 +1974,30 @@ fn testLinkingObj(b: *Build, opts: Options) *Step {
 fn testLinkingStaticLib(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "linking-static-lib", opts);
 
-    const lib = b.addStaticLibrary(.{
-        .name = "alib",
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = false,
-    });
+    const obj = addObject(b, "bobj", opts);
+    addZigSourceBytes(obj, "export var bar: i32 = -42;");
+
+    const lib = addStaticLibrary(b, "alib", opts);
     addZigSourceBytes(lib,
-        \\extern var mod: usize;
-        \\export fn callMe() usize {
-        \\    return me * mod;
+        \\export fn foo() i32 {
+        \\    return 42;
         \\}
-        \\var me: usize = 42;
     );
+    lib.addObject(obj);
 
     const exe = addExecutable(b, "testlib", opts);
     addZigSourceBytes(exe,
         \\const std = @import("std");
-        \\extern fn callMe() usize;
-        \\export var mod: usize = 2;
+        \\extern fn foo() i32;
+        \\extern var bar: i32;
         \\pub fn main() void {
-        \\    std.debug.print("{d}\n", .{callMe()});
+        \\    std.debug.print("{d}\n", .{foo() + bar});
         \\}
     );
     exe.linkLibrary(lib);
 
     const run = addRunArtifact(exe);
-    run.expectStdErrEqual("84\n");
+    run.expectStdErrEqual("0\n");
     test_step.dependOn(&run.step);
 
     return test_step;
@@ -2027,6 +2139,166 @@ fn testPreinitArray(b: *Build, opts: Options) *Step {
         check.checkInDynamicSection();
         check.checkContains("PREINIT_ARRAY");
     }
+
+    return test_step;
+}
+
+fn testRelocatableArchive(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "relocatable-archive", opts);
+
+    const obj1 = addObject(b, "obj1", opts);
+    addCSourceBytes(obj1,
+        \\void bar();
+        \\void foo() {
+        \\  bar();
+        \\}
+    , &.{});
+
+    const obj2 = addObject(b, "obj2", opts);
+    addCSourceBytes(obj2,
+        \\void bar() {}
+    , &.{});
+
+    const obj3 = addObject(b, "obj3", opts);
+    addCSourceBytes(obj3,
+        \\void baz();
+    , &.{});
+
+    const obj4 = addObject(b, "obj4", opts);
+    addCSourceBytes(obj4,
+        \\void foo();
+        \\int main() {
+        \\  foo();
+        \\}
+    , &.{});
+
+    const lib = addStaticLibrary(b, "lib", opts);
+    lib.addObject(obj1);
+    lib.addObject(obj2);
+    lib.addObject(obj3);
+
+    const obj5 = addObject(b, "obj5", opts);
+    obj5.addObject(obj4);
+    obj5.linkLibrary(lib);
+
+    const check = obj5.checkObject();
+    check.checkInSymtab();
+    check.checkContains("foo");
+    check.checkInSymtab();
+    check.checkContains("bar");
+    check.checkInSymtab();
+    check.checkNotPresent("baz");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "relocatable-eh-frame", opts);
+
+    {
+        const obj = addObject(b, "obj1", opts);
+        addCppSourceBytes(obj,
+            \\#include <stdexcept>
+            \\int try_me() {
+            \\  throw std::runtime_error("Oh no!");
+            \\}
+        , &.{});
+        addCppSourceBytes(obj,
+            \\extern int try_me();
+            \\int try_again() {
+            \\  return try_me();
+            \\}
+        , &.{});
+        obj.linkLibCpp();
+
+        const exe = addExecutable(b, "test1", opts);
+        addCppSourceBytes(exe,
+            \\#include <iostream>
+            \\#include <stdexcept>
+            \\extern int try_again();
+            \\int main() {
+            \\  try {
+            \\    try_again();
+            \\  } catch (const std::exception &e) {
+            \\    std::cout << "exception=" << e.what();
+            \\  }
+            \\  return 0;
+            \\}
+        , &.{});
+        exe.addObject(obj);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("exception=Oh no!");
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        // Let's make the object file COMDAT group heavy!
+        const obj = addObject(b, "obj2", opts);
+        addCppSourceBytes(obj,
+            \\#include <stdexcept>
+            \\int try_me() {
+            \\  throw std::runtime_error("Oh no!");
+            \\}
+        , &.{});
+        addCppSourceBytes(obj,
+            \\extern int try_me();
+            \\int try_again() {
+            \\  return try_me();
+            \\}
+        , &.{});
+        addCppSourceBytes(obj,
+            \\#include <iostream>
+            \\#include <stdexcept>
+            \\extern int try_again();
+            \\int main() {
+            \\  try {
+            \\    try_again();
+            \\  } catch (const std::exception &e) {
+            \\    std::cout << "exception=" << e.what();
+            \\  }
+            \\  return 0;
+            \\}
+        , &.{});
+        obj.linkLibCpp();
+
+        const exe = addExecutable(b, "test2", opts);
+        exe.addObject(obj);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("exception=Oh no!");
+        test_step.dependOn(&run.step);
+    }
+
+    return test_step;
+}
+
+fn testRelocatableNoEhFrame(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "relocatable-no-eh-frame", opts);
+
+    const obj1 = addObject(b, "obj1", opts);
+    addCSourceBytes(obj1, "int bar() { return 42; }", &.{
+        "-fno-unwind-tables",
+        "-fno-asynchronous-unwind-tables",
+    });
+
+    const obj2 = addObject(b, "obj2", opts);
+    obj2.addObject(obj1);
+
+    const check1 = obj1.checkObject();
+    check1.checkStart();
+    check1.checkExact("section headers");
+    check1.checkNotPresent(".eh_frame");
+    test_step.dependOn(&check1.step);
+
+    const check2 = obj2.checkObject();
+    check2.checkStart();
+    check2.checkExact("section headers");
+    check2.checkNotPresent(".eh_frame");
+    test_step.dependOn(&check2.step);
 
     return test_step;
 }
@@ -3287,110 +3559,25 @@ fn testZText(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
-const Options = struct {
-    target: CrossTarget = .{ .cpu_arch = .x86_64, .os_tag = .linux },
-    optimize: std.builtin.OptimizeMode = .Debug,
-    use_llvm: bool = true,
-    use_lld: bool = false,
-};
-
 fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
-    const target = opts.target.zigTriple(b.allocator) catch @panic("OOM");
-    const optimize = @tagName(opts.optimize);
-    const use_llvm = if (opts.use_llvm) "llvm" else "no-llvm";
-    const name = std.fmt.allocPrint(b.allocator, "test-elf-" ++ prefix ++ "-{s}-{s}-{s}", .{
-        target,
-        optimize,
-        use_llvm,
-    }) catch @panic("OOM");
-    return b.step(name, "");
+    return link.addTestStep(b, "elf-" ++ prefix, opts);
 }
 
-fn addExecutable(b: *Build, name: []const u8, opts: Options) *Compile {
-    return b.addExecutable(.{
-        .name = name,
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = opts.use_lld,
-    });
-}
-
-fn addObject(b: *Build, name: []const u8, opts: Options) *Compile {
-    return b.addObject(.{
-        .name = name,
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = opts.use_lld,
-    });
-}
-
-fn addStaticLibrary(b: *Build, name: []const u8, opts: Options) *Compile {
-    return b.addStaticLibrary(.{
-        .name = name,
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = true,
-    });
-}
-
-fn addSharedLibrary(b: *Build, name: []const u8, opts: Options) *Compile {
-    return b.addSharedLibrary(.{
-        .name = name,
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = opts.use_lld,
-    });
-}
-
-fn addRunArtifact(comp: *Compile) *Run {
-    const b = comp.step.owner;
-    const run = b.addRunArtifact(comp);
-    run.skip_foreign_checks = true;
-    return run;
-}
-
-fn addZigSourceBytes(comp: *Compile, bytes: []const u8) void {
-    const b = comp.step.owner;
-    const file = WriteFile.create(b).add("a.zig", bytes);
-    file.addStepDependencies(&comp.step);
-    comp.root_src = file;
-}
-
-fn addCSourceBytes(comp: *Compile, bytes: []const u8, flags: []const []const u8) void {
-    const b = comp.step.owner;
-    const file = WriteFile.create(b).add("a.c", bytes);
-    comp.addCSourceFile(.{ .file = file, .flags = flags });
-}
-
-fn addCppSourceBytes(comp: *Compile, bytes: []const u8, flags: []const []const u8) void {
-    const b = comp.step.owner;
-    const file = WriteFile.create(b).add("a.cpp", bytes);
-    comp.addCSourceFile(.{ .file = file, .flags = flags });
-}
-
-fn addAsmSourceBytes(comp: *Compile, bytes: []const u8) void {
-    const b = comp.step.owner;
-    const actual_bytes = std.fmt.allocPrint(b.allocator, "{s}\n", .{bytes}) catch @panic("OOM");
-    const file = WriteFile.create(b).add("a.s", actual_bytes);
-    comp.addAssemblyFile(file);
-}
-
-fn expectLinkErrors(comp: *Compile, test_step: *Step, expected_errors: Compile.ExpectedCompileErrors) void {
-    comp.expect_errors = expected_errors;
-    const bin_file = comp.getEmittedBin();
-    bin_file.addStepDependencies(test_step);
-}
-
+const addAsmSourceBytes = link.addAsmSourceBytes;
+const addCSourceBytes = link.addCSourceBytes;
+const addCppSourceBytes = link.addCppSourceBytes;
+const addExecutable = link.addExecutable;
+const addObject = link.addObject;
+const addRunArtifact = link.addRunArtifact;
+const addSharedLibrary = link.addSharedLibrary;
+const addStaticLibrary = link.addStaticLibrary;
+const addZigSourceBytes = link.addZigSourceBytes;
+const expectLinkErrors = link.expectLinkErrors;
+const link = @import("link.zig");
 const std = @import("std");
 
 const Build = std.Build;
-const Compile = Step.Compile;
 const CrossTarget = std.zig.CrossTarget;
-const LazyPath = Build.LazyPath;
-const Run = Step.Run;
+const Options = link.Options;
 const Step = Build.Step;
 const WriteFile = Step.WriteFile;

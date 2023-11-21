@@ -77,7 +77,7 @@ embed_file_work_queue: std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic),
 
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
-failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *CObject.ErrorMsg) = .{},
+failed_c_objects: std.AutoArrayHashMapUnmanaged(*CObject, *CObject.Diag.Bundle) = .{},
 
 /// The ErrorBundle memory is owned by the `Win32Resource`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
@@ -152,9 +152,6 @@ libunwind_static_lib: ?CRTFile = null,
 /// Populated when we build the TSAN static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 tsan_static_lib: ?CRTFile = null,
-/// Populated when we build the libssp static library. A Job to build this is placed in the queue
-/// and resolved before calling linker.flush().
-libssp_static_lib: ?CRTFile = null,
 /// Populated when we build the libc static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libc_static_lib: ?CRTFile = null,
@@ -286,7 +283,6 @@ const Job = union(enum) {
     libcxx: void,
     libcxxabi: void,
     libtsan: void,
-    libssp: void,
     /// needed when not linking libc and using LLVM for code generation because it generates
     /// calls to, for example, memcpy and memset.
     zig_libc: void,
@@ -318,15 +314,286 @@ pub const CObject = struct {
         failure_retryable,
     },
 
-    pub const ErrorMsg = struct {
-        msg: []const u8,
-        line: u32,
-        column: u32,
+    pub const Diag = struct {
+        level: u32 = 0,
+        category: u32 = 0,
+        msg: []const u8 = &.{},
+        src_loc: SrcLoc = .{},
+        src_ranges: []const SrcRange = &.{},
+        sub_diags: []const Diag = &.{},
 
-        pub fn destroy(em: *ErrorMsg, gpa: Allocator) void {
-            gpa.free(em.msg);
-            gpa.destroy(em);
+        pub const SrcLoc = struct {
+            file: u32 = 0,
+            line: u32 = 0,
+            column: u32 = 0,
+            offset: u32 = 0,
+        };
+
+        pub const SrcRange = struct {
+            start: SrcLoc = .{},
+            end: SrcLoc = .{},
+        };
+
+        pub fn deinit(diag: *Diag, gpa: Allocator) void {
+            gpa.free(diag.msg);
+            gpa.free(diag.src_ranges);
+            for (diag.sub_diags) |sub_diag| {
+                var sub_diag_mut = sub_diag;
+                sub_diag_mut.deinit(gpa);
+            }
+            gpa.free(diag.sub_diags);
+            diag.* = undefined;
         }
+
+        pub fn count(diag: Diag) u32 {
+            var total: u32 = 1;
+            for (diag.sub_diags) |sub_diag| total += sub_diag.count();
+            return total;
+        }
+
+        pub fn addToErrorBundle(diag: Diag, eb: *ErrorBundle.Wip, bundle: Bundle, note: *u32) !void {
+            const err_msg = try eb.addErrorMessage(try diag.toErrorMessage(eb, bundle, 0));
+            eb.extra.items[note.*] = @intFromEnum(err_msg);
+            note.* += 1;
+            for (diag.sub_diags) |sub_diag| try sub_diag.addToErrorBundle(eb, bundle, note);
+        }
+
+        pub fn toErrorMessage(
+            diag: Diag,
+            eb: *ErrorBundle.Wip,
+            bundle: Bundle,
+            notes_len: u32,
+        ) !ErrorBundle.ErrorMessage {
+            var start = diag.src_loc.offset;
+            var end = diag.src_loc.offset;
+            for (diag.src_ranges) |src_range| {
+                if (src_range.start.file == diag.src_loc.file and
+                    src_range.start.line == diag.src_loc.line)
+                {
+                    start = @min(src_range.start.offset, start);
+                }
+                if (src_range.end.file == diag.src_loc.file and
+                    src_range.end.line == diag.src_loc.line)
+                {
+                    end = @max(src_range.end.offset, end);
+                }
+            }
+
+            const file_name = bundle.file_names.get(diag.src_loc.file) orelse "";
+            const source_line = source_line: {
+                if (diag.src_loc.offset == 0 or diag.src_loc.column == 0) break :source_line 0;
+
+                const file = std.fs.cwd().openFile(file_name, .{}) catch break :source_line 0;
+                defer file.close();
+                file.seekTo(diag.src_loc.offset + 1 - diag.src_loc.column) catch break :source_line 0;
+
+                var line = std.ArrayList(u8).init(eb.gpa);
+                defer line.deinit();
+                file.reader().readUntilDelimiterArrayList(&line, '\n', 1 << 10) catch break :source_line 0;
+
+                break :source_line try eb.addString(line.items);
+            };
+
+            return .{
+                .msg = try eb.addString(diag.msg),
+                .src_loc = try eb.addSourceLocation(.{
+                    .src_path = try eb.addString(file_name),
+                    .line = diag.src_loc.line -| 1,
+                    .column = diag.src_loc.column -| 1,
+                    .span_start = start,
+                    .span_main = diag.src_loc.offset,
+                    .span_end = end + 1,
+                    .source_line = source_line,
+                }),
+                .notes_len = notes_len,
+            };
+        }
+
+        pub const Bundle = struct {
+            file_names: std.AutoHashMapUnmanaged(u32, []const u8) = .{},
+            category_names: std.AutoHashMapUnmanaged(u32, []const u8) = .{},
+            diags: []Diag = &.{},
+
+            pub fn destroy(bundle: *Bundle, gpa: Allocator) void {
+                var file_name_it = bundle.file_names.valueIterator();
+                while (file_name_it.next()) |file_name| gpa.free(file_name.*);
+                bundle.file_names.deinit(gpa);
+
+                var category_name_it = bundle.category_names.valueIterator();
+                while (category_name_it.next()) |category_name| gpa.free(category_name.*);
+                bundle.category_names.deinit(gpa);
+
+                for (bundle.diags) |*diag| diag.deinit(gpa);
+                gpa.free(bundle.diags);
+
+                gpa.destroy(bundle);
+            }
+
+            pub fn parse(gpa: Allocator, path: []const u8) !*Bundle {
+                const BitcodeReader = @import("codegen/llvm/BitcodeReader.zig");
+                const BlockId = enum(u32) {
+                    Meta = 8,
+                    Diag,
+                    _,
+                };
+                const RecordId = enum(u32) {
+                    Version = 1,
+                    DiagInfo,
+                    SrcRange,
+                    DiagFlag,
+                    CatName,
+                    FileName,
+                    FixIt,
+                    _,
+                };
+                const WipDiag = struct {
+                    level: u32 = 0,
+                    category: u32 = 0,
+                    msg: []const u8 = &.{},
+                    src_loc: SrcLoc = .{},
+                    src_ranges: std.ArrayListUnmanaged(SrcRange) = .{},
+                    sub_diags: std.ArrayListUnmanaged(Diag) = .{},
+
+                    fn deinit(wip_diag: *@This(), allocator: Allocator) void {
+                        allocator.free(wip_diag.msg);
+                        wip_diag.src_ranges.deinit(allocator);
+                        for (wip_diag.sub_diags.items) |*sub_diag| sub_diag.deinit(allocator);
+                        wip_diag.sub_diags.deinit(allocator);
+                        wip_diag.* = undefined;
+                    }
+                };
+
+                const file = try std.fs.cwd().openFile(path, .{});
+                defer file.close();
+                var br = std.io.bufferedReader(file.reader());
+                const reader = br.reader();
+                var bc = BitcodeReader.init(gpa, .{ .reader = reader.any() });
+                defer bc.deinit();
+
+                var file_names: std.AutoHashMapUnmanaged(u32, []const u8) = .{};
+                errdefer {
+                    var file_name_it = file_names.valueIterator();
+                    while (file_name_it.next()) |file_name| gpa.free(file_name.*);
+                    file_names.deinit(gpa);
+                }
+
+                var category_names: std.AutoHashMapUnmanaged(u32, []const u8) = .{};
+                errdefer {
+                    var category_name_it = category_names.valueIterator();
+                    while (category_name_it.next()) |category_name| gpa.free(category_name.*);
+                    category_names.deinit(gpa);
+                }
+
+                var stack: std.ArrayListUnmanaged(WipDiag) = .{};
+                defer {
+                    for (stack.items) |*wip_diag| wip_diag.deinit(gpa);
+                    stack.deinit(gpa);
+                }
+                try stack.append(gpa, .{});
+
+                try bc.checkMagic("DIAG");
+                while (try bc.next()) |item| switch (item) {
+                    .start_block => |block| switch (@as(BlockId, @enumFromInt(block.id))) {
+                        .Meta => if (stack.items.len > 0) try bc.skipBlock(block),
+                        .Diag => try stack.append(gpa, .{}),
+                        _ => try bc.skipBlock(block),
+                    },
+                    .record => |record| switch (@as(RecordId, @enumFromInt(record.id))) {
+                        .Version => if (record.operands[0] != 2) return error.InvalidVersion,
+                        .DiagInfo => {
+                            const top = &stack.items[stack.items.len - 1];
+                            top.level = @intCast(record.operands[0]);
+                            top.src_loc = .{
+                                .file = @intCast(record.operands[1]),
+                                .line = @intCast(record.operands[2]),
+                                .column = @intCast(record.operands[3]),
+                                .offset = @intCast(record.operands[4]),
+                            };
+                            top.category = @intCast(record.operands[5]);
+                            top.msg = try gpa.dupe(u8, record.blob);
+                        },
+                        .SrcRange => try stack.items[stack.items.len - 1].src_ranges.append(gpa, .{
+                            .start = .{
+                                .file = @intCast(record.operands[0]),
+                                .line = @intCast(record.operands[1]),
+                                .column = @intCast(record.operands[2]),
+                                .offset = @intCast(record.operands[3]),
+                            },
+                            .end = .{
+                                .file = @intCast(record.operands[4]),
+                                .line = @intCast(record.operands[5]),
+                                .column = @intCast(record.operands[6]),
+                                .offset = @intCast(record.operands[7]),
+                            },
+                        }),
+                        .DiagFlag => {},
+                        .CatName => {
+                            try category_names.ensureUnusedCapacity(gpa, 1);
+                            category_names.putAssumeCapacity(
+                                @intCast(record.operands[0]),
+                                try gpa.dupe(u8, record.blob),
+                            );
+                        },
+                        .FileName => {
+                            try file_names.ensureUnusedCapacity(gpa, 1);
+                            file_names.putAssumeCapacity(
+                                @intCast(record.operands[0]),
+                                try gpa.dupe(u8, record.blob),
+                            );
+                        },
+                        .FixIt => {},
+                        _ => {},
+                    },
+                    .end_block => |block| switch (@as(BlockId, @enumFromInt(block.id))) {
+                        .Meta => {},
+                        .Diag => {
+                            var wip_diag = stack.pop();
+                            errdefer wip_diag.deinit(gpa);
+
+                            const src_ranges = try wip_diag.src_ranges.toOwnedSlice(gpa);
+                            errdefer gpa.free(src_ranges);
+
+                            const sub_diags = try wip_diag.sub_diags.toOwnedSlice(gpa);
+                            errdefer {
+                                for (sub_diags) |*sub_diag| sub_diag.deinit(gpa);
+                                gpa.free(sub_diags);
+                            }
+
+                            try stack.items[stack.items.len - 1].sub_diags.append(gpa, .{
+                                .level = wip_diag.level,
+                                .category = wip_diag.category,
+                                .msg = wip_diag.msg,
+                                .src_loc = wip_diag.src_loc,
+                                .src_ranges = src_ranges,
+                                .sub_diags = sub_diags,
+                            });
+                        },
+                        _ => {},
+                    },
+                };
+
+                const bundle = try gpa.create(Bundle);
+                assert(stack.items.len == 1);
+                bundle.* = .{
+                    .file_names = file_names,
+                    .category_names = category_names,
+                    .diags = try stack.items[0].sub_diags.toOwnedSlice(gpa),
+                };
+                return bundle;
+            }
+
+            pub fn addToErrorBundle(bundle: Bundle, eb: *ErrorBundle.Wip) !void {
+                for (bundle.diags) |diag| {
+                    const notes_len = diag.count() - 1;
+                    try eb.addRootErrorMessage(try diag.toErrorMessage(eb, bundle, notes_len));
+                    if (notes_len > 0) {
+                        var note = try eb.reserveNotes(notes_len);
+                        for (diag.sub_diags) |sub_diag|
+                            try sub_diag.addToErrorBundle(eb, bundle, &note);
+                    }
+                }
+            }
+        };
     };
 
     /// Returns if there was failure.
@@ -412,7 +679,6 @@ pub const MiscTask = enum {
     libtsan,
     wasi_libc_crt_file,
     compiler_rt,
-    libssp,
     zig_libc,
     analyze_mod,
 
@@ -801,8 +1067,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         .Exe => true,
     };
 
-    const needs_c_symbols = !options.skip_linker_dependencies and is_exe_or_dyn_lib;
-
     // WASI-only. Resolve the optional exec-model option, defaults to command.
     const wasi_exec_model = if (options.target.os.tag != .wasi) undefined else options.wasi_exec_model orelse .command;
 
@@ -1024,7 +1288,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const sysroot = options.sysroot orelse libc_dirs.sysroot;
 
         const pie: bool = pie: {
-            if (options.output_mode != .Exe) {
+            if (is_dyn_lib) {
                 if (options.want_pie == true) return error.OutputModeForbidsPie;
                 break :pie false;
             }
@@ -1084,10 +1348,14 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         if (stack_check and !target_util.supportsStackProbing(options.target))
             return error.StackCheckUnsupportedByTarget;
 
-        const capable_of_building_ssp = canBuildLibSsp(options.target, use_llvm);
-
-        const stack_protector: u32 = options.want_stack_protector orelse b: {
-            if (!target_util.supportsStackProtector(options.target)) break :b @as(u32, 0);
+        const stack_protector: u32 = sp: {
+            const zig_backend = zigBackend(options.target, use_llvm);
+            if (!target_util.supportsStackProtector(options.target, zig_backend)) {
+                if (options.want_stack_protector) |x| {
+                    if (x > 0) return error.StackProtectorUnsupportedByTarget;
+                }
+                break :sp 0;
+            }
 
             // This logic is checking for linking libc because otherwise our start code
             // which is trying to set up TLS (i.e. the fs/gs registers) but the stack
@@ -1096,21 +1364,20 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // as being exempt from stack protection checks, we could change this logic
             // to supporting stack protection even when not linking libc.
             // TODO file issue about this
-            if (!link_libc) break :b 0;
-            if (!capable_of_building_ssp) break :b 0;
-            if (is_safe_mode) break :b default_stack_protector_buffer_size;
-            break :b 0;
-        };
-        if (stack_protector != 0) {
-            if (!target_util.supportsStackProtector(options.target))
-                return error.StackProtectorUnsupportedByTarget;
-            if (!capable_of_building_ssp)
-                return error.StackProtectorUnsupportedByBackend;
-            if (!link_libc)
-                return error.StackProtectorUnavailableWithoutLibC;
-        }
+            if (!link_libc) {
+                if (options.want_stack_protector) |x| {
+                    if (x > 0) return error.StackProtectorUnavailableWithoutLibC;
+                }
+                break :sp 0;
+            }
 
-        const include_compiler_rt = options.want_compiler_rt orelse needs_c_symbols;
+            if (options.want_stack_protector) |x| break :sp x;
+            if (is_safe_mode) break :sp default_stack_protector_buffer_size;
+            break :sp 0;
+        };
+
+        const include_compiler_rt = options.want_compiler_rt orelse
+            (!options.skip_linker_dependencies and is_exe_or_dyn_lib);
 
         const single_threaded = st: {
             if (target_util.isSingleThreaded(options.target)) {
@@ -1492,7 +1759,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             const digest = hash.final();
             const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
-            var artifact_dir = try options.local_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
+            const artifact_dir = try options.local_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
             owned_link_dir = artifact_dir;
             const link_artifact_directory: Directory = .{
                 .handle = artifact_dir,
@@ -1906,7 +2173,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // LLD might drop some symbols as unused during LTO and GCing, therefore,
             // we force mark them for resolution here.
 
-            var tls_index_sym = switch (comp.getTarget().cpu.arch) {
+            const tls_index_sym = switch (comp.getTarget().cpu.arch) {
                 .x86 => "__tls_index",
                 else => "_tls_index",
             };
@@ -1925,18 +2192,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 comp.job_queued_compiler_rt_obj = true;
             }
         }
-        if (needs_c_symbols) {
-            // Related: https://github.com/ziglang/zig/issues/7265.
-            if (comp.bin_file.options.stack_protector != 0 and
-                (!comp.bin_file.options.link_libc or
-                !target_util.libcProvidesStackProtector(target)))
-            {
-                try comp.work_queue.writeItem(.{ .libssp = {} });
-            }
 
-            if (!comp.bin_file.options.link_libc and capable_of_building_zig_libc) {
-                try comp.work_queue.writeItem(.{ .zig_libc = {} });
-            }
+        if (!comp.bin_file.options.skip_linker_dependencies and is_exe_or_dyn_lib and
+            !comp.bin_file.options.link_libc and capable_of_building_zig_libc)
+        {
+            try comp.work_queue.writeItem(.{ .zig_libc = {} });
         }
     }
 
@@ -1980,9 +2240,6 @@ pub fn destroy(self: *Compilation) void {
         crt_file.deinit(gpa);
     }
     if (self.compiler_rt_obj) |*crt_file| {
-        crt_file.deinit(gpa);
-    }
-    if (self.libssp_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
     if (self.libc_static_lib) |*crt_file| {
@@ -2265,18 +2522,6 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             try module.populateTestFunctions(main_progress_node);
         }
 
-        // Process the deletion set. We use a while loop here because the
-        // deletion set may grow as we call `clearDecl` within this loop,
-        // and more unreferenced Decls are revealed.
-        while (module.deletion_set.count() != 0) {
-            const decl_index = module.deletion_set.keys()[0];
-            const decl = module.declPtr(decl_index);
-            assert(decl.deletion_flag);
-            assert(decl.zir_decl_index != .none);
-
-            try module.clearDecl(decl_index, null);
-        }
-
         try module.processExports();
     }
 
@@ -2304,10 +2549,16 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         defer comp.gpa.free(o_sub_path);
 
         // Work around windows `AccessDenied` if any files within this directory are open
-        // by doing the makeExecutable/makeWritable dance.
+        // by closing and reopening the file handles.
         const need_writable_dance = builtin.os.tag == .windows and comp.bin_file.file != null;
         if (need_writable_dance) {
-            try comp.bin_file.makeExecutable();
+            // We cannot just call `makeExecutable` as it makes a false assumption that we have a
+            // file handle open only when linking an executable file. This used to be true when
+            // our linkers were incapable of emitting relocatables and static archive. Now that
+            // they are capable, we need to unconditionally close the file handle and re-open it
+            // in the follow up call to `makeWritable`.
+            comp.bin_file.file.?.close();
+            comp.bin_file.file = null;
         }
 
         try comp.bin_file.renameTmpIntoCache(comp.local_cache_directory, tmp_dir_sub_path, o_sub_path);
@@ -2325,7 +2576,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             var artifact_dir = try comp.local_cache_directory.handle.openDir(o_sub_path, .{});
             defer artifact_dir.close();
 
-            var dir_path = try comp.local_cache_directory.join(comp.gpa, &.{o_sub_path});
+            const dir_path = try comp.local_cache_directory.join(comp.gpa, &.{o_sub_path});
             defer comp.gpa.free(dir_path);
 
             module.zig_cache_artifact_directory = .{
@@ -2820,10 +3071,15 @@ fn addBuf(bufs_list: []std.os.iovec_const, bufs_len: *usize, buf: []const u8) vo
 
 /// This function is temporally single-threaded.
 pub fn totalErrorCount(self: *Compilation) u32 {
-    var total: usize = self.failed_c_objects.count() +
+    var total: usize =
         self.misc_failures.count() +
         @intFromBool(self.alloc_failure_occurred) +
         self.lld_errors.items.len;
+
+    {
+        var it = self.failed_c_objects.iterator();
+        while (it.next()) |entry| total += entry.value_ptr.*.diags.len;
+    }
 
     if (!build_options.only_core_functionality) {
         for (self.failed_win32_resources.values()) |errs| {
@@ -2905,24 +3161,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
 
     {
         var it = self.failed_c_objects.iterator();
-        while (it.next()) |entry| {
-            const c_object = entry.key_ptr.*;
-            const err_msg = entry.value_ptr.*;
-            // TODO these fields will need to be adjusted when we have proper
-            // C error reporting bubbling up.
-            try bundle.addRootErrorMessage(.{
-                .msg = try bundle.printString("unable to build C object: {s}", .{err_msg.msg}),
-                .src_loc = try bundle.addSourceLocation(.{
-                    .src_path = try bundle.addString(c_object.src.src_path),
-                    .span_start = 0,
-                    .span_main = 0,
-                    .span_end = 1,
-                    .line = err_msg.line,
-                    .column = err_msg.column,
-                    .source_line = 0, // TODO
-                }),
-            });
-        }
+        while (it.next()) |entry| try entry.value_ptr.*.addToErrorBundle(&bundle);
     }
 
     if (!build_options.only_core_functionality) {
@@ -3435,16 +3674,6 @@ pub fn performAllTheWork(
         try reportMultiModuleErrors(mod);
     }
 
-    {
-        const outdated_and_deleted_decls_frame = tracy.namedFrame("outdated_and_deleted_decls");
-        defer outdated_and_deleted_decls_frame.end();
-
-        // Iterate over all the files and look for outdated and deleted declarations.
-        if (comp.bin_file.options.module) |mod| {
-            try mod.processOutdatedAndDeletedDecls();
-        }
-    }
-
     if (comp.bin_file.options.module) |mod| {
         mod.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
         mod.sema_prog_node.activate();
@@ -3757,26 +3986,6 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                 );
             };
         },
-        .libssp => {
-            const named_frame = tracy.namedFrame("libssp");
-            defer named_frame.end();
-
-            comp.buildOutputFromZig(
-                "ssp.zig",
-                .Lib,
-                &comp.libssp_static_lib,
-                .libssp,
-                prog_node,
-            ) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.SubCompilationFailed => return, // error reported already
-                else => comp.lockAndSetMiscFailure(
-                    .libssp,
-                    "unable to build libssp: {s}",
-                    .{@errorName(err)},
-                ),
-            };
-        },
         .zig_libc => {
             const named_frame = tracy.namedFrame("zig_libc");
             defer named_frame.end();
@@ -4043,7 +4252,6 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         }
         var tree = switch (comp.c_frontend) {
             .aro => tree: {
-                if (builtin.zig_backend == .stage2_c) @panic("the CBE cannot compile Aro yet!");
                 const translate_c = @import("aro_translate_c.zig");
                 _ = translate_c;
                 if (true) @panic("TODO");
@@ -4204,19 +4412,9 @@ fn reportRetryableCObjectError(
 ) error{OutOfMemory}!void {
     c_object.status = .failure_retryable;
 
-    const c_obj_err_msg = try comp.gpa.create(CObject.ErrorMsg);
-    errdefer comp.gpa.destroy(c_obj_err_msg);
-    const msg = try std.fmt.allocPrint(comp.gpa, "{s}", .{@errorName(err)});
-    errdefer comp.gpa.free(msg);
-    c_obj_err_msg.* = .{
-        .msg = msg,
-        .line = 0,
-        .column = 0,
-    };
-    {
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
-        try comp.failed_c_objects.putNoClobber(comp.gpa, c_object, c_obj_err_msg);
+    switch (comp.failCObj(c_object, "{s}", .{@errorName(err)})) {
+        error.AnalysisFail => return,
+        else => |e| return e,
     }
 }
 
@@ -4452,6 +4650,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         // We can't know the digest until we do the C compiler invocation,
         // so we need a temporary filename.
         const out_obj_path = try comp.tmpFilePath(arena, o_basename);
+        const out_diag_path = try std.fmt.allocPrint(arena, "{s}.diag", .{out_obj_path});
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
@@ -4465,18 +4664,20 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
 
         try argv.ensureUnusedCapacity(5);
         switch (comp.clang_preprocessor_mode) {
-            .no => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-c", "-o", out_obj_path }),
-            .yes => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-E", "-o", out_obj_path }),
+            .no => argv.appendSliceAssumeCapacity(&.{ "-c", "-o", out_obj_path }),
+            .yes => argv.appendSliceAssumeCapacity(&.{ "-E", "-o", out_obj_path }),
             .stdout => argv.appendAssumeCapacity("-E"),
         }
         if (comp.clang_passthrough_mode) {
             if (comp.emit_asm != null) {
                 argv.appendAssumeCapacity("-S");
             } else if (comp.emit_llvm_ir != null) {
-                argv.appendSliceAssumeCapacity(&[_][]const u8{ "-emit-llvm", "-S" });
+                argv.appendSliceAssumeCapacity(&.{ "-emit-llvm", "-S" });
             } else if (comp.emit_llvm_bc != null) {
                 argv.appendAssumeCapacity("-emit-llvm");
             }
+        } else {
+            argv.appendSliceAssumeCapacity(&.{ "--serialize-diagnostics", out_diag_path });
         }
 
         if (comp.verbose_cc) {
@@ -4519,10 +4720,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
                 switch (term) {
                     .Exited => |code| {
                         if (code != 0) {
-                            // TODO parse clang stderr and turn it into an error message
-                            // and then call failCObjWithOwnedErrorMsg
-                            log.err("clang failed with stderr: {s}", .{stderr});
-                            return comp.failCObj(c_object, "clang exited with code {d}", .{code});
+                            const bundle = CObject.Diag.Bundle.parse(comp.gpa, out_diag_path) catch |err| {
+                                log.err("{}: failed to parse clang diagnostics: {s}", .{ err, stderr });
+                                return comp.failCObj(c_object, "clang exited with code {d}", .{code});
+                            };
+                            return comp.failCObjWithOwnedDiagBundle(c_object, bundle);
                         }
                     },
                     else => {
@@ -4759,7 +4961,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
             var cli_diagnostics = resinator.cli.Diagnostics.init(comp.gpa);
             defer cli_diagnostics.deinit();
-            var options = resinator.cli.parse(comp.gpa, resinator_args.items, &cli_diagnostics) catch |err| switch (err) {
+            const options = resinator.cli.parse(comp.gpa, resinator_args.items, &cli_diagnostics) catch |err| switch (err) {
                 error.ParseError => {
                     return comp.failWin32ResourceCli(win32_resource, &cli_diagnostics);
                 },
@@ -4860,7 +5062,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             log.warn("failed to delete '{s}': {s}", .{ out_dep_path, @errorName(err) });
         };
 
-        var full_input = std.fs.cwd().readFileAlloc(arena, out_rcpp_path, std.math.maxInt(usize)) catch |err| switch (err) {
+        const full_input = std.fs.cwd().readFileAlloc(arena, out_rcpp_path, std.math.maxInt(usize)) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => |e| {
                 return comp.failWin32Resource(win32_resource, "failed to read preprocessed file '{s}': {s}", .{ out_rcpp_path, @errorName(e) });
@@ -4870,7 +5072,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         var mapping_results = try resinator.source_mapping.parseAndRemoveLineCommands(arena, full_input, full_input, .{ .initial_filename = rc_src.src_path });
         defer mapping_results.mappings.deinit(arena);
 
-        var final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
+        const final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
 
         var output_file = zig_cache_tmp_dir.createFile(out_res_path, .{}) catch |err| {
             return comp.failWin32Resource(win32_resource, "failed to create output file '{s}': {s}", .{ out_res_path, @errorName(err) });
@@ -5408,37 +5610,45 @@ pub fn addCCArgs(
     try argv.appendSlice(comp.clang_argv);
 }
 
-fn failCObj(comp: *Compilation, c_object: *CObject, comptime format: []const u8, args: anytype) SemaError {
-    @setCold(true);
-    const err_msg = blk: {
-        const msg = try std.fmt.allocPrint(comp.gpa, format, args);
-        errdefer comp.gpa.free(msg);
-        const err_msg = try comp.gpa.create(CObject.ErrorMsg);
-        errdefer comp.gpa.destroy(err_msg);
-        err_msg.* = .{
-            .msg = msg,
-            .line = 0,
-            .column = 0,
-        };
-        break :blk err_msg;
-    };
-    return comp.failCObjWithOwnedErrorMsg(c_object, err_msg);
-}
-
-fn failCObjWithOwnedErrorMsg(
+fn failCObj(
     comp: *Compilation,
     c_object: *CObject,
-    err_msg: *CObject.ErrorMsg,
+    comptime format: []const u8,
+    args: anytype,
+) SemaError {
+    @setCold(true);
+    const diag_bundle = blk: {
+        const diag_bundle = try comp.gpa.create(CObject.Diag.Bundle);
+        diag_bundle.* = .{};
+        errdefer diag_bundle.destroy(comp.gpa);
+
+        try diag_bundle.file_names.ensureTotalCapacity(comp.gpa, 1);
+        diag_bundle.file_names.putAssumeCapacity(1, try comp.gpa.dupe(u8, c_object.src.src_path));
+
+        diag_bundle.diags = try comp.gpa.alloc(CObject.Diag, 1);
+        diag_bundle.diags[0] = .{};
+        diag_bundle.diags[0].level = 3;
+        diag_bundle.diags[0].msg = try std.fmt.allocPrint(comp.gpa, format, args);
+        diag_bundle.diags[0].src_loc.file = 1;
+        break :blk diag_bundle;
+    };
+    return comp.failCObjWithOwnedDiagBundle(c_object, diag_bundle);
+}
+
+fn failCObjWithOwnedDiagBundle(
+    comp: *Compilation,
+    c_object: *CObject,
+    diag_bundle: *CObject.Diag.Bundle,
 ) SemaError {
     @setCold(true);
     {
         comp.mutex.lock();
         defer comp.mutex.unlock();
         {
-            errdefer err_msg.destroy(comp.gpa);
+            errdefer diag_bundle.destroy(comp.gpa);
             try comp.failed_c_objects.ensureUnusedCapacity(comp.gpa, 1);
         }
-        comp.failed_c_objects.putAssumeCapacityNoClobber(c_object, err_msg);
+        comp.failed_c_objects.putAssumeCapacityNoClobber(c_object, diag_bundle);
     }
     c_object.status = .failure;
     return error.AnalysisFail;
@@ -6256,21 +6466,6 @@ fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool) bool {
     return switch (zigBackend(target, use_llvm)) {
         .stage2_llvm => true,
         .stage2_x86_64 => if (target.ofmt == .elf) true else build_options.have_llvm,
-        else => build_options.have_llvm,
-    };
-}
-
-fn canBuildLibSsp(target: std.Target, use_llvm: bool) bool {
-    switch (target.os.tag) {
-        .plan9 => return false,
-        else => {},
-    }
-    switch (target.cpu.arch) {
-        .spirv32, .spirv64 => return false,
-        else => {},
-    }
-    return switch (zigBackend(target, use_llvm)) {
-        .stage2_llvm => true,
         else => build_options.have_llvm,
     };
 }

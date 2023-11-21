@@ -1499,56 +1499,85 @@ pub const DeclGen = struct {
                 else => unreachable,
             },
             .un => |un| {
-                if (!location.isInitializer()) {
-                    try writer.writeByte('(');
-                    try dg.renderType(writer, ty);
-                    try writer.writeByte(')');
-                }
-
                 const union_obj = mod.typeToUnion(ty).?;
-                const field_i = mod.unionTagFieldIndex(union_obj, un.tag.toValue()).?;
-                const field_ty = union_obj.field_types.get(ip)[field_i].toType();
-                const field_name = union_obj.field_names.get(ip)[field_i];
-                if (union_obj.getLayout(ip) == .Packed) {
-                    if (field_ty.hasRuntimeBits(mod)) {
-                        if (field_ty.isPtrAtRuntime(mod)) {
-                            try writer.writeByte('(');
-                            try dg.renderType(writer, ty);
-                            try writer.writeByte(')');
-                        } else if (field_ty.zigTypeTag(mod) == .Float) {
-                            try writer.writeByte('(');
-                            try dg.renderType(writer, ty);
-                            try writer.writeByte(')');
-                        }
-                        try dg.renderValue(writer, field_ty, un.val.toValue(), initializer_type);
-                    } else {
-                        try writer.writeAll("0");
-                    }
-                    return;
-                }
+                if (un.tag == .none) {
+                    const backing_ty = try ty.unionBackingType(mod);
+                    switch (union_obj.getLayout(ip)) {
+                        .Packed => {
+                            if (!location.isInitializer()) {
+                                try writer.writeByte('(');
+                                try dg.renderType(writer, backing_ty);
+                                try writer.writeByte(')');
+                            }
+                            try dg.renderValue(writer, backing_ty, un.val.toValue(), initializer_type);
+                        },
+                        .Extern => {
+                            if (location == .StaticInitializer) {
+                                return dg.fail("TODO: C backend: implement extern union backing type rendering in static initializers", .{});
+                            }
 
-                try writer.writeByte('{');
-                if (ty.unionTagTypeSafety(mod)) |tag_ty| {
-                    const layout = mod.getUnionLayout(union_obj);
-                    if (layout.tag_size != 0) {
-                        try writer.writeAll(" .tag = ");
-                        try dg.renderValue(writer, tag_ty, un.tag.toValue(), initializer_type);
+                            const ptr_ty = try mod.singleConstPtrType(ty);
+                            try writer.writeAll("*((");
+                            try dg.renderType(writer, ptr_ty);
+                            try writer.writeAll(")(");
+                            try dg.renderType(writer, backing_ty);
+                            try writer.writeAll("){");
+                            try dg.renderValue(writer, backing_ty, un.val.toValue(), initializer_type);
+                            try writer.writeAll("})");
+                        },
+                        else => unreachable,
                     }
-                    if (ty.unionHasAllZeroBitFieldTypes(mod)) return try writer.writeByte('}');
-                    if (layout.tag_size != 0) try writer.writeByte(',');
-                    try writer.writeAll(" .payload = {");
+                } else {
+                    if (!location.isInitializer()) {
+                        try writer.writeByte('(');
+                        try dg.renderType(writer, ty);
+                        try writer.writeByte(')');
+                    }
+
+                    const field_i = mod.unionTagFieldIndex(union_obj, un.tag.toValue()).?;
+                    const field_ty = union_obj.field_types.get(ip)[field_i].toType();
+                    const field_name = union_obj.field_names.get(ip)[field_i];
+                    if (union_obj.getLayout(ip) == .Packed) {
+                        if (field_ty.hasRuntimeBits(mod)) {
+                            if (field_ty.isPtrAtRuntime(mod)) {
+                                try writer.writeByte('(');
+                                try dg.renderType(writer, ty);
+                                try writer.writeByte(')');
+                            } else if (field_ty.zigTypeTag(mod) == .Float) {
+                                try writer.writeByte('(');
+                                try dg.renderType(writer, ty);
+                                try writer.writeByte(')');
+                            }
+                            try dg.renderValue(writer, field_ty, un.val.toValue(), initializer_type);
+                        } else {
+                            try writer.writeAll("0");
+                        }
+                        return;
+                    }
+
+                    try writer.writeByte('{');
+                    if (ty.unionTagTypeSafety(mod)) |tag_ty| {
+                        const layout = mod.getUnionLayout(union_obj);
+                        if (layout.tag_size != 0) {
+                            try writer.writeAll(" .tag = ");
+                            try dg.renderValue(writer, tag_ty, un.tag.toValue(), initializer_type);
+                        }
+                        if (ty.unionHasAllZeroBitFieldTypes(mod)) return try writer.writeByte('}');
+                        if (layout.tag_size != 0) try writer.writeByte(',');
+                        try writer.writeAll(" .payload = {");
+                    }
+                    if (field_ty.hasRuntimeBits(mod)) {
+                        try writer.print(" .{ } = ", .{fmtIdent(ip.stringToSlice(field_name))});
+                        try dg.renderValue(writer, field_ty, un.val.toValue(), initializer_type);
+                        try writer.writeByte(' ');
+                    } else for (union_obj.field_types.get(ip)) |this_field_ty| {
+                        if (!this_field_ty.toType().hasRuntimeBits(mod)) continue;
+                        try dg.renderValue(writer, this_field_ty.toType(), Value.undef, initializer_type);
+                        break;
+                    }
+                    if (ty.unionTagTypeSafety(mod)) |_| try writer.writeByte('}');
+                    try writer.writeByte('}');
                 }
-                if (field_ty.hasRuntimeBits(mod)) {
-                    try writer.print(" .{ } = ", .{fmtIdent(ip.stringToSlice(field_name))});
-                    try dg.renderValue(writer, field_ty, un.val.toValue(), initializer_type);
-                    try writer.writeByte(' ');
-                } else for (union_obj.field_types.get(ip)) |this_field_ty| {
-                    if (!this_field_ty.toType().hasRuntimeBits(mod)) continue;
-                    try dg.renderValue(writer, this_field_ty.toType(), Value.undef, initializer_type);
-                    break;
-                }
-                if (ty.unionTagTypeSafety(mod)) |_| try writer.writeByte('}');
-                try writer.writeByte('}');
             },
         }
     }
@@ -2477,8 +2506,9 @@ pub fn genTypeDecl(
 }
 
 pub fn genGlobalAsm(mod: *Module, writer: anytype) !void {
-    var it = mod.global_assembly.valueIterator();
-    while (it.next()) |asm_source| try writer.print("__asm({s});\n", .{fmtStringLiteral(asm_source.*, null)});
+    for (mod.global_assembly.values()) |asm_source| {
+        try writer.print("__asm({s});\n", .{fmtStringLiteral(asm_source, null)});
+    }
 }
 
 pub fn genErrDecls(o: *Object) !void {

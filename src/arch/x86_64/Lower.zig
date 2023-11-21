@@ -11,6 +11,7 @@ result_relocs_len: u8 = undefined,
 result_insts: [
     std.mem.max(usize, &.{
         1, // non-pseudo instructions
+        3, // TLS local dynamic (LD) sequence in PIC mode
         2, // cmovcc: cmovcc \ cmovcc
         3, // setcc: setcc \ setcc \ logicop
         2, // jcc: jcc \ jcc
@@ -28,6 +29,7 @@ result_relocs: [
         2, // jcc: jcc \ jcc
         2, // test \ jcc \ probe \ sub \ jmp
         1, // probe \ sub \ jcc
+        3, // TLS local dynamic (LD) sequence in PIC mode
     })
 ]Reloc = undefined,
 
@@ -51,6 +53,8 @@ pub const Reloc = struct {
     const Target = union(enum) {
         inst: Mir.Inst.Index,
         linker_reloc: bits.Symbol,
+        linker_tlsld: bits.Symbol,
+        linker_dtpoff: bits.Symbol,
         linker_extern_fn: bits.Symbol,
         linker_got: bits.Symbol,
         linker_direct: bits.Symbol,
@@ -259,6 +263,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_dbg_prologue_end_none,
             .pseudo_dbg_line_line_column,
             .pseudo_dbg_epilogue_begin_none,
+            .pseudo_dbg_inline_func,
             .pseudo_dead_none,
             => {},
             else => unreachable,
@@ -318,21 +323,26 @@ fn reloc(lower: *Lower, target: Reloc.Target) Immediate {
     return Immediate.s(0);
 }
 
-fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
-    const needsZigGot = struct {
-        fn needsZigGot(sym: bits.Symbol, ctx: *link.File) bool {
-            const elf_file = ctx.cast(link.File.Elf).?;
-            const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
-            return elf_file.symbol(sym_index).flags.needs_zig_got;
-        }
-    }.needsZigGot;
+fn needsZigGot(sym: bits.Symbol, ctx: *link.File) bool {
+    const elf_file = ctx.cast(link.File.Elf).?;
+    const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
+    return elf_file.symbol(sym_index).flags.needs_zig_got;
+}
 
+fn isTls(sym: bits.Symbol, ctx: *link.File) bool {
+    const elf_file = ctx.cast(link.File.Elf).?;
+    const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
+    return elf_file.symbol(sym_index).flags.is_tls;
+}
+
+fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
     const is_obj_or_static_lib = switch (lower.bin_file.options.output_mode) {
         .Exe => false,
         .Obj => true,
         .Lib => lower.bin_file.options.link_mode == .Static,
     };
-    var emit_prefix = prefix;
+
+    const emit_prefix = prefix;
     var emit_mnemonic = mnemonic;
     var emit_ops_storage: [4]Operand = undefined;
     const emit_ops = emit_ops_storage[0..ops.len];
@@ -345,6 +355,53 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                     assert(prefix == .none);
                     assert(mem_op.sib.disp == 0);
                     assert(mem_op.sib.scale_index.scale == 0);
+
+                    if (isTls(sym, lower.bin_file)) {
+                        // TODO handle extern TLS vars, i.e., emit GD model
+                        if (lower.bin_file.options.pic) {
+                            // Here, we currently assume local dynamic TLS vars, and so
+                            // we emit LD model.
+                            _ = lower.reloc(.{ .linker_tlsld = sym });
+                            lower.result_insts[lower.result_insts_len] =
+                                try Instruction.new(.none, .lea, &[_]Operand{
+                                .{ .reg = .rdi },
+                                .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
+                            });
+                            lower.result_insts_len += 1;
+                            if (lower.bin_file.cast(link.File.Elf)) |elf_file| {
+                                _ = lower.reloc(.{ .linker_extern_fn = .{
+                                    .atom_index = sym.atom_index,
+                                    .sym_index = try elf_file.getGlobalSymbol("__tls_get_addr", null),
+                                } });
+                            }
+                            lower.result_insts[lower.result_insts_len] =
+                                try Instruction.new(.none, .call, &[_]Operand{
+                                .{ .imm = Immediate.s(0) },
+                            });
+                            lower.result_insts_len += 1;
+                            _ = lower.reloc(.{ .linker_dtpoff = sym });
+                            emit_mnemonic = .lea;
+                            break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                .base = .{ .reg = .rax },
+                                .disp = std.math.minInt(i32),
+                            }) };
+                        } else {
+                            // Since we are linking statically, we emit LE model directly.
+                            lower.result_insts[lower.result_insts_len] =
+                                try Instruction.new(.none, .mov, &[_]Operand{
+                                .{ .reg = .rax },
+                                .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .fs } }) },
+                            });
+                            lower.result_insts_len += 1;
+                            _ = lower.reloc(.{ .linker_reloc = sym });
+                            emit_mnemonic = .lea;
+                            break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                .base = .{ .reg = .rax },
+                                .disp = std.math.minInt(i32),
+                            }) };
+                        }
+                    }
+
                     _ = lower.reloc(.{ .linker_reloc = sym });
                     break :op if (lower.bin_file.options.pic) switch (mnemonic) {
                         .lea => {

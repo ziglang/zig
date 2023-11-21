@@ -21,7 +21,7 @@ verdef_sect_index: ?u16 = null,
 needed: bool,
 alive: bool,
 
-output_symtab_size: Elf.SymtabSize = .{},
+output_symtab_ctx: Elf.SymtabCtx = .{},
 
 pub fn isSharedObject(path: []const u8) !bool {
     const file = try std.fs.cwd().openFile(path, .{});
@@ -72,7 +72,6 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
     }
 
     try self.parseVersions(elf_file);
-    try self.initSymtab(elf_file);
 }
 
 fn parseVersions(self: *SharedObject, elf_file: *Elf) !void {
@@ -120,7 +119,7 @@ fn parseVersions(self: *SharedObject, elf_file: *Elf) !void {
     }
 }
 
-fn initSymtab(self: *SharedObject, elf_file: *Elf) !void {
+pub fn init(self: *SharedObject, elf_file: *Elf) !void {
     const gpa = elf_file.base.allocator;
     const symtab = self.getSymtabRaw();
     const strtab = self.getStrtabRaw();
@@ -190,6 +189,34 @@ pub fn markLive(self: *SharedObject, elf_file: *Elf) void {
 
 pub fn globals(self: SharedObject) []const Symbol.Index {
     return self.symbols.items;
+}
+
+pub fn updateSymtabSize(self: *SharedObject, elf_file: *Elf) !void {
+    for (self.globals()) |global_index| {
+        const global = elf_file.symbol(global_index);
+        const file_ptr = global.file(elf_file) orelse continue;
+        if (file_ptr.index() != self.index) continue;
+        if (global.isLocal(elf_file)) continue;
+        global.flags.output_symtab = true;
+        try global.setOutputSymtabIndex(self.output_symtab_ctx.nglobals, elf_file);
+        self.output_symtab_ctx.nglobals += 1;
+        self.output_symtab_ctx.strsize += @as(u32, @intCast(global.name(elf_file).len)) + 1;
+    }
+}
+
+pub fn writeSymtab(self: SharedObject, elf_file: *Elf) void {
+    for (self.globals()) |global_index| {
+        const global = elf_file.symbol(global_index);
+        const file_ptr = global.file(elf_file) orelse continue;
+        if (file_ptr.index() != self.index) continue;
+        const idx = global.outputSymtabIndex(elf_file) orelse continue;
+        const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
+        elf_file.strtab.appendSliceAssumeCapacity(global.name(elf_file));
+        elf_file.strtab.appendAssumeCapacity(0);
+        const out_sym = &elf_file.symtab.items[idx];
+        out_sym.st_name = st_name;
+        global.setOutputSym(elf_file, out_sym);
+    }
 }
 
 pub fn shdrContents(self: SharedObject, index: u16) []const u8 {

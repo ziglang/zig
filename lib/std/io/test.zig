@@ -167,13 +167,13 @@ test "updateTimes" {
         file.close();
         tmp.dir.deleteFile(tmp_file_name) catch {};
     }
-    var stat_old = try file.stat();
+    const stat_old = try file.stat();
     // Set atime and mtime to 5s before
     try file.updateTimes(
         stat_old.atime - 5 * std.time.ns_per_s,
         stat_old.mtime - 5 * std.time.ns_per_s,
     );
-    var stat_new = try file.stat();
+    const stat_new = try file.stat();
     try expect(stat_new.atime < stat_old.atime);
     try expect(stat_new.mtime < stat_old.mtime);
 }

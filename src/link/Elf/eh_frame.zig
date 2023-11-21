@@ -217,7 +217,7 @@ pub const Iterator = struct {
         var stream = std.io.fixedBufferStream(it.data[it.pos..]);
         const reader = stream.reader();
 
-        var size = try reader.readInt(u32, .little);
+        const size = try reader.readInt(u32, .little);
         if (size == 0xFFFFFFFF) @panic("TODO");
 
         const id = try reader.readInt(u32, .little);
@@ -268,7 +268,11 @@ pub fn calcEhFrameSize(elf_file: *Elf) !usize {
         }
     }
 
-    return offset + 4; // NULL terminator
+    if (!elf_file.isRelocatable()) {
+        offset += 4; // NULL terminator
+    }
+
+    return offset;
 }
 
 pub fn calcEhFrameHdrSize(elf_file: *Elf) usize {
@@ -280,6 +284,22 @@ pub fn calcEhFrameHdrSize(elf_file: *Elf) usize {
         }
     }
     return eh_frame_hdr_header_size + count * 8;
+}
+
+pub fn calcEhFrameRelocs(elf_file: *Elf) usize {
+    var count: usize = 0;
+    for (elf_file.objects.items) |index| {
+        const object = elf_file.file(index).?.object;
+        for (object.cies.items) |cie| {
+            if (!cie.alive) continue;
+            count += cie.relocs(elf_file).len;
+        }
+        for (object.fdes.items) |fde| {
+            if (!fde.alive) continue;
+            count += fde.relocs(elf_file).len;
+        }
+    }
+    return count;
 }
 
 fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file: *Elf, contents: []u8) !void {
@@ -355,6 +375,95 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
     }
 
     try writer.writeInt(u32, 0, .little);
+}
+
+pub fn writeEhFrameObject(elf_file: *Elf, writer: anytype) !void {
+    const gpa = elf_file.base.allocator;
+
+    for (elf_file.objects.items) |index| {
+        const object = elf_file.file(index).?.object;
+
+        for (object.cies.items) |cie| {
+            if (!cie.alive) continue;
+            try writer.writeAll(cie.data(elf_file));
+        }
+    }
+
+    for (elf_file.objects.items) |index| {
+        const object = elf_file.file(index).?.object;
+
+        for (object.fdes.items) |fde| {
+            if (!fde.alive) continue;
+
+            const contents = try gpa.dupe(u8, fde.data(elf_file));
+            defer gpa.free(contents);
+
+            std.mem.writeInt(
+                i32,
+                contents[4..8],
+                @truncate(@as(i64, @intCast(fde.out_offset + 4)) - @as(i64, @intCast(fde.cie(elf_file).out_offset))),
+                .little,
+            );
+
+            try writer.writeAll(contents);
+        }
+    }
+}
+
+fn emitReloc(elf_file: *Elf, rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela) elf.Elf64_Rela {
+    const r_offset = rec.address(elf_file) + rel.r_offset - rec.offset;
+    const r_type = rel.r_type();
+    var r_addend = rel.r_addend;
+    var r_sym: u32 = 0;
+    switch (sym.type(elf_file)) {
+        elf.STT_SECTION => {
+            r_addend += @intCast(sym.value);
+            r_sym = elf_file.sectionSymbolOutputSymtabIndex(sym.outputShndx().?);
+        },
+        else => {
+            r_sym = sym.outputSymtabIndex(elf_file) orelse 0;
+        },
+    }
+
+    relocs_log.debug("  {s}: [{x} => {d}({s})] + {x}", .{
+        Atom.fmtRelocType(r_type),
+        r_offset,
+        r_sym,
+        sym.name(elf_file),
+        r_addend,
+    });
+
+    return .{
+        .r_offset = r_offset,
+        .r_addend = r_addend,
+        .r_info = (@as(u64, @intCast(r_sym)) << 32) | r_type,
+    };
+}
+
+pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
+    relocs_log.debug("{x}: .eh_frame", .{elf_file.shdrs.items[elf_file.eh_frame_section_index.?].sh_addr});
+
+    for (elf_file.objects.items) |index| {
+        const object = elf_file.file(index).?.object;
+
+        for (object.cies.items) |cie| {
+            if (!cie.alive) continue;
+            for (cie.relocs(elf_file)) |rel| {
+                const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
+                const out_rel = emitReloc(elf_file, cie, sym, rel);
+                try writer.writeStruct(out_rel);
+            }
+        }
+
+        for (object.fdes.items) |fde| {
+            if (!fde.alive) continue;
+            for (fde.relocs(elf_file)) |rel| {
+                const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
+                const out_rel = emitReloc(elf_file, fde, sym, rel);
+                try writer.writeStruct(out_rel);
+            }
+        }
+    }
 }
 
 pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {

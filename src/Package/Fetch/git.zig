@@ -83,7 +83,7 @@ pub const Repository = struct {
     ) !void {
         try repository.odb.seekOid(commit_oid);
         const tree_oid = tree_oid: {
-            var commit_object = try repository.odb.readObject();
+            const commit_object = try repository.odb.readObject();
             if (commit_object.type != .commit) return error.NotACommit;
             break :tree_oid try getCommitTree(commit_object.data);
         };
@@ -122,14 +122,14 @@ pub const Repository = struct {
                     var file = try dir.createFile(entry.name, .{});
                     defer file.close();
                     try repository.odb.seekOid(entry.oid);
-                    var file_object = try repository.odb.readObject();
+                    const file_object = try repository.odb.readObject();
                     if (file_object.type != .blob) return error.InvalidFile;
                     try file.writeAll(file_object.data);
                     try file.sync();
                 },
                 .symlink => {
                     try repository.odb.seekOid(entry.oid);
-                    var symlink_object = try repository.odb.readObject();
+                    const symlink_object = try repository.odb.readObject();
                     if (symlink_object.type != .blob) return error.InvalidFile;
                     const link_name = symlink_object.data;
                     dir.symLink(link_name, entry.name, .{}) catch |e| {
@@ -456,6 +456,20 @@ const Packet = union(enum) {
             },
         }
     }
+
+    /// Returns the normalized form of textual packet data, stripping any
+    /// trailing '\n'.
+    ///
+    /// As documented in
+    /// [protocol-common](https://git-scm.com/docs/protocol-common#_pkt_line_format),
+    /// non-binary (textual) pkt-line data should contain a trailing '\n', but
+    /// is not required to do so (implementations must support both forms).
+    fn normalizeText(data: []const u8) []const u8 {
+        return if (mem.endsWith(u8, data, "\n"))
+            data[0 .. data.len - 1]
+        else
+            data;
+    }
 };
 
 /// A client session for the Git protocol, currently limited to an HTTP(S)
@@ -554,7 +568,7 @@ pub const Session = struct {
             switch (packet) {
                 .flush => state = .response_start,
                 .data => |data| switch (state) {
-                    .response_start => if (mem.eql(u8, data, "version 2\n")) {
+                    .response_start => if (mem.eql(u8, Packet.normalizeText(data), "version 2")) {
                         return .{ .request = request };
                     } else {
                         state = .response_content;
@@ -573,6 +587,13 @@ pub const Session = struct {
         const Capability = struct {
             key: []const u8,
             value: ?[]const u8 = null,
+
+            fn parse(data: []const u8) Capability {
+                return if (mem.indexOfScalar(u8, data, '=')) |separator_pos|
+                    .{ .key = data[0..separator_pos], .value = data[separator_pos + 1 ..] }
+                else
+                    .{ .key = data };
+            }
         };
 
         fn deinit(iterator: *CapabilityIterator) void {
@@ -583,13 +604,7 @@ pub const Session = struct {
         fn next(iterator: *CapabilityIterator) !?Capability {
             switch (try Packet.read(iterator.request.reader(), &iterator.buf)) {
                 .flush => return null,
-                .data => |data| if (data.len > 0 and data[data.len - 1] == '\n') {
-                    if (mem.indexOfScalar(u8, data, '=')) |separator_pos| {
-                        return .{ .key = data[0..separator_pos], .value = data[separator_pos + 1 .. data.len - 1] };
-                    } else {
-                        return .{ .key = data[0 .. data.len - 1] };
-                    }
-                } else return error.UnexpectedPacket,
+                .data => |data| return Capability.parse(Packet.normalizeText(data)),
                 else => return error.UnexpectedPacket,
             }
         }
@@ -676,18 +691,19 @@ pub const Session = struct {
             switch (try Packet.read(iterator.request.reader(), &iterator.buf)) {
                 .flush => return null,
                 .data => |data| {
-                    const oid_sep_pos = mem.indexOfScalar(u8, data, ' ') orelse return error.InvalidRefPacket;
+                    const ref_data = Packet.normalizeText(data);
+                    const oid_sep_pos = mem.indexOfScalar(u8, ref_data, ' ') orelse return error.InvalidRefPacket;
                     const oid = parseOid(data[0..oid_sep_pos]) catch return error.InvalidRefPacket;
 
-                    const name_sep_pos = mem.indexOfAnyPos(u8, data, oid_sep_pos + 1, " \n") orelse return error.InvalidRefPacket;
-                    const name = data[oid_sep_pos + 1 .. name_sep_pos];
+                    const name_sep_pos = mem.indexOfScalarPos(u8, ref_data, oid_sep_pos + 1, ' ') orelse ref_data.len;
+                    const name = ref_data[oid_sep_pos + 1 .. name_sep_pos];
 
                     var symref_target: ?[]const u8 = null;
                     var peeled: ?Oid = null;
                     var last_sep_pos = name_sep_pos;
-                    while (data[last_sep_pos] == ' ') {
-                        const next_sep_pos = mem.indexOfAnyPos(u8, data, last_sep_pos + 1, " \n") orelse return error.InvalidRefPacket;
-                        const attribute = data[last_sep_pos + 1 .. next_sep_pos];
+                    while (last_sep_pos < ref_data.len) {
+                        const next_sep_pos = mem.indexOfScalarPos(u8, ref_data, last_sep_pos + 1, ' ') orelse ref_data.len;
+                        const attribute = ref_data[last_sep_pos + 1 .. next_sep_pos];
                         if (mem.startsWith(u8, attribute, "symref-target:")) {
                             symref_target = attribute["symref-target:".len..];
                         } else if (mem.startsWith(u8, attribute, "peeled:")) {
@@ -762,7 +778,7 @@ pub const Session = struct {
             const packet = try Packet.read(reader, &buf);
             switch (state) {
                 .section_start => switch (packet) {
-                    .data => |data| if (mem.eql(u8, data, "packfile\n")) {
+                    .data => |data| if (mem.eql(u8, Packet.normalizeText(data), "packfile")) {
                         return .{ .request = request };
                     } else {
                         state = .section_content;
@@ -1214,7 +1230,7 @@ fn resolveDeltaChain(
         const delta_offset = delta_offsets[i];
         try pack.seekTo(delta_offset);
         const delta_header = try EntryHeader.read(pack.reader());
-        var delta_data = try readObjectRaw(allocator, pack.reader(), delta_header.uncompressedLength());
+        const delta_data = try readObjectRaw(allocator, pack.reader(), delta_header.uncompressedLength());
         defer allocator.free(delta_data);
         var delta_stream = std.io.fixedBufferStream(delta_data);
         const delta_reader = delta_stream.reader();
@@ -1222,7 +1238,7 @@ fn resolveDeltaChain(
         const expanded_size = try readSizeVarInt(delta_reader);
 
         const expanded_alloc_size = std.math.cast(usize, expanded_size) orelse return error.ObjectTooLarge;
-        var expanded_data = try allocator.alloc(u8, expanded_alloc_size);
+        const expanded_data = try allocator.alloc(u8, expanded_alloc_size);
         errdefer allocator.free(expanded_data);
         var expanded_delta_stream = std.io.fixedBufferStream(expanded_data);
         var base_stream = std.io.fixedBufferStream(base_data);
@@ -1243,7 +1259,7 @@ fn readObjectRaw(allocator: Allocator, reader: anytype, size: u64) ![]u8 {
     var buffered_reader = std.io.bufferedReader(reader);
     var decompress_stream = try std.compress.zlib.decompressStream(allocator, buffered_reader.reader());
     defer decompress_stream.deinit();
-    var data = try allocator.alloc(u8, alloc_size);
+    const data = try allocator.alloc(u8, alloc_size);
     errdefer allocator.free(data);
     try decompress_stream.reader().readNoEof(data);
     _ = decompress_stream.reader().readByte() catch |e| switch (e) {
@@ -1274,14 +1290,14 @@ fn expandDelta(base_object: anytype, delta_reader: anytype, writer: anytype) !vo
                 size2: bool,
                 size3: bool,
             } = @bitCast(inst.value);
-            var offset_parts: packed struct { offset1: u8, offset2: u8, offset3: u8, offset4: u8 } = .{
+            const offset_parts: packed struct { offset1: u8, offset2: u8, offset3: u8, offset4: u8 } = .{
                 .offset1 = if (available.offset1) try delta_reader.readByte() else 0,
                 .offset2 = if (available.offset2) try delta_reader.readByte() else 0,
                 .offset3 = if (available.offset3) try delta_reader.readByte() else 0,
                 .offset4 = if (available.offset4) try delta_reader.readByte() else 0,
             };
             const offset: u32 = @bitCast(offset_parts);
-            var size_parts: packed struct { size1: u8, size2: u8, size3: u8 } = .{
+            const size_parts: packed struct { size1: u8, size2: u8, size3: u8 } = .{
                 .size1 = if (available.size1) try delta_reader.readByte() else 0,
                 .size2 = if (available.size2) try delta_reader.readByte() else 0,
                 .size3 = if (available.size3) try delta_reader.readByte() else 0,
@@ -1398,7 +1414,7 @@ test "packfile indexing and checkout" {
     defer walker.deinit();
     while (try walker.next()) |entry| {
         if (entry.kind != .file) continue;
-        var path = try testing.allocator.dupe(u8, entry.path);
+        const path = try testing.allocator.dupe(u8, entry.path);
         errdefer testing.allocator.free(path);
         mem.replaceScalar(u8, path, std.fs.path.sep, '/');
         try actual_files.append(testing.allocator, path);
@@ -1462,5 +1478,11 @@ pub fn main() !void {
     std.debug.print("Starting checkout...\n", .{});
     var repository = try Repository.init(allocator, pack_file, index_file);
     defer repository.deinit();
-    try repository.checkout(worktree, commit);
+    var diagnostics: Diagnostics = .{ .allocator = allocator };
+    defer diagnostics.deinit();
+    try repository.checkout(worktree, commit, &diagnostics);
+
+    for (diagnostics.errors.items) |err| {
+        std.debug.print("Diagnostic: {}\n", .{err});
+    }
 }

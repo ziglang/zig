@@ -9,7 +9,8 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 }
 pub fn main() !void {
     var ptr: ?*i32 = null;
-    var b = ptr.?;
+    _ = &ptr;
+    const b = ptr.?;
     _ = b;
     return error.TestFailed;
 }

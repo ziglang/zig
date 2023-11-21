@@ -222,6 +222,8 @@ pub const isFinite = @import("math/isfinite.zig").isFinite;
 pub const isInf = @import("math/isinf.zig").isInf;
 pub const isPositiveInf = @import("math/isinf.zig").isPositiveInf;
 pub const isNegativeInf = @import("math/isinf.zig").isNegativeInf;
+pub const isPositiveZero = @import("math/iszero.zig").isPositiveZero;
+pub const isNegativeZero = @import("math/iszero.zig").isNegativeZero;
 pub const isNormal = @import("math/isnormal.zig").isNormal;
 pub const nextAfter = @import("math/nextafter.zig").nextAfter;
 pub const signbit = @import("math/signbit.zig").signbit;
@@ -425,6 +427,7 @@ test "clamp" {
 
     // Mix of comptime and non-comptime
     var i: i32 = 1;
+    _ = &i;
     try testing.expect(std.math.clamp(i, 0, 1) == 1);
 }
 
@@ -1111,7 +1114,7 @@ pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     comptime assert(info.signedness == .unsigned);
     const PromotedType = std.meta.Int(info.signedness, info.bits + 1);
     const overflowBit = @as(PromotedType, 1) << info.bits;
-    var x = ceilPowerOfTwoPromote(T, value);
+    const x = ceilPowerOfTwoPromote(T, value);
     if (overflowBit & x != 0) {
         return error.Overflow;
     }

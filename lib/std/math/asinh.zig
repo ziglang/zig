@@ -111,16 +111,16 @@ test "math.asinh64" {
 }
 
 test "math.asinh32.special" {
-    try expect(asinh32(0.0) == 0.0);
-    try expect(@as(u32, @bitCast(asinh32(-0.0))) == @as(u32, 0x80000000));
+    try expect(math.isPositiveZero(asinh32(0.0)));
+    try expect(math.isNegativeZero(asinh32(-0.0)));
     try expect(math.isPositiveInf(asinh32(math.inf(f32))));
     try expect(math.isNegativeInf(asinh32(-math.inf(f32))));
     try expect(math.isNan(asinh32(math.nan(f32))));
 }
 
 test "math.asinh64.special" {
-    try expect(asinh64(0.0) == 0.0);
-    try expect(@as(u64, @bitCast(asinh64(-0.0))) == @as(u64, 0x8000000000000000));
+    try expect(math.isPositiveZero(asinh64(0.0)));
+    try expect(math.isNegativeZero(asinh64(-0.0)));
     try expect(math.isPositiveInf(asinh64(math.inf(f64))));
     try expect(math.isNegativeInf(asinh64(-math.inf(f64))));
     try expect(math.isNan(asinh64(math.nan(f64))));

@@ -251,7 +251,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
             .incremental,
     };
 
-    if (options.use_llvm) {
+    if (options.use_llvm and options.module != null) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
 
@@ -1416,6 +1416,51 @@ pub fn allocateSpecialSymbols(self: *MachO) !void {
             seg.segName(),
         });
     }
+
+    for (self.globals.items) |global| {
+        const sym = self.getSymbolPtr(global);
+        if (sym.n_desc != N_BOUNDARY) continue;
+        if (self.getSectionBoundarySymbol(global)) |bsym| {
+            const sect_id = self.getSectionByName(bsym.segname, bsym.sectname) orelse {
+                try self.reportUnresolvedBoundarySymbol(self.getSymbolName(global), "section not found: {s},{s}", .{
+                    bsym.segname, bsym.sectname,
+                });
+                continue;
+            };
+            const sect = self.sections.items(.header)[sect_id];
+            sym.n_sect = sect_id + 1;
+            sym.n_value = switch (bsym.kind) {
+                .start => sect.addr,
+                .stop => sect.addr + sect.size,
+            };
+
+            log.debug("allocating {s} at @0x{x} sect({d})", .{
+                self.getSymbolName(global),
+                sym.n_value,
+                sym.n_sect,
+            });
+
+            continue;
+        }
+        if (self.getSegmentBoundarySymbol(global)) |bsym| {
+            const seg_id = self.getSegmentByName(bsym.segname) orelse {
+                try self.reportUnresolvedBoundarySymbol(self.getSymbolName(global), "segment not found: {s}", .{
+                    bsym.segname,
+                });
+
+                continue;
+            };
+            const seg = self.segments.items[seg_id];
+            sym.n_value = switch (bsym.kind) {
+                .start => seg.vmaddr,
+                .stop => seg.vmaddr + seg.vmsize,
+            };
+
+            log.debug("allocating {s} at @0x{x} ", .{ self.getSymbolName(global), sym.n_value });
+
+            continue;
+        }
+    }
 }
 
 const CreateAtomOpts = struct {
@@ -1442,6 +1487,7 @@ pub fn createTentativeDefAtoms(self: *MachO) !void {
         const sym = self.getSymbolPtr(global);
         if (!sym.tentative()) continue;
         if (sym.n_desc == N_DEAD) continue;
+        if (sym.n_desc == N_BOUNDARY) continue;
 
         log.debug("creating tentative definition for ATOM(%{d}, '{s}') in object({?})", .{
             global.sym_index, self.getSymbolName(global), global.file,
@@ -1630,6 +1676,13 @@ pub fn resolveSymbols(self: *MachO) !void {
     try self.createMhExecuteHeaderSymbol();
     try self.createDsoHandleSymbol();
     try self.resolveSymbolsAtLoading();
+
+    // Final stop, check if unresolved contain any of the special magic boundary symbols
+    // * section$start$
+    // * section$stop$
+    // * segment$start$
+    // * segment$stop$
+    try self.resolveBoundarySymbols();
 }
 
 fn resolveGlobalSymbol(self: *MachO, current: SymbolWithLoc) !void {
@@ -1837,6 +1890,36 @@ fn resolveSymbolsAtLoading(self: *MachO) !void {
             );
             sym.n_type = macho.N_EXT;
             sym.n_desc = n_desc;
+            _ = self.unresolved.swapRemove(global_index);
+            continue;
+        }
+
+        next_sym += 1;
+    }
+}
+
+fn resolveBoundarySymbols(self: *MachO) !void {
+    var next_sym: usize = 0;
+    while (next_sym < self.unresolved.count()) {
+        const global_index = self.unresolved.keys()[next_sym];
+        const global = &self.globals.items[global_index];
+
+        if (self.getSectionBoundarySymbol(global.*) != null or self.getSegmentBoundarySymbol(global.*) != null) {
+            const sym_index = try self.allocateSymbol();
+            const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
+            const sym = self.getSymbolPtr(sym_loc);
+            sym.* = .{
+                .n_strx = try self.strtab.insert(self.base.allocator, self.getSymbolName(global.*)),
+                .n_type = macho.N_SECT | macho.N_EXT,
+                .n_sect = 0,
+                .n_desc = N_BOUNDARY,
+                .n_value = 0,
+            };
+            if (global.getFile()) |file| {
+                const global_object = &self.objects.items[file];
+                global_object.globals_lookup[global.sym_index] = global_index;
+            }
+            global.* = sym_loc;
             _ = self.unresolved.swapRemove(global_index);
             continue;
         }
@@ -2169,7 +2252,7 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
     else
         try codegen.generateFunction(&self.base, decl.srcLoc(mod), func_index, air, liveness, &code_buffer, .none);
 
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2249,7 +2332,7 @@ fn lowerConst(
     const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| return .{ .fail = em },
     };
@@ -2335,7 +2418,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
             .parent_atom_index = sym_index,
         });
 
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2504,7 +2587,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
             .parent_atom_index = init_sym_index,
         });
 
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -3344,7 +3427,7 @@ fn allocateAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignm
 
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
-    var vaddr = blk: {
+    const vaddr = blk: {
         var i: usize = 0;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
@@ -3565,6 +3648,7 @@ fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
             const atom = self.getAtom(atom_index);
             const sym = self.getSymbol(atom.getSymbolWithLoc());
             if (sym.n_desc == N_DEAD) continue;
+            if (sym.n_desc == N_BOUNDARY) continue;
 
             const sect_id = sym.n_sect - 1;
             const section = self.sections.items(.header)[sect_id];
@@ -3719,6 +3803,7 @@ fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
             const atom = self.getAtom(atom_index);
             const sym = self.getSymbol(atom.getSymbolWithLoc());
             if (sym.n_desc == N_DEAD) continue;
+            if (sym.n_desc == N_BOUNDARY) continue;
 
             const sect_id = sym.n_sect - 1;
             const section = self.sections.items(.header)[sect_id];
@@ -3819,6 +3904,7 @@ fn collectExportData(self: *MachO, trie: *Trie) !void {
         if (sym.undf()) continue;
         assert(sym.ext());
         if (sym.n_desc == N_DEAD) continue;
+        if (sym.n_desc == N_BOUNDARY) continue;
 
         const sym_name = self.getSymbolName(global);
         log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
@@ -3885,7 +3971,7 @@ fn writeDyldInfoData(self: *MachO) !void {
     link_seg.filesize = needed_size;
     assert(mem.isAlignedGeneric(u64, link_seg.fileoff + link_seg.filesize, @alignOf(u64)));
 
-    var buffer = try gpa.alloc(u8, needed_size);
+    const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
     @memset(buffer, 0);
 
@@ -3953,7 +4039,8 @@ const asc_u64 = std.sort.asc(u64);
 fn addSymbolToFunctionStarts(self: *MachO, sym_loc: SymbolWithLoc, addresses: *std.ArrayList(u64)) !void {
     const sym = self.getSymbol(sym_loc);
     if (sym.n_strx == 0) return;
-    if (sym.n_desc == MachO.N_DEAD) return;
+    if (sym.n_desc == N_DEAD) return;
+    if (sym.n_desc == N_BOUNDARY) return;
     if (self.symbolIsTemp(sym_loc)) return;
     try addresses.append(sym.n_value);
 }
@@ -4061,7 +4148,8 @@ pub fn writeDataInCode(self: *MachO) !void {
         for (object.exec_atoms.items) |atom_index| {
             const atom = self.getAtom(atom_index);
             const sym = self.getSymbol(atom.getSymbolWithLoc());
-            if (sym.n_desc == MachO.N_DEAD) continue;
+            if (sym.n_desc == N_DEAD) continue;
+            if (sym.n_desc == N_BOUNDARY) return;
 
             const source_addr = if (object.getSourceSymbol(atom.sym_index)) |source_sym|
                 source_sym.n_value
@@ -4119,7 +4207,8 @@ fn writeSymtabs(self: *MachO) !void {
 fn addLocalToSymtab(self: *MachO, sym_loc: SymbolWithLoc, locals: *std.ArrayList(macho.nlist_64)) !void {
     const sym = self.getSymbol(sym_loc);
     if (sym.n_strx == 0) return; // no name, skip
-    if (sym.n_desc == MachO.N_DEAD) return; // garbage-collected, skip
+    if (sym.n_desc == N_DEAD) return; // garbage-collected, skip
+    if (sym.n_desc == N_BOUNDARY) return; // boundary symbol, skip
     if (sym.ext()) return; // an export lands in its own symtab section, skip
     if (self.symbolIsTemp(sym_loc)) return; // local temp symbol, skip
     var out_sym = sym;
@@ -4157,6 +4246,7 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
         const sym = self.getSymbol(global);
         if (sym.undf()) continue; // import, skip
         if (sym.n_desc == N_DEAD) continue;
+        if (sym.n_desc == N_BOUNDARY) continue;
         var out_sym = sym;
         out_sym.n_strx = try self.strtab.insert(gpa, self.getSymbolName(global));
         try exports.append(out_sym);
@@ -4172,6 +4262,7 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
         if (sym.n_strx == 0) continue; // no name, skip
         if (!sym.undf()) continue; // not an import, skip
         if (sym.n_desc == N_DEAD) continue;
+        if (sym.n_desc == N_BOUNDARY) continue;
         const new_index = @as(u32, @intCast(imports.items.len));
         var out_sym = sym;
         out_sym.n_strx = try self.strtab.insert(gpa, self.getSymbolName(global));
@@ -4842,6 +4933,55 @@ pub fn getSymbolName(self: *const MachO, sym_with_loc: SymbolWithLoc) []const u8
     }
 }
 
+const BoundarySymbolKind = enum {
+    start,
+    stop,
+};
+
+const SectionBoundarySymbol = struct {
+    kind: BoundarySymbolKind,
+    segname: []const u8,
+    sectname: []const u8,
+};
+
+pub fn getSectionBoundarySymbol(self: *const MachO, sym_with_loc: SymbolWithLoc) ?SectionBoundarySymbol {
+    const sym_name = self.getSymbolName(sym_with_loc);
+    if (mem.startsWith(u8, sym_name, "section$")) {
+        const trailing = sym_name["section$".len..];
+        const kind: BoundarySymbolKind = kind: {
+            if (mem.startsWith(u8, trailing, "start$")) break :kind .start;
+            if (mem.startsWith(u8, trailing, "stop$")) break :kind .stop;
+            return null;
+        };
+        const names = trailing[@tagName(kind).len + 1 ..];
+        const sep_idx = mem.indexOf(u8, names, "$") orelse return null;
+        const segname = names[0..sep_idx];
+        const sectname = names[sep_idx + 1 ..];
+        return .{ .kind = kind, .segname = segname, .sectname = sectname };
+    }
+    return null;
+}
+
+const SegmentBoundarySymbol = struct {
+    kind: BoundarySymbolKind,
+    segname: []const u8,
+};
+
+pub fn getSegmentBoundarySymbol(self: *const MachO, sym_with_loc: SymbolWithLoc) ?SegmentBoundarySymbol {
+    const sym_name = self.getSymbolName(sym_with_loc);
+    if (mem.startsWith(u8, sym_name, "segment$")) {
+        const trailing = sym_name["segment$".len..];
+        const kind: BoundarySymbolKind = kind: {
+            if (mem.startsWith(u8, trailing, "start$")) break :kind .start;
+            if (mem.startsWith(u8, trailing, "stop$")) break :kind .stop;
+            return null;
+        };
+        const segname = trailing[@tagName(kind).len + 1 ..];
+        return .{ .kind = kind, .segname = segname };
+    }
+    return null;
+}
+
 /// Returns pointer to the global entry for `name` if one exists.
 pub fn getGlobalPtr(self: *MachO, name: []const u8) ?*SymbolWithLoc {
     const global_index = self.resolver.get(name) orelse return null;
@@ -5088,7 +5228,7 @@ fn reportMissingLibraryError(
 ) error{OutOfMemory}!void {
     const gpa = self.base.allocator;
     try self.misc_errors.ensureUnusedCapacity(gpa, 1);
-    var notes = try gpa.alloc(File.ErrorMsg, checked_paths.len);
+    const notes = try gpa.alloc(File.ErrorMsg, checked_paths.len);
     errdefer gpa.free(notes);
     for (checked_paths, notes) |path, *note| {
         note.* = .{ .msg = try std.fmt.allocPrint(gpa, "tried {s}", .{path}) };
@@ -5131,6 +5271,23 @@ pub fn reportParseError(
     var notes = try gpa.alloc(File.ErrorMsg, 1);
     errdefer gpa.free(notes);
     notes[0] = .{ .msg = try std.fmt.allocPrint(gpa, "while parsing {s}", .{path}) };
+    self.misc_errors.appendAssumeCapacity(.{
+        .msg = try std.fmt.allocPrint(gpa, format, args),
+        .notes = notes,
+    });
+}
+
+pub fn reportUnresolvedBoundarySymbol(
+    self: *MachO,
+    sym_name: []const u8,
+    comptime format: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
+    const gpa = self.base.allocator;
+    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+    var notes = try gpa.alloc(File.ErrorMsg, 1);
+    errdefer gpa.free(notes);
+    notes[0] = .{ .msg = try std.fmt.allocPrint(gpa, "while resolving {s}", .{sym_name}) };
     self.misc_errors.appendAssumeCapacity(.{
         .msg = try std.fmt.allocPrint(gpa, format, args),
         .notes = notes,
@@ -5340,7 +5497,8 @@ pub fn logSymtab(self: *MachO) void {
     for (self.globals.items, 0..) |global, i| {
         const sym = self.getSymbol(global);
         if (sym.undf()) continue;
-        if (sym.n_desc == MachO.N_DEAD) continue;
+        if (sym.n_desc == N_DEAD) continue;
+        if (sym.n_desc == N_BOUNDARY) continue;
         scoped_log.debug("    %{d}: {s} @{x} in sect({d}), {s} (def in object({?}))", .{
             i,
             self.getSymbolName(global),
@@ -5355,7 +5513,8 @@ pub fn logSymtab(self: *MachO) void {
     for (self.globals.items, 0..) |global, i| {
         const sym = self.getSymbol(global);
         if (!sym.undf()) continue;
-        if (sym.n_desc == MachO.N_DEAD) continue;
+        if (sym.n_desc == N_DEAD) continue;
+        if (sym.n_desc == N_BOUNDARY) continue;
         const ord = @divTrunc(sym.n_desc, macho.N_SYMBOL_RESOLVER);
         scoped_log.debug("    %{d}: {s} @{x} in ord({d}), {s}", .{
             i,
@@ -5466,6 +5625,7 @@ pub fn logAtom(self: *MachO, atom_index: Atom.Index, logger: anytype) void {
 
 pub const base_tag: File.Tag = File.Tag.macho;
 pub const N_DEAD: u16 = @as(u16, @bitCast(@as(i16, -1)));
+pub const N_BOUNDARY: u16 = @as(u16, @bitCast(@as(i16, -2)));
 
 /// Mode of operation of the linker.
 pub const Mode = enum {

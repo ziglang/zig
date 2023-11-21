@@ -2076,11 +2076,11 @@ test "iterator hash map" {
     try reset_map.putNoClobber(1, 22);
     try reset_map.putNoClobber(2, 33);
 
-    var keys = [_]i32{
+    const keys = [_]i32{
         0, 2, 1,
     };
 
-    var values = [_]i32{
+    const values = [_]i32{
         11, 33, 22,
     };
 
@@ -2116,7 +2116,7 @@ test "iterator hash map" {
     }
 
     it.reset();
-    var entry = it.next().?;
+    const entry = it.next().?;
     try testing.expect(entry.key_ptr.* == first_entry.key_ptr.*);
     try testing.expect(entry.value_ptr.* == first_entry.value_ptr.*);
 }

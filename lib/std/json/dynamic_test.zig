@@ -190,15 +190,15 @@ test "Value.jsonStringify" {
     var obj = ObjectMap.init(testing.allocator);
     defer obj.deinit();
     try obj.putNoClobber("a", .{ .string = "b" });
-    var array = [_]Value{
-        Value.null,
-        Value{ .bool = true },
-        Value{ .integer = 42 },
-        Value{ .number_string = "43" },
-        Value{ .float = 42 },
-        Value{ .string = "weeee" },
-        Value{ .array = Array.fromOwnedSlice(undefined, &vals) },
-        Value{ .object = obj },
+    const array = [_]Value{
+        .null,
+        .{ .bool = true },
+        .{ .integer = 42 },
+        .{ .number_string = "43" },
+        .{ .float = 42 },
+        .{ .string = "weeee" },
+        .{ .array = Array.fromOwnedSlice(undefined, &vals) },
+        .{ .object = obj },
     };
     var buffer: [0x1000]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
@@ -347,7 +347,7 @@ test "negative zero" {
     var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});
     defer parsed.deinit();
 
-    try testing.expect(parsed.value.float == 0 and std.math.signbit(parsed.value.float));
+    try testing.expect(std.math.isNegativeZero(parsed.value.float));
 }
 
 fn smallBufferJsonReader(allocator: Allocator, io_reader: anytype) JsonReader(16, @TypeOf(io_reader)) {

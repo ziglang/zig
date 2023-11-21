@@ -603,7 +603,14 @@ fn parseObjectFile(wasm: *Wasm, path: []const u8) !bool {
 pub fn getOrCreateAtomForDecl(wasm: *Wasm, decl_index: Module.Decl.Index) !Atom.Index {
     const gop = try wasm.decls.getOrPut(wasm.base.allocator, decl_index);
     if (!gop.found_existing) {
-        gop.value_ptr.* = try wasm.createAtom();
+        const atom_index = try wasm.createAtom();
+        gop.value_ptr.* = atom_index;
+        const atom = wasm.getAtom(atom_index);
+        const symbol = atom.symbolLoc().getSymbol(wasm);
+        const mod = wasm.base.options.module.?;
+        const decl = mod.declPtr(decl_index);
+        const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+        symbol.name = try wasm.string_table.put(wasm.base.allocator, full_name);
     }
     return gop.value_ptr.*;
 }
@@ -853,7 +860,7 @@ fn resolveSymbolsInArchives(wasm: *Wasm) !void {
             // Parse object and and resolve symbols again before we check remaining
             // undefined symbols.
             const object_file_index = @as(u16, @intCast(wasm.objects.items.len));
-            var object = try archive.parseObject(wasm.base.allocator, offset.items[0]);
+            const object = try archive.parseObject(wasm.base.allocator, offset.items[0]);
             try wasm.objects.append(wasm.base.allocator, object);
             try wasm.resolveSymbolsInObject(object_file_index);
 
@@ -1337,12 +1344,12 @@ pub fn deinit(wasm: *Wasm) void {
 /// Will re-use slots when a symbol was freed at an earlier stage.
 pub fn allocateSymbol(wasm: *Wasm) !u32 {
     try wasm.symbols.ensureUnusedCapacity(wasm.base.allocator, 1);
-    var symbol: Symbol = .{
-        .name = undefined, // will be set after updateDecl
+    const symbol: Symbol = .{
+        .name = std.math.maxInt(u32), // will be set after updateDecl as well as during atom creation for decls
         .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
-        .tag = undefined, // will be set after updateDecl
-        .index = undefined, // will be set after updateDecl
-        .virtual_address = undefined, // will be set during atom allocation
+        .tag = .undefined, // will be set after updateDecl
+        .index = std.math.maxInt(u32), // will be set during atom parsing
+        .virtual_address = std.math.maxInt(u32), // will be set during atom allocation
     };
     if (wasm.symbols_free_list.popOrNull()) |index| {
         wasm.symbols.items[index] = symbol;
@@ -1414,7 +1421,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: InternPool.Index, air: 
     //         &decl_state.?,
     //     );
     // }
-    return wasm.finishUpdateDecl(decl_index, code);
+    return wasm.finishUpdateDecl(decl_index, code, .function);
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
@@ -1468,7 +1475,7 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
         },
     };
 
-    return wasm.finishUpdateDecl(decl_index, code);
+    return wasm.finishUpdateDecl(decl_index, code, .data);
 }
 
 pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !void {
@@ -1485,7 +1492,7 @@ pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.I
     }
 }
 
-fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8) !void {
+fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8, symbol_tag: Symbol.Tag) !void {
     const mod = wasm.base.options.module.?;
     const decl = mod.declPtr(decl_index);
     const atom_index = wasm.decls.get(decl_index).?;
@@ -1493,6 +1500,7 @@ fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8
     const symbol = &wasm.symbols.items[atom.sym_index];
     const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
     symbol.name = try wasm.string_table.put(wasm.base.allocator, full_name);
+    symbol.tag = symbol_tag;
     try atom.code.appendSlice(wasm.base.allocator, code);
     try wasm.resolved_symbols.put(wasm.base.allocator, atom.symbolLoc(), {});
 
@@ -1647,7 +1655,7 @@ pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !u3
     symbol.setUndefined(true);
 
     const sym_index = if (wasm.symbols_free_list.popOrNull()) |index| index else blk: {
-        var index = @as(u32, @intCast(wasm.symbols.items.len));
+        const index: u32 = @intCast(wasm.symbols.items.len);
         try wasm.symbols.ensureUnusedCapacity(wasm.base.allocator, 1);
         wasm.symbols.items.len += 1;
         break :blk index;
@@ -2624,7 +2632,7 @@ fn setupImports(wasm: *Wasm) !void {
 
         // We copy the import to a new import to ensure the names contain references
         // to the internal string table, rather than of the object file.
-        var new_imp: types.Import = .{
+        const new_imp: types.Import = .{
             .module_name = try wasm.string_table.put(wasm.base.allocator, object.string_table.get(import.module_name)),
             .name = try wasm.string_table.put(wasm.base.allocator, object.string_table.get(import.name)),
             .kind = import.kind,
@@ -3792,7 +3800,7 @@ fn writeToFile(
         const table_loc = wasm.findGlobalSymbol("__indirect_function_table").?;
         const table_sym = table_loc.getSymbol(wasm);
 
-        var flags: u32 = if (table_sym.index == 0) 0x0 else 0x02; // passive with implicit 0-index table or set table index manually
+        const flags: u32 = if (table_sym.index == 0) 0x0 else 0x02; // passive with implicit 0-index table or set table index manually
         try leb.writeULEB128(binary_writer, flags);
         if (flags == 0x02) {
             try leb.writeULEB128(binary_writer, table_sym.index);

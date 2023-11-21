@@ -116,7 +116,7 @@ pub fn __udivei4(r_q: [*]u32, u_p: [*]const u32, v_p: [*]const u32, bits: usize)
     @setRuntimeSafety(builtin.is_test);
     const u = u_p[0 .. bits / 32];
     const v = v_p[0 .. bits / 32];
-    var q = r_q[0 .. bits / 32];
+    const q = r_q[0 .. bits / 32];
     @call(.always_inline, divmod, .{ q, null, u, v }) catch unreachable;
 }
 
@@ -124,7 +124,7 @@ pub fn __umodei4(r_p: [*]u32, u_p: [*]const u32, v_p: [*]const u32, bits: usize)
     @setRuntimeSafety(builtin.is_test);
     const u = u_p[0 .. bits / 32];
     const v = v_p[0 .. bits / 32];
-    var r = r_p[0 .. bits / 32];
+    const r = r_p[0 .. bits / 32];
     @call(.always_inline, divmod, .{ null, r, u, v }) catch unreachable;
 }
 

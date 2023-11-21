@@ -25,7 +25,9 @@ pub const Fixups = struct {
     /// These global declarations will be omitted.
     omit_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
     /// These expressions will be replaced with the string value.
-    replace_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+    replace_nodes_with_string: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+    /// These nodes will be replaced with a different node.
+    replace_nodes_with_node: std.AutoHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .{},
     /// Change all identifier names matching the key to be value instead.
     rename_identifiers: std.StringArrayHashMapUnmanaged([]const u8) = .{},
 
@@ -37,7 +39,8 @@ pub const Fixups = struct {
         return f.unused_var_decls.count() +
             f.gut_functions.count() +
             f.omit_nodes.count() +
-            f.replace_nodes.count() +
+            f.replace_nodes_with_string.count() +
+            f.replace_nodes_with_node.count() +
             f.rename_identifiers.count() +
             @intFromBool(f.rebase_imported_paths != null);
     }
@@ -46,7 +49,8 @@ pub const Fixups = struct {
         f.unused_var_decls.clearRetainingCapacity();
         f.gut_functions.clearRetainingCapacity();
         f.omit_nodes.clearRetainingCapacity();
-        f.replace_nodes.clearRetainingCapacity();
+        f.replace_nodes_with_string.clearRetainingCapacity();
+        f.replace_nodes_with_node.clearRetainingCapacity();
         f.rename_identifiers.clearRetainingCapacity();
 
         f.rebase_imported_paths = null;
@@ -56,7 +60,8 @@ pub const Fixups = struct {
         f.unused_var_decls.deinit(gpa);
         f.gut_functions.deinit(gpa);
         f.omit_nodes.deinit(gpa);
-        f.replace_nodes.deinit(gpa);
+        f.replace_nodes_with_string.deinit(gpa);
+        f.replace_nodes_with_node.deinit(gpa);
         f.rename_identifiers.deinit(gpa);
         f.* = undefined;
     }
@@ -329,10 +334,12 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const main_tokens = tree.nodes.items(.main_token);
     const node_tags = tree.nodes.items(.tag);
     const datas = tree.nodes.items(.data);
-    if (r.fixups.replace_nodes.get(node)) |replacement| {
+    if (r.fixups.replace_nodes_with_string.get(node)) |replacement| {
         try ais.writer().writeAll(replacement);
         try renderOnlySpace(r, space);
         return;
+    } else if (r.fixups.replace_nodes_with_node.get(node)) |replacement| {
+        return renderExpression(r, replacement, space);
     }
     switch (node_tags[node]) {
         .identifier => {
@@ -3488,7 +3495,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         /// Turns all one-shot indents into regular indents
         /// Returns number of indents that must now be manually popped
         pub fn lockOneShotIndent(self: *Self) usize {
-            var locked_count = self.indent_one_shot_count;
+            const locked_count = self.indent_one_shot_count;
             self.indent_one_shot_count = 0;
             return locked_count;
         }

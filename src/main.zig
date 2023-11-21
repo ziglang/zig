@@ -86,8 +86,7 @@ const normal_usage =
     \\
     \\  build            Build project from build.zig
     \\  fetch            Copy a package into global cache and print its hash
-    \\  init-exe         Initialize a `zig build` application in the cwd
-    \\  init-lib         Initialize a `zig build` library in the cwd
+    \\  init             Initialize a Zig package in the current directory
     \\
     \\  ast-check        Look for simple compile errors in any set of files
     \\  build-exe        Create executable from source or object files
@@ -320,10 +319,8 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         return cmdFetch(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
         return cmdLibC(gpa, cmd_args);
-    } else if (mem.eql(u8, cmd, "init-exe")) {
-        return cmdInit(gpa, arena, cmd_args, .Exe);
-    } else if (mem.eql(u8, cmd, "init-lib")) {
-        return cmdInit(gpa, arena, cmd_args, .Lib);
+    } else if (mem.eql(u8, cmd, "init")) {
+        return cmdInit(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
         const info = try detectNativeTargetInfo(.{});
         const stdout = io.getStdOut().writer();
@@ -4335,15 +4332,15 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
 
         var tree = switch (comp.c_frontend) {
             .aro => tree: {
-                if (builtin.zig_backend == .stage2_c) @panic("the CBE cannot compile Aro yet!");
+                const aro = @import("aro");
                 const translate_c = @import("aro_translate_c.zig");
-                var aro_comp = translate_c.Compilation.init(comp.gpa);
+                var aro_comp = aro.Compilation.init(comp.gpa);
                 defer aro_comp.deinit();
 
                 break :tree translate_c.translate(comp.gpa, &aro_comp, argv.items) catch |err| switch (err) {
                     error.SemanticAnalyzeFail, error.FatalError => {
                         // TODO convert these to zig errors
-                        aro_comp.renderErrors();
+                        aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
                         process.exit(1);
                     },
                     error.OutOfMemory => return error.OutOfMemory,
@@ -4479,7 +4476,7 @@ fn cmdRc(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         try stdout_writer.writeByte('\n');
     }
 
-    var full_input = full_input: {
+    const full_input = full_input: {
         if (options.preprocess != .no) {
             if (!build_options.have_llvm) {
                 fatal("clang not available: compiler built without LLVM extensions", .{});
@@ -4526,7 +4523,7 @@ fn cmdRc(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             }
 
             if (process.can_spawn) {
-                var result = std.ChildProcess.run(.{
+                const result = std.ChildProcess.run(.{
                     .allocator = gpa,
                     .argv = argv.items,
                     .max_output_bytes = std.math.maxInt(u32),
@@ -4593,7 +4590,7 @@ fn cmdRc(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var mapping_results = try resinator.source_mapping.parseAndRemoveLineCommands(gpa, full_input, full_input, .{ .initial_filename = options.input_filename });
     defer mapping_results.mappings.deinit(gpa);
 
-    var final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
+    const final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
 
     var output_file = std.fs.cwd().createFile(options.output_filename, .{}) catch |err| {
         try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to create output file '{s}': {s}", .{ options.output_filename, @errorName(err) });
@@ -4762,7 +4759,7 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
 
         const libc_installation: ?*LibCInstallation = libc: {
             if (input_file) |libc_file| {
-                var libc = try arena.create(LibCInstallation);
+                const libc = try arena.create(LibCInstallation);
                 libc.* = LibCInstallation.parse(arena, libc_file, cross_target) catch |err| {
                     fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
                 };
@@ -4781,7 +4778,7 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
         const target = cross_target.toTarget();
         const is_native_abi = cross_target.isNativeAbi();
 
-        var libc_dirs = Compilation.detectLibCIncludeDirs(
+        const libc_dirs = Compilation.detectLibCIncludeDirs(
             arena,
             zig_lib_directory.path.?,
             target,
@@ -4835,8 +4832,7 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
 }
 
 pub const usage_init =
-    \\Usage: zig init-exe
-    \\       zig init-lib
+    \\Usage: zig init
     \\
     \\   Initializes a `zig build` project in the current working
     \\   directory.
@@ -4847,12 +4843,7 @@ pub const usage_init =
     \\
 ;
 
-pub fn cmdInit(
-    gpa: Allocator,
-    arena: Allocator,
-    args: []const []const u8,
-    output_mode: std.builtin.OutputMode,
-) !void {
+pub fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     _ = gpa;
     {
         var i: usize = 0;
@@ -4877,14 +4868,12 @@ pub fn cmdInit(
     defer zig_lib_directory.handle.close();
 
     const s = fs.path.sep_str;
-    const template_sub_path = switch (output_mode) {
-        .Obj => unreachable,
-        .Lib => "init-lib",
-        .Exe => "init-exe",
-    };
+    const template_sub_path = "init";
     var template_dir = zig_lib_directory.handle.openDir(template_sub_path, .{}) catch |err| {
         const path = zig_lib_directory.path orelse ".";
-        fatal("unable to open zig project template directory '{s}{s}{s}': {s}", .{ path, s, template_sub_path, @errorName(err) });
+        fatal("unable to open zig project template directory '{s}{s}{s}': {s}", .{
+            path, s, template_sub_path, @errorName(err),
+        });
     };
     defer template_dir.close();
 
@@ -4892,46 +4881,52 @@ pub fn cmdInit(
     const cwd_basename = fs.path.basename(cwd_path);
 
     const max_bytes = 10 * 1024 * 1024;
-    const build_zig_contents = template_dir.readFileAlloc(arena, "build.zig", max_bytes) catch |err| {
-        fatal("unable to read template file 'build.zig': {s}", .{@errorName(err)});
+    const template_paths = [_][]const u8{
+        "build.zig",
+        "build.zig.zon",
+        "src" ++ s ++ "main.zig",
+        "src" ++ s ++ "root.zig",
     };
-    var modified_build_zig_contents = try std.ArrayList(u8).initCapacity(arena, build_zig_contents.len);
-    for (build_zig_contents) |c| {
-        if (c == '$') {
-            try modified_build_zig_contents.appendSlice(cwd_basename);
-        } else {
-            try modified_build_zig_contents.append(c);
+    var ok_count: usize = 0;
+
+    for (template_paths) |template_path| {
+        if (fs.path.dirname(template_path)) |dirname| {
+            fs.cwd().makePath(dirname) catch |err| {
+                fatal("unable to make path '{s}': {s}", .{ dirname, @errorName(err) });
+            };
+        }
+
+        const contents = template_dir.readFileAlloc(arena, template_path, max_bytes) catch |err| {
+            fatal("unable to read template file '{s}': {s}", .{ template_path, @errorName(err) });
+        };
+        var modified_contents = try std.ArrayList(u8).initCapacity(arena, contents.len);
+        for (contents) |c| {
+            if (c == '$') {
+                try modified_contents.appendSlice(cwd_basename);
+            } else {
+                try modified_contents.append(c);
+            }
+        }
+
+        if (fs.cwd().writeFile2(.{
+            .sub_path = template_path,
+            .data = modified_contents.items,
+            .flags = .{ .exclusive = true },
+        })) |_| {
+            std.log.info("created {s}", .{template_path});
+            ok_count += 1;
+        } else |err| switch (err) {
+            error.PathAlreadyExists => std.log.info("preserving already existing file: {s}", .{
+                template_path,
+            }),
+            else => std.log.err("unable to write {s}: {s}\n", .{ template_path, @errorName(err) }),
         }
     }
-    const main_zig_contents = template_dir.readFileAlloc(arena, "src" ++ s ++ "main.zig", max_bytes) catch |err| {
-        fatal("unable to read template file 'main.zig': {s}", .{@errorName(err)});
-    };
-    if (fs.cwd().access("build.zig", .{})) |_| {
-        fatal("existing build.zig file would be overwritten", .{});
-    } else |err| switch (err) {
-        error.FileNotFound => {},
-        else => fatal("unable to test existence of build.zig: {s}\n", .{@errorName(err)}),
-    }
-    if (fs.cwd().access("src" ++ s ++ "main.zig", .{})) |_| {
-        fatal("existing src" ++ s ++ "main.zig file would be overwritten", .{});
-    } else |err| switch (err) {
-        error.FileNotFound => {},
-        else => fatal("unable to test existence of src" ++ s ++ "main.zig: {s}\n", .{@errorName(err)}),
-    }
-    var src_dir = try fs.cwd().makeOpenPath("src", .{});
-    defer src_dir.close();
 
-    try src_dir.writeFile("main.zig", main_zig_contents);
-    try fs.cwd().writeFile("build.zig", modified_build_zig_contents.items);
-
-    std.log.info("Created build.zig", .{});
-    std.log.info("Created src" ++ s ++ "main.zig", .{});
-
-    switch (output_mode) {
-        .Lib => std.log.info("Next, try `zig build --help` or `zig build test`", .{}),
-        .Exe => std.log.info("Next, try `zig build --help` or `zig build run`", .{}),
-        .Obj => unreachable,
+    if (ok_count == template_paths.len) {
+        std.log.info("see `zig build --help` for a menu of options", .{});
     }
+    return cleanExit();
 }
 
 pub const usage_build =
@@ -4960,7 +4955,7 @@ pub const usage_build =
 pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const work_around_btrfs_bug = builtin.os.tag == .linux and
         EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
-    var color: Color = .auto;
+    const color: Color = .auto;
 
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
@@ -6001,7 +5996,7 @@ const ArgIteratorResponseFile = process.ArgIteratorGeneral(.{ .comments = true, 
 /// Initialize the arguments from a Response File. "*.rsp"
 fn initArgIteratorResponseFile(allocator: Allocator, resp_file_path: []const u8) !ArgIteratorResponseFile {
     const max_bytes = 10 * 1024 * 1024; // 10 MiB of command line arguments is a reasonable limit
-    var cmd_line = try fs.cwd().readFileAlloc(allocator, resp_file_path, max_bytes);
+    const cmd_line = try fs.cwd().readFileAlloc(allocator, resp_file_path, max_bytes);
     errdefer allocator.free(cmd_line);
 
     return ArgIteratorResponseFile.initTakeOwnership(allocator, cmd_line);

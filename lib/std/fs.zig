@@ -749,7 +749,9 @@ pub const IterableDir = struct {
                         }
                     }
 
-                    const dir_info: *w.FILE_BOTH_DIR_INFORMATION = @ptrCast(@alignCast(&self.buf[self.index]));
+                    // While the official api docs guarantee FILE_BOTH_DIR_INFORMATION to be aligned properly
+                    // this may not always be the case (e.g. due to faulty VM/Sandboxing tools)
+                    const dir_info: *align(2) w.FILE_BOTH_DIR_INFORMATION = @ptrCast(@alignCast(&self.buf[self.index]));
                     if (dir_info.NextEntryOffset != 0) {
                         self.index += dir_info.NextEntryOffset;
                     } else {
@@ -1689,7 +1691,7 @@ pub const Dir = struct {
         }
         if (builtin.os.tag == .windows) {
             var dir_path_buffer: [os.windows.PATH_MAX_WIDE]u16 = undefined;
-            var dir_path = try os.windows.GetFinalPathNameByHandle(self.fd, .{}, &dir_path_buffer);
+            const dir_path = try os.windows.GetFinalPathNameByHandle(self.fd, .{}, &dir_path_buffer);
             if (builtin.link_libc) {
                 return os.chdirW(dir_path);
             }
@@ -1810,7 +1812,7 @@ pub const Dir = struct {
         const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
             w.SYNCHRONIZE | w.FILE_TRAVERSE;
         const flags: u32 = if (iterable) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-        var dir = try self.makeOpenDirAccessMaskW(sub_path_w, flags, .{
+        const dir = try self.makeOpenDirAccessMaskW(sub_path_w, flags, .{
             .no_follow = args.no_follow,
             .create_disposition = w.FILE_OPEN,
         });
@@ -2562,12 +2564,28 @@ pub const Dir = struct {
         };
     }
 
-    /// Writes content to the file system, creating a new file if it does not exist, truncating
-    /// if it already exists.
-    pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) !void {
-        var file = try self.createFile(sub_path, .{});
+    pub const WriteFileError = File.WriteError || File.OpenError;
+
+    /// Deprecated: use `writeFile2`.
+    pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) WriteFileError!void {
+        return writeFile2(self, .{
+            .sub_path = sub_path,
+            .data = data,
+            .flags = .{},
+        });
+    }
+
+    pub const WriteFileOptions = struct {
+        sub_path: []const u8,
+        data: []const u8,
+        flags: File.CreateFlags = .{},
+    };
+
+    /// Writes content to the file system, using the file creation flags provided.
+    pub fn writeFile2(self: Dir, options: WriteFileOptions) WriteFileError!void {
+        var file = try self.createFile(options.sub_path, options.flags);
         defer file.close();
-        try file.writeAll(data);
+        try file.writeAll(options.data);
     }
 
     pub const AccessError = os.AccessError;

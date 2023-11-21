@@ -25,7 +25,7 @@ pub fn finish(self: *WaitGroup) void {
 }
 
 pub fn wait(self: *WaitGroup) void {
-    var state = self.state.fetchAdd(is_waiting, .Acquire);
+    const state = self.state.fetchAdd(is_waiting, .Acquire);
     assert(state & is_waiting == 0);
 
     if ((state / one_pending) > 0) {

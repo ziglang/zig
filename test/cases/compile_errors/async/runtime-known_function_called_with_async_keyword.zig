@@ -1,6 +1,7 @@
 export fn entry() void {
     var ptr = afunc;
     _ = async ptr();
+    _ = &ptr;
 }
 
 fn afunc() callconv(.Async) void {}

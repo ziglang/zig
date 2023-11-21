@@ -293,7 +293,7 @@ const Check = struct {
 
 /// Creates a new empty sequence of actions.
 pub fn checkStart(self: *CheckObject) void {
-    var new_check = Check.create(self.step.owner.allocator);
+    const new_check = Check.create(self.step.owner.allocator);
     self.checks.append(new_check) catch @panic("OOM");
 }
 
@@ -400,6 +400,17 @@ pub fn checkInDynamicSection(self: *CheckObject) void {
     const label = switch (self.obj_format) {
         .elf => ElfDumper.dynamic_section_label,
         else => @panic("Unsupported target platform"),
+    };
+    self.checkStart();
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically symbol table parsed and dumped from the archive
+/// file.
+pub fn checkInArchiveSymtab(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .elf => ElfDumper.archive_symtab_label,
+        else => @panic("TODO other file formats"),
     };
     self.checkStart();
     self.checkExact(label);
@@ -884,35 +895,177 @@ const ElfDumper = struct {
     const symtab_label = "symbol table";
     const dynamic_symtab_label = "dynamic symbol table";
     const dynamic_section_label = "dynamic section";
-
-    const Symtab = struct {
-        symbols: []align(1) const elf.Elf64_Sym,
-        strings: []const u8,
-
-        fn get(st: Symtab, index: usize) ?elf.Elf64_Sym {
-            if (index >= st.symbols.len) return null;
-            return st.symbols[index];
-        }
-
-        fn getName(st: Symtab, index: usize) ?[]const u8 {
-            const sym = st.get(index) orelse return null;
-            return getString(st.strings, sym.st_name);
-        }
-    };
-
-    const Context = struct {
-        gpa: Allocator,
-        data: []const u8,
-        hdr: elf.Elf64_Ehdr,
-        shdrs: []align(1) const elf.Elf64_Shdr,
-        phdrs: []align(1) const elf.Elf64_Phdr,
-        shstrtab: []const u8,
-        symtab: ?Symtab = null,
-        dysymtab: ?Symtab = null,
-    };
+    const archive_symtab_label = "archive symbol table";
 
     fn parseAndDump(step: *Step, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
+        return parseAndDumpArchive(gpa, bytes) catch |err| switch (err) {
+            error.InvalidArchiveMagicNumber => try parseAndDumpObject(gpa, bytes),
+            else => |e| return e,
+        };
+    }
+
+    fn parseAndDumpArchive(gpa: Allocator, bytes: []const u8) ![]const u8 {
+        var stream = std.io.fixedBufferStream(bytes);
+        const reader = stream.reader();
+
+        const magic = try reader.readBytesNoEof(elf.ARMAG.len);
+        if (!mem.eql(u8, &magic, elf.ARMAG)) {
+            return error.InvalidArchiveMagicNumber;
+        }
+
+        var ctx = ArchiveContext{
+            .gpa = gpa,
+            .data = bytes,
+            .strtab = &[0]u8{},
+        };
+        defer {
+            for (ctx.objects.items) |*object| {
+                gpa.free(object.name);
+            }
+            ctx.objects.deinit(gpa);
+        }
+
+        while (true) {
+            if (stream.pos >= ctx.data.len) break;
+            if (!mem.isAligned(stream.pos, 2)) stream.pos += 1;
+
+            const hdr = try reader.readStruct(elf.ar_hdr);
+
+            if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) return error.InvalidArchiveHeaderMagicNumber;
+
+            const size = try hdr.size();
+            defer {
+                _ = stream.seekBy(size) catch {};
+            }
+
+            if (hdr.isSymtab()) {
+                try ctx.parseSymtab(ctx.data[stream.pos..][0..size], .p32);
+                continue;
+            }
+            if (hdr.isSymtab64()) {
+                try ctx.parseSymtab(ctx.data[stream.pos..][0..size], .p64);
+                continue;
+            }
+            if (hdr.isStrtab()) {
+                ctx.strtab = ctx.data[stream.pos..][0..size];
+                continue;
+            }
+            if (hdr.isSymdef() or hdr.isSymdefSorted()) continue;
+
+            const name = if (hdr.name()) |name|
+                try gpa.dupe(u8, name)
+            else if (try hdr.nameOffset()) |off|
+                try gpa.dupe(u8, ctx.getString(off))
+            else
+                unreachable;
+
+            try ctx.objects.append(gpa, .{ .name = name, .off = stream.pos, .len = size });
+        }
+
+        var output = std.ArrayList(u8).init(gpa);
+        const writer = output.writer();
+
+        try ctx.dumpSymtab(writer);
+        try ctx.dumpObjects(writer);
+
+        return output.toOwnedSlice();
+    }
+
+    const ArchiveContext = struct {
+        gpa: Allocator,
+        data: []const u8,
+        symtab: std.ArrayListUnmanaged(ArSymtabEntry) = .{},
+        strtab: []const u8,
+        objects: std.ArrayListUnmanaged(struct { name: []const u8, off: usize, len: usize }) = .{},
+
+        fn parseSymtab(ctx: *ArchiveContext, raw: []const u8, ptr_width: enum { p32, p64 }) !void {
+            var stream = std.io.fixedBufferStream(raw);
+            const reader = stream.reader();
+            const num = switch (ptr_width) {
+                .p32 => try reader.readInt(u32, .big),
+                .p64 => try reader.readInt(u64, .big),
+            };
+            const ptr_size: usize = switch (ptr_width) {
+                .p32 => @sizeOf(u32),
+                .p64 => @sizeOf(u64),
+            };
+            const strtab_off = (num + 1) * ptr_size;
+            const strtab_len = raw.len - strtab_off;
+            const strtab = raw[strtab_off..][0..strtab_len];
+
+            try ctx.symtab.ensureTotalCapacityPrecise(ctx.gpa, num);
+
+            var stroff: usize = 0;
+            for (0..num) |_| {
+                const off = switch (ptr_width) {
+                    .p32 => try reader.readInt(u32, .big),
+                    .p64 => try reader.readInt(u64, .big),
+                };
+                const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + stroff)), 0);
+                stroff += name.len + 1;
+                ctx.symtab.appendAssumeCapacity(.{ .off = off, .name = name });
+            }
+        }
+
+        fn dumpSymtab(ctx: ArchiveContext, writer: anytype) !void {
+            if (ctx.symtab.items.len == 0) return;
+
+            var files = std.AutoHashMap(usize, []const u8).init(ctx.gpa);
+            defer files.deinit();
+            try files.ensureUnusedCapacity(@intCast(ctx.objects.items.len));
+
+            for (ctx.objects.items) |object| {
+                files.putAssumeCapacityNoClobber(object.off - @sizeOf(elf.ar_hdr), object.name);
+            }
+
+            var symbols = std.AutoArrayHashMap(usize, std.ArrayList([]const u8)).init(ctx.gpa);
+            defer {
+                for (symbols.values()) |*value| {
+                    value.deinit();
+                }
+                symbols.deinit();
+            }
+
+            for (ctx.symtab.items) |entry| {
+                const gop = try symbols.getOrPut(@intCast(entry.off));
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = std.ArrayList([]const u8).init(ctx.gpa);
+                }
+                try gop.value_ptr.append(entry.name);
+            }
+
+            try writer.print("{s}\n", .{archive_symtab_label});
+            for (symbols.keys(), symbols.values()) |off, values| {
+                try writer.print("in object {s}\n", .{files.get(off).?});
+                for (values.items) |value| {
+                    try writer.print("{s}\n", .{value});
+                }
+            }
+        }
+
+        fn dumpObjects(ctx: ArchiveContext, writer: anytype) !void {
+            for (ctx.objects.items) |object| {
+                try writer.print("object {s}\n", .{object.name});
+                const output = try parseAndDumpObject(ctx.gpa, ctx.data[object.off..][0..object.len]);
+                defer ctx.gpa.free(output);
+                try writer.print("{s}\n", .{output});
+            }
+        }
+
+        fn getString(ctx: ArchiveContext, off: u32) []const u8 {
+            assert(off < ctx.strtab.len);
+            const name = mem.sliceTo(@as([*:'\n']const u8, @ptrCast(ctx.strtab.ptr + off)), 0);
+            return name[0 .. name.len - 1];
+        }
+
+        const ArSymtabEntry = struct {
+            name: [:0]const u8,
+            off: u64,
+        };
+    };
+
+    fn parseAndDumpObject(gpa: Allocator, bytes: []const u8) ![]const u8 {
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
 
@@ -924,7 +1077,7 @@ const ElfDumper = struct {
         const shdrs = @as([*]align(1) const elf.Elf64_Shdr, @ptrCast(bytes.ptr + hdr.e_shoff))[0..hdr.e_shnum];
         const phdrs = @as([*]align(1) const elf.Elf64_Phdr, @ptrCast(bytes.ptr + hdr.e_phoff))[0..hdr.e_phnum];
 
-        var ctx = Context{
+        var ctx = ObjectContext{
             .gpa = gpa,
             .data = bytes,
             .hdr = hdr,
@@ -932,14 +1085,14 @@ const ElfDumper = struct {
             .phdrs = phdrs,
             .shstrtab = undefined,
         };
-        ctx.shstrtab = getSectionContents(ctx, ctx.hdr.e_shstrndx);
+        ctx.shstrtab = ctx.getSectionContents(ctx.hdr.e_shstrndx);
 
         for (ctx.shdrs, 0..) |shdr, i| switch (shdr.sh_type) {
             elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
-                const raw = getSectionContents(ctx, i);
+                const raw = ctx.getSectionContents(i);
                 const nsyms = @divExact(raw.len, @sizeOf(elf.Elf64_Sym));
                 const symbols = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw.ptr))[0..nsyms];
-                const strings = getSectionContents(ctx, shdr.sh_link);
+                const strings = ctx.getSectionContents(shdr.sh_link);
 
                 switch (shdr.sh_type) {
                     elf.SHT_SYMTAB => {
@@ -964,199 +1117,346 @@ const ElfDumper = struct {
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        try dumpHeader(ctx, writer);
-        try dumpShdrs(ctx, writer);
-        try dumpPhdrs(ctx, writer);
-        try dumpDynamicSection(ctx, writer);
-        try dumpSymtab(ctx, .symtab, writer);
-        try dumpSymtab(ctx, .dysymtab, writer);
+        try ctx.dumpHeader(writer);
+        try ctx.dumpShdrs(writer);
+        try ctx.dumpPhdrs(writer);
+        try ctx.dumpDynamicSection(writer);
+        try ctx.dumpSymtab(.symtab, writer);
+        try ctx.dumpSymtab(.dysymtab, writer);
 
         return output.toOwnedSlice();
     }
 
-    inline fn getSectionName(ctx: Context, shndx: usize) []const u8 {
-        const shdr = ctx.shdrs[shndx];
-        return getString(ctx.shstrtab, shdr.sh_name);
-    }
+    const ObjectContext = struct {
+        gpa: Allocator,
+        data: []const u8,
+        hdr: elf.Elf64_Ehdr,
+        shdrs: []align(1) const elf.Elf64_Shdr,
+        phdrs: []align(1) const elf.Elf64_Phdr,
+        shstrtab: []const u8,
+        symtab: ?Symtab = null,
+        dysymtab: ?Symtab = null,
 
-    fn getSectionContents(ctx: Context, shndx: usize) []const u8 {
-        const shdr = ctx.shdrs[shndx];
-        assert(shdr.sh_offset < ctx.data.len);
-        assert(shdr.sh_offset + shdr.sh_size <= ctx.data.len);
-        return ctx.data[shdr.sh_offset..][0..shdr.sh_size];
-    }
+        fn dumpHeader(ctx: ObjectContext, writer: anytype) !void {
+            try writer.writeAll("header\n");
+            try writer.print("type {s}\n", .{@tagName(ctx.hdr.e_type)});
+            try writer.print("entry {x}\n", .{ctx.hdr.e_entry});
+        }
 
-    fn getSectionByName(ctx: Context, name: []const u8) ?usize {
-        for (0..ctx.shdrs.len) |shndx| {
-            if (mem.eql(u8, getSectionName(ctx, shndx), name)) return shndx;
-        } else return null;
-    }
+        fn dumpPhdrs(ctx: ObjectContext, writer: anytype) !void {
+            if (ctx.phdrs.len == 0) return;
+
+            try writer.writeAll("program headers\n");
+
+            for (ctx.phdrs, 0..) |phdr, phndx| {
+                try writer.print("phdr {d}\n", .{phndx});
+                try writer.print("type {s}\n", .{fmtPhType(phdr.p_type)});
+                try writer.print("vaddr {x}\n", .{phdr.p_vaddr});
+                try writer.print("paddr {x}\n", .{phdr.p_paddr});
+                try writer.print("offset {x}\n", .{phdr.p_offset});
+                try writer.print("memsz {x}\n", .{phdr.p_memsz});
+                try writer.print("filesz {x}\n", .{phdr.p_filesz});
+                try writer.print("align {x}\n", .{phdr.p_align});
+
+                {
+                    const flags = phdr.p_flags;
+                    try writer.writeAll("flags");
+                    if (flags > 0) try writer.writeByte(' ');
+                    if (flags & elf.PF_R != 0) {
+                        try writer.writeByte('R');
+                    }
+                    if (flags & elf.PF_W != 0) {
+                        try writer.writeByte('W');
+                    }
+                    if (flags & elf.PF_X != 0) {
+                        try writer.writeByte('E');
+                    }
+                    if (flags & elf.PF_MASKOS != 0) {
+                        try writer.writeAll("OS");
+                    }
+                    if (flags & elf.PF_MASKPROC != 0) {
+                        try writer.writeAll("PROC");
+                    }
+                    try writer.writeByte('\n');
+                }
+            }
+        }
+
+        fn dumpShdrs(ctx: ObjectContext, writer: anytype) !void {
+            if (ctx.shdrs.len == 0) return;
+
+            try writer.writeAll("section headers\n");
+
+            for (ctx.shdrs, 0..) |shdr, shndx| {
+                try writer.print("shdr {d}\n", .{shndx});
+                try writer.print("name {s}\n", .{ctx.getSectionName(shndx)});
+                try writer.print("type {s}\n", .{fmtShType(shdr.sh_type)});
+                try writer.print("addr {x}\n", .{shdr.sh_addr});
+                try writer.print("offset {x}\n", .{shdr.sh_offset});
+                try writer.print("size {x}\n", .{shdr.sh_size});
+                try writer.print("addralign {x}\n", .{shdr.sh_addralign});
+                // TODO dump formatted sh_flags
+            }
+        }
+
+        fn dumpDynamicSection(ctx: ObjectContext, writer: anytype) !void {
+            const shndx = ctx.getSectionByName(".dynamic") orelse return;
+            const shdr = ctx.shdrs[shndx];
+            const strtab = ctx.getSectionContents(shdr.sh_link);
+            const data = ctx.getSectionContents(shndx);
+            const nentries = @divExact(data.len, @sizeOf(elf.Elf64_Dyn));
+            const entries = @as([*]align(1) const elf.Elf64_Dyn, @ptrCast(data.ptr))[0..nentries];
+
+            try writer.writeAll(ElfDumper.dynamic_section_label ++ "\n");
+
+            for (entries) |entry| {
+                const key = @as(u64, @bitCast(entry.d_tag));
+                const value = entry.d_val;
+
+                const key_str = switch (key) {
+                    elf.DT_NEEDED => "NEEDED",
+                    elf.DT_SONAME => "SONAME",
+                    elf.DT_INIT_ARRAY => "INIT_ARRAY",
+                    elf.DT_INIT_ARRAYSZ => "INIT_ARRAYSZ",
+                    elf.DT_FINI_ARRAY => "FINI_ARRAY",
+                    elf.DT_FINI_ARRAYSZ => "FINI_ARRAYSZ",
+                    elf.DT_HASH => "HASH",
+                    elf.DT_GNU_HASH => "GNU_HASH",
+                    elf.DT_STRTAB => "STRTAB",
+                    elf.DT_SYMTAB => "SYMTAB",
+                    elf.DT_STRSZ => "STRSZ",
+                    elf.DT_SYMENT => "SYMENT",
+                    elf.DT_PLTGOT => "PLTGOT",
+                    elf.DT_PLTRELSZ => "PLTRELSZ",
+                    elf.DT_PLTREL => "PLTREL",
+                    elf.DT_JMPREL => "JMPREL",
+                    elf.DT_RELA => "RELA",
+                    elf.DT_RELASZ => "RELASZ",
+                    elf.DT_RELAENT => "RELAENT",
+                    elf.DT_VERDEF => "VERDEF",
+                    elf.DT_VERDEFNUM => "VERDEFNUM",
+                    elf.DT_FLAGS => "FLAGS",
+                    elf.DT_FLAGS_1 => "FLAGS_1",
+                    elf.DT_VERNEED => "VERNEED",
+                    elf.DT_VERNEEDNUM => "VERNEEDNUM",
+                    elf.DT_VERSYM => "VERSYM",
+                    elf.DT_RELACOUNT => "RELACOUNT",
+                    elf.DT_RPATH => "RPATH",
+                    elf.DT_RUNPATH => "RUNPATH",
+                    elf.DT_INIT => "INIT",
+                    elf.DT_FINI => "FINI",
+                    elf.DT_NULL => "NULL",
+                    else => "UNKNOWN",
+                };
+                try writer.print("{s}", .{key_str});
+
+                switch (key) {
+                    elf.DT_NEEDED,
+                    elf.DT_SONAME,
+                    elf.DT_RPATH,
+                    elf.DT_RUNPATH,
+                    => {
+                        const name = getString(strtab, @intCast(value));
+                        try writer.print(" {s}", .{name});
+                    },
+
+                    elf.DT_INIT_ARRAY,
+                    elf.DT_FINI_ARRAY,
+                    elf.DT_HASH,
+                    elf.DT_GNU_HASH,
+                    elf.DT_STRTAB,
+                    elf.DT_SYMTAB,
+                    elf.DT_PLTGOT,
+                    elf.DT_JMPREL,
+                    elf.DT_RELA,
+                    elf.DT_VERDEF,
+                    elf.DT_VERNEED,
+                    elf.DT_VERSYM,
+                    elf.DT_INIT,
+                    elf.DT_FINI,
+                    elf.DT_NULL,
+                    => try writer.print(" {x}", .{value}),
+
+                    elf.DT_INIT_ARRAYSZ,
+                    elf.DT_FINI_ARRAYSZ,
+                    elf.DT_STRSZ,
+                    elf.DT_SYMENT,
+                    elf.DT_PLTRELSZ,
+                    elf.DT_RELASZ,
+                    elf.DT_RELAENT,
+                    elf.DT_RELACOUNT,
+                    => try writer.print(" {d}", .{value}),
+
+                    elf.DT_PLTREL => try writer.writeAll(switch (value) {
+                        elf.DT_REL => " REL",
+                        elf.DT_RELA => " RELA",
+                        else => " UNKNOWN",
+                    }),
+
+                    elf.DT_FLAGS => if (value > 0) {
+                        if (value & elf.DF_ORIGIN != 0) try writer.writeAll(" ORIGIN");
+                        if (value & elf.DF_SYMBOLIC != 0) try writer.writeAll(" SYMBOLIC");
+                        if (value & elf.DF_TEXTREL != 0) try writer.writeAll(" TEXTREL");
+                        if (value & elf.DF_BIND_NOW != 0) try writer.writeAll(" BIND_NOW");
+                        if (value & elf.DF_STATIC_TLS != 0) try writer.writeAll(" STATIC_TLS");
+                    },
+
+                    elf.DT_FLAGS_1 => if (value > 0) {
+                        if (value & elf.DF_1_NOW != 0) try writer.writeAll(" NOW");
+                        if (value & elf.DF_1_GLOBAL != 0) try writer.writeAll(" GLOBAL");
+                        if (value & elf.DF_1_GROUP != 0) try writer.writeAll(" GROUP");
+                        if (value & elf.DF_1_NODELETE != 0) try writer.writeAll(" NODELETE");
+                        if (value & elf.DF_1_LOADFLTR != 0) try writer.writeAll(" LOADFLTR");
+                        if (value & elf.DF_1_INITFIRST != 0) try writer.writeAll(" INITFIRST");
+                        if (value & elf.DF_1_NOOPEN != 0) try writer.writeAll(" NOOPEN");
+                        if (value & elf.DF_1_ORIGIN != 0) try writer.writeAll(" ORIGIN");
+                        if (value & elf.DF_1_DIRECT != 0) try writer.writeAll(" DIRECT");
+                        if (value & elf.DF_1_TRANS != 0) try writer.writeAll(" TRANS");
+                        if (value & elf.DF_1_INTERPOSE != 0) try writer.writeAll(" INTERPOSE");
+                        if (value & elf.DF_1_NODEFLIB != 0) try writer.writeAll(" NODEFLIB");
+                        if (value & elf.DF_1_NODUMP != 0) try writer.writeAll(" NODUMP");
+                        if (value & elf.DF_1_CONFALT != 0) try writer.writeAll(" CONFALT");
+                        if (value & elf.DF_1_ENDFILTEE != 0) try writer.writeAll(" ENDFILTEE");
+                        if (value & elf.DF_1_DISPRELDNE != 0) try writer.writeAll(" DISPRELDNE");
+                        if (value & elf.DF_1_DISPRELPND != 0) try writer.writeAll(" DISPRELPND");
+                        if (value & elf.DF_1_NODIRECT != 0) try writer.writeAll(" NODIRECT");
+                        if (value & elf.DF_1_IGNMULDEF != 0) try writer.writeAll(" IGNMULDEF");
+                        if (value & elf.DF_1_NOKSYMS != 0) try writer.writeAll(" NOKSYMS");
+                        if (value & elf.DF_1_NOHDR != 0) try writer.writeAll(" NOHDR");
+                        if (value & elf.DF_1_EDITED != 0) try writer.writeAll(" EDITED");
+                        if (value & elf.DF_1_NORELOC != 0) try writer.writeAll(" NORELOC");
+                        if (value & elf.DF_1_SYMINTPOSE != 0) try writer.writeAll(" SYMINTPOSE");
+                        if (value & elf.DF_1_GLOBAUDIT != 0) try writer.writeAll(" GLOBAUDIT");
+                        if (value & elf.DF_1_SINGLETON != 0) try writer.writeAll(" SINGLETON");
+                        if (value & elf.DF_1_STUB != 0) try writer.writeAll(" STUB");
+                        if (value & elf.DF_1_PIE != 0) try writer.writeAll(" PIE");
+                    },
+
+                    else => try writer.print(" {x}", .{value}),
+                }
+                try writer.writeByte('\n');
+            }
+        }
+
+        fn dumpSymtab(ctx: ObjectContext, comptime @"type": enum { symtab, dysymtab }, writer: anytype) !void {
+            const symtab = switch (@"type") {
+                .symtab => ctx.symtab,
+                .dysymtab => ctx.dysymtab,
+            } orelse return;
+
+            try writer.writeAll(switch (@"type") {
+                .symtab => symtab_label,
+                .dysymtab => dynamic_symtab_label,
+            } ++ "\n");
+
+            for (symtab.symbols, 0..) |sym, index| {
+                try writer.print("{x} {x}", .{ sym.st_value, sym.st_size });
+
+                {
+                    if (elf.SHN_LORESERVE <= sym.st_shndx and sym.st_shndx < elf.SHN_HIRESERVE) {
+                        if (elf.SHN_LOPROC <= sym.st_shndx and sym.st_shndx < elf.SHN_HIPROC) {
+                            try writer.print(" LO+{d}", .{sym.st_shndx - elf.SHN_LOPROC});
+                        } else {
+                            const sym_ndx = switch (sym.st_shndx) {
+                                elf.SHN_ABS => "ABS",
+                                elf.SHN_COMMON => "COM",
+                                elf.SHN_LIVEPATCH => "LIV",
+                                else => "UNK",
+                            };
+                            try writer.print(" {s}", .{sym_ndx});
+                        }
+                    } else if (sym.st_shndx == elf.SHN_UNDEF) {
+                        try writer.writeAll(" UND");
+                    } else {
+                        try writer.print(" {x}", .{sym.st_shndx});
+                    }
+                }
+
+                blk: {
+                    const tt = sym.st_type();
+                    const sym_type = switch (tt) {
+                        elf.STT_NOTYPE => "NOTYPE",
+                        elf.STT_OBJECT => "OBJECT",
+                        elf.STT_FUNC => "FUNC",
+                        elf.STT_SECTION => "SECTION",
+                        elf.STT_FILE => "FILE",
+                        elf.STT_COMMON => "COMMON",
+                        elf.STT_TLS => "TLS",
+                        elf.STT_NUM => "NUM",
+                        elf.STT_GNU_IFUNC => "IFUNC",
+                        else => if (elf.STT_LOPROC <= tt and tt < elf.STT_HIPROC) {
+                            break :blk try writer.print(" LOPROC+{d}", .{tt - elf.STT_LOPROC});
+                        } else if (elf.STT_LOOS <= tt and tt < elf.STT_HIOS) {
+                            break :blk try writer.print(" LOOS+{d}", .{tt - elf.STT_LOOS});
+                        } else "UNK",
+                    };
+                    try writer.print(" {s}", .{sym_type});
+                }
+
+                blk: {
+                    const bind = sym.st_bind();
+                    const sym_bind = switch (bind) {
+                        elf.STB_LOCAL => "LOCAL",
+                        elf.STB_GLOBAL => "GLOBAL",
+                        elf.STB_WEAK => "WEAK",
+                        elf.STB_NUM => "NUM",
+                        else => if (elf.STB_LOPROC <= bind and bind < elf.STB_HIPROC) {
+                            break :blk try writer.print(" LOPROC+{d}", .{bind - elf.STB_LOPROC});
+                        } else if (elf.STB_LOOS <= bind and bind < elf.STB_HIOS) {
+                            break :blk try writer.print(" LOOS+{d}", .{bind - elf.STB_LOOS});
+                        } else "UNKNOWN",
+                    };
+                    try writer.print(" {s}", .{sym_bind});
+                }
+
+                const sym_vis = @as(elf.STV, @enumFromInt(sym.st_other));
+                try writer.print(" {s}", .{@tagName(sym_vis)});
+
+                const sym_name = switch (sym.st_type()) {
+                    elf.STT_SECTION => ctx.getSectionName(sym.st_shndx),
+                    else => symtab.getName(index).?,
+                };
+                try writer.print(" {s}\n", .{sym_name});
+            }
+        }
+
+        inline fn getSectionName(ctx: ObjectContext, shndx: usize) []const u8 {
+            const shdr = ctx.shdrs[shndx];
+            return getString(ctx.shstrtab, shdr.sh_name);
+        }
+
+        fn getSectionContents(ctx: ObjectContext, shndx: usize) []const u8 {
+            const shdr = ctx.shdrs[shndx];
+            assert(shdr.sh_offset < ctx.data.len);
+            assert(shdr.sh_offset + shdr.sh_size <= ctx.data.len);
+            return ctx.data[shdr.sh_offset..][0..shdr.sh_size];
+        }
+
+        fn getSectionByName(ctx: ObjectContext, name: []const u8) ?usize {
+            for (0..ctx.shdrs.len) |shndx| {
+                if (mem.eql(u8, ctx.getSectionName(shndx), name)) return shndx;
+            } else return null;
+        }
+    };
+
+    const Symtab = struct {
+        symbols: []align(1) const elf.Elf64_Sym,
+        strings: []const u8,
+
+        fn get(st: Symtab, index: usize) ?elf.Elf64_Sym {
+            if (index >= st.symbols.len) return null;
+            return st.symbols[index];
+        }
+
+        fn getName(st: Symtab, index: usize) ?[]const u8 {
+            const sym = st.get(index) orelse return null;
+            return getString(st.strings, sym.st_name);
+        }
+    };
 
     fn getString(strtab: []const u8, off: u32) []const u8 {
         assert(off < strtab.len);
         return mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + off)), 0);
-    }
-
-    fn dumpHeader(ctx: Context, writer: anytype) !void {
-        try writer.writeAll("header\n");
-        try writer.print("type {s}\n", .{@tagName(ctx.hdr.e_type)});
-        try writer.print("entry {x}\n", .{ctx.hdr.e_entry});
-    }
-
-    fn dumpShdrs(ctx: Context, writer: anytype) !void {
-        if (ctx.shdrs.len == 0) return;
-
-        try writer.writeAll("section headers\n");
-
-        for (ctx.shdrs, 0..) |shdr, shndx| {
-            try writer.print("shdr {d}\n", .{shndx});
-            try writer.print("name {s}\n", .{getSectionName(ctx, shndx)});
-            try writer.print("type {s}\n", .{fmtShType(shdr.sh_type)});
-            try writer.print("addr {x}\n", .{shdr.sh_addr});
-            try writer.print("offset {x}\n", .{shdr.sh_offset});
-            try writer.print("size {x}\n", .{shdr.sh_size});
-            try writer.print("addralign {x}\n", .{shdr.sh_addralign});
-            // TODO dump formatted sh_flags
-        }
-    }
-
-    fn dumpDynamicSection(ctx: Context, writer: anytype) !void {
-        const shndx = getSectionByName(ctx, ".dynamic") orelse return;
-        const shdr = ctx.shdrs[shndx];
-        const strtab = getSectionContents(ctx, shdr.sh_link);
-        const data = getSectionContents(ctx, shndx);
-        const nentries = @divExact(data.len, @sizeOf(elf.Elf64_Dyn));
-        const entries = @as([*]align(1) const elf.Elf64_Dyn, @ptrCast(data.ptr))[0..nentries];
-
-        try writer.writeAll(ElfDumper.dynamic_section_label ++ "\n");
-
-        for (entries) |entry| {
-            const key = @as(u64, @bitCast(entry.d_tag));
-            const value = entry.d_val;
-
-            const key_str = switch (key) {
-                elf.DT_NEEDED => "NEEDED",
-                elf.DT_SONAME => "SONAME",
-                elf.DT_INIT_ARRAY => "INIT_ARRAY",
-                elf.DT_INIT_ARRAYSZ => "INIT_ARRAYSZ",
-                elf.DT_FINI_ARRAY => "FINI_ARRAY",
-                elf.DT_FINI_ARRAYSZ => "FINI_ARRAYSZ",
-                elf.DT_HASH => "HASH",
-                elf.DT_GNU_HASH => "GNU_HASH",
-                elf.DT_STRTAB => "STRTAB",
-                elf.DT_SYMTAB => "SYMTAB",
-                elf.DT_STRSZ => "STRSZ",
-                elf.DT_SYMENT => "SYMENT",
-                elf.DT_PLTGOT => "PLTGOT",
-                elf.DT_PLTRELSZ => "PLTRELSZ",
-                elf.DT_PLTREL => "PLTREL",
-                elf.DT_JMPREL => "JMPREL",
-                elf.DT_RELA => "RELA",
-                elf.DT_RELASZ => "RELASZ",
-                elf.DT_RELAENT => "RELAENT",
-                elf.DT_VERDEF => "VERDEF",
-                elf.DT_VERDEFNUM => "VERDEFNUM",
-                elf.DT_FLAGS => "FLAGS",
-                elf.DT_FLAGS_1 => "FLAGS_1",
-                elf.DT_VERNEED => "VERNEED",
-                elf.DT_VERNEEDNUM => "VERNEEDNUM",
-                elf.DT_VERSYM => "VERSYM",
-                elf.DT_RELACOUNT => "RELACOUNT",
-                elf.DT_RPATH => "RPATH",
-                elf.DT_RUNPATH => "RUNPATH",
-                elf.DT_INIT => "INIT",
-                elf.DT_FINI => "FINI",
-                elf.DT_NULL => "NULL",
-                else => "UNKNOWN",
-            };
-            try writer.print("{s}", .{key_str});
-
-            switch (key) {
-                elf.DT_NEEDED,
-                elf.DT_SONAME,
-                elf.DT_RPATH,
-                elf.DT_RUNPATH,
-                => {
-                    const name = getString(strtab, @intCast(value));
-                    try writer.print(" {s}", .{name});
-                },
-
-                elf.DT_INIT_ARRAY,
-                elf.DT_FINI_ARRAY,
-                elf.DT_HASH,
-                elf.DT_GNU_HASH,
-                elf.DT_STRTAB,
-                elf.DT_SYMTAB,
-                elf.DT_PLTGOT,
-                elf.DT_JMPREL,
-                elf.DT_RELA,
-                elf.DT_VERDEF,
-                elf.DT_VERNEED,
-                elf.DT_VERSYM,
-                elf.DT_INIT,
-                elf.DT_FINI,
-                elf.DT_NULL,
-                => try writer.print(" {x}", .{value}),
-
-                elf.DT_INIT_ARRAYSZ,
-                elf.DT_FINI_ARRAYSZ,
-                elf.DT_STRSZ,
-                elf.DT_SYMENT,
-                elf.DT_PLTRELSZ,
-                elf.DT_RELASZ,
-                elf.DT_RELAENT,
-                elf.DT_RELACOUNT,
-                => try writer.print(" {d}", .{value}),
-
-                elf.DT_PLTREL => try writer.writeAll(switch (value) {
-                    elf.DT_REL => " REL",
-                    elf.DT_RELA => " RELA",
-                    else => " UNKNOWN",
-                }),
-
-                elf.DT_FLAGS => if (value > 0) {
-                    if (value & elf.DF_ORIGIN != 0) try writer.writeAll(" ORIGIN");
-                    if (value & elf.DF_SYMBOLIC != 0) try writer.writeAll(" SYMBOLIC");
-                    if (value & elf.DF_TEXTREL != 0) try writer.writeAll(" TEXTREL");
-                    if (value & elf.DF_BIND_NOW != 0) try writer.writeAll(" BIND_NOW");
-                    if (value & elf.DF_STATIC_TLS != 0) try writer.writeAll(" STATIC_TLS");
-                },
-
-                elf.DT_FLAGS_1 => if (value > 0) {
-                    if (value & elf.DF_1_NOW != 0) try writer.writeAll(" NOW");
-                    if (value & elf.DF_1_GLOBAL != 0) try writer.writeAll(" GLOBAL");
-                    if (value & elf.DF_1_GROUP != 0) try writer.writeAll(" GROUP");
-                    if (value & elf.DF_1_NODELETE != 0) try writer.writeAll(" NODELETE");
-                    if (value & elf.DF_1_LOADFLTR != 0) try writer.writeAll(" LOADFLTR");
-                    if (value & elf.DF_1_INITFIRST != 0) try writer.writeAll(" INITFIRST");
-                    if (value & elf.DF_1_NOOPEN != 0) try writer.writeAll(" NOOPEN");
-                    if (value & elf.DF_1_ORIGIN != 0) try writer.writeAll(" ORIGIN");
-                    if (value & elf.DF_1_DIRECT != 0) try writer.writeAll(" DIRECT");
-                    if (value & elf.DF_1_TRANS != 0) try writer.writeAll(" TRANS");
-                    if (value & elf.DF_1_INTERPOSE != 0) try writer.writeAll(" INTERPOSE");
-                    if (value & elf.DF_1_NODEFLIB != 0) try writer.writeAll(" NODEFLIB");
-                    if (value & elf.DF_1_NODUMP != 0) try writer.writeAll(" NODUMP");
-                    if (value & elf.DF_1_CONFALT != 0) try writer.writeAll(" CONFALT");
-                    if (value & elf.DF_1_ENDFILTEE != 0) try writer.writeAll(" ENDFILTEE");
-                    if (value & elf.DF_1_DISPRELDNE != 0) try writer.writeAll(" DISPRELDNE");
-                    if (value & elf.DF_1_DISPRELPND != 0) try writer.writeAll(" DISPRELPND");
-                    if (value & elf.DF_1_NODIRECT != 0) try writer.writeAll(" NODIRECT");
-                    if (value & elf.DF_1_IGNMULDEF != 0) try writer.writeAll(" IGNMULDEF");
-                    if (value & elf.DF_1_NOKSYMS != 0) try writer.writeAll(" NOKSYMS");
-                    if (value & elf.DF_1_NOHDR != 0) try writer.writeAll(" NOHDR");
-                    if (value & elf.DF_1_EDITED != 0) try writer.writeAll(" EDITED");
-                    if (value & elf.DF_1_NORELOC != 0) try writer.writeAll(" NORELOC");
-                    if (value & elf.DF_1_SYMINTPOSE != 0) try writer.writeAll(" SYMINTPOSE");
-                    if (value & elf.DF_1_GLOBAUDIT != 0) try writer.writeAll(" GLOBAUDIT");
-                    if (value & elf.DF_1_SINGLETON != 0) try writer.writeAll(" SINGLETON");
-                    if (value & elf.DF_1_STUB != 0) try writer.writeAll(" STUB");
-                    if (value & elf.DF_1_PIE != 0) try writer.writeAll(" PIE");
-                },
-
-                else => try writer.print(" {x}", .{value}),
-            }
-            try writer.writeByte('\n');
-        }
     }
 
     fn fmtShType(sh_type: u32) std.fmt.Formatter(formatShType) {
@@ -1206,45 +1506,6 @@ const ElfDumper = struct {
         try writer.writeAll(name);
     }
 
-    fn dumpPhdrs(ctx: Context, writer: anytype) !void {
-        if (ctx.phdrs.len == 0) return;
-
-        try writer.writeAll("program headers\n");
-
-        for (ctx.phdrs, 0..) |phdr, phndx| {
-            try writer.print("phdr {d}\n", .{phndx});
-            try writer.print("type {s}\n", .{fmtPhType(phdr.p_type)});
-            try writer.print("vaddr {x}\n", .{phdr.p_vaddr});
-            try writer.print("paddr {x}\n", .{phdr.p_paddr});
-            try writer.print("offset {x}\n", .{phdr.p_offset});
-            try writer.print("memsz {x}\n", .{phdr.p_memsz});
-            try writer.print("filesz {x}\n", .{phdr.p_filesz});
-            try writer.print("align {x}\n", .{phdr.p_align});
-
-            {
-                const flags = phdr.p_flags;
-                try writer.writeAll("flags");
-                if (flags > 0) try writer.writeByte(' ');
-                if (flags & elf.PF_R != 0) {
-                    try writer.writeByte('R');
-                }
-                if (flags & elf.PF_W != 0) {
-                    try writer.writeByte('W');
-                }
-                if (flags & elf.PF_X != 0) {
-                    try writer.writeByte('E');
-                }
-                if (flags & elf.PF_MASKOS != 0) {
-                    try writer.writeAll("OS");
-                }
-                if (flags & elf.PF_MASKPROC != 0) {
-                    try writer.writeAll("PROC");
-                }
-                try writer.writeByte('\n');
-            }
-        }
-    }
-
     fn fmtPhType(ph_type: u32) std.fmt.Formatter(formatPhType) {
         return .{ .data = ph_type };
     }
@@ -1277,88 +1538,6 @@ const ElfDumper = struct {
             } else "UNKNOWN",
         };
         try writer.writeAll(p_type);
-    }
-
-    fn dumpSymtab(ctx: Context, comptime @"type": enum { symtab, dysymtab }, writer: anytype) !void {
-        const symtab = switch (@"type") {
-            .symtab => ctx.symtab,
-            .dysymtab => ctx.dysymtab,
-        } orelse return;
-
-        try writer.writeAll(switch (@"type") {
-            .symtab => symtab_label,
-            .dysymtab => dynamic_symtab_label,
-        } ++ "\n");
-
-        for (symtab.symbols, 0..) |sym, index| {
-            try writer.print("{x} {x}", .{ sym.st_value, sym.st_size });
-
-            {
-                if (elf.SHN_LORESERVE <= sym.st_shndx and sym.st_shndx < elf.SHN_HIRESERVE) {
-                    if (elf.SHN_LOPROC <= sym.st_shndx and sym.st_shndx < elf.SHN_HIPROC) {
-                        try writer.print(" LO+{d}", .{sym.st_shndx - elf.SHN_LOPROC});
-                    } else {
-                        const sym_ndx = &switch (sym.st_shndx) {
-                            elf.SHN_ABS => "ABS",
-                            elf.SHN_COMMON => "COM",
-                            elf.SHN_LIVEPATCH => "LIV",
-                            else => "UNK",
-                        };
-                        try writer.print(" {s}", .{sym_ndx});
-                    }
-                } else if (sym.st_shndx == elf.SHN_UNDEF) {
-                    try writer.writeAll(" UND");
-                } else {
-                    try writer.print(" {x}", .{sym.st_shndx});
-                }
-            }
-
-            blk: {
-                const tt = sym.st_type();
-                const sym_type = switch (tt) {
-                    elf.STT_NOTYPE => "NOTYPE",
-                    elf.STT_OBJECT => "OBJECT",
-                    elf.STT_FUNC => "FUNC",
-                    elf.STT_SECTION => "SECTION",
-                    elf.STT_FILE => "FILE",
-                    elf.STT_COMMON => "COMMON",
-                    elf.STT_TLS => "TLS",
-                    elf.STT_NUM => "NUM",
-                    elf.STT_GNU_IFUNC => "IFUNC",
-                    else => if (elf.STT_LOPROC <= tt and tt < elf.STT_HIPROC) {
-                        break :blk try writer.print(" LOPROC+{d}", .{tt - elf.STT_LOPROC});
-                    } else if (elf.STT_LOOS <= tt and tt < elf.STT_HIOS) {
-                        break :blk try writer.print(" LOOS+{d}", .{tt - elf.STT_LOOS});
-                    } else "UNK",
-                };
-                try writer.print(" {s}", .{sym_type});
-            }
-
-            blk: {
-                const bind = sym.st_bind();
-                const sym_bind = switch (bind) {
-                    elf.STB_LOCAL => "LOCAL",
-                    elf.STB_GLOBAL => "GLOBAL",
-                    elf.STB_WEAK => "WEAK",
-                    elf.STB_NUM => "NUM",
-                    else => if (elf.STB_LOPROC <= bind and bind < elf.STB_HIPROC) {
-                        break :blk try writer.print(" LOPROC+{d}", .{bind - elf.STB_LOPROC});
-                    } else if (elf.STB_LOOS <= bind and bind < elf.STB_HIOS) {
-                        break :blk try writer.print(" LOOS+{d}", .{bind - elf.STB_LOOS});
-                    } else "UNKNOWN",
-                };
-                try writer.print(" {s}", .{sym_bind});
-            }
-
-            const sym_vis = @as(elf.STV, @enumFromInt(sym.st_other));
-            try writer.print(" {s}", .{@tagName(sym_vis)});
-
-            const sym_name = switch (sym.st_type()) {
-                elf.STT_SECTION => getSectionName(ctx, sym.st_shndx),
-                else => symtab.getName(index).?,
-            };
-            try writer.print(" {s}\n", .{sym_name});
-        }
     }
 };
 

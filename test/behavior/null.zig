@@ -134,6 +134,7 @@ test "optional pointer to 0 bit type null value at runtime" {
 
     const EmptyStruct = struct {};
     var x: ?*EmptyStruct = null;
+    _ = &x;
     try expect(x == null);
 }
 

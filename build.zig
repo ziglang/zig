@@ -8,6 +8,7 @@ const io = std.io;
 const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
+const GenerateDef = @import("deps/aro/build/GenerateDef.zig");
 
 const zig_version = std.SemanticVersion{ .major = 0, .minor = 12, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
@@ -589,9 +590,35 @@ fn addCompilerStep(
         .max_rss = 7_000_000_000,
     });
     exe.stack_size = stack_size;
-    exe.addAnonymousModule("aro", .{
-        .source_file = .{ .path = "deps/aro/lib.zig" },
+
+    const aro_options = b.addOptions();
+    aro_options.addOption([]const u8, "version_str", "aro-zig");
+    const aro_options_module = aro_options.createModule();
+    const aro_backend = b.createModule(.{
+        .source_file = .{ .path = "deps/aro/backend.zig" },
+        .dependencies = &.{.{
+            .name = "build_options",
+            .module = aro_options_module,
+        }},
     });
+    const aro_module = b.createModule(.{
+        .source_file = .{ .path = "deps/aro/aro.zig" },
+        .dependencies = &.{
+            .{
+                .name = "build_options",
+                .module = aro_options_module,
+            },
+            .{
+                .name = "backend",
+                .module = aro_backend,
+            },
+            GenerateDef.create(b, .{ .name = "Builtins/Builtin.def", .src_prefix = "deps/aro/aro" }),
+            GenerateDef.create(b, .{ .name = "Attribute/names.def", .src_prefix = "deps/aro/aro" }),
+            GenerateDef.create(b, .{ .name = "Diagnostics/messages.def", .src_prefix = "deps/aro/aro", .kind = .named }),
+        },
+    });
+
+    exe.addModule("aro", aro_module);
     return exe;
 }
 

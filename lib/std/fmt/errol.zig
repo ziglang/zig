@@ -367,8 +367,8 @@ fn errolFixed(val: f64, buffer: []u8) FloatDecimal {
     var lo = ((fpprev(val) - n) + mid) / 2.0;
     var hi = ((fpnext(val) - n) + mid) / 2.0;
 
-    var buf_index = u64toa(u, buffer);
-    var exp = @as(i32, @intCast(buf_index));
+    const buf_index = u64toa(u, buffer);
+    const exp: i32 = @intCast(buf_index);
     var j = buf_index;
     buffer[j] = 0;
 

@@ -125,7 +125,7 @@ pub fn Atomic(comptime T: type) type {
                 @compileError(@tagName(Ordering.Unordered) ++ " is only allowed on atomic loads and stores");
             }
 
-            comptime var success_is_stronger = switch (failure) {
+            const success_is_stronger = switch (failure) {
                 .SeqCst => success == .SeqCst,
                 .AcqRel => @compileError(@tagName(failure) ++ " implies " ++ @tagName(Ordering.Release) ++ " which is only allowed on success"),
                 .Acquire => success == .SeqCst or success == .AcqRel or success == .Acquire,

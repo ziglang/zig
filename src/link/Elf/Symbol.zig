@@ -107,6 +107,24 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf
     return symbol.value;
 }
 
+pub fn outputSymtabIndex(symbol: Symbol, elf_file: *Elf) ?u32 {
+    if (!symbol.flags.output_symtab) return null;
+    const file_ptr = symbol.file(elf_file).?;
+    const symtab_ctx = switch (file_ptr) {
+        inline else => |x| x.output_symtab_ctx,
+    };
+    const idx = symbol.extra(elf_file).?.symtab;
+    return if (symbol.isLocal(elf_file)) idx + symtab_ctx.ilocal else idx + symtab_ctx.iglobal;
+}
+
+pub fn setOutputSymtabIndex(symbol: *Symbol, index: u32, elf_file: *Elf) !void {
+    if (symbol.extra(elf_file)) |extras| {
+        var new_extras = extras;
+        new_extras.symtab = index;
+        symbol.setExtra(new_extras, elf_file);
+    } else try symbol.addExtra(.{ .symtab = index }, elf_file);
+}
+
 pub fn gotAddress(symbol: Symbol, elf_file: *Elf) u64 {
     if (!symbol.flags.has_got) return 0;
     const extras = symbol.extra(elf_file).?;
@@ -219,10 +237,8 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
     const st_shndx = blk: {
         if (symbol.flags.has_copy_rel) break :blk elf_file.copy_rel_section_index.?;
         if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
-        // TODO I think this is wrong and obsolete
-        if (elf_file.isRelocatable() and st_type == elf.STT_SECTION) break :blk symbol.outputShndx().?;
-        if (symbol.atom(elf_file) == null and file_ptr != .linker_defined)
-            break :blk elf.SHN_ABS;
+        if (elf_file.isRelocatable() and esym.st_shndx == elf.SHN_COMMON) break :blk elf.SHN_COMMON;
+        if (symbol.atom(elf_file) == null and file_ptr != .linker_defined) break :blk elf.SHN_ABS;
         break :blk symbol.outputShndx() orelse elf.SHN_UNDEF;
     };
     const st_value = blk: {
@@ -231,7 +247,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
             if (symbol.flags.is_canonical) break :blk symbol.address(.{}, elf_file);
             break :blk 0;
         }
-        if (st_shndx == elf.SHN_ABS) break :blk symbol.value;
+        if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.value;
         const shdr = &elf_file.shdrs.items[st_shndx];
         if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
             break :blk symbol.value - elf_file.tlsAddress();
@@ -383,6 +399,11 @@ pub const Flags = packed struct {
     /// Whether the symbol contains .zig.got indirection.
     needs_zig_got: bool = false,
     has_zig_got: bool = false,
+
+    /// Whether the symbol is a TLS variable.
+    /// TODO this is really not needed if only we operated on esyms between
+    /// codegen and ZigObject.
+    is_tls: bool = false,
 };
 
 pub const Extra = struct {
@@ -390,6 +411,7 @@ pub const Extra = struct {
     plt: u32 = 0,
     plt_got: u32 = 0,
     dynamic: u32 = 0,
+    symtab: u32 = 0,
     copy_rel: u32 = 0,
     tlsgd: u32 = 0,
     gottp: u32 = 0,

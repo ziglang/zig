@@ -2139,7 +2139,7 @@ fn airRetPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = func.bin_file.base.options.module.?;
     const child_type = func.typeOfIndex(inst).childType(mod);
 
-    var result = result: {
+    const result = result: {
         if (!child_type.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
             break :result try func.allocStack(Type.usize); // create pointer to void
         }
@@ -3372,10 +3372,14 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
         },
         .un => |un| {
             // in this case we have a packed union which will not be passed by reference.
-            const union_obj = mod.typeToUnion(ty).?;
-            const field_index = mod.unionTagFieldIndex(union_obj, un.tag.toValue()).?;
-            const field_ty = union_obj.field_types.get(ip)[field_index].toType();
-            return func.lowerConstant(un.val.toValue(), field_ty);
+            const constant_ty = if (un.tag == .none)
+                try ty.unionBackingType(mod)
+            else field_ty: {
+                const union_obj = mod.typeToUnion(ty).?;
+                const field_index = mod.unionTagFieldIndex(union_obj, un.tag.toValue()).?;
+                break :field_ty union_obj.field_types.get(ip)[field_index].toType();
+            };
+            return func.lowerConstant(un.val.toValue(), constant_ty);
         },
         .memoized_call => unreachable,
     }
@@ -4997,7 +5001,7 @@ fn airArrayElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 return func.finishAir(inst, try WValue.toLocal(.stack, func, elem_ty), &.{ bin_op.lhs, bin_op.rhs });
             },
             else => {
-                var stack_vec = try func.allocStack(array_ty);
+                const stack_vec = try func.allocStack(array_ty);
                 try func.store(stack_vec, array, array_ty, 0);
 
                 // Is a non-unrolled vector (v128)
@@ -5940,7 +5944,7 @@ fn airAddSubWithOverflow(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerErro
         rhs.free(func);
     };
 
-    var bin_op = try (try func.binOp(lhs, rhs, lhs_ty, op)).toLocal(func, lhs_ty);
+    const bin_op = try (try func.binOp(lhs, rhs, lhs_ty, op)).toLocal(func, lhs_ty);
     var result = if (wasm_bits != int_info.bits) blk: {
         break :blk try (try func.wrapOperand(bin_op, lhs_ty)).toLocal(func, lhs_ty);
     } else bin_op;
@@ -6331,7 +6335,7 @@ fn airMulAdd(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const lhs_ext = try func.fpext(lhs, ty, Type.f32);
         const addend_ext = try func.fpext(addend, ty, Type.f32);
         // call to compiler-rt `fn fmaf(f32, f32, f32) f32`
-        var result = try func.callIntrinsic(
+        const result = try func.callIntrinsic(
             "fmaf",
             &.{ .f32_type, .f32_type, .f32_type },
             Type.f32,

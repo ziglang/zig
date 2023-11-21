@@ -1107,6 +1107,7 @@ fn formatWipMir(
         .cc = .Unspecified,
         .src_loc = data.self.src_loc,
     };
+    var first = true;
     for ((lower.lowerMir(data.inst) catch |err| switch (err) {
         error.LowerFail => {
             defer {
@@ -1125,7 +1126,11 @@ fn formatWipMir(
             return;
         },
         else => |e| return e,
-    }).insts) |lowered_inst| try writer.print("  | {}", .{lowered_inst});
+    }).insts) |lowered_inst| {
+        if (!first) try writer.writeAll("\ndebug(wip_mir): ");
+        try writer.print("  | {}", .{lowered_inst});
+        first = false;
+    }
 }
 fn fmtWipMir(self: *Self, inst: Mir.Inst.Index) std.fmt.Formatter(formatWipMir) {
     return .{ .data = .{ .self = self, .inst = inst } };
@@ -2176,7 +2181,7 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
             const ret_reg = param_regs[0];
             const enum_mcv = MCValue{ .register = param_regs[1] };
 
-            var exitlude_jump_relocs = try self.gpa.alloc(Mir.Inst.Index, enum_ty.enumFieldCount(mod));
+            const exitlude_jump_relocs = try self.gpa.alloc(Mir.Inst.Index, enum_ty.enumFieldCount(mod));
             defer self.gpa.free(exitlude_jump_relocs);
 
             const data_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
@@ -3230,6 +3235,7 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                 var callee_buf: ["__udiv?i3".len]u8 = undefined;
                 const signed_div_floor_state: struct {
                     frame_index: FrameIndex,
+                    state: State,
                     reloc: Mir.Inst.Index,
                 } = if (signed and tag == .div_floor) state: {
                     const frame_index = try self.allocFrameIndex(FrameAlloc.initType(Type.usize, mod));
@@ -3290,9 +3296,10 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                         tmp_reg,
                         mat_rhs_mcv.register_pair[1],
                     );
+                    const state = try self.saveState();
                     const reloc = try self.asmJccReloc(.ns, undefined);
 
-                    break :state .{ .frame_index = frame_index, .reloc = reloc };
+                    break :state .{ .frame_index = frame_index, .state = state, .reloc = reloc };
                 } else undefined;
                 const call_mcv = try self.genCall(
                     .{ .lib = .{
@@ -3322,6 +3329,12 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                         try self.asmSetccMemory(.nz, .{
                             .base = .{ .frame = signed_div_floor_state.frame_index },
                             .mod = .{ .rm = .{ .size = .byte } },
+                        });
+                        try self.restoreState(signed_div_floor_state.state, &.{}, .{
+                            .emit_instructions = true,
+                            .update_tracking = true,
+                            .resurrect = true,
+                            .close_scope = true,
                         });
                         try self.performReloc(signed_div_floor_state.reloc);
                         const dst_mcv = try self.genCall(
@@ -4877,11 +4890,14 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
             switch (opt_mcv) {
                 else => unreachable,
 
-                .register => |opt_reg| try self.asmRegisterImmediate(
-                    .{ ._s, .bt },
-                    opt_reg,
-                    Immediate.u(@as(u6, @intCast(pl_abi_size * 8))),
-                ),
+                .register => |opt_reg| {
+                    try self.truncateRegister(pl_ty, opt_reg);
+                    try self.asmRegisterImmediate(
+                        .{ ._s, .bt },
+                        opt_reg,
+                        Immediate.u(@as(u6, @intCast(pl_abi_size * 8))),
+                    );
+                },
 
                 .load_frame => |frame_addr| try self.asmMemoryImmediate(
                     .{ ._, .mov },
@@ -7430,16 +7446,20 @@ fn genUnOp(self: *Self, maybe_inst: ?Air.Inst.Index, tag: Air.Inst.Tag, src_air:
     };
     defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
+    const abi_size: u16 = @intCast(src_ty.abiSize(mod));
     switch (tag) {
         .not => {
-            const limb_abi_size: u16 = @intCast(@min(src_ty.abiSize(mod), 8));
+            const limb_abi_size: u16 = @min(abi_size, 8);
             const int_info = if (src_ty.ip_index == .bool_type)
                 std.builtin.Type.Int{ .signedness = .unsigned, .bits = 1 }
             else
                 src_ty.intInfo(mod);
             var byte_off: i32 = 0;
             while (byte_off * 8 < int_info.bits) : (byte_off += limb_abi_size) {
-                const limb_bits: u16 = @intCast(@min(int_info.bits - byte_off * 8, limb_abi_size * 8));
+                const limb_bits: u16 = @intCast(@min(switch (int_info.signedness) {
+                    .signed => abi_size * 8,
+                    .unsigned => int_info.bits,
+                } - byte_off * 8, limb_abi_size * 8));
                 const limb_ty = try mod.intType(int_info.signedness, limb_bits);
                 const limb_mcv = switch (byte_off) {
                     0 => dst_mcv,
@@ -7454,7 +7474,6 @@ fn genUnOp(self: *Self, maybe_inst: ?Air.Inst.Index, tag: Air.Inst.Tag, src_air:
         },
         .neg => {
             try self.genUnOpMir(.{ ._, .neg }, src_ty, dst_mcv);
-            const abi_size: u16 = @intCast(src_ty.abiSize(mod));
             const bit_size = src_ty.intInfo(mod).bits;
             if (abi_size * 8 > bit_size) {
                 if (dst_mcv.isRegister()) {
@@ -10570,12 +10589,12 @@ fn genVarDbgInfo(
 
 fn airTrap(self: *Self) !void {
     try self.asmOpOnly(.{ ._, .ud2 });
-    return self.finishAirBookkeeping();
+    self.finishAirBookkeeping();
 }
 
 fn airBreakpoint(self: *Self) !void {
     try self.asmOpOnly(.{ ._, .int3 });
-    return self.finishAirBookkeeping();
+    self.finishAirBookkeeping();
 }
 
 fn airRetAddr(self: *Self, inst: Air.Inst.Index) !void {
@@ -10597,7 +10616,7 @@ fn airFence(self: *Self, inst: Air.Inst.Index) !void {
         .Acquire, .Release, .AcqRel => {},
         .SeqCst => try self.asmOpOnly(.{ ._, .mfence }),
     }
-    return self.finishAirBookkeeping();
+    self.finishAirBookkeeping();
 }
 
 fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
@@ -10796,7 +10815,6 @@ fn genCall(self: *Self, info: union(enum) {
                     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                         const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                         const sym = elf_file.symbol(sym_index);
-                        sym.flags.needs_zig_got = true;
                         if (self.bin_file.options.pic) {
                             const callee_reg: Register = switch (resolved_cc) {
                                 .SysV => callee: {
@@ -11413,21 +11431,23 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
             .column = dbg_stmt.column,
         } },
     });
-    return self.finishAirBookkeeping();
+    self.finishAirBookkeeping();
 }
 
 fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
     const ty_fn = self.air.instructions.items(.data)[inst].ty_fn;
-    const func = mod.funcInfo(ty_fn.func);
-    // TODO emit debug info for function change
-    _ = func;
-    return self.finishAir(inst, .unreach, .{ .none, .none, .none });
+    _ = try self.addInst(.{
+        .tag = .pseudo,
+        .ops = .pseudo_dbg_inline_func,
+        .data = .{ .func = ty_fn.func },
+    });
+    self.finishAirBookkeeping();
 }
 
 fn airDbgBlock(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
     // TODO emit debug info lexical block
-    return self.finishAir(inst, .unreach, .{ .none, .none, .none });
+    self.finishAirBookkeeping();
 }
 
 fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
@@ -11512,9 +11532,8 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         .close_scope = true,
     });
 
-    // We already took care of pl_op.operand earlier, so we're going
-    // to pass .none here
-    return self.finishAir(inst, .unreach, .{ .none, .none, .none });
+    // We already took care of pl_op.operand earlier, so there's nothing left to do.
+    self.finishAirBookkeeping();
 }
 
 fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MCValue {
@@ -11859,7 +11878,7 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     });
     _ = try self.asmJmpReloc(jmp_target);
 
-    return self.finishAirBookkeeping();
+    self.finishAirBookkeeping();
 }
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
@@ -11971,8 +11990,8 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
         });
     }
 
-    // We already took care of pl_op.operand earlier, so we're going to pass .none here
-    return self.finishAir(inst, .unreach, .{ .none, .none, .none });
+    // We already took care of pl_op.operand earlier, so there's nothing left to do
+    self.finishAirBookkeeping();
 }
 
 fn performReloc(self: *Self, reloc: Mir.Inst.Index) !void {
@@ -13375,35 +13394,25 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
         },
         .lea_direct, .lea_got => |sym_index| {
             const atom_index = try self.owner.getSymbolIndex(self);
-            if (self.bin_file.cast(link.File.Elf)) |_| {
-                try self.asmRegisterMemory(.{ ._, .lea }, dst_reg.to64(), .{
-                    .base = .{ .reloc = .{
+            _ = try self.addInst(.{
+                .tag = switch (src_mcv) {
+                    .lea_direct => .lea,
+                    .lea_got => .mov,
+                    else => unreachable,
+                },
+                .ops = switch (src_mcv) {
+                    .lea_direct => .direct_reloc,
+                    .lea_got => .got_reloc,
+                    else => unreachable,
+                },
+                .data = .{ .rx = .{
+                    .r1 = dst_reg.to64(),
+                    .payload = try self.addExtra(bits.Symbol{
                         .atom_index = atom_index,
                         .sym_index = sym_index,
-                    } },
-                    .mod = .{ .rm = .{ .size = .qword } },
-                });
-            } else {
-                _ = try self.addInst(.{
-                    .tag = switch (src_mcv) {
-                        .lea_direct => .lea,
-                        .lea_got => .mov,
-                        else => unreachable,
-                    },
-                    .ops = switch (src_mcv) {
-                        .lea_direct => .direct_reloc,
-                        .lea_got => .got_reloc,
-                        else => unreachable,
-                    },
-                    .data = .{ .rx = .{
-                        .r1 = dst_reg.to64(),
-                        .payload = try self.addExtra(bits.Symbol{
-                            .atom_index = atom_index,
-                            .sym_index = sym_index,
-                        }),
-                    } },
-                });
-            }
+                    }),
+                } },
+            });
         },
         .lea_tlv => |sym_index| {
             const atom_index = try self.owner.getSymbolIndex(self);
@@ -13683,7 +13692,6 @@ fn genLazySymbolRef(
         const sym_index = elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
         const sym = elf_file.symbol(sym_index);
-        sym.flags.needs_zig_got = true;
         if (self.bin_file.options.pic) {
             switch (tag) {
                 .lea, .call => try self.genSetReg(reg, Type.usize, .{
@@ -15803,11 +15811,30 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
     } else mcv: {
         const ip_index = Air.refToInterned(ref).?;
         const gop = try self.const_tracking.getOrPut(self.gpa, ip_index);
-        const mcv = try self.genTypedValue(.{
-            .ty = ty,
-            .val = ip_index.toValue(),
+        if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(init: {
+            const const_mcv = try self.genTypedValue(.{ .ty = ty, .val = ip_index.toValue() });
+            switch (const_mcv) {
+                .lea_tlv => |tlv_sym| if (self.bin_file.cast(link.File.Elf)) |_| {
+                    if (self.bin_file.options.pic) {
+                        try self.spillRegisters(&.{ .rdi, .rax });
+                    } else {
+                        try self.spillRegisters(&.{.rax});
+                    }
+                    const frame_index = try self.allocFrameIndex(FrameAlloc.init(.{
+                        .size = 8,
+                        .alignment = .@"8",
+                    }));
+                    try self.genSetMem(
+                        .{ .frame = frame_index },
+                        0,
+                        Type.usize,
+                        .{ .lea_symbol = .{ .sym = tlv_sym } },
+                    );
+                    break :init .{ .load_frame = .{ .index = frame_index } };
+                } else break :init const_mcv,
+                else => break :init const_mcv,
+            }
         });
-        if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(mcv);
         break :mcv gop.value_ptr.short;
     };
 

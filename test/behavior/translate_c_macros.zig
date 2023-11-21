@@ -231,3 +231,12 @@ test "Macro that uses Long type concatenation casting" {
     try expect((@TypeOf(h.X)) == c_long);
     try expectEqual(h.X, @as(c_long, 10));
 }
+
+test "Blank macros" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    try expectEqual(h.BLANK_MACRO, "");
+    try expectEqual(h.BLANK_CHILD_MACRO, "");
+    try expect(@TypeOf(h.BLANK_MACRO_CAST) == h.def_type);
+    try expectEqual(h.BLANK_MACRO_CAST, @as(c_long, 0));
+}

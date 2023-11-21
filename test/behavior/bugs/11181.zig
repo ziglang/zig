@@ -21,5 +21,5 @@ test "var inferred array of slices" {
             .{ .v = false },
         },
     };
-    _ = decls;
+    _ = &decls;
 }

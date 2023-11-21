@@ -985,7 +985,7 @@ fn walkInstruction(
         },
         .import => {
             const str_tok = data[@intFromEnum(inst)].str_tok;
-            var path = str_tok.get(file.zir);
+            const path = str_tok.get(file.zir);
 
             // importFile cannot error out since all files
             // are already loaded at this point
@@ -1210,7 +1210,7 @@ fn walkInstruction(
         .compile_error => {
             const un_node = data[@intFromEnum(inst)].un_node;
 
-            var operand: DocData.WalkResult = try self.walkRef(
+            const operand: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1252,7 +1252,7 @@ fn walkInstruction(
             const byte_count = str.len * @sizeOf(std.math.big.Limb);
             const limb_bytes = file.zir.string_bytes[str.start..][0..byte_count];
 
-            var limbs = try self.arena.alloc(std.math.big.Limb, str.len);
+            const limbs = try self.arena.alloc(std.math.big.Limb, str.len);
             @memcpy(std.mem.sliceAsBytes(limbs)[0..limb_bytes.len], limb_bytes);
 
             const big_int = std.math.big.int.Const{
@@ -1281,7 +1281,7 @@ fn walkInstruction(
             const slice_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .slice = .{ .lhs = 0, .start = 0 } });
 
-            var lhs: DocData.WalkResult = try self.walkRef(
+            const lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1289,7 +1289,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var start: DocData.WalkResult = try self.walkRef(
+            const start: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1321,7 +1321,7 @@ fn walkInstruction(
             const slice_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .slice = .{ .lhs = 0, .start = 0 } });
 
-            var lhs: DocData.WalkResult = try self.walkRef(
+            const lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1329,7 +1329,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var start: DocData.WalkResult = try self.walkRef(
+            const start: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1337,7 +1337,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var end: DocData.WalkResult = try self.walkRef(
+            const end: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1371,7 +1371,7 @@ fn walkInstruction(
             const slice_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .slice = .{ .lhs = 0, .start = 0 } });
 
-            var lhs: DocData.WalkResult = try self.walkRef(
+            const lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1379,7 +1379,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var start: DocData.WalkResult = try self.walkRef(
+            const start: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1387,7 +1387,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var end: DocData.WalkResult = try self.walkRef(
+            const end: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1395,7 +1395,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var sentinel: DocData.WalkResult = try self.walkRef(
+            const sentinel: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1436,7 +1436,7 @@ fn walkInstruction(
             const slice_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .slice = .{ .lhs = 0, .start = 0 } });
 
-            var lhs: DocData.WalkResult = try self.walkRef(
+            const lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1444,7 +1444,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var start: DocData.WalkResult = try self.walkRef(
+            const start: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1452,7 +1452,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var len: DocData.WalkResult = try self.walkRef(
+            const len: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1460,7 +1460,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var sentinel_opt: ?DocData.WalkResult = if (extra.data.sentinel != .none)
+            const sentinel_opt: ?DocData.WalkResult = if (extra.data.sentinel != .none)
                 try self.walkRef(
                     file,
                     parent_scope,
@@ -1567,7 +1567,6 @@ fn walkInstruction(
         .bit_and,
         .xor,
         .array_cat,
-        .array_mul,
         => {
             const pl_node = data[@intFromEnum(inst)].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
@@ -1575,7 +1574,7 @@ fn walkInstruction(
             const binop_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
 
-            var lhs: DocData.WalkResult = try self.walkRef(
+            const lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1583,7 +1582,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var rhs: DocData.WalkResult = try self.walkRef(
+            const rhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1621,7 +1620,7 @@ fn walkInstruction(
             const binop_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
 
-            var lhs: DocData.WalkResult = try self.walkRef(
+            const lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1629,7 +1628,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var rhs: DocData.WalkResult = try self.walkRef(
+            const rhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1787,7 +1786,7 @@ fn walkInstruction(
             const pl_node = data[@intFromEnum(inst)].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
 
-            var rhs: DocData.WalkResult = try self.walkRef(
+            const rhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1802,7 +1801,7 @@ fn walkInstruction(
             const rhs_index = self.exprs.items.len;
             try self.exprs.append(self.arena, rhs.expr);
 
-            var lhs: DocData.WalkResult = try self.walkRef(
+            const lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1851,7 +1850,7 @@ fn walkInstruction(
             const binop_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .builtinBin = .{ .lhs = 0, .rhs = 0 } });
 
-            var lhs: DocData.WalkResult = try self.walkRef(
+            const lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1859,7 +1858,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var rhs: DocData.WalkResult = try self.walkRef(
+            const rhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1883,7 +1882,7 @@ fn walkInstruction(
             const pl_node = data[@intFromEnum(inst)].pl_node;
             const extra = file.zir.extraData(Zir.Inst.MulAdd, pl_node.payload_index);
 
-            var mul1: DocData.WalkResult = try self.walkRef(
+            const mul1: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1891,7 +1890,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var mul2: DocData.WalkResult = try self.walkRef(
+            const mul2: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1899,7 +1898,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var add: DocData.WalkResult = try self.walkRef(
+            const add: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1915,7 +1914,7 @@ fn walkInstruction(
             const add_index = self.exprs.items.len;
             try self.exprs.append(self.arena, add.expr);
 
-            var type_index: usize = self.exprs.items.len;
+            const type_index: usize = self.exprs.items.len;
             try self.exprs.append(self.arena, add.typeRef orelse .{ .type = @intFromEnum(Ref.type_type) });
 
             return DocData.WalkResult{
@@ -1934,7 +1933,7 @@ fn walkInstruction(
             const pl_node = data[@intFromEnum(inst)].pl_node;
             const extra = file.zir.extraData(Zir.Inst.UnionInit, pl_node.payload_index);
 
-            var union_type: DocData.WalkResult = try self.walkRef(
+            const union_type: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1942,7 +1941,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var field_name: DocData.WalkResult = try self.walkRef(
+            const field_name: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1950,7 +1949,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var init: DocData.WalkResult = try self.walkRef(
+            const init: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1981,7 +1980,7 @@ fn walkInstruction(
             const pl_node = data[@intFromEnum(inst)].pl_node;
             const extra = file.zir.extraData(Zir.Inst.BuiltinCall, pl_node.payload_index);
 
-            var modifier: DocData.WalkResult = try self.walkRef(
+            const modifier: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1990,7 +1989,7 @@ fn walkInstruction(
                 call_ctx,
             );
 
-            var callee: DocData.WalkResult = try self.walkRef(
+            const callee: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -1999,7 +1998,7 @@ fn walkInstruction(
                 call_ctx,
             );
 
-            var args: DocData.WalkResult = try self.walkRef(
+            const args: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -2029,7 +2028,7 @@ fn walkInstruction(
             const pl_node = data[@intFromEnum(inst)].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
 
-            var lhs: DocData.WalkResult = try self.walkRef(
+            const lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -2037,7 +2036,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var rhs: DocData.WalkResult = try self.walkRef(
+            const rhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -2061,7 +2060,7 @@ fn walkInstruction(
             const pl_node = data[@intFromEnum(inst)].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
 
-            var lhs: DocData.WalkResult = try self.walkRef(
+            const lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -2069,7 +2068,7 @@ fn walkInstruction(
                 false,
                 call_ctx,
             );
-            var rhs: DocData.WalkResult = try self.walkRef(
+            const rhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -2091,7 +2090,7 @@ fn walkInstruction(
         // .elem_type => {
         //     const un_node = data[@intFromEnum(inst)].un_node;
 
-        //     var operand: DocData.WalkResult = try self.walkRef(
+        //     const operand: DocData.WalkResult = try self.walkRef(
         //         file,
         //         parent_scope, parent_src,
         //         un_node.operand,
@@ -2159,7 +2158,7 @@ fn walkInstruction(
                 address_space = ref_result.expr;
                 extra_index += 1;
             }
-            var bit_start: ?DocData.Expr = null;
+            const bit_start: ?DocData.Expr = null;
             if (ptr.flags.has_bit_range) {
                 const ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
                 const ref_result = try self.walkRef(
@@ -2293,7 +2292,7 @@ fn walkInstruction(
             const array_data = try self.arena.alloc(usize, operands.len - 1);
 
             std.debug.assert(operands.len > 0);
-            var array_type = try self.walkRef(
+            const array_type = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -2353,7 +2352,7 @@ fn walkInstruction(
             const array_data = try self.arena.alloc(usize, operands.len - 1);
 
             std.debug.assert(operands.len > 0);
-            var array_type = try self.walkRef(
+            const array_type = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -2579,7 +2578,7 @@ fn walkInstruction(
             const pl_node = data[@intFromEnum(inst)].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
             const body = file.zir.extra[extra.end..][extra.data.body_len - 1];
-            var operand: DocData.WalkResult = try self.walkRef(
+            const operand: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -2904,7 +2903,7 @@ fn walkInstruction(
         => {
             const un_node = data[@intFromEnum(inst)].un_node;
 
-            var operand: DocData.WalkResult = try self.walkRef(
+            const operand: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -2921,7 +2920,7 @@ fn walkInstruction(
         .struct_init_empty_ref_result => {
             const un_node = data[@intFromEnum(inst)].un_node;
 
-            var operand: DocData.WalkResult = try self.walkRef(
+            const operand: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
                 parent_src,
@@ -3808,6 +3807,11 @@ fn walkInstruction(
                         call_ctx,
                     );
 
+                    // Inside field init bodies, the struct decl instruction is used to refer to the
+                    // field type during the second pass of analysis.
+                    try self.repurposed_insts.put(self.arena, inst, {});
+                    defer _ = self.repurposed_insts.remove(inst);
+
                     var field_type_refs: std.ArrayListUnmanaged(DocData.Expr) = .{};
                     var field_default_refs: std.ArrayListUnmanaged(?DocData.Expr) = .{};
                     var field_name_indexes: std.ArrayListUnmanaged(usize) = .{};
@@ -3933,7 +3937,7 @@ fn walkInstruction(
                     try self.exprs.append(self.arena, last_type);
 
                     const ptr_index = self.exprs.items.len;
-                    var ptr: DocData.WalkResult = try self.walkRef(
+                    const ptr: DocData.WalkResult = try self.walkRef(
                         file,
                         parent_scope,
                         parent_src,
@@ -3944,7 +3948,7 @@ fn walkInstruction(
                     try self.exprs.append(self.arena, ptr.expr);
 
                     const expected_value_index = self.exprs.items.len;
-                    var expected_value: DocData.WalkResult = try self.walkRef(
+                    const expected_value: DocData.WalkResult = try self.walkRef(
                         file,
                         parent_scope,
                         parent_src,
@@ -3955,7 +3959,7 @@ fn walkInstruction(
                     try self.exprs.append(self.arena, expected_value.expr);
 
                     const new_value_index = self.exprs.items.len;
-                    var new_value: DocData.WalkResult = try self.walkRef(
+                    const new_value: DocData.WalkResult = try self.walkRef(
                         file,
                         parent_scope,
                         parent_src,
@@ -3966,7 +3970,7 @@ fn walkInstruction(
                     try self.exprs.append(self.arena, new_value.expr);
 
                     const success_order_index = self.exprs.items.len;
-                    var success_order: DocData.WalkResult = try self.walkRef(
+                    const success_order: DocData.WalkResult = try self.walkRef(
                         file,
                         parent_scope,
                         parent_src,
@@ -3977,7 +3981,7 @@ fn walkInstruction(
                     try self.exprs.append(self.arena, success_order.expr);
 
                     const failure_order_index = self.exprs.items.len;
-                    var failure_order: DocData.WalkResult = try self.walkRef(
+                    const failure_order: DocData.WalkResult = try self.walkRef(
                         file,
                         parent_scope,
                         parent_src,

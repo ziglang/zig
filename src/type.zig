@@ -1519,7 +1519,10 @@ pub const Type = struct {
                 const len = array_type.len + @intFromBool(array_type.sentinel != .none);
                 if (len == 0) return 0;
                 const elem_ty = array_type.child.toType();
-                const elem_size = @max(elem_ty.abiAlignment(mod).toByteUnits(0), elem_ty.abiSize(mod));
+                const elem_size = @max(
+                    (try elem_ty.abiAlignmentAdvanced(mod, strat)).scalar.toByteUnits(0),
+                    (try elem_ty.abiSizeAdvanced(mod, strat)).scalar,
+                );
                 if (elem_size == 0) return 0;
                 const elem_bit_size = try bitSizeAdvanced(elem_ty, mod, opt_sema);
                 return (len - 1) * 8 * elem_size + elem_bit_size;
@@ -2415,6 +2418,7 @@ pub const Type = struct {
                     for (field_vals, 0..) |*field_val, i_usize| {
                         const i: u32 = @intCast(i_usize);
                         if (struct_type.fieldIsComptime(ip, i)) {
+                            assert(struct_type.haveFieldInits(ip));
                             field_val.* = struct_type.field_inits.get(ip)[i];
                             continue;
                         }
@@ -3014,6 +3018,7 @@ pub const Type = struct {
         const ip = &mod.intern_pool;
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
+                assert(struct_type.haveFieldInits(ip));
                 if (struct_type.fieldIsComptime(ip, index)) {
                     return struct_type.field_inits.get(ip)[index].toValue();
                 } else {

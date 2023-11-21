@@ -84,6 +84,24 @@ pub fn emitMir(emit: *Emit) Error!void {
                 } else return emit.fail("TODO implement extern reloc for {s}", .{
                     @tagName(emit.lower.bin_file.tag),
                 }),
+                .linker_tlsld => |data| {
+                    const elf_file = emit.lower.bin_file.cast(link.File.Elf).?;
+                    const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
+                    try atom.addReloc(elf_file, .{
+                        .r_offset = end_offset - 4,
+                        .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | std.elf.R_X86_64_TLSLD,
+                        .r_addend = -4,
+                    });
+                },
+                .linker_dtpoff => |data| {
+                    const elf_file = emit.lower.bin_file.cast(link.File.Elf).?;
+                    const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
+                    try atom.addReloc(elf_file, .{
+                        .r_offset = end_offset - 4,
+                        .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | std.elf.R_X86_64_DTPOFF32,
+                        .r_addend = 0,
+                    });
+                },
                 .linker_reloc => |data| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
                     const is_obj_or_static_lib = switch (emit.lower.bin_file.options.output_mode) {
                         .Exe => false,
@@ -120,6 +138,8 @@ pub fn emitMir(emit: *Emit) Error!void {
                                 link.File.Elf.R_X86_64_ZIG_GOT32
                             else if (sym.flags.needs_got)
                                 std.elf.R_X86_64_GOT32
+                            else if (sym.flags.is_tls)
+                                std.elf.R_X86_64_TPOFF32
                             else
                                 std.elf.R_X86_64_32;
                             try atom.addReloc(elf_file, .{
@@ -151,7 +171,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             else => unreachable,
                         },
                         .target = target,
-                        .offset = @as(u32, @intCast(end_offset - 4)),
+                        .offset = @intCast(end_offset - 4),
                         .addend = 0,
                         .pcrel = true,
                         .length = 2,
@@ -173,7 +193,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             else => unreachable,
                         },
                         .target = target,
-                        .offset = @as(u32, @intCast(end_offset - 4)),
+                        .offset = @intCast(end_offset - 4),
                         .addend = 0,
                         .pcrel = true,
                         .length = 2,
@@ -182,7 +202,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const atom_index = symbol.atom_index;
                     try p9_file.addReloc(atom_index, .{ // TODO we may need to add a .type field to the relocs if they are .linker_got instead of just .linker_direct
                         .target = symbol.sym_index, // we set sym_index to just be the atom index
-                        .offset = @as(u32, @intCast(end_offset - 4)),
+                        .offset = @intCast(end_offset - 4),
                         .addend = 0,
                         .type = .pcrel,
                     });
@@ -229,6 +249,18 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .none => {},
                         }
                     },
+                    .pseudo_dbg_inline_func => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| {
+                                log.debug("mirDbgInline (line={d}, col={d})", .{
+                                    emit.prev_di_line, emit.prev_di_column,
+                                });
+                                try dw.setInlineFunc(mir_inst.data.func);
+                            },
+                            .plan9 => {},
+                            .none => {},
+                        }
+                    },
                     .pseudo_dead_none => {},
                 },
             }
@@ -269,17 +301,18 @@ fn fixupRelocs(emit: *Emit) Error!void {
     for (emit.relocs.items) |reloc| {
         const target = emit.code_offset_mapping.get(reloc.target) orelse
             return emit.fail("JMP/CALL relocation target not found!", .{});
-        const disp = @as(i32, @intCast(@as(i64, @intCast(target)) - @as(i64, @intCast(reloc.source + reloc.length))));
-        mem.writeInt(i32, emit.code.items[reloc.offset..][0..4], disp, .little);
+        const disp = @as(i64, @intCast(target)) - @as(i64, @intCast(reloc.source + reloc.length));
+        mem.writeInt(i32, emit.code.items[reloc.offset..][0..4], @intCast(disp), .little);
     }
 }
 
 fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
-    const delta_line = @as(i32, @intCast(line)) - @as(i32, @intCast(emit.prev_di_line));
+    const delta_line = @as(i33, line) - @as(i33, emit.prev_di_line);
     const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
     log.debug("  (advance pc={d} and line={d})", .{ delta_line, delta_pc });
     switch (emit.debug_output) {
         .dwarf => |dw| {
+            if (column != emit.prev_di_column) try dw.setColumn(column);
             try dw.advancePCAndLine(delta_line, delta_pc);
             emit.prev_di_line = line;
             emit.prev_di_column = column;
@@ -289,7 +322,7 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
             if (delta_pc <= 0) return; // only do this when the pc changes
 
             // increasing the line number
-            try link.File.Plan9.changeLine(&dbg_out.dbg_line, delta_line);
+            try link.File.Plan9.changeLine(&dbg_out.dbg_line, @intCast(delta_line));
             // increasing the pc
             const d_pc_p9 = @as(i64, @intCast(delta_pc)) - dbg_out.pc_quanta;
             if (d_pc_p9 > 0) {
@@ -297,16 +330,16 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
                 var diff = @divExact(d_pc_p9, dbg_out.pc_quanta) - dbg_out.pc_quanta;
                 while (diff > 0) {
                     if (diff < 64) {
-                        try dbg_out.dbg_line.append(@as(u8, @intCast(diff + 128)));
+                        try dbg_out.dbg_line.append(@intCast(diff + 128));
                         diff = 0;
                     } else {
-                        try dbg_out.dbg_line.append(@as(u8, @intCast(64 + 128)));
+                        try dbg_out.dbg_line.append(@intCast(64 + 128));
                         diff -= 64;
                     }
                 }
                 if (dbg_out.pcop_change_index) |pci|
                     dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index = @as(u32, @intCast(dbg_out.dbg_line.items.len - 1));
+                dbg_out.pcop_change_index = @intCast(dbg_out.dbg_line.items.len - 1);
             } else if (d_pc_p9 == 0) {
                 // we don't need to do anything, because adding the pc quanta does it for us
             } else unreachable;

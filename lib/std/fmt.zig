@@ -1296,10 +1296,10 @@ pub fn formatFloatDecimal(
         errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Decimal);
 
         // exp < 0 means the leading is always 0 as errol result is normalized.
-        var num_digits_whole = if (float_decimal.exp > 0) @as(usize, @intCast(float_decimal.exp)) else 0;
+        const num_digits_whole = if (float_decimal.exp > 0) @as(usize, @intCast(float_decimal.exp)) else 0;
 
         // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
-        var num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
+        const num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
 
         if (num_digits_whole > 0) {
             // We may have to zero pad, for instance 1e4 requires zero padding.
@@ -1354,10 +1354,10 @@ pub fn formatFloatDecimal(
         }
     } else {
         // exp < 0 means the leading is always 0 as errol result is normalized.
-        var num_digits_whole = if (float_decimal.exp > 0) @as(usize, @intCast(float_decimal.exp)) else 0;
+        const num_digits_whole = if (float_decimal.exp > 0) @as(usize, @intCast(float_decimal.exp)) else 0;
 
         // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
-        var num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
+        const num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
 
         if (num_digits_whole > 0) {
             // We may have to zero pad, for instance 1e4 requires zero padding.
@@ -2218,6 +2218,7 @@ test "slice" {
     }
     {
         var runtime_zero: usize = 0;
+        _ = &runtime_zero;
         const value = @as([*]align(1) const []const u8, @ptrFromInt(0xdeadbeef))[runtime_zero..runtime_zero];
         try expectFmt("slice: []const u8@deadbeef\n", "slice: {*}\n", .{value});
     }
@@ -2232,6 +2233,7 @@ test "slice" {
     {
         var int_slice = [_]u32{ 1, 4096, 391891, 1111111111 };
         var runtime_zero: usize = 0;
+        _ = &runtime_zero;
         try expectFmt("int: { 1, 4096, 391891, 1111111111 }", "int: {any}", .{int_slice[runtime_zero..]});
         try expectFmt("int: { 1, 4096, 391891, 1111111111 }", "int: {d}", .{int_slice[runtime_zero..]});
         try expectFmt("int: { 1, 1000, 5fad3, 423a35c7 }", "int: {x}", .{int_slice[runtime_zero..]});
@@ -2794,14 +2796,14 @@ test "padding" {
 }
 
 test "decimal float padding" {
-    var number: f32 = 3.1415;
+    const number: f32 = 3.1415;
     try expectFmt("left-pad:   **3.141\n", "left-pad:   {d:*>7.3}\n", .{number});
     try expectFmt("center-pad: *3.141*\n", "center-pad: {d:*^7.3}\n", .{number});
     try expectFmt("right-pad:  3.141**\n", "right-pad:  {d:*<7.3}\n", .{number});
 }
 
 test "sci float padding" {
-    var number: f32 = 3.1415;
+    const number: f32 = 3.1415;
     try expectFmt("left-pad:   **3.141e+00\n", "left-pad:   {e:*>11.3}\n", .{number});
     try expectFmt("center-pad: *3.141e+00*\n", "center-pad: {e:*^11.3}\n", .{number});
     try expectFmt("right-pad:  3.141e+00**\n", "right-pad:  {e:*<11.3}\n", .{number});
@@ -2825,7 +2827,7 @@ test "named arguments" {
 }
 
 test "runtime width specifier" {
-    var width: usize = 9;
+    const width: usize = 9;
     try expectFmt("~~hello~~", "{s:~^[1]}", .{ "hello", width });
     try expectFmt("~~hello~~", "{s:~^[width]}", .{ .string = "hello", .width = width });
     try expectFmt("    hello", "{s:[1]}", .{ "hello", width });
@@ -2833,8 +2835,8 @@ test "runtime width specifier" {
 }
 
 test "runtime precision specifier" {
-    var number: f32 = 3.1415;
-    var precision: usize = 2;
+    const number: f32 = 3.1415;
+    const precision: usize = 2;
     try expectFmt("3.14e+00", "{:1.[1]}", .{ number, precision });
     try expectFmt("3.14e+00", "{:1.[precision]}", .{ .number = number, .precision = precision });
 }

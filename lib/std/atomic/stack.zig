@@ -85,11 +85,11 @@ const puts_per_thread = 500;
 const put_thread_count = 3;
 
 test "std.atomic.stack" {
-    var plenty_of_memory = try std.heap.page_allocator.alloc(u8, 300 * 1024);
+    const plenty_of_memory = try std.heap.page_allocator.alloc(u8, 300 * 1024);
     defer std.heap.page_allocator.free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(plenty_of_memory);
-    var a = fixed_buffer_allocator.threadSafeAllocator();
+    const a = fixed_buffer_allocator.threadSafeAllocator();
 
     var stack = Stack(i32).init();
     var context = Context{

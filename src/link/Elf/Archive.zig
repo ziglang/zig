@@ -8,8 +8,8 @@ pub fn isArchive(path: []const u8) !bool {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
     const reader = file.reader();
-    const magic = reader.readBytesNoEof(SARMAG) catch return false;
-    if (!mem.eql(u8, &magic, ARMAG)) return false;
+    const magic = reader.readBytesNoEof(elf.ARMAG.len) catch return false;
+    if (!mem.eql(u8, &magic, elf.ARMAG)) return false;
     return true;
 }
 
@@ -24,21 +24,19 @@ pub fn parse(self: *Archive, elf_file: *Elf) !void {
 
     var stream = std.io.fixedBufferStream(self.data);
     const reader = stream.reader();
-    _ = try reader.readBytesNoEof(SARMAG);
+    _ = try reader.readBytesNoEof(elf.ARMAG.len);
 
     while (true) {
         if (stream.pos >= self.data.len) break;
+        if (!mem.isAligned(stream.pos, 2)) stream.pos += 1;
 
-        if (stream.pos % 2 != 0) {
-            stream.pos += 1;
-        }
-        const hdr = try reader.readStruct(ar_hdr);
+        const hdr = try reader.readStruct(elf.ar_hdr);
 
-        if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
+        if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
             // TODO convert into an error
             log.debug(
                 "{s}: invalid header delimiter: expected '{s}', found '{s}'",
-                .{ self.path, std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag) },
+                .{ self.path, std.fmt.fmtSliceEscapeLower(elf.ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag) },
             );
             return;
         }
@@ -48,28 +46,23 @@ pub fn parse(self: *Archive, elf_file: *Elf) !void {
             _ = stream.seekBy(size) catch {};
         }
 
-        if (hdr.isSymtab()) continue;
+        if (hdr.isSymtab() or hdr.isSymtab64()) continue;
         if (hdr.isStrtab()) {
             self.strtab = self.data[stream.pos..][0..size];
             continue;
         }
+        if (hdr.isSymdef() or hdr.isSymdefSorted()) continue;
 
-        const name = ar_hdr.getValue(&hdr.ar_name);
-
-        if (mem.eql(u8, name, "__.SYMDEF") or mem.eql(u8, name, "__.SYMDEF SORTED")) continue;
-
-        const object_name = blk: {
-            if (name[0] == '/') {
-                const off = try std.fmt.parseInt(u32, name[1..], 10);
-                const object_name = self.getString(off);
-                break :blk try gpa.dupe(u8, object_name[0 .. object_name.len - 1]); // To account for trailing '/'
-            }
-            break :blk try gpa.dupe(u8, name);
-        };
+        const name = if (hdr.name()) |name|
+            try gpa.dupe(u8, name)
+        else if (try hdr.nameOffset()) |off|
+            try gpa.dupe(u8, self.getString(off))
+        else
+            unreachable;
 
         const object = Object{
             .archive = try gpa.dupe(u8, self.path),
-            .path = object_name,
+            .path = name,
             .data = try gpa.dupe(u8, self.data[stream.pos..][0..size]),
             .index = undefined,
             .alive = false,
@@ -83,7 +76,8 @@ pub fn parse(self: *Archive, elf_file: *Elf) !void {
 
 fn getString(self: Archive, off: u32) []const u8 {
     assert(off < self.strtab.len);
-    return mem.sliceTo(@as([*:strtab_delimiter]const u8, @ptrCast(self.strtab.ptr + off)), 0);
+    const name = mem.sliceTo(@as([*:'\n']const u8, @ptrCast(self.strtab.ptr + off)), 0);
+    return name[0 .. name.len - 1];
 }
 
 pub fn setArHdr(opts: struct {
@@ -94,8 +88,8 @@ pub fn setArHdr(opts: struct {
         name_off: u32,
     },
     size: u32,
-}) ar_hdr {
-    var hdr: ar_hdr = .{
+}) elf.ar_hdr {
+    var hdr: elf.ar_hdr = .{
         .ar_name = undefined,
         .ar_date = undefined,
         .ar_uid = undefined,
@@ -105,15 +99,15 @@ pub fn setArHdr(opts: struct {
         .ar_fmag = undefined,
     };
     @memset(mem.asBytes(&hdr), 0x20);
-    @memcpy(&hdr.ar_fmag, Archive.ARFMAG);
+    @memcpy(&hdr.ar_fmag, elf.ARFMAG);
 
     {
         var stream = std.io.fixedBufferStream(&hdr.ar_name);
         const writer = stream.writer();
         switch (opts.name) {
-            .symtab => writer.print("{s}", .{Archive.SYM64NAME}) catch unreachable,
+            .symtab => writer.print("{s}", .{elf.SYM64NAME}) catch unreachable,
             .strtab => writer.print("//", .{}) catch unreachable,
-            .name => |x| writer.print("{s}", .{x}) catch unreachable,
+            .name => |x| writer.print("{s}/", .{x}) catch unreachable,
             .name_off => |x| writer.print("/{d}", .{x}) catch unreachable,
         }
     }
@@ -125,72 +119,8 @@ pub fn setArHdr(opts: struct {
     return hdr;
 }
 
-// Archive files start with the ARMAG identifying string.  Then follows a
-// `struct ar_hdr', and as many bytes of member file data as its `ar_size'
-// member indicates, for each member file.
-/// String that begins an archive file.
-pub const ARMAG: *const [SARMAG:0]u8 = "!<arch>\n";
-/// Size of that string.
-pub const SARMAG = 8;
-
-/// String in ar_fmag at the end of each header.
-const ARFMAG: *const [2:0]u8 = "`\n";
-
-/// Strtab identifier
-const STRNAME: *const [2:0]u8 = "//";
-
-/// 32-bit symtab identifier
-const SYMNAME: *const [1:0]u8 = "/";
-
-/// 64-bit symtab identifier
-const SYM64NAME: *const [7:0]u8 = "/SYM64/";
-
 const strtab_delimiter = '\n';
-
-pub const ar_hdr = extern struct {
-    /// Member file name, sometimes / terminated.
-    ar_name: [16]u8,
-
-    /// File date, decimal seconds since Epoch.
-    ar_date: [12]u8,
-
-    /// User ID, in ASCII format.
-    ar_uid: [6]u8,
-
-    /// Group ID, in ASCII format.
-    ar_gid: [6]u8,
-
-    /// File mode, in ASCII octal.
-    ar_mode: [8]u8,
-
-    /// File size, in ASCII decimal.
-    ar_size: [10]u8,
-
-    /// Always contains ARFMAG.
-    ar_fmag: [2]u8,
-
-    fn date(self: ar_hdr) !u64 {
-        const value = getValue(&self.ar_date);
-        return std.fmt.parseInt(u64, value, 10);
-    }
-
-    fn size(self: ar_hdr) !u32 {
-        const value = getValue(&self.ar_size);
-        return std.fmt.parseInt(u32, value, 10);
-    }
-
-    fn getValue(raw: []const u8) []const u8 {
-        return mem.trimRight(u8, raw, &[_]u8{@as(u8, 0x20)});
-    }
-
-    fn isStrtab(self: ar_hdr) bool {
-        return mem.eql(u8, getValue(&self.ar_name), STRNAME);
-    }
-
-    fn isSymtab(self: ar_hdr) bool {
-        return mem.eql(u8, getValue(&self.ar_name), SYMNAME) or mem.eql(u8, getValue(&self.ar_name), SYM64NAME);
-    }
-};
+pub const max_member_name_len = 15;
 
 pub const ArSymtab = struct {
     symtab: std.ArrayListUnmanaged(Entry) = .{},
@@ -229,6 +159,9 @@ pub const ArSymtab = struct {
 
         if (elf_file.zigObjectPtr()) |zig_object| {
             offsets.putAssumeCapacityNoClobber(zig_object.index, zig_object.output_ar_state.file_off);
+        }
+        for (elf_file.objects.items) |index| {
+            offsets.putAssumeCapacityNoClobber(index, elf_file.file(index).?.object.output_ar_state.file_off);
         }
 
         // Number of symbols

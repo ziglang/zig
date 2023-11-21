@@ -765,10 +765,9 @@ test "HeadersParser.read length" {
     var r = HeadersParser.initDynamic(256);
     defer r.header_bytes.deinit(std.testing.allocator);
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nHello";
-    var fbs = std.io.fixedBufferStream(data);
 
-    var conn = MockBufferedConnection{
-        .conn = fbs,
+    var conn: MockBufferedConnection = .{
+        .conn = std.io.fixedBufferStream(data),
     };
 
     while (true) { // read headers
@@ -796,10 +795,9 @@ test "HeadersParser.read chunked" {
     var r = HeadersParser.initDynamic(256);
     defer r.header_bytes.deinit(std.testing.allocator);
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n2\r\nHe\r\n2\r\nll\r\n1\r\no\r\n0\r\n\r\n";
-    var fbs = std.io.fixedBufferStream(data);
 
-    var conn = MockBufferedConnection{
-        .conn = fbs,
+    var conn: MockBufferedConnection = .{
+        .conn = std.io.fixedBufferStream(data),
     };
 
     while (true) { // read headers
@@ -826,10 +824,9 @@ test "HeadersParser.read chunked trailer" {
     var r = HeadersParser.initDynamic(256);
     defer r.header_bytes.deinit(std.testing.allocator);
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n2\r\nHe\r\n2\r\nll\r\n1\r\no\r\n0\r\nContent-Type: text/plain\r\n\r\n";
-    var fbs = std.io.fixedBufferStream(data);
 
-    var conn = MockBufferedConnection{
-        .conn = fbs,
+    var conn: MockBufferedConnection = .{
+        .conn = std.io.fixedBufferStream(data),
     };
 
     while (true) { // read headers

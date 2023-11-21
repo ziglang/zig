@@ -127,79 +127,53 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn updateSymtabSize(file: File, elf_file: *Elf) void {
-        const output_symtab_size = switch (file) {
-            inline else => |x| &x.output_symtab_size,
+    pub fn updateSymtabSize(file: File, elf_file: *Elf) !void {
+        return switch (file) {
+            inline else => |x| x.updateSymtabSize(elf_file),
         };
-        for (file.locals()) |local_index| {
-            const local = elf_file.symbol(local_index);
-            if (local.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
-            const esym = local.elfSym(elf_file);
-            switch (esym.st_type()) {
-                elf.STT_SECTION => if (!elf_file.isRelocatable()) continue,
-                elf.STT_NOTYPE => continue,
-                else => {},
-            }
-            local.flags.output_symtab = true;
-            output_symtab_size.nlocals += 1;
-            output_symtab_size.strsize += @as(u32, @intCast(local.name(elf_file).len)) + 1;
-        }
-
-        for (file.globals()) |global_index| {
-            const global = elf_file.symbol(global_index);
-            const file_ptr = global.file(elf_file) orelse continue;
-            if (file_ptr.index() != file.index()) continue;
-            if (global.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
-            global.flags.output_symtab = true;
-            if (global.isLocal(elf_file)) {
-                output_symtab_size.nlocals += 1;
-            } else {
-                output_symtab_size.nglobals += 1;
-            }
-            output_symtab_size.strsize += @as(u32, @intCast(global.name(elf_file).len)) + 1;
-        }
     }
 
-    pub fn writeSymtab(file: File, elf_file: *Elf, ctx: anytype) void {
-        var ilocal = ctx.ilocal;
-        for (file.locals()) |local_index| {
-            const local = elf_file.symbol(local_index);
-            if (!local.flags.output_symtab) continue;
-            const out_sym = &elf_file.symtab.items[ilocal];
-            out_sym.st_name = @intCast(elf_file.strtab.items.len);
-            elf_file.strtab.appendSliceAssumeCapacity(local.name(elf_file));
-            elf_file.strtab.appendAssumeCapacity(0);
-            local.setOutputSym(elf_file, out_sym);
-            ilocal += 1;
-        }
-
-        var iglobal = ctx.iglobal;
-        for (file.globals()) |global_index| {
-            const global = elf_file.symbol(global_index);
-            const file_ptr = global.file(elf_file) orelse continue;
-            if (file_ptr.index() != file.index()) continue;
-            if (!global.flags.output_symtab) continue;
-            const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
-            elf_file.strtab.appendSliceAssumeCapacity(global.name(elf_file));
-            elf_file.strtab.appendAssumeCapacity(0);
-            if (global.isLocal(elf_file)) {
-                const out_sym = &elf_file.symtab.items[ilocal];
-                out_sym.st_name = st_name;
-                global.setOutputSym(elf_file, out_sym);
-                ilocal += 1;
-            } else {
-                const out_sym = &elf_file.symtab.items[iglobal];
-                out_sym.st_name = st_name;
-                global.setOutputSym(elf_file, out_sym);
-                iglobal += 1;
-            }
-        }
+    pub fn writeSymtab(file: File, elf_file: *Elf) void {
+        return switch (file) {
+            inline else => |x| x.writeSymtab(elf_file),
+        };
     }
 
     pub fn updateArSymtab(file: File, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {
         return switch (file) {
             .zig_object => |x| x.updateArSymtab(ar_symtab, elf_file),
-            .object => @panic("TODO"),
+            .object => |x| x.updateArSymtab(ar_symtab, elf_file),
+            inline else => unreachable,
+        };
+    }
+
+    pub fn updateArStrtab(file: File, allocator: Allocator, ar_strtab: *Archive.ArStrtab) !void {
+        const path = switch (file) {
+            .zig_object => |x| x.path,
+            .object => |x| x.path,
+            inline else => unreachable,
+        };
+        const state = switch (file) {
+            .zig_object => |x| &x.output_ar_state,
+            .object => |x| &x.output_ar_state,
+            inline else => unreachable,
+        };
+        if (path.len <= Archive.max_member_name_len) return;
+        state.name_off = try ar_strtab.insert(allocator, path);
+    }
+
+    pub fn updateArSize(file: File, elf_file: *Elf) void {
+        return switch (file) {
+            .zig_object => |x| x.updateArSize(elf_file),
+            .object => |x| x.updateArSize(),
+            inline else => unreachable,
+        };
+    }
+
+    pub fn writeAr(file: File, elf_file: *Elf, writer: anytype) !void {
+        return switch (file) {
+            .zig_object => |x| x.writeAr(elf_file, writer),
+            .object => |x| x.writeAr(writer),
             inline else => unreachable,
         };
     }

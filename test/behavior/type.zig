@@ -410,7 +410,8 @@ test "Type.Union" {
             .decls = &.{},
         },
     });
-    var packed_untagged = PackedUntagged{ .signed = -1 };
+    var packed_untagged: PackedUntagged = .{ .signed = -1 };
+    _ = &packed_untagged;
     try testing.expectEqual(@as(i32, -1), packed_untagged.signed);
     try testing.expectEqual(~@as(u32, 0), packed_untagged.unsigned);
 
@@ -529,7 +530,7 @@ test "reified struct field name from optional payload" {
                 .decls = &.{},
                 .is_tuple = false,
             } });
-            var t: T = .{ .a = 123 };
+            const t: T = .{ .a = 123 };
             try std.testing.expect(t.a == 123);
         }
     }

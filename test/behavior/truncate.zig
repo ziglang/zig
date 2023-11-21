@@ -4,58 +4,62 @@ const expect = std.testing.expect;
 
 test "truncate u0 to larger integer allowed and has comptime-known result" {
     var x: u0 = 0;
+    _ = &x;
     const y = @as(u8, @truncate(x));
     try comptime expect(y == 0);
 }
 
 test "truncate.u0.literal" {
-    var z = @as(u0, @truncate(0));
+    const z: u0 = @truncate(0);
     try expect(z == 0);
 }
 
 test "truncate.u0.const" {
     const c0: usize = 0;
-    var z = @as(u0, @truncate(c0));
+    const z: u0 = @truncate(c0);
     try expect(z == 0);
 }
 
 test "truncate.u0.var" {
     var d: u8 = 2;
-    var z = @as(u0, @truncate(d));
+    _ = &d;
+    const z: u0 = @truncate(d);
     try expect(z == 0);
 }
 
 test "truncate i0 to larger integer allowed and has comptime-known result" {
     var x: i0 = 0;
-    const y = @as(i8, @truncate(x));
+    _ = &x;
+    const y: i8 = @truncate(x);
     try comptime expect(y == 0);
 }
 
 test "truncate.i0.literal" {
-    var z = @as(i0, @truncate(0));
+    const z: i0 = @truncate(0);
     try expect(z == 0);
 }
 
 test "truncate.i0.const" {
     const c0: isize = 0;
-    var z = @as(i0, @truncate(c0));
+    const z: i0 = @truncate(c0);
     try expect(z == 0);
 }
 
 test "truncate.i0.var" {
     var d: i8 = 2;
-    var z = @as(i0, @truncate(d));
+    _ = &d;
+    const z: i0 = @truncate(d);
     try expect(z == 0);
 }
 
 test "truncate on comptime integer" {
-    var x = @as(u16, @truncate(9999));
+    const x: u16 = @truncate(9999);
     try expect(x == 9999);
-    var y = @as(u16, @truncate(-21555));
+    const y: u16 = @truncate(-21555);
     try expect(y == 0xabcd);
-    var z = @as(i16, @truncate(-65537));
+    const z: i16 = @truncate(-65537);
     try expect(z == -1);
-    var w = @as(u1, @truncate(1 << 100));
+    const w: u1 = @truncate(1 << 100);
     try expect(w == 0);
 }
 
@@ -69,7 +73,8 @@ test "truncate on vectors" {
     const S = struct {
         fn doTheTest() !void {
             var v1: @Vector(4, u16) = .{ 0xaabb, 0xccdd, 0xeeff, 0x1122 };
-            var v2: @Vector(4, u8) = @truncate(v1);
+            _ = &v1;
+            const v2: @Vector(4, u8) = @truncate(v1);
             try expect(std.mem.eql(u8, &@as([4]u8, v2), &[4]u8{ 0xbb, 0xdd, 0xff, 0x22 }));
         }
     };

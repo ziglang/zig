@@ -7,8 +7,8 @@ fn outer(y: u32) *const fn (u32) u32 {
     return st.get;
 }
 export fn entry() void {
-    var func = outer(10);
-    var x = func(3);
+    const func = outer(10);
+    const x = func(3);
     _ = x;
 }
 

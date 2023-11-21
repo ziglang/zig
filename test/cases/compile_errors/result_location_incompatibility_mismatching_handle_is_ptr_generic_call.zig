@@ -2,7 +2,7 @@ export fn entry() void {
     var damn = Container{
         .not_optional = getOptional(i32),
     };
-    _ = damn;
+    _ = &damn;
 }
 pub fn getOptional(comptime T: type) ?T {
     return 0;

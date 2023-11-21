@@ -13,8 +13,8 @@ fn parityti2Naive(a: i128) i32 {
 }
 
 fn test__parityti2(a: i128) !void {
-    var x = parity.__parityti2(a);
-    var expected: i128 = parityti2Naive(a);
+    const x = parity.__parityti2(a);
+    const expected: i128 = parityti2Naive(a);
     try testing.expectEqual(expected, x);
 }
 
@@ -30,7 +30,7 @@ test "parityti2" {
     var rnd = RndGen.init(42);
     var i: u32 = 0;
     while (i < 10_000) : (i += 1) {
-        var rand_num = rnd.random().int(i128);
+        const rand_num = rnd.random().int(i128);
         try test__parityti2(rand_num);
     }
 }

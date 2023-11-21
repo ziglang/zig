@@ -57,6 +57,10 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
         },
         .haiku => {
             var dir_path_ptr: [*:0]u8 = undefined;
+            if (true) {
+                _ = &dir_path_ptr;
+                @compileError("TODO: init dir_path_ptr");
+            }
             // TODO look into directory_which
             const be_user_settings = 0xbbe;
             const rc = os.system.find_directory(be_user_settings, -1, true, dir_path_ptr, 1);

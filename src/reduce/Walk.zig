@@ -27,6 +27,15 @@ pub const Transformation = union(enum) {
     },
     /// Replace an expression with `undefined`.
     replace_with_undef: Ast.Node.Index,
+    /// Replace an expression with `true`.
+    replace_with_true: Ast.Node.Index,
+    /// Replace an expression with `false`.
+    replace_with_false: Ast.Node.Index,
+    /// Replace a node with another node.
+    replace_node: struct {
+        to_replace: Ast.Node.Index,
+        replacement: Ast.Node.Index,
+    },
     /// Replace an `@import` with the imported file contents wrapped in a struct.
     inline_imported_file: InlineImportedFile,
 
@@ -550,7 +559,7 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         .while_simple,
         .while_cont,
         .@"while",
-        => return walkWhile(w, ast.fullWhile(node).?),
+        => return walkWhile(w, node, ast.fullWhile(node).?),
 
         .for_simple,
         .@"for",
@@ -558,7 +567,7 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
 
         .if_simple,
         .@"if",
-        => return walkIf(w, ast.fullIf(node).?),
+        => return walkIf(w, node, ast.fullIf(node).?),
 
         .asm_simple,
         .@"asm",
@@ -854,14 +863,42 @@ fn walkSwitchCase(w: *Walk, switch_case: Ast.full.SwitchCase) Error!void {
     try walkExpression(w, switch_case.ast.target_expr);
 }
 
-fn walkWhile(w: *Walk, while_node: Ast.full.While) Error!void {
+fn walkWhile(w: *Walk, node_index: Ast.Node.Index, while_node: Ast.full.While) Error!void {
+    assert(while_node.ast.cond_expr != 0);
+    assert(while_node.ast.then_expr != 0);
+
+    // Perform these transformations in this priority order:
+    // 1. If the `else` expression is missing or an empty block, replace the condition with `if (true)` if it is not already.
+    // 2. If the `then` block is empty, replace the condition with `if (false)` if it is not already.
+    // 3. If the condition is `if (true)`, replace the `if` expression with the contents of the `then` expression.
+    // 4. If the condition is `if (false)`, replace the `if` expression with the contents of the `else` expression.
+    if (!isTrueIdent(w.ast, while_node.ast.cond_expr) and
+        (while_node.ast.else_expr == 0 or isEmptyBlock(w.ast, while_node.ast.else_expr)))
+    {
+        try w.transformations.ensureUnusedCapacity(1);
+        w.transformations.appendAssumeCapacity(.{ .replace_with_true = while_node.ast.cond_expr });
+    } else if (!isFalseIdent(w.ast, while_node.ast.cond_expr) and isEmptyBlock(w.ast, while_node.ast.then_expr)) {
+        try w.transformations.ensureUnusedCapacity(1);
+        w.transformations.appendAssumeCapacity(.{ .replace_with_false = while_node.ast.cond_expr });
+    } else if (isTrueIdent(w.ast, while_node.ast.cond_expr)) {
+        try w.transformations.ensureUnusedCapacity(1);
+        w.transformations.appendAssumeCapacity(.{ .replace_node = .{
+            .to_replace = node_index,
+            .replacement = while_node.ast.then_expr,
+        } });
+    } else if (isFalseIdent(w.ast, while_node.ast.cond_expr)) {
+        try w.transformations.ensureUnusedCapacity(1);
+        w.transformations.appendAssumeCapacity(.{ .replace_node = .{
+            .to_replace = node_index,
+            .replacement = while_node.ast.else_expr,
+        } });
+    }
+
     try walkExpression(w, while_node.ast.cond_expr); // condition
 
     if (while_node.ast.cont_expr != 0) {
         try walkExpression(w, while_node.ast.cont_expr);
     }
-
-    try walkExpression(w, while_node.ast.cond_expr); // condition
 
     if (while_node.ast.then_expr != 0) {
         try walkExpression(w, while_node.ast.then_expr);
@@ -881,7 +918,37 @@ fn walkFor(w: *Walk, for_node: Ast.full.For) Error!void {
     }
 }
 
-fn walkIf(w: *Walk, if_node: Ast.full.If) Error!void {
+fn walkIf(w: *Walk, node_index: Ast.Node.Index, if_node: Ast.full.If) Error!void {
+    assert(if_node.ast.cond_expr != 0);
+    assert(if_node.ast.then_expr != 0);
+
+    // Perform these transformations in this priority order:
+    // 1. If the `else` expression is missing or an empty block, replace the condition with `if (true)` if it is not already.
+    // 2. If the `then` block is empty, replace the condition with `if (false)` if it is not already.
+    // 3. If the condition is `if (true)`, replace the `if` expression with the contents of the `then` expression.
+    // 4. If the condition is `if (false)`, replace the `if` expression with the contents of the `else` expression.
+    if (!isTrueIdent(w.ast, if_node.ast.cond_expr) and
+        (if_node.ast.else_expr == 0 or isEmptyBlock(w.ast, if_node.ast.else_expr)))
+    {
+        try w.transformations.ensureUnusedCapacity(1);
+        w.transformations.appendAssumeCapacity(.{ .replace_with_true = if_node.ast.cond_expr });
+    } else if (!isFalseIdent(w.ast, if_node.ast.cond_expr) and isEmptyBlock(w.ast, if_node.ast.then_expr)) {
+        try w.transformations.ensureUnusedCapacity(1);
+        w.transformations.appendAssumeCapacity(.{ .replace_with_false = if_node.ast.cond_expr });
+    } else if (isTrueIdent(w.ast, if_node.ast.cond_expr)) {
+        try w.transformations.ensureUnusedCapacity(1);
+        w.transformations.appendAssumeCapacity(.{ .replace_node = .{
+            .to_replace = node_index,
+            .replacement = if_node.ast.then_expr,
+        } });
+    } else if (isFalseIdent(w.ast, if_node.ast.cond_expr)) {
+        try w.transformations.ensureUnusedCapacity(1);
+        w.transformations.appendAssumeCapacity(.{ .replace_node = .{
+            .to_replace = node_index,
+            .replacement = if_node.ast.else_expr,
+        } });
+    }
+
     try walkExpression(w, if_node.ast.cond_expr); // condition
 
     if (if_node.ast.then_expr != 0) {
@@ -1002,6 +1069,14 @@ fn isUndefinedIdent(ast: *const Ast, node: Ast.Node.Index) bool {
     return isMatchingIdent(ast, node, "undefined");
 }
 
+fn isTrueIdent(ast: *const Ast, node: Ast.Node.Index) bool {
+    return isMatchingIdent(ast, node, "true");
+}
+
+fn isFalseIdent(ast: *const Ast, node: Ast.Node.Index) bool {
+    return isMatchingIdent(ast, node, "false");
+}
+
 fn isMatchingIdent(ast: *const Ast, node: Ast.Node.Index, string: []const u8) bool {
     const node_tags = ast.nodes.items(.tag);
     const main_tokens = ast.nodes.items(.main_token);
@@ -1010,6 +1085,17 @@ fn isMatchingIdent(ast: *const Ast, node: Ast.Node.Index, string: []const u8) bo
             const token_index = main_tokens[node];
             const name_bytes = ast.tokenSlice(token_index);
             return std.mem.eql(u8, name_bytes, string);
+        },
+        else => return false,
+    }
+}
+
+fn isEmptyBlock(ast: *const Ast, node: Ast.Node.Index) bool {
+    const node_tags = ast.nodes.items(.tag);
+    const node_data = ast.nodes.items(.data);
+    switch (node_tags[node]) {
+        .block_two => {
+            return node_data[node].lhs == 0 and node_data[node].rhs == 0;
         },
         else => return false,
     }

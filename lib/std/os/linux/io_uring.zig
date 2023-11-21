@@ -137,7 +137,7 @@ pub const IO_Uring = struct {
         // We must therefore use wrapping addition and subtraction to avoid a runtime crash.
         const next = self.sq.sqe_tail +% 1;
         if (next -% head > self.sq.sqes.len) return error.SubmissionQueueFull;
-        var sqe = &self.sq.sqes[self.sq.sqe_tail & self.sq.mask];
+        const sqe = &self.sq.sqes[self.sq.sqe_tail & self.sq.mask];
         self.sq.sqe_tail = next;
         return sqe;
     }
@@ -279,7 +279,7 @@ pub const IO_Uring = struct {
         const ready = self.cq_ready();
         const count = @min(cqes.len, ready);
         var head = self.cq.head.*;
-        var tail = head +% count;
+        const tail = head +% count;
         // TODO Optimize this by using 1 or 2 memcpy's (if the tail wraps) rather than a loop.
         var i: usize = 0;
         // Do not use "less-than" operator since head and tail may wrap:
@@ -1916,7 +1916,7 @@ test "splice/read" {
     var buffer_read = [_]u8{98} ** 20;
     _ = try file_src.write(&buffer_write);
 
-    var fds = try os.pipe();
+    const fds = try os.pipe();
     const pipe_offset: u64 = std.math.maxInt(u64);
 
     const sqe_splice_to_pipe = try ring.splice(0x11111111, fd_src, 0, fds[1], pipe_offset, buffer_write.len);
@@ -2045,6 +2045,7 @@ test "openat" {
     // Workaround for LLVM bug: https://github.com/ziglang/zig/issues/12014
     const path_addr = if (builtin.zig_backend == .stage2_llvm) p: {
         var workaround = path;
+        _ = &workaround;
         break :p @intFromPtr(workaround);
     } else @intFromPtr(path);
 
@@ -2072,6 +2073,7 @@ test "openat" {
     const cqe_openat = try ring.copy_cqe();
     try testing.expectEqual(@as(u64, 0x33333333), cqe_openat.user_data);
     if (cqe_openat.err() == .INVAL) return error.SkipZigTest;
+    if (cqe_openat.err() == .BADF) return error.SkipZigTest;
     if (cqe_openat.res <= 0) std.debug.print("\ncqe_openat.res={}\n", .{cqe_openat.res});
     try testing.expect(cqe_openat.res > 0);
     try testing.expectEqual(@as(u32, 0), cqe_openat.flags);
@@ -2198,7 +2200,7 @@ test "sendmsg/recvmsg" {
     var iovecs_recv = [_]os.iovec{
         os.iovec{ .iov_base = &buffer_recv, .iov_len = buffer_recv.len },
     };
-    var addr = [_]u8{0} ** 4;
+    const addr = [_]u8{0} ** 4;
     var address_recv = net.Address.initIp4(addr, 0);
     var msg_recv: os.msghdr = os.msghdr{
         .name = &address_recv.any,
@@ -2329,7 +2331,8 @@ test "timeout_remove" {
     // * kernel 5.18 gives user data 0x99999999 first, 0x88888888 second
 
     var cqes: [2]os.linux.io_uring_cqe = undefined;
-    try testing.expectEqual(@as(u32, 2), try ring.copy_cqes(cqes[0..], 2));
+    cqes[0] = try ring.copy_cqe();
+    cqes[1] = try ring.copy_cqe();
 
     for (cqes) |cqe| {
         // IORING_OP_TIMEOUT_REMOVE is not supported by this kernel version:
@@ -2499,6 +2502,8 @@ test "statx" {
         // The filesystem containing the file referred to by fd does not support this operation;
         // or the mode is not supported by the filesystem containing the file referred to by fd:
         .OPNOTSUPP => return error.SkipZigTest,
+        // not supported on older kernels (5.4)
+        .BADF => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
@@ -2672,7 +2677,7 @@ test "shutdown" {
         var slen: os.socklen_t = address.getOsSockLen();
         try os.getsockname(server, &address.any, &slen);
 
-        var shutdown_sqe = try ring.shutdown(0x445445445, server, os.linux.SHUT.RD);
+        const shutdown_sqe = try ring.shutdown(0x445445445, server, os.linux.SHUT.RD);
         try testing.expectEqual(linux.IORING_OP.SHUTDOWN, shutdown_sqe.opcode);
         try testing.expectEqual(@as(i32, server), shutdown_sqe.fd);
 
@@ -2698,7 +2703,7 @@ test "shutdown" {
         const server = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
         defer os.close(server);
 
-        var shutdown_sqe = ring.shutdown(0x445445445, server, os.linux.SHUT.RD) catch |err| switch (err) {
+        const shutdown_sqe = ring.shutdown(0x445445445, server, os.linux.SHUT.RD) catch |err| switch (err) {
             else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
         };
         try testing.expectEqual(linux.IORING_OP.SHUTDOWN, shutdown_sqe.opcode);
@@ -2736,7 +2741,7 @@ test "renameat" {
 
     // Submit renameat
 
-    var sqe = try ring.renameat(
+    const sqe = try ring.renameat(
         0x12121212,
         tmp.dir.fd,
         old_path,
@@ -2803,7 +2808,7 @@ test "unlinkat" {
 
     // Submit unlinkat
 
-    var sqe = try ring.unlinkat(
+    const sqe = try ring.unlinkat(
         0x12121212,
         tmp.dir.fd,
         path,
@@ -2850,7 +2855,7 @@ test "mkdirat" {
 
     // Submit mkdirat
 
-    var sqe = try ring.mkdirat(
+    const sqe = try ring.mkdirat(
         0x12121212,
         tmp.dir.fd,
         path,
@@ -2898,7 +2903,7 @@ test "symlinkat" {
 
     // Submit symlinkat
 
-    var sqe = try ring.symlinkat(
+    const sqe = try ring.symlinkat(
         0x12121212,
         path,
         tmp.dir.fd,
@@ -2949,7 +2954,7 @@ test "linkat" {
 
     // Submit linkat
 
-    var sqe = try ring.linkat(
+    const sqe = try ring.linkat(
         0x12121212,
         tmp.dir.fd,
         first_path,
@@ -3028,7 +3033,7 @@ test "provide_buffers: read" {
 
     var i: usize = 0;
     while (i < buffers.len) : (i += 1) {
-        var sqe = try ring.read(0xdededede, fd, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        const sqe = try ring.read(0xdededede, fd, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
         try testing.expectEqual(linux.IORING_OP.READ, sqe.opcode);
         try testing.expectEqual(@as(i32, fd), sqe.fd);
         try testing.expectEqual(@as(u64, 0), sqe.addr);
@@ -3054,7 +3059,7 @@ test "provide_buffers: read" {
     // This read should fail
 
     {
-        var sqe = try ring.read(0xdfdfdfdf, fd, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        const sqe = try ring.read(0xdfdfdfdf, fd, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
         try testing.expectEqual(linux.IORING_OP.READ, sqe.opcode);
         try testing.expectEqual(@as(i32, fd), sqe.fd);
         try testing.expectEqual(@as(u64, 0), sqe.addr);
@@ -3093,7 +3098,7 @@ test "provide_buffers: read" {
     // Final read which should work
 
     {
-        var sqe = try ring.read(0xdfdfdfdf, fd, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        const sqe = try ring.read(0xdfdfdfdf, fd, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
         try testing.expectEqual(linux.IORING_OP.READ, sqe.opcode);
         try testing.expectEqual(@as(i32, fd), sqe.fd);
         try testing.expectEqual(@as(u64, 0), sqe.addr);
@@ -3144,6 +3149,7 @@ test "remove_buffers" {
 
         const cqe = try ring.copy_cqe();
         switch (cqe.err()) {
+            .INVAL => return error.SkipZigTest,
             .SUCCESS => {},
             else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
         }
@@ -3153,7 +3159,7 @@ test "remove_buffers" {
     // Remove 3 buffers
 
     {
-        var sqe = try ring.remove_buffers(0xbababababa, 3, group_id);
+        const sqe = try ring.remove_buffers(0xbababababa, 3, group_id);
         try testing.expectEqual(linux.IORING_OP.REMOVE_BUFFERS, sqe.opcode);
         try testing.expectEqual(@as(i32, 3), sqe.fd);
         try testing.expectEqual(@as(u64, 0), sqe.addr);
@@ -3234,6 +3240,8 @@ test "provide_buffers: accept/connect/send/recv" {
         switch (cqe.err()) {
             // Happens when the kernel is < 5.7
             .INVAL => return error.SkipZigTest,
+            // Happens on the kernel 5.4
+            .BADF => return error.SkipZigTest,
             .SUCCESS => {},
             else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
         }
@@ -3263,7 +3271,7 @@ test "provide_buffers: accept/connect/send/recv" {
 
     var i: usize = 0;
     while (i < buffers.len) : (i += 1) {
-        var sqe = try ring.recv(0xdededede, socket_test_harness.client, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        const sqe = try ring.recv(0xdededede, socket_test_harness.client, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
         try testing.expectEqual(linux.IORING_OP.RECV, sqe.opcode);
         try testing.expectEqual(@as(i32, socket_test_harness.client), sqe.fd);
         try testing.expectEqual(@as(u64, 0), sqe.addr);
@@ -3292,7 +3300,7 @@ test "provide_buffers: accept/connect/send/recv" {
     // This recv should fail
 
     {
-        var sqe = try ring.recv(0xdfdfdfdf, socket_test_harness.client, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        const sqe = try ring.recv(0xdfdfdfdf, socket_test_harness.client, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
         try testing.expectEqual(linux.IORING_OP.RECV, sqe.opcode);
         try testing.expectEqual(@as(i32, socket_test_harness.client), sqe.fd);
         try testing.expectEqual(@as(u64, 0), sqe.addr);
@@ -3342,7 +3350,7 @@ test "provide_buffers: accept/connect/send/recv" {
     @memset(mem.sliceAsBytes(&buffers), 1);
 
     {
-        var sqe = try ring.recv(0xdfdfdfdf, socket_test_harness.client, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
+        const sqe = try ring.recv(0xdfdfdfdf, socket_test_harness.client, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
         try testing.expectEqual(linux.IORING_OP.RECV, sqe.opcode);
         try testing.expectEqual(@as(i32, socket_test_harness.client), sqe.fd);
         try testing.expectEqual(@as(u64, 0), sqe.addr);
@@ -3470,7 +3478,7 @@ test "accept multishot" {
     var nr: usize = 4; // number of clients to connect
     while (nr > 0) : (nr -= 1) {
         // connect client
-        var client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+        const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
         errdefer os.closeSocket(client);
         try os.connect(client, &address.any, address.getOsSockLen());
 

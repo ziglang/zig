@@ -328,8 +328,19 @@ pub fn supportsStackProbing(target: std.Target) bool {
         (target.cpu.arch == .x86 or target.cpu.arch == .x86_64);
 }
 
-pub fn supportsStackProtector(target: std.Target) bool {
-    return !target.isSpirV();
+pub fn supportsStackProtector(target: std.Target, backend: std.builtin.CompilerBackend) bool {
+    switch (target.os.tag) {
+        .plan9 => return false,
+        else => {},
+    }
+    switch (target.cpu.arch) {
+        .spirv32, .spirv64 => return false,
+        else => {},
+    }
+    return switch (backend) {
+        .stage2_llvm => true,
+        else => false,
+    };
 }
 
 pub fn libcProvidesStackProtector(target: std.Target) bool {
@@ -643,7 +654,7 @@ pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend
 
 pub fn supportsThreads(target: std.Target, backend: std.builtin.CompilerBackend) bool {
     return switch (backend) {
-        .stage2_x86_64 => target.ofmt == .macho,
+        .stage2_x86_64 => target.ofmt == .macho or target.ofmt == .elf,
         else => true,
     };
 }

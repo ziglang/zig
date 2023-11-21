@@ -139,7 +139,7 @@ pub fn translate(
     // For memory that has the same lifetime as the Ast that we return
     // from this function.
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    errdefer arena_allocator.deinit();
+    defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
     var context = Context{
@@ -456,7 +456,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
     block_scope.return_type = return_qt;
     defer block_scope.deinit();
 
-    var scope = &block_scope.base;
+    const scope = &block_scope.base;
 
     var param_id: c_uint = 0;
     for (proto_node.data.params) |*param| {
@@ -1363,7 +1363,7 @@ fn transSimpleOffsetOfExpr(c: *Context, expr: *const clang.OffsetOfExpr) TransEr
             if (c.decl_table.get(@intFromPtr(record_decl.getCanonicalDecl()))) |type_name| {
                 const type_node = try Tag.type.create(c.arena, type_name);
 
-                var raw_field_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(field_decl)).getName_bytes_begin());
+                const raw_field_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(field_decl)).getName_bytes_begin());
                 const quoted_field_name = try std.fmt.allocPrint(c.arena, "\"{s}\"", .{raw_field_name});
                 const field_name_node = try Tag.string_literal.create(c.arena, quoted_field_name);
 
@@ -1967,7 +1967,7 @@ fn transBoolExpr(
         return Node{ .tag_if_small_enough = @intFromEnum(([2]Tag{ .true_literal, .false_literal })[@intFromBool(is_zero)]) };
     }
 
-    var res = try transExpr(c, scope, expr, used);
+    const res = try transExpr(c, scope, expr, used);
     if (isBoolRes(res)) {
         return maybeSuppressResult(c, used, res);
     }
@@ -3477,7 +3477,7 @@ fn cIsFunctionDeclRef(expr: *const clang.Expr) bool {
 
 fn transCallExpr(c: *Context, scope: *Scope, stmt: *const clang.CallExpr, result_used: ResultUsed) TransError!Node {
     const callee = stmt.getCallee();
-    var raw_fn_expr = try transExpr(c, scope, callee, .used);
+    const raw_fn_expr = try transExpr(c, scope, callee, .used);
 
     var is_ptr = false;
     const fn_ty = qualTypeGetFnProto(callee.getType(), &is_ptr);
@@ -3936,11 +3936,26 @@ fn transCPtrCast(
 }
 
 fn transFloatingLiteral(c: *Context, expr: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {
+    // TODO use something more accurate than widening to a larger float type and printing that result
     switch (expr.getRawSemantics()) {
         .IEEEhalf, // f16
         .IEEEsingle, // f32
         .IEEEdouble, // f64
-        => {},
+        => {
+            var dbl = expr.getValueAsApproximateDouble();
+            const is_negative = dbl < 0; // -0.0 is considered non-negative
+            if (is_negative) dbl = -dbl;
+            const str = if (dbl == @floor(dbl))
+                try std.fmt.allocPrint(c.arena, "{d}.0", .{dbl})
+            else
+                try std.fmt.allocPrint(c.arena, "{d}", .{dbl});
+            var node = try Tag.float_literal.create(c.arena, str);
+            if (is_negative) node = try Tag.negate.create(c.arena, node);
+            return maybeSuppressResult(c, used, node);
+        },
+        .x87DoubleExtended, // f80
+        .IEEEquad, // f128
+        => return transFloatingLiteralQuad(c, expr, used),
         else => |format| return fail(
             c,
             error.UnsupportedTranslation,
@@ -3949,14 +3964,44 @@ fn transFloatingLiteral(c: *Context, expr: *const clang.FloatingLiteral, used: R
             .{format},
         ),
     }
-    // TODO use something more accurate
-    var dbl = expr.getValueAsApproximateDouble();
-    const is_negative = dbl < 0;
-    if (is_negative) dbl = -dbl;
-    const str = if (dbl == @floor(dbl))
-        try std.fmt.allocPrint(c.arena, "{d}.0", .{dbl})
-    else
-        try std.fmt.allocPrint(c.arena, "{d}", .{dbl});
+}
+
+fn transFloatingLiteralQuad(c: *Context, expr: *const clang.FloatingLiteral, used: ResultUsed) TransError!Node {
+    assert(switch (expr.getRawSemantics()) {
+        .x87DoubleExtended, .IEEEquad => true,
+        else => false,
+    });
+
+    var low: u64 = undefined;
+    var high: u64 = undefined;
+    expr.getValueAsApproximateQuadBits(&low, &high);
+    var quad: f128 = @bitCast(low | @as(u128, high) << 64);
+    const is_negative = quad < 0; // -0.0 is considered non-negative
+    if (is_negative) quad = -quad;
+
+    // TODO implement decimal format for f128 <https://github.com/ziglang/zig/issues/1181>
+    // in the meantime, if the value can be roundtripped by casting it to f64, serializing it to
+    // the decimal format and parsing it back as the exact same f128 value, then use that serialized form
+    const str = fmt_decimal: {
+        var buf: [512]u8 = undefined; // should be large enough to print any f64 in decimal form
+        const dbl: f64 = @floatCast(quad);
+        const temp_str = if (dbl == @floor(dbl))
+            std.fmt.bufPrint(&buf, "{d}.0", .{dbl}) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable,
+            }
+        else
+            std.fmt.bufPrint(&buf, "{d}", .{dbl}) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable,
+            };
+        const could_roundtrip = if (std.fmt.parseFloat(f128, temp_str)) |parsed_quad|
+            quad == parsed_quad
+        else |_|
+            false;
+        break :fmt_decimal if (could_roundtrip) try c.arena.dupe(u8, temp_str) else null;
+    }
+    // otherwise, fall back to the hexadecimal format
+    orelse try std.fmt.allocPrint(c.arena, "{x}", .{quad});
+
     var node = try Tag.float_literal.create(c.arena, str);
     if (is_negative) node = try Tag.negate.create(c.arena, node);
     return maybeSuppressResult(c, used, node);
@@ -4924,8 +4969,6 @@ fn finishTransFnProto(
     const is_inline = if (fn_decl_context) |ctx| ctx.is_always_inline else false;
     const scope = &c.global_scope.base;
 
-    // TODO check for align attribute
-
     const param_count: usize = if (fn_proto_ty != null) fn_proto_ty.?.getNumParams() else 0;
     var fn_params = try std.ArrayList(ast.Payload.Param).initCapacity(c.gpa, param_count);
     defer fn_params.deinit();
@@ -5454,6 +5497,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                         const str_node = try Tag.string_literal.create(c.arena, "\"\"");
                         const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = name, .init = str_node });
                         try c.global_scope.macro_table.put(name, var_decl);
+                        try c.global_scope.blank_macros.put(name, {});
                         continue;
                     },
                     .LParen => {
@@ -5483,6 +5527,29 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
         .undefined_identifier => |ident| return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident}),
         .invalid_arg_usage => unreachable, // no args
     };
+
+    // Check if the macro only uses other blank macros.
+    while (true) {
+        switch (m.peek().?) {
+            .Identifier => {
+                const tok = m.list[m.i + 1];
+                const slice = m.source[tok.start..tok.end];
+                if (c.global_scope.blank_macros.contains(slice)) {
+                    m.i += 1;
+                    continue;
+                }
+            },
+            .Eof, .Nl => {
+                try c.global_scope.blank_macros.put(m.name, {});
+                const init_node = try Tag.string_literal.create(c.arena, "\"\"");
+                const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
+                try c.global_scope.macro_table.put(m.name, var_decl);
+                return;
+            },
+            else => {},
+        }
+        break;
+    }
 
     const init_node = try parseCExpr(c, m, scope);
     const last = m.next().?;
@@ -5891,7 +5958,7 @@ fn escapeUnprintables(ctx: *Context, m: *MacroCtx) ![]const u8 {
 
     const formatter = std.fmt.fmtSliceEscapeLower(zigified);
     const encoded_size = @as(usize, @intCast(std.fmt.count("{s}", .{formatter})));
-    var output = try ctx.arena.alloc(u8, encoded_size);
+    const output = try ctx.arena.alloc(u8, encoded_size);
     return std.fmt.bufPrint(output, "{s}", .{formatter}) catch |err| switch (err) {
         error.NoSpaceLeft => unreachable,
         else => |e| return e,
@@ -5917,6 +5984,9 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
             return parseCNumLit(c, m);
         },
         .Identifier => {
+            if (c.global_scope.blank_macros.contains(slice)) {
+                return parseCPrimaryExprInner(c, m, scope);
+            }
             const mangled_name = scope.getAlias(slice);
             if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
             const identifier = try Tag.identifier.create(c.arena, mangled_name);
@@ -5949,10 +6019,19 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     // after a primary expression.
     while (true) {
         switch (m.peek().?) {
-            .StringLiteral, .Identifier => {},
+            .StringLiteral => {},
+            .Identifier => {
+                const tok = m.list[m.i + 1];
+                const slice = m.source[tok.start..tok.end];
+                if (c.global_scope.blank_macros.contains(slice)) {
+                    m.i += 1;
+                    continue;
+                }
+            },
             else => break,
         }
-        node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = try parseCPrimaryExprInner(c, m, scope) });
+        const rhs = try parseCPrimaryExprInner(c, m, scope);
+        node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = rhs });
     }
     return node;
 }
@@ -6168,7 +6247,24 @@ fn parseCCastExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     switch (m.next().?) {
         .LParen => {
             if (try parseCTypeName(c, m, scope, true)) |type_name| {
-                try m.skip(c, .RParen);
+                while (true) {
+                    const next_token = m.next().?;
+                    switch (next_token) {
+                        .RParen => break,
+                        else => |next_tag| {
+                            // Skip trailing blank defined before the RParen.
+                            if (next_tag == .Identifier and c.global_scope.blank_macros.contains(m.slice())) {
+                                continue;
+                            }
+                            try m.fail(
+                                c,
+                                "unable to translate C expr: expected ')' instead got '{s}'",
+                                .{next_token.symbol()},
+                            );
+                            return error.ParseError;
+                        },
+                    }
+                }
                 if (m.peek().? == .LBrace) {
                     // initializer list
                     return parseCPostfixExpr(c, m, scope, type_name);
@@ -6196,6 +6292,9 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_
     const tok = m.next().?;
     switch (tok) {
         .Identifier => {
+            if (c.global_scope.blank_macros.contains(m.slice())) {
+                return try parseCSpecifierQualifierList(c, m, scope, allow_fail);
+            }
             const mangled_name = scope.getAlias(m.slice());
             if (!allow_fail or c.typedefs.contains(mangled_name)) {
                 if (builtin_typedef_map.get(mangled_name)) |ty| return try Tag.type.create(c.arena, ty);

@@ -18,7 +18,7 @@ test "bytes" {
     };
 
     var u_2 = U{ .s = s_1 };
-    _ = u_2;
+    _ = &u_2;
 }
 
 test "aggregate" {
@@ -40,5 +40,5 @@ test "aggregate" {
     };
 
     var u_2 = U{ .s = s_1 };
-    _ = u_2;
+    _ = &u_2;
 }

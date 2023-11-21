@@ -899,8 +899,17 @@ pub fn main() void {
       The type of string literals encodes both the length, and the fact that they are null-terminated,
       and thus they can be {#link|coerced|Type Coercion#} to both {#link|Slices#} and
       {#link|Null-Terminated Pointers|Sentinel-Terminated Pointers#}.
-      Dereferencing string literals converts them to {#link|Arrays#}.
       </p>
+      <p>
+      Dereferencing string literals converts them to {#link|Arrays#}, allowing you to initialize a buffer with the contents of a string literal.
+      </p>
+      {#code_begin|syntax|mutable_string_buffer#}
+test {
+    var buffer = [_]u8{0}**256;
+    const home_dir = "C:/Users/root";
+    buffer[0..home_dir.len].* = home_dir.*;
+}
+      {#code_end#}
       <p>
       The encoding of a string in Zig is de-facto assumed to be UTF-8.
       Because Zig source code is {#link|UTF-8 encoded|Source Encoding#}, any non-ASCII bytes appearing within a string literal
@@ -2609,16 +2618,17 @@ test "Basic vector usage" {
 
 test "Conversion between vectors, arrays, and slices" {
     // Vectors and fixed-length arrays can be automatically assigned back and forth
-    var arr1: [4]f32 = [_]f32{ 1.1, 3.2, 4.5, 5.6 };
-    var vec: @Vector(4, f32) = arr1;
-    var arr2: [4]f32 = vec;
+    const arr1: [4]f32 = [_]f32{ 1.1, 3.2, 4.5, 5.6 };
+    const vec: @Vector(4, f32) = arr1;
+    const arr2: [4]f32 = vec;
     try expectEqual(arr1, arr2);
 
     // You can also assign from a slice with comptime-known length to a vector using .*
     const vec2: @Vector(2, f32) = arr1[1..3].*;
 
-    var slice: []const f32 = &arr1;
-    var offset: u32 = 1;
+    const slice: []const f32 = &arr1;
+    var offset: u32 = 1; // var to make it runtime-known
+    _ = &offset; // suppress 'var is never mutated' error
     // To extract a comptime-known length from a runtime-known offset,
     // first extract a new slice from the starting offset, then an array of
     // comptime-known length
@@ -2649,7 +2659,7 @@ test "Conversion between vectors, arrays, and slices" {
           <li>{#syntax#}[*]T{#endsyntax#} - many-item pointer to unknown number of items.
             <ul>
               <li>Supports index syntax: {#syntax#}ptr[i]{#endsyntax#}</li>
-              <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
+              <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#} and {#syntax#}ptr[start..]{#endsyntax#}</li>
               <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
               <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
               {#syntax#}anyopaque{#endsyntax#} or any other {#link|opaque type|opaque#}.</li>
@@ -2724,11 +2734,16 @@ test "pointer arithmetic with many-item pointer" {
     try expect(ptr[0] == 1);
     ptr += 1;
     try expect(ptr[0] == 2);
+
+    // slicing a many-item pointer without an end is equivalent to
+    // pointer arithmetic: `ptr[start..] == ptr + start`
+    try expect(ptr[1..] == ptr + 1);
 }
 
 test "pointer arithmetic with slices" {
     var array = [_]i32{ 1, 2, 3, 4 };
-    var length: usize = 0;
+    var length: usize = 0; // var to make it runtime-known
+    _ = &length; // suppress 'var is never mutated' error
     var slice = array[length..array.len];
 
     try expect(slice[0] == 1);
@@ -2755,7 +2770,8 @@ const expect = @import("std").testing.expect;
 
 test "pointer slicing" {
     var array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
-    var start: usize = 2;
+    var start: usize = 2; // var to make it runtime-known
+    _ = &start; // suppress 'var is never mutated' error
     const slice = array[start..4];
     try expect(slice.len == 2);
 
@@ -2957,8 +2973,9 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "allowzero" {
-    var zero: usize = 0;
-    var ptr: *allowzero i32 = @ptrFromInt(zero);
+    var zero: usize = 0; // var to make to runtime-known
+    _ = &zero; // suppress 'var is never mutated' error
+    const ptr: *allowzero i32 = @ptrFromInt(zero);
     try expect(@intFromPtr(ptr) == 0);
 }
       {#code_end#}
@@ -3002,6 +3019,7 @@ const expect = @import("std").testing.expect;
 test "basic slices" {
     var array = [_]i32{ 1, 2, 3, 4 };
     var known_at_runtime_zero: usize = 0;
+    _ = &known_at_runtime_zero;
     const slice = array[known_at_runtime_zero..array.len];
     try expect(@TypeOf(slice) == []i32);
     try expect(&slice[0] == &array[0]);
@@ -3016,6 +3034,7 @@ test "basic slices" {
     // to perform some optimisations like recognising a comptime-known length when
     // the start position is only known at runtime.
     var runtime_start: usize = 1;
+    _ = &runtime_start;
     const length = 2;
     const array_ptr_len = array[runtime_start..][0..length];
     try expect(@TypeOf(array_ptr_len) == *[length]i32);
@@ -3052,7 +3071,8 @@ test "using slices for strings" {
     var all_together: [100]u8 = undefined;
     // You can use slice syntax with at least one runtime-known index on an
     // array to convert an array into a slice.
-    var start : usize = 0;
+    var start: usize = 0;
+    _ = &start;
     const all_together_slice = all_together[start..];
     // String concatenation example.
     const hello_world = try fmt.bufPrint(all_together_slice, "{s} {s}", .{ hello, world });
@@ -3071,6 +3091,7 @@ test "slice pointer" {
     // A pointer to an array can be sliced just like an array:
     var start: usize = 0;
     var end: usize = 5;
+    _ = .{ &start, &end };
     const slice = ptr[start..end];
     // The slice is mutable because we sliced a mutable pointer.
     try expect(@TypeOf(slice) == []u8);
@@ -3117,6 +3138,7 @@ const expect = std.testing.expect;
 test "0-terminated slicing" {
     var array = [_]u8{ 3, 2, 1, 0, 3, 2, 1, 0 };
     var runtime_length: usize = 3;
+    _ = &runtime_length;
     const slice = array[0..runtime_length :0];
 
     try expect(@TypeOf(slice) == [:0]u8);
@@ -3139,6 +3161,7 @@ test "sentinel mismatch" {
     // This does not match the indicated sentinel value of `0` and will lead
     // to a runtime panic.
     var runtime_length: usize = 2;
+    _ = &runtime_length;
     const slice = array[0..runtime_length :0];
 
     _ = slice;
@@ -3262,7 +3285,7 @@ test "linked list" {
     // do this:
     try expect(LinkedList(i32) == LinkedList(i32));
 
-    var list = LinkedList(i32) {
+    const list = LinkedList(i32){
         .first = null,
         .last = null,
         .len = 0,
@@ -3274,12 +3297,12 @@ test "linked list" {
     const ListOfInts = LinkedList(i32);
     try expect(ListOfInts == LinkedList(i32));
 
-    var node = ListOfInts.Node {
+    var node = ListOfInts.Node{
         .prev = null,
         .next = null,
         .data = 1234,
     };
-    var list2 = LinkedList(i32) {
+    const list2 = LinkedList(i32){
         .first = &node,
         .last = &node,
         .len = 1,
@@ -3368,13 +3391,13 @@ test "@bitCast between packed structs" {
 fn doTheTest() !void {
     try expect(@sizeOf(Full) == 2);
     try expect(@sizeOf(Divided) == 2);
-    var full = Full{ .number = 0x1234 };
-    var divided: Divided = @bitCast(full);
+    const full = Full{ .number = 0x1234 };
+    const divided: Divided = @bitCast(full);
     try expect(divided.half1 == 0x34);
     try expect(divided.quarter3 == 0x2);
     try expect(divided.quarter4 == 0x1);
 
-    var ordered: [2]u8 = @bitCast(full);
+    const ordered: [2]u8 = @bitCast(full);
     switch (native_endian) {
         .big => {
             try expect(ordered[0] == 0x12);
@@ -3582,7 +3605,7 @@ const expect = std.testing.expect;
 const Point = struct {x: i32, y: i32};
 
 test "anonymous struct literal" {
-    var pt: Point = .{
+    const pt: Point = .{
         .x = 13,
         .y = 67,
     };
@@ -4047,14 +4070,14 @@ const Number = union {
 };
 
 test "anonymous union literal syntax" {
-    var i: Number = .{.int = 42};
-    var f = makeNumber();
+    const i: Number = .{ .int = 42 };
+    const f = makeNumber();
     try expect(i.int == 42);
     try expect(f.float == 12.34);
 }
 
 fn makeNumber() Number {
-    return .{.float = 12.34};
+    return .{ .float = 12.34 };
 }
       {#code_end#}
       {#header_close#}
@@ -4094,7 +4117,7 @@ test "call foo" {
 test "access variable after block scope" {
     {
         var x: i32 = 1;
-        _ = x;
+        _ = &x;
     }
     x += 1;
 }
@@ -4145,7 +4168,7 @@ test "separate scopes" {
     }
     {
         var pi: bool = true;
-        _ = pi;
+        _ = &pi;
     }
 }
       {#code_end#}
@@ -4419,7 +4442,7 @@ fn withSwitch(any: AnySlice) usize {
 }
 
 test "inline for and inline else similarity" {
-    var any = AnySlice{ .c = "hello" };
+    const any = AnySlice{ .c = "hello" };
     try expect(withFor(any) == 5);
     try expect(withSwitch(any) == 5);
 }
@@ -4451,7 +4474,7 @@ fn getNum(u: U) u32 {
 }
 
 test "test" {
-    var u = U{ .b = 42 };
+    const u = U{ .b = 42 };
     try expect(getNum(u) == 42);
 }
       {#code_end#}
@@ -4758,7 +4781,7 @@ test "multi object for" {
 }
 
 test "for reference" {
-    var items = [_]i32 { 3, 4, 2 };
+    var items = [_]i32{ 3, 4, 2 };
 
     // Iterate over the slice by reference by
     // specifying that the capture value is a pointer.
@@ -4773,7 +4796,7 @@ test "for reference" {
 
 test "for else" {
     // For allows an else attached to it, the same as a while loop.
-    var items = [_]?i32 { 3, 4, null, 5 };
+    const items = [_]?i32{ 3, 4, null, 5 };
 
     // For loops can also be used as expressions.
     // Similar to while loops, when you break from a for loop, the else branch is not evaluated.
@@ -5343,7 +5366,7 @@ fn addFortyTwo(x: anytype) @TypeOf(x) {
 test "fn type inference" {
     try expect(addFortyTwo(1) == 43);
     try expect(@TypeOf(addFortyTwo(1)) == comptime_int);
-    var y: i64 = 2;
+    const y: i64 = 2;
     try expect(addFortyTwo(y) == 44);
     try expect(@TypeOf(addFortyTwo(y)) == i64);
 }
@@ -5791,7 +5814,7 @@ fn getData() !u32 {
 }
 
 fn genFoos(allocator: Allocator, num: usize) ![]Foo {
-    var foos = try allocator.alloc(Foo, num);
+    const foos = try allocator.alloc(Foo, num);
     errdefer allocator.free(foos);
 
     for (foos, 0..) |*foo, i| {
@@ -5829,7 +5852,7 @@ fn getData() !u32 {
 }
 
 fn genFoos(allocator: Allocator, num: usize) ![]Foo {
-    var foos = try allocator.alloc(Foo, num);
+    const foos = try allocator.alloc(Foo, num);
     errdefer allocator.free(foos);
 
     // Used to track how many foos have been initialized
@@ -6321,13 +6344,13 @@ test "optional pointers" {
       </p>
       {#code_begin|test|test_type_coercion#}
 test "type coercion - variable declaration" {
-    var a: u8 = 1;
-    var b: u16 = a;
+    const a: u8 = 1;
+    const b: u16 = a;
     _ = b;
 }
 
 test "type coercion - function call" {
-    var a: u8 = 1;
+    const a: u8 = 1;
     foo(a);
 }
 
@@ -6336,8 +6359,8 @@ fn foo(b: u16) void {
 }
 
 test "type coercion - @as builtin" {
-    var a: u8 = 1;
-    var b = @as(u16, a);
+    const a: u8 = 1;
+    const b = @as(u16, a);
     _ = b;
 }
       {#code_end#}
@@ -6362,7 +6385,7 @@ test "type coercion - @as builtin" {
       {#code_begin|test|test_no_op_casts#}
 test "type coercion - const qualification" {
     var a: i32 = 1;
-    var b: *i32 = &a;
+    const b: *i32 = &a;
     foo(b);
 }
 
@@ -6395,26 +6418,26 @@ const expect = std.testing.expect;
 const mem = std.mem;
 
 test "integer widening" {
-    var a: u8 = 250;
-    var b: u16 = a;
-    var c: u32 = b;
-    var d: u64 = c;
-    var e: u64 = d;
-    var f: u128 = e;
+    const a: u8 = 250;
+    const b: u16 = a;
+    const c: u32 = b;
+    const d: u64 = c;
+    const e: u64 = d;
+    const f: u128 = e;
     try expect(f == a);
 }
 
 test "implicit unsigned integer to signed integer" {
-    var a: u8 = 250;
-    var b: i16 = a;
+    const a: u8 = 250;
+    const b: i16 = a;
     try expect(b == 250);
 }
 
 test "float widening" {
-    var a: f16 = 12.34;
-    var b: f32 = a;
-    var c: f64 = b;
-    var d: f128 = c;
+    const a: f16 = 12.34;
+    const b: f32 = a;
+    const c: f64 = b;
+    const d: f128 = c;
     try expect(d == a);
 }
       {#code_end#}
@@ -6431,7 +6454,7 @@ test "float widening" {
       {#code_begin|test_err|test_ambiguous_coercion#}
 // Compile time coercion of float to int
 test "implicit cast to comptime_int" {
-    var f: f32 = 54.0 / 5;
+    const f: f32 = 54.0 / 5;
     _ = f;
 }
       {#code_end#}
@@ -6445,31 +6468,31 @@ const expect = std.testing.expect;
 // const modifier on the element type. Useful in particular for
 // String literals.
 test "*const [N]T to []const T" {
-    var x1: []const u8 = "hello";
-    var x2: []const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
+    const x1: []const u8 = "hello";
+    const x2: []const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     try expect(std.mem.eql(u8, x1, x2));
 
-    var y: []const f32 = &[2]f32{ 1.2, 3.4 };
+    const y: []const f32 = &[2]f32{ 1.2, 3.4 };
     try expect(y[0] == 1.2);
 }
 
 // Likewise, it works when the destination type is an error union.
 test "*const [N]T to E![]const T" {
-    var x1: anyerror![]const u8 = "hello";
-    var x2: anyerror![]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
+    const x1: anyerror![]const u8 = "hello";
+    const x2: anyerror![]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     try expect(std.mem.eql(u8, try x1, try x2));
 
-    var y: anyerror![]const f32 = &[2]f32{ 1.2, 3.4 };
+    const y: anyerror![]const f32 = &[2]f32{ 1.2, 3.4 };
     try expect((try y)[0] == 1.2);
 }
 
 // Likewise, it works when the destination type is an optional.
 test "*const [N]T to ?[]const T" {
-    var x1: ?[]const u8 = "hello";
-    var x2: ?[]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
+    const x1: ?[]const u8 = "hello";
+    const x2: ?[]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     try expect(std.mem.eql(u8, x1.?, x2.?));
 
-    var y: ?[]const f32 = &[2]f32{ 1.2, 3.4 };
+    const y: ?[]const f32 = &[2]f32{ 1.2, 3.4 };
     try expect(y.?[0] == 1.2);
 }
 
@@ -6605,18 +6628,18 @@ const U2 = union(enum) {
 };
 
 test "coercion between unions and enums" {
-    var u = U{ .two = 12.34 };
-    var e: E = u; // coerce union to enum
+    const u = U{ .two = 12.34 };
+    const e: E = u; // coerce union to enum
     try expect(e == E.two);
 
     const three = E.three;
-    var u_2: U = three; // coerce enum to union
+    const u_2: U = three; // coerce enum to union
     try expect(u_2 == E.three);
 
-    var u_3: U = .three; // coerce enum literal to union
+    const u_3: U = .three; // coerce enum literal to union
     try expect(u_3 == E.three);
 
-    var u_4: U2 = .a; // coerce enum literal to union with inferred enum tag type.
+    const u_4: U2 = .a; // coerce enum literal to union with inferred enum tag type.
     try expect(u_4.tag() == 1);
 
     // The following example is invalid.
@@ -6694,9 +6717,9 @@ const expect = std.testing.expect;
 const mem = std.mem;
 
 test "peer resolve int widening" {
-    var a: i8 = 12;
-    var b: i16 = 34;
-    var c = a + b;
+    const a: i8 = 12;
+    const b: i16 = 34;
+    const c = a + b;
     try expect(c == 46);
     try expect(@TypeOf(c) == i16);
 }
@@ -6805,6 +6828,7 @@ export fn entry() void {
     var x: void = {};
     var y: void = {};
     x = y;
+    y = x;
 }
       {#code_end#}
       <p>When this turns into machine code, there is no code generated in the
@@ -7117,6 +7141,7 @@ fn performFn(start_value: i32) i32 {
 // expect(performFn('w', 99) == 99);
 fn performFn(start_value: i32) i32 {
     var result: i32 = start_value;
+    _ = &result;
     return result;
 }
       {#end_syntax_block#}
@@ -8660,8 +8685,9 @@ test "@hasDecl" {
       </p>
       {#code_begin|test_err|test_intCast_builtin|cast truncated bits#}
 test "integer cast panic" {
-    var a: u16 = 0xabcd;
-    var b: u8 = @intCast(a);
+    var a: u16 = 0xabcd; // runtime-known
+    _ = &a;
+    const b: u8 = @intCast(a);
     _ = b;
 }
       {#code_end#}
@@ -8821,7 +8847,7 @@ const expect = std.testing.expect;
 test "@wasmMemoryGrow" {
     if (native_arch != .wasm32) return error.SkipZigTest;
 
-    var prev = @wasmMemorySize(0);
+    const prev = @wasmMemorySize(0);
     try expect(prev == @wasmMemoryGrow(0, 1));
     try expect(prev + 1 == @wasmMemorySize(0));
 }
@@ -9556,8 +9582,8 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "integer truncation" {
-    var a: u16 = 0xabcd;
-    var b: u8 = @truncate(a);
+    const a: u16 = 0xabcd;
+    const b: u8 = @truncate(a);
     try expect(b == 0xcd);
 }
       {#code_end#}
@@ -9841,7 +9867,7 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err|runtime_index_out_of_bounds#}
 pub fn main() void {
-    var x = foo("hello");
+    const x = foo("hello");
     _ = x;
 }
 
@@ -9854,7 +9880,7 @@ fn foo(x: []const u8) u8 {
       <p>At compile-time:</p>
       {#code_begin|test_err|test_comptime_invalid_cast|type 'u32' cannot represent integer value '-1'#}
 comptime {
-    var value: i32 = -1;
+    const value: i32 = -1;
     const unsigned: u32 = @intCast(value);
     _ = unsigned;
 }
@@ -9864,8 +9890,9 @@ comptime {
 const std = @import("std");
 
 pub fn main() void {
-    var value: i32 = -1;
-    var unsigned: u32 = @intCast(value);
+    var value: i32 = -1; // runtime-known
+    _ = &value;
+    const unsigned: u32 = @intCast(value);
     std.debug.print("value: {}\n", .{unsigned});
 }
       {#code_end#}
@@ -9887,7 +9914,8 @@ comptime {
 const std = @import("std");
 
 pub fn main() void {
-    var spartan_count: u16 = 300;
+    var spartan_count: u16 = 300; // runtime-known
+    _ = &spartan_count;
     const byte: u8 = @intCast(spartan_count);
     std.debug.print("value: {}\n", .{byte});
 }
@@ -9971,7 +9999,7 @@ pub fn main() !void {
       {#code_begin|exe|addWithOverflow_builtin#}
 const print = @import("std").debug.print;
 pub fn main() void {
-    var byte: u8 = 255;
+    const byte: u8 = 255;
 
     const ov = @addWithOverflow(byte, 10);
     if (ov[1] != 0) {
@@ -10021,8 +10049,9 @@ comptime {
 const std = @import("std");
 
 pub fn main() void {
-    var x: u8 = 0b01010101;
-    var y = @shlExact(x, 2);
+    var x: u8 = 0b01010101; // runtime-known
+    _ = &x;
+    const y = @shlExact(x, 2);
     std.debug.print("value: {}\n", .{y});
 }
       {#code_end#}
@@ -10040,8 +10069,9 @@ comptime {
 const std = @import("std");
 
 pub fn main() void {
-    var x: u8 = 0b10101010;
-    var y = @shrExact(x, 2);
+    var x: u8 = 0b10101010; // runtime-known
+    _ = &x;
+    const y = @shrExact(x, 2);
     std.debug.print("value: {}\n", .{y});
 }
       {#code_end#}
@@ -10063,7 +10093,8 @@ const std = @import("std");
 pub fn main() void {
     var a: u32 = 1;
     var b: u32 = 0;
-    var c = a / b;
+    _ = .{ &a, &b };
+    const c = a / b;
     std.debug.print("value: {}\n", .{c});
 }
       {#code_end#}
@@ -10085,7 +10116,8 @@ const std = @import("std");
 pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 0;
-    var c = a % b;
+    _ = .{ &a, &b };
+    const c = a % b;
     std.debug.print("value: {}\n", .{c});
 }
       {#code_end#}
@@ -10107,7 +10139,8 @@ const std = @import("std");
 pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 3;
-    var c = @divExact(a, b);
+    _ = .{ &a, &b };
+    const c = @divExact(a, b);
     std.debug.print("value: {}\n", .{c});
 }
       {#code_end#}
@@ -10127,7 +10160,8 @@ const std = @import("std");
 
 pub fn main() void {
     var optional_number: ?i32 = null;
-    var number = optional_number.?;
+    _ = &optional_number;
+    const number = optional_number.?;
     std.debug.print("value: {}\n", .{number});
 }
       {#code_end#}
@@ -10208,9 +10242,10 @@ comptime {
 const std = @import("std");
 
 pub fn main() void {
-    var err = error.AnError;
+    const err = error.AnError;
     var number = @intFromError(err) + 500;
-    var invalid_err = @errorFromInt(number);
+    _ = &number;
+    const invalid_err = @errorFromInt(number);
     std.debug.print("value: {}\n", .{invalid_err});
 }
       {#code_end#}
@@ -10241,7 +10276,8 @@ const Foo = enum {
 
 pub fn main() void {
     var a: u2 = 3;
-    var b: Foo = @enumFromInt(a);
+    _ = &a;
+    const b: Foo = @enumFromInt(a);
     std.debug.print("value: {s}\n", .{@tagName(b)});
 }
       {#code_end#}
@@ -10398,17 +10434,18 @@ fn bar(f: *Foo) void {
       <p>At compile-time:</p>
       {#code_begin|test_err|test_comptime_out_of_bounds_float_to_integer_cast|float value '4294967296' cannot be stored in integer type 'i32'#}
 comptime {
-	const float: f32 = 4294967296;
-	const int: i32 = @intFromFloat(float);
-	_ = int;
+    const float: f32 = 4294967296;
+    const int: i32 = @intFromFloat(float);
+    _ = int;
 }
       {#code_end#}
       <p>At runtime:</p>
       {#code_begin|exe_err|runtime_out_of_bounds_float_to_integer_cast#}
 pub fn main() void {
-	var float: f32 = 4294967296;
-	var int: i32 = @intFromFloat(float);
-	_ = int;
+    var float: f32 = 4294967296; // runtime-known
+    _ = &float;
+    const int: i32 = @intFromFloat(float);
+    _ = int;
 }
       {#code_end#}
       {#header_close#}
@@ -10431,7 +10468,8 @@ comptime {
       {#code_begin|exe_err|runtime_invalid_null_pointer_cast#}
 pub fn main() void {
     var opt_ptr: ?*i32 = null;
-    var ptr: *i32 = @ptrCast(opt_ptr);
+    _ = &opt_ptr;
+    const ptr: *i32 = @ptrCast(opt_ptr);
     _ = ptr;
 }
       {#code_end#}
@@ -11116,7 +11154,9 @@ int foo(void) {
       {#code_begin|syntax|macro#}
 pub export fn foo() c_int {
     var a: c_int = 1;
+    _ = &a;
     var b: c_int = 2;
+    _ = &b;
     return a + b;
 }
 pub const MAKELOCAL = @compileError("unable to translate C expr: unexpected token .Equal"); // macro.c:1:9

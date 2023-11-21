@@ -134,7 +134,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             self.bits |= @as(u64, @intCast(b)) << @as(u6, @intCast(self.nbits));
             self.nbits += nb;
             if (self.nbits >= 48) {
-                var bits = self.bits;
+                const bits = self.bits;
                 self.bits >>= 48;
                 self.nbits -= 48;
                 var n = self.nbytes;
@@ -224,7 +224,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             while (size != bad_code) : (in_index += 1) {
                 // INVARIANT: We have seen "count" copies of size that have not yet
                 // had output generated for them.
-                var next_size = codegen[in_index];
+                const next_size = codegen[in_index];
                 if (next_size == size) {
                     count += 1;
                     continue;
@@ -295,12 +295,12 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             while (num_codegens > 4 and self.codegen_freq[codegen_order[num_codegens - 1]] == 0) {
                 num_codegens -= 1;
             }
-            var header = 3 + 5 + 5 + 4 + (3 * num_codegens) +
+            const header = 3 + 5 + 5 + 4 + (3 * num_codegens) +
                 self.codegen_encoding.bitLength(self.codegen_freq[0..]) +
                 self.codegen_freq[16] * 2 +
                 self.codegen_freq[17] * 3 +
                 self.codegen_freq[18] * 7;
-            var size = header +
+            const size = header +
                 lit_enc.bitLength(self.literal_freq) +
                 off_enc.bitLength(self.offset_freq) +
                 extra_bits;
@@ -339,7 +339,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             self.bits |= @as(u64, @intCast(c.code)) << @as(u6, @intCast(self.nbits));
             self.nbits += @as(u32, @intCast(c.len));
             if (self.nbits >= 48) {
-                var bits = self.bits;
+                const bits = self.bits;
                 self.bits >>= 48;
                 self.nbits -= 48;
                 var n = self.nbytes;
@@ -386,13 +386,13 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
 
             var i: u32 = 0;
             while (i < num_codegens) : (i += 1) {
-                var value = @as(u32, @intCast(self.codegen_encoding.codes[codegen_order[i]].len));
+                const value = @as(u32, @intCast(self.codegen_encoding.codes[codegen_order[i]].len));
                 try self.writeBits(@as(u32, @intCast(value)), 3);
             }
 
             i = 0;
             while (true) {
-                var code_word: u32 = @as(u32, @intCast(self.codegen[i]));
+                const code_word: u32 = @as(u32, @intCast(self.codegen[i]));
                 i += 1;
                 if (code_word == bad_code) {
                     break;
@@ -458,14 +458,14 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 return;
             }
 
-            var lit_and_off = self.indexTokens(tokens);
-            var num_literals = lit_and_off.num_literals;
-            var num_offsets = lit_and_off.num_offsets;
+            const lit_and_off = self.indexTokens(tokens);
+            const num_literals = lit_and_off.num_literals;
+            const num_offsets = lit_and_off.num_offsets;
 
             var extra_bits: u32 = 0;
-            var ret = storedSizeFits(input);
-            var stored_size = ret.size;
-            var storable = ret.storable;
+            const ret = storedSizeFits(input);
+            const stored_size = ret.size;
+            const storable = ret.storable;
 
             if (storable) {
                 // We only bother calculating the costs of the extra bits required by
@@ -504,12 +504,12 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 &self.offset_encoding,
             );
             self.codegen_encoding.generate(self.codegen_freq[0..], 7);
-            var dynamic_size = self.dynamicSize(
+            const dynamic_size = self.dynamicSize(
                 &self.literal_encoding,
                 &self.offset_encoding,
                 extra_bits,
             );
-            var dyn_size = dynamic_size.size;
+            const dyn_size = dynamic_size.size;
             num_codegens = dynamic_size.num_codegens;
 
             if (dyn_size < size) {
@@ -551,9 +551,9 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 return;
             }
 
-            var total_tokens = self.indexTokens(tokens);
-            var num_literals = total_tokens.num_literals;
-            var num_offsets = total_tokens.num_offsets;
+            const total_tokens = self.indexTokens(tokens);
+            const num_literals = total_tokens.num_literals;
+            const num_offsets = total_tokens.num_offsets;
 
             // Generate codegen and codegenFrequencies, which indicates how to encode
             // the literal_encoding and the offset_encoding.
@@ -564,15 +564,15 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 &self.offset_encoding,
             );
             self.codegen_encoding.generate(self.codegen_freq[0..], 7);
-            var dynamic_size = self.dynamicSize(&self.literal_encoding, &self.offset_encoding, 0);
-            var size = dynamic_size.size;
-            var num_codegens = dynamic_size.num_codegens;
+            const dynamic_size = self.dynamicSize(&self.literal_encoding, &self.offset_encoding, 0);
+            const size = dynamic_size.size;
+            const num_codegens = dynamic_size.num_codegens;
 
             // Store bytes, if we don't get a reasonable improvement.
 
-            var stored_size = storedSizeFits(input);
-            var ssize = stored_size.size;
-            var storable = stored_size.storable;
+            const stored_size = storedSizeFits(input);
+            const ssize = stored_size.size;
+            const storable = stored_size.storable;
             if (storable and ssize < (size + (size >> 4))) {
                 try self.writeStoredHeader(input.?.len, eof);
                 try self.writeBytes(input.?);
@@ -611,8 +611,8 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                     self.literal_freq[token.literal(t)] += 1;
                     continue;
                 }
-                var length = token.length(t);
-                var offset = token.offset(t);
+                const length = token.length(t);
+                const offset = token.offset(t);
                 self.literal_freq[length_codes_start + token.lengthCode(length)] += 1;
                 self.offset_freq[token.offsetCode(offset)] += 1;
             }
@@ -660,21 +660,21 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                     continue;
                 }
                 // Write the length
-                var length = token.length(t);
-                var length_code = token.lengthCode(length);
+                const length = token.length(t);
+                const length_code = token.lengthCode(length);
                 try self.writeCode(le_codes[length_code + length_codes_start]);
-                var extra_length_bits = @as(u32, @intCast(length_extra_bits[length_code]));
+                const extra_length_bits = @as(u32, @intCast(length_extra_bits[length_code]));
                 if (extra_length_bits > 0) {
-                    var extra_length = @as(u32, @intCast(length - length_base[length_code]));
+                    const extra_length = @as(u32, @intCast(length - length_base[length_code]));
                     try self.writeBits(extra_length, extra_length_bits);
                 }
                 // Write the offset
-                var offset = token.offset(t);
-                var offset_code = token.offsetCode(offset);
+                const offset = token.offset(t);
+                const offset_code = token.offsetCode(offset);
                 try self.writeCode(oe_codes[offset_code]);
-                var extra_offset_bits = @as(u32, @intCast(offset_extra_bits[offset_code]));
+                const extra_offset_bits = @as(u32, @intCast(offset_extra_bits[offset_code]));
                 if (extra_offset_bits > 0) {
-                    var extra_offset = @as(u32, @intCast(offset - offset_base[offset_code]));
+                    const extra_offset = @as(u32, @intCast(offset - offset_base[offset_code]));
                     try self.writeBits(extra_offset, extra_offset_bits);
                 }
             }
@@ -718,15 +718,15 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 &self.huff_offset,
             );
             self.codegen_encoding.generate(self.codegen_freq[0..], 7);
-            var dynamic_size = self.dynamicSize(&self.literal_encoding, &self.huff_offset, 0);
-            var size = dynamic_size.size;
+            const dynamic_size = self.dynamicSize(&self.literal_encoding, &self.huff_offset, 0);
+            const size = dynamic_size.size;
             num_codegens = dynamic_size.num_codegens;
 
             // Store bytes, if we don't get a reasonable improvement.
 
-            var stored_size_ret = storedSizeFits(input);
-            var ssize = stored_size_ret.size;
-            var storable = stored_size_ret.storable;
+            const stored_size_ret = storedSizeFits(input);
+            const ssize = stored_size_ret.size;
+            const storable = stored_size_ret.storable;
 
             if (storable and ssize < (size + (size >> 4))) {
                 try self.writeStoredHeader(input.len, eof);
@@ -736,18 +736,18 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
 
             // Huffman.
             try self.writeDynamicHeader(num_literals, num_offsets, num_codegens, eof);
-            var encoding = self.literal_encoding.codes[0..257];
+            const encoding = self.literal_encoding.codes[0..257];
             var n = self.nbytes;
             for (input) |t| {
                 // Bitwriting inlined, ~30% speedup
-                var c = encoding[t];
+                const c = encoding[t];
                 self.bits |= @as(u64, @intCast(c.code)) << @as(u6, @intCast(self.nbits));
                 self.nbits += @as(u32, @intCast(c.len));
                 if (self.nbits < 48) {
                     continue;
                 }
                 // Store 6 bytes
-                var bits = self.bits;
+                const bits = self.bits;
                 self.bits >>= 48;
                 self.nbits -= 48;
                 var bytes = self.bytes[n..][0..6];
@@ -1679,7 +1679,7 @@ fn testWriterEOF(ttype: TestType, ht_tokens: []const token.Token, input: []const
 
     try bw.flush();
 
-    var b = buf.items;
+    const b = buf.items;
     try expect(b.len > 0);
     try expect(b[0] & 1 == 1);
 }

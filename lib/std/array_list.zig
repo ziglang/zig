@@ -979,7 +979,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (self.capacity >= new_capacity) return;
 
-            var better_capacity = growCapacity(self.capacity, new_capacity);
+            const better_capacity = growCapacity(self.capacity, new_capacity);
             return self.ensureTotalCapacityPrecise(allocator, better_capacity);
         }
 
@@ -1159,7 +1159,7 @@ test "std.ArrayList/ArrayListUnmanaged.init" {
     }
 
     {
-        var list = ArrayListUnmanaged(i32){};
+        const list = ArrayListUnmanaged(i32){};
 
         try testing.expect(list.items.len == 0);
         try testing.expect(list.capacity == 0);

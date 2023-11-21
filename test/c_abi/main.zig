@@ -278,7 +278,7 @@ test "C ABI big struct" {
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
-    var s = BigStruct{
+    const s = BigStruct{
         .a = 1,
         .b = 2,
         .c = 3,
@@ -304,7 +304,7 @@ extern fn c_big_union(BigUnion) void;
 test "C ABI big union" {
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
-    var x = BigUnion{
+    const x = BigUnion{
         .a = BigStruct{
             .a = 1,
             .b = 2,
@@ -339,13 +339,13 @@ test "C ABI medium struct of ints and floats" {
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
-    var s = MedStructMixed{
+    const s = MedStructMixed{
         .a = 1234,
         .b = 100.0,
         .c = 1337.0,
     };
     c_med_struct_mixed(s);
-    var s2 = c_ret_med_struct_mixed();
+    const s2 = c_ret_med_struct_mixed();
     try expect(s2.a == 1234);
     try expect(s2.b == 100.0);
     try expect(s2.c == 1337.0);
@@ -372,14 +372,14 @@ test "C ABI small struct of ints" {
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
-    var s = SmallStructInts{
+    const s = SmallStructInts{
         .a = 1,
         .b = 2,
         .c = 3,
         .d = 4,
     };
     c_small_struct_ints(s);
-    var s2 = c_ret_small_struct_ints();
+    const s2 = c_ret_small_struct_ints();
     try expect(s2.a == 1);
     try expect(s2.b == 2);
     try expect(s2.c == 3);
@@ -407,13 +407,13 @@ test "C ABI medium struct of ints" {
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
-    var s = MedStructInts{
+    const s = MedStructInts{
         .x = 1,
         .y = 2,
         .z = 3,
     };
     c_med_struct_ints(s);
-    var s2 = c_ret_med_struct_ints();
+    const s2 = c_ret_med_struct_ints();
     try expect(s2.x == 1);
     try expect(s2.y == 2);
     try expect(s2.z == 3);
@@ -442,9 +442,9 @@ export fn zig_small_packed_struct(x: SmallPackedStruct) void {
 }
 
 test "C ABI small packed struct" {
-    var s = SmallPackedStruct{ .a = 0, .b = 1, .c = 2, .d = 3 };
+    const s = SmallPackedStruct{ .a = 0, .b = 1, .c = 2, .d = 3 };
     c_small_packed_struct(s);
-    var s2 = c_ret_small_packed_struct();
+    const s2 = c_ret_small_packed_struct();
     try expect(s2.a == 0);
     try expect(s2.b == 1);
     try expect(s2.c == 2);
@@ -466,9 +466,9 @@ export fn zig_big_packed_struct(x: BigPackedStruct) void {
 test "C ABI big packed struct" {
     if (!has_i128) return error.SkipZigTest;
 
-    var s = BigPackedStruct{ .a = 1, .b = 2 };
+    const s = BigPackedStruct{ .a = 1, .b = 2 };
     c_big_packed_struct(s);
-    var s2 = c_ret_big_packed_struct();
+    const s2 = c_ret_big_packed_struct();
     try expect(s2.a == 1);
     try expect(s2.b == 2);
 }
@@ -486,7 +486,7 @@ test "C ABI split struct of ints" {
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
-    var s = SplitStructInt{
+    const s = SplitStructInt{
         .a = 1234,
         .b = 100,
         .c = 1337,
@@ -514,13 +514,13 @@ test "C ABI split struct of ints and floats" {
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
-    var s = SplitStructMixed{
+    const s = SplitStructMixed{
         .a = 1234,
         .b = 100,
         .c = 1337.0,
     };
     c_split_struct_mixed(s);
-    var s2 = c_ret_split_struct_mixed();
+    const s2 = c_ret_split_struct_mixed();
     try expect(s2.a == 1234);
     try expect(s2.b == 100);
     try expect(s2.c == 1337.0);
@@ -541,14 +541,14 @@ test "C ABI sret and byval together" {
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
-    var s = BigStruct{
+    const s = BigStruct{
         .a = 1,
         .b = 2,
         .c = 3,
         .d = 4,
         .e = 5,
     };
-    var y = c_big_struct_both(s);
+    const y = c_big_struct_both(s);
     try expect(y.a == 10);
     try expect(y.b == 11);
     try expect(y.c == 12);
@@ -562,7 +562,7 @@ export fn zig_big_struct_both(x: BigStruct) BigStruct {
     expect(x.c == 32) catch @panic("test failure");
     expect(x.d == 33) catch @panic("test failure");
     expect(x.e == 34) catch @panic("test failure");
-    var s = BigStruct{
+    const s = BigStruct{
         .a = 20,
         .b = 21,
         .c = 22,
@@ -594,7 +594,7 @@ test "C ABI structs of floats as parameter" {
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
-    var v3 = Vector3{
+    const v3 = Vector3{
         .x = 3.0,
         .y = 6.0,
         .z = 12.0,
@@ -602,7 +602,7 @@ test "C ABI structs of floats as parameter" {
     c_small_struct_floats(v3);
     c_small_struct_floats_extra(v3, "hello");
 
-    var v5 = Vector5{
+    const v5 = Vector5{
         .x = 76.0,
         .y = -1.0,
         .z = -12.0,
@@ -634,13 +634,13 @@ test "C ABI structs of ints as multiple parameters" {
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
 
-    var r1 = Rect{
+    const r1 = Rect{
         .left = 1,
         .right = 21,
         .top = 16,
         .bottom = 4,
     };
-    var r2 = Rect{
+    const r2 = Rect{
         .left = 178,
         .right = 189,
         .top = 21,
@@ -671,13 +671,13 @@ test "C ABI structs of floats as multiple parameters" {
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
-    var r1 = FloatRect{
+    const r1 = FloatRect{
         .left = 1,
         .right = 21,
         .top = 16,
         .bottom = 4,
     };
-    var r2 = FloatRect{
+    const r2 = FloatRect{
         .left = 178,
         .right = 189,
         .top = 21,
@@ -787,7 +787,7 @@ test "Struct with array as padding." {
 
     c_struct_with_array(.{ .a = 1, .padding = undefined, .b = 2 });
 
-    var x = c_ret_struct_with_array();
+    const x = c_ret_struct_with_array();
     try expect(x.a == 4);
     try expect(x.b == 155);
 }
@@ -822,7 +822,7 @@ test "Float array like struct" {
         },
     });
 
-    var x = c_ret_float_array_struct();
+    const x = c_ret_float_array_struct();
     try expect(x.origin.x == 1);
     try expect(x.origin.y == 2);
     try expect(x.size.width == 3);
@@ -840,7 +840,7 @@ test "small simd vector" {
 
     c_small_vec(.{ 1, 2 });
 
-    var x = c_ret_small_vec();
+    const x = c_ret_small_vec();
     try expect(x[0] == 3);
     try expect(x[1] == 4);
 }
@@ -858,7 +858,7 @@ test "medium simd vector" {
 
     c_medium_vec(.{ 1, 2, 3, 4 });
 
-    var x = c_ret_medium_vec();
+    const x = c_ret_medium_vec();
     try expect(x[0] == 5);
     try expect(x[1] == 6);
     try expect(x[2] == 7);
@@ -879,7 +879,7 @@ test "big simd vector" {
 
     c_big_vec(.{ 1, 2, 3, 4, 5, 6, 7, 8 });
 
-    var x = c_ret_big_vec();
+    const x = c_ret_big_vec();
     try expect(x[0] == 9);
     try expect(x[1] == 10);
     try expect(x[2] == 11);
@@ -903,7 +903,7 @@ test "C ABI pointer sized float struct" {
 
     c_ptr_size_float_struct(.{ .x = 1, .y = 2 });
 
-    var x = c_ret_ptr_size_float_struct();
+    const x = c_ret_ptr_size_float_struct();
     try expect(x.x == 3);
     try expect(x.y == 4);
 }
@@ -1102,6 +1102,7 @@ test "C function that takes byval struct called via function pointer" {
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
     var fn_ptr = &c_func_ptr_byval;
+    _ = &fn_ptr;
     fn_ptr(
         @as(*anyopaque, @ptrFromInt(1)),
         @as(*anyopaque, @ptrFromInt(2)),
@@ -1224,7 +1225,7 @@ extern fn stdcall_big_union(BigUnion) callconv(stdcall_callconv) void;
 test "Stdcall ABI big union" {
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
-    var x = BigUnion{
+    const x = BigUnion{
         .a = BigStruct{
             .a = 1,
             .b = 2,

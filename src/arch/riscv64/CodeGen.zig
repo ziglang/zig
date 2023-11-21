@@ -2648,6 +2648,11 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             // conventions
             var next_register: usize = 0;
             var next_stack_offset: u32 = 0;
+            // TODO: this is never assigned, which is a bug, but I don't know how this code works
+            // well enough to try and fix it. I *think* `next_register += next_stack_offset` is
+            // supposed to be `next_stack_offset += param_size` in every case where it appears.
+            _ = &next_stack_offset;
+
             const argument_registers = [_]Register{ .a0, .a1, .a2, .a3, .a4, .a5, .a6, .a7 };
 
             for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {

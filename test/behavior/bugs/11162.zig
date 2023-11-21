@@ -6,8 +6,9 @@ test "aggregate initializers should allow initializing comptime fields, verifyin
     if (true) return error.SkipZigTest; // TODO
 
     var x: u32 = 15;
+    _ = &x;
     const T = @TypeOf(.{ @as(i32, -1234), @as(u32, 5678), x });
-    var a: T = .{ -1234, 5678, x + 1 };
+    const a: T = .{ -1234, 5678, x + 1 };
 
     try expect(a[0] == -1234);
     try expect(a[1] == 5678);

@@ -3,7 +3,7 @@ pub const Foo = enum(c_int) {
     C = D,
 };
 export fn entry() void {
-    var s: Foo = Foo.E;
+    const s: Foo = Foo.E;
     _ = s;
 }
 const D = 1;
