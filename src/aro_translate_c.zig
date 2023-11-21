@@ -141,7 +141,7 @@ pub fn translate(
     defer mapper.deinit(tree.comp.gpa);
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    errdefer arena_allocator.deinit();
+    defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
     var context = Context{
