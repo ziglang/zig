@@ -783,6 +783,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         init_exe.setName("zig init");
         init_exe.expectStdOutEqual("");
         init_exe.expectStdErrEqual("info: created build.zig\n" ++
+            "info: created build.zig.zon\n" ++
             "info: created src" ++ s ++ "main.zig\n" ++
             "info: created src" ++ s ++ "root.zig\n" ++
             "info: see `zig build --help` for a menu of options\n");
