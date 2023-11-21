@@ -597,10 +597,10 @@ pub const Value = struct {
         var check = val;
         while (true) switch (mod.intern_pool.indexToKey(check.toIntern())) {
             .ptr => |ptr| switch (ptr.addr) {
-                .decl, .mut_decl, .comptime_field => return true,
+                .decl, .mut_decl, .comptime_field, .anon_decl => return true,
                 .eu_payload, .opt_payload => |base| check = base.toValue(),
                 .elem, .field => |base_index| check = base_index.base.toValue(),
-                else => return false,
+                .int => return false,
             },
             else => return false,
         };
