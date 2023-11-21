@@ -2562,12 +2562,28 @@ pub const Dir = struct {
         };
     }
 
-    /// Writes content to the file system, creating a new file if it does not exist, truncating
-    /// if it already exists.
-    pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) !void {
-        var file = try self.createFile(sub_path, .{});
+    pub const WriteFileError = File.WriteError || File.OpenError;
+
+    /// Deprecated: use `writeFile2`.
+    pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) WriteFileError!void {
+        return writeFile2(self, .{
+            .sub_path = sub_path,
+            .data = data,
+            .flags = .{},
+        });
+    }
+
+    pub const WriteFileOptions = struct {
+        sub_path: []const u8,
+        data: []const u8,
+        flags: File.CreateFlags = .{},
+    };
+
+    /// Writes content to the file system, using the file creation flags provided.
+    pub fn writeFile2(self: Dir, options: WriteFileOptions) WriteFileError!void {
+        var file = try self.createFile(options.sub_path, options.flags);
         defer file.close();
-        try file.writeAll(data);
+        try file.writeAll(options.data);
     }
 
     pub const AccessError = os.AccessError;
