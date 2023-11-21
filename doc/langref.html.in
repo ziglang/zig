@@ -7852,7 +7852,8 @@ comptime {
       <pre>{#syntax#}@as(comptime T: type, expression) T{#endsyntax#}</pre>
       <p>
       Performs {#link|Type Coercion#}. This cast is allowed when the conversion is unambiguous and safe,
-      and is the preferred way to convert between types, whenever possible.
+      and is the preferred way to convert between types, whenever possible.  Note that this does not include
+      numeric conversions between integers and floats; for those use {#link:@intFromFloat#} and {#link:@floatFromInt#}.
       </p>
       {#header_close#}
 
