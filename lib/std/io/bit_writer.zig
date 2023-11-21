@@ -2,8 +2,6 @@ const std = @import("../std.zig");
 const io = std.io;
 const testing = std.testing;
 const assert = std.debug.assert;
-const trait = std.meta.trait;
-const meta = std.meta;
 const math = std.math;
 
 /// Creates a stream which allows for writing bit fields to another stream
@@ -35,7 +33,7 @@ pub fn BitWriter(comptime endian: std.builtin.Endian, comptime WriterType: type)
             if (bits == 0) return;
 
             const U = @TypeOf(value);
-            comptime assert(trait.isUnsignedInt(U));
+            comptime assert(@typeInfo(U).Int.signedness == .unsigned);
 
             //by extending the buffer to a minimum of u8 we can cover a number of edge cases
             // related to shifting and casting.
