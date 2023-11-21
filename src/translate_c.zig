@@ -139,7 +139,7 @@ pub fn translate(
     // For memory that has the same lifetime as the Ast that we return
     // from this function.
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    errdefer arena_allocator.deinit();
+    defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
     var context = Context{
@@ -5497,6 +5497,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                         const str_node = try Tag.string_literal.create(c.arena, "\"\"");
                         const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = name, .init = str_node });
                         try c.global_scope.macro_table.put(name, var_decl);
+                        try c.global_scope.blank_macros.put(name, {});
                         continue;
                     },
                     .LParen => {
@@ -5526,6 +5527,29 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
         .undefined_identifier => |ident| return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident}),
         .invalid_arg_usage => unreachable, // no args
     };
+
+    // Check if the macro only uses other blank macros.
+    while (true) {
+        switch (m.peek().?) {
+            .Identifier => {
+                const tok = m.list[m.i + 1];
+                const slice = m.source[tok.start..tok.end];
+                if (c.global_scope.blank_macros.contains(slice)) {
+                    m.i += 1;
+                    continue;
+                }
+            },
+            .Eof, .Nl => {
+                try c.global_scope.blank_macros.put(m.name, {});
+                const init_node = try Tag.string_literal.create(c.arena, "\"\"");
+                const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
+                try c.global_scope.macro_table.put(m.name, var_decl);
+                return;
+            },
+            else => {},
+        }
+        break;
+    }
 
     const init_node = try parseCExpr(c, m, scope);
     const last = m.next().?;
@@ -5960,6 +5984,9 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
             return parseCNumLit(c, m);
         },
         .Identifier => {
+            if (c.global_scope.blank_macros.contains(slice)) {
+                return parseCPrimaryExprInner(c, m, scope);
+            }
             const mangled_name = scope.getAlias(slice);
             if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
             const identifier = try Tag.identifier.create(c.arena, mangled_name);
@@ -5992,10 +6019,19 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     // after a primary expression.
     while (true) {
         switch (m.peek().?) {
-            .StringLiteral, .Identifier => {},
+            .StringLiteral => {},
+            .Identifier => {
+                const tok = m.list[m.i + 1];
+                const slice = m.source[tok.start..tok.end];
+                if (c.global_scope.blank_macros.contains(slice)) {
+                    m.i += 1;
+                    continue;
+                }
+            },
             else => break,
         }
-        node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = try parseCPrimaryExprInner(c, m, scope) });
+        const rhs = try parseCPrimaryExprInner(c, m, scope);
+        node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = rhs });
     }
     return node;
 }
@@ -6211,7 +6247,24 @@ fn parseCCastExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     switch (m.next().?) {
         .LParen => {
             if (try parseCTypeName(c, m, scope, true)) |type_name| {
-                try m.skip(c, .RParen);
+                while (true) {
+                    const next_token = m.next().?;
+                    switch (next_token) {
+                        .RParen => break,
+                        else => |next_tag| {
+                            // Skip trailing blank defined before the RParen.
+                            if (next_tag == .Identifier and c.global_scope.blank_macros.contains(m.slice())) {
+                                continue;
+                            }
+                            try m.fail(
+                                c,
+                                "unable to translate C expr: expected ')' instead got '{s}'",
+                                .{next_token.symbol()},
+                            );
+                            return error.ParseError;
+                        },
+                    }
+                }
                 if (m.peek().? == .LBrace) {
                     // initializer list
                     return parseCPostfixExpr(c, m, scope, type_name);
@@ -6239,6 +6292,9 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_
     const tok = m.next().?;
     switch (tok) {
         .Identifier => {
+            if (c.global_scope.blank_macros.contains(m.slice())) {
+                return try parseCSpecifierQualifierList(c, m, scope, allow_fail);
+            }
             const mangled_name = scope.getAlias(m.slice());
             if (!allow_fail or c.typedefs.contains(mangled_name)) {
                 if (builtin_typedef_map.get(mangled_name)) |ty| return try Tag.type.create(c.arena, ty);

@@ -184,6 +184,7 @@ pub fn ScopeExtra(comptime Context: type, comptime Type: type) type {
             base: Scope,
             sym_table: SymbolTable,
             macro_table: SymbolTable,
+            blank_macros: std.StringArrayHashMap(void),
             context: *Context,
             nodes: std.ArrayList(Node),
 
@@ -195,6 +196,7 @@ pub fn ScopeExtra(comptime Context: type, comptime Type: type) type {
                     },
                     .sym_table = SymbolTable.init(c.gpa),
                     .macro_table = SymbolTable.init(c.gpa),
+                    .blank_macros = std.StringArrayHashMap(void).init(c.gpa),
                     .context = c,
                     .nodes = std.ArrayList(Node).init(c.gpa),
                 };
@@ -203,6 +205,7 @@ pub fn ScopeExtra(comptime Context: type, comptime Type: type) type {
             pub fn deinit(scope: *Root) void {
                 scope.sym_table.deinit();
                 scope.macro_table.deinit();
+                scope.blank_macros.deinit();
                 scope.nodes.deinit();
             }
 
