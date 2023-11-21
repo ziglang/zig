@@ -899,8 +899,17 @@ pub fn main() void {
       The type of string literals encodes both the length, and the fact that they are null-terminated,
       and thus they can be {#link|coerced|Type Coercion#} to both {#link|Slices#} and
       {#link|Null-Terminated Pointers|Sentinel-Terminated Pointers#}.
-      Dereferencing string literals converts them to {#link|Arrays#}.
       </p>
+      <p>
+      Dereferencing string literals converts them to {#link|Arrays#}, allowing you to initialize a buffer with the contents of a string literal.
+      </p>
+      {#code_begin|syntax|mutable_string_buffer#}
+test {
+    var buffer = [_]u8{0}**256;
+    const home_dir = "C:/Users/root";
+    buffer[0..home_dir.len].* = home_dir.*;
+}
+      {#code_end#}
       <p>
       The encoding of a string in Zig is de-facto assumed to be UTF-8.
       Because Zig source code is {#link|UTF-8 encoded|Source Encoding#}, any non-ASCII bytes appearing within a string literal
