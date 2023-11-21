@@ -499,3 +499,24 @@ test "call inline fn through pointer" {
     const f = &S.foo;
     try f(123);
 }
+
+test "call coerced function" {
+    const T = struct {
+        x: f64,
+        const T = @This();
+        usingnamespace Implement(1);
+        const F = fn (comptime f64) type;
+        const Implement: F = opaque {
+            fn implementer(comptime val: anytype) type {
+                return opaque {
+                    fn incr(self: T) T {
+                        return .{ .x = self.x + val };
+                    }
+                };
+            }
+        }.implementer;
+    };
+
+    const a = T{ .x = 3 };
+    try std.testing.expect(a.incr().x == 4);
+}

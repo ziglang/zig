@@ -8301,6 +8301,13 @@ pub fn funcZirBodyInst(ip: *const InternPool, i: Index) Zir.Inst.Index {
             assert(ip.items.items(.tag)[func_decl_index] == .func_decl);
             break :b ip.items.items(.data)[func_decl_index] + zir_body_inst_field_index;
         },
+        .func_coerced => {
+            const datas = ip.items.items(.data);
+            const uncoerced_func_index: Index = @enumFromInt(ip.extra.items[
+                datas[@intFromEnum(i)] + std.meta.fieldIndex(Tag.FuncCoerced, "func").?
+            ]);
+            return ip.funcZirBodyInst(uncoerced_func_index);
+        },
         else => unreachable,
     };
     return @enumFromInt(ip.extra.items[extra_index]);
