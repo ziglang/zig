@@ -776,39 +776,17 @@ pub fn addCliTests(b: *std.Build) *Step {
     const s = std.fs.path.sep_str;
 
     {
-
-        // Test `zig init-lib`.
+        // Test `zig init`.
         const tmp_path = b.makeTempPath();
-        const init_lib = b.addSystemCommand(&.{ b.zig_exe, "init-lib" });
-        init_lib.setCwd(.{ .cwd_relative = tmp_path });
-        init_lib.setName("zig init-lib");
-        init_lib.expectStdOutEqual("");
-        init_lib.expectStdErrEqual("info: Created build.zig\n" ++
-            "info: Created src" ++ s ++ "main.zig\n" ++
-            "info: Next, try `zig build --help` or `zig build test`\n");
-
-        const run_test = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
-        run_test.setCwd(.{ .cwd_relative = tmp_path });
-        run_test.setName("zig build test");
-        run_test.expectStdOutEqual("");
-        run_test.step.dependOn(&init_lib.step);
-
-        const cleanup = b.addRemoveDirTree(tmp_path);
-        cleanup.step.dependOn(&run_test.step);
-
-        step.dependOn(&cleanup.step);
-    }
-
-    {
-        // Test `zig init-exe`.
-        const tmp_path = b.makeTempPath();
-        const init_exe = b.addSystemCommand(&.{ b.zig_exe, "init-exe" });
+        const init_exe = b.addSystemCommand(&.{ b.zig_exe, "init" });
         init_exe.setCwd(.{ .cwd_relative = tmp_path });
-        init_exe.setName("zig init-exe");
+        init_exe.setName("zig init");
         init_exe.expectStdOutEqual("");
-        init_exe.expectStdErrEqual("info: Created build.zig\n" ++
-            "info: Created src" ++ s ++ "main.zig\n" ++
-            "info: Next, try `zig build --help` or `zig build run`\n");
+        init_exe.expectStdErrEqual("info: created build.zig\n" ++
+            "info: created build.zig.zon\n" ++
+            "info: created src" ++ s ++ "main.zig\n" ++
+            "info: created src" ++ s ++ "root.zig\n" ++
+            "info: see `zig build --help` for a menu of options\n");
 
         // Test missing output path.
         const bad_out_arg = "-femit-bin=does" ++ s ++ "not" ++ s ++ "exist" ++ s ++ "foo.exe";
