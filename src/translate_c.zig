@@ -5979,6 +5979,7 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                 const tok = m.list[m.i + 1];
                 const slice = m.source[tok.start..tok.end];
                 if (c.global_scope.blank_macros.contains(slice)) {
+                    m.i += 1;
                     continue;
                 }
             },
