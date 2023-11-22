@@ -29,7 +29,7 @@ pub fn appendToolPath(self: *const GCCDetector, tc: *Toolchain) !void {
     }, .program);
 }
 
-fn addDefaultGCCPrefixes(prefixes: *PathPrefixes, tc: *const Toolchain) !void {
+fn addDefaultGCCPrefixes(prefixes: *std.ArrayListUnmanaged([]const u8), tc: *const Toolchain) !void {
     const sysroot = tc.getSysroot();
     const target = tc.getTarget();
     if (sysroot.len == 0 and target.os.tag == .linux and tc.filesystem.exists("/opt/rh")) {
@@ -57,14 +57,12 @@ fn addDefaultGCCPrefixes(prefixes: *PathPrefixes, tc: *const Toolchain) !void {
     }
 }
 
-const PathPrefixes = std.BoundedArray([]const u8, 16);
-
 fn collectLibDirsAndTriples(
     tc: *Toolchain,
-    lib_dirs: *PathPrefixes,
-    triple_aliases: *PathPrefixes,
-    biarch_libdirs: *PathPrefixes,
-    biarch_triple_aliases: *PathPrefixes,
+    lib_dirs: *std.ArrayListUnmanaged([]const u8),
+    triple_aliases: *std.ArrayListUnmanaged([]const u8),
+    biarch_libdirs: *std.ArrayListUnmanaged([]const u8),
+    biarch_triple_aliases: *std.ArrayListUnmanaged([]const u8),
 ) !void {
     const AArch64LibDirs: [2][]const u8 = .{ "/lib64", "/lib" };
     const AArch64Triples: [4][]const u8 = .{ "aarch64-none-linux-gnu", "aarch64-linux-gnu", "aarch64-redhat-linux", "aarch64-suse-linux" };
@@ -408,10 +406,18 @@ pub fn discover(self: *GCCDetector, tc: *Toolchain) !void {
     else
         target_util.get32BitArchVariant(target);
 
-    var candidate_lib_dirs: PathPrefixes = .{};
-    var candidate_triple_aliases: PathPrefixes = .{};
-    var candidate_biarch_lib_dirs: PathPrefixes = .{};
-    var candidate_biarch_triple_aliases: PathPrefixes = .{};
+    var candidate_lib_dirs_buffer: [16][]const u8 = undefined;
+    var candidate_lib_dirs = std.ArrayListUnmanaged([]const u8).initBuffer(&candidate_lib_dirs_buffer);
+
+    var candidate_triple_aliases_buffer: [16][]const u8 = undefined;
+    var candidate_triple_aliases = std.ArrayListUnmanaged([]const u8).initBuffer(&candidate_triple_aliases_buffer);
+
+    var candidate_biarch_lib_dirs_buffer: [16][]const u8 = undefined;
+    var candidate_biarch_lib_dirs = std.ArrayListUnmanaged([]const u8).initBuffer(&candidate_biarch_lib_dirs_buffer);
+
+    var candidate_biarch_triple_aliases_buffer: [16][]const u8 = undefined;
+    var candidate_biarch_triple_aliases = std.ArrayListUnmanaged([]const u8).initBuffer(&candidate_biarch_triple_aliases_buffer);
+
     try collectLibDirsAndTriples(
         tc,
         &candidate_lib_dirs,
@@ -433,7 +439,8 @@ pub fn discover(self: *GCCDetector, tc: *Toolchain) !void {
         }
     }
 
-    var prefixes: PathPrefixes = .{};
+    var prefixes_buf: [16][]const u8 = undefined;
+    var prefixes = std.ArrayListUnmanaged([]const u8).initBuffer(&prefixes_buf);
     const gcc_toolchain_dir = gccToolchainDir(tc);
     if (gcc_toolchain_dir.len != 0) {
         const adjusted = if (gcc_toolchain_dir[gcc_toolchain_dir.len - 1] == '/')
@@ -455,10 +462,10 @@ pub fn discover(self: *GCCDetector, tc: *Toolchain) !void {
     }
 
     const v0 = GCCVersion.parse("0.0.0");
-    for (prefixes.constSlice()) |prefix| {
+    for (prefixes.items) |prefix| {
         if (!tc.filesystem.exists(prefix)) continue;
 
-        for (candidate_lib_dirs.constSlice()) |suffix| {
+        for (candidate_lib_dirs.items) |suffix| {
             defer fib.reset();
             const lib_dir = std.fs.path.join(fib.allocator(), &.{ prefix, suffix }) catch continue;
             if (!tc.filesystem.exists(lib_dir)) continue;
@@ -467,17 +474,17 @@ pub fn discover(self: *GCCDetector, tc: *Toolchain) !void {
             const gcc_cross_dir_exists = tc.filesystem.joinedExists(&.{ lib_dir, "/gcc-cross" });
 
             try self.scanLibDirForGCCTriple(tc, target, lib_dir, triple_str, false, gcc_dir_exists, gcc_cross_dir_exists);
-            for (candidate_triple_aliases.constSlice()) |candidate| {
+            for (candidate_triple_aliases.items) |candidate| {
                 try self.scanLibDirForGCCTriple(tc, target, lib_dir, candidate, false, gcc_dir_exists, gcc_cross_dir_exists);
             }
         }
-        for (candidate_biarch_lib_dirs.constSlice()) |suffix| {
+        for (candidate_biarch_lib_dirs.items) |suffix| {
             const lib_dir = std.fs.path.join(fib.allocator(), &.{ prefix, suffix }) catch continue;
             if (!tc.filesystem.exists(lib_dir)) continue;
 
             const gcc_dir_exists = tc.filesystem.joinedExists(&.{ lib_dir, "/gcc" });
             const gcc_cross_dir_exists = tc.filesystem.joinedExists(&.{ lib_dir, "/gcc-cross" });
-            for (candidate_biarch_triple_aliases.constSlice()) |candidate| {
+            for (candidate_biarch_triple_aliases.items) |candidate| {
                 try self.scanLibDirForGCCTriple(tc, target, lib_dir, candidate, true, gcc_dir_exists, gcc_cross_dir_exists);
             }
         }
