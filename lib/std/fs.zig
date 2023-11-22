@@ -310,10 +310,8 @@ pub fn renameW(old_dir: Dir, old_sub_path_w: []const u16, new_dir: Dir, new_sub_
     return os.renameatW(old_dir.fd, old_sub_path_w, new_dir.fd, new_sub_path_w);
 }
 
-/// A directory that can be iterated. It is *NOT* legal to initialize this with a regular `Dir`
-/// that has been opened without iteration permission.
-pub const IterableDir = struct {
-    dir: Dir,
+pub const Dir = struct {
+    fd: os.fd_t,
 
     pub const Entry = struct {
         name: []const u8,
@@ -879,18 +877,18 @@ pub const IterableDir = struct {
         else => @compileError("unimplemented"),
     };
 
-    pub fn iterate(self: IterableDir) Iterator {
+    pub fn iterate(self: Dir) Iterator {
         return self.iterateImpl(true);
     }
 
     /// Like `iterate`, but will not reset the directory cursor before the first
     /// iteration. This should only be used in cases where it is known that the
-    /// `IterableDir` has not had its cursor modified yet (e.g. it was just opened).
-    pub fn iterateAssumeFirstIteration(self: IterableDir) Iterator {
+    /// `Dir` has not had its cursor modified yet (e.g. it was just opened).
+    pub fn iterateAssumeFirstIteration(self: Dir) Iterator {
         return self.iterateImpl(false);
     }
 
-    fn iterateImpl(self: IterableDir, first_iter_start_value: bool) Iterator {
+    fn iterateImpl(self: Dir, first_iter_start_value: bool) Iterator {
         switch (builtin.os.tag) {
             .macos,
             .ios,
@@ -901,7 +899,7 @@ pub const IterableDir = struct {
             .solaris,
             .illumos,
             => return Iterator{
-                .dir = self.dir,
+                .dir = self,
                 .seek = 0,
                 .index = 0,
                 .end_index = 0,
@@ -909,14 +907,14 @@ pub const IterableDir = struct {
                 .first_iter = first_iter_start_value,
             },
             .linux, .haiku => return Iterator{
-                .dir = self.dir,
+                .dir = self,
                 .index = 0,
                 .end_index = 0,
                 .buf = undefined,
                 .first_iter = first_iter_start_value,
             },
             .windows => return Iterator{
-                .dir = self.dir,
+                .dir = self,
                 .index = 0,
                 .end_index = 0,
                 .first_iter = first_iter_start_value,
@@ -924,7 +922,7 @@ pub const IterableDir = struct {
                 .name_data = undefined,
             },
             .wasi => return Iterator{
-                .dir = self.dir,
+                .dir = self,
                 .cookie = os.wasi.DIRCOOKIE_START,
                 .index = 0,
                 .end_index = 0,
@@ -945,11 +943,11 @@ pub const IterableDir = struct {
             dir: Dir,
             basename: []const u8,
             path: []const u8,
-            kind: IterableDir.Entry.Kind,
+            kind: Dir.Entry.Kind,
         };
 
         const StackItem = struct {
-            iter: IterableDir.Iterator,
+            iter: Dir.Iterator,
             dirname_len: usize,
         };
 
@@ -980,7 +978,7 @@ pub const IterableDir = struct {
                     }
                     try self.name_buffer.appendSlice(base.name);
                     if (base.kind == .directory) {
-                        var new_dir = top.iter.dir.openIterableDir(base.name, .{}) catch |err| switch (err) {
+                        var new_dir = top.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
                             error.NameTooLong => unreachable, // no path sep in base.name
                             else => |e| return e,
                         };
@@ -1023,10 +1021,11 @@ pub const IterableDir = struct {
     };
 
     /// Recursively iterates over a directory.
+    /// `self` must have been opened with `OpenDirOptions{.iterate = true}`.
     /// Must call `Walker.deinit` when done.
     /// The order of returned file system entries is undefined.
     /// `self` will not be closed after walking it.
-    pub fn walk(self: IterableDir, allocator: Allocator) !Walker {
+    pub fn walk(self: Dir, allocator: Allocator) !Walker {
         var name_buffer = std.ArrayList(u8).init(allocator);
         errdefer name_buffer.deinit();
 
@@ -1043,49 +1042,6 @@ pub const IterableDir = struct {
             .name_buffer = name_buffer,
         };
     }
-
-    pub fn close(self: *IterableDir) void {
-        self.dir.close();
-        self.* = undefined;
-    }
-
-    pub const ChmodError = File.ChmodError;
-
-    /// Changes the mode of the directory.
-    /// The process must have the correct privileges in order to do this
-    /// successfully, or must have the effective user ID matching the owner
-    /// of the directory.
-    pub fn chmod(self: IterableDir, new_mode: File.Mode) ChmodError!void {
-        const file: File = .{
-            .handle = self.dir.fd,
-            .capable_io_mode = .blocking,
-        };
-        try file.chmod(new_mode);
-    }
-
-    /// Changes the owner and group of the directory.
-    /// The process must have the correct privileges in order to do this
-    /// successfully. The group may be changed by the owner of the directory to
-    /// any group of which the owner is a member. If the
-    /// owner or group is specified as `null`, the ID is not changed.
-    pub fn chown(self: IterableDir, owner: ?File.Uid, group: ?File.Gid) ChownError!void {
-        const file: File = .{
-            .handle = self.dir.fd,
-            .capable_io_mode = .blocking,
-        };
-        try file.chown(owner, group);
-    }
-
-    pub const ChownError = File.ChownError;
-};
-
-pub const Dir = struct {
-    fd: os.fd_t,
-
-    pub const iterate = @compileError("only 'IterableDir' can be iterated; 'IterableDir' can be obtained with 'openIterableDir'");
-    pub const walk = @compileError("only 'IterableDir' can be walked; 'IterableDir' can be obtained with 'openIterableDir'");
-    pub const chmod = @compileError("only 'IterableDir' can have its mode changed; 'IterableDir' can be obtained with 'openIterableDir'");
-    pub const chown = @compileError("only 'IterableDir' can have its owner changed; 'IterableDir' can be obtained with 'openIterableDir'");
 
     pub const OpenError = error{
         FileNotFound,
@@ -1529,7 +1485,8 @@ pub const Dir = struct {
             .windows => {
                 const w = os.windows;
                 const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
-                    w.SYNCHRONIZE | w.FILE_TRAVERSE;
+                    w.SYNCHRONIZE | w.FILE_TRAVERSE |
+                    (if (open_dir_options.iterate) w.FILE_LIST_DIRECTORY else 0);
 
                 return self.makeOpenPathAccessMaskW(sub_path, base_flags, open_dir_options.no_follow);
             },
@@ -1538,32 +1495,6 @@ pub const Dir = struct {
                     error.FileNotFound => {
                         try self.makePath(sub_path);
                         return self.openDir(sub_path, open_dir_options);
-                    },
-                    else => |e| return e,
-                };
-            },
-        };
-    }
-
-    /// This function performs `makePath`, followed by `openIterableDir`.
-    /// If supported by the OS, this operation is atomic. It is not atomic on
-    /// all operating systems.
-    pub fn makeOpenPathIterable(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) !IterableDir {
-        return switch (builtin.os.tag) {
-            .windows => {
-                const w = os.windows;
-                const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
-                    w.SYNCHRONIZE | w.FILE_TRAVERSE | w.FILE_LIST_DIRECTORY;
-
-                return IterableDir{
-                    .dir = try self.makeOpenPathAccessMaskW(sub_path, base_flags, open_dir_options.no_follow),
-                };
-            },
-            else => {
-                return self.openIterableDir(sub_path, open_dir_options) catch |err| switch (err) {
-                    error.FileNotFound => {
-                        try self.makePath(sub_path);
-                        return self.openIterableDir(sub_path, open_dir_options);
                     },
                     else => |e| return e,
                 };
@@ -1706,39 +1637,28 @@ pub const Dir = struct {
         /// such operations are Illegal Behavior.
         access_sub_paths: bool = true,
 
+        /// `true` means the opened directory can be scanned for the files and sub-directories
+        /// of the result. It means the `iterate` function can be called.
+        iterate: bool = false,
+
         /// `true` means it won't dereference the symlinks.
         no_follow: bool = false,
     };
 
     /// Opens a directory at the given path. The directory is a system resource that remains
     /// open until `close` is called on the result.
+    /// The directory cannot be iterated unless the `iterate` option is set to `true`.
     ///
     /// Asserts that the path parameter has no null bytes.
     pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(self.fd, sub_path);
-            return self.openDirW(sub_path_w.span().ptr, args, false);
+            return .{ .dir = try self.openDirW(sub_path_w.span().ptr, args) };
         } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-            return self.openDirWasi(sub_path, args);
+            return .{ .dir = try self.openDirWasi(sub_path, args) };
         } else {
             const sub_path_c = try os.toPosixPath(sub_path);
-            return self.openDirZ(&sub_path_c, args, false);
-        }
-    }
-
-    /// Opens an iterable directory at the given path. The directory is a system resource that remains
-    /// open until `close` is called on the result.
-    ///
-    /// Asserts that the path parameter has no null bytes.
-    pub fn openIterableDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!IterableDir {
-        if (builtin.os.tag == .windows) {
-            const sub_path_w = try os.windows.sliceToPrefixedFileW(self.fd, sub_path);
-            return IterableDir{ .dir = try self.openDirW(sub_path_w.span().ptr, args, true) };
-        } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-            return IterableDir{ .dir = try self.openDirWasi(sub_path, args) };
-        } else {
-            const sub_path_c = try os.toPosixPath(sub_path);
-            return IterableDir{ .dir = try self.openDirZ(&sub_path_c, args, true) };
+            return .{ .dir = try self.openDirZ(&sub_path_c, args) };
         }
     }
 
@@ -1790,13 +1710,13 @@ pub const Dir = struct {
     }
 
     /// Same as `openDir` except the parameter is null-terminated.
-    pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions, iterable: bool) OpenError!Dir {
+    pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) OpenError!Dir {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(self.fd, sub_path_c);
-            return self.openDirW(sub_path_w.span().ptr, args, iterable);
+            return self.openDirW(sub_path_w.span().ptr, args);
         }
         const symlink_flags: u32 = if (args.no_follow) os.O.NOFOLLOW else 0x0;
-        if (!iterable) {
+        if (!args.iterate) {
             const O_PATH = if (@hasDecl(os.O, "PATH")) os.O.PATH else 0;
             return self.openDirFlagsZ(sub_path_c, os.O.DIRECTORY | os.O.RDONLY | os.O.CLOEXEC | O_PATH | symlink_flags);
         } else {
@@ -1806,12 +1726,12 @@ pub const Dir = struct {
 
     /// Same as `openDir` except the path parameter is WTF-16 encoded, NT-prefixed.
     /// This function asserts the target OS is Windows.
-    pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions, iterable: bool) OpenError!Dir {
+    pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions) OpenError!Dir {
         const w = os.windows;
         // TODO remove some of these flags if args.access_sub_paths is false
         const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
             w.SYNCHRONIZE | w.FILE_TRAVERSE;
-        const flags: u32 = if (iterable) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
+        const flags: u32 = if (args.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
         const dir = try self.makeOpenDirAccessMaskW(sub_path_w, flags, .{
             .no_follow = args.no_follow,
             .create_disposition = w.FILE_OPEN,
@@ -2203,7 +2123,7 @@ pub const Dir = struct {
         const StackItem = struct {
             name: []const u8,
             parent_dir: Dir,
-            iter: IterableDir.Iterator,
+            iter: Dir.Iterator,
 
             fn closeAll(items: []@This()) void {
                 for (items) |*item| item.iter.dir.close();
@@ -2227,7 +2147,10 @@ pub const Dir = struct {
                 handle_entry: while (true) {
                     if (treat_as_dir) {
                         if (stack.unusedCapacitySlice().len >= 1) {
-                            var iterable_dir = top.iter.dir.openIterableDir(entry.name, .{ .no_follow = true }) catch |err| switch (err) {
+                            var iterable_dir = top.iter.dir.openDir(entry.name, .{
+                                .no_follow = true,
+                                .iterate = true,
+                            }) catch |err| switch (err) {
                                 error.NotDir => {
                                     treat_as_dir = false;
                                     continue :handle_entry;
@@ -2318,7 +2241,10 @@ pub const Dir = struct {
                     var treat_as_dir = true;
                     handle_entry: while (true) {
                         if (treat_as_dir) {
-                            break :iterable_dir parent_dir.openIterableDir(name, .{ .no_follow = true }) catch |err| switch (err) {
+                            break :iterable_dir parent_dir.openDir(name, .{
+                                .no_follow = true,
+                                .iterate = true,
+                            }) catch |err| switch (err) {
                                 error.NotDir => {
                                     treat_as_dir = false;
                                     continue :handle_entry;
@@ -2393,12 +2319,12 @@ pub const Dir = struct {
 
     fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint: File.Kind) DeleteTreeError!void {
         start_over: while (true) {
-            var iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, kind_hint)) orelse return;
-            var cleanup_dir_parent: ?IterableDir = null;
+            var dir = (try self.deleteTreeOpenInitialSubpath(sub_path, kind_hint)) orelse return;
+            var cleanup_dir_parent: ?Dir = null;
             defer if (cleanup_dir_parent) |*d| d.close();
 
             var cleanup_dir = true;
-            defer if (cleanup_dir) iterable_dir.close();
+            defer if (cleanup_dir) dir.close();
 
             // Valid use of MAX_PATH_BYTES because dir_name_buf will only
             // ever store a single path component that was returned from the
@@ -2411,12 +2337,15 @@ pub const Dir = struct {
             // open it, and close the original directory. Repeat. Then start the entire operation over.
 
             scan_dir: while (true) {
-                var dir_it = iterable_dir.iterateAssumeFirstIteration();
+                var dir_it = dir.iterateAssumeFirstIteration();
                 dir_it: while (try dir_it.next()) |entry| {
                     var treat_as_dir = entry.kind == .directory;
                     handle_entry: while (true) {
                         if (treat_as_dir) {
-                            const new_dir = iterable_dir.dir.openIterableDir(entry.name, .{ .no_follow = true }) catch |err| switch (err) {
+                            const new_dir = dir.openDir(entry.name, .{
+                                .no_follow = true,
+                                .iterate = true,
+                            }) catch |err| switch (err) {
                                 error.NotDir => {
                                     treat_as_dir = false;
                                     continue :handle_entry;
@@ -2442,14 +2371,14 @@ pub const Dir = struct {
                                 => |e| return e,
                             };
                             if (cleanup_dir_parent) |*d| d.close();
-                            cleanup_dir_parent = iterable_dir;
-                            iterable_dir = new_dir;
+                            cleanup_dir_parent = dir;
+                            dir = new_dir;
                             const result = dir_name_buf[0..entry.name.len];
                             @memcpy(result, entry.name);
                             dir_name = result;
                             continue :scan_dir;
                         } else {
-                            if (iterable_dir.dir.deleteFile(entry.name)) {
+                            if (dir.deleteFile(entry.name)) {
                                 continue :dir_it;
                             } else |err| switch (err) {
                                 error.FileNotFound => continue :dir_it,
@@ -2480,11 +2409,11 @@ pub const Dir = struct {
                 }
                 // Reached the end of the directory entries, which means we successfully deleted all of them.
                 // Now to remove the directory itself.
-                iterable_dir.close();
+                dir.close();
                 cleanup_dir = false;
 
                 if (cleanup_dir_parent) |d| {
-                    d.dir.deleteDir(dir_name) catch |err| switch (err) {
+                    d.deleteDir(dir_name) catch |err| switch (err) {
                         // These two things can happen due to file system race conditions.
                         error.FileNotFound, error.DirNotEmpty => continue :start_over,
                         else => |e| return e,
@@ -2503,14 +2432,17 @@ pub const Dir = struct {
     }
 
     /// On successful delete, returns null.
-    fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File.Kind) !?IterableDir {
+    fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File.Kind) !?Dir {
         return iterable_dir: {
             // Treat as a file by default
             var treat_as_dir = kind_hint == .directory;
 
             handle_entry: while (true) {
                 if (treat_as_dir) {
-                    break :iterable_dir self.openIterableDir(sub_path, .{ .no_follow = true }) catch |err| switch (err) {
+                    break :iterable_dir self.openDir(sub_path, .{
+                        .no_follow = true,
+                        .iterate = true,
+                    }) catch |err| switch (err) {
                         error.NotDir => {
                             treat_as_dir = false;
                             continue :handle_entry;
@@ -2764,6 +2696,37 @@ pub const Dir = struct {
         return Stat.fromSystem(st);
     }
 
+    pub const ChmodError = File.ChmodError;
+
+    /// Changes the mode of the directory.
+    /// The process must have the correct privileges in order to do this
+    /// successfully, or must have the effective user ID matching the owner
+    /// of the directory. Additionally, the directory must have been opened
+    /// with `OpenDirOptions{ .iterate = true }`.
+    pub fn chmod(self: Dir, new_mode: File.Mode) ChmodError!void {
+        const file: File = .{
+            .handle = self.fd,
+            .capable_io_mode = .blocking,
+        };
+        try file.chmod(new_mode);
+    }
+
+    /// Changes the owner and group of the directory.
+    /// The process must have the correct privileges in order to do this
+    /// successfully. The group may be changed by the owner of the directory to
+    /// any group of which the owner is a member. Additionally, the directory
+    /// must have been opened with `OpenDirOptions{ .iterate = true }`. If the
+    /// owner or group is specified as `null`, the ID is not changed.
+    pub fn chown(self: Dir, owner: ?File.Uid, group: ?File.Gid) ChownError!void {
+        const file: File = .{
+            .handle = self.fd,
+            .capable_io_mode = .blocking,
+        };
+        try file.chown(owner, group);
+    }
+
+    pub const ChownError = File.ChownError;
+
     const Permissions = File.Permissions;
     pub const SetPermissionsError = File.SetPermissionsError;
 
@@ -2827,27 +2790,6 @@ pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOption
 pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!Dir {
     assert(path.isAbsoluteWindowsW(absolute_path_c));
     return cwd().openDirW(absolute_path_c, flags, false);
-}
-
-/// Opens a directory at the given path. The directory is a system resource that remains
-/// open until `close` is called on the result.
-/// See `openIterableDirAbsoluteZ` for a function that accepts a null-terminated path.
-///
-/// Asserts that the path parameter has no null bytes.
-pub fn openIterableDirAbsolute(absolute_path: []const u8, flags: Dir.OpenDirOptions) File.OpenError!IterableDir {
-    assert(path.isAbsolute(absolute_path));
-    return cwd().openIterableDir(absolute_path, flags);
-}
-
-/// Same as `openIterableDirAbsolute` but the path parameter is null-terminated.
-pub fn openIterableDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOptions) File.OpenError!IterableDir {
-    assert(path.isAbsoluteZ(absolute_path_c));
-    return IterableDir{ .dir = try cwd().openDirZ(absolute_path_c, flags, true) };
-}
-/// Same as `openIterableDirAbsolute` but the path parameter is null-terminated.
-pub fn openIterableDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!IterableDir {
-    assert(path.isAbsoluteWindowsW(absolute_path_c));
-    return IterableDir{ .dir = try cwd().openDirW(absolute_path_c, flags, true) };
 }
 
 /// Opens a file for reading or writing, without attempting to create a new file, based on an absolute path.
