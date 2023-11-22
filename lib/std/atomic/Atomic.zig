@@ -2,7 +2,7 @@ const std = @import("../std.zig");
 const builtin = @import("builtin");
 
 const testing = std.testing;
-const Ordering = std.atomic.Ordering;
+const AtomicOrder = std.builtin.AtomicOrder;
 
 pub fn Atomic(comptime T: type) type {
     return extern struct {
@@ -38,7 +38,7 @@ pub fn Atomic(comptime T: type) type {
         ///     }
         /// };
         /// ```
-        pub inline fn fence(self: *Self, comptime ordering: Ordering) void {
+        pub inline fn fence(self: *Self, comptime ordering: AtomicOrder) void {
             // LLVM's ThreadSanitizer doesn't support the normal fences so we specialize for it.
             if (builtin.sanitize_thread) {
                 const tsan = struct {
@@ -58,7 +58,14 @@ pub fn Atomic(comptime T: type) type {
                 };
             }
 
-            return std.atomic.fence(ordering);
+            return @fence(ordering);
+        }
+
+        test fence {
+            inline for (.{ .Acquire, .Release, .AcqRel, .SeqCst }) |ordering| {
+                var x = Atomic(usize).init(0);
+                x.fence(ordering);
+            }
         }
 
         /// Non-atomically load from the atomic value without synchronization.
@@ -73,23 +80,23 @@ pub fn Atomic(comptime T: type) type {
             self.value = value;
         }
 
-        pub inline fn load(self: *const Self, comptime ordering: Ordering) T {
+        pub inline fn load(self: *const Self, comptime ordering: AtomicOrder) T {
             return switch (ordering) {
-                .AcqRel => @compileError(@tagName(ordering) ++ " implies " ++ @tagName(Ordering.Release) ++ " which is only allowed on atomic stores"),
+                .AcqRel => @compileError(@tagName(ordering) ++ " implies " ++ @tagName(AtomicOrder.Release) ++ " which is only allowed on atomic stores"),
                 .Release => @compileError(@tagName(ordering) ++ " is only allowed on atomic stores"),
                 else => @atomicLoad(T, &self.value, ordering),
             };
         }
 
-        pub inline fn store(self: *Self, value: T, comptime ordering: Ordering) void {
+        pub inline fn store(self: *Self, value: T, comptime ordering: AtomicOrder) void {
             switch (ordering) {
-                .AcqRel => @compileError(@tagName(ordering) ++ " implies " ++ @tagName(Ordering.Acquire) ++ " which is only allowed on atomic loads"),
+                .AcqRel => @compileError(@tagName(ordering) ++ " implies " ++ @tagName(AtomicOrder.Acquire) ++ " which is only allowed on atomic loads"),
                 .Acquire => @compileError(@tagName(ordering) ++ " is only allowed on atomic loads"),
                 else => @atomicStore(T, &self.value, value, ordering),
             }
         }
 
-        pub inline fn swap(self: *Self, value: T, comptime ordering: Ordering) T {
+        pub inline fn swap(self: *Self, value: T, comptime ordering: AtomicOrder) T {
             return self.rmw(.Xchg, value, ordering);
         }
 
@@ -97,8 +104,8 @@ pub fn Atomic(comptime T: type) type {
             self: *Self,
             compare: T,
             exchange: T,
-            comptime success: Ordering,
-            comptime failure: Ordering,
+            comptime success: AtomicOrder,
+            comptime failure: AtomicOrder,
         ) ?T {
             return self.cmpxchg(true, compare, exchange, success, failure);
         }
@@ -107,8 +114,8 @@ pub fn Atomic(comptime T: type) type {
             self: *Self,
             compare: T,
             exchange: T,
-            comptime success: Ordering,
-            comptime failure: Ordering,
+            comptime success: AtomicOrder,
+            comptime failure: AtomicOrder,
         ) ?T {
             return self.cmpxchg(false, compare, exchange, success, failure);
         }
@@ -118,16 +125,16 @@ pub fn Atomic(comptime T: type) type {
             comptime is_strong: bool,
             compare: T,
             exchange: T,
-            comptime success: Ordering,
-            comptime failure: Ordering,
+            comptime success: AtomicOrder,
+            comptime failure: AtomicOrder,
         ) ?T {
             if (success == .Unordered or failure == .Unordered) {
-                @compileError(@tagName(Ordering.Unordered) ++ " is only allowed on atomic loads and stores");
+                @compileError(@tagName(AtomicOrder.Unordered) ++ " is only allowed on atomic loads and stores");
             }
 
             const success_is_stronger = switch (failure) {
                 .SeqCst => success == .SeqCst,
-                .AcqRel => @compileError(@tagName(failure) ++ " implies " ++ @tagName(Ordering.Release) ++ " which is only allowed on success"),
+                .AcqRel => @compileError(@tagName(failure) ++ " implies " ++ @tagName(AtomicOrder.Release) ++ " which is only allowed on success"),
                 .Acquire => success == .SeqCst or success == .AcqRel or success == .Acquire,
                 .Release => @compileError(@tagName(failure) ++ " is only allowed on success"),
                 .Monotonic => true,
@@ -148,40 +155,40 @@ pub fn Atomic(comptime T: type) type {
             self: *Self,
             comptime op: std.builtin.AtomicRmwOp,
             value: T,
-            comptime ordering: Ordering,
+            comptime ordering: AtomicOrder,
         ) T {
             return @atomicRmw(T, &self.value, op, value, ordering);
         }
 
-        pub inline fn fetchAdd(self: *Self, value: T, comptime ordering: Ordering) T {
+        pub inline fn fetchAdd(self: *Self, value: T, comptime ordering: AtomicOrder) T {
             return self.rmw(.Add, value, ordering);
         }
 
-        pub inline fn fetchSub(self: *Self, value: T, comptime ordering: Ordering) T {
+        pub inline fn fetchSub(self: *Self, value: T, comptime ordering: AtomicOrder) T {
             return self.rmw(.Sub, value, ordering);
         }
 
-        pub inline fn fetchMin(self: *Self, value: T, comptime ordering: Ordering) T {
+        pub inline fn fetchMin(self: *Self, value: T, comptime ordering: AtomicOrder) T {
             return self.rmw(.Min, value, ordering);
         }
 
-        pub inline fn fetchMax(self: *Self, value: T, comptime ordering: Ordering) T {
+        pub inline fn fetchMax(self: *Self, value: T, comptime ordering: AtomicOrder) T {
             return self.rmw(.Max, value, ordering);
         }
 
-        pub inline fn fetchAnd(self: *Self, value: T, comptime ordering: Ordering) T {
+        pub inline fn fetchAnd(self: *Self, value: T, comptime ordering: AtomicOrder) T {
             return self.rmw(.And, value, ordering);
         }
 
-        pub inline fn fetchNand(self: *Self, value: T, comptime ordering: Ordering) T {
+        pub inline fn fetchNand(self: *Self, value: T, comptime ordering: AtomicOrder) T {
             return self.rmw(.Nand, value, ordering);
         }
 
-        pub inline fn fetchOr(self: *Self, value: T, comptime ordering: Ordering) T {
+        pub inline fn fetchOr(self: *Self, value: T, comptime ordering: AtomicOrder) T {
             return self.rmw(.Or, value, ordering);
         }
 
-        pub inline fn fetchXor(self: *Self, value: T, comptime ordering: Ordering) T {
+        pub inline fn fetchXor(self: *Self, value: T, comptime ordering: AtomicOrder) T {
             return self.rmw(.Xor, value, ordering);
         }
 
@@ -192,19 +199,19 @@ pub fn Atomic(comptime T: type) type {
             Toggle,
         };
 
-        pub inline fn bitSet(self: *Self, bit: Bit, comptime ordering: Ordering) u1 {
+        pub inline fn bitSet(self: *Self, bit: Bit, comptime ordering: AtomicOrder) u1 {
             return bitRmw(self, .Set, bit, ordering);
         }
 
-        pub inline fn bitReset(self: *Self, bit: Bit, comptime ordering: Ordering) u1 {
+        pub inline fn bitReset(self: *Self, bit: Bit, comptime ordering: AtomicOrder) u1 {
             return bitRmw(self, .Reset, bit, ordering);
         }
 
-        pub inline fn bitToggle(self: *Self, bit: Bit, comptime ordering: Ordering) u1 {
+        pub inline fn bitToggle(self: *Self, bit: Bit, comptime ordering: AtomicOrder) u1 {
             return bitRmw(self, .Toggle, bit, ordering);
         }
 
-        inline fn bitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: Ordering) u1 {
+        inline fn bitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: AtomicOrder) u1 {
             // x86 supports dedicated bitwise instructions
             if (comptime builtin.target.cpu.arch.isX86() and @sizeOf(T) >= 2 and @sizeOf(T) <= 8) {
                 // TODO: this causes std lib test failures when enabled
@@ -223,7 +230,7 @@ pub fn Atomic(comptime T: type) type {
             return @intFromBool(value & mask != 0);
         }
 
-        inline fn x86BitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: Ordering) u1 {
+        inline fn x86BitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: AtomicOrder) u1 {
             const old_bit: u8 = switch (@sizeOf(T)) {
                 2 => switch (op) {
                     .Set => asm volatile ("lock btsw %[bit], %[ptr]"
@@ -305,13 +312,6 @@ pub fn Atomic(comptime T: type) type {
     };
 }
 
-test "Atomic.fence" {
-    inline for (.{ .Acquire, .Release, .AcqRel, .SeqCst }) |ordering| {
-        var x = Atomic(usize).init(0);
-        x.fence(ordering);
-    }
-}
-
 fn atomicIntTypes() []const type {
     comptime var bytes = 1;
     comptime var types: []const type = &[_]type{};
@@ -357,7 +357,7 @@ test "Atomic.store" {
     }
 }
 
-const atomic_rmw_orderings = [_]Ordering{
+const atomic_rmw_orderings = [_]AtomicOrder{
     .Monotonic,
     .Acquire,
     .Release,
@@ -389,7 +389,7 @@ test "Atomic.swap" {
     }
 }
 
-const atomic_cmpxchg_orderings = [_][2]Ordering{
+const atomic_cmpxchg_orderings = [_][2]AtomicOrder{
     .{ .Monotonic, .Monotonic },
     .{ .Acquire, .Monotonic },
     .{ .Acquire, .Acquire },
