@@ -1,8 +1,6 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 
-pub const Ordering = std.builtin.AtomicOrder;
-
 pub const Stack = @import("atomic/stack.zig").Stack;
 pub const Queue = @import("atomic/queue.zig").Queue;
 pub const Atomic = @import("atomic/Atomic.zig").Atomic;
@@ -11,31 +9,6 @@ test {
     _ = @import("atomic/stack.zig");
     _ = @import("atomic/queue.zig");
     _ = @import("atomic/Atomic.zig");
-}
-
-pub inline fn fence(comptime ordering: Ordering) void {
-    switch (ordering) {
-        .Acquire, .Release, .AcqRel, .SeqCst => {
-            @fence(ordering);
-        },
-        else => {
-            @compileLog(ordering, " only applies to a given memory location");
-        },
-    }
-}
-
-pub inline fn compilerFence(comptime ordering: Ordering) void {
-    switch (ordering) {
-        .Acquire, .Release, .AcqRel, .SeqCst => asm volatile ("" ::: "memory"),
-        else => @compileLog(ordering, " only applies to a given memory location"),
-    }
-}
-
-test "fence/compilerFence" {
-    inline for (.{ .Acquire, .Release, .AcqRel, .SeqCst }) |ordering| {
-        compilerFence(ordering);
-        fence(ordering);
-    }
 }
 
 /// Signals to the processor that the caller is inside a busy-wait spin-loop.
@@ -74,9 +47,8 @@ pub inline fn spinLoopHint() void {
     }
 }
 
-test "spinLoopHint" {
-    var i: usize = 10;
-    while (i > 0) : (i -= 1) {
+test spinLoopHint {
+    for (0..10) |_| {
         spinLoopHint();
     }
 }
@@ -85,8 +57,8 @@ test "spinLoopHint" {
 /// Add this much padding or align to this boundary to avoid atomically-updated
 /// memory from forcing cache invalidations on near, but non-atomic, memory.
 ///
-// https://en.wikipedia.org/wiki/False_sharing
-// https://github.com/golang/go/search?q=CacheLinePadSize
+/// https://en.wikipedia.org/wiki/False_sharing
+/// https://github.com/golang/go/search?q=CacheLinePadSize
 pub const cache_line = switch (builtin.cpu.arch) {
     // x86_64: Starting from Intel's Sandy Bridge, the spatial prefetcher pulls in pairs of 64-byte cache lines at a time.
     // - https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-optimization-manual.pdf
