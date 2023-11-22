@@ -722,8 +722,9 @@ pub fn addCases(ctx: *Cases) !void {
             \\    _ = E1.a;
             \\}
         , &.{
-            ":1:28: error: duplicate enum field 'b'",
-            ":1:22: note: other field here",
+            ":1:22: error: duplicate enum field 'b'",
+            ":1:28: note: other field here",
+            ":1:12: note: enum declared here",
         });
 
         case.addError(

@@ -5187,6 +5187,15 @@ fn unionDeclInner(
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
+    var sfba = std.heap.stackFallback(256, astgen.arena);
+    const sfba_allocator = sfba.get();
+
+    var duplicate_names = std.AutoArrayHashMap(u32, std.ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
+    try duplicate_names.ensureTotalCapacity(field_count);
+
+    // When there aren't errors, use this to avoid a second iteration.
+    var any_duplicate = false;
+
     for (members) |member_node| {
         var member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
             .decl => continue,
@@ -5202,6 +5211,16 @@ fn unionDeclInner(
 
         const field_name = try astgen.identAsString(member.ast.main_token);
         wip_members.appendToField(field_name);
+
+        const gop = try duplicate_names.getOrPut(field_name);
+
+        if (gop.found_existing) {
+            try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
+            any_duplicate = true;
+        } else {
+            gop.value_ptr.* = .{};
+            try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
+        }
 
         const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
         wip_members.appendToField(doc_comment_index);
@@ -5256,6 +5275,34 @@ fn unionDeclInner(
             wip_members.appendToField(@intFromEnum(tag_value));
         }
     }
+
+    if (any_duplicate) {
+        var it = duplicate_names.iterator();
+
+        while (it.next()) |entry| {
+            const record = entry.value_ptr.*;
+            if (record.items.len > 1) {
+                var error_notes = std.ArrayList(u32).init(astgen.arena);
+
+                for (record.items[1..]) |duplicate| {
+                    try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
+                }
+
+                try error_notes.append(try astgen.errNoteNode(node, "union declared here", .{}));
+
+                try astgen.appendErrorTokNotes(
+                    record.items[0],
+                    "duplicate union field: '{s}'",
+                    .{try astgen.identifierTokenString(record.items[0])},
+                    error_notes.items,
+                );
+            }
+        }
+
+        return error.AnalysisFail;
+    }
+
+    duplicate_names.deinit();
 
     if (!block_scope.isEmpty()) {
         _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
@@ -5466,6 +5513,15 @@ fn containerDecl(
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, @intCast(counts.decls), @intCast(counts.total_fields), bits_per_field, max_field_size);
             defer wip_members.deinit();
 
+            var sfba = std.heap.stackFallback(256, astgen.arena);
+            const sfba_allocator = sfba.get();
+
+            var duplicate_names = std.AutoArrayHashMap(u32, std.ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
+            try duplicate_names.ensureTotalCapacity(counts.total_fields);
+
+            // When there aren't errors, use this to avoid a second iteration.
+            var any_duplicate = false;
+
             for (container_decl.ast.members) |member_node| {
                 if (member_node == counts.nonexhaustive_node)
                     continue;
@@ -5481,6 +5537,16 @@ fn containerDecl(
 
                 const field_name = try astgen.identAsString(member.ast.main_token);
                 wip_members.appendToField(field_name);
+
+                const gop = try duplicate_names.getOrPut(field_name);
+
+                if (gop.found_existing) {
+                    try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
+                    any_duplicate = true;
+                } else {
+                    gop.value_ptr.* = .{};
+                    try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
+                }
 
                 const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
                 wip_members.appendToField(doc_comment_index);
@@ -5508,6 +5574,34 @@ fn containerDecl(
                     wip_members.appendToField(@intFromEnum(tag_value_inst));
                 }
             }
+
+            if (any_duplicate) {
+                var it = duplicate_names.iterator();
+
+                while (it.next()) |entry| {
+                    const record = entry.value_ptr.*;
+                    if (record.items.len > 1) {
+                        var error_notes = std.ArrayList(u32).init(astgen.arena);
+
+                        for (record.items[1..]) |duplicate| {
+                            try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
+                        }
+
+                        try error_notes.append(try astgen.errNoteNode(node, "enum declared here", .{}));
+
+                        try astgen.appendErrorTokNotes(
+                            record.items[0],
+                            "duplicate enum field: '{s}'",
+                            .{try astgen.identifierTokenString(record.items[0])},
+                            error_notes.items,
+                        );
+                    }
+                }
+
+                return error.AnalysisFail;
+            }
+
+            duplicate_names.deinit();
 
             if (!block_scope.isEmpty()) {
                 _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);

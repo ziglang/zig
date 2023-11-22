@@ -3038,24 +3038,8 @@ fn zirEnumDecl(
         const has_tag_value = @as(u1, @truncate(cur_bit_bag)) != 0;
         cur_bit_bag >>= 1;
 
-        const field_name_zir = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
-        extra_index += 1;
-
         // doc comment
-        extra_index += 1;
-
-        const field_name = try mod.intern_pool.getOrPutString(gpa, field_name_zir);
-        if (incomplete_enum.addFieldName(&mod.intern_pool, field_name)) |other_index| {
-            const field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = field_i }).lazy;
-            const other_field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = other_index }).lazy;
-            const msg = msg: {
-                const msg = try sema.errMsg(block, field_src, "duplicate enum field '{s}'", .{field_name_zir});
-                errdefer msg.destroy(gpa);
-                try sema.errNote(block, other_field_src, msg, "other field here", .{});
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
-        }
+        extra_index += 2;
 
         const tag_overflow = if (has_tag_value) overflow: {
             const tag_val_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
