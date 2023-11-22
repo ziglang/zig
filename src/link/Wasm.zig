@@ -5115,6 +5115,23 @@ fn markReferences(wasm: *Wasm) !void {
         if (sym.isExported(wasm.base.options.rdynamic) or sym.isNoStrip()) {
             try wasm.mark(sym_loc);
         }
+
+        // Debug sections may require to be parsed and marked when it contains
+        // relocations to alive symbols.
+        if (sym.tag == .section and !wasm.base.options.strip) {
+            const file = sym_loc.file orelse continue; // Incremental debug info is done independently
+            const object = &wasm.objects.items[file];
+            const atom_index = try Object.parseSymbolIntoAtom(object, file, sym_loc.index, wasm);
+            const atom = wasm.getAtom(atom_index);
+            for (atom.relocs.items) |reloc| {
+                const target_loc: SymbolLoc = .{ .index = reloc.index, .file = atom.file };
+                const target_sym = target_loc.getSymbol(wasm);
+                if (target_sym.isAlive()) {
+                    sym.mark();
+                    continue; // Skip all other relocations as this debug atom is already marked now
+                }
+            }
+        }
     }
 }
 
