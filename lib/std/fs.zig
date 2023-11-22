@@ -10,16 +10,16 @@ const assert = std.debug.assert;
 
 const is_darwin = builtin.os.tag.isDarwin();
 
-pub const Dir = @import("fs/Dir.zig");
 pub const AtomicFile = @import("fs/AtomicFile.zig");
+pub const Dir = @import("fs/Dir.zig");
+pub const File = @import("fs/File.zig");
+pub const path = @import("fs/path.zig");
 
 pub const has_executable_bit = switch (builtin.os.tag) {
     .windows, .wasi => false,
     else => true,
 };
 
-pub const path = @import("fs/path.zig");
-pub const File = @import("fs/file.zig").File;
 pub const wasi = @import("fs/wasi.zig");
 
 // TODO audit these APIs with respect to Dir and absolute paths
@@ -94,6 +94,7 @@ pub const need_async_thread = std.io.is_async and switch (builtin.os.tag) {
 };
 
 /// TODO remove the allocator requirement from this API
+/// TODO move to Dir
 pub fn atomicSymLink(allocator: Allocator, existing_path: []const u8, new_path: []const u8) !void {
     if (cwd().symLink(existing_path, new_path, .{})) {
         return;
@@ -104,7 +105,7 @@ pub fn atomicSymLink(allocator: Allocator, existing_path: []const u8, new_path: 
 
     const dirname = path.dirname(new_path) orelse ".";
 
-    var rand_buf: [AtomicFile.RANDOM_BYTES]u8 = undefined;
+    var rand_buf: [AtomicFile.random_bytes_len]u8 = undefined;
     const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64_encoder.calcSize(rand_buf.len));
     defer allocator.free(tmp_path);
     @memcpy(tmp_path[0..dirname.len], dirname);
@@ -634,8 +635,9 @@ test {
         _ = &copyFileAbsolute;
         _ = &updateFileAbsolute;
     }
-    _ = &File;
+    _ = &AtomicFile;
     _ = &Dir;
+    _ = &File;
     _ = &path;
     _ = @import("fs/test.zig");
     _ = @import("fs/get_app_data_dir.zig");

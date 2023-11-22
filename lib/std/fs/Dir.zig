@@ -2527,6 +2527,7 @@ const builtin = @import("builtin");
 const std = @import("../std.zig");
 const File = std.fs.File;
 const AtomicFile = std.fs.AtomicFile;
+// https://github.com/ziglang/zig/issues/5019
 const posix = std.os;
 const mem = std.mem;
 const fs = std.fs;
