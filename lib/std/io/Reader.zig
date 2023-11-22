@@ -258,14 +258,14 @@ pub fn readIntoBoundedBytes(
     comptime num_bytes: usize,
     bounded: *std.BoundedArray(u8, num_bytes),
 ) anyerror!void {
-    while (bounded.len < num_bytes) {
+    while (bounded.len() < num_bytes) {
         // get at most the number of bytes free in the bounded array
         const bytes_read = try self.read(bounded.unusedCapacitySlice());
         if (bytes_read == 0) return;
 
-        // bytes_read will never be larger than @TypeOf(bounded.len)
+        // bytes_read will never be larger than the unused capacity
         // due to `self.read` being bounded by `bounded.unusedCapacitySlice()`
-        bounded.len += @as(@TypeOf(bounded.len), @intCast(bytes_read));
+        try bounded.resize(bounded.len() + bytes_read);
     }
 }
 
