@@ -1653,12 +1653,12 @@ pub const Dir = struct {
     pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(self.fd, sub_path);
-            return .{ .dir = try self.openDirW(sub_path_w.span().ptr, args) };
+            return self.openDirW(sub_path_w.span().ptr, args);
         } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-            return .{ .dir = try self.openDirWasi(sub_path, args) };
+            return self.openDirWasi(sub_path, args);
         } else {
             const sub_path_c = try os.toPosixPath(sub_path);
-            return .{ .dir = try self.openDirZ(&sub_path_c, args) };
+            return self.openDirZ(&sub_path_c, args);
         }
     }
 
@@ -2784,12 +2784,12 @@ pub fn openDirAbsolute(absolute_path: []const u8, flags: Dir.OpenDirOptions) Fil
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
 pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
     assert(path.isAbsoluteZ(absolute_path_c));
-    return cwd().openDirZ(absolute_path_c, flags, false);
+    return cwd().openDirZ(absolute_path_c, flags);
 }
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
 pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!Dir {
     assert(path.isAbsoluteWindowsW(absolute_path_c));
-    return cwd().openDirW(absolute_path_c, flags, false);
+    return cwd().openDirW(absolute_path_c, flags);
 }
 
 /// Opens a file for reading or writing, without attempting to create a new file, based on an absolute path.

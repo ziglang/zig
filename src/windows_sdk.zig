@@ -14,7 +14,11 @@ const product_version_max_length = version_major_minor_max_length + ".65535".len
 /// Iterates via `iterator` and collects all folders with names starting with `optional_prefix`
 /// and similar to SemVer. Returns slice of folder names sorted in descending order.
 /// Caller owns result.
-fn iterateAndFilterBySemVer(iterator: *std.fs.IterableDir.Iterator, allocator: std.mem.Allocator, comptime optional_prefix: ?[]const u8) error{ OutOfMemory, VersionNotFound }![][]const u8 {
+fn iterateAndFilterBySemVer(
+    iterator: *std.fs.Dir.Iterator,
+    allocator: std.mem.Allocator,
+    comptime optional_prefix: ?[]const u8,
+) error{ OutOfMemory, VersionNotFound }![][]const u8 {
     var dirs_filtered_list = std.ArrayList([]const u8).init(allocator);
     errdefer {
         for (dirs_filtered_list.items) |filtered_dir| allocator.free(filtered_dir);
@@ -476,7 +480,9 @@ pub const Windows81Sdk = struct {
             if (!std.fs.path.isAbsolute(sdk_lib_dir_path)) return error.Windows81SdkNotFound;
 
             // enumerate files in sdk path looking for latest version
-            var sdk_lib_dir = std.fs.openIterableDirAbsolute(sdk_lib_dir_path, .{}) catch |err| switch (err) {
+            var sdk_lib_dir = std.fs.openDirAbsolute(sdk_lib_dir_path, .{
+                .iterate = true,
+            }) catch |err| switch (err) {
                 error.NameTooLong => return error.PathTooLong,
                 else => return error.Windows81SdkNotFound,
             };
@@ -727,7 +733,9 @@ const MsvcLibDir = struct {
             if (!std.fs.path.isAbsolute(visualstudio_folder_path)) return error.PathNotFound;
             // enumerate folders that contain `privateregistry.bin`, looking for all versions
             // f.i. %localappdata%\Microsoft\VisualStudio\17.0_9e9cbb98\
-            var visualstudio_folder = std.fs.openIterableDirAbsolute(visualstudio_folder_path, .{}) catch return error.PathNotFound;
+            var visualstudio_folder = std.fs.openDirAbsolute(visualstudio_folder_path, .{
+                .iterate = true,
+            }) catch return error.PathNotFound;
             defer visualstudio_folder.close();
 
             var iterator = visualstudio_folder.iterate();

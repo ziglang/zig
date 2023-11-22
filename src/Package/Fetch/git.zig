@@ -1384,11 +1384,11 @@ test "packfile indexing and checkout" {
     var repository = try Repository.init(testing.allocator, pack_file, index_file);
     defer repository.deinit();
 
-    var worktree = testing.tmpIterableDir(.{});
+    var worktree = testing.tmpDir(.{ .iterate = true });
     defer worktree.cleanup();
 
     const commit_id = try parseOid("dd582c0720819ab7130b103635bd7271b9fd4feb");
-    try repository.checkout(worktree.iterable_dir.dir, commit_id);
+    try repository.checkout(worktree.dir, commit_id);
 
     const expected_files: []const []const u8 = &.{
         "dir/file",
@@ -1410,7 +1410,7 @@ test "packfile indexing and checkout" {
     var actual_files: std.ArrayListUnmanaged([]u8) = .{};
     defer actual_files.deinit(testing.allocator);
     defer for (actual_files.items) |file| testing.allocator.free(file);
-    var walker = try worktree.iterable_dir.walk(testing.allocator);
+    var walker = try worktree.dir.walk(testing.allocator);
     defer walker.deinit();
     while (try walker.next()) |entry| {
         if (entry.kind != .file) continue;
@@ -1442,7 +1442,7 @@ test "packfile indexing and checkout" {
         \\revision 19
         \\
     ;
-    const actual_file_contents = try worktree.iterable_dir.dir.readFileAlloc(testing.allocator, "file", max_file_size);
+    const actual_file_contents = try worktree.dir.readFileAlloc(testing.allocator, "file", max_file_size);
     defer testing.allocator.free(actual_file_contents);
     try testing.expectEqualStrings(expected_file_contents, actual_file_contents);
 }
