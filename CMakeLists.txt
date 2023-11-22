@@ -211,7 +211,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/atomic.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/atomic/Atomic.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/atomic/queue.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/atomic/stack.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/base64.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/BitStack.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/buf_map.zig"
