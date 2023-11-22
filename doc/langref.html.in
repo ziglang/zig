@@ -55,7 +55,28 @@
         }
       }
 
-      a:hover,a:focus {
+      #table-of-contents {
+        margin-bottom: 0;
+      }
+      #navigation ul {
+        margin-top: 0;
+        list-style-type: none;
+        column-gap: 0;
+        width: fit-content;
+      }
+      #navigation li {
+        padding-top: 0.75em;
+        line-height: 1.15;
+        overflow-wrap:anywhere;
+        line-break: wrap;
+      }
+      a {
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      a:focus {
         background: #fff2a8;
       }
       dt {
@@ -227,7 +248,7 @@
         a {
             color: #88f;
         }
-        a:hover,a:focus {
+        a:focus {
             color: #000;
         }
         table, th, td {
