@@ -20860,6 +20860,12 @@ fn zirReify(
                     .alignment = field_align,
                 });
 
+                const gop = field_name_table.getOrPutAssumeCapacity(field_name);
+                if (gop.found_existing) {
+                    // TODO: better source location
+                    return sema.fail(block, src, "duplicate union field {}", .{field_name.fmt(ip)});
+                }
+
                 if (field_ty.zigTypeTag(mod) == .Opaque) {
                     const msg = msg: {
                         const msg = try sema.errMsg(block, src, "opaque types have unknown size and therefore cannot be directly embedded in unions", .{});

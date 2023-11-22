@@ -1727,7 +1727,6 @@ fn structInitExpr(
         const sfba_allocator = sfba.get();
 
         var duplicate_names = std.AutoArrayHashMap(u32, ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
-        defer duplicate_names.deinit();
         try duplicate_names.ensureTotalCapacity(@intCast(struct_init.ast.fields.len));
 
         // When there aren't errors, use this to avoid a second iteration.
@@ -5094,8 +5093,6 @@ fn structDeclInner(
         return error.AnalysisFail;
     }
 
-    duplicate_names.deinit();
-
     try gz.setStruct(decl_inst, .{
         .src_node = node,
         .layout = layout,
@@ -5301,8 +5298,6 @@ fn unionDeclInner(
 
         return error.AnalysisFail;
     }
-
-    duplicate_names.deinit();
 
     if (!block_scope.isEmpty()) {
         _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
@@ -5600,8 +5595,6 @@ fn containerDecl(
 
                 return error.AnalysisFail;
             }
-
-            duplicate_names.deinit();
 
             if (!block_scope.isEmpty()) {
                 _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
