@@ -1927,7 +1927,7 @@ pub fn teb() *TEB {
             if (builtin.zig_backend == .stage2_c) {
                 break :blk @ptrCast(@alignCast(zig_x86_windows_teb()));
             } else {
-                break :blk asm volatile (
+                break :blk asm (
                     \\ movl %%fs:0x18, %[ptr]
                     : [ptr] "=r" (-> *TEB),
                 );
@@ -1937,13 +1937,13 @@ pub fn teb() *TEB {
             if (builtin.zig_backend == .stage2_c) {
                 break :blk @ptrCast(@alignCast(zig_x86_64_windows_teb()));
             } else {
-                break :blk asm volatile (
+                break :blk asm (
                     \\ movq %%gs:0x30, %[ptr]
                     : [ptr] "=r" (-> *TEB),
                 );
             }
         },
-        .aarch64 => asm volatile (
+        .aarch64 => asm (
             \\ mov %[ptr], x18
             : [ptr] "=r" (-> *TEB),
         ),
