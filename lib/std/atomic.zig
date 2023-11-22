@@ -1,15 +1,8 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 
-pub const Stack = @import("atomic/stack.zig").Stack;
 pub const Queue = @import("atomic/queue.zig").Queue;
 pub const Atomic = @import("atomic/Atomic.zig").Atomic;
-
-test {
-    _ = @import("atomic/stack.zig");
-    _ = @import("atomic/queue.zig");
-    _ = @import("atomic/Atomic.zig");
-}
 
 /// Signals to the processor that the caller is inside a busy-wait spin-loop.
 pub inline fn spinLoopHint() void {
@@ -90,3 +83,8 @@ pub const cache_line = switch (builtin.cpu.arch) {
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_wasm.go#L7
     else => 64,
 };
+
+test {
+    _ = Queue;
+    _ = Atomic;
+}
