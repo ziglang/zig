@@ -50,7 +50,7 @@ tlv_ptr_section_index: ?u8 = null,
 locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 globals: std.ArrayListUnmanaged(SymbolWithLoc) = .{},
 resolver: std.StringHashMapUnmanaged(u32) = .{},
-unresolved: std.AutoArrayHashMapUnmanaged(u32, ResolveAction.Kind) = .{},
+unresolved: std.AutoArrayHashMapUnmanaged(u32, void) = .{},
 
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 globals_free_list: std.ArrayListUnmanaged(u32) = .{},
@@ -58,7 +58,7 @@ globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 dyld_stub_binder_index: ?u32 = null,
 dyld_private_atom_index: ?Atom.Index = null,
 
-strtab: StringTable(.strtab) = .{},
+strtab: StringTable = .{},
 
 got_table: TableSection(SymbolWithLoc) = .{},
 stub_table: TableSection(SymbolWithLoc) = .{},
@@ -115,6 +115,10 @@ anon_decls: AnonDeclTable = .{},
 /// Note that once we refactor `Atom`'s lifetime and ownership rules,
 /// this will be a table indexed by index into the list of Atoms.
 relocs: RelocationTable = .{},
+/// TODO I do not have time to make this right but this will go once
+/// MachO linker is rewritten more-or-less to feature the same resolution
+/// mechanism as the ELF linker.
+actions: ActionTable = .{},
 
 /// A table of rebases indexed by the owning them `Atom`.
 /// Note that once we refactor `Atom`'s lifetime and ownership rules,
@@ -130,7 +134,7 @@ bindings: BindingTable = .{},
 lazy_syms: LazySymbolTable = .{},
 
 /// Table of tracked Decls.
-decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
+decls: DeclTable = .{},
 
 /// Table of threadlocal variables descriptors.
 /// They are emitted in the `__thread_vars` section.
@@ -206,7 +210,7 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 
         self.d_sym = .{
             .allocator = allocator,
-            .dwarf = link.File.Dwarf.init(allocator, &self.base, options.target),
+            .dwarf = link.File.Dwarf.init(allocator, &self.base, .dwarf32),
             .file = d_sym_file,
         };
     }
@@ -247,7 +251,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
             .incremental,
     };
 
-    if (options.use_llvm) {
+    if (options.use_llvm and options.module != null) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
 
@@ -417,9 +421,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         try self.parseDependentLibs(&dependent_libs);
     }
 
-    var actions = std.ArrayList(ResolveAction).init(self.base.allocator);
-    defer actions.deinit();
-    try self.resolveSymbols(&actions);
+    try self.resolveSymbols();
 
     if (self.getEntryPoint() == null) {
         self.error_flags.no_entry_point_found = true;
@@ -429,11 +431,16 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         return error.FlushFailure;
     }
 
-    for (actions.items) |action| switch (action.kind) {
-        .none => {},
-        .add_got => try self.addGotEntry(action.target),
-        .add_stub => try self.addStubEntry(action.target),
-    };
+    {
+        var it = self.actions.iterator();
+        while (it.next()) |entry| {
+            const global_index = entry.key_ptr.*;
+            const global = self.globals.items[global_index];
+            const flags = entry.value_ptr.*;
+            if (flags.add_got) try self.addGotEntry(global);
+            if (flags.add_stub) try self.addStubEntry(global);
+        }
+    }
 
     try self.createDyldPrivateAtom();
     try self.writeStubHelperPreamble();
@@ -1215,7 +1222,7 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     log.debug("writing GOT entry {d}: @{x} => {x}", .{ index, vmaddr, entry_value });
 
     var buf: [@sizeOf(u64)]u8 = undefined;
-    mem.writeIntLittle(u64, &buf, entry_value);
+    mem.writeInt(u64, &buf, entry_value, .little);
     try self.base.file.?.pwriteAll(&buf, file_offset);
 
     if (is_hot_update_compatible) {
@@ -1322,7 +1329,7 @@ fn writeStubTableEntry(self: *MachO, index: usize) !void {
 
     {
         var buf: [@sizeOf(u64)]u8 = undefined;
-        mem.writeIntLittle(u64, &buf, stub_helper_addr);
+        mem.writeInt(u64, &buf, stub_helper_addr, .little);
         const off = laptr_header.offset + @sizeOf(u64) * index;
         try self.base.file.?.pwriteAll(&buf, off);
     }
@@ -1409,6 +1416,51 @@ pub fn allocateSpecialSymbols(self: *MachO) !void {
             seg.segName(),
         });
     }
+
+    for (self.globals.items) |global| {
+        const sym = self.getSymbolPtr(global);
+        if (sym.n_desc != N_BOUNDARY) continue;
+        if (self.getSectionBoundarySymbol(global)) |bsym| {
+            const sect_id = self.getSectionByName(bsym.segname, bsym.sectname) orelse {
+                try self.reportUnresolvedBoundarySymbol(self.getSymbolName(global), "section not found: {s},{s}", .{
+                    bsym.segname, bsym.sectname,
+                });
+                continue;
+            };
+            const sect = self.sections.items(.header)[sect_id];
+            sym.n_sect = sect_id + 1;
+            sym.n_value = switch (bsym.kind) {
+                .start => sect.addr,
+                .stop => sect.addr + sect.size,
+            };
+
+            log.debug("allocating {s} at @0x{x} sect({d})", .{
+                self.getSymbolName(global),
+                sym.n_value,
+                sym.n_sect,
+            });
+
+            continue;
+        }
+        if (self.getSegmentBoundarySymbol(global)) |bsym| {
+            const seg_id = self.getSegmentByName(bsym.segname) orelse {
+                try self.reportUnresolvedBoundarySymbol(self.getSymbolName(global), "segment not found: {s}", .{
+                    bsym.segname,
+                });
+
+                continue;
+            };
+            const seg = self.segments.items[seg_id];
+            sym.n_value = switch (bsym.kind) {
+                .start => seg.vmaddr,
+                .stop => seg.vmaddr + seg.vmsize,
+            };
+
+            log.debug("allocating {s} at @0x{x} ", .{ self.getSymbolName(global), sym.n_value });
+
+            continue;
+        }
+    }
 }
 
 const CreateAtomOpts = struct {
@@ -1435,6 +1487,7 @@ pub fn createTentativeDefAtoms(self: *MachO) !void {
         const sym = self.getSymbolPtr(global);
         if (!sym.tentative()) continue;
         if (sym.n_desc == N_DEAD) continue;
+        if (sym.n_desc == N_BOUNDARY) continue;
 
         log.debug("creating tentative definition for ATOM(%{d}, '{s}') in object({?})", .{
             global.sym_index, self.getSymbolName(global), global.file,
@@ -1589,18 +1642,18 @@ pub fn createDsoHandleSymbol(self: *MachO) !void {
     _ = self.unresolved.swapRemove(self.getGlobalIndex("___dso_handle").?);
 }
 
-pub fn resolveSymbols(self: *MachO, actions: *std.ArrayList(ResolveAction)) !void {
+pub fn resolveSymbols(self: *MachO) !void {
     // We add the specified entrypoint as the first unresolved symbols so that
     // we search for it in libraries should there be no object files specified
     // on the linker line.
     if (self.base.options.output_mode == .Exe) {
         const entry_name = self.base.options.entry orelse load_commands.default_entry_point;
-        _ = try self.addUndefined(entry_name, .none);
+        _ = try self.addUndefined(entry_name, .{});
     }
 
     // Force resolution of any symbols requested by the user.
     for (self.base.options.force_undefined_symbols.keys()) |sym_name| {
-        _ = try self.addUndefined(sym_name, .none);
+        _ = try self.addUndefined(sym_name, .{});
     }
 
     for (self.objects.items, 0..) |_, object_id| {
@@ -1612,17 +1665,24 @@ pub fn resolveSymbols(self: *MachO, actions: *std.ArrayList(ResolveAction)) !voi
     // Finally, force resolution of dyld_stub_binder if there are imports
     // requested.
     if (self.unresolved.count() > 0 and self.dyld_stub_binder_index == null) {
-        self.dyld_stub_binder_index = try self.addUndefined("dyld_stub_binder", .add_got);
+        self.dyld_stub_binder_index = try self.addUndefined("dyld_stub_binder", .{ .add_got = true });
     }
     if (!self.base.options.single_threaded and self.mode == .incremental) {
-        _ = try self.addUndefined("__tlv_bootstrap", .none);
+        _ = try self.addUndefined("__tlv_bootstrap", .{});
     }
 
-    try self.resolveSymbolsInDylibs(actions);
+    try self.resolveSymbolsInDylibs();
 
     try self.createMhExecuteHeaderSymbol();
     try self.createDsoHandleSymbol();
     try self.resolveSymbolsAtLoading();
+
+    // Final stop, check if unresolved contain any of the special magic boundary symbols
+    // * section$start$
+    // * section$stop$
+    // * segment$start$
+    // * segment$stop$
+    try self.resolveBoundarySymbols();
 }
 
 fn resolveGlobalSymbol(self: *MachO, current: SymbolWithLoc) !void {
@@ -1634,7 +1694,7 @@ fn resolveGlobalSymbol(self: *MachO, current: SymbolWithLoc) !void {
     if (!gop.found_existing) {
         gop.value_ptr.* = current;
         if (sym.undf() and !sym.tentative()) {
-            try self.unresolved.putNoClobber(gpa, self.getGlobalIndex(sym_name).?, .none);
+            try self.unresolved.putNoClobber(gpa, self.getGlobalIndex(sym_name).?, {});
         }
         return;
     }
@@ -1670,7 +1730,7 @@ fn resolveGlobalSymbol(self: *MachO, current: SymbolWithLoc) !void {
     const global_is_weak = global_sym.sect() and (global_sym.weakDef() or global_sym.pext());
 
     if (sym_is_strong and global_is_strong) {
-        // TODO redo this logic with corresponding logic in updateDeclExports to avoid this
+        // TODO redo this logic with corresponding logic in updateExports to avoid this
         // ugly check.
         if (self.mode == .zld) {
             try self.reportSymbolCollision(global, current);
@@ -1766,7 +1826,7 @@ fn resolveSymbolsInArchives(self: *MachO) !void {
     }
 }
 
-fn resolveSymbolsInDylibs(self: *MachO, actions: *std.ArrayList(ResolveAction)) !void {
+fn resolveSymbolsInDylibs(self: *MachO) !void {
     if (self.dylibs.items.len == 0) return;
 
     const gpa = self.base.allocator;
@@ -1793,11 +1853,7 @@ fn resolveSymbolsInDylibs(self: *MachO, actions: *std.ArrayList(ResolveAction)) 
                 sym.n_desc |= macho.N_WEAK_REF;
             }
 
-            if (self.unresolved.fetchSwapRemove(global_index)) |entry| blk: {
-                if (!sym.undf()) break :blk;
-                if (self.mode == .zld) break :blk;
-                try actions.append(.{ .kind = entry.value, .target = global });
-            }
+            _ = self.unresolved.swapRemove(global_index);
 
             continue :loop;
         }
@@ -1834,6 +1890,36 @@ fn resolveSymbolsAtLoading(self: *MachO) !void {
             );
             sym.n_type = macho.N_EXT;
             sym.n_desc = n_desc;
+            _ = self.unresolved.swapRemove(global_index);
+            continue;
+        }
+
+        next_sym += 1;
+    }
+}
+
+fn resolveBoundarySymbols(self: *MachO) !void {
+    var next_sym: usize = 0;
+    while (next_sym < self.unresolved.count()) {
+        const global_index = self.unresolved.keys()[next_sym];
+        const global = &self.globals.items[global_index];
+
+        if (self.getSectionBoundarySymbol(global.*) != null or self.getSegmentBoundarySymbol(global.*) != null) {
+            const sym_index = try self.allocateSymbol();
+            const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
+            const sym = self.getSymbolPtr(sym_loc);
+            sym.* = .{
+                .n_strx = try self.strtab.insert(self.base.allocator, self.getSymbolName(global.*)),
+                .n_type = macho.N_SECT | macho.N_EXT,
+                .n_sect = 0,
+                .n_desc = N_BOUNDARY,
+                .n_value = 0,
+            };
+            if (global.getFile()) |file| {
+                const global_object = &self.objects.items[file];
+                global_object.globals_lookup[global.sym_index] = global_index;
+            }
+            global.* = sym_loc;
             _ = self.unresolved.swapRemove(global_index);
             continue;
         }
@@ -1904,6 +1990,7 @@ pub fn deinit(self: *MachO) void {
         m.exports.deinit(gpa);
     }
     self.decls.deinit(gpa);
+
     self.lazy_syms.deinit(gpa);
     self.tlv_table.deinit(gpa);
 
@@ -1911,7 +1998,14 @@ pub fn deinit(self: *MachO) void {
         atoms.deinit(gpa);
     }
     self.unnamed_const_atoms.deinit(gpa);
-    self.anon_decls.deinit(gpa);
+
+    {
+        var it = self.anon_decls.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.exports.deinit(gpa);
+        }
+        self.anon_decls.deinit(gpa);
+    }
 
     self.atom_by_index_table.deinit(gpa);
 
@@ -1919,6 +2013,7 @@ pub fn deinit(self: *MachO) void {
         relocs.deinit(gpa);
     }
     self.relocs.deinit(gpa);
+    self.actions.deinit(gpa);
 
     for (self.rebases.values()) |*rebases| {
         rebases.deinit(gpa);
@@ -2157,7 +2252,7 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
     else
         try codegen.generateFunction(&self.base, decl.srcLoc(mod), func_index, air, liveness, &code_buffer, .none);
 
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2180,7 +2275,7 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
     // needs to be updated.
-    try self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    try self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Module.Decl.Index) !u32 {
@@ -2196,7 +2291,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     const index = unnamed_consts.items.len;
     const name = try std.fmt.allocPrint(gpa, "___unnamed_{s}_{d}", .{ decl_name, index });
     defer gpa.free(name);
-    const atom_index = switch (try self.lowerConst(name, typed_value, self.data_const_section_index.?, decl.srcLoc(mod))) {
+    const atom_index = switch (try self.lowerConst(name, typed_value, typed_value.ty.abiAlignment(mod), self.data_const_section_index.?, decl.srcLoc(mod))) {
         .ok => |atom_index| atom_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2219,6 +2314,7 @@ fn lowerConst(
     self: *MachO,
     name: []const u8,
     tv: TypedValue,
+    required_alignment: InternPool.Alignment,
     sect_id: u8,
     src_loc: Module.SrcLoc,
 ) !LowerConstResult {
@@ -2226,8 +2322,6 @@ fn lowerConst(
 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
-
-    const mod = self.base.options.module.?;
 
     log.debug("allocating symbol indexes for {s}", .{name});
 
@@ -2238,12 +2332,11 @@ fn lowerConst(
     const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| return .{ .fail = em },
     };
 
-    const required_alignment = tv.ty.abiAlignment(mod);
     const atom = self.getAtomPtr(atom_index);
     atom.size = code.len;
     // TODO: work out logic for disambiguating functions from function pointers
@@ -2260,6 +2353,7 @@ fn lowerConst(
     log.debug("  (required alignment 0x{x})", .{required_alignment});
 
     try self.writeAtom(atom_index, code);
+    self.markRelocsDirtyByTarget(atom.getSymbolWithLoc());
 
     return .{ .ok = atom_index };
 }
@@ -2275,12 +2369,16 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
     const decl = mod.declPtr(decl_index);
 
     if (decl.val.getExternFunc(mod)) |_| {
-        return; // TODO Should we do more when front-end analyzed extern decl?
+        return;
     }
-    if (decl.val.getVariable(mod)) |variable| {
-        if (variable.is_extern) {
-            return; // TODO Should we do more when front-end analyzed extern decl?
-        }
+
+    if (decl.isExtern(mod)) {
+        // TODO make this part of getGlobalSymbol
+        const name = mod.intern_pool.stringToSlice(decl.name);
+        const sym_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{name});
+        defer self.base.allocator.free(sym_name);
+        _ = try self.addUndefined(sym_name, .{ .add_got = true });
+        return;
     }
 
     const is_threadlocal = if (decl.val.getVariable(mod)) |variable|
@@ -2320,7 +2418,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
             .parent_atom_index = sym_index,
         });
 
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2342,7 +2440,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
     // needs to be updated.
-    try self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
+    try self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 fn updateLazySymbolAtom(
@@ -2489,7 +2587,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
             .parent_atom_index = init_sym_index,
         });
 
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2531,7 +2629,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
         );
     }
 
-    try self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
+    try self.updateExports(module, .{ .decl_index = decl_index }, module.getDeclExports(decl_index));
 
     // 2. Create a TLV descriptor.
     const init_atom_sym_loc = init_atom.getSymbolWithLoc();
@@ -2672,17 +2770,17 @@ pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: Module.De
     }
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     self: *MachO,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
-) File.UpdateDeclExportsError!void {
+) File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |llvm_object|
-        return llvm_object.updateDeclExports(mod, decl_index, exports);
+        return llvm_object.updateExports(mod, exported, exports);
 
     if (self.base.options.emit == null) return;
 
@@ -2691,11 +2789,30 @@ pub fn updateDeclExports(
 
     const gpa = self.base.allocator;
 
-    const decl = mod.declPtr(decl_index);
-    const atom_index = try self.getOrCreateAtomForDecl(decl_index);
+    const metadata = switch (exported) {
+        .decl_index => |decl_index| blk: {
+            _ = try self.getOrCreateAtomForDecl(decl_index);
+            break :blk self.decls.getPtr(decl_index).?;
+        },
+        .value => |value| self.anon_decls.getPtr(value) orelse blk: {
+            const first_exp = exports[0];
+            const res = try self.lowerAnonDecl(value, .none, first_exp.getSrcLoc(mod));
+            switch (res) {
+                .ok => {},
+                .fail => |em| {
+                    // TODO maybe it's enough to return an error here and let Module.processExportsInner
+                    // handle the error?
+                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
+                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
+                    return;
+                },
+            }
+            break :blk self.anon_decls.getPtr(value).?;
+        },
+    };
+    const atom_index = metadata.atom;
     const atom = self.getAtom(atom_index);
-    const decl_sym = atom.getSymbol(self);
-    const decl_metadata = self.decls.getPtr(decl_index).?;
+    const sym = atom.getSymbol(self);
 
     for (exports) |exp| {
         const exp_name = try std.fmt.allocPrint(gpa, "_{}", .{
@@ -2707,73 +2824,75 @@ pub fn updateDeclExports(
 
         if (exp.opts.section.unwrap()) |section_name| {
             if (!mod.intern_pool.stringEqlSlice(section_name, "__text")) {
-                try mod.failed_exports.putNoClobber(
-                    mod.gpa,
-                    exp,
-                    try Module.ErrorMsg.create(
-                        gpa,
-                        decl.srcLoc(mod),
-                        "Unimplemented: ExportOptions.section",
-                        .{},
-                    ),
-                );
+                try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
+                    gpa,
+                    exp.getSrcLoc(mod),
+                    "Unimplemented: ExportOptions.section",
+                    .{},
+                ));
                 continue;
             }
         }
 
         if (exp.opts.linkage == .LinkOnce) {
-            try mod.failed_exports.putNoClobber(
-                mod.gpa,
-                exp,
-                try Module.ErrorMsg.create(
-                    gpa,
-                    decl.srcLoc(mod),
-                    "Unimplemented: GlobalLinkage.LinkOnce",
-                    .{},
-                ),
-            );
+            try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
+                gpa,
+                exp.getSrcLoc(mod),
+                "Unimplemented: GlobalLinkage.LinkOnce",
+                .{},
+            ));
             continue;
         }
 
-        const sym_index = decl_metadata.getExport(self, exp_name) orelse blk: {
-            const sym_index = try self.allocateSymbol();
-            try decl_metadata.exports.append(gpa, sym_index);
-            break :blk sym_index;
+        const global_sym_index = metadata.getExport(self, exp_name) orelse blk: {
+            const global_sym_index = if (self.getGlobalIndex(exp_name)) |global_index| ind: {
+                const global = self.globals.items[global_index];
+                // TODO this is just plain wrong as it all should happen in a single `resolveSymbols`
+                // pass. This will go away once we abstact away Zig's incremental compilation into
+                // its own module.
+                if (global.getFile() == null and self.getSymbol(global).undf()) {
+                    _ = self.unresolved.swapRemove(global_index);
+                    break :ind global.sym_index;
+                }
+                break :ind try self.allocateSymbol();
+            } else try self.allocateSymbol();
+            try metadata.exports.append(gpa, global_sym_index);
+            break :blk global_sym_index;
         };
-        const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
-        const sym = self.getSymbolPtr(sym_loc);
-        sym.* = .{
+        const global_sym_loc = SymbolWithLoc{ .sym_index = global_sym_index };
+        const global_sym = self.getSymbolPtr(global_sym_loc);
+        global_sym.* = .{
             .n_strx = try self.strtab.insert(gpa, exp_name),
             .n_type = macho.N_SECT | macho.N_EXT,
-            .n_sect = self.text_section_index.? + 1, // TODO what if we export a variable?
+            .n_sect = metadata.section + 1,
             .n_desc = 0,
-            .n_value = decl_sym.n_value,
+            .n_value = sym.n_value,
         };
 
         switch (exp.opts.linkage) {
             .Internal => {
                 // Symbol should be hidden, or in MachO lingo, private extern.
                 // We should also mark the symbol as Weak: n_desc == N_WEAK_DEF.
-                sym.n_type |= macho.N_PEXT;
-                sym.n_desc |= macho.N_WEAK_DEF;
+                global_sym.n_type |= macho.N_PEXT;
+                global_sym.n_desc |= macho.N_WEAK_DEF;
             },
             .Strong => {},
             .Weak => {
                 // Weak linkage is specified as part of n_desc field.
                 // Symbol's n_type is like for a symbol with strong linkage.
-                sym.n_desc |= macho.N_WEAK_DEF;
+                global_sym.n_desc |= macho.N_WEAK_DEF;
             },
             else => unreachable,
         }
 
-        self.resolveGlobalSymbol(sym_loc) catch |err| switch (err) {
+        self.resolveGlobalSymbol(global_sym_loc) catch |err| switch (err) {
             error.MultipleSymbolDefinitions => {
                 // TODO: this needs rethinking
                 const global = self.getGlobal(exp_name).?;
-                if (sym_loc.sym_index != global.sym_index and global.getFile() != null) {
+                if (global_sym_loc.sym_index != global.sym_index and global.getFile() != null) {
                     _ = try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
                         gpa,
-                        decl.srcLoc(mod),
+                        exp.getSrcLoc(mod),
                         \\LinkError: symbol '{s}' defined multiple times
                     ,
                         .{exp_name},
@@ -2868,47 +2987,61 @@ pub fn getDeclVAddr(self: *MachO, decl_index: Module.Decl.Index, reloc_info: Fil
     return 0;
 }
 
-pub fn lowerAnonDecl(self: *MachO, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
-    // This is basically the same as lowerUnnamedConst.
-    // example:
-    // const ty = mod.intern_pool.typeOf(decl_val).toType();
-    // const val = decl_val.toValue();
-    // The symbol name can be something like `__anon_{d}` with `@intFromEnum(decl_val)`.
-    // It doesn't have an owner decl because it's just an unnamed constant that might
-    // be used by more than one function, however, its address is being used so we need
-    // to put it in some location.
-    // ...
+pub fn lowerAnonDecl(
+    self: *MachO,
+    decl_val: InternPool.Index,
+    explicit_alignment: InternPool.Alignment,
+    src_loc: Module.SrcLoc,
+) !codegen.Result {
     const gpa = self.base.allocator;
-    const gop = try self.anon_decls.getOrPut(gpa, decl_val);
-    if (!gop.found_existing) {
-        const mod = self.base.options.module.?;
-        const ty = mod.intern_pool.typeOf(decl_val).toType();
-        const val = decl_val.toValue();
-        const tv = TypedValue{ .ty = ty, .val = val };
-        const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
-        defer gpa.free(name);
-        const res = self.lowerConst(name, tv, self.data_const_section_index.?, src_loc) catch |err| switch (err) {
-            else => {
-                // TODO improve error message
-                const em = try Module.ErrorMsg.create(gpa, src_loc, "lowerAnonDecl failed with error: {s}", .{
-                    @errorName(err),
-                });
-                return .{ .fail = em };
-            },
-        };
-        const atom_index = switch (res) {
-            .ok => |atom_index| atom_index,
-            .fail => |em| return .{ .fail = em },
-        };
-        gop.value_ptr.* = atom_index;
+    const mod = self.base.options.module.?;
+    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const decl_alignment = switch (explicit_alignment) {
+        .none => ty.abiAlignment(mod),
+        else => explicit_alignment,
+    };
+    if (self.anon_decls.get(decl_val)) |metadata| {
+        const existing_addr = self.getAtom(metadata.atom).getSymbol(self).n_value;
+        if (decl_alignment.check(existing_addr))
+            return .ok;
     }
+
+    const val = decl_val.toValue();
+    const tv = TypedValue{ .ty = ty, .val = val };
+    var name_buf: [32]u8 = undefined;
+    const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
+        @intFromEnum(decl_val),
+    }) catch unreachable;
+    const res = self.lowerConst(
+        name,
+        tv,
+        decl_alignment,
+        self.data_const_section_index.?,
+        src_loc,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| return .{ .fail = try Module.ErrorMsg.create(
+            gpa,
+            src_loc,
+            "unable to lower constant value: {s}",
+            .{@errorName(e)},
+        ) },
+    };
+    const atom_index = switch (res) {
+        .ok => |atom_index| atom_index,
+        .fail => |em| return .{ .fail = em },
+    };
+    try self.anon_decls.put(gpa, decl_val, .{
+        .atom = atom_index,
+        .section = self.data_const_section_index.?,
+    });
     return .ok;
 }
 
 pub fn getAnonDeclVAddr(self: *MachO, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
 
-    const this_atom_index = self.anon_decls.get(decl_val).?;
+    const this_atom_index = self.anon_decls.get(decl_val).?.atom;
     const sym_index = self.getAtom(this_atom_index).getSymbolIndex().?;
     const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index }).?;
     try Atom.addRelocation(self, atom_index, .{
@@ -3294,7 +3427,7 @@ fn allocateAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignm
 
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
-    var vaddr = blk: {
+    const vaddr = blk: {
         var i: usize = 0;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
@@ -3391,7 +3524,7 @@ pub fn getGlobalSymbol(self: *MachO, name: []const u8, lib_name: ?[]const u8) !u
     const gpa = self.base.allocator;
     const sym_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
     defer gpa.free(sym_name);
-    return self.addUndefined(sym_name, .add_stub);
+    return self.addUndefined(sym_name, .{ .add_stub = true });
 }
 
 pub fn writeSegmentHeaders(self: *MachO, writer: anytype) !void {
@@ -3515,6 +3648,7 @@ fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
             const atom = self.getAtom(atom_index);
             const sym = self.getSymbol(atom.getSymbolWithLoc());
             if (sym.n_desc == N_DEAD) continue;
+            if (sym.n_desc == N_BOUNDARY) continue;
 
             const sect_id = sym.n_sect - 1;
             const section = self.sections.items(.header)[sect_id];
@@ -3669,6 +3803,7 @@ fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
             const atom = self.getAtom(atom_index);
             const sym = self.getSymbol(atom.getSymbolWithLoc());
             if (sym.n_desc == N_DEAD) continue;
+            if (sym.n_desc == N_BOUNDARY) continue;
 
             const sect_id = sym.n_sect - 1;
             const section = self.sections.items(.header)[sect_id];
@@ -3723,7 +3858,7 @@ fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
                 const base_offset = sym.n_value - segment.vmaddr;
                 const rel_offset = @as(u32, @intCast(rel.r_address - ctx.base_offset));
                 const offset = @as(u64, @intCast(base_offset + rel_offset));
-                const addend = mem.readIntLittle(i64, code[rel_offset..][0..8]);
+                const addend = mem.readInt(i64, code[rel_offset..][0..8], .little);
 
                 const dylib_ordinal = @divTrunc(@as(i16, @bitCast(bind_sym.n_desc)), macho.N_SYMBOL_RESOLVER);
                 log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
@@ -3769,6 +3904,7 @@ fn collectExportData(self: *MachO, trie: *Trie) !void {
         if (sym.undf()) continue;
         assert(sym.ext());
         if (sym.n_desc == N_DEAD) continue;
+        if (sym.n_desc == N_BOUNDARY) continue;
 
         const sym_name = self.getSymbolName(global);
         log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
@@ -3835,7 +3971,7 @@ fn writeDyldInfoData(self: *MachO) !void {
     link_seg.filesize = needed_size;
     assert(mem.isAlignedGeneric(u64, link_seg.fileoff + link_seg.filesize, @alignOf(u64)));
 
-    var buffer = try gpa.alloc(u8, needed_size);
+    const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
     @memset(buffer, 0);
 
@@ -3903,7 +4039,8 @@ const asc_u64 = std.sort.asc(u64);
 fn addSymbolToFunctionStarts(self: *MachO, sym_loc: SymbolWithLoc, addresses: *std.ArrayList(u64)) !void {
     const sym = self.getSymbol(sym_loc);
     if (sym.n_strx == 0) return;
-    if (sym.n_desc == MachO.N_DEAD) return;
+    if (sym.n_desc == N_DEAD) return;
+    if (sym.n_desc == N_BOUNDARY) return;
     if (self.symbolIsTemp(sym_loc)) return;
     try addresses.append(sym.n_value);
 }
@@ -4011,7 +4148,8 @@ pub fn writeDataInCode(self: *MachO) !void {
         for (object.exec_atoms.items) |atom_index| {
             const atom = self.getAtom(atom_index);
             const sym = self.getSymbol(atom.getSymbolWithLoc());
-            if (sym.n_desc == MachO.N_DEAD) continue;
+            if (sym.n_desc == N_DEAD) continue;
+            if (sym.n_desc == N_BOUNDARY) return;
 
             const source_addr = if (object.getSourceSymbol(atom.sym_index)) |source_sym|
                 source_sym.n_value
@@ -4069,7 +4207,8 @@ fn writeSymtabs(self: *MachO) !void {
 fn addLocalToSymtab(self: *MachO, sym_loc: SymbolWithLoc, locals: *std.ArrayList(macho.nlist_64)) !void {
     const sym = self.getSymbol(sym_loc);
     if (sym.n_strx == 0) return; // no name, skip
-    if (sym.n_desc == MachO.N_DEAD) return; // garbage-collected, skip
+    if (sym.n_desc == N_DEAD) return; // garbage-collected, skip
+    if (sym.n_desc == N_BOUNDARY) return; // boundary symbol, skip
     if (sym.ext()) return; // an export lands in its own symtab section, skip
     if (self.symbolIsTemp(sym_loc)) return; // local temp symbol, skip
     var out_sym = sym;
@@ -4107,6 +4246,7 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
         const sym = self.getSymbol(global);
         if (sym.undf()) continue; // import, skip
         if (sym.n_desc == N_DEAD) continue;
+        if (sym.n_desc == N_BOUNDARY) continue;
         var out_sym = sym;
         out_sym.n_strx = try self.strtab.insert(gpa, self.getSymbolName(global));
         try exports.append(out_sym);
@@ -4122,6 +4262,7 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
         if (sym.n_strx == 0) continue; // no name, skip
         if (!sym.undf()) continue; // not an import, skip
         if (sym.n_desc == N_DEAD) continue;
+        if (sym.n_desc == N_BOUNDARY) continue;
         const new_index = @as(u32, @intCast(imports.items.len));
         var out_sym = sym;
         out_sym.n_strx = try self.strtab.insert(gpa, self.getSymbolName(global));
@@ -4452,7 +4593,7 @@ pub fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
             if (!self.stub_table.lookup.contains(entry)) continue;
             const target_sym = self.getSymbol(entry);
             assert(target_sym.undf());
-            try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry).?);
+            try writer.writeInt(u32, iundefsym + ctx.imports_table.get(entry).?, .little);
         }
     }
 
@@ -4463,9 +4604,9 @@ pub fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
             if (!self.got_table.lookup.contains(entry)) continue;
             const target_sym = self.getSymbol(entry);
             if (target_sym.undf()) {
-                try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry).?);
+                try writer.writeInt(u32, iundefsym + ctx.imports_table.get(entry).?, .little);
             } else {
-                try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL);
+                try writer.writeInt(u32, macho.INDIRECT_SYMBOL_LOCAL, .little);
             }
         }
     }
@@ -4477,7 +4618,7 @@ pub fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
             if (!self.stub_table.lookup.contains(entry)) continue;
             const target_sym = self.getSymbol(entry);
             assert(target_sym.undf());
-            try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry).?);
+            try writer.writeInt(u32, iundefsym + ctx.imports_table.get(entry).?, .little);
         }
     }
 
@@ -4675,13 +4816,16 @@ pub fn ptraceDetach(self: *MachO, pid: std.os.pid_t) !void {
     self.hot_state.mach_task = null;
 }
 
-fn addUndefined(self: *MachO, name: []const u8, action: ResolveAction.Kind) !u32 {
+pub fn addUndefined(self: *MachO, name: []const u8, flags: RelocFlags) !u32 {
     const gpa = self.base.allocator;
 
     const gop = try self.getOrPutGlobalPtr(name);
     const global_index = self.getGlobalIndex(name).?;
 
-    if (gop.found_existing) return global_index;
+    if (gop.found_existing) {
+        try self.updateRelocActions(global_index, flags);
+        return global_index;
+    }
 
     const sym_index = try self.allocateSymbol();
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
@@ -4689,11 +4833,21 @@ fn addUndefined(self: *MachO, name: []const u8, action: ResolveAction.Kind) !u32
 
     const sym = self.getSymbolPtr(sym_loc);
     sym.n_strx = try self.strtab.insert(gpa, name);
-    sym.n_type = macho.N_UNDF;
+    sym.n_type = macho.N_EXT | macho.N_UNDF;
 
-    try self.unresolved.putNoClobber(gpa, global_index, action);
+    try self.unresolved.putNoClobber(gpa, global_index, {});
+    try self.updateRelocActions(global_index, flags);
 
     return global_index;
+}
+
+fn updateRelocActions(self: *MachO, global_index: u32, flags: RelocFlags) !void {
+    const act_gop = try self.actions.getOrPut(self.base.allocator, global_index);
+    if (!act_gop.found_existing) {
+        act_gop.value_ptr.* = .{};
+    }
+    act_gop.value_ptr.add_got = act_gop.value_ptr.add_got or flags.add_got;
+    act_gop.value_ptr.add_stub = act_gop.value_ptr.add_stub or flags.add_stub;
 }
 
 pub fn makeStaticString(bytes: []const u8) [16]u8 {
@@ -4779,6 +4933,55 @@ pub fn getSymbolName(self: *const MachO, sym_with_loc: SymbolWithLoc) []const u8
     }
 }
 
+const BoundarySymbolKind = enum {
+    start,
+    stop,
+};
+
+const SectionBoundarySymbol = struct {
+    kind: BoundarySymbolKind,
+    segname: []const u8,
+    sectname: []const u8,
+};
+
+pub fn getSectionBoundarySymbol(self: *const MachO, sym_with_loc: SymbolWithLoc) ?SectionBoundarySymbol {
+    const sym_name = self.getSymbolName(sym_with_loc);
+    if (mem.startsWith(u8, sym_name, "section$")) {
+        const trailing = sym_name["section$".len..];
+        const kind: BoundarySymbolKind = kind: {
+            if (mem.startsWith(u8, trailing, "start$")) break :kind .start;
+            if (mem.startsWith(u8, trailing, "stop$")) break :kind .stop;
+            return null;
+        };
+        const names = trailing[@tagName(kind).len + 1 ..];
+        const sep_idx = mem.indexOf(u8, names, "$") orelse return null;
+        const segname = names[0..sep_idx];
+        const sectname = names[sep_idx + 1 ..];
+        return .{ .kind = kind, .segname = segname, .sectname = sectname };
+    }
+    return null;
+}
+
+const SegmentBoundarySymbol = struct {
+    kind: BoundarySymbolKind,
+    segname: []const u8,
+};
+
+pub fn getSegmentBoundarySymbol(self: *const MachO, sym_with_loc: SymbolWithLoc) ?SegmentBoundarySymbol {
+    const sym_name = self.getSymbolName(sym_with_loc);
+    if (mem.startsWith(u8, sym_name, "segment$")) {
+        const trailing = sym_name["segment$".len..];
+        const kind: BoundarySymbolKind = kind: {
+            if (mem.startsWith(u8, trailing, "start$")) break :kind .start;
+            if (mem.startsWith(u8, trailing, "stop$")) break :kind .stop;
+            return null;
+        };
+        const segname = trailing[@tagName(kind).len + 1 ..];
+        return .{ .kind = kind, .segname = segname };
+    }
+    return null;
+}
+
 /// Returns pointer to the global entry for `name` if one exists.
 pub fn getGlobalPtr(self: *MachO, name: []const u8) ?*SymbolWithLoc {
     const global_index = self.resolver.get(name) orelse return null;
@@ -4806,6 +5009,11 @@ const GetOrPutGlobalPtrResult = struct {
     found_existing: bool,
     value_ptr: *SymbolWithLoc,
 };
+
+/// Used only for disambiguating local from global at relocation level.
+/// TODO this must go away.
+pub const global_symbol_bit: u32 = 0x80000000;
+pub const global_symbol_mask: u32 = 0x7fffffff;
 
 /// Return pointer to the global entry for `name` if one exists.
 /// Puts a new global entry for `name` if one doesn't exist, and
@@ -5020,7 +5228,7 @@ fn reportMissingLibraryError(
 ) error{OutOfMemory}!void {
     const gpa = self.base.allocator;
     try self.misc_errors.ensureUnusedCapacity(gpa, 1);
-    var notes = try gpa.alloc(File.ErrorMsg, checked_paths.len);
+    const notes = try gpa.alloc(File.ErrorMsg, checked_paths.len);
     errdefer gpa.free(notes);
     for (checked_paths, notes) |path, *note| {
         note.* = .{ .msg = try std.fmt.allocPrint(gpa, "tried {s}", .{path}) };
@@ -5063,6 +5271,23 @@ pub fn reportParseError(
     var notes = try gpa.alloc(File.ErrorMsg, 1);
     errdefer gpa.free(notes);
     notes[0] = .{ .msg = try std.fmt.allocPrint(gpa, "while parsing {s}", .{path}) };
+    self.misc_errors.appendAssumeCapacity(.{
+        .msg = try std.fmt.allocPrint(gpa, format, args),
+        .notes = notes,
+    });
+}
+
+pub fn reportUnresolvedBoundarySymbol(
+    self: *MachO,
+    sym_name: []const u8,
+    comptime format: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
+    const gpa = self.base.allocator;
+    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+    var notes = try gpa.alloc(File.ErrorMsg, 1);
+    errdefer gpa.free(notes);
+    notes[0] = .{ .msg = try std.fmt.allocPrint(gpa, "while resolving {s}", .{sym_name}) };
     self.misc_errors.appendAssumeCapacity(.{
         .msg = try std.fmt.allocPrint(gpa, format, args),
         .notes = notes,
@@ -5272,7 +5497,8 @@ pub fn logSymtab(self: *MachO) void {
     for (self.globals.items, 0..) |global, i| {
         const sym = self.getSymbol(global);
         if (sym.undf()) continue;
-        if (sym.n_desc == MachO.N_DEAD) continue;
+        if (sym.n_desc == N_DEAD) continue;
+        if (sym.n_desc == N_BOUNDARY) continue;
         scoped_log.debug("    %{d}: {s} @{x} in sect({d}), {s} (def in object({?}))", .{
             i,
             self.getSymbolName(global),
@@ -5287,7 +5513,8 @@ pub fn logSymtab(self: *MachO) void {
     for (self.globals.items, 0..) |global, i| {
         const sym = self.getSymbol(global);
         if (!sym.undf()) continue;
-        if (sym.n_desc == MachO.N_DEAD) continue;
+        if (sym.n_desc == N_DEAD) continue;
+        if (sym.n_desc == N_BOUNDARY) continue;
         const ord = @divTrunc(sym.n_desc, macho.N_SYMBOL_RESOLVER);
         scoped_log.debug("    %{d}: {s} @{x} in ord({d}), {s}", .{
             i,
@@ -5398,6 +5625,7 @@ pub fn logAtom(self: *MachO, atom_index: Atom.Index, logger: anytype) void {
 
 pub const base_tag: File.Tag = File.Tag.macho;
 pub const N_DEAD: u16 = @as(u16, @bitCast(@as(i16, -1)));
+pub const N_BOUNDARY: u16 = @as(u16, @bitCast(@as(i16, -2)));
 
 /// Mode of operation of the linker.
 pub const Mode = enum {
@@ -5473,21 +5701,17 @@ const DeclMetadata = struct {
     }
 };
 
-const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, Atom.Index);
+const DeclTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata);
+const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, DeclMetadata);
 const BindingTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Atom.Binding));
 const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
 const RebaseTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
 const RelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
+const ActionTable = std.AutoHashMapUnmanaged(u32, RelocFlags);
 
-pub const ResolveAction = struct {
-    kind: Kind,
-    target: SymbolWithLoc,
-
-    const Kind = enum {
-        none,
-        add_got,
-        add_stub,
-    };
+pub const RelocFlags = packed struct {
+    add_got: bool = false,
+    add_stub: bool = false,
 };
 
 pub const SymbolWithLoc = extern struct {
@@ -5579,7 +5803,7 @@ const Module = @import("../Module.zig");
 const InternPool = @import("../InternPool.zig");
 const Platform = load_commands.Platform;
 const Relocation = @import("MachO/Relocation.zig");
-const StringTable = @import("strtab.zig").StringTable;
+const StringTable = @import("StringTable.zig");
 const TableSection = @import("table_section.zig").TableSection;
 const Trie = @import("MachO/Trie.zig");
 const Type = @import("../type.zig").Type;

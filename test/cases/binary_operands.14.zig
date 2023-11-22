@@ -1,7 +1,7 @@
 pub fn main() void {
     var i: u32 = 352;
     i /= 7; // i = 50
-    var result: u32 = foo(i, 7);
+    const result: u32 = foo(i, 7);
     if (result != 7) unreachable;
     return;
 }

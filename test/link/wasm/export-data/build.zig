@@ -9,12 +9,13 @@ pub fn build(b: *std.Build) void {
         return;
     }
 
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addExecutable(.{
         .name = "lib",
         .root_source_file = .{ .path = "lib.zig" },
         .optimize = .ReleaseSafe, // to make the output deterministic in address positions
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
     });
+    lib.entry = .disabled;
     lib.use_lld = false;
     lib.export_symbol_names = &.{ "foo", "bar" };
     lib.global_base = 0; // put data section at address 0 to make data symbols easier to parse

@@ -82,11 +82,15 @@ comptime {
                     .reactor => "_initialize",
                     .command => "_start",
                 };
-                if (!@hasDecl(root, wasm_start_sym)) {
+                if (!@hasDecl(root, wasm_start_sym) and @hasDecl(root, "main")) {
+                    // Only call main when defined. For WebAssembly it's allowed to pass `-fno-entry` in which
+                    // case it's not required to provide an entrypoint such as main.
                     @export(wasi_start, .{ .name = wasm_start_sym });
                 }
             } else if (native_arch.isWasm() and native_os == .freestanding) {
-                if (!@hasDecl(root, start_sym_name)) @export(wasm_freestanding_start, .{ .name = start_sym_name });
+                // Only call main when defined. For WebAssembly it's allowed to pass `-fno-entry` in which
+                // case it's not required to provide an entrypoint such as main.
+                if (!@hasDecl(root, start_sym_name) and @hasDecl(root, "main")) @export(wasm_freestanding_start, .{ .name = start_sym_name });
             } else if (native_os != .other and native_os != .freestanding) {
                 if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });
             }
@@ -168,14 +172,12 @@ fn exit2(code: usize) noreturn {
         // exits(0)
         .plan9 => std.os.plan9.exits(null),
         .windows => {
-            ExitProcess(@as(u32, @truncate(code)));
+            std.os.windows.ntdll.RtlExitUserProcess(@as(u32, @truncate(code)));
         },
         else => @compileError("TODO"),
     }
     unreachable;
 }
-
-extern "kernel32" fn ExitProcess(exit_code: u32) callconv(.C) noreturn;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -345,7 +347,7 @@ fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    std.os.windows.kernel32.ExitProcess(initEventLoopAndCallMain());
+    std.os.windows.ntdll.RtlExitUserProcess(initEventLoopAndCallMain());
 }
 
 fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
@@ -357,7 +359,7 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.debug.maybeEnableSegfaultHandler();
 
     const result: std.os.windows.INT = initEventLoopAndCallWinMain();
-    std.os.windows.kernel32.ExitProcess(@as(std.os.windows.UINT, @bitCast(result)));
+    std.os.windows.ntdll.RtlExitUserProcess(@as(std.os.windows.UINT, @bitCast(result)));
 }
 
 fn posixCallMainAndExit() callconv(.C) noreturn {
@@ -603,13 +605,34 @@ pub fn callMain() u8 {
 }
 
 pub fn call_wWinMain() std.os.windows.INT {
+    const peb = std.os.windows.peb();
     const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.params[0].type.?;
-    const hInstance = @as(MAIN_HINSTANCE, @ptrCast(std.os.windows.kernel32.GetModuleHandleW(null).?));
-    const lpCmdLine = std.os.windows.kernel32.GetCommandLineW();
+    const hInstance = @as(MAIN_HINSTANCE, @ptrCast(peb.ImageBaseAddress));
+    const lpCmdLine: [*:0]u16 = @ptrCast(peb.ProcessParameters.CommandLine.Buffer);
 
-    // There's no (documented) way to get the nCmdShow parameter, so we're
-    // using this fairly standard default.
-    const nCmdShow = std.os.windows.user32.SW_SHOW;
+    // There are various types used for the 'show window' variable through the Win32 APIs:
+    // - u16 in STARTUPINFOA.wShowWindow / STARTUPINFOW.wShowWindow
+    // - c_int in ShowWindow
+    // - u32 in PEB.ProcessParameters.dwShowWindow
+    // Since STARTUPINFO is the bottleneck for the allowed values, we use `u16` as the
+    // type which can coerce into i32/c_int/u32 depending on how the user defines their wWinMain
+    // (the Win32 docs show wWinMain with `int` as the type for nCmdShow).
+    const nCmdShow: u16 = nCmdShow: {
+        // This makes Zig match the nCmdShow behavior of a C program with a WinMain symbol:
+        // - With STARTF_USESHOWWINDOW set in STARTUPINFO.dwFlags of the CreateProcess call:
+        //   - Compiled with subsystem:console -> nCmdShow is always SW_SHOWDEFAULT
+        //   - Compiled with subsystem:windows -> nCmdShow is STARTUPINFO.wShowWindow from
+        //     the parent CreateProcess call
+        // - With STARTF_USESHOWWINDOW unset:
+        //   - nCmdShow is always SW_SHOWDEFAULT
+        const SW_SHOWDEFAULT = 10;
+        const STARTF_USESHOWWINDOW = 1;
+        // root having a wWinMain means that std.builtin.subsystem will always have a non-null value.
+        if (std.builtin.subsystem.? == .Windows and peb.ProcessParameters.dwFlags & STARTF_USESHOWWINDOW != 0) {
+            break :nCmdShow @truncate(peb.ProcessParameters.dwShowWindow);
+        }
+        break :nCmdShow SW_SHOWDEFAULT;
+    };
 
     // second parameter hPrevInstance, MSDN: "This parameter is always NULL"
     return root.wWinMain(hInstance, null, lpCmdLine, nCmdShow);

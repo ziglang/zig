@@ -123,7 +123,7 @@ pub const DictDecoder = struct {
     // This invariant must be kept: 0 < dist <= histSize()
     pub fn writeCopy(self: *Self, dist: u32, length: u32) u32 {
         assert(0 < dist and dist <= self.histSize());
-        var dst_base = self.wr_pos;
+        const dst_base = self.wr_pos;
         var dst_pos = dst_base;
         var src_pos: i32 = @as(i32, @intCast(dst_pos)) - @as(i32, @intCast(dist));
         var end_pos = dst_pos + length;
@@ -175,12 +175,12 @@ pub const DictDecoder = struct {
     // This invariant must be kept: 0 < dist <= histSize()
     pub fn tryWriteCopy(self: *Self, dist: u32, length: u32) u32 {
         var dst_pos = self.wr_pos;
-        var end_pos = dst_pos + length;
+        const end_pos = dst_pos + length;
         if (dst_pos < dist or end_pos > self.hist.len) {
             return 0;
         }
-        var dst_base = dst_pos;
-        var src_pos = dst_pos - dist;
+        const dst_base = dst_pos;
+        const src_pos = dst_pos - dist;
 
         // Copy possibly overlapping section before destination position.
         while (dst_pos < end_pos) {
@@ -195,7 +195,7 @@ pub const DictDecoder = struct {
     // emitted to the user. The data returned by readFlush must be fully consumed
     // before calling any other DictDecoder methods.
     pub fn readFlush(self: *Self) []u8 {
-        var to_read = self.hist[self.rd_pos..self.wr_pos];
+        const to_read = self.hist[self.rd_pos..self.wr_pos];
         self.rd_pos = self.wr_pos;
         if (self.wr_pos == self.hist.len) {
             self.wr_pos = 0;
@@ -279,7 +279,7 @@ test "dictionary decoder" {
         length: u32, // Length of copy or insertion
     };
 
-    var poem_refs = [_]PoemRefs{
+    const poem_refs = [_]PoemRefs{
         .{ .dist = 0, .length = 38 },  .{ .dist = 33, .length = 3 },   .{ .dist = 0, .length = 48 },
         .{ .dist = 79, .length = 3 },  .{ .dist = 0, .length = 11 },   .{ .dist = 34, .length = 5 },
         .{ .dist = 0, .length = 6 },   .{ .dist = 23, .length = 7 },   .{ .dist = 0, .length = 8 },
@@ -368,7 +368,7 @@ test "dictionary decoder" {
         fn writeString(dst_dd: *DictDecoder, dst: anytype, str: []const u8) !void {
             var string = str;
             while (string.len > 0) {
-                var cnt = DictDecoder.copy(dst_dd.writeSlice(), string);
+                const cnt = DictDecoder.copy(dst_dd.writeSlice(), string);
                 dst_dd.writeMark(cnt);
                 string = string[cnt..];
                 if (dst_dd.availWrite() == 0) {

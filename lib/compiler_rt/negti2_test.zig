@@ -2,11 +2,11 @@ const neg = @import("negXi2.zig");
 const testing = @import("std").testing;
 
 fn test__negti2(a: i128, expected: i128) !void {
-    var result = neg.__negti2(a);
+    const result = neg.__negti2(a);
     try testing.expectEqual(expected, result);
 }
 
-test "negdi2" {
+test "negti2" {
     // TODO ensuring that math.minInt(i128); returns error
 
     try test__negti2(-3, 3);

@@ -1,10 +1,10 @@
 export fn entry() void {
     var frame: @Frame(func) = undefined;
-    _ = frame;
+    _ = &frame;
 }
 fn func(comptime T: type) void {
     var x: T = undefined;
-    _ = x;
+    _ = &x;
 }
 
 // error

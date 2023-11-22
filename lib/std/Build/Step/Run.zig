@@ -7,8 +7,6 @@ const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
 const EnvMap = process.EnvMap;
-const Allocator = mem.Allocator;
-const ExecError = std.Build.ExecError;
 const assert = std.debug.assert;
 
 const Run = @This();
@@ -303,7 +301,7 @@ pub fn addPathDir(self: *Run, search_path: []const u8) void {
     const env_map = getEnvMapInternal(self);
 
     const key = "PATH";
-    var prev_path = env_map.get(key);
+    const prev_path = env_map.get(key);
 
     if (prev_path) |pp| {
         const new_path = b.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });

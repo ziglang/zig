@@ -102,6 +102,7 @@ test "type constructed by comptime function call" {
 
 fn SimpleList(comptime L: usize) type {
     var mutable_T = u8;
+    _ = &mutable_T;
     const T = mutable_T;
     return struct {
         array: [L]T,
@@ -205,7 +206,6 @@ fn foo2(arg: anytype) bool {
 
 test "generic struct" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var a1 = GenNode(i32){
         .value = 13,
@@ -239,6 +239,7 @@ test "function parameter is generic" {
         }
     };
     var rng: u32 = 2;
+    _ = &rng;
     S.init(rng, S.fill);
 }
 

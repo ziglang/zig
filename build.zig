@@ -8,6 +8,7 @@ const io = std.io;
 const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
+const GenerateDef = @import("deps/aro/build/GenerateDef.zig");
 
 const zig_version = std.SemanticVersion{ .major = 0, .minor = 12, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
@@ -33,6 +34,7 @@ pub fn build(b: *std.Build) !void {
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
     const skip_install_autodocs = b.option(bool, "no-autodocs", "skip copying of standard library autodocs to the installation prefix") orelse skip_install_lib_files;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
+    const only_reduce = b.option(bool, "only-reduce", "only build zig reduce") orelse false;
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
@@ -223,6 +225,10 @@ pub fn build(b: *std.Build) !void {
         check_case_exe.want_lto = false;
     }
 
+    const use_llvm = b.option(bool, "use-llvm", "Use the llvm backend");
+    exe.use_llvm = use_llvm;
+    exe.use_lld = use_llvm;
+
     const exe_options = b.addOptions();
     exe.addOptions("build_options", exe_options);
 
@@ -236,6 +242,7 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
     exe_options.addOption(bool, "only_core_functionality", only_c);
+    exe_options.addOption(bool, "only_reduce", only_reduce);
 
     if (link_libc) {
         exe.linkLibC();
@@ -255,7 +262,7 @@ pub fn build(b: *std.Build) !void {
         const version_string = b.fmt("{d}.{d}.{d}", .{ zig_version.major, zig_version.minor, zig_version.patch });
 
         var code: u8 = undefined;
-        const git_describe_untrimmed = b.execAllowFail(&[_][]const u8{
+        const git_describe_untrimmed = b.runAllowFail(&[_][]const u8{
             "git", "-C", b.build_root.path orelse ".", "describe", "--match", "*.*.*", "--tags",
         }, &code, .Ignore) catch {
             break :v version_string;
@@ -391,6 +398,7 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "force_gpa", force_gpa);
     test_cases_options.addOption(bool, "only_c", only_c);
     test_cases_options.addOption(bool, "only_core_functionality", true);
+    test_cases_options.addOption(bool, "only_reduce", false);
     test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
     test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
     test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
@@ -549,6 +557,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "enable_tracy_allocation", false);
     exe_options.addOption(bool, "value_tracing", false);
     exe_options.addOption(bool, "only_core_functionality", true);
+    exe_options.addOption(bool, "only_reduce", false);
 
     const run_opt = b.addSystemCommand(&.{
         "wasm-opt",
@@ -581,9 +590,35 @@ fn addCompilerStep(
         .max_rss = 7_000_000_000,
     });
     exe.stack_size = stack_size;
-    exe.addAnonymousModule("aro", .{
-        .source_file = .{ .path = "deps/aro/lib.zig" },
+
+    const aro_options = b.addOptions();
+    aro_options.addOption([]const u8, "version_str", "aro-zig");
+    const aro_options_module = aro_options.createModule();
+    const aro_backend = b.createModule(.{
+        .source_file = .{ .path = "deps/aro/backend.zig" },
+        .dependencies = &.{.{
+            .name = "build_options",
+            .module = aro_options_module,
+        }},
     });
+    const aro_module = b.createModule(.{
+        .source_file = .{ .path = "deps/aro/aro.zig" },
+        .dependencies = &.{
+            .{
+                .name = "build_options",
+                .module = aro_options_module,
+            },
+            .{
+                .name = "backend",
+                .module = aro_backend,
+            },
+            GenerateDef.create(b, .{ .name = "Builtins/Builtin.def", .src_prefix = "deps/aro/aro" }),
+            GenerateDef.create(b, .{ .name = "Attribute/names.def", .src_prefix = "deps/aro/aro" }),
+            GenerateDef.create(b, .{ .name = "Diagnostics/messages.def", .src_prefix = "deps/aro/aro", .kind = .named }),
+        },
+    });
+
+    exe.addModule("aro", aro_module);
     return exe;
 }
 
@@ -738,9 +773,9 @@ fn addCxxKnownPath(
         return error.RequiredLibraryNotFound;
 
     const path_padded = if (ctx.cxx_compiler_arg1.len > 0)
-        b.exec(&.{ ctx.cxx_compiler, ctx.cxx_compiler_arg1, b.fmt("-print-file-name={s}", .{objname}) })
+        b.run(&.{ ctx.cxx_compiler, ctx.cxx_compiler_arg1, b.fmt("-print-file-name={s}", .{objname}) })
     else
-        b.exec(&.{ ctx.cxx_compiler, b.fmt("-print-file-name={s}", .{objname}) });
+        b.run(&.{ ctx.cxx_compiler, b.fmt("-print-file-name={s}", .{objname}) });
     var tokenizer = mem.tokenizeAny(u8, path_padded, "\r\n");
     const path_unpadded = tokenizer.next().?;
     if (mem.eql(u8, path_unpadded, objname)) {

@@ -111,6 +111,21 @@ pub const cpu_models = struct {
         E{ .part = 0xc01, .m64 = &A64.saphira },
     };
 
+    const Apple = [_]E{
+        E{ .part = 0x022, .m64 = &A64.apple_m1 },
+        E{ .part = 0x023, .m64 = &A64.apple_m1 },
+        E{ .part = 0x024, .m64 = &A64.apple_m1 },
+        E{ .part = 0x025, .m64 = &A64.apple_m1 },
+        E{ .part = 0x028, .m64 = &A64.apple_m1 },
+        E{ .part = 0x029, .m64 = &A64.apple_m1 },
+        E{ .part = 0x032, .m64 = &A64.apple_m2 },
+        E{ .part = 0x033, .m64 = &A64.apple_m2 },
+        E{ .part = 0x034, .m64 = &A64.apple_m2 },
+        E{ .part = 0x035, .m64 = &A64.apple_m2 },
+        E{ .part = 0x038, .m64 = &A64.apple_m2 },
+        E{ .part = 0x039, .m64 = &A64.apple_m2 },
+    };
+
     pub fn isKnown(core: CoreInfo, is_64bit: bool) ?*const Target.Cpu.Model {
         const models = switch (core.implementer) {
             0x41 => &ARM,
@@ -120,6 +135,7 @@ pub const cpu_models = struct {
             0x48 => &HiSilicon,
             0x50 => &Ampere,
             0x51 => &Qualcomm,
+            0x61 => &Apple,
             else => return null,
         };
 

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const fmod = @import("fmod.zig");
 const testing = std.testing;
 

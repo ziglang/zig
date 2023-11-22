@@ -21,5 +21,6 @@ fn storeArrayOfArrayOfStructs() u8 {
             S{ .x = 15 },
         },
     };
+    _ = &cases;
     return cases[0][0].x;
 }

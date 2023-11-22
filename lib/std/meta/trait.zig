@@ -225,6 +225,7 @@ test "isSingleItemPtr" {
     try comptime testing.expect(isSingleItemPtr(@TypeOf(&array[0])));
     try comptime testing.expect(!isSingleItemPtr(@TypeOf(array)));
     var runtime_zero: usize = 0;
+    _ = &runtime_zero;
     try testing.expect(!isSingleItemPtr(@TypeOf(array[runtime_zero..1])));
 }
 
@@ -253,6 +254,7 @@ pub fn isSlice(comptime T: type) bool {
 test "isSlice" {
     const array = [_]u8{0} ** 10;
     var runtime_zero: usize = 0;
+    _ = &runtime_zero;
     try testing.expect(isSlice(@TypeOf(array[runtime_zero..])));
     try testing.expect(!isSlice(@TypeOf(array)));
     try testing.expect(!isSlice(@TypeOf(&array[0])));
@@ -341,8 +343,9 @@ pub fn isConstPtr(comptime T: type) bool {
 }
 
 test "isConstPtr" {
-    var t = @as(u8, 0);
-    const c = @as(u8, 0);
+    var t: u8 = 0;
+    t = t;
+    const c: u8 = 0;
     try testing.expect(isConstPtr(*const @TypeOf(t)));
     try testing.expect(isConstPtr(@TypeOf(&c)));
     try testing.expect(!isConstPtr(*@TypeOf(t)));

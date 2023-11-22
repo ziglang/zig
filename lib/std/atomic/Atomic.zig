@@ -46,7 +46,7 @@ pub fn Atomic(comptime T: type) type {
                     extern "c" fn __tsan_release(addr: *anyopaque) void;
                 };
 
-                const addr = @as(*anyopaque, @ptrCast(self));
+                const addr: *anyopaque = self;
                 return switch (ordering) {
                     .Unordered, .Monotonic => @compileError(@tagName(ordering) ++ " only applies to atomic loads and stores"),
                     .Acquire => tsan.__tsan_acquire(addr),
@@ -125,7 +125,7 @@ pub fn Atomic(comptime T: type) type {
                 @compileError(@tagName(Ordering.Unordered) ++ " is only allowed on atomic loads and stores");
             }
 
-            comptime var success_is_stronger = switch (failure) {
+            const success_is_stronger = switch (failure) {
                 .SeqCst => success == .SeqCst,
                 .AcqRel => @compileError(@tagName(failure) ++ " implies " ++ @tagName(Ordering.Release) ++ " which is only allowed on success"),
                 .Acquire => success == .SeqCst or success == .AcqRel or success == .Acquire,

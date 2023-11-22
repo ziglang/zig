@@ -148,7 +148,7 @@ pub fn Decoder(comptime ReaderType: type) type {
                 }
 
                 const hash_a = header_hasher.hasher.final();
-                const hash_b = try header_reader.readIntLittle(u32);
+                const hash_b = try header_reader.readInt(u32, .little);
                 if (hash_a != hash_b)
                     return error.WrongChecksum;
             }
@@ -182,13 +182,13 @@ pub fn Decoder(comptime ReaderType: type) type {
                 .none => {},
                 .crc32 => {
                     const hash_a = Crc32.hash(unpacked_bytes);
-                    const hash_b = try self.inner_reader.readIntLittle(u32);
+                    const hash_b = try self.inner_reader.readInt(u32, .little);
                     if (hash_a != hash_b)
                         return error.WrongChecksum;
                 },
                 .crc64 => {
                     const hash_a = Crc64.hash(unpacked_bytes);
-                    const hash_b = try self.inner_reader.readIntLittle(u64);
+                    const hash_b = try self.inner_reader.readInt(u64, .little);
                     if (hash_a != hash_b)
                         return error.WrongChecksum;
                 },

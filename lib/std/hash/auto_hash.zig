@@ -280,6 +280,7 @@ test "hash slice shallow" {
     const array2 = [_]u32{ 1, 2, 3, 4, 5, 6 };
     // TODO audit deep/shallow - maybe it has the wrong behavior with respect to array pointers and slices
     var runtime_zero: usize = 0;
+    _ = &runtime_zero;
     const a = array1[runtime_zero..];
     const b = array2[runtime_zero..];
     const c = array1[runtime_zero..3];

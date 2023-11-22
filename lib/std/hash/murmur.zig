@@ -18,7 +18,7 @@ pub const Murmur2_32 = struct {
         var h1: u32 = seed ^ len;
         for (@as([*]align(1) const u32, @ptrCast(str.ptr))[0..(len >> 2)]) |v| {
             var k1: u32 = v;
-            if (native_endian == .Big)
+            if (native_endian == .big)
                 k1 = @byteSwap(k1);
             k1 *%= m;
             k1 ^= k1 >> 24;
@@ -102,7 +102,7 @@ pub const Murmur2_64 = struct {
         var h1: u64 = seed ^ (@as(u64, str.len) *% m);
         for (@as([*]align(1) const u64, @ptrCast(str.ptr))[0 .. str.len / 8]) |v| {
             var k1: u64 = v;
-            if (native_endian == .Big)
+            if (native_endian == .big)
                 k1 = @byteSwap(k1);
             k1 *%= m;
             k1 ^= k1 >> 47;
@@ -115,7 +115,7 @@ pub const Murmur2_64 = struct {
         if (rest > 0) {
             var k1: u64 = 0;
             @memcpy(@as([*]u8, @ptrCast(&k1))[0..rest], str[offset..]);
-            if (native_endian == .Big)
+            if (native_endian == .big)
                 k1 = @byteSwap(k1);
             h1 ^= k1;
             h1 *%= m;
@@ -134,7 +134,7 @@ pub const Murmur2_64 = struct {
         const m: u64 = 0xc6a4a7935bd1e995;
         const len: u64 = 4;
         var h1: u64 = seed ^ (len *% m);
-        var k1: u64 = v;
+        const k1: u64 = v;
         h1 ^= k1;
         h1 *%= m;
         h1 ^= h1 >> 47;
@@ -182,7 +182,7 @@ pub const Murmur3_32 = struct {
         var h1: u32 = seed;
         for (@as([*]align(1) const u32, @ptrCast(str.ptr))[0..(len >> 2)]) |v| {
             var k1: u32 = v;
-            if (native_endian == .Big)
+            if (native_endian == .big)
                 k1 = @byteSwap(k1);
             k1 *%= c1;
             k1 = rotl32(k1, 15);
@@ -282,16 +282,14 @@ pub const Murmur3_32 = struct {
 const verify = @import("verify.zig");
 
 test "murmur2_32" {
-    var v0: u32 = 0x12345678;
-    var v1: u64 = 0x1234567812345678;
-    var v0le: u32 = v0;
-    var v1le: u64 = v1;
-    if (native_endian == .Big) {
-        v0le = @byteSwap(v0le);
-        v1le = @byteSwap(v1le);
-    }
-    try testing.expectEqual(Murmur2_32.hash(@as([*]u8, @ptrCast(&v0le))[0..4]), Murmur2_32.hashUint32(v0));
-    try testing.expectEqual(Murmur2_32.hash(@as([*]u8, @ptrCast(&v1le))[0..8]), Murmur2_32.hashUint64(v1));
+    const v0: u32 = 0x12345678;
+    const v1: u64 = 0x1234567812345678;
+    const v0le: u32, const v1le: u64 = switch (native_endian) {
+        .little => .{ v0, v1 },
+        .big => .{ @byteSwap(v0), @byteSwap(v1) },
+    };
+    try testing.expectEqual(Murmur2_32.hash(@as([*]const u8, @ptrCast(&v0le))[0..4]), Murmur2_32.hashUint32(v0));
+    try testing.expectEqual(Murmur2_32.hash(@as([*]const u8, @ptrCast(&v1le))[0..8]), Murmur2_32.hashUint64(v1));
 }
 
 test "murmur2_32 smhasher" {
@@ -306,16 +304,14 @@ test "murmur2_32 smhasher" {
 }
 
 test "murmur2_64" {
-    var v0: u32 = 0x12345678;
-    var v1: u64 = 0x1234567812345678;
-    var v0le: u32 = v0;
-    var v1le: u64 = v1;
-    if (native_endian == .Big) {
-        v0le = @byteSwap(v0le);
-        v1le = @byteSwap(v1le);
-    }
-    try testing.expectEqual(Murmur2_64.hash(@as([*]u8, @ptrCast(&v0le))[0..4]), Murmur2_64.hashUint32(v0));
-    try testing.expectEqual(Murmur2_64.hash(@as([*]u8, @ptrCast(&v1le))[0..8]), Murmur2_64.hashUint64(v1));
+    const v0: u32 = 0x12345678;
+    const v1: u64 = 0x1234567812345678;
+    const v0le: u32, const v1le: u64 = switch (native_endian) {
+        .little => .{ v0, v1 },
+        .big => .{ @byteSwap(v0), @byteSwap(v1) },
+    };
+    try testing.expectEqual(Murmur2_64.hash(@as([*]const u8, @ptrCast(&v0le))[0..4]), Murmur2_64.hashUint32(v0));
+    try testing.expectEqual(Murmur2_64.hash(@as([*]const u8, @ptrCast(&v1le))[0..8]), Murmur2_64.hashUint64(v1));
 }
 
 test "mumur2_64 smhasher" {
@@ -330,16 +326,14 @@ test "mumur2_64 smhasher" {
 }
 
 test "murmur3_32" {
-    var v0: u32 = 0x12345678;
-    var v1: u64 = 0x1234567812345678;
-    var v0le: u32 = v0;
-    var v1le: u64 = v1;
-    if (native_endian == .Big) {
-        v0le = @byteSwap(v0le);
-        v1le = @byteSwap(v1le);
-    }
-    try testing.expectEqual(Murmur3_32.hash(@as([*]u8, @ptrCast(&v0le))[0..4]), Murmur3_32.hashUint32(v0));
-    try testing.expectEqual(Murmur3_32.hash(@as([*]u8, @ptrCast(&v1le))[0..8]), Murmur3_32.hashUint64(v1));
+    const v0: u32 = 0x12345678;
+    const v1: u64 = 0x1234567812345678;
+    const v0le: u32, const v1le: u64 = switch (native_endian) {
+        .little => .{ v0, v1 },
+        .big => .{ @byteSwap(v0), @byteSwap(v1) },
+    };
+    try testing.expectEqual(Murmur3_32.hash(@as([*]const u8, @ptrCast(&v0le))[0..4]), Murmur3_32.hashUint32(v0));
+    try testing.expectEqual(Murmur3_32.hash(@as([*]const u8, @ptrCast(&v1le))[0..8]), Murmur3_32.hashUint64(v1));
 }
 
 test "mumur3_32 smhasher" {

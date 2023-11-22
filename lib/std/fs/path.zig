@@ -1507,6 +1507,14 @@ pub fn ComponentIterator(comptime path_type: PathType, comptime T: type) type {
         /// For example, if the path is `/a/b/c` and the most recently returned component
         /// is `b`, then this will return the `c` component.
         pub fn next(self: *Self) ?Component {
+            const peek_result = self.peekNext() orelse return null;
+            self.start_index = peek_result.path.len - peek_result.name.len;
+            self.end_index = peek_result.path.len;
+            return peek_result;
+        }
+
+        /// Like `next`, but does not modify the iterator state.
+        pub fn peekNext(self: Self) ?Component {
             var start_index = self.end_index;
             while (start_index < self.path.len and path_type.isSep(T, self.path[start_index])) {
                 start_index += 1;
@@ -1516,11 +1524,9 @@ pub fn ComponentIterator(comptime path_type: PathType, comptime T: type) type {
                 end_index += 1;
             }
             if (start_index == end_index) return null;
-            self.start_index = start_index;
-            self.end_index = end_index;
             return .{
-                .name = self.path[self.start_index..self.end_index],
-                .path = self.path[0..self.end_index],
+                .name = self.path[start_index..end_index],
+                .path = self.path[0..end_index],
             };
         }
 
@@ -1529,6 +1535,14 @@ pub fn ComponentIterator(comptime path_type: PathType, comptime T: type) type {
         /// For example, if the path is `/a/b/c` and the most recently returned component
         /// is `b`, then this will return the `a` component.
         pub fn previous(self: *Self) ?Component {
+            const peek_result = self.peekPrevious() orelse return null;
+            self.start_index = peek_result.path.len - peek_result.name.len;
+            self.end_index = peek_result.path.len;
+            return peek_result;
+        }
+
+        /// Like `previous`, but does not modify the iterator state.
+        pub fn peekPrevious(self: Self) ?Component {
             var end_index = self.start_index;
             while (true) {
                 if (end_index == self.root_end_index) return null;
@@ -1542,11 +1556,9 @@ pub fn ComponentIterator(comptime path_type: PathType, comptime T: type) type {
                 start_index -= 1;
             }
             if (start_index == end_index) return null;
-            self.start_index = start_index;
-            self.end_index = end_index;
             return .{
-                .name = self.path[self.start_index..self.end_index],
-                .path = self.path[0..self.end_index],
+                .name = self.path[start_index..end_index],
+                .path = self.path[0..end_index],
             };
         }
     };
@@ -1816,7 +1828,7 @@ test "ComponentIterator windows" {
 
 test "ComponentIterator windows UTF-16" {
     // TODO: Fix on big endian architectures
-    if (builtin.cpu.arch.endian() != .Little) {
+    if (builtin.cpu.arch.endian() != .little) {
         return error.SkipZigTest;
     }
 

@@ -159,7 +159,6 @@ pub const Type = enum(u32) {
     none = std.math.maxInt(u32),
     _,
 
-    pub const err_int = Type.i16;
     pub const ptr_amdgpu_constant =
         @field(Type, std.fmt.comptimePrint("ptr{ }", .{AddrSpace.amdgpu.constant}));
 
@@ -2475,6 +2474,12 @@ pub const Variable = struct {
             if (builder.useLibLlvm())
                 self.toLlvm(builder).setAlignment(@intCast(alignment.toByteUnits() orelse 0));
             self.ptr(builder).alignment = alignment;
+        }
+
+        pub fn getAlignment(self: Index, builder: *Builder) Alignment {
+            if (builder.useLibLlvm())
+                return Alignment.fromByteUnits(self.toLlvm(builder).getAlignment());
+            return self.ptr(builder).alignment;
         }
 
         pub fn toLlvm(self: Index, builder: *const Builder) *llvm.Value {

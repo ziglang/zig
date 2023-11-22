@@ -190,15 +190,15 @@ test "Value.jsonStringify" {
     var obj = ObjectMap.init(testing.allocator);
     defer obj.deinit();
     try obj.putNoClobber("a", .{ .string = "b" });
-    var array = [_]Value{
-        Value.null,
-        Value{ .bool = true },
-        Value{ .integer = 42 },
-        Value{ .number_string = "43" },
-        Value{ .float = 42 },
-        Value{ .string = "weeee" },
-        Value{ .array = Array.fromOwnedSlice(undefined, &vals) },
-        Value{ .object = obj },
+    const array = [_]Value{
+        .null,
+        .{ .bool = true },
+        .{ .integer = 42 },
+        .{ .number_string = "43" },
+        .{ .float = 42 },
+        .{ .string = "weeee" },
+        .{ .array = Array.fromOwnedSlice(undefined, &vals) },
+        .{ .object = obj },
     };
     var buffer: [0x1000]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
@@ -337,6 +337,17 @@ test "many object keys" {
     try testing.expectEqualStrings("v3", parsed.value.object.get("k3").?.string);
     try testing.expectEqualStrings("v4", parsed.value.object.get("k4").?.string);
     try testing.expectEqualStrings("v5", parsed.value.object.get("k5").?.string);
+}
+
+test "negative zero" {
+    const doc = "-0";
+    var fbs = std.io.fixedBufferStream(doc);
+    var reader = smallBufferJsonReader(testing.allocator, fbs.reader());
+    defer reader.deinit();
+    var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});
+    defer parsed.deinit();
+
+    try testing.expect(std.math.isNegativeZero(parsed.value.float));
 }
 
 fn smallBufferJsonReader(allocator: Allocator, io_reader: anytype) JsonReader(16, @TypeOf(io_reader)) {

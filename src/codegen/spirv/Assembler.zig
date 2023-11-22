@@ -304,10 +304,16 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             // and so some consideration must be taken when entering this in the type system.
             return self.todo("process OpTypeArray", .{});
         },
-        .OpTypePointer => try self.spv.ptrType(
-            try self.resolveTypeRef(operands[2].ref_id),
-            @as(spec.StorageClass, @enumFromInt(operands[1].value)),
-        ),
+        .OpTypePointer => blk: {
+            break :blk try self.spv.resolve(.{
+                .ptr_type = .{
+                    .storage_class = @enumFromInt(operands[1].value),
+                    .child_type = try self.resolveTypeRef(operands[2].ref_id),
+                    // TODO: This should be a proper reference resolved via OpTypeForwardPointer
+                    .fwd = @enumFromInt(std.math.maxInt(u32)),
+                },
+            });
+        },
         .OpTypeFunction => blk: {
             const param_operands = operands[2..];
             const param_types = try self.spv.gpa.alloc(CacheRef, param_operands.len);

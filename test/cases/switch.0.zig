@@ -1,6 +1,7 @@
 pub fn main() u8 {
     var val: u8 = 1;
-    var a: u8 = switch (val) {
+    _ = &val;
+    const a: u8 = switch (val) {
         0, 1 => 2,
         2 => 3,
         3 => 4,

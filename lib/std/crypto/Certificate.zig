@@ -614,10 +614,12 @@ const Date = struct {
 };
 
 pub fn parseTimeDigits(text: *const [2]u8, min: u8, max: u8) !u8 {
-    const nn: @Vector(2, u16) = .{ text[0], text[1] };
-    const zero: @Vector(2, u16) = .{ '0', '0' };
-    const mm: @Vector(2, u16) = .{ 10, 1 };
-    const result = @reduce(.Add, (nn -% zero) *% mm);
+    const result = if (use_vectors) result: {
+        const nn: @Vector(2, u16) = .{ text[0], text[1] };
+        const zero: @Vector(2, u16) = .{ '0', '0' };
+        const mm: @Vector(2, u16) = .{ 10, 1 };
+        break :result @reduce(.Add, (nn -% zero) *% mm);
+    } else std.fmt.parseInt(u8, text, 10) catch return error.CertificateTimeInvalid;
     if (result < min) return error.CertificateTimeInvalid;
     if (result > max) return error.CertificateTimeInvalid;
     return @truncate(result);
@@ -636,10 +638,12 @@ test parseTimeDigits {
 }
 
 pub fn parseYear4(text: *const [4]u8) !u16 {
-    const nnnn: @Vector(4, u32) = .{ text[0], text[1], text[2], text[3] };
-    const zero: @Vector(4, u32) = .{ '0', '0', '0', '0' };
-    const mmmm: @Vector(4, u32) = .{ 1000, 100, 10, 1 };
-    const result = @reduce(.Add, (nnnn -% zero) *% mmmm);
+    const result = if (use_vectors) result: {
+        const nnnn: @Vector(4, u32) = .{ text[0], text[1], text[2], text[3] };
+        const zero: @Vector(4, u32) = .{ '0', '0', '0', '0' };
+        const mmmm: @Vector(4, u32) = .{ 1000, 100, 10, 1 };
+        break :result @reduce(.Add, (nnnn -% zero) *% mmmm);
+    } else std.fmt.parseInt(u16, text, 10) catch return error.CertificateTimeInvalid;
     if (result > 9999) return error.CertificateTimeInvalid;
     return @truncate(result);
 }
@@ -978,7 +982,7 @@ pub const rsa = struct {
             if (mgf_len > mgf_out_buf.len) { // Modulus > 4096 bits
                 return error.InvalidSignature;
             }
-            var mgf_out = mgf_out_buf[0 .. ((mgf_len - 1) / Hash.digest_length + 1) * Hash.digest_length];
+            const mgf_out = mgf_out_buf[0 .. ((mgf_len - 1) / Hash.digest_length + 1) * Hash.digest_length];
             var dbMask = try MGF1(Hash, mgf_out, h, mgf_len);
 
             // 8.   Let DB = maskedDB \xor dbMask.
@@ -1071,7 +1075,7 @@ pub const rsa = struct {
             // Reject modulus below 512 bits.
             // 512-bit RSA was factored in 1999, so this limit barely means anything,
             // but establish some limit now to ratchet in what we can.
-            const _n = Modulus.fromBytes(modulus_bytes, .Big) catch return error.CertificatePublicKeyInvalid;
+            const _n = Modulus.fromBytes(modulus_bytes, .big) catch return error.CertificatePublicKeyInvalid;
             if (_n.bits() < 512) return error.CertificatePublicKeyInvalid;
 
             // Exponent must be odd and greater than 2.
@@ -1081,7 +1085,7 @@ pub const rsa = struct {
             // Windows commonly does.
             // [1] https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/ns-wincrypt-rsapubkey
             if (pub_bytes.len > 4) return error.CertificatePublicKeyInvalid;
-            const _e = Fe.fromBytes(_n, pub_bytes, .Big) catch return error.CertificatePublicKeyInvalid;
+            const _e = Fe.fromBytes(_n, pub_bytes, .big) catch return error.CertificatePublicKeyInvalid;
             if (!_e.isOdd()) return error.CertificatePublicKeyInvalid;
             const e_v = _e.toPrimitive(u32) catch return error.CertificatePublicKeyInvalid;
             if (e_v < 2) return error.CertificatePublicKeyInvalid;
@@ -1112,10 +1116,12 @@ pub const rsa = struct {
     };
 
     fn encrypt(comptime modulus_len: usize, msg: [modulus_len]u8, public_key: PublicKey) ![modulus_len]u8 {
-        const m = Fe.fromBytes(public_key.n, &msg, .Big) catch return error.MessageTooLong;
+        const m = Fe.fromBytes(public_key.n, &msg, .big) catch return error.MessageTooLong;
         const e = public_key.n.powPublic(m, public_key.e) catch unreachable;
         var res: [modulus_len]u8 = undefined;
-        e.toBytes(&res, .Big) catch unreachable;
+        e.toBytes(&res, .big) catch unreachable;
         return res;
     }
 };
+
+const use_vectors = @import("builtin").zig_backend != .stage2_x86_64;

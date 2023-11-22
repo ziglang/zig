@@ -8,8 +8,9 @@ pub const base_id = .remove_dir;
 step: Step,
 dir_path: []const u8,
 
-pub fn init(owner: *std.Build, dir_path: []const u8) RemoveDir {
-    return RemoveDir{
+pub fn create(owner: *std.Build, dir_path: []const u8) *RemoveDir {
+    const self = owner.allocator.create(RemoveDir) catch @panic("OOM");
+    self.* = .{
         .step = Step.init(.{
             .id = .remove_dir,
             .name = owner.fmt("RemoveDir {s}", .{dir_path}),
@@ -18,6 +19,7 @@ pub fn init(owner: *std.Build, dir_path: []const u8) RemoveDir {
         }),
         .dir_path = owner.dupePath(dir_path),
     };
+    return self;
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {

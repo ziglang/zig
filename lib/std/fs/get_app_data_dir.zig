@@ -23,7 +23,7 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
                 &dir_path_ptr,
             )) {
                 os.windows.S_OK => {
-                    defer os.windows.ole32.CoTaskMemFree(@as(*anyopaque, @ptrCast(dir_path_ptr)));
+                    defer os.windows.ole32.CoTaskMemFree(dir_path_ptr);
                     const global_dir = unicode.utf16leToUtf8Alloc(allocator, mem.sliceTo(dir_path_ptr, 0)) catch |err| switch (err) {
                         error.UnexpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,
                         error.ExpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,
@@ -57,6 +57,10 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
         },
         .haiku => {
             var dir_path_ptr: [*:0]u8 = undefined;
+            if (true) {
+                _ = &dir_path_ptr;
+                @compileError("TODO: init dir_path_ptr");
+            }
             // TODO look into directory_which
             const be_user_settings = 0xbbe;
             const rc = os.system.find_directory(be_user_settings, -1, true, dir_path_ptr, 1);

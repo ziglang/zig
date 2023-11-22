@@ -7,6 +7,7 @@ const dwarf = std.dwarf;
 const abi = dwarf.abi;
 const expressions = dwarf.expressions;
 const assert = std.debug.assert;
+const native_endian = builtin.cpu.arch.endian();
 
 const Opcode = enum(u8) {
     advance_loc = 0x1 << 6,
@@ -386,12 +387,12 @@ pub const VirtualMachine = struct {
                         const addr = try applyOffset(cfa, offset);
                         if (expression_context.isValidMemory) |isValidMemory| if (!isValidMemory(addr)) return error.InvalidAddress;
                         const ptr: *const usize = @ptrFromInt(addr);
-                        mem.writeIntSliceNative(usize, out, ptr.*);
+                        mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
                     } else return error.InvalidCFA;
                 },
                 .val_offset => |offset| {
                     if (context.cfa) |cfa| {
-                        mem.writeIntSliceNative(usize, out, try applyOffset(cfa, offset));
+                        mem.writeInt(usize, out[0..@sizeOf(usize)], try applyOffset(cfa, offset), native_endian);
                     } else return error.InvalidCFA;
                 },
                 .register => |register| {
@@ -409,14 +410,14 @@ pub const VirtualMachine = struct {
 
                     if (!context.isValidMemory(addr)) return error.InvalidExpressionAddress;
                     const ptr: *usize = @ptrFromInt(addr);
-                    mem.writeIntSliceNative(usize, out, ptr.*);
+                    mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
                 },
                 .val_expression => |expression| {
                     context.stack_machine.reset();
                     const value = try context.stack_machine.run(expression, context.allocator, expression_context, context.cfa.?);
                     if (value) |v| {
                         if (v != .generic) return error.InvalidExpressionValue;
-                        mem.writeIntSliceNative(usize, out, v.generic);
+                        mem.writeInt(usize, out[0..@sizeOf(usize)], v.generic, native_endian);
                     } else return error.NoExpressionValue;
                 },
                 .architectural => return error.UnimplementedRegisterRule,

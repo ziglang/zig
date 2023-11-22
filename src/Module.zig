@@ -70,6 +70,8 @@ local_zir_cache: Compilation.Directory,
 /// The Export memory is owned by the `export_owners` table; the slice itself
 /// is owned by this table. The slice is guaranteed to not be empty.
 decl_exports: std.AutoArrayHashMapUnmanaged(Decl.Index, ArrayListUnmanaged(*Export)) = .{},
+/// Same as `decl_exports` but for exported constant values.
+value_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, ArrayListUnmanaged(*Export)) = .{},
 /// This models the Decls that perform exports, so that `decl_exports` can be updated when a Decl
 /// is modified. Note that the key of this table is not the Decl being exported, but the Decl that
 /// is performing the export of another Decl.
@@ -130,12 +132,11 @@ failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
 /// are stored here.
 cimport_errors: std.AutoArrayHashMapUnmanaged(Decl.Index, std.zig.ErrorBundle) = .{},
 
-/// Candidates for deletion. After a semantic analysis update completes, this list
-/// contains Decls that need to be deleted if they end up having no references to them.
-deletion_set: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
-
 /// Key is the error name, index is the error tag value. Index 0 has a length-0 string.
 global_error_set: GlobalErrorSet = .{},
+
+/// Maximum amount of distinct error values, set by --error-limit
+error_limit: ErrorInt,
 
 /// Incrementing integer used to compare against the corresponding Decl
 /// field to determine whether a Decl's status applies to an ongoing update, or a
@@ -160,7 +161,7 @@ emit_h: ?*GlobalEmitH,
 
 test_functions: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
 
-global_assembly: std.AutoHashMapUnmanaged(Decl.Index, []u8) = .{},
+global_assembly: std.AutoArrayHashMapUnmanaged(Decl.Index, []u8) = .{},
 
 reference_table: std.AutoHashMapUnmanaged(Decl.Index, struct {
     referencer: Decl.Index,
@@ -241,6 +242,13 @@ pub const GlobalEmitH = struct {
 
 pub const ErrorInt = u32;
 
+pub const Exported = union(enum) {
+    /// The Decl being exported. Note this is *not* the Decl performing the export.
+    decl_index: Decl.Index,
+    /// Constant value being exported.
+    value: InternPool.Index,
+};
+
 pub const Export = struct {
     opts: Options,
     src: LazySrcLoc,
@@ -249,8 +257,7 @@ pub const Export = struct {
     /// The Decl containing the export statement.  Inline function calls
     /// may cause this to be different from the owner_decl.
     src_decl: Decl.Index,
-    /// The Decl being exported. Note this is *not* the Decl performing the export.
-    exported_decl: Decl.Index,
+    exported: Exported,
     status: enum {
         in_progress,
         failed,
@@ -378,8 +385,8 @@ pub const Decl = struct {
     /// Index to ZIR `extra` array to the entry in the parent's decl structure
     /// (the part that says "for every decls_len"). The first item at this index is
     /// the contents hash, followed by line, name, etc.
-    /// For anonymous decls and also the root Decl for a File, this is 0.
-    zir_decl_index: Zir.Inst.Index,
+    /// For anonymous decls and also the root Decl for a File, this is `none`.
+    zir_decl_index: Zir.OptionalExtraIndex,
 
     /// Represents the "shallow" analysis status. For example, for decls that are functions,
     /// the function type is analyzed with this set to `in_progress`, however, the semantic
@@ -427,9 +434,6 @@ pub const Decl = struct {
     /// with it. That means when `Decl` is destroyed, the cleanup code should additionally
     /// check if the value owns a `Namespace`, and destroy that too.
     owns_tv: bool,
-    /// This flag is set when this Decl is added to `Module.deletion_set`, and cleared
-    /// when removed.
-    deletion_flag: bool,
     /// Whether the corresponding AST decl has a `pub` keyword.
     is_pub: bool,
     /// Whether the corresponding AST decl has a `export` keyword.
@@ -451,13 +455,6 @@ pub const Decl = struct {
     name_fully_qualified: bool = false,
     /// What kind of a declaration is this.
     kind: Kind,
-
-    /// The shallow set of other decls whose typed_value could possibly change if this Decl's
-    /// typed_value is modified.
-    dependants: DepsTable = .{},
-    /// The shallow set of other decls whose typed_value changing indicates that this Decl's
-    /// typed_value may need to be regenerated.
-    dependencies: DepsTable = .{},
 
     pub const Kind = enum {
         @"usingnamespace",
@@ -515,8 +512,8 @@ pub const Decl = struct {
     }
 
     pub fn getNameZir(decl: Decl, zir: Zir) ?[:0]const u8 {
-        assert(decl.zir_decl_index != 0);
-        const name_index = zir.extra[decl.zir_decl_index + 5];
+        assert(decl.zir_decl_index != .none);
+        const name_index = zir.extra[@intFromEnum(decl.zir_decl_index) + 5];
         if (name_index <= 1) return null;
         return zir.nullTerminatedString(name_index);
     }
@@ -527,39 +524,39 @@ pub const Decl = struct {
     }
 
     pub fn contentsHashZir(decl: Decl, zir: Zir) std.zig.SrcHash {
-        assert(decl.zir_decl_index != 0);
-        const hash_u32s = zir.extra[decl.zir_decl_index..][0..4];
+        assert(decl.zir_decl_index != .none);
+        const hash_u32s = zir.extra[@intFromEnum(decl.zir_decl_index)..][0..4];
         const contents_hash = @as(std.zig.SrcHash, @bitCast(hash_u32s.*));
         return contents_hash;
     }
 
     pub fn zirBlockIndex(decl: *const Decl, mod: *Module) Zir.Inst.Index {
-        assert(decl.zir_decl_index != 0);
+        assert(decl.zir_decl_index != .none);
         const zir = decl.getFileScope(mod).zir;
-        return zir.extra[decl.zir_decl_index + 6];
+        return @enumFromInt(zir.extra[@intFromEnum(decl.zir_decl_index) + 6]);
     }
 
     pub fn zirAlignRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
         if (!decl.has_align) return .none;
-        assert(decl.zir_decl_index != 0);
+        assert(decl.zir_decl_index != .none);
         const zir = decl.getFileScope(mod).zir;
-        return @as(Zir.Inst.Ref, @enumFromInt(zir.extra[decl.zir_decl_index + 8]));
+        return @enumFromInt(zir.extra[@intFromEnum(decl.zir_decl_index) + 8]);
     }
 
     pub fn zirLinksectionRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
         if (!decl.has_linksection_or_addrspace) return .none;
-        assert(decl.zir_decl_index != 0);
+        assert(decl.zir_decl_index != .none);
         const zir = decl.getFileScope(mod).zir;
-        const extra_index = decl.zir_decl_index + 8 + @intFromBool(decl.has_align);
-        return @as(Zir.Inst.Ref, @enumFromInt(zir.extra[extra_index]));
+        const extra_index = @intFromEnum(decl.zir_decl_index) + 8 + @intFromBool(decl.has_align);
+        return @enumFromInt(zir.extra[extra_index]);
     }
 
     pub fn zirAddrspaceRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
         if (!decl.has_linksection_or_addrspace) return .none;
-        assert(decl.zir_decl_index != 0);
+        assert(decl.zir_decl_index != .none);
         const zir = decl.getFileScope(mod).zir;
-        const extra_index = decl.zir_decl_index + 8 + @intFromBool(decl.has_align) + 1;
-        return @as(Zir.Inst.Ref, @enumFromInt(zir.extra[extra_index]));
+        const extra_index = @intFromEnum(decl.zir_decl_index) + 8 + @intFromBool(decl.has_align) + 1;
+        return @enumFromInt(zir.extra[extra_index]);
     }
 
     pub fn relativeToLine(decl: Decl, offset: u32) u32 {
@@ -567,7 +564,7 @@ pub const Decl = struct {
     }
 
     pub fn relativeToNodeIndex(decl: Decl, offset: i32) Ast.Node.Index {
-        return @as(Ast.Node.Index, @bitCast(offset + @as(i32, @bitCast(decl.src_node))));
+        return @bitCast(offset + @as(i32, @bitCast(decl.src_node)));
     }
 
     pub fn nodeIndexToRelative(decl: Decl, node_index: Ast.Node.Index) i32 {
@@ -869,47 +866,6 @@ pub const Namespace = struct {
         }
     };
 
-    pub fn deinit(ns: *Namespace, mod: *Module) void {
-        ns.destroyDecls(mod);
-        ns.* = undefined;
-    }
-
-    pub fn destroyDecls(ns: *Namespace, mod: *Module) void {
-        const gpa = mod.gpa;
-
-        var decls = ns.decls;
-        ns.decls = .{};
-
-        for (decls.keys()) |decl_index| {
-            mod.destroyDecl(decl_index);
-        }
-        decls.deinit(gpa);
-
-        ns.usingnamespace_set.deinit(gpa);
-    }
-
-    pub fn deleteAllDecls(
-        ns: *Namespace,
-        mod: *Module,
-        outdated_decls: ?*std.AutoArrayHashMap(Decl.Index, void),
-    ) !void {
-        const gpa = mod.gpa;
-
-        var decls = ns.decls;
-        ns.decls = .{};
-
-        // TODO rework this code to not panic on OOM.
-        // (might want to coordinate with the clearDecl function)
-
-        for (decls.keys()) |child_decl| {
-            mod.clearDecl(child_decl, outdated_decls) catch @panic("out of memory");
-            mod.destroyDecl(child_decl);
-        }
-        decls.deinit(gpa);
-
-        ns.usingnamespace_set.deinit(gpa);
-    }
-
     // This renders e.g. "std.fs.Dir.OpenOptions"
     pub fn renderFullyQualifiedName(
         ns: Namespace,
@@ -1194,9 +1150,8 @@ pub const File = struct {
         if (imports_index == 0) return;
         const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
 
-        var import_i: u32 = 0;
         var extra_index = extra.end;
-        while (import_i < extra.data.imports_len) : (import_i += 1) {
+        for (0..extra.data.imports_len) |_| {
             const item = file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
@@ -1211,26 +1166,14 @@ pub const File = struct {
     }
 };
 
-/// Represents the contents of a file loaded with `@embedFile`.
 pub const EmbedFile = struct {
-    /// Relative to the owning package's root_src_dir.
-    /// Memory is stored in gpa, owned by EmbedFile.
-    sub_file_path: []const u8,
-    bytes: [:0]const u8,
+    /// Relative to the owning module's root directory.
+    sub_file_path: InternPool.NullTerminatedString,
+    /// Module that this file is a part of, managed externally.
+    owner: *Package.Module,
     stat: Cache.File.Stat,
-    /// Package that this file is a part of, managed externally.
-    mod: *Package.Module,
-    /// The Decl that was created from the `@embedFile` to own this resource.
-    /// This is how zig knows what other Decl objects to invalidate if the file
-    /// changes on disk.
-    owner_decl: Decl.Index,
-
-    fn destroy(embed_file: *EmbedFile, mod: *Module) void {
-        const gpa = mod.gpa;
-        gpa.free(embed_file.sub_file_path);
-        gpa.free(embed_file.bytes);
-        gpa.destroy(embed_file);
-    }
+    val: InternPool.Index,
+    src_loc: SrcLoc,
 };
 
 /// This struct holds data necessary to construct API-facing `AllErrors.Message`.
@@ -1259,6 +1202,7 @@ pub const ErrorMsg = struct {
         comptime format: []const u8,
         args: anytype,
     ) !*ErrorMsg {
+        assert(src_loc.lazy != .unneeded);
         const err_msg = try gpa.create(ErrorMsg);
         errdefer gpa.destroy(err_msg);
         err_msg.* = try ErrorMsg.init(gpa, src_loc, format, args);
@@ -1519,6 +1463,14 @@ pub const SrcLoc = struct {
                     },
                     else => tree.firstToken(node) - 2,
                 };
+                const start = tree.tokens.items(.start)[tok_index];
+                const end = start + @as(u32, @intCast(tree.tokenSlice(tok_index).len));
+                return Span{ .start = start, .end = end, .main = start };
+            },
+            .node_offset_field_name_init => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const tok_index = tree.firstToken(node) - 2;
                 const start = tree.tokens.items(.start)[tok_index];
                 const end = start + @as(u32, @intCast(tree.tokenSlice(tok_index).len));
                 return Span{ .start = start, .end = end, .main = start };
@@ -2188,10 +2140,14 @@ pub const LazySrcLoc = union(enum) {
     /// The payload is offset from the containing Decl AST node.
     /// The source location points to the field name of:
     ///  * a field access expression (`a.b`), or
-    ///  * the callee of a method call (`a.b()`), or
-    ///  * the operand ("b" node) of a field initialization expression (`.a = b`), or
+    ///  * the callee of a method call (`a.b()`)
     /// The Decl is determined contextually.
     node_offset_field_name: i32,
+    /// The payload is offset from the containing Decl AST node.
+    /// The source location points to the field name of the operand ("b" node)
+    /// of a field initialization expression (`.a = b`)
+    /// The Decl is determined contextually.
+    node_offset_field_name_init: i32,
     /// The source location points to the pointer of a pointer deref expression,
     /// found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a pointer deref AST node. Next, navigate
@@ -2430,6 +2386,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_slice_sentinel,
             .node_offset_call_func,
             .node_offset_field_name,
+            .node_offset_field_name_init,
             .node_offset_deref_ptr,
             .node_offset_asm_source,
             .node_offset_asm_ret_ty,
@@ -2529,12 +2486,12 @@ pub fn deinit(mod: *Module) void {
         var it = mod.embed_table.iterator();
         while (it.next()) |entry| {
             gpa.free(entry.key_ptr.*);
-            entry.value_ptr.*.destroy(mod);
+            const ef: *EmbedFile = entry.value_ptr.*;
+            gpa.destroy(ef);
         }
         mod.embed_table.deinit(gpa);
     }
 
-    mod.deletion_set.deinit(gpa);
     mod.compile_log_text.deinit(gpa);
 
     mod.zig_cache_artifact_directory.handle.close();
@@ -2583,6 +2540,11 @@ pub fn deinit(mod: *Module) void {
     }
     mod.decl_exports.deinit(gpa);
 
+    for (mod.value_exports.values()) |*export_list| {
+        export_list.deinit(gpa);
+    }
+    mod.value_exports.deinit(gpa);
+
     for (mod.export_owners.values()) |*value| {
         freeExportList(gpa, value);
     }
@@ -2592,8 +2554,20 @@ pub fn deinit(mod: *Module) void {
 
     mod.test_functions.deinit(gpa);
 
+    for (mod.global_assembly.values()) |s| {
+        gpa.free(s);
+    }
     mod.global_assembly.deinit(gpa);
+
     mod.reference_table.deinit(gpa);
+
+    {
+        var it = mod.intern_pool.allocated_namespaces.iterator(0);
+        while (it.next()) |namespace| {
+            namespace.decls.deinit(gpa);
+            namespace.usingnamespace_set.deinit(gpa);
+        }
+    }
 
     mod.intern_pool.deinit(gpa);
     mod.tmp_hack_arena.deinit();
@@ -2608,22 +2582,10 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
     const ip = &mod.intern_pool;
 
     {
-        const decl = mod.declPtr(decl_index);
         _ = mod.test_functions.swapRemove(decl_index);
-        if (decl.deletion_flag) {
-            assert(mod.deletion_set.swapRemove(decl_index));
-        }
-        if (mod.global_assembly.fetchRemove(decl_index)) |kv| {
+        if (mod.global_assembly.fetchSwapRemove(decl_index)) |kv| {
             gpa.free(kv.value);
         }
-        if (decl.has_tv) {
-            if (decl.getOwnedInnerNamespaceIndex(mod).unwrap()) |i| {
-                mod.namespacePtr(i).destroyDecls(mod);
-                mod.destroyNamespace(i);
-            }
-        }
-        decl.dependants.deinit(gpa);
-        decl.dependencies.deinit(gpa);
     }
 
     ip.destroyDecl(gpa, decl_index);
@@ -3046,7 +3008,7 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
     defer inst_map.deinit(gpa);
     // Maps from old ZIR to new ZIR, the extra data index for the sub-decl item.
     // e.g. the thing that Decl.zir_decl_index points to.
-    var extra_map: std.AutoHashMapUnmanaged(u32, u32) = .{};
+    var extra_map: std.AutoHashMapUnmanaged(Zir.ExtraIndex, Zir.ExtraIndex) = .{};
     defer extra_map.deinit(gpa);
 
     try mapOldZirToNew(gpa, old_zir, new_zir, &inst_map, &extra_map);
@@ -3074,14 +3036,13 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
         // to walk them but we do not need to modify this value.
         // Anonymous decls should not be marked outdated. They will be re-generated
         // if their owner decl is marked outdated.
-        if (decl.zir_decl_index != 0) {
-            const old_zir_decl_index = decl.zir_decl_index;
+        if (decl.zir_decl_index.unwrap()) |old_zir_decl_index| {
             const new_zir_decl_index = extra_map.get(old_zir_decl_index) orelse {
                 try file.deleted_decls.append(gpa, decl_index);
                 continue;
             };
             const old_hash = decl.contentsHashZir(old_zir);
-            decl.zir_decl_index = new_zir_decl_index;
+            decl.zir_decl_index = new_zir_decl_index.toOptional();
             const new_hash = decl.contentsHashZir(new_zir);
             if (!std.zig.srcHashEql(old_hash, new_hash)) {
                 try file.outdated_decls.append(gpa, decl_index);
@@ -3190,7 +3151,7 @@ pub fn mapOldZirToNew(
     old_zir: Zir,
     new_zir: Zir,
     inst_map: *std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index),
-    extra_map: *std.AutoHashMapUnmanaged(u32, u32),
+    extra_map: *std.AutoHashMapUnmanaged(Zir.ExtraIndex, Zir.ExtraIndex),
 ) Allocator.Error!void {
     // Contain ZIR indexes of declaration instructions.
     const MatchedZirDecl = struct {
@@ -3202,8 +3163,8 @@ pub fn mapOldZirToNew(
 
     // Main struct inst is always the same
     try match_stack.append(gpa, .{
-        .old_inst = Zir.main_struct_inst,
-        .new_inst = Zir.main_struct_inst,
+        .old_inst = .main_struct_inst,
+        .new_inst = .main_struct_inst,
     });
 
     var old_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
@@ -3215,7 +3176,7 @@ pub fn mapOldZirToNew(
         try inst_map.put(gpa, match_item.old_inst, match_item.new_inst);
 
         // Maps name to extra index of decl sub item.
-        var decl_map: std.StringHashMapUnmanaged(u32) = .{};
+        var decl_map: std.StringHashMapUnmanaged(Zir.ExtraIndex) = .{};
         defer decl_map.deinit(gpa);
 
         {
@@ -3275,16 +3236,6 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             // prior to re-analysis.
             try mod.deleteDeclExports(decl_index);
 
-            // Dependencies will be re-discovered, so we remove them here prior to re-analysis.
-            for (decl.dependencies.keys()) |dep_index| {
-                const dep = mod.declPtr(dep_index);
-                dep.removeDependant(decl_index);
-                if (dep.dependants.count() == 0 and !dep.deletion_flag) {
-                    try mod.markDeclForDeletion(dep_index);
-                }
-            }
-            decl.dependencies.clearRetainingCapacity();
-
             break :blk true;
         },
 
@@ -3296,7 +3247,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     defer decl_prog_node.end();
 
     const type_changed = blk: {
-        if (decl.zir_decl_index == 0 and !mod.declIsRoot(decl_index)) {
+        if (decl.zir_decl_index == .none and !mod.declIsRoot(decl_index)) {
             // Anonymous decl. We don't semantically analyze these.
             break :blk false; // tv unchanged
         }
@@ -3328,33 +3279,8 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     };
 
     if (subsequent_analysis) {
-        // Update all dependents which have at least this level of dependency.
-        // If our type remained the same and we're a function, only update
-        // decls which depend on our body; otherwise, update all dependents.
-        const update_level: Decl.DepType = if (!type_changed and decl.ty.zigTypeTag(mod) == .Fn) .function_body else .normal;
-
-        for (decl.dependants.keys(), decl.dependants.values()) |dep_index, dep_type| {
-            if (@intFromEnum(dep_type) < @intFromEnum(update_level)) continue;
-
-            const dep = mod.declPtr(dep_index);
-            switch (dep.analysis) {
-                .unreferenced => unreachable,
-                .in_progress => continue, // already doing analysis, ok
-                .outdated => continue, // already queued for update
-
-                .file_failure,
-                .dependency_failure,
-                .sema_failure,
-                .sema_failure_retryable,
-                .liveness_failure,
-                .codegen_failure,
-                .codegen_failure_retryable,
-                .complete,
-                => if (dep.generation != mod.generation) {
-                    try mod.markOutdatedDecl(dep_index);
-                },
-            }
-        }
+        _ = type_changed;
+        @panic("TODO re-implement incremental compilation");
     }
 }
 
@@ -3540,35 +3466,6 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
     func.analysis(ip).state = .queued;
 }
 
-pub fn updateEmbedFile(mod: *Module, embed_file: *EmbedFile) SemaError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    // TODO we can potentially relax this if we store some more information along
-    // with decl dependency edges
-    const owner_decl = mod.declPtr(embed_file.owner_decl);
-    for (owner_decl.dependants.keys()) |dep_index| {
-        const dep = mod.declPtr(dep_index);
-        switch (dep.analysis) {
-            .unreferenced => unreachable,
-            .in_progress => continue, // already doing analysis, ok
-            .outdated => continue, // already queued for update
-
-            .file_failure,
-            .dependency_failure,
-            .sema_failure,
-            .sema_failure_retryable,
-            .liveness_failure,
-            .codegen_failure,
-            .codegen_failure_retryable,
-            .complete,
-            => if (dep.generation != mod.generation) {
-                try mod.markOutdatedDecl(dep_index);
-            },
-        }
-    }
-}
-
 /// https://github.com/ziglang/zig/issues/14307
 pub fn semaPkg(mod: *Module, pkg: *Package.Module) !void {
     const file = (try mod.importPkg(pkg)).file;
@@ -3612,8 +3509,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     new_decl.ty = Type.type;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
-    new_decl.has_tv = true;
-    new_decl.owns_tv = true;
     new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
     new_decl.analysis = .in_progress;
     new_decl.generation = mod.generation;
@@ -3647,11 +3542,10 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     };
     defer sema.deinit();
 
-    const main_struct_inst = Zir.main_struct_inst;
     const struct_ty = sema.getStructType(
         new_decl_index,
         new_namespace_index,
-        main_struct_inst,
+        .main_struct_inst,
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
@@ -3664,6 +3558,8 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
 
     new_namespace.ty = struct_ty.toType();
     new_decl.val = struct_ty.toValue();
+    new_decl.has_tv = true;
+    new_decl.owns_tv = true;
     new_decl.analysis = .complete;
 
     if (mod.comp.whole_cache_manifest) |whole_cache_manifest| {
@@ -3779,11 +3675,12 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     defer block_scope.instructions.deinit(gpa);
 
     const zir_block_index = decl.zirBlockIndex(mod);
-    const inst_data = zir_datas[zir_block_index].pl_node;
+    const inst_data = zir_datas[@intFromEnum(zir_block_index)].pl_node;
     const extra = zir.extraData(Zir.Inst.Block, inst_data.payload_index);
     const body = zir.extra[extra.end..][0..extra.data.body_len];
-    const result_ref = (try sema.analyzeBodyBreak(&block_scope, body)).?.operand;
-    // We'll do some other bits with the Sema. Clear the type target index just in case they analyze any type.
+    const result_ref = (try sema.analyzeBodyBreak(&block_scope, @ptrCast(body))).?.operand;
+    // We'll do some other bits with the Sema. Clear the type target index just
+    // in case they analyze any type.
     sema.builtin_type_target_index = .none;
     for (comptime_mutable_decls.items) |ct_decl_index| {
         const ct_decl = mod.declPtr(ct_decl_index);
@@ -3794,7 +3691,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const address_space_src: LazySrcLoc = .{ .node_offset_var_decl_addrspace = 0 };
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
     const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
-    const decl_tv = try sema.resolveInstValue(&block_scope, init_src, result_ref, .{
+    const decl_tv = try sema.resolveInstValueAllowVariables(&block_scope, init_src, result_ref, .{
         .needed_comptime_reason = "global variable initializer must be comptime-known",
     });
 
@@ -3964,37 +3861,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     return type_changed;
 }
 
-/// Returns the depender's index of the dependee.
-pub fn declareDeclDependency(mod: *Module, depender_index: Decl.Index, dependee_index: Decl.Index) !void {
-    return mod.declareDeclDependencyType(depender_index, dependee_index, .normal);
-}
-
-/// Returns the depender's index of the dependee.
-pub fn declareDeclDependencyType(mod: *Module, depender_index: Decl.Index, dependee_index: Decl.Index, dep_type: Decl.DepType) !void {
-    if (depender_index == dependee_index) return;
-
-    const depender = mod.declPtr(depender_index);
-    const dependee = mod.declPtr(dependee_index);
-
-    if (depender.dependencies.get(dependee_index)) |cur_type| {
-        if (@intFromEnum(cur_type) >= @intFromEnum(dep_type)) {
-            // We already have this dependency (or stricter) marked
-            return;
-        }
-    }
-
-    if (dependee.deletion_flag) {
-        dependee.deletion_flag = false;
-        assert(mod.deletion_set.swapRemove(dependee_index));
-    }
-
-    try depender.dependencies.ensureUnusedCapacity(mod.gpa, 1);
-    try dependee.dependants.ensureUnusedCapacity(mod.gpa, 1);
-
-    dependee.dependants.putAssumeCapacity(depender_index, dep_type);
-    depender.dependencies.putAssumeCapacity(dependee_index, dep_type);
-}
-
 pub const ImportFileResult = struct {
     file: *File,
     is_new: bool,
@@ -4150,7 +4016,12 @@ pub fn importFile(
     };
 }
 
-pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*EmbedFile {
+pub fn embedFile(
+    mod: *Module,
+    cur_file: *File,
+    import_string: []const u8,
+    src_loc: SrcLoc,
+) !InternPool.Index {
     const gpa = mod.gpa;
 
     if (cur_file.mod.deps.get(import_string)) |pkg| {
@@ -4163,13 +4034,17 @@ pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*Emb
         defer if (!keep_resolved_path) gpa.free(resolved_path);
 
         const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
-        errdefer assert(mod.embed_table.remove(resolved_path));
-        if (gop.found_existing) return gop.value_ptr.*;
+        errdefer {
+            assert(mod.embed_table.remove(resolved_path));
+            keep_resolved_path = false;
+        }
+        if (gop.found_existing) return gop.value_ptr.*.val;
+        keep_resolved_path = true;
 
         const sub_file_path = try gpa.dupe(u8, pkg.root_src_path);
         errdefer gpa.free(sub_file_path);
 
-        return newEmbedFile(mod, pkg, sub_file_path, resolved_path, &keep_resolved_path, gop);
+        return newEmbedFile(mod, pkg, sub_file_path, resolved_path, gop, src_loc);
     }
 
     // The resolved path is used as the key in the table, to detect if a file
@@ -4186,8 +4061,12 @@ pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*Emb
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
     const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
-    errdefer assert(mod.embed_table.remove(resolved_path));
-    if (gop.found_existing) return gop.value_ptr.*;
+    errdefer {
+        assert(mod.embed_table.remove(resolved_path));
+        keep_resolved_path = false;
+    }
+    if (gop.found_existing) return gop.value_ptr.*.val;
+    keep_resolved_path = true;
 
     const resolved_root_path = try std.fs.path.resolve(gpa, &.{
         cur_file.mod.root.root_dir.path orelse ".",
@@ -4208,9 +4087,9 @@ pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*Emb
         }
         return error.ImportOutsideModulePath;
     };
-    errdefer gpa.free(sub_file_path);
+    defer gpa.free(sub_file_path);
 
-    return newEmbedFile(mod, cur_file.mod, sub_file_path, resolved_path, &keep_resolved_path, gop);
+    return newEmbedFile(mod, cur_file.mod, sub_file_path, resolved_path, gop, src_loc);
 }
 
 /// https://github.com/ziglang/zig/issues/14307
@@ -4219,9 +4098,9 @@ fn newEmbedFile(
     pkg: *Package.Module,
     sub_file_path: []const u8,
     resolved_path: []const u8,
-    keep_resolved_path: *bool,
     gop: std.StringHashMapUnmanaged(*EmbedFile).GetOrPutResult,
-) !*EmbedFile {
+    src_loc: SrcLoc,
+) !InternPool.Index {
     const gpa = mod.gpa;
 
     const new_file = try gpa.create(EmbedFile);
@@ -4236,57 +4115,54 @@ fn newEmbedFile(
         .inode = actual_stat.inode,
         .mtime = actual_stat.mtime,
     };
-    const size_usize = std.math.cast(usize, actual_stat.size) orelse return error.Overflow;
-    const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
-    errdefer gpa.free(bytes);
+    const size = std.math.cast(usize, actual_stat.size) orelse return error.Overflow;
+    const ip = &mod.intern_pool;
+
+    const ptr = try ip.string_bytes.addManyAsSlice(gpa, size);
+    const actual_read = try file.readAll(ptr);
+    if (actual_read != size) return error.UnexpectedEndOfFile;
 
     if (mod.comp.whole_cache_manifest) |whole_cache_manifest| {
         const copied_resolved_path = try gpa.dupe(u8, resolved_path);
         errdefer gpa.free(copied_resolved_path);
         mod.comp.whole_cache_manifest_mutex.lock();
         defer mod.comp.whole_cache_manifest_mutex.unlock();
-        try whole_cache_manifest.addFilePostContents(copied_resolved_path, bytes, stat);
+        try whole_cache_manifest.addFilePostContents(copied_resolved_path, ptr, stat);
     }
 
-    keep_resolved_path.* = true; // It's now owned by embed_table.
+    const array_ty = try ip.get(gpa, .{ .array_type = .{
+        .len = size,
+        .sentinel = .zero_u8,
+        .child = .u8_type,
+    } });
+    const array_val = try ip.getTrailingAggregate(gpa, array_ty, size);
+
+    const ptr_ty = (try mod.ptrType(.{
+        .child = array_ty,
+        .flags = .{
+            .alignment = .none,
+            .is_const = true,
+            .address_space = .generic,
+        },
+    })).toIntern();
+
+    const ptr_val = try ip.get(gpa, .{ .ptr = .{
+        .ty = ptr_ty,
+        .addr = .{ .anon_decl = .{
+            .val = array_val,
+            .orig_ty = ptr_ty,
+        } },
+    } });
+
     gop.value_ptr.* = new_file;
     new_file.* = .{
-        .sub_file_path = sub_file_path,
-        .bytes = bytes,
+        .sub_file_path = try ip.getOrPutString(gpa, sub_file_path),
+        .owner = pkg,
         .stat = stat,
-        .mod = pkg,
-        .owner_decl = undefined, // Set by Sema immediately after this function returns.
+        .val = ptr_val,
+        .src_loc = src_loc,
     };
-    return new_file;
-}
-
-pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
-    var file = try embed_file.mod.root.openFile(embed_file.sub_file_path, .{});
-    defer file.close();
-
-    const stat = try file.stat();
-
-    const unchanged_metadata =
-        stat.size == embed_file.stat.size and
-        stat.mtime == embed_file.stat.mtime and
-        stat.inode == embed_file.stat.inode;
-
-    if (unchanged_metadata) return;
-
-    const gpa = mod.gpa;
-    const size_usize = std.math.cast(usize, stat.size) orelse return error.Overflow;
-    const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
-    gpa.free(embed_file.bytes);
-    embed_file.bytes = bytes;
-    embed_file.stat = .{
-        .size = stat.size,
-        .mtime = stat.mtime,
-        .inode = stat.inode,
-    };
-
-    mod.comp.mutex.lock();
-    defer mod.comp.mutex.unlock();
-    try mod.comp.work_queue.writeItem(.{ .update_embed_file = embed_file });
+    return ptr_val;
 }
 
 pub fn scanNamespace(
@@ -4465,7 +4341,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
         new_decl.is_exported = is_exported;
         new_decl.has_align = has_align;
         new_decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
-        new_decl.zir_decl_index = @as(u32, @intCast(decl_sub_index));
+        new_decl.zir_decl_index = @enumFromInt(decl_sub_index);
         new_decl.alive = true; // This Decl corresponds to an AST node and therefore always alive.
         return;
     }
@@ -4499,7 +4375,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     decl.kind = kind;
     decl.has_align = has_align;
     decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
-    decl.zir_decl_index = @as(u32, @intCast(decl_sub_index));
+    decl.zir_decl_index = @enumFromInt(decl_sub_index);
     if (decl.getOwnedFunction(mod) != null) {
         switch (comp.bin_file.tag) {
             .coff, .elf, .macho, .plan9 => {
@@ -4510,81 +4386,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
             .c, .wasm, .spirv, .nvptx => {},
         }
     }
-}
-
-/// Make it as if the semantic analysis for this Decl never happened.
-pub fn clearDecl(
-    mod: *Module,
-    decl_index: Decl.Index,
-    outdated_decls: ?*std.AutoArrayHashMap(Decl.Index, void),
-) Allocator.Error!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const decl = mod.declPtr(decl_index);
-
-    const gpa = mod.gpa;
-    try mod.deletion_set.ensureUnusedCapacity(gpa, decl.dependencies.count());
-
-    if (outdated_decls) |map| {
-        _ = map.swapRemove(decl_index);
-        try map.ensureUnusedCapacity(decl.dependants.count());
-    }
-
-    // Remove itself from its dependencies.
-    for (decl.dependencies.keys()) |dep_index| {
-        const dep = mod.declPtr(dep_index);
-        dep.removeDependant(decl_index);
-        if (dep.dependants.count() == 0 and !dep.deletion_flag) {
-            // We don't recursively perform a deletion here, because during the update,
-            // another reference to it may turn up.
-            dep.deletion_flag = true;
-            mod.deletion_set.putAssumeCapacity(dep_index, {});
-        }
-    }
-    decl.dependencies.clearRetainingCapacity();
-
-    // Anything that depends on this deleted decl needs to be re-analyzed.
-    for (decl.dependants.keys()) |dep_index| {
-        const dep = mod.declPtr(dep_index);
-        dep.removeDependency(decl_index);
-        if (outdated_decls) |map| {
-            map.putAssumeCapacity(dep_index, {});
-        }
-    }
-    decl.dependants.clearRetainingCapacity();
-
-    if (mod.failed_decls.fetchSwapRemove(decl_index)) |kv| {
-        kv.value.destroy(gpa);
-    }
-    if (mod.cimport_errors.fetchSwapRemove(decl_index)) |kv| {
-        var errors = kv.value;
-        errors.deinit(gpa);
-    }
-    if (mod.emit_h) |emit_h| {
-        if (emit_h.failed_decls.fetchSwapRemove(decl_index)) |kv| {
-            kv.value.destroy(gpa);
-        }
-        assert(emit_h.decl_table.swapRemove(decl_index));
-    }
-    _ = mod.compile_log_decls.swapRemove(decl_index);
-    try mod.deleteDeclExports(decl_index);
-
-    if (decl.has_tv) {
-        if (decl.ty.isFnOrHasRuntimeBits(mod)) {
-            mod.comp.bin_file.freeDecl(decl_index);
-        }
-        if (decl.getOwnedInnerNamespace(mod)) |namespace| {
-            try namespace.deleteAllDecls(mod, outdated_decls);
-        }
-    }
-
-    if (decl.deletion_flag) {
-        decl.deletion_flag = false;
-        assert(mod.deletion_set.swapRemove(decl_index));
-    }
-
-    decl.analysis = .unreferenced;
 }
 
 /// This function is exclusively called for anonymous decls.
@@ -4603,30 +4404,10 @@ pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
     }
 }
 
-/// We don't perform a deletion here, because this Decl or another one
-/// may end up referencing it before the update is complete.
-fn markDeclForDeletion(mod: *Module, decl_index: Decl.Index) !void {
-    const decl = mod.declPtr(decl_index);
-    decl.deletion_flag = true;
-    try mod.deletion_set.put(mod.gpa, decl_index, {});
-}
-
 /// Cancel the creation of an anon decl and delete any references to it.
 /// If other decls depend on this decl, they must be aborted first.
 pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
-    const decl = mod.declPtr(decl_index);
-
     assert(!mod.declIsRoot(decl_index));
-
-    // An aborted decl must not have dependants -- they must have
-    // been aborted first and removed from this list.
-    assert(decl.dependants.count() == 0);
-
-    for (decl.dependencies.keys()) |dep_index| {
-        const dep = mod.declPtr(dep_index);
-        dep.removeDependant(decl_index);
-    }
-
     mod.destroyDecl(decl_index);
 }
 
@@ -4647,36 +4428,49 @@ fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) Allocator.Error!void 
     var export_owners = (mod.export_owners.fetchSwapRemove(decl_index) orelse return).value;
 
     for (export_owners.items) |exp| {
-        if (mod.decl_exports.getPtr(exp.exported_decl)) |value_ptr| {
-            // Remove exports with owner_decl matching the regenerating decl.
-            const list = value_ptr.items;
-            var i: usize = 0;
-            var new_len = list.len;
-            while (i < new_len) {
-                if (list[i].owner_decl == decl_index) {
-                    mem.copyBackwards(*Export, list[i..], list[i + 1 .. new_len]);
-                    new_len -= 1;
-                } else {
-                    i += 1;
+        switch (exp.exported) {
+            .decl_index => |exported_decl_index| {
+                if (mod.decl_exports.getPtr(exported_decl_index)) |export_list| {
+                    // Remove exports with owner_decl matching the regenerating decl.
+                    const list = export_list.items;
+                    var i: usize = 0;
+                    var new_len = list.len;
+                    while (i < new_len) {
+                        if (list[i].owner_decl == decl_index) {
+                            mem.copyBackwards(*Export, list[i..], list[i + 1 .. new_len]);
+                            new_len -= 1;
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    export_list.shrinkAndFree(mod.gpa, new_len);
+                    if (new_len == 0) {
+                        assert(mod.decl_exports.swapRemove(exported_decl_index));
+                    }
                 }
-            }
-            value_ptr.shrinkAndFree(mod.gpa, new_len);
-            if (new_len == 0) {
-                assert(mod.decl_exports.swapRemove(exp.exported_decl));
-            }
+            },
+            .value => |value| {
+                if (mod.value_exports.getPtr(value)) |export_list| {
+                    // Remove exports with owner_decl matching the regenerating decl.
+                    const list = export_list.items;
+                    var i: usize = 0;
+                    var new_len = list.len;
+                    while (i < new_len) {
+                        if (list[i].owner_decl == decl_index) {
+                            mem.copyBackwards(*Export, list[i..], list[i + 1 .. new_len]);
+                            new_len -= 1;
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    export_list.shrinkAndFree(mod.gpa, new_len);
+                    if (new_len == 0) {
+                        assert(mod.value_exports.swapRemove(value));
+                    }
+                }
+            },
         }
-        if (mod.comp.bin_file.cast(link.File.Elf)) |elf| {
-            elf.deleteDeclExport(decl_index, exp.opts.name);
-        }
-        if (mod.comp.bin_file.cast(link.File.MachO)) |macho| {
-            try macho.deleteDeclExport(decl_index, exp.opts.name);
-        }
-        if (mod.comp.bin_file.cast(link.File.Wasm)) |wasm| {
-            wasm.deleteDeclExport(decl_index);
-        }
-        if (mod.comp.bin_file.cast(link.File.Coff)) |coff| {
-            coff.deleteDeclExport(decl_index, exp.opts.name);
-        }
+        try mod.comp.bin_file.deleteDeclExport(decl_index, exp.opts.name);
         if (mod.failed_exports.fetchSwapRemove(exp)) |failed_kv| {
             failed_kv.value.destroy(mod.gpa);
         }
@@ -4982,8 +4776,7 @@ pub fn allocateNewDecl(
         .@"linksection" = .none,
         .@"addrspace" = .generic,
         .analysis = .unreferenced,
-        .deletion_flag = false,
-        .zir_decl_index = 0,
+        .zir_decl_index = .none,
         .src_scope = src_scope,
         .generation = 0,
         .is_pub = false,
@@ -5018,6 +4811,11 @@ pub fn getErrorValueFromSlice(
 ) Allocator.Error!ErrorInt {
     const interned_name = try mod.intern_pool.getOrPutString(mod.gpa, name);
     return getErrorValue(mod, interned_name);
+}
+
+pub fn errorSetBits(mod: *Module) u16 {
+    if (mod.error_limit == 0) return 0;
+    return std.math.log2_int_ceil(ErrorInt, mod.error_limit + 1); // +1 for no error
 }
 
 pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedValue) !Decl.Index {
@@ -5475,98 +5273,67 @@ pub fn optionsSrc(mod: *Module, decl: *Decl, base_src: LazySrcLoc, wanted: []con
     return base_src;
 }
 
-/// Called from `performAllTheWork`, after all AstGen workers have finished,
-/// and before the main semantic analysis loop begins.
-pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
-    // Ultimately, the goal is to queue up `analyze_decl` tasks in the work queue
-    // for the outdated decls, but we cannot queue up the tasks until after
-    // we find out which ones have been deleted, otherwise there would be
-    // deleted Decl pointers in the work queue.
-    var outdated_decls = std.AutoArrayHashMap(Decl.Index, void).init(mod.gpa);
-    defer outdated_decls.deinit();
-    for (mod.import_table.values()) |file| {
-        try outdated_decls.ensureUnusedCapacity(file.outdated_decls.items.len);
-        for (file.outdated_decls.items) |decl_index| {
-            outdated_decls.putAssumeCapacity(decl_index, {});
-        }
-        file.outdated_decls.clearRetainingCapacity();
-
-        // Handle explicitly deleted decls from the source code. This is one of two
-        // places that Decl deletions happen. The other is in `Compilation`, after
-        // `performAllTheWork`, where we iterate over `Module.deletion_set` and
-        // delete Decls which are no longer referenced.
-        // If a Decl is explicitly deleted from source, and also no longer referenced,
-        // it may be both in this `deleted_decls` set, as well as in the
-        // `Module.deletion_set`. To avoid deleting it twice, we remove it from the
-        // deletion set at this time.
-        for (file.deleted_decls.items) |decl_index| {
-            const decl = mod.declPtr(decl_index);
-
-            // Remove from the namespace it resides in, preserving declaration order.
-            assert(decl.zir_decl_index != 0);
-            _ = mod.namespacePtr(decl.src_namespace).decls.orderedRemoveAdapted(
-                decl.name,
-                DeclAdapter{ .mod = mod },
-            );
-
-            try mod.clearDecl(decl_index, &outdated_decls);
-            mod.destroyDecl(decl_index);
-        }
-        file.deleted_decls.clearRetainingCapacity();
-    }
-    // Finally we can queue up re-analysis tasks after we have processed
-    // the deleted decls.
-    for (outdated_decls.keys()) |key| {
-        try mod.markOutdatedDecl(key);
-    }
-}
-
 /// Called from `Compilation.update`, after everything is done, just before
 /// reporting compile errors. In this function we emit exported symbol collision
 /// errors and communicate exported symbols to the linker backend.
 pub fn processExports(mod: *Module) !void {
-    const gpa = mod.gpa;
     // Map symbol names to `Export` for name collision detection.
-    var symbol_exports: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, *Export) = .{};
-    defer symbol_exports.deinit(gpa);
+    var symbol_exports: SymbolExports = .{};
+    defer symbol_exports.deinit(mod.gpa);
 
-    var it = mod.decl_exports.iterator();
-    while (it.next()) |entry| {
-        const exported_decl = entry.key_ptr.*;
-        const exports = entry.value_ptr.items;
-        for (exports) |new_export| {
-            const gop = try symbol_exports.getOrPut(gpa, new_export.opts.name);
-            if (gop.found_existing) {
-                new_export.status = .failed_retryable;
-                try mod.failed_exports.ensureUnusedCapacity(gpa, 1);
-                const src_loc = new_export.getSrcLoc(mod);
-                const msg = try ErrorMsg.create(gpa, src_loc, "exported symbol collision: {}", .{
-                    new_export.opts.name.fmt(&mod.intern_pool),
-                });
-                errdefer msg.destroy(gpa);
-                const other_export = gop.value_ptr.*;
-                const other_src_loc = other_export.getSrcLoc(mod);
-                try mod.errNoteNonLazy(other_src_loc, msg, "other symbol here", .{});
-                mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
-                new_export.status = .failed;
-            } else {
-                gop.value_ptr.* = new_export;
-            }
-        }
-        mod.comp.bin_file.updateDeclExports(mod, exported_decl, exports) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => {
-                const new_export = exports[0];
-                new_export.status = .failed_retryable;
-                try mod.failed_exports.ensureUnusedCapacity(gpa, 1);
-                const src_loc = new_export.getSrcLoc(mod);
-                const msg = try ErrorMsg.create(gpa, src_loc, "unable to export: {s}", .{
-                    @errorName(err),
-                });
-                mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
-            },
-        };
+    for (mod.decl_exports.keys(), mod.decl_exports.values()) |exported_decl, exports_list| {
+        const exported: Exported = .{ .decl_index = exported_decl };
+        try processExportsInner(mod, &symbol_exports, exported, exports_list.items);
     }
+
+    for (mod.value_exports.keys(), mod.value_exports.values()) |exported_value, exports_list| {
+        const exported: Exported = .{ .value = exported_value };
+        try processExportsInner(mod, &symbol_exports, exported, exports_list.items);
+    }
+}
+
+const SymbolExports = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, *Export);
+
+fn processExportsInner(
+    mod: *Module,
+    symbol_exports: *SymbolExports,
+    exported: Exported,
+    exports: []const *Export,
+) error{OutOfMemory}!void {
+    const gpa = mod.gpa;
+
+    for (exports) |new_export| {
+        const gop = try symbol_exports.getOrPut(gpa, new_export.opts.name);
+        if (gop.found_existing) {
+            new_export.status = .failed_retryable;
+            try mod.failed_exports.ensureUnusedCapacity(gpa, 1);
+            const src_loc = new_export.getSrcLoc(mod);
+            const msg = try ErrorMsg.create(gpa, src_loc, "exported symbol collision: {}", .{
+                new_export.opts.name.fmt(&mod.intern_pool),
+            });
+            errdefer msg.destroy(gpa);
+            const other_export = gop.value_ptr.*;
+            const other_src_loc = other_export.getSrcLoc(mod);
+            try mod.errNoteNonLazy(other_src_loc, msg, "other symbol here", .{});
+            mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
+            new_export.status = .failed;
+        } else {
+            gop.value_ptr.* = new_export;
+        }
+    }
+    mod.comp.bin_file.updateExports(mod, exported, exports) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => {
+            const new_export = exports[0];
+            new_export.status = .failed_retryable;
+            try mod.failed_exports.ensureUnusedCapacity(gpa, 1);
+            const src_loc = new_export.getSrcLoc(mod);
+            const msg = try ErrorMsg.create(gpa, src_loc, "unable to export: {s}", .{
+                @errorName(err),
+            });
+            mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
+        },
+    };
 }
 
 pub fn populateTestFunctions(
@@ -5677,9 +5444,6 @@ pub fn populateTestFunctions(
                 .storage = .{ .elems = test_fn_vals },
             } })).toValue(),
         });
-        for (array_decl_dependencies.items) |array_decl_dependency| {
-            try mod.declareDeclDependency(array_decl_index, array_decl_dependency);
-        }
 
         break :d array_decl_index;
     };
@@ -5868,7 +5632,8 @@ pub const Feature = enum {
 pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
     return switch (feature) {
         .panic_fn => mod.comp.bin_file.options.target.ofmt == .c or
-            mod.comp.bin_file.options.use_llvm,
+            mod.comp.bin_file.options.use_llvm or
+            mod.comp.bin_file.options.target.cpu.arch == .x86_64,
         .panic_unwrap_error => mod.comp.bin_file.options.target.ofmt == .c or
             mod.comp.bin_file.options.use_llvm,
         .safety_check_formatted => mod.comp.bin_file.options.target.ofmt == .c or
@@ -5896,6 +5661,10 @@ pub fn intType(mod: *Module, signedness: std.builtin.Signedness, bits: u16) Allo
         .signedness = signedness,
         .bits = bits,
     } })).toType();
+}
+
+pub fn errorIntType(mod: *Module) std.mem.Allocator.Error!Type {
+    return mod.intType(.unsigned, mod.errorSetBits());
 }
 
 pub fn arrayType(mod: *Module, info: InternPool.Key.ArrayType) Allocator.Error!Type {
@@ -6448,13 +6217,13 @@ pub fn getParamName(mod: *Module, func_index: InternPool.Index, index: u32) [:0]
     const param_body = file.zir.getParamBody(func.zir_body_inst);
     const param = param_body[index];
 
-    return switch (tags[param]) {
+    return switch (tags[@intFromEnum(param)]) {
         .param, .param_comptime => blk: {
-            const extra = file.zir.extraData(Zir.Inst.Param, data[param].pl_tok.payload_index);
+            const extra = file.zir.extraData(Zir.Inst.Param, data[@intFromEnum(param)].pl_tok.payload_index);
             break :blk file.zir.nullTerminatedString(extra.data.name);
         },
         .param_anytype, .param_anytype_comptime => blk: {
-            const param_data = data[param].str_tok;
+            const param_data = data[@intFromEnum(param)].str_tok;
             break :blk param_data.get(file.zir);
         },
         else => unreachable,
@@ -6516,31 +6285,11 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
             .padding = 0,
         };
     }
-    // Put the tag before or after the payload depending on which one's
-    // alignment is greater.
+
     const tag_size = u.enum_tag_ty.toType().abiSize(mod);
     const tag_align = u.enum_tag_ty.toType().abiAlignment(mod).max(.@"1");
-    var size: u64 = 0;
-    var padding: u32 = undefined;
-    if (tag_align.compare(.gte, payload_align)) {
-        // {Tag, Payload}
-        size += tag_size;
-        size = payload_align.forward(size);
-        size += payload_size;
-        const prev_size = size;
-        size = tag_align.forward(size);
-        padding = @intCast(size - prev_size);
-    } else {
-        // {Payload, Tag}
-        size += payload_size;
-        size = tag_align.forward(size);
-        size += tag_size;
-        const prev_size = size;
-        size = payload_align.forward(size);
-        padding = @intCast(size - prev_size);
-    }
     return .{
-        .abi_size = size,
+        .abi_size = u.size,
         .abi_align = tag_align.max(payload_align),
         .most_aligned_field = most_aligned_field,
         .most_aligned_field_size = most_aligned_field_size,
@@ -6549,7 +6298,7 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
         .payload_align = payload_align,
         .tag_align = tag_align,
         .tag_size = tag_size,
-        .padding = padding,
+        .padding = u.padding,
     };
 }
 

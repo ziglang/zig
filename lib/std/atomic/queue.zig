@@ -27,7 +27,7 @@ pub fn Queue(comptime T: type) type {
         }
 
         /// Appends `node` to the queue.
-        /// The lifetime of `node` must be longer than lifetime of queue.
+        /// The lifetime of `node` must be longer than the lifetime of the queue.
         pub fn put(self: *Self, node: *Node) void {
             node.next = null;
 
@@ -175,11 +175,11 @@ const puts_per_thread = 500;
 const put_thread_count = 3;
 
 test "std.atomic.Queue" {
-    var plenty_of_memory = try std.heap.page_allocator.alloc(u8, 300 * 1024);
+    const plenty_of_memory = try std.heap.page_allocator.alloc(u8, 300 * 1024);
     defer std.heap.page_allocator.free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.FixedBufferAllocator.init(plenty_of_memory);
-    var a = fixed_buffer_allocator.threadSafeAllocator();
+    const a = fixed_buffer_allocator.threadSafeAllocator();
 
     var queue = Queue(i32).init();
     var context = Context{

@@ -1,6 +1,6 @@
 pub fn main() void {
     var x = null;
-    _ = x;
+    _ = &x;
 }
 
 // error

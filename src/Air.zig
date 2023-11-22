@@ -1787,7 +1787,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         => false,
 
         .assembly => {
-            var extra = air.extraData(Air.Asm, data.ty_pl.payload);
+            const extra = air.extraData(Air.Asm, data.ty_pl.payload);
             const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
             return is_volatile or if (extra.data.outputs_len == 1)
                 @as(Air.Inst.Ref, @enumFromInt(air.extra[extra.end])) != .none

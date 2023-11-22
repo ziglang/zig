@@ -14,7 +14,7 @@ allocator: Allocator,
 
 socket: net.StreamServer,
 
-/// An interface to either a plain or TLS connection.
+/// An interface to a plain connection.
 pub const Connection = struct {
     pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
     pub const Protocol = enum { plain };
@@ -178,7 +178,7 @@ pub const Request = struct {
     };
 
     pub fn parse(req: *Request, bytes: []const u8) ParseError!void {
-        var it = mem.tokenizeAny(u8, bytes[0 .. bytes.len - 4], "\r\n");
+        var it = mem.tokenizeAny(u8, bytes, "\r\n");
 
         const first_line = it.next() orelse return error.HttpHeadersInvalid;
         if (first_line.len < 10)
@@ -228,27 +228,23 @@ pub const Request = struct {
                 // Transfer-Encoding: deflate, chunked
                 var iter = mem.splitBackwardsScalar(u8, header_value, ',');
 
-                if (iter.next()) |first| {
-                    const trimmed = mem.trim(u8, first, " ");
+                const first = iter.first();
+                const trimmed_first = mem.trim(u8, first, " ");
 
-                    if (std.meta.stringToEnum(http.TransferEncoding, trimmed)) |te| {
-                        if (req.transfer_encoding != null) return error.HttpHeadersInvalid;
-                        req.transfer_encoding = te;
-                    } else if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                        if (req.transfer_compression != null) return error.HttpHeadersInvalid;
-                        req.transfer_compression = ce;
-                    } else {
-                        return error.HttpTransferEncodingUnsupported;
-                    }
+                var next: ?[]const u8 = first;
+                if (std.meta.stringToEnum(http.TransferEncoding, trimmed_first)) |transfer| {
+                    if (req.transfer_encoding != .none) return error.HttpHeadersInvalid; // we already have a transfer encoding
+                    req.transfer_encoding = transfer;
+
+                    next = iter.next();
                 }
 
-                if (iter.next()) |second| {
-                    if (req.transfer_compression != null) return error.HttpTransferEncodingUnsupported;
+                if (next) |second| {
+                    const trimmed_second = mem.trim(u8, second, " ");
 
-                    const trimmed = mem.trim(u8, second, " ");
-
-                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                        req.transfer_compression = ce;
+                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed_second)) |transfer| {
+                        if (req.transfer_compression != .identity) return error.HttpHeadersInvalid; // double compression is not supported
+                        req.transfer_compression = transfer;
                     } else {
                         return error.HttpTransferEncodingUnsupported;
                     }
@@ -256,7 +252,7 @@ pub const Request = struct {
 
                 if (iter.next()) |_| return error.HttpTransferEncodingUnsupported;
             } else if (std.ascii.eqlIgnoreCase(header_name, "content-encoding")) {
-                if (req.transfer_compression != null) return error.HttpHeadersInvalid;
+                if (req.transfer_compression != .identity) return error.HttpHeadersInvalid;
 
                 const trimmed = mem.trim(u8, header_value, " ");
 
@@ -277,9 +273,14 @@ pub const Request = struct {
     target: []const u8,
     version: http.Version,
 
+    /// The length of the request body, if known.
     content_length: ?u64 = null,
-    transfer_encoding: ?http.TransferEncoding = null,
-    transfer_compression: ?http.ContentEncoding = null,
+
+    /// The transfer encoding of the request body, or .none if not present.
+    transfer_encoding: http.TransferEncoding = .none,
+
+    /// The compression of the request body, or .identity (no compression) if not present.
+    transfer_compression: http.ContentEncoding = .identity,
 
     headers: http.Headers,
     parser: proto.HeadersParser,
@@ -289,7 +290,7 @@ pub const Request = struct {
 /// A HTTP response waiting to be sent.
 ///
 ///                                  [/ <----------------------------------- \]
-/// Order of operations: accept -> wait -> do  [ -> write -> finish][ -> reset /]
+/// Order of operations: accept -> wait -> send  [ -> write -> finish][ -> reset /]
 ///                                   \ -> read /
 pub const Response = struct {
     version: http.Version = .@"HTTP/1.1",
@@ -315,6 +316,7 @@ pub const Response = struct {
         finished,
     };
 
+    /// Free all resources associated with this response.
     pub fn deinit(res: *Response) void {
         res.connection.close();
 
@@ -344,7 +346,7 @@ pub const Response = struct {
         // A connection is only keep-alive if the Connection header is present and it's value is not "close".
         // The server and client must both agree
         //
-        // do() defaults to using keep-alive if the client requests it.
+        // send() defaults to using keep-alive if the client requests it.
         const res_connection = res.headers.getFirstValue("connection");
         const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
 
@@ -390,10 +392,10 @@ pub const Response = struct {
         }
     }
 
-    pub const DoError = Connection.WriteError || error{ UnsupportedTransferEncoding, InvalidContentLength };
+    pub const SendError = Connection.WriteError || error{ UnsupportedTransferEncoding, InvalidContentLength };
 
-    /// Send the response headers.
-    pub fn do(res: *Response) DoError!void {
+    /// Send the HTTP response headers to the client.
+    pub fn send(res: *Response) SendError!void {
         switch (res.state) {
             .waited => res.state = .responded,
             .first, .start, .responded, .finished => unreachable,
@@ -511,8 +513,9 @@ pub const Response = struct {
         res.request.headers = .{ .allocator = res.allocator, .owned = true };
         try res.request.parse(res.request.parser.header_bytes.items);
 
-        if (res.request.transfer_encoding) |te| {
-            switch (te) {
+        if (res.request.transfer_encoding != .none) {
+            switch (res.request.transfer_encoding) {
+                .none => unreachable,
                 .chunked => {
                     res.request.parser.next_chunk_length = 0;
                     res.request.parser.state = .chunk_head_size;
@@ -527,19 +530,19 @@ pub const Response = struct {
         }
 
         if (!res.request.parser.done) {
-            if (res.request.transfer_compression) |tc| switch (tc) {
+            switch (res.request.transfer_compression) {
                 .identity => res.request.compression = .none,
-                .compress => return error.CompressionNotSupported,
+                .compress, .@"x-compress" => return error.CompressionNotSupported,
                 .deflate => res.request.compression = .{
                     .deflate = std.compress.zlib.decompressStream(res.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
                 },
-                .gzip => res.request.compression = .{
+                .gzip, .@"x-gzip" => res.request.compression = .{
                     .gzip = std.compress.gzip.decompress(res.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
                 },
                 .zstd => res.request.compression = .{
                     .zstd = std.compress.zstd.decompressStream(res.allocator, res.transferReader()),
                 },
-            };
+            }
         }
     }
 
@@ -551,6 +554,7 @@ pub const Response = struct {
         return .{ .context = res };
     }
 
+    /// Reads data from the response body. Must be called after `wait`.
     pub fn read(res: *Response, buffer: []u8) ReadError!usize {
         switch (res.state) {
             .waited, .responded, .finished => {},
@@ -586,6 +590,7 @@ pub const Response = struct {
         return out_index;
     }
 
+    /// Reads data from the response body. Must be called after `wait`.
     pub fn readAll(res: *Response, buffer: []u8) !usize {
         var index: usize = 0;
         while (index < buffer.len) {
@@ -605,6 +610,7 @@ pub const Response = struct {
     }
 
     /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
+    /// Must be called after `send` and before `finish`.
     pub fn write(res: *Response, bytes: []const u8) WriteError!usize {
         switch (res.state) {
             .responded => {},
@@ -630,6 +636,8 @@ pub const Response = struct {
         }
     }
 
+    /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
+    /// Must be called after `send` and before `finish`.
     pub fn writeAll(req: *Response, bytes: []const u8) WriteError!void {
         var index: usize = 0;
         while (index < bytes.len) {
@@ -640,6 +648,7 @@ pub const Response = struct {
     pub const FinishError = WriteError || error{MessageNotCompleted};
 
     /// Finish the body of a request. This notifies the server that you have no more data to send.
+    /// Must be called after `send`.
     pub fn finish(res: *Response) FinishError!void {
         switch (res.state) {
             .responded => res.state = .finished,
@@ -654,6 +663,7 @@ pub const Response = struct {
     }
 };
 
+/// Create a new HTTP server.
 pub fn init(allocator: Allocator, options: net.StreamServer.Options) Server {
     return .{
         .allocator = allocator,
@@ -661,6 +671,7 @@ pub fn init(allocator: Allocator, options: net.StreamServer.Options) Server {
     };
 }
 
+/// Free all resources associated with this server.
 pub fn deinit(server: *Server) void {
     server.socket.deinit();
 }
@@ -726,7 +737,7 @@ test "HTTP server handles a chunked transfer coding request" {
     }
 
     const native_endian = comptime builtin.cpu.arch.endian();
-    if (builtin.zig_backend == .stage2_llvm and native_endian == .Big) {
+    if (builtin.zig_backend == .stage2_llvm and native_endian == .big) {
         // https://github.com/ziglang/zig/issues/13782
         return error.SkipZigTest;
     }
@@ -754,13 +765,13 @@ test "HTTP server handles a chunked transfer coding request" {
             defer _ = res.reset();
             try res.wait();
 
-            try expect(res.request.transfer_encoding.? == .chunked);
+            try expect(res.request.transfer_encoding == .chunked);
 
             const server_body: []const u8 = "message from server!\n";
             res.transfer_encoding = .{ .content_length = server_body.len };
             try res.headers.append("content-type", "text/plain");
             try res.headers.append("connection", "close");
-            try res.do();
+            try res.send();
 
             var buf: [128]u8 = undefined;
             const n = try res.readAll(&buf);

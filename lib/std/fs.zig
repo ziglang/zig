@@ -204,7 +204,7 @@ pub const AtomicFile = struct {
         }
     }
 
-    /// always call deinit, even after successful finish()
+    /// Always call deinit, even after a successful finish().
     pub fn deinit(self: *AtomicFile) void {
         if (self.file_open) {
             self.file.close();
@@ -749,7 +749,9 @@ pub const IterableDir = struct {
                         }
                     }
 
-                    const dir_info: *w.FILE_BOTH_DIR_INFORMATION = @ptrCast(@alignCast(&self.buf[self.index]));
+                    // While the official api docs guarantee FILE_BOTH_DIR_INFORMATION to be aligned properly
+                    // this may not always be the case (e.g. due to faulty VM/Sandboxing tools)
+                    const dir_info: *align(2) w.FILE_BOTH_DIR_INFORMATION = @ptrCast(@alignCast(&self.buf[self.index]));
                     if (dir_info.NextEntryOffset != 0) {
                         self.index += dir_info.NextEntryOffset;
                     } else {
@@ -1459,8 +1461,9 @@ pub const Dir = struct {
         try os.mkdiratW(self.fd, sub_path, default_new_dir_mode);
     }
 
-    /// Calls makeDir recursively to make an entire path. Returns success if the path
-    /// already exists and is a directory.
+    /// Calls makeDir iteratively to make an entire path
+    /// (i.e. creating any parent directories that do not exist).
+    /// Returns success if the path already exists and is a directory.
     /// This function is not atomic, and if it returns an error, the file system may
     /// have been modified regardless.
     pub fn makePath(self: Dir, sub_path: []const u8) !void {
@@ -1483,22 +1486,89 @@ pub const Dir = struct {
         }
     }
 
+    /// Calls makeOpenDirAccessMaskW iteratively to make an entire path
+    /// (i.e. creating any parent directories that do not exist).
+    /// Opens the dir if the path already exists and is a directory.
+    /// This function is not atomic, and if it returns an error, the file system may
+    /// have been modified regardless.
+    fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no_follow: bool) OpenError!Dir {
+        const w = os.windows;
+        var it = try path.componentIterator(sub_path);
+        // If there are no components in the path, then create a dummy component with the full path.
+        var component = it.last() orelse path.NativeUtf8ComponentIterator.Component{
+            .name = "",
+            .path = sub_path,
+        };
+
+        while (true) {
+            const sub_path_w = try w.sliceToPrefixedFileW(self.fd, component.path);
+            const is_last = it.peekNext() == null;
+            var result = self.makeOpenDirAccessMaskW(sub_path_w.span().ptr, access_mask, .{
+                .no_follow = no_follow,
+                .create_disposition = if (is_last) w.FILE_OPEN_IF else w.FILE_CREATE,
+            }) catch |err| switch (err) {
+                error.FileNotFound => |e| {
+                    component = it.previous() orelse return e;
+                    continue;
+                },
+                else => |e| return e,
+            };
+
+            component = it.next() orelse return result;
+            // Don't leak the intermediate file handles
+            result.close();
+        }
+    }
+
     /// This function performs `makePath`, followed by `openDir`.
     /// If supported by the OS, this operation is atomic. It is not atomic on
     /// all operating systems.
+    /// On Windows, this function performs `makeOpenPathAccessMaskW`.
     pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) !Dir {
-        // TODO improve this implementation on Windows; we can avoid 1 call to NtClose
-        try self.makePath(sub_path);
-        return self.openDir(sub_path, open_dir_options);
+        return switch (builtin.os.tag) {
+            .windows => {
+                const w = os.windows;
+                const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
+                    w.SYNCHRONIZE | w.FILE_TRAVERSE;
+
+                return self.makeOpenPathAccessMaskW(sub_path, base_flags, open_dir_options.no_follow);
+            },
+            else => {
+                return self.openDir(sub_path, open_dir_options) catch |err| switch (err) {
+                    error.FileNotFound => {
+                        try self.makePath(sub_path);
+                        return self.openDir(sub_path, open_dir_options);
+                    },
+                    else => |e| return e,
+                };
+            },
+        };
     }
 
     /// This function performs `makePath`, followed by `openIterableDir`.
     /// If supported by the OS, this operation is atomic. It is not atomic on
     /// all operating systems.
     pub fn makeOpenPathIterable(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) !IterableDir {
-        // TODO improve this implementation on Windows; we can avoid 1 call to NtClose
-        try self.makePath(sub_path);
-        return self.openIterableDir(sub_path, open_dir_options);
+        return switch (builtin.os.tag) {
+            .windows => {
+                const w = os.windows;
+                const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
+                    w.SYNCHRONIZE | w.FILE_TRAVERSE | w.FILE_LIST_DIRECTORY;
+
+                return IterableDir{
+                    .dir = try self.makeOpenPathAccessMaskW(sub_path, base_flags, open_dir_options.no_follow),
+                };
+            },
+            else => {
+                return self.openIterableDir(sub_path, open_dir_options) catch |err| switch (err) {
+                    error.FileNotFound => {
+                        try self.makePath(sub_path);
+                        return self.openIterableDir(sub_path, open_dir_options);
+                    },
+                    else => |e| return e,
+                };
+            },
+        };
     }
 
     ///  This function returns the canonicalized absolute pathname of
@@ -1621,7 +1691,7 @@ pub const Dir = struct {
         }
         if (builtin.os.tag == .windows) {
             var dir_path_buffer: [os.windows.PATH_MAX_WIDE]u16 = undefined;
-            var dir_path = try os.windows.GetFinalPathNameByHandle(self.fd, .{}, &dir_path_buffer);
+            const dir_path = try os.windows.GetFinalPathNameByHandle(self.fd, .{}, &dir_path_buffer);
             if (builtin.link_libc) {
                 return os.chdirW(dir_path);
             }
@@ -1742,7 +1812,10 @@ pub const Dir = struct {
         const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
             w.SYNCHRONIZE | w.FILE_TRAVERSE;
         const flags: u32 = if (iterable) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-        var dir = try self.openDirAccessMaskW(sub_path_w, flags, args.no_follow);
+        const dir = try self.makeOpenDirAccessMaskW(sub_path_w, flags, .{
+            .no_follow = args.no_follow,
+            .create_disposition = w.FILE_OPEN,
+        });
         return dir;
     }
 
@@ -1765,7 +1838,12 @@ pub const Dir = struct {
         return Dir{ .fd = fd };
     }
 
-    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, no_follow: bool) OpenError!Dir {
+    const MakeOpenDirAccessMaskWOptions = struct {
+        no_follow: bool,
+        create_disposition: u32,
+    };
+
+    fn makeOpenDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, flags: MakeOpenDirAccessMaskWOptions) OpenError!Dir {
         const w = os.windows;
 
         var result = Dir{
@@ -1786,7 +1864,7 @@ pub const Dir = struct {
             .SecurityDescriptor = null,
             .SecurityQualityOfService = null,
         };
-        const open_reparse_point: w.DWORD = if (no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
+        const open_reparse_point: w.DWORD = if (flags.no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
             &result.fd,
@@ -1794,13 +1872,14 @@ pub const Dir = struct {
             &attr,
             &io,
             null,
-            0,
+            w.FILE_ATTRIBUTE_NORMAL,
             w.FILE_SHARE_READ | w.FILE_SHARE_WRITE,
-            w.FILE_OPEN,
+            flags.create_disposition,
             w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
             null,
             0,
         );
+
         switch (rc) {
             .SUCCESS => return result,
             .OBJECT_NAME_INVALID => return error.BadPathName,
@@ -2485,12 +2564,28 @@ pub const Dir = struct {
         };
     }
 
-    /// Writes content to the file system, creating a new file if it does not exist, truncating
-    /// if it already exists.
-    pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) !void {
-        var file = try self.createFile(sub_path, .{});
+    pub const WriteFileError = File.WriteError || File.OpenError;
+
+    /// Deprecated: use `writeFile2`.
+    pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) WriteFileError!void {
+        return writeFile2(self, .{
+            .sub_path = sub_path,
+            .data = data,
+            .flags = .{},
+        });
+    }
+
+    pub const WriteFileOptions = struct {
+        sub_path: []const u8,
+        data: []const u8,
+        flags: File.CreateFlags = .{},
+    };
+
+    /// Writes content to the file system, using the file creation flags provided.
+    pub fn writeFile2(self: Dir, options: WriteFileOptions) WriteFileError!void {
+        var file = try self.createFile(options.sub_path, options.flags);
         defer file.close();
-        try file.writeAll(data);
+        try file.writeAll(options.data);
     }
 
     pub const AccessError = os.AccessError;

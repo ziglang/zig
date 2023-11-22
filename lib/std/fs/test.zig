@@ -80,7 +80,7 @@ const TestContext = struct {
     transform_fn: *const PathType.TransformFn,
 
     pub fn init(path_type: PathType, allocator: mem.Allocator, transform_fn: *const PathType.TransformFn) TestContext {
-        var tmp = tmpIterableDir(.{});
+        const tmp = tmpIterableDir(.{});
         return .{
             .path_type = path_type,
             .arena = ArenaAllocator.init(allocator),
@@ -661,6 +661,18 @@ test "file operations on directories" {
             dir.close();
         }
     }.impl);
+}
+
+test "makeOpenPath parent dirs do not exist" {
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    var dir = try tmp_dir.dir.makeOpenPath("root_dir/parent_dir/some_dir", .{});
+    dir.close();
+
+    // double check that the full directory structure was created
+    var dir_verification = try tmp_dir.dir.openDir("root_dir/parent_dir/some_dir", .{});
+    dir_verification.close();
 }
 
 test "deleteDir" {

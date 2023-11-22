@@ -74,16 +74,16 @@ pub fn updateDecl(self: *NvPtx, module: *Module, decl_index: Module.Decl.Index) 
     return self.llvm_object.updateDecl(module, decl_index);
 }
 
-pub fn updateDeclExports(
+pub fn updateExports(
     self: *NvPtx,
     module: *Module,
-    decl_index: Module.Decl.Index,
+    exported: Module.Exported,
     exports: []const *Module.Export,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .nvptx) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    return self.llvm_object.updateDeclExports(module, decl_index, exports);
+    return self.llvm_object.updateExports(module, exported, exports);
 }
 
 pub fn freeDecl(self: *NvPtx, decl_index: Module.Decl.Index) void {

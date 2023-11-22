@@ -51,7 +51,8 @@ pub const JournalHeader = packed struct {
             return @as(u128, @bitCast(target[0..hash_chain_root_size].*));
         } else {
             var array = target[0..hash_chain_root_size].*;
-            return @as(u128, @bitCast(array));
+            _ = &array;
+            return @bitCast(array);
         }
     }
 
@@ -64,11 +65,11 @@ pub const JournalHeader = packed struct {
 test "fixed" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
     var buffer align(@alignOf(JournalHeader)) = [_]u8{0} ** 65536;
     var entry = std.mem.bytesAsValue(JournalHeader, buffer[0..@sizeOf(JournalHeader)]);

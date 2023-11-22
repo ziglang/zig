@@ -149,7 +149,7 @@ const Page = struct {
 
                 for (page.page_encodings[0..page.page_encodings_count]) |record_id| {
                     const enc = info.records.items[record_id].compactUnwindEncoding;
-                    try writer.writeIntLittle(u32, enc);
+                    try writer.writeInt(u32, enc, .little);
                 }
 
                 assert(page.count > 0);
@@ -417,7 +417,7 @@ pub fn collect(info: *UnwindInfo, macho_file: *MachO) !void {
             gop.value_ptr.count += 1;
         }
 
-        var slice = common_encodings_counts.values();
+        const slice = common_encodings_counts.values();
         mem.sort(CommonEncWithCount, slice, {}, CommonEncWithCount.greaterThan);
 
         var i: u7 = 0;

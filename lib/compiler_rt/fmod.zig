@@ -81,13 +81,13 @@ pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
     if (expB == 0) expB = normalize(f80, &bRep);
 
     var highA: u64 = 0;
-    var highB: u64 = 0;
+    const highB: u64 = 0;
     var lowA: u64 = @truncate(aRep);
-    var lowB: u64 = @truncate(bRep);
+    const lowB: u64 = @truncate(bRep);
 
     while (expA > expB) : (expA -= 1) {
         var high = highA -% highB;
-        var low = lowA -% lowB;
+        const low = lowA -% lowB;
         if (lowA < lowB) {
             high -%= 1;
         }
@@ -104,7 +104,7 @@ pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
     }
 
     var high = highA -% highB;
-    var low = lowA -% lowB;
+    const low = lowA -% lowB;
     if (lowA < lowB) {
         high -%= 1;
     }
@@ -142,16 +142,16 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     const bPtr_u16: [*]u16 = @ptrCast(&bmod);
 
     const exp_and_sign_index = comptime switch (builtin.target.cpu.arch.endian()) {
-        .Little => 7,
-        .Big => 0,
+        .little => 7,
+        .big => 0,
     };
     const low_index = comptime switch (builtin.target.cpu.arch.endian()) {
-        .Little => 0,
-        .Big => 1,
+        .little => 0,
+        .big => 1,
     };
     const high_index = comptime switch (builtin.target.cpu.arch.endian()) {
-        .Little => 1,
-        .Big => 0,
+        .little => 1,
+        .big => 0,
     };
 
     const signA = aPtr_u16[exp_and_sign_index] & 0x8000;
@@ -194,13 +194,13 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
 
     // OR in extra non-stored mantissa digit
     var highA: u64 = (aPtr_u64[high_index] & (std.math.maxInt(u64) >> 16)) | 1 << 48;
-    var highB: u64 = (bPtr_u64[high_index] & (std.math.maxInt(u64) >> 16)) | 1 << 48;
+    const highB: u64 = (bPtr_u64[high_index] & (std.math.maxInt(u64) >> 16)) | 1 << 48;
     var lowA: u64 = aPtr_u64[low_index];
-    var lowB: u64 = bPtr_u64[low_index];
+    const lowB: u64 = bPtr_u64[low_index];
 
     while (expA > expB) : (expA -= 1) {
         var high = highA -% highB;
-        var low = lowA -% lowB;
+        const low = lowA -% lowB;
         if (lowA < lowB) {
             high -%= 1;
         }
@@ -217,7 +217,7 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     }
 
     var high = highA -% highB;
-    var low = lowA -% lowB;
+    const low = lowA -% lowB;
     if (lowA < lowB) {
         high -= 1;
     }

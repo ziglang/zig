@@ -1752,7 +1752,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         if (try self.air.value(callee, mod)) |func_value| {
             switch (mod.intern_pool.indexToKey(func_value.ip_index)) {
                 .func => |func| {
-                    const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
+                    const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                     const sym = elf_file.symbol(sym_index);
                     _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                     const got_addr = @as(u32, @intCast(sym.zigGotAddress(elf_file)));
@@ -2591,7 +2591,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .load_got, .load_extern_got, .load_direct, .load_tlv => unreachable, // TODO
+            .load_got, .load_symbol, .load_direct, .load_tlv => unreachable, // TODO
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
         },
@@ -2648,6 +2648,11 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             // conventions
             var next_register: usize = 0;
             var next_stack_offset: u32 = 0;
+            // TODO: this is never assigned, which is a bug, but I don't know how this code works
+            // well enough to try and fix it. I *think* `next_register += next_stack_offset` is
+            // supposed to be `next_stack_offset += param_size` in every case where it appears.
+            _ = &next_stack_offset;
+
             const argument_registers = [_]Register{ .a0, .a1, .a2, .a3, .a4, .a5, .a6, .a7 };
 
             for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {

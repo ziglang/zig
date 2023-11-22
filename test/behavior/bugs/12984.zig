@@ -16,5 +16,5 @@ test "simple test" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     var c: CustomDraw = undefined;
-    _ = c;
+    _ = &c;
 }

@@ -7,6 +7,7 @@ pub fn main() void {
     var m2: u32 = 0b0000;
     assert(m1 & 0b1010 == 0b1010);
     assert(m2 & 0b1010 == 0b0000);
+    _ = .{ &i, &j, &m1, &m2 };
 }
 fn assert(b: bool) void {
     if (!b) unreachable;

@@ -143,8 +143,8 @@ fn atan64(x_: f64) f64 {
     };
 
     var x = x_;
-    var ux = @as(u64, @bitCast(x));
-    var ix = @as(u32, @intCast(ux >> 32));
+    const ux: u64 = @bitCast(x);
+    var ix: u32 = @intCast(ux >> 32);
     const sign = ix >> 31;
     ix &= 0x7FFFFFFF;
 
@@ -239,8 +239,8 @@ test "math.atan64" {
 test "math.atan32.special" {
     const epsilon = 0.000001;
 
-    try expect(atan32(0.0) == 0.0);
-    try expect(atan32(-0.0) == -0.0);
+    try expect(math.isPositiveZero(atan32(0.0)));
+    try expect(math.isNegativeZero(atan32(-0.0)));
     try expect(math.approxEqAbs(f32, atan32(math.inf(f32)), math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f32, atan32(-math.inf(f32)), -math.pi / 2.0, epsilon));
 }
@@ -248,8 +248,8 @@ test "math.atan32.special" {
 test "math.atan64.special" {
     const epsilon = 0.000001;
 
-    try expect(atan64(0.0) == 0.0);
-    try expect(atan64(-0.0) == -0.0);
+    try expect(math.isPositiveZero(atan64(0.0)));
+    try expect(math.isNegativeZero(atan64(-0.0)));
     try expect(math.approxEqAbs(f64, atan64(math.inf(f64)), math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f64, atan64(-math.inf(f64)), -math.pi / 2.0, epsilon));
 }

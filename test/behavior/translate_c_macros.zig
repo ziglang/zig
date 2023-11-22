@@ -151,11 +151,11 @@ test "string and char literals that are not UTF-8 encoded. Issue #12784" {
 
 test "Macro that uses division operator. Issue #13162" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
 
     try expectEqual(@as(c_int, 42), h.DIVIDE_CONSTANT(@as(c_int, 42_000)));
     try expectEqual(@as(c_uint, 42), h.DIVIDE_CONSTANT(@as(c_uint, 42_000)));
@@ -230,4 +230,13 @@ test "Macro that uses Long type concatenation casting" {
 
     try expect((@TypeOf(h.X)) == c_long);
     try expectEqual(h.X, @as(c_long, 10));
+}
+
+test "Blank macros" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    try expectEqual(h.BLANK_MACRO, "");
+    try expectEqual(h.BLANK_CHILD_MACRO, "");
+    try expect(@TypeOf(h.BLANK_MACRO_CAST) == h.def_type);
+    try expectEqual(h.BLANK_MACRO_CAST, @as(c_long, 0));
 }

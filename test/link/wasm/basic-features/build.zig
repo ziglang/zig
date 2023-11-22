@@ -4,7 +4,7 @@ pub const requires_stage2 = true;
 
 pub fn build(b: *std.Build) void {
     // Library with explicitly set cpu features
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addExecutable(.{
         .name = "lib",
         .root_source_file = .{ .path = "main.zig" },
         .optimize = .Debug,
@@ -15,6 +15,7 @@ pub fn build(b: *std.Build) void {
             .os_tag = .freestanding,
         },
     });
+    lib.entry = .disabled;
     lib.use_llvm = false;
     lib.use_lld = false;
 

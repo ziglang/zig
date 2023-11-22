@@ -39,18 +39,18 @@ test "best speed" {
     var tc_15 = [_]u32{ 65536, 129 };
     var tc_16 = [_]u32{ 65536, 65536, 256 };
     var tc_17 = [_]u32{ 65536, 65536, 65536 };
-    var test_cases = [_][]u32{
+    const test_cases = [_][]u32{
         &tc_01, &tc_02, &tc_03, &tc_04, &tc_05, &tc_06, &tc_07, &tc_08, &tc_09, &tc_10,
         &tc_11, &tc_12, &tc_13, &tc_14, &tc_15, &tc_16, &tc_17,
     };
 
     for (test_cases) |tc| {
-        var firsts = [_]u32{ 1, 65534, 65535, 65536, 65537, 131072 };
+        const firsts = [_]u32{ 1, 65534, 65535, 65536, 65537, 131072 };
 
         for (firsts) |first_n| {
             tc[0] = first_n;
 
-            var to_flush = [_]bool{ false, true };
+            const to_flush = [_]bool{ false, true };
             for (to_flush) |flush| {
                 var compressed = ArrayList(u8).init(testing.allocator);
                 defer compressed.deinit();
@@ -75,14 +75,14 @@ test "best speed" {
 
                 try comp.close();
 
-                var decompressed = try testing.allocator.alloc(u8, want.items.len);
+                const decompressed = try testing.allocator.alloc(u8, want.items.len);
                 defer testing.allocator.free(decompressed);
 
                 var fib = io.fixedBufferStream(compressed.items);
                 var decomp = try inflate.decompressor(testing.allocator, fib.reader(), null);
                 defer decomp.deinit();
 
-                var read = try decomp.reader().readAll(decompressed);
+                const read = try decomp.reader().readAll(decompressed);
                 _ = decomp.close();
 
                 try testing.expectEqual(want.items.len, read);
@@ -109,7 +109,7 @@ test "best speed max match offset" {
         for (extras) |extra| {
             var offset_adj: i32 = -5;
             while (offset_adj <= 5) : (offset_adj += 1) {
-                var offset = deflate_const.max_match_offset + offset_adj;
+                const offset = deflate_const.max_match_offset + offset_adj;
 
                 // Make src to be a []u8 of the form
                 //	fmt("{s}{s}{s}{s}{s}", .{abc, zeros0, xyzMaybe, abc, zeros1})
@@ -119,7 +119,7 @@ test "best speed max match offset" {
                 //	zeros1 is between 0 and 30 zeros.
                 // The difference between the two abc's will be offset, which
                 // is max_match_offset plus or minus a small adjustment.
-                var src_len: usize = @as(usize, @intCast(offset + @as(i32, abc.len) + @as(i32, @intCast(extra))));
+                const src_len: usize = @as(usize, @intCast(offset + @as(i32, abc.len) + @as(i32, @intCast(extra))));
                 var src = try testing.allocator.alloc(u8, src_len);
                 defer testing.allocator.free(src);
 
@@ -143,13 +143,13 @@ test "best speed max match offset" {
                 try comp.writer().writeAll(src);
                 _ = try comp.close();
 
-                var decompressed = try testing.allocator.alloc(u8, src.len);
+                const decompressed = try testing.allocator.alloc(u8, src.len);
                 defer testing.allocator.free(decompressed);
 
                 var fib = io.fixedBufferStream(compressed.items);
                 var decomp = try inflate.decompressor(testing.allocator, fib.reader(), null);
                 defer decomp.deinit();
-                var read = try decomp.reader().readAll(decompressed);
+                const read = try decomp.reader().readAll(decompressed);
                 _ = decomp.close();
 
                 try testing.expectEqual(src.len, read);

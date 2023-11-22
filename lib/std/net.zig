@@ -602,8 +602,8 @@ pub const Ip6Address = extern struct {
         }
         const big_endian_parts = @as(*align(1) const [8]u16, @ptrCast(&self.sa.addr));
         const native_endian_parts = switch (native_endian) {
-            .Big => big_endian_parts.*,
-            .Little => blk: {
+            .big => big_endian_parts.*,
+            .little => blk: {
                 var buf: [8]u16 = undefined;
                 for (big_endian_parts, 0..) |part, i| {
                     buf[i] = mem.bigToNative(u16, part);
@@ -662,7 +662,7 @@ pub fn connectUnixSocket(path: []const u8) !Stream {
 fn if_nametoindex(name: []const u8) !u32 {
     if (builtin.target.os.tag == .linux) {
         var ifr: os.ifreq = undefined;
-        var sockfd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM | os.SOCK.CLOEXEC, 0);
+        const sockfd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM | os.SOCK.CLOEXEC, 0);
         defer os.closeSocket(sockfd);
 
         @memcpy(ifr.ifrn.name[0..name.len], name);
@@ -1052,7 +1052,7 @@ fn linuxLookupName(
         } else {
             sa6.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
             da6.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
-            mem.writeIntNative(u32, da6.addr[12..], addr.addr.in.sa.addr);
+            mem.writeInt(u32, da6.addr[12..], addr.addr.in.sa.addr, native_endian);
             da4.addr = addr.addr.in.sa.addr;
             da = @ptrCast(&da4);
             dalen = @sizeOf(os.sockaddr.in);
@@ -1073,7 +1073,7 @@ fn linuxLookupName(
             os.getsockname(fd, sa, &salen) catch break :syscalls;
             if (addr.addr.any.family == os.AF.INET) {
                 // TODO sa6.addr[12..16] should return *[4]u8, making this cast unnecessary.
-                mem.writeIntNative(u32, @as(*[4]u8, @ptrCast(&sa6.addr[12])), sa4.addr);
+                mem.writeInt(u32, @as(*[4]u8, @ptrCast(&sa6.addr[12])), sa4.addr, native_endian);
             }
             if (dscope == @as(i32, scopeOf(sa6.addr))) key |= DAS_MATCHINGSCOPE;
             if (dlabel == labelOf(sa6.addr)) key |= DAS_MATCHINGLABEL;
@@ -1375,7 +1375,7 @@ fn linuxLookupNameFromDns(
     rc: ResolvConf,
     port: u16,
 ) !void {
-    var ctx = dpc_ctx{
+    const ctx = dpc_ctx{
         .addrs = addrs,
         .canon = canon,
         .port = port,
@@ -1569,7 +1569,7 @@ fn resMSendRc(
         );
         for (0..ns.len) |i| {
             if (ns[i].any.family != os.AF.INET) continue;
-            mem.writeIntNative(u32, ns[i].in6.sa.addr[12..], ns[i].in.sa.addr);
+            mem.writeInt(u32, ns[i].in6.sa.addr[12..], ns[i].in.sa.addr, native_endian);
             ns[i].in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
             ns[i].any.family = os.AF.INET6;
             ns[i].in6.sa.flowinfo = 0;
@@ -1591,8 +1591,8 @@ fn resMSendRc(
     }};
     const retry_interval = timeout / attempts;
     var next: u32 = 0;
-    var t2: u64 = @as(u64, @bitCast(std.time.milliTimestamp()));
-    var t0 = t2;
+    var t2: u64 = @bitCast(std.time.milliTimestamp());
+    const t0 = t2;
     var t1 = t2 - retry_interval;
 
     var servfail_retry: usize = undefined;
@@ -1871,6 +1871,7 @@ pub const StreamServer = struct {
     kernel_backlog: u31,
     reuse_address: bool,
     reuse_port: bool,
+    force_nonblocking: bool,
 
     /// `undefined` until `listen` returns successfully.
     listen_address: Address,
@@ -1888,6 +1889,9 @@ pub const StreamServer = struct {
 
         /// Enable SO.REUSEPORT on the socket.
         reuse_port: bool = false,
+
+        /// Force non-blocking mode.
+        force_nonblocking: bool = false,
     };
 
     /// After this call succeeds, resources have been acquired and must
@@ -1898,6 +1902,7 @@ pub const StreamServer = struct {
             .kernel_backlog = options.kernel_backlog,
             .reuse_address = options.reuse_address,
             .reuse_port = options.reuse_port,
+            .force_nonblocking = options.force_nonblocking,
             .listen_address = undefined,
         };
     }
@@ -1911,9 +1916,11 @@ pub const StreamServer = struct {
     pub fn listen(self: *StreamServer, address: Address) !void {
         const nonblock = if (std.io.is_async) os.SOCK.NONBLOCK else 0;
         const sock_flags = os.SOCK.STREAM | os.SOCK.CLOEXEC | nonblock;
+        var use_sock_flags: u32 = sock_flags;
+        if (self.force_nonblocking) use_sock_flags |= os.SOCK.NONBLOCK;
         const proto = if (address.any.family == os.AF.UNIX) @as(u32, 0) else os.IPPROTO.TCP;
 
-        const sockfd = try os.socket(address.any.family, sock_flags, proto);
+        const sockfd = try os.socket(address.any.family, use_sock_flags, proto);
         self.sockfd = sockfd;
         errdefer {
             os.closeSocket(sockfd);
@@ -1963,14 +1970,17 @@ pub const StreamServer = struct {
         /// The system-wide limit on the total number of open files has been reached.
         SystemFdQuotaExceeded,
 
-        /// Not enough free memory.  This often means that the memory allocation  is  limited
-        /// by the socket buffer limits, not by the system memory.
+        /// Not enough free memory. This often means that the memory allocation
+        /// is limited by the socket buffer limits, not by the system memory.
         SystemResources,
 
         /// Socket is not listening for new connections.
         SocketNotListening,
 
         ProtocolFailure,
+
+        /// Socket is in non-blocking mode and there is no connection to accept.
+        WouldBlock,
 
         /// Firewall rules forbid connection.
         BlockedByFirewall,
@@ -2007,9 +2017,8 @@ pub const StreamServer = struct {
                 .stream = Stream{ .handle = fd },
                 .address = accepted_addr,
             };
-        } else |err| switch (err) {
-            error.WouldBlock => unreachable,
-            else => |e| return e,
+        } else |err| {
+            return err;
         }
     }
 };

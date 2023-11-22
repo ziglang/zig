@@ -9,6 +9,7 @@
 //! The low-level `writeStream` emits syntax-conformant JSON tokens to a `std.io.Writer`.
 //! The high-level `stringify` serializes a Zig or `Value` type into JSON.
 
+const builtin = @import("builtin");
 const testing = @import("std").testing;
 const ArrayList = @import("std").ArrayList;
 

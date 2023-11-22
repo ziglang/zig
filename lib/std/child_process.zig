@@ -262,7 +262,7 @@ pub const ChildProcess = struct {
         return term;
     }
 
-    pub const ExecResult = struct {
+    pub const RunResult = struct {
         term: Term,
         stdout: []u8,
         stderr: []u8,
@@ -317,14 +317,14 @@ pub const ChildProcess = struct {
         stderr.* = fifoToOwnedArrayList(poller.fifo(.stderr));
     }
 
-    pub const ExecError = os.GetCwdError || os.ReadError || SpawnError || os.PollError || error{
+    pub const RunError = os.GetCwdError || os.ReadError || SpawnError || os.PollError || error{
         StdoutStreamTooLong,
         StderrStreamTooLong,
     };
 
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
-    pub fn exec(args: struct {
+    pub fn run(args: struct {
         allocator: mem.Allocator,
         argv: []const []const u8,
         cwd: ?[]const u8 = null,
@@ -332,7 +332,7 @@ pub const ChildProcess = struct {
         env_map: ?*const EnvMap = null,
         max_output_bytes: usize = 50 * 1024,
         expand_arg0: Arg0Expand = .no_expand,
-    }) ExecError!ExecResult {
+    }) RunError!RunResult {
         var child = ChildProcess.init(args.argv, args.allocator);
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
@@ -352,7 +352,7 @@ pub const ChildProcess = struct {
         try child.spawn();
         try child.collectOutput(&stdout, &stderr, args.max_output_bytes);
 
-        return ExecResult{
+        return RunResult{
             .term = try child.wait(),
             .stdout = try stdout.toOwnedSlice(),
             .stderr = try stderr.toOwnedSlice(),
@@ -821,7 +821,7 @@ pub const ChildProcess = struct {
         const cmd_line_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, cmd_line);
         defer self.allocator.free(cmd_line_w);
 
-        exec: {
+        run: {
             const PATH: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
             const PATHEXT: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
 
@@ -847,7 +847,7 @@ pub const ChildProcess = struct {
             }
 
             windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
-                var original_err = switch (no_path_err) {
+                const original_err = switch (no_path_err) {
                     error.FileNotFound, error.InvalidExe, error.AccessDenied => |e| e,
                     error.UnrecoverableInvalidExe => return error.InvalidExe,
                     else => |e| return e,
@@ -873,7 +873,7 @@ pub const ChildProcess = struct {
                     dir_buf.shrinkRetainingCapacity(normalized_len);
 
                     if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) {
-                        break :exec;
+                        break :run;
                     } else |err| switch (err) {
                         error.FileNotFound, error.AccessDenied, error.InvalidExe => continue,
                         error.UnrecoverableInvalidExe => return error.InvalidExe,
@@ -1376,7 +1376,7 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
         .capable_io_mode = .blocking,
         .intended_io_mode = .blocking,
     };
-    file.writer().writeIntNative(u64, @as(u64, @intCast(value))) catch return error.SystemResources;
+    file.writer().writeInt(u64, @intCast(value), .little) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
@@ -1385,7 +1385,7 @@ fn readIntFd(fd: i32) !ErrInt {
         .capable_io_mode = .blocking,
         .intended_io_mode = .blocking,
     };
-    return @as(ErrInt, @intCast(file.reader().readIntNative(u64) catch return error.SystemResources));
+    return @as(ErrInt, @intCast(file.reader().readInt(u64, .little) catch return error.SystemResources));
 }
 
 /// Caller must free result.

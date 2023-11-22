@@ -1231,8 +1231,8 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
                 const abi_size = int_info.bits >> 3;
                 const abi_align = operand_ty.abiAlignment(mod);
                 const opposite_endian_asi = switch (self.target.cpu.arch.endian()) {
-                    Endian.Big => ASI.asi_primary_little,
-                    Endian.Little => ASI.asi_primary,
+                    Endian.big => ASI.asi_primary_little,
+                    Endian.little => ASI.asi_primary,
                 };
 
                 switch (operand) {
@@ -1347,7 +1347,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             switch (mod.intern_pool.indexToKey(func_value.ip_index)) {
                 .func => |func| {
                     const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
-                        const sym_index = try elf_file.getOrCreateMetadataForDecl(func.owner_decl);
+                        const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                         const sym = elf_file.symbol(sym_index);
                         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                         break :blk @as(u32, @intCast(sym.zigGotAddress(elf_file)));
@@ -4137,7 +4137,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .load_got, .load_extern_got, .load_direct, .load_tlv => unreachable, // TODO
+            .load_got, .load_symbol, .load_direct, .load_tlv => unreachable, // TODO
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
         },
@@ -4481,6 +4481,10 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) 
 
             var next_register: usize = 0;
             var next_stack_offset: u32 = 0;
+            // TODO: this is never assigned, which is a bug, but I don't know how this code works
+            // well enough to try and fix it. I *think* `next_register += next_stack_offset` is
+            // supposed to be `next_stack_offset += param_size` in every case where it appears.
+            _ = &next_stack_offset;
 
             // The caller puts the argument in %o0-%o5, which becomes %i0-%i5 inside the callee.
             const argument_registers = switch (role) {

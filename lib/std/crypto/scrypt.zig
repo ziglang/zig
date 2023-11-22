@@ -87,11 +87,11 @@ fn integerify(b: []align(16) const u32, r: u30) u64 {
 }
 
 fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16) u32) void {
-    var x: []align(16) u32 = @alignCast(xy[0 .. 32 * r]);
-    var y: []align(16) u32 = @alignCast(xy[32 * r ..]);
+    const x: []align(16) u32 = @alignCast(xy[0 .. 32 * r]);
+    const y: []align(16) u32 = @alignCast(xy[32 * r ..]);
 
     for (x, 0..) |*v1, j| {
-        v1.* = mem.readIntSliceLittle(u32, b[4 * j ..]);
+        v1.* = mem.readInt(u32, b[4 * j ..][0..4], .little);
     }
 
     var tmp: [16]u32 align(16) = undefined;
@@ -116,7 +116,7 @@ fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16)
     }
 
     for (x, 0..) |v1, j| {
-        mem.writeIntLittle(u32, b[4 * j ..][0..4], v1);
+        mem.writeInt(u32, b[4 * j ..][0..4], v1, .little);
     }
 }
 
@@ -191,9 +191,9 @@ pub fn kdf(
         params.r > max_int / 256 or
         n > max_int / 128 / @as(u64, params.r)) return KdfError.WeakParameters;
 
-    var xy = try allocator.alignedAlloc(u32, 16, 64 * params.r);
+    const xy = try allocator.alignedAlloc(u32, 16, 64 * params.r);
     defer allocator.free(xy);
-    var v = try allocator.alignedAlloc(u32, 16, 32 * n * params.r);
+    const v = try allocator.alignedAlloc(u32, 16, 32 * n * params.r);
     defer allocator.free(v);
     var dk = try allocator.alignedAlloc(u8, 16, params.p * 128 * params.r);
     defer allocator.free(dk);
@@ -263,7 +263,7 @@ const crypt_format = struct {
                 const value = self.constSlice();
                 const len = Codec.encodedLen(value.len);
                 if (len > buf.len) return EncodingError.NoSpaceLeft;
-                var encoded = buf[0..len];
+                const encoded = buf[0..len];
                 Codec.encode(encoded, value);
                 return encoded;
             }
@@ -361,7 +361,7 @@ const crypt_format = struct {
                 std.debug.assert(dst.len == decodedLen(src.len));
                 var i: usize = 0;
                 while (i < src.len / 4) : (i += 1) {
-                    mem.writeIntSliceLittle(u24, dst[i * 3 ..], try intDecode(u24, src[i * 4 ..][0..4]));
+                    mem.writeInt(u24, dst[i * 3 ..][0..3], try intDecode(u24, src[i * 4 ..][0..4]), .little);
                 }
                 const leftover = src[i * 4 ..];
                 var v: u24 = 0;
@@ -377,7 +377,7 @@ const crypt_format = struct {
                 std.debug.assert(dst.len == encodedLen(src.len));
                 var i: usize = 0;
                 while (i < src.len / 3) : (i += 1) {
-                    intEncode(dst[i * 4 ..][0..4], mem.readIntSliceLittle(u24, src[i * 3 ..]));
+                    intEncode(dst[i * 4 ..][0..4], mem.readInt(u24, src[i * 3 ..][0..3], .little));
                 }
                 const leftover = src[i * 3 ..];
                 var v: u24 = 0;
@@ -439,7 +439,7 @@ const PhcFormatHasher = struct {
         const expected_hash = hash_result.hash.constSlice();
         var hash_buf: [max_hash_len]u8 = undefined;
         if (expected_hash.len > hash_buf.len) return HasherError.InvalidEncoding;
-        var hash = hash_buf[0..expected_hash.len];
+        const hash = hash_buf[0..expected_hash.len];
         try kdf(allocator, hash, password, hash_result.salt.constSlice(), params);
         if (!mem.eql(u8, hash, expected_hash)) return HasherError.PasswordVerificationFailed;
     }
@@ -487,7 +487,7 @@ const CryptFormatHasher = struct {
         const expected_hash = hash_result.hash.constSlice();
         var hash_buf: [max_hash_len]u8 = undefined;
         if (expected_hash.len > hash_buf.len) return HasherError.InvalidEncoding;
-        var hash = hash_buf[0..expected_hash.len];
+        const hash = hash_buf[0..expected_hash.len];
         try kdf(allocator, hash, password, hash_result.salt, params);
         if (!mem.eql(u8, hash, expected_hash)) return HasherError.PasswordVerificationFailed;
     }

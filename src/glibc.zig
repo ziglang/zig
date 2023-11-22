@@ -751,7 +751,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
 
         var inc_i: usize = 0;
 
-        const fn_inclusions_len = mem.readIntLittle(u16, metadata.inclusions[inc_i..][0..2]);
+        const fn_inclusions_len = mem.readInt(u16, metadata.inclusions[inc_i..][0..2], .little);
         inc_i += 2;
 
         var sym_i: usize = 0;
@@ -768,7 +768,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
                 versions_len = 0;
                 break :n name;
             };
-            const targets = mem.readIntLittle(u32, metadata.inclusions[inc_i..][0..4]);
+            const targets = mem.readInt(u32, metadata.inclusions[inc_i..][0..4], .little);
             inc_i += 4;
 
             const lib_index = metadata.inclusions[inc_i];
@@ -882,7 +882,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
 
         try stubs_asm.appendSlice(".data\n");
 
-        const obj_inclusions_len = mem.readIntLittle(u16, metadata.inclusions[inc_i..][0..2]);
+        const obj_inclusions_len = mem.readInt(u16, metadata.inclusions[inc_i..][0..2], .little);
         inc_i += 2;
 
         sym_i = 0;
@@ -899,10 +899,10 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
                 versions_len = 0;
                 break :n name;
             };
-            const targets = mem.readIntLittle(u32, metadata.inclusions[inc_i..][0..4]);
+            const targets = mem.readInt(u32, metadata.inclusions[inc_i..][0..4], .little);
             inc_i += 4;
 
-            const size = mem.readIntLittle(u16, metadata.inclusions[inc_i..][0..2]);
+            const size = mem.readInt(u16, metadata.inclusions[inc_i..][0..2], .little);
             inc_i += 2;
 
             const lib_index = metadata.inclusions[inc_i];

@@ -2,7 +2,7 @@ const negv = @import("negv.zig");
 const testing = @import("std").testing;
 
 fn test__negvti2(a: i128, expected: i128) !void {
-    var result = negv.__negvti2(a);
+    const result = negv.__negvti2(a);
     try testing.expectEqual(expected, result);
 }
 

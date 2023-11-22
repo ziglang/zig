@@ -15,20 +15,20 @@ pub const Block = struct {
 
     /// Convert a byte sequence into an internal representation.
     pub inline fn fromBytes(bytes: *const [16]u8) Block {
-        const s0 = mem.readIntLittle(u32, bytes[0..4]);
-        const s1 = mem.readIntLittle(u32, bytes[4..8]);
-        const s2 = mem.readIntLittle(u32, bytes[8..12]);
-        const s3 = mem.readIntLittle(u32, bytes[12..16]);
+        const s0 = mem.readInt(u32, bytes[0..4], .little);
+        const s1 = mem.readInt(u32, bytes[4..8], .little);
+        const s2 = mem.readInt(u32, bytes[8..12], .little);
+        const s3 = mem.readInt(u32, bytes[12..16], .little);
         return Block{ .repr = BlockVec{ s0, s1, s2, s3 } };
     }
 
     /// Convert the internal representation of a block into a byte sequence.
     pub inline fn toBytes(block: Block) [16]u8 {
         var bytes: [16]u8 = undefined;
-        mem.writeIntLittle(u32, bytes[0..4], block.repr[0]);
-        mem.writeIntLittle(u32, bytes[4..8], block.repr[1]);
-        mem.writeIntLittle(u32, bytes[8..12], block.repr[2]);
-        mem.writeIntLittle(u32, bytes[12..16], block.repr[3]);
+        mem.writeInt(u32, bytes[0..4], block.repr[0], .little);
+        mem.writeInt(u32, bytes[4..8], block.repr[1], .little);
+        mem.writeInt(u32, bytes[8..12], block.repr[2], .little);
+        mem.writeInt(u32, bytes[12..16], block.repr[3], .little);
         return bytes;
     }
 
@@ -123,13 +123,13 @@ pub const Block = struct {
         // Last round uses s-box directly and XORs to produce output.
         var x: [4]u8 = undefined;
         x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s0)), @as(u8, @truncate(s1 >> 8)), @as(u8, @truncate(s2 >> 16)), @as(u8, @truncate(s3 >> 24)));
-        var t0 = mem.readIntLittle(u32, &x);
+        var t0 = mem.readInt(u32, &x, .little);
         x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s1)), @as(u8, @truncate(s2 >> 8)), @as(u8, @truncate(s3 >> 16)), @as(u8, @truncate(s0 >> 24)));
-        var t1 = mem.readIntLittle(u32, &x);
+        var t1 = mem.readInt(u32, &x, .little);
         x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s2)), @as(u8, @truncate(s3 >> 8)), @as(u8, @truncate(s0 >> 16)), @as(u8, @truncate(s1 >> 24)));
-        var t2 = mem.readIntLittle(u32, &x);
+        var t2 = mem.readInt(u32, &x, .little);
         x = sbox_lookup(&sbox_encrypt, @as(u8, @truncate(s3)), @as(u8, @truncate(s0 >> 8)), @as(u8, @truncate(s1 >> 16)), @as(u8, @truncate(s2 >> 24)));
-        var t3 = mem.readIntLittle(u32, &x);
+        var t3 = mem.readInt(u32, &x, .little);
 
         t0 ^= round_key.repr[0];
         t1 ^= round_key.repr[1];
@@ -219,13 +219,13 @@ pub const Block = struct {
         // Last round uses s-box directly and XORs to produce output.
         var x: [4]u8 = undefined;
         x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s0)), @as(u8, @truncate(s3 >> 8)), @as(u8, @truncate(s2 >> 16)), @as(u8, @truncate(s1 >> 24)));
-        var t0 = mem.readIntLittle(u32, &x);
+        var t0 = mem.readInt(u32, &x, .little);
         x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s1)), @as(u8, @truncate(s0 >> 8)), @as(u8, @truncate(s3 >> 16)), @as(u8, @truncate(s2 >> 24)));
-        var t1 = mem.readIntLittle(u32, &x);
+        var t1 = mem.readInt(u32, &x, .little);
         x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s2)), @as(u8, @truncate(s1 >> 8)), @as(u8, @truncate(s0 >> 16)), @as(u8, @truncate(s3 >> 24)));
-        var t2 = mem.readIntLittle(u32, &x);
+        var t2 = mem.readInt(u32, &x, .little);
         x = sbox_lookup(&sbox_decrypt, @as(u8, @truncate(s3)), @as(u8, @truncate(s2 >> 8)), @as(u8, @truncate(s1 >> 16)), @as(u8, @truncate(s0 >> 24)));
-        var t3 = mem.readIntLittle(u32, &x);
+        var t3 = mem.readInt(u32, &x, .little);
 
         t0 ^= round_key.repr[0];
         t1 ^= round_key.repr[1];
@@ -349,14 +349,14 @@ fn KeySchedule(comptime Aes: type) type {
                 // Apply sbox_encrypt to each byte in w.
                 fn func(w: u32) u32 {
                     const x = sbox_lookup(&sbox_key_schedule, @as(u8, @truncate(w)), @as(u8, @truncate(w >> 8)), @as(u8, @truncate(w >> 16)), @as(u8, @truncate(w >> 24)));
-                    return mem.readIntLittle(u32, &x);
+                    return mem.readInt(u32, &x, .little);
                 }
             }.func;
 
             var round_keys: [rounds + 1]Block = undefined;
             comptime var i: usize = 0;
             inline while (i < words_in_key) : (i += 1) {
-                round_keys[i / 4].repr[i % 4] = mem.readIntBig(u32, key[4 * i ..][0..4]);
+                round_keys[i / 4].repr[i % 4] = mem.readInt(u32, key[4 * i ..][0..4], .big);
             }
             inline while (i < round_keys.len * 4) : (i += 1) {
                 var t = round_keys[(i - 1) / 4].repr[(i - 1) % 4];

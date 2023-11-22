@@ -307,8 +307,8 @@ fn render_cmake(
     values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
-    var build = step.owner;
-    var allocator = build.allocator;
+    const build = step.owner;
+    const allocator = build.allocator;
 
     var values_copy = try values.clone();
     defer values_copy.deinit();

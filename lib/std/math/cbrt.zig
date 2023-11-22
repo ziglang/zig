@@ -102,7 +102,7 @@ fn cbrt64(x: f64) f64 {
 
     // cbrt to 23 bits
     // cbrt(x) = t * cbrt(x / t^3) ~= t * P(t^3 / x)
-    var r = (t * t) * (t / x);
+    const r = (t * t) * (t / x);
     t = t * ((P0 + r * (P1 + r * P2)) + ((r * r) * r) * (P3 + r * P4));
 
     // Round t away from 0 to 23 bits
@@ -113,7 +113,7 @@ fn cbrt64(x: f64) f64 {
     // one step newton to 53 bits
     const s = t * t;
     var q = x / s;
-    var w = t + t;
+    const w = t + t;
     q = (q - t) / (w + q);
 
     return t + t * q;
@@ -127,7 +127,7 @@ test "math.cbrt" {
 test "math.cbrt32" {
     const epsilon = 0.000001;
 
-    try expect(cbrt32(0.0) == 0.0);
+    try expect(math.isPositiveZero(cbrt32(0.0)));
     try expect(math.approxEqAbs(f32, cbrt32(0.2), 0.584804, epsilon));
     try expect(math.approxEqAbs(f32, cbrt32(0.8923), 0.962728, epsilon));
     try expect(math.approxEqAbs(f32, cbrt32(1.5), 1.144714, epsilon));
@@ -138,7 +138,7 @@ test "math.cbrt32" {
 test "math.cbrt64" {
     const epsilon = 0.000001;
 
-    try expect(cbrt64(0.0) == 0.0);
+    try expect(math.isPositiveZero(cbrt64(0.0)));
     try expect(math.approxEqAbs(f64, cbrt64(0.2), 0.584804, epsilon));
     try expect(math.approxEqAbs(f64, cbrt64(0.8923), 0.962728, epsilon));
     try expect(math.approxEqAbs(f64, cbrt64(1.5), 1.144714, epsilon));
@@ -147,7 +147,7 @@ test "math.cbrt64" {
 }
 
 test "math.cbrt.special" {
-    try expect(cbrt32(0.0) == 0.0);
+    try expect(math.isPositiveZero(cbrt32(0.0)));
     try expect(@as(u32, @bitCast(cbrt32(-0.0))) == @as(u32, 0x80000000));
     try expect(math.isPositiveInf(cbrt32(math.inf(f32))));
     try expect(math.isNegativeInf(cbrt32(-math.inf(f32))));
@@ -155,8 +155,8 @@ test "math.cbrt.special" {
 }
 
 test "math.cbrt64.special" {
-    try expect(cbrt64(0.0) == 0.0);
-    try expect(@as(u64, @bitCast(cbrt64(-0.0))) == @as(u64, 0x8000000000000000));
+    try expect(math.isPositiveZero(cbrt64(0.0)));
+    try expect(math.isNegativeZero(cbrt64(-0.0)));
     try expect(math.isPositiveInf(cbrt64(math.inf(f64))));
     try expect(math.isNegativeInf(cbrt64(-math.inf(f64))));
     try expect(math.isNan(cbrt64(math.nan(f64))));

@@ -82,8 +82,8 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
         };
 
         fn getStartForSiftUp(self: Self, child: T, index: usize) StartIndexAndLayer {
-            var child_index = index;
-            var parent_index = parentIndex(child_index);
+            const child_index = index;
+            const parent_index = parentIndex(child_index);
             const parent = self.items[parent_index];
 
             const min_layer = self.nextIsMinLayer();
@@ -115,7 +115,7 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
         fn doSiftUp(self: *Self, start_index: usize, target_order: Order) void {
             var child_index = start_index;
             while (child_index > 2) {
-                var grandparent_index = grandparentIndex(child_index);
+                const grandparent_index = grandparentIndex(child_index);
                 const child = self.items[child_index];
                 const grandparent = self.items[grandparent_index];
 
@@ -286,8 +286,8 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
         }
 
         fn bestItemAtIndices(self: Self, index1: usize, index2: usize, target_order: Order) ItemAndIndex {
-            var item1 = self.getItem(index1);
-            var item2 = self.getItem(index2);
+            const item1 = self.getItem(index1);
+            const item2 = self.getItem(index2);
             return self.bestItem(item1, item2, target_order);
         }
 

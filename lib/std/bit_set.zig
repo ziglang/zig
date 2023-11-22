@@ -33,6 +33,7 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const builtin = @import("builtin");
 
 /// Returns the optimal static bit set type for the specified number
 /// of elements: either `IntegerBitSet` or `ArrayBitSet`,
@@ -753,7 +754,7 @@ pub const DynamicBitSetUnmanaged = struct {
         self.bit_length = new_len;
     }
 
-    /// deinitializes the array and releases its memory.
+    /// Deinitializes the array and releases its memory.
     /// The passed allocator must be the same one used for
     /// init* or resize in the past.
     pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -856,6 +857,18 @@ pub const DynamicBitSetUnmanaged = struct {
     pub fn unset(self: *Self, index: usize) void {
         assert(index < self.bit_length);
         self.masks[maskIndex(index)] &= ~maskBit(index);
+    }
+
+    /// Set all bits to 0.
+    pub fn unsetAll(self: *Self) void {
+        const masks_len = numMasks(self.bit_length);
+        @memset(self.masks[0..masks_len], 0);
+    }
+
+    /// Set all bits to 1.
+    pub fn setAll(self: *Self) void {
+        const masks_len = numMasks(self.bit_length);
+        @memset(self.masks[0..masks_len], std.math.maxInt(MaskInt));
     }
 
     /// Flips a specific bit in the bit set
@@ -1058,7 +1071,7 @@ pub const DynamicBitSet = struct {
         try self.unmanaged.resize(self.allocator, new_len, fill);
     }
 
-    /// deinitializes the array and releases its memory.
+    /// Deinitializes the array and releases its memory.
     /// The passed allocator must be the same one used for
     /// init* or resize in the past.
     pub fn deinit(self: *Self) void {
@@ -1636,7 +1649,7 @@ fn testStaticBitSet(comptime Set: type) !void {
 }
 
 test "IntegerBitSet" {
-    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     try testStaticBitSet(IntegerBitSet(0));
     try testStaticBitSet(IntegerBitSet(1));

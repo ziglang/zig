@@ -141,7 +141,7 @@ fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
     var i: u8 = 1; // Start at 1 to skip over checking the null prefix.
     while (i < prefixes_slice.len) : (i += 1) {
         const p = prefixes_slice[i].path.?;
-        var sub_path = getPrefixSubpath(gpa, p, resolved_path) catch |err| switch (err) {
+        const sub_path = getPrefixSubpath(gpa, p, resolved_path) catch |err| switch (err) {
             error.NotASubPath => continue,
             else => |e| return e,
         };
@@ -1072,6 +1072,7 @@ test "check that changing a file makes cache fail" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1193,6 +1194,7 @@ test "Manifest with files added after initial hash work" {
         // https://github.com/ziglang/zig/issues/5437
         return error.SkipZigTest;
     }
+
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 

@@ -14,7 +14,7 @@ fn h() void {
     // https://github.com/ziglang/zig/issues/12743
     const T = struct { oh_no: *u32 };
     var x: T = if (false) {};
-    _ = x;
+    _ = &x;
 }
 fn k(b: bool) void {
     // block_ptr case
@@ -22,7 +22,7 @@ fn k(b: bool) void {
     var x = if (b) blk: {
         break :blk if (false) T{ .oh_no = 2 };
     } else T{ .oh_no = 1 };
-    _ = x;
+    _ = &x;
 }
 export fn entry() void {
     f(true);

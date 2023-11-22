@@ -126,6 +126,7 @@ pub const default_max_load_percentage = 80;
 /// member functions:
 ///   - hash(self, PseudoKey) Hash
 ///   - eql(self, PseudoKey, Key) bool
+///
 /// If you are passing a context to a *Adapted function, PseudoKey is the type
 /// of the key parameter.  Otherwise, when creating a HashMap or HashMapUnmanaged
 /// type, PseudoKey = Key = K.
@@ -469,7 +470,7 @@ pub fn HashMap(
         }
 
         /// If key exists this function cannot fail.
-        /// If there is an existing item with `key`, then the result
+        /// If there is an existing item with `key`, then the result's
         /// `Entry` pointers point to it, and found_existing is true.
         /// Otherwise, puts a new item with undefined value, and
         /// the `Entry` pointers point to it. Caller should then initialize
@@ -479,7 +480,7 @@ pub fn HashMap(
         }
 
         /// If key exists this function cannot fail.
-        /// If there is an existing item with `key`, then the result
+        /// If there is an existing item with `key`, then the result's
         /// `Entry` pointers point to it, and found_existing is true.
         /// Otherwise, puts a new item with undefined key and value, and
         /// the `Entry` pointers point to it. Caller must then initialize
@@ -488,7 +489,7 @@ pub fn HashMap(
             return self.unmanaged.getOrPutContextAdapted(self.allocator, key, ctx, self.ctx);
         }
 
-        /// If there is an existing item with `key`, then the result
+        /// If there is an existing item with `key`, then the result's
         /// `Entry` pointers point to it, and found_existing is true.
         /// Otherwise, puts a new item with undefined value, and
         /// the `Entry` pointers point to it. Caller should then initialize
@@ -499,7 +500,7 @@ pub fn HashMap(
             return self.unmanaged.getOrPutAssumeCapacityContext(key, self.ctx);
         }
 
-        /// If there is an existing item with `key`, then the result
+        /// If there is an existing item with `key`, then the result's
         /// `Entry` pointers point to it, and found_existing is true.
         /// Otherwise, puts a new item with undefined value, and
         /// the `Entry` pointers point to it. Caller must then initialize
@@ -565,7 +566,7 @@ pub fn HashMap(
         }
 
         /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
-        /// If insertion happuns, asserts there is enough capacity without allocating.
+        /// If insertion happens, asserts there is enough capacity without allocating.
         pub fn fetchPutAssumeCapacity(self: *Self, key: K, value: V) ?KV {
             return self.unmanaged.fetchPutAssumeCapacityContext(key, value, self.ctx);
         }
@@ -684,7 +685,7 @@ pub fn HashMap(
 }
 
 /// A HashMap based on open addressing and linear probing.
-/// A lookup or modification typically occurs only 2 cache misses.
+/// A lookup or modification typically incurs only 2 cache misses.
 /// No order is guaranteed and any modification invalidates live iterators.
 /// It achieves good performance with quite high load factors (by default,
 /// grow is triggered at 80% full) and only one byte of overhead per element.
@@ -1483,8 +1484,8 @@ pub fn HashMapUnmanaged(
 
             var i: Size = 0;
             var metadata = self.metadata.?;
-            var keys_ptr = self.keys();
-            var values_ptr = self.values();
+            const keys_ptr = self.keys();
+            const values_ptr = self.values();
             while (i < self.capacity()) : (i += 1) {
                 if (metadata[i].isUsed()) {
                     other.putAssumeCapacityNoClobberContext(keys_ptr[i], values_ptr[i], new_ctx);
@@ -1520,8 +1521,8 @@ pub fn HashMapUnmanaged(
                 const old_capacity = self.capacity();
                 var i: Size = 0;
                 var metadata = self.metadata.?;
-                var keys_ptr = self.keys();
-                var values_ptr = self.values();
+                const keys_ptr = self.keys();
+                const values_ptr = self.values();
                 while (i < old_capacity) : (i += 1) {
                     if (metadata[i].isUsed()) {
                         map.putAssumeCapacityNoClobberContext(keys_ptr[i], values_ptr[i], ctx);

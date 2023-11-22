@@ -640,7 +640,7 @@ pub fn lowerToBuildSteps(
             },
             .Error => |expected_msgs| {
                 assert(expected_msgs.len != 0);
-                artifact.expect_errors = expected_msgs;
+                artifact.expect_errors = .{ .exact = expected_msgs };
                 parent_step.dependOn(&artifact.step);
             },
             .Execution => |expected_stdout| no_exec: {
@@ -1161,10 +1161,7 @@ const TestManifest = struct {
     fn getDefaultParser(comptime T: type) ParseFn(T) {
         if (T == CrossTarget) return struct {
             fn parse(str: []const u8) anyerror!T {
-                var opts = CrossTarget.ParseOptions{
-                    .arch_os_abi = str,
-                };
-                return try CrossTarget.parse(opts);
+                return CrossTarget.parse(.{ .arch_os_abi = str });
             }
         }.parse;
 
@@ -1691,7 +1688,7 @@ fn runOneCase(
                 var argv = std.ArrayList([]const u8).init(allocator);
                 defer argv.deinit();
 
-                var exec_result = x: {
+                const exec_result = x: {
                     var exec_node = update_node.start("execute", 0);
                     exec_node.activate();
                     defer exec_node.end();

@@ -671,8 +671,8 @@ pub const StackIterator = struct {
             if (self.unwind_state) |*unwind_state| {
                 if (!unwind_state.failed) {
                     if (unwind_state.dwarf_context.pc == 0) return null;
+                    defer self.fp = unwind_state.dwarf_context.getFp() catch 0;
                     if (self.next_unwind()) |return_address| {
-                        self.fp = unwind_state.dwarf_context.getFp() catch 0;
                         return return_address;
                     } else |err| {
                         unwind_state.last_error = err;
@@ -812,7 +812,7 @@ pub fn writeStackTraceWindows(
     var addr_buf: [1024]usize = undefined;
     const n = walkStackWindows(addr_buf[0..], context);
     const addrs = addr_buf[0..n];
-    var start_i: usize = if (start_addr) |saddr| blk: {
+    const start_i: usize = if (start_addr) |saddr| blk: {
         for (addrs, 0..) |addr, i| {
             if (addr == saddr) break :blk i;
         }
@@ -1098,8 +1098,8 @@ pub fn readElfDebugInfo(
         if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
 
         const endian: std.builtin.Endian = switch (hdr.e_ident[elf.EI_DATA]) {
-            elf.ELFDATA2LSB => .Little,
-            elf.ELFDATA2MSB => .Big,
+            elf.ELFDATA2LSB => .little,
+            elf.ELFDATA2MSB => .big,
             else => return error.InvalidElfEndian,
         };
         assert(endian == native_endian); // this is our own debug info
@@ -1135,8 +1135,8 @@ pub fn readElfDebugInfo(
                 const gnu_debuglink = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
                 const debug_filename = mem.sliceTo(@as([*:0]const u8, @ptrCast(gnu_debuglink.ptr)), 0);
                 const crc_offset = mem.alignForward(usize, @intFromPtr(&debug_filename[debug_filename.len]) + 1, 4) - @intFromPtr(gnu_debuglink.ptr);
-                const crc_bytes = gnu_debuglink[crc_offset .. crc_offset + 4];
-                separate_debug_crc = mem.readIntSliceNative(u32, crc_bytes);
+                const crc_bytes = gnu_debuglink[crc_offset..][0..4];
+                separate_debug_crc = mem.readInt(u32, crc_bytes, native_endian);
                 separate_debug_filename = debug_filename;
                 continue;
             }
@@ -1158,7 +1158,7 @@ pub fn readElfDebugInfo(
                 var zlib_stream = std.compress.zlib.decompressStream(allocator, section_stream.reader()) catch continue;
                 defer zlib_stream.deinit();
 
-                var decompressed_section = try allocator.alloc(u8, chdr.ch_size);
+                const decompressed_section = try allocator.alloc(u8, chdr.ch_size);
                 errdefer allocator.free(decompressed_section);
 
                 const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
@@ -1868,10 +1868,10 @@ pub const DebugInfo = struct {
                         elf.PT_NOTE => {
                             // Look for .note.gnu.build-id
                             const note_bytes = @as([*]const u8, @ptrFromInt(info.dlpi_addr + phdr.p_vaddr))[0..phdr.p_memsz];
-                            const name_size = mem.readIntSliceNative(u32, note_bytes[0..4]);
+                            const name_size = mem.readInt(u32, note_bytes[0..4], native_endian);
                             if (name_size != 4) continue;
-                            const desc_size = mem.readIntSliceNative(u32, note_bytes[4..8]);
-                            const note_type = mem.readIntSliceNative(u32, note_bytes[8..12]);
+                            const desc_size = mem.readInt(u32, note_bytes[4..8], native_endian);
+                            const note_type = mem.readInt(u32, note_bytes[8..12], native_endian);
                             if (note_type != elf.NT_GNU_BUILD_ID) continue;
                             if (!mem.eql(u8, "GNU\x00", note_bytes[12..16])) continue;
                             context.build_id = note_bytes[16..][0..desc_size];
@@ -2040,13 +2040,13 @@ pub const ModuleDebugInfo = switch (native_os) {
             if (missing_debug_info) return error.MissingDebugInfo;
 
             var di = DW.DwarfInfo{
-                .endian = .Little,
+                .endian = .little,
                 .sections = sections,
                 .is_macho = true,
             };
 
             try DW.openDwarfDebugInfo(&di, allocator);
-            var info = OFileInfo{
+            const info = OFileInfo{
                 .di = di,
                 .addr_table = addr_table,
             };
@@ -2122,7 +2122,7 @@ pub const ModuleDebugInfo = switch (native_os) {
 
                 // Check if its debug infos are already in the cache
                 const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
-                var o_file_info = self.ofiles.getPtr(o_file_path) orelse
+                const o_file_info = self.ofiles.getPtr(o_file_path) orelse
                     (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
                     error.FileNotFound,
                     error.MissingDebugInfo,
@@ -2340,7 +2340,7 @@ pub fn updateSegfaultHandler(act: ?*const os.Sigaction) error{OperationNotSuppor
     try os.sigaction(os.SIG.FPE, act, null);
 }
 
-/// Attaches a global SIGSEGV handler which calls @panic("segmentation fault");
+/// Attaches a global SIGSEGV handler which calls `@panic("segmentation fault");`
 pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");
@@ -2401,14 +2401,14 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
                 panic_mutex.lock();
                 defer panic_mutex.unlock();
 
-                dumpSegfaultInfoPosix(sig, addr, ctx_ptr);
+                dumpSegfaultInfoPosix(sig, info.code, addr, ctx_ptr);
             }
 
             waitForOtherThreadToFinishPanicking();
         },
         else => {
             // panic mutex already locked
-            dumpSegfaultInfoPosix(sig, addr, ctx_ptr);
+            dumpSegfaultInfoPosix(sig, info.code, addr, ctx_ptr);
         },
     };
 
@@ -2418,10 +2418,20 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
     os.abort();
 }
 
-fn dumpSegfaultInfoPosix(sig: i32, addr: usize, ctx_ptr: ?*const anyopaque) void {
+fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*const anyopaque) void {
     const stderr = io.getStdErr().writer();
     _ = switch (sig) {
-        os.SIG.SEGV => stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
+        os.SIG.SEGV => if (native_arch == .x86_64 and native_os == .linux and code == 128) // SI_KERNEL
+            // x86_64 doesn't have a full 64-bit virtual address space.
+            // Addresses outside of that address space are non-canonical
+            // and the CPU won't provide the faulting address to us.
+            // This happens when accessing memory addresses such as 0xaaaaaaaaaaaaaaaa
+            // but can also happen when no addressable memory is involved;
+            // for example when reading/writing model-specific registers
+            // by executing `rdmsr` or `wrmsr` in user-space (unprivileged mode).
+            stderr.print("General protection exception (no address available)\n", .{})
+        else
+            stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
         os.SIG.ILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
         os.SIG.BUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
         os.SIG.FPE => stderr.print("Arithmetic exception at address 0x{x}\n", .{addr}),

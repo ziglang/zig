@@ -7,6 +7,7 @@ test "simple destructure" {
         fn doTheTest() !void {
             var x: u32 = undefined;
             x, const y, var z: u64 = .{ 1, @as(u16, 2), 3 };
+            _ = &z;
 
             comptime assert(@TypeOf(y) == u16);
 
@@ -25,6 +26,7 @@ test "destructure with comptime syntax" {
         fn doTheTest() void {
             comptime var x: f32 = undefined;
             comptime x, const y, var z = .{ 0.5, 123, 456 }; // z is a comptime var
+            _ = &z;
 
             comptime assert(@TypeOf(y) == comptime_int);
             comptime assert(@TypeOf(z) == comptime_int);
@@ -112,6 +114,7 @@ test "destructure of comptime-known tuple is comptime-known" {
 test "destructure of comptime-known tuple where some destinations are runtime-known is comptime-known" {
     var z: u32 = undefined;
     var x: u8, const y, z = .{ 1, 2, 3 };
+    _ = &x;
 
     comptime assert(@TypeOf(y) == comptime_int);
     comptime assert(y == 2);
@@ -122,6 +125,7 @@ test "destructure of comptime-known tuple where some destinations are runtime-kn
 
 test "destructure of tuple with comptime fields results in some comptime-known values" {
     var runtime: u32 = 42;
+    _ = &runtime;
     const a, const b, const c, const d = .{ 123, runtime, 456, runtime };
 
     // a, c are comptime-known
@@ -137,4 +141,15 @@ test "destructure of tuple with comptime fields results in some comptime-known v
 
     try expect(b == 42);
     try expect(d == 42);
+}
+
+test "destructure vector" {
+    const vec: @Vector(2, i32) = .{ 1, 2 };
+    const x, const y = vec;
+
+    comptime assert(@TypeOf(x) == i32);
+    comptime assert(@TypeOf(y) == i32);
+
+    try expect(x == 1);
+    try expect(y == 2);
 }

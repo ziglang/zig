@@ -594,7 +594,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/Elf/Object.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/SharedObject.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/Symbol.zig"
-    "${CMAKE_SOURCE_DIR}/src/link/Elf/ZigModule.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/ZigObject.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/eh_frame.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/file.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/gc.zig"
@@ -624,7 +624,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/Plan9/aout.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Wasm.zig"
     "${CMAKE_SOURCE_DIR}/src/link/msdos-stub.bin"
-    "${CMAKE_SOURCE_DIR}/src/link/strtab.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/StringTable.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi/Tokenizer.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi/parse.zig"
@@ -645,6 +645,8 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/value.zig"
     "${CMAKE_SOURCE_DIR}/src/wasi_libc.zig"
     "${CMAKE_SOURCE_DIR}/src/windows_sdk.zig"
+    "${CMAKE_SOURCE_DIR}/src/stubs/aro_builtins.zig"
+    "${CMAKE_SOURCE_DIR}/src/stubs/aro_names.zig"
 )
 
 if(MSVC)
@@ -815,7 +817,12 @@ set(BUILD_ZIG2_ARGS
   -OReleaseSmall
   --name zig2 -femit-bin="${ZIG2_C_SOURCE}"
   --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
-  --mod "aro::deps/aro/lib.zig"
+  --mod "aro_options::src/stubs/aro_options.zig"
+  --mod "Builtins/Builtin.def::src/stubs/aro_builtins.zig"
+  --mod "Attribute/names.def::src/stubs/aro_names.zig"
+  --mod "Diagnostics/messages.def::src/stubs/aro_messages.zig"
+  --mod "aro_backend:build_options=aro_options:deps/aro/backend.zig"
+  --mod "aro:Builtins/Builtin.def,Attribute/names.def,Diagnostics/messages.def,build_options=aro_options,backend=aro_backend:deps/aro/aro.zig"
   --deps build_options,aro
   -target "${ZIG_HOST_TARGET_TRIPLE}"
 )

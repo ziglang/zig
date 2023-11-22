@@ -431,7 +431,7 @@ pub fn bcrypt(
     const trimmed_len = @min(password.len, password_buf.len - 1);
     @memcpy(password_buf[0..trimmed_len], password[0..trimmed_len]);
     password_buf[trimmed_len] = 0;
-    var passwordZ = password_buf[0 .. trimmed_len + 1];
+    const passwordZ = password_buf[0 .. trimmed_len + 1];
     state.expand(salt[0..], passwordZ);
 
     const rounds: u64 = @as(u64, 1) << params.rounds_log;
@@ -450,7 +450,7 @@ pub fn bcrypt(
 
     var ct: [ct_length]u8 = undefined;
     for (cdata, 0..) |c, i| {
-        mem.writeIntBig(u32, ct[i * 4 ..][0..4], c);
+        mem.writeInt(u32, ct[i * 4 ..][0..4], c, .big);
     }
     return ct[0..dk_length].*;
 }
@@ -546,7 +546,7 @@ const pbkdf_prf = struct {
         // copy out
         var out: [32]u8 = undefined;
         for (cdata, 0..) |v, i| {
-            std.mem.writeIntLittle(u32, out[4 * i ..][0..4], v);
+            std.mem.writeInt(u32, out[4 * i ..][0..4], v, .little);
         }
 
         // zap
