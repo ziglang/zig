@@ -1486,7 +1486,7 @@ test ". and .. in fs.Dir functions" {
 
             try ctx.dir.writeFile(update_path, "something");
             const prev_status = try ctx.dir.updateFile(file_path, ctx.dir, update_path, .{});
-            try testing.expectEqual(fs.PrevStatus.stale, prev_status);
+            try testing.expectEqual(fs.Dir.PrevStatus.stale, prev_status);
 
             try ctx.dir.deleteDir(subdir_path);
         }
@@ -1532,7 +1532,7 @@ test ". and .. in absolute functions" {
     try update_file.writeAll("something");
     update_file.close();
     const prev_status = try fs.updateFileAbsolute(created_file_path, update_file_path, .{});
-    try testing.expectEqual(fs.PrevStatus.stale, prev_status);
+    try testing.expectEqual(fs.Dir.PrevStatus.stale, prev_status);
 
     try fs.deleteDirAbsolute(subdir_path);
 }

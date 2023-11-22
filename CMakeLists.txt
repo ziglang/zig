@@ -247,6 +247,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/fmt/errol/lookup.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fmt/parse_float.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fs.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/fs/Dir.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fs/file.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fs/get_app_data_dir.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fs/path.zig"
