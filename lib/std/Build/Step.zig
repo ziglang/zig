@@ -571,4 +571,6 @@ test {
     _ = Run;
     _ = TranslateC;
     _ = WriteFile;
+    _ = Options;
+    _ = ConfigHeader;
 }
