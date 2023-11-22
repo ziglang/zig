@@ -35649,8 +35649,6 @@ fn semaStructFields(
     const zir = mod.namespacePtr(namespace_index).file_scope.zir;
     const zir_index = struct_type.zir_index;
 
-    const src = LazySrcLoc.nodeOffset(0);
-    _ = src;
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
     if (fields_len == 0) switch (struct_type.layout) {
