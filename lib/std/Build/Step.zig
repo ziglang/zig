@@ -1027,4 +1027,5 @@ test {
     _ = TranslateC;
     _ = WriteFile;
     _ = UpdateSourceFiles;
+    _ = ConfigHeader;
 }

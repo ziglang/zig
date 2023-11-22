@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const ConfigHeader = @This();
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
@@ -525,39 +526,335 @@ fn render_meson(
     var values_copy = try values.clone();
     defer values_copy.deinit();
 
+    const State = union(enum) {
+        copy,
+        escape: usize,
+        newline,
+        mesondefine: usize,
+        inline_at_var: usize,
+        dollar: usize,
+        inline_curly_var: usize,
+    };
+
     var any_errors = false;
     var line_index: u32 = 0;
-    var line_it = std.mem.split(u8, contents, "\n");
-    while (line_it.next()) |line| : (line_index += 1) {
-        if (!std.mem.startsWith(u8, line, "#")) {
-            try bw.writeAll(line);
-            try bw.writeAll("\n");
-            continue;
+
+    var state: State = .copy;
+    var index: usize = 0;
+    while (index < contents.len) {
+        switch (state) {
+            .copy => switch (contents[index]) {
+                '\\' => {
+                    state = .{ .escape = index };
+                    index += 1;
+                    continue;
+                },
+                '\n' => {
+                    try bw.writeByte('\n');
+                    state = .newline;
+                    index += 1;
+                    line_index += 1;
+                    continue;
+                },
+                '@' => {
+                    state = .{ .inline_at_var = index };
+                    index += 1;
+                    continue;
+                },
+                '$' => {
+                    state = .{ .dollar = index };
+                    index += 1;
+                    continue;
+                },
+                else => |character| {
+                    try bw.writeByte(character);
+                    index += 1;
+                    continue;
+                },
+            },
+            .escape => |start_index| switch (contents[index]) {
+                '\\' => {
+                    index += 1;
+                    continue;
+                },
+                '\n' => {
+                    try bw.writeByte('\n');
+                    state = .newline;
+                    index += 1;
+                    line_index += 1;
+                    continue;
+                },
+                '@' => {
+                    const count = index - start_index;
+                    try bw.writeByteNTimes('\\', count / 2);
+                    if (count % 2 == 0) {
+                        state = .{ .inline_at_var = index };
+                        index += 1;
+                    } else {
+                        try bw.writeByte('@');
+                        state = .copy;
+                        index += 1;
+                    }
+                    continue;
+                },
+                '$' => {
+                    const count = index - start_index;
+                    try bw.writeByteNTimes('\\', count / 2);
+                    if (count % 2 == 0) {
+                        state = .{ .dollar = index };
+                        index += 1;
+                    } else {
+                        try bw.writeByte('$');
+                        state = .copy;
+                        index += 1;
+                    }
+                    continue;
+                },
+                else => |character| {
+                    const count = index - start_index;
+                    try bw.writeByteNTimes('\\', count);
+                    try bw.writeByte(character);
+                    state = .copy;
+                    index += 1;
+                    continue;
+                },
+            },
+            .newline => switch (contents[index]) {
+                '\n' => {
+                    try bw.writeByte('\n');
+                    state = .newline;
+                    index += 1;
+                    line_index += 1;
+                    continue;
+                },
+                '@' => {
+                    state = .{ .inline_at_var = index };
+                    index += 1;
+                    line_index += 1;
+                    continue;
+                },
+                '#' => if (std.mem.startsWith(u8, contents[index..], "#mesondefine ")) {
+                    index += "#mesondefine ".len;
+                    state = .{ .mesondefine = index };
+                    continue;
+                } else {
+                    try bw.writeByte('#');
+                    state = .copy;
+                    index += 1;
+                    continue;
+                },
+                else => |character| {
+                    try bw.writeByte(character);
+                    state = .copy;
+                    index += 1;
+                    continue;
+                },
+            },
+            .mesondefine => |start_index| switch (contents[index]) {
+                ' ' => {
+                    index += 1;
+                    state = .{ .mesondefine = index };
+                    continue;
+                },
+                '\n' => {
+                    const name = contents[start_index..index];
+                    state = .newline;
+                    index += 1;
+                    defer line_index += 1;
+
+                    const kv = values_copy.fetchSwapRemove(name) orelse {
+                        try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
+                            src_path, line_index + 1, name,
+                        });
+                        any_errors = true;
+                        continue;
+                    };
+                    try renderValueC(bw, name, kv.value);
+                    continue;
+                },
+                else => {
+                    index += 1;
+                    continue;
+                },
+            },
+            .inline_at_var => |start_index| switch (contents[index]) {
+                '\n' => {
+                    try bw.writeAll(contents[start_index .. index + 1]);
+                    state = .newline;
+                    index += 1;
+                    defer line_index += 1;
+                    continue;
+                },
+                ' ' => {
+                    try bw.writeAll(contents[start_index .. index + 1]);
+                    state = .copy;
+                    index += 1;
+                    continue;
+                },
+                '@' => {
+                    const name = contents[start_index + 1 .. index];
+                    state = .copy;
+                    index += 1;
+
+                    const kv = values_copy.fetchSwapRemove(name) orelse get_from_original_or_error: {
+                        if (values.getEntry(name)) |entry| {
+                            break :get_from_original_or_error std.StringArrayHashMap(Value).KV{
+                                .key = entry.key_ptr.*,
+                                .value = entry.value_ptr.*,
+                            };
+                        }
+                        try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
+                            src_path, line_index + 1, name,
+                        });
+                        any_errors = true;
+                        continue;
+                    };
+                    switch (kv.value) {
+                        // output nothing
+                        .undef => {},
+                        .defined => try bw.writeAll("1"),
+                        .boolean => |b| try bw.writeAll(if (b) "true" else "false"),
+                        .int => |i| try bw.print("{d}", .{i}),
+                        .ident => |ident| try bw.writeAll(ident),
+                        .string => |string| {
+                            // TODO: use C-specific escaping instead of zig string literals
+                            try bw.print("{}", .{std.zig.fmtEscapes(string)});
+                        },
+                    }
+                    continue;
+                },
+                else => {
+                    index += 1;
+                    continue;
+                },
+            },
+            .dollar => |start_index| switch (contents[index]) {
+                '{' => {
+                    state = .{ .inline_curly_var = start_index };
+                    index += 1;
+                    continue;
+                },
+                '\\' => {
+                    try bw.writeByte('$');
+                    state = .{ .escape = index };
+                    index += 1;
+                    continue;
+                },
+                '\n' => {
+                    try bw.writeByte('$');
+                    try bw.writeByte('\n');
+                    state = .newline;
+                    index += 1;
+                    line_index += 1;
+                    continue;
+                },
+                '@' => {
+                    try bw.writeByte('$');
+                    state = .{ .inline_at_var = index };
+                    index += 1;
+                    continue;
+                },
+                '$' => {
+                    try bw.writeByte('$');
+                    state = .{ .dollar = index };
+                    index += 1;
+                    continue;
+                },
+                else => |character| {
+                    try bw.writeByte('$');
+                    try bw.writeByte(character);
+                    state = .copy;
+                    index += 1;
+                    continue;
+                },
+            },
+            .inline_curly_var => |start_index| switch (contents[index]) {
+                '\n' => {
+                    try bw.writeAll(contents[start_index .. index + 1]);
+                    state = .newline;
+                    index += 1;
+                    defer line_index += 1;
+                    continue;
+                },
+                ' ' => {
+                    try bw.writeAll(contents[start_index .. index + 1]);
+                    state = .copy;
+                    index += 1;
+                    continue;
+                },
+                '}' => {
+                    const name = contents[start_index + 2 .. index];
+                    state = .copy;
+                    index += 1;
+
+                    const kv = values_copy.fetchSwapRemove(name) orelse get_from_original_or_error: {
+                        if (values.getEntry(name)) |entry| {
+                            break :get_from_original_or_error std.StringArrayHashMap(Value).KV{
+                                .key = entry.key_ptr.*,
+                                .value = entry.value_ptr.*,
+                            };
+                        }
+                        try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
+                            src_path, line_index + 1, name,
+                        });
+                        any_errors = true;
+                        continue;
+                    };
+                    switch (kv.value) {
+                        // output nothing
+                        .undef => {},
+                        .defined => try bw.writeByte('1'),
+                        .boolean => |b| try bw.writeAll(if (b) "true" else "false"),
+                        .int => |i| try bw.print("{d}", .{i}),
+                        .ident => |ident| try bw.writeAll(ident),
+                        .string => |string| {
+                            // TODO: use C-specific escaping instead of zig string literals
+                            try bw.print("{}", .{std.zig.fmtEscapes(string)});
+                        },
+                    }
+                    continue;
+                },
+                else => {
+                    index += 1;
+                    continue;
+                },
+            },
         }
-        var it = std.mem.tokenize(u8, line[1..], " \t\r");
-        const mesondefine = it.next().?;
-        if (!std.mem.eql(u8, mesondefine, "mesondefine")) {
-            try bw.writeAll(line);
-            try bw.writeAll("\n");
-            continue;
-        }
-        const name = it.next() orelse {
-            try step.addError("{s}:{d}: error: missing define name", .{
-                src_path, line_index + 1,
-            });
-            any_errors = true;
-            continue;
-        };
-        const kv = values_copy.fetchSwapRemove(name) orelse {
-            try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
-                src_path, line_index + 1, name,
-            });
-            any_errors = true;
-            continue;
-        };
-        try renderValueC(bw, name, kv.value);
+        std.debug.panic("index = {}, character = {}, state = {}", .{
+            index,
+            contents[index],
+            state,
+        });
     }
 
+    // clean up any remaining state
+    switch (state) {
+        .copy,
+        .escape,
+        .newline,
+        => {},
+        .mesondefine => |start_index| eof_terminated_mesondefine: {
+            const name = contents[start_index..];
+            const kv = values_copy.fetchSwapRemove(name) orelse {
+                try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
+                    src_path, line_index + 1, name,
+                });
+                any_errors = true;
+                break :eof_terminated_mesondefine;
+            };
+            try renderValueC(bw, name, kv.value);
+        },
+        .inline_at_var,
+        .inline_curly_var,
+        => |start_index| {
+            try bw.writeAll(contents[start_index..]);
+        },
+        .dollar => {
+            try bw.writeByte('$');
+        },
+    }
+
+    // Check for unused values
     for (values_copy.keys()) |name| {
         try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
         any_errors = true;
@@ -1119,4 +1416,320 @@ test "expand_variables_cmake escaped characters" {
 
     // backslash is skipped when checking for invalid characters, yet it mangles the key
     try std.testing.expectError(error.MissingValue, testReplaceVariablesCMake(allocator, "${string\\}", "", values));
+}
+
+test "meson" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+
+    var cache: std.Build.Cache = .{
+        .gpa = arena.allocator(),
+        .manifest_dir = std.fs.cwd(),
+    };
+
+    var builder = try std.Build.create(
+        arena.allocator(),
+        "test",
+        .{ .path = "test", .handle = std.fs.cwd() },
+        .{ .path = "test", .handle = std.fs.cwd() },
+        .{ .path = "test", .handle = std.fs.cwd() },
+        host,
+        &cache,
+        &.{},
+    );
+    defer builder.destroy();
+
+    const config_h_in_contents =
+        \\#define MESSAGE "@var@"
+        \\#define OTHER "@other@" "@second@" "@empty@"
+        \\
+        \\#mesondefine BE_TRUE
+        \\#mesondefine SHOULD_BE_UNDEF
+        \\
+    ;
+
+    const generate_config_header = ConfigHeader.create(builder, .{});
+    generate_config_header.addValues(.{
+        .@"var" = "mystring",
+        .other = "mystring 2",
+        .second = "bonus",
+        .empty = null,
+        .BE_TRUE = {},
+        .SHOULD_BE_UNDEF = null,
+    });
+    errdefer {
+        for (generate_config_header.step.result_error_msgs.items) |msg| {
+            std.debug.print("{s}\n", .{msg});
+        }
+    }
+
+    var output = std.ArrayList(u8).init(arena.allocator());
+
+    try render_meson(
+        &generate_config_header.step,
+        config_h_in_contents,
+        &output,
+        generate_config_header.values,
+        "config.h.in",
+    );
+
+    try std.testing.expectEqualStrings(
+        \\#define MESSAGE "mystring"
+        \\#define OTHER "mystring 2" "bonus" ""
+        \\
+        \\#define BE_TRUE
+        \\/* #undef SHOULD_BE_UNDEF */
+        \\
+    , output.items);
+}
+
+test "meson at style escapes" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+
+    var cache: std.Build.Cache = .{
+        .gpa = arena.allocator(),
+        .manifest_dir = std.fs.cwd(),
+    };
+
+    var builder = try std.Build.create(
+        arena.allocator(),
+        "test",
+        .{ .path = "test", .handle = std.fs.cwd() },
+        .{ .path = "test", .handle = std.fs.cwd() },
+        .{ .path = "test", .handle = std.fs.cwd() },
+        host,
+        &cache,
+        &.{},
+    );
+    defer builder.destroy();
+
+    const config_h_in_contents =
+        \\/* No escape */
+        \\#define MESSAGE1 "@var1@"
+        \\
+        \\/* Single escape means no replace */
+        \\#define MESSAGE2 "\@var1@"
+        \\
+        \\/* Replace pairs of escapes before '@' or '\@' with escape characters
+        \\* (note we have to double number of pairs due to C string escaping)
+        \\*/
+        \\#define MESSAGE3 "\\\\@var1@"
+        \\
+        \\/* Pairs of escapes and then single escape to avoid replace */
+        \\#define MESSAGE4 "\\\\\@var1@"
+        \\
+        \\/* Check escaped variable does not overlap following variable */
+        \\#define MESSAGE5 "\@var1@var2@"
+        \\
+        \\/* Check escape character outside variables */
+        \\#define MESSAGE6 "\\ @ \@ \\\\@ \\\\\@"
+        \\
+    ;
+
+    const generate_config_header = ConfigHeader.create(builder, .{});
+    generate_config_header.addValues(.{
+        .var1 = "foo",
+        .var2 = "bar",
+    });
+    errdefer {
+        for (generate_config_header.step.result_error_msgs.items) |msg| {
+            std.debug.print("{s}\n", .{msg});
+        }
+    }
+
+    var output = std.ArrayList(u8).init(arena.allocator());
+
+    try render_meson(
+        &generate_config_header.step,
+        config_h_in_contents,
+        &output,
+        generate_config_header.values,
+        "config.h.in",
+    );
+
+    try std.testing.expectEqualStrings(
+        \\/* No escape */
+        \\#define MESSAGE1 "foo"
+        \\
+        \\/* Single escape means no replace */
+        \\#define MESSAGE2 "@var1@"
+        \\
+        \\/* Replace pairs of escapes before '@' or '@' with escape characters
+        \\* (note we have to double number of pairs due to C string escaping)
+        \\*/
+        \\#define MESSAGE3 "\\foo"
+        \\
+        \\/* Pairs of escapes and then single escape to avoid replace */
+        \\#define MESSAGE4 "\\@var1@"
+        \\
+        \\/* Check escaped variable does not overlap following variable */
+        \\#define MESSAGE5 "@var1bar"
+        \\
+        \\/* Check escape character outside variables */
+        \\#define MESSAGE6 "\\ @ @ \\@ \\@"
+        \\
+    , output.items);
+}
+
+test "meson curly brace style escapes" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+
+    var cache: std.Build.Cache = .{
+        .gpa = arena.allocator(),
+        .manifest_dir = std.fs.cwd(),
+    };
+
+    var builder = try std.Build.create(
+        arena.allocator(),
+        "test",
+        .{ .path = "test", .handle = std.fs.cwd() },
+        .{ .path = "test", .handle = std.fs.cwd() },
+        .{ .path = "test", .handle = std.fs.cwd() },
+        host,
+        &cache,
+        &.{},
+    );
+    defer builder.destroy();
+
+    const config_h_in_contents =
+        \\/* No escape */
+        \\#define MESSAGE1 "${var1}"
+        \\
+        \\/* Single escape means no replace */
+        \\#define MESSAGE2 "\${var1}"
+        \\
+        \\/* Replace pairs of escapes before '@' or '\@' with escape characters
+        \\ * (note we have to double number of pairs due to C string escaping)
+        \\ */
+        \\#define MESSAGE3 "\\\\${var1}"
+        \\
+        \\/* Pairs of escapes and then single escape to avoid replace */
+        \\#define MESSAGE4 "\\\\\${var1}"
+        \\
+        \\/* Check escape character outside variables */
+        \\#define MESSAGE5 "\\ ${ ${ \\\\${ \\\\\${"
+        \\
+    ;
+
+    const generate_config_header = ConfigHeader.create(builder, .{});
+    generate_config_header.addValues(.{
+        .var1 = "foo",
+    });
+    errdefer {
+        for (generate_config_header.step.result_error_msgs.items) |msg| {
+            std.debug.print("{s}\n", .{msg});
+        }
+    }
+
+    var output = std.ArrayList(u8).init(arena.allocator());
+
+    try render_meson(
+        &generate_config_header.step,
+        config_h_in_contents,
+        &output,
+        generate_config_header.values,
+        "config.h.in",
+    );
+
+    try std.testing.expectEqualStrings(
+        \\/* No escape */
+        \\#define MESSAGE1 "foo"
+        \\
+        \\/* Single escape means no replace */
+        \\#define MESSAGE2 "${var1}"
+        \\
+        \\/* Replace pairs of escapes before '@' or '@' with escape characters
+        \\ * (note we have to double number of pairs due to C string escaping)
+        \\ */
+        \\#define MESSAGE3 "\\foo"
+        \\
+        \\/* Pairs of escapes and then single escape to avoid replace */
+        \\#define MESSAGE4 "\\${var1}"
+        \\
+        \\/* Check escape character outside variables */
+        \\#define MESSAGE5 "\\ ${ ${ \\${ \\${"
+        \\
+    , output.items);
+}
+
+test "meson glibconfig.h.in snippets" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+
+    var cache: std.Build.Cache = .{
+        .gpa = arena.allocator(),
+        .manifest_dir = std.fs.cwd(),
+    };
+
+    var builder = try std.Build.create(
+        arena.allocator(),
+        "test",
+        .{ .path = "test", .handle = std.fs.cwd() },
+        .{ .path = "test", .handle = std.fs.cwd() },
+        .{ .path = "test", .handle = std.fs.cwd() },
+        host,
+        &cache,
+        &.{},
+    );
+    defer builder.destroy();
+
+    const config_h_in_contents =
+        \\typedef signed @gint32@ gint32;
+        \\
+        \\@glib_extension@typedef signed @gint64@ gint64;
+        \\
+        \\@glib_os@
+        \\
+    ;
+
+    const generate_config_header = ConfigHeader.create(builder, .{});
+    generate_config_header.addValues(.{
+        .gint32 = .int,
+        .glib_extension = null,
+        .gint64 = .long,
+        .glib_os = .@"#define G_OS_WIN32\n#define G_PLATFORM_WIN32",
+    });
+    errdefer {
+        for (generate_config_header.step.result_error_msgs.items) |msg| {
+            std.debug.print("{s}\n", .{msg});
+        }
+    }
+
+    var output = std.ArrayList(u8).init(arena.allocator());
+
+    try render_meson(
+        &generate_config_header.step,
+        config_h_in_contents,
+        &output,
+        generate_config_header.values,
+        "config.h.in",
+    );
+
+    try std.testing.expectEqualStrings(
+        \\typedef signed int gint32;
+        \\
+        \\typedef signed long gint64;
+        \\
+        \\#define G_OS_WIN32
+        \\#define G_PLATFORM_WIN32
+        \\
+    , output.items);
 }
