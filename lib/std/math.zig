@@ -801,7 +801,7 @@ fn testDivFloor() !void {
 /// zero.
 pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if ((comptime std.meta.trait.isNumber(T)) and denominator == 0) return error.DivisionByZero;
+    if (denominator == 0) return error.DivisionByZero;
     const info = @typeInfo(T);
     switch (info) {
         .ComptimeFloat, .Float => return @ceil(numerator / denominator),

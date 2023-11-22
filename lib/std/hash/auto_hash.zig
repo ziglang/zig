@@ -1,7 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
-const meta = std.meta;
 
 /// Describes how pointer types should be hashed.
 pub const HashStrategy = enum {
@@ -69,7 +68,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         else => @TypeOf(hasher),
     };
 
-    if (strat == .Shallow and comptime meta.trait.hasUniqueRepresentation(Key)) {
+    if (strat == .Shallow and std.meta.hasUniqueRepresentation(Key)) {
         @call(.always_inline, Hasher.update, .{ hasher, mem.asBytes(&key) });
         return;
     }
@@ -97,7 +96,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
                 .signedness = .unsigned,
             } }), @bitCast(key)), strat),
             .unsigned => {
-                if (comptime meta.trait.hasUniqueRepresentation(Key)) {
+                if (std.meta.hasUniqueRepresentation(Key)) {
                     @call(.always_inline, Hasher.update, .{ hasher, std.mem.asBytes(&key) });
                 } else {
                     // Take only the part containing the key value, the remaining
@@ -120,7 +119,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         .Array => hashArray(hasher, key, strat),
 
         .Vector => |info| {
-            if (comptime meta.trait.hasUniqueRepresentation(Key)) {
+            if (std.meta.hasUniqueRepresentation(Key)) {
                 hasher.update(mem.asBytes(&key));
             } else {
                 comptime var i = 0;
@@ -140,7 +139,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
 
         .Union => |info| {
             if (info.tag_type) |tag_type| {
-                const tag = meta.activeTag(key);
+                const tag = std.meta.activeTag(key);
                 hash(hasher, tag, strat);
                 inline for (info.fields) |field| {
                     if (@field(tag_type, field.name) == tag) {
@@ -166,27 +165,21 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
     }
 }
 
-fn typeContainsSlice(comptime K: type) bool {
-    comptime {
-        if (meta.trait.isSlice(K)) {
-            return true;
-        }
-        if (meta.trait.is(.Struct)(K)) {
-            inline for (@typeInfo(K).Struct.fields) |field| {
+inline fn typeContainsSlice(comptime K: type) bool {
+    return switch (@typeInfo(K)) {
+        .Pointer => |info| info.size == .Slice,
+
+        inline .Struct, .Union => |info| {
+            inline for (info.fields) |field| {
                 if (typeContainsSlice(field.type)) {
                     return true;
                 }
             }
-        }
-        if (meta.trait.is(.Union)(K)) {
-            inline for (@typeInfo(K).Union.fields) |field| {
-                if (typeContainsSlice(field.type)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
+            return false;
+        },
+
+        else => false,
+    };
 }
 
 /// Provides generic hashing for any eligible type.
@@ -236,7 +229,7 @@ fn testHashDeepRecursive(key: anytype) u64 {
 
 test "typeContainsSlice" {
     comptime {
-        try testing.expect(!typeContainsSlice(meta.Tag(std.builtin.Type)));
+        try testing.expect(!typeContainsSlice(std.meta.Tag(std.builtin.Type)));
 
         try testing.expect(typeContainsSlice([]const u8));
         try testing.expect(!typeContainsSlice(u8));
