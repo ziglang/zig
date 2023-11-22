@@ -157,7 +157,8 @@ pub const Parser = struct {
     max_codepoint: u21,
     /// We only want to issue a max of 1 error per char literal
     errored: bool = false,
-    errors: std.BoundedArray(CharDiagnostic, 4) = .{},
+    errors_buffer: [4]CharDiagnostic,
+    errors_len: usize,
     comp: *const Compilation,
 
     pub fn init(literal: []const u8, kind: Kind, max_codepoint: u21, comp: *const Compilation) Parser {
@@ -166,6 +167,8 @@ pub const Parser = struct {
             .comp = comp,
             .kind = kind,
             .max_codepoint = max_codepoint,
+            .errors_buffer = undefined,
+            .errors_len = 0,
         };
     }
 
@@ -178,19 +181,28 @@ pub const Parser = struct {
         };
     }
 
+    pub fn errors(p: *Parser) []CharDiagnostic {
+        return p.errors_buffer[0..p.errors_len];
+    }
+
     pub fn err(self: *Parser, tag: Diagnostics.Tag, extra: Diagnostics.Message.Extra) void {
         if (self.errored) return;
         self.errored = true;
         const diagnostic = .{ .tag = tag, .extra = extra };
-        self.errors.append(diagnostic) catch {
-            _ = self.errors.pop();
-            self.errors.append(diagnostic) catch unreachable;
-        };
+        if (self.errors_len == self.errors_buffer.len) {
+            self.errors_buffer[self.errors_buffer.len - 1] = diagnostic;
+        } else {
+            self.errors_buffer[self.errors_len] = diagnostic;
+            self.errors_len += 1;
+        }
     }
 
     pub fn warn(self: *Parser, tag: Diagnostics.Tag, extra: Diagnostics.Message.Extra) void {
         if (self.errored) return;
-        self.errors.append(.{ .tag = tag, .extra = extra }) catch {};
+        if (self.errors_len < self.errors_buffer.len) {
+            self.errors_buffer[self.errors_len] = .{ .tag = tag, .extra = extra };
+            self.errors_len += 1;
+        }
     }
 
     pub fn next(self: *Parser) ?Item {

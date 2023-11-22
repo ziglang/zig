@@ -201,7 +201,7 @@ pub fn nameCast(comptime E: type, comptime value: anytype) E {
         if (V == E) break :blk value;
         const name: ?[]const u8 = switch (@typeInfo(V)) {
             .EnumLiteral, .Enum => @tagName(value),
-            .Pointer => if (std.meta.trait.isZigString(V)) value else null,
+            .Pointer => value,
             else => null,
         };
         if (name) |n| {

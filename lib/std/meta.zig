@@ -5,7 +5,6 @@ const math = std.math;
 const testing = std.testing;
 const root = @import("root");
 
-pub const trait = @import("meta/trait.zig");
 pub const TrailerFlags = @import("meta/trailer_flags.zig").TrailerFlags;
 
 const Type = std.builtin.Type;
@@ -135,7 +134,8 @@ test "std.meta.Elem" {
 /// Given a type which can have a sentinel e.g. `[:0]u8`, returns the sentinel value,
 /// or `null` if there is not one.
 /// Types which cannot possibly have a sentinel will be a compile error.
-pub fn sentinel(comptime T: type) ?Elem(T) {
+/// Result is always comptime-known.
+pub inline fn sentinel(comptime T: type) ?Elem(T) {
     switch (@typeInfo(T)) {
         .Array => |info| {
             const sentinel_ptr = info.sentinel orelse return null;
@@ -162,7 +162,7 @@ pub fn sentinel(comptime T: type) ?Elem(T) {
     @compileError("type '" ++ @typeName(T) ++ "' cannot possibly have a sentinel");
 }
 
-test "std.meta.sentinel" {
+test sentinel {
     try testSentinel();
     try comptime testSentinel();
 }
@@ -712,8 +712,6 @@ test "std.meta.activeTag" {
 const TagPayloadType = TagPayload;
 
 pub fn TagPayloadByName(comptime U: type, comptime tag_name: []const u8) type {
-    comptime debug.assert(trait.is(.Union)(U));
-
     const info = @typeInfo(U).Union;
 
     inline for (info.fields) |field_info| {
@@ -1116,4 +1114,125 @@ pub fn isError(error_union: anytype) bool {
 test "isError" {
     try std.testing.expect(isError(math.divTrunc(u8, 5, 0)));
     try std.testing.expect(!isError(math.divTrunc(u8, 5, 5)));
+}
+
+/// Returns true if a type has a namespace and the namespace contains `name`;
+/// `false` otherwise. Result is always comptime-known.
+pub inline fn hasFn(comptime T: type, comptime name: []const u8) bool {
+    switch (@typeInfo(T)) {
+        .Struct, .Union, .Enum, .Opaque => {},
+        else => return false,
+    }
+    if (!@hasDecl(T, name))
+        return false;
+
+    return @typeInfo(@TypeOf(@field(T, name))) == .Fn;
+}
+
+/// True if every value of the type `T` has a unique bit pattern representing it.
+/// In other words, `T` has no unused bits and no padding.
+/// Result is always comptime-known.
+pub inline fn hasUniqueRepresentation(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        else => false, // TODO can we know if it's true for some of these types ?
+
+        .AnyFrame,
+        .Enum,
+        .ErrorSet,
+        .Fn,
+        => true,
+
+        .Bool => false,
+
+        .Int => |info| @sizeOf(T) * 8 == info.bits,
+
+        .Pointer => |info| info.size != .Slice,
+
+        .Array => |info| hasUniqueRepresentation(info.child),
+
+        .Struct => |info| {
+            var sum_size = @as(usize, 0);
+
+            inline for (info.fields) |field| {
+                if (!hasUniqueRepresentation(field.type)) return false;
+                sum_size += @sizeOf(field.type);
+            }
+
+            return @sizeOf(T) == sum_size;
+        },
+
+        .Vector => |info| hasUniqueRepresentation(info.child) and
+            @sizeOf(T) == @sizeOf(info.child) * info.len,
+    };
+}
+
+test "hasUniqueRepresentation" {
+    const TestStruct1 = struct {
+        a: u32,
+        b: u32,
+    };
+
+    try testing.expect(hasUniqueRepresentation(TestStruct1));
+
+    const TestStruct2 = struct {
+        a: u32,
+        b: u16,
+    };
+
+    try testing.expect(!hasUniqueRepresentation(TestStruct2));
+
+    const TestStruct3 = struct {
+        a: u32,
+        b: u32,
+    };
+
+    try testing.expect(hasUniqueRepresentation(TestStruct3));
+
+    const TestStruct4 = struct { a: []const u8 };
+
+    try testing.expect(!hasUniqueRepresentation(TestStruct4));
+
+    const TestStruct5 = struct { a: TestStruct4 };
+
+    try testing.expect(!hasUniqueRepresentation(TestStruct5));
+
+    const TestUnion1 = packed union {
+        a: u32,
+        b: u16,
+    };
+
+    try testing.expect(!hasUniqueRepresentation(TestUnion1));
+
+    const TestUnion2 = extern union {
+        a: u32,
+        b: u16,
+    };
+
+    try testing.expect(!hasUniqueRepresentation(TestUnion2));
+
+    const TestUnion3 = union {
+        a: u32,
+        b: u16,
+    };
+
+    try testing.expect(!hasUniqueRepresentation(TestUnion3));
+
+    const TestUnion4 = union(enum) {
+        a: u32,
+        b: u16,
+    };
+
+    try testing.expect(!hasUniqueRepresentation(TestUnion4));
+
+    inline for ([_]type{ i0, u8, i16, u32, i64 }) |T| {
+        try testing.expect(hasUniqueRepresentation(T));
+    }
+    inline for ([_]type{ i1, u9, i17, u33, i24 }) |T| {
+        try testing.expect(!hasUniqueRepresentation(T));
+    }
+
+    try testing.expect(!hasUniqueRepresentation([]u8));
+    try testing.expect(!hasUniqueRepresentation([]const u8));
+
+    try testing.expect(hasUniqueRepresentation(@Vector(4, u16)));
 }

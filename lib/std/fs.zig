@@ -2204,28 +2204,29 @@ pub const Dir = struct {
             name: []const u8,
             parent_dir: Dir,
             iter: IterableDir.Iterator,
+
+            fn closeAll(items: []@This()) void {
+                for (items) |*item| item.iter.dir.close();
+            }
         };
 
-        var stack = std.BoundedArray(StackItem, 16){};
-        defer {
-            for (stack.slice()) |*item| {
-                item.iter.dir.close();
-            }
-        }
+        var stack_buffer: [16]StackItem = undefined;
+        var stack = std.ArrayListUnmanaged(StackItem).initBuffer(&stack_buffer);
+        defer StackItem.closeAll(stack.items);
 
-        stack.appendAssumeCapacity(StackItem{
+        stack.appendAssumeCapacity(.{
             .name = sub_path,
             .parent_dir = self,
             .iter = initial_iterable_dir.iterateAssumeFirstIteration(),
         });
 
-        process_stack: while (stack.len != 0) {
-            var top = &(stack.slice()[stack.len - 1]);
+        process_stack: while (stack.items.len != 0) {
+            var top = &stack.items[stack.items.len - 1];
             while (try top.iter.next()) |entry| {
                 var treat_as_dir = entry.kind == .directory;
                 handle_entry: while (true) {
                     if (treat_as_dir) {
-                        if (stack.ensureUnusedCapacity(1)) {
+                        if (stack.unusedCapacitySlice().len >= 1) {
                             var iterable_dir = top.iter.dir.openIterableDir(entry.name, .{ .no_follow = true }) catch |err| switch (err) {
                                 error.NotDir => {
                                     treat_as_dir = false;
@@ -2251,13 +2252,13 @@ pub const Dir = struct {
                                 error.DeviceBusy,
                                 => |e| return e,
                             };
-                            stack.appendAssumeCapacity(StackItem{
+                            stack.appendAssumeCapacity(.{
                                 .name = entry.name,
                                 .parent_dir = top.iter.dir,
                                 .iter = iterable_dir.iterateAssumeFirstIteration(),
                             });
                             continue :process_stack;
-                        } else |_| {
+                        } else {
                             try top.iter.dir.deleteTreeMinStackSizeWithKindHint(entry.name, entry.kind);
                             break :handle_entry;
                         }
@@ -2301,7 +2302,7 @@ pub const Dir = struct {
             // pop the value from the stack.
             const parent_dir = top.parent_dir;
             const name = top.name;
-            _ = stack.pop();
+            stack.items.len -= 1;
 
             var need_to_retry: bool = false;
             parent_dir.deleteDir(name) catch |err| switch (err) {
@@ -2374,7 +2375,7 @@ pub const Dir = struct {
                 };
                 // We know there is room on the stack since we are just re-adding
                 // the StackItem that we previously popped.
-                stack.appendAssumeCapacity(StackItem{
+                stack.appendAssumeCapacity(.{
                     .name = name,
                     .parent_dir = parent_dir,
                     .iter = iterable_dir.iterateAssumeFirstIteration(),

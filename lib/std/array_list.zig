@@ -633,6 +633,17 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return self;
         }
 
+        /// Initialize with externally-managed memory. The buffer determines the
+        /// capacity, and the length is set to zero.
+        /// When initialized this way, all methods that accept an Allocator
+        /// argument are illegal to call.
+        pub fn initBuffer(buffer: Slice) Self {
+            return .{
+                .items = buffer[0..0],
+                .capacity = buffer.len,
+            };
+        }
+
         /// Release all allocated memory.
         pub fn deinit(self: *Self, allocator: Allocator) void {
             allocator.free(self.allocatedSlice());
