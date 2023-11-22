@@ -42,13 +42,17 @@ pub fn BoundedArrayAligned(
         const Len = std.math.IntFittingRange(0, buffer_capacity);
 
         buffer: [buffer_capacity]T align(alignment) = undefined,
-        len: Len = 0,
+
+        /// The active array length. Not that in order to save space, this is not
+        /// a `usize`, but rather the smallest integer type that can hold the
+        /// maximum capacity. In order to get the length as a `usize`, use `len()`.
+        active_len: Len = 0,
 
         /// Set the actual length of the slice.
         /// Returns error.Overflow if it exceeds the length of the backing array.
-        pub fn init(len: usize) error{Overflow}!Self {
-            if (len > buffer_capacity) return error.Overflow;
-            return Self{ .len = @intCast(len) };
+        pub fn init(initial_len: usize) error{Overflow}!Self {
+            if (initial_len > buffer_capacity) return error.Overflow;
+            return Self{ .active_len = @intCast(initial_len) };
         }
 
         /// View the internal array as a slice whose size was previously set.
@@ -57,7 +61,7 @@ pub fn BoundedArrayAligned(
             *align(alignment) const [buffer_capacity]T => []align(alignment) const T,
             else => unreachable,
         } {
-            return self.buffer[0..self.len];
+            return self.buffer[0..self.active_len];
         }
 
         /// View the internal array as a constant slice whose size was previously set.
@@ -67,9 +71,9 @@ pub fn BoundedArrayAligned(
 
         /// Adjust the slice's length to `len`.
         /// Does not initialize added items if any.
-        pub fn resize(self: *Self, len: usize) error{Overflow}!void {
-            if (len > buffer_capacity) return error.Overflow;
-            self.len = @intCast(len);
+        pub fn resize(self: *Self, new_len: usize) error{Overflow}!void {
+            if (new_len > buffer_capacity) return error.Overflow;
+            self.active_len = @intCast(new_len);
         }
 
         /// Copy the content of an existing slice.
@@ -94,9 +98,14 @@ pub fn BoundedArrayAligned(
             return self.buffer.len;
         }
 
+        /// Return the current length of the slice.
+        pub fn len(self: Self) usize {
+            return self.active_len;
+        }
+
         /// Check that the slice can hold at least `additional_count` items.
         pub fn ensureUnusedCapacity(self: Self, additional_count: usize) error{Overflow}!void {
-            if (self.len + additional_count > buffer_capacity) {
+            if (self.active_len + additional_count > buffer_capacity) {
                 return error.Overflow;
             }
         }
@@ -110,31 +119,31 @@ pub fn BoundedArrayAligned(
         /// Increase length by 1, returning pointer to the new item.
         /// Asserts that there is space for the new item.
         pub fn addOneAssumeCapacity(self: *Self) *T {
-            assert(self.len < buffer_capacity);
-            self.len += 1;
-            return &self.slice()[self.len - 1];
+            assert(self.active_len < buffer_capacity);
+            self.active_len += 1;
+            return &self.slice()[self.active_len - 1];
         }
 
         /// Resize the slice, adding `n` new elements, which have `undefined` values.
         /// The return value is a slice pointing to the uninitialized elements.
         pub fn addManyAsArray(self: *Self, comptime n: usize) error{Overflow}!*align(alignment) [n]T {
-            const prev_len = self.len;
-            try self.resize(self.len + n);
+            const prev_len = self.active_len;
+            try self.resize(self.active_len + n);
             return self.slice()[prev_len..][0..n];
         }
 
         /// Remove and return the last element from the slice.
         /// Asserts the slice has at least one item.
         pub fn pop(self: *Self) T {
-            const item = self.get(self.len - 1);
-            self.len -= 1;
+            const item = self.get(self.active_len - 1);
+            self.active_len -= 1;
             return item;
         }
 
         /// Remove and return the last element from the slice, or
         /// return `null` if the slice is empty.
         pub fn popOrNull(self: *Self) ?T {
-            return if (self.len == 0) null else self.pop();
+            return if (self.active_len == 0) null else self.pop();
         }
 
         /// Return a slice of only the extra capacity after items.
@@ -142,7 +151,7 @@ pub fn BoundedArrayAligned(
         /// Note that such an operation must be followed up with a
         /// call to `resize()`
         pub fn unusedCapacitySlice(self: *Self) []align(alignment) T {
-            return self.buffer[self.len..];
+            return self.buffer[self.active_len..];
         }
 
         /// Insert `item` at index `i` by moving `slice[n .. slice.len]` to make room.
@@ -152,7 +161,7 @@ pub fn BoundedArrayAligned(
             i: usize,
             item: T,
         ) error{Overflow}!void {
-            if (i > self.len) {
+            if (i > self.active_len) {
                 return error.Overflow;
             }
             _ = try self.addOne();
@@ -165,8 +174,8 @@ pub fn BoundedArrayAligned(
         /// This operation is O(N).
         pub fn insertSlice(self: *Self, i: usize, items: []const T) error{Overflow}!void {
             try self.ensureUnusedCapacity(items.len);
-            self.len = @intCast(self.len + items.len);
-            mem.copyBackwards(T, self.slice()[i + items.len .. self.len], self.constSlice()[i .. self.len - items.len]);
+            self.active_len = @intCast(self.active_len + items.len);
+            mem.copyBackwards(T, self.slice()[i + items.len .. self.active_len], self.constSlice()[i .. self.active_len - items.len]);
             @memcpy(self.slice()[i..][0..items.len], items);
         }
 
@@ -176,10 +185,10 @@ pub fn BoundedArrayAligned(
         pub fn replaceRange(
             self: *Self,
             start: usize,
-            len: usize,
+            range_len: usize,
             new_items: []const T,
         ) error{Overflow}!void {
-            const after_range = start + len;
+            const after_range = start + range_len;
             var range = self.slice()[start..after_range];
 
             if (range.len == new_items.len) {
@@ -195,7 +204,7 @@ pub fn BoundedArrayAligned(
                 for (self.constSlice()[after_range..], 0..) |item, i| {
                     self.slice()[after_subrange..][i] = item;
                 }
-                self.len = @intCast(self.len - len + new_items.len);
+                self.active_len = @intCast(self.active_len - range_len + new_items.len);
             }
         }
 
@@ -217,12 +226,12 @@ pub fn BoundedArrayAligned(
         /// Asserts the slice has at least one item.
         /// This operation is O(N).
         pub fn orderedRemove(self: *Self, i: usize) T {
-            const newlen = self.len - 1;
+            const newlen = self.active_len - 1;
             if (newlen == i) return self.pop();
             const old_item = self.get(i);
             for (self.slice()[i..newlen], 0..) |*b, j| b.* = self.get(i + 1 + j);
             self.set(newlen, undefined);
-            self.len = newlen;
+            self.active_len = newlen;
             return old_item;
         }
 
@@ -230,7 +239,7 @@ pub fn BoundedArrayAligned(
         /// The empty slot is filled from the end of the slice.
         /// This operation is O(1).
         pub fn swapRemove(self: *Self, i: usize) T {
-            if (self.len - 1 == i) return self.pop();
+            if (self.active_len - 1 == i) return self.pop();
             const old_item = self.get(i);
             self.set(i, self.pop());
             return old_item;
@@ -245,26 +254,26 @@ pub fn BoundedArrayAligned(
         /// Append the slice of items to the slice, asserting the capacity is already
         /// enough to store the new items.
         pub fn appendSliceAssumeCapacity(self: *Self, items: []const T) void {
-            const old_len = self.len;
-            self.len = @intCast(self.len + items.len);
+            const old_len = self.active_len;
+            self.active_len = @intCast(self.active_len + items.len);
             @memcpy(self.slice()[old_len..][0..items.len], items);
         }
 
         /// Append a value to the slice `n` times.
         /// Allocates more memory as necessary.
         pub fn appendNTimes(self: *Self, value: T, n: usize) error{Overflow}!void {
-            const old_len = self.len;
+            const old_len = self.active_len;
             try self.resize(old_len + n);
-            @memset(self.slice()[old_len..self.len], value);
+            @memset(self.slice()[old_len..self.active_len], value);
         }
 
         /// Append a value to the slice `n` times.
         /// Asserts the capacity is enough.
         pub fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
-            const old_len = self.len;
-            assert(self.len + n <= buffer_capacity);
-            self.len = @intCast(self.len + n);
-            @memset(self.slice()[old_len..self.len], value);
+            const old_len = self.active_len;
+            assert(self.active_len + n <= buffer_capacity);
+            self.active_len = @intCast(self.active_len + n);
+            @memset(self.slice()[old_len..self.active_len], value);
         }
 
         pub const Writer = if (T != u8)
@@ -295,7 +304,7 @@ test BoundedArray {
     try testing.expectEqual(a.constSlice().len, 32);
 
     try a.resize(48);
-    try testing.expectEqual(a.len, 48);
+    try testing.expectEqual(a.len(), 48);
 
     const x = [_]u8{1} ** 10;
     a = try BoundedArray(u8, 64).fromSlice(&x);
@@ -313,18 +322,18 @@ test BoundedArray {
     try a.ensureUnusedCapacity(a.capacity());
     (try a.addOne()).* = 0;
     try a.ensureUnusedCapacity(a.capacity() - 1);
-    try testing.expectEqual(a.len, 1);
+    try testing.expectEqual(a.len(), 1);
 
     const uninitialized = try a.addManyAsArray(4);
     try testing.expectEqual(uninitialized.len, 4);
-    try testing.expectEqual(a.len, 5);
+    try testing.expectEqual(a.len(), 5);
 
     try a.append(0xff);
-    try testing.expectEqual(a.len, 6);
+    try testing.expectEqual(a.len(), 6);
     try testing.expectEqual(a.pop(), 0xff);
 
     a.appendAssumeCapacity(0xff);
-    try testing.expectEqual(a.len, 6);
+    try testing.expectEqual(a.len(), 6);
     try testing.expectEqual(a.pop(), 0xff);
 
     try a.resize(1);
@@ -338,35 +347,35 @@ test BoundedArray {
     try a.resize(10);
 
     try a.insert(5, 0xaa);
-    try testing.expectEqual(a.len, 11);
+    try testing.expectEqual(a.len(), 11);
     try testing.expectEqual(a.get(5), 0xaa);
     try testing.expectEqual(a.get(9), 3);
     try testing.expectEqual(a.get(10), 4);
 
     try a.insert(11, 0xbb);
-    try testing.expectEqual(a.len, 12);
+    try testing.expectEqual(a.len(), 12);
     try testing.expectEqual(a.pop(), 0xbb);
 
     try a.appendSlice(&x);
-    try testing.expectEqual(a.len, 11 + x.len);
+    try testing.expectEqual(a.len(), 11 + x.len);
 
     try a.appendNTimes(0xbb, 5);
-    try testing.expectEqual(a.len, 11 + x.len + 5);
+    try testing.expectEqual(a.len(), 11 + x.len + 5);
     try testing.expectEqual(a.pop(), 0xbb);
 
     a.appendNTimesAssumeCapacity(0xcc, 5);
-    try testing.expectEqual(a.len, 11 + x.len + 5 - 1 + 5);
+    try testing.expectEqual(a.len(), 11 + x.len + 5 - 1 + 5);
     try testing.expectEqual(a.pop(), 0xcc);
 
-    try testing.expectEqual(a.len, 29);
+    try testing.expectEqual(a.len(), 29);
     try a.replaceRange(1, 20, &x);
-    try testing.expectEqual(a.len, 29 + x.len - 20);
+    try testing.expectEqual(a.len(), 29 + x.len - 20);
 
     try a.insertSlice(0, &x);
-    try testing.expectEqual(a.len, 29 + x.len - 20 + x.len);
+    try testing.expectEqual(a.len(), 29 + x.len - 20 + x.len);
 
     try a.replaceRange(1, 5, &x);
-    try testing.expectEqual(a.len, 29 + x.len - 20 + x.len + x.len - 5);
+    try testing.expectEqual(a.len(), 29 + x.len - 20 + x.len + x.len - 5);
 
     try a.append(10);
     try testing.expectEqual(a.pop(), 10);
@@ -374,10 +383,10 @@ test BoundedArray {
     try a.append(20);
     const removed = a.orderedRemove(5);
     try testing.expectEqual(removed, 1);
-    try testing.expectEqual(a.len, 34);
+    try testing.expectEqual(a.len(), 34);
 
     a.set(0, 0xdd);
-    a.set(a.len - 1, 0xee);
+    a.set(a.len() - 1, 0xee);
     const swapped = a.swapRemove(0);
     try testing.expectEqual(swapped, 0xdd);
     try testing.expectEqual(a.get(0), 0xee);
@@ -397,8 +406,8 @@ test "BoundedArray sizeOf" {
     try testing.expectEqual(@sizeOf(BoundedArray(u8, 3)), 4);
 
     // `len` is the minimum required size to hold the maximum capacity
-    try testing.expectEqual(@TypeOf(@as(BoundedArray(u8, 15), undefined).len), u4);
-    try testing.expectEqual(@TypeOf(@as(BoundedArray(u8, 16), undefined).len), u5);
+    try testing.expectEqual(@TypeOf(@as(BoundedArray(u8, 15), undefined).active_len), u4);
+    try testing.expectEqual(@TypeOf(@as(BoundedArray(u8, 16), undefined).active_len), u5);
 }
 
 test "BoundedArrayAligned" {
