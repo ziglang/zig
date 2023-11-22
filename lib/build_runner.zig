@@ -9,6 +9,7 @@ const process = std.process;
 const ArrayList = std.ArrayList;
 const File = std.fs.File;
 const Step = std.Build.Step;
+const Summary = std.Build.Summary;
 
 pub const dependencies = @import("@dependencies");
 
@@ -502,14 +503,16 @@ fn runStepNames(
         }
     }
 
+    // Command line summary arguments supersede the build.zig summary
+    const summary = if (run.summary) |_| run.summary else b.summary;
     // A proper command line application defaults to silently succeeding.
     // The user may request verbose mode if they have a different preference.
-    if (failure_count == 0 and run.summary != Summary.all) return cleanExit();
+    if (failure_count == 0 and summary != Summary.all) return cleanExit();
 
     const ttyconf = run.ttyconf;
     const stderr = run.stderr;
 
-    if (run.summary != Summary.none) {
+    if (summary != Summary.none) {
         const total_count = success_count + failure_count + pending_count + skipped_count;
         ttyconf.setColor(stderr, .cyan) catch {};
         stderr.writeAll("Build Summary:") catch {};
@@ -523,13 +526,13 @@ fn runStepNames(
         if (test_fail_count > 0) stderr.writer().print("; {d} failed", .{test_fail_count}) catch {};
         if (test_leak_count > 0) stderr.writer().print("; {d} leaked", .{test_leak_count}) catch {};
 
-        if (run.summary == null) {
+        if (summary == null) {
             ttyconf.setColor(stderr, .dim) catch {};
             stderr.writeAll(" (disable with --summary none)") catch {};
             ttyconf.setColor(stderr, .reset) catch {};
         }
         stderr.writeAll("\n") catch {};
-        const failures_only = run.summary != Summary.all;
+        const failures_only = summary != Summary.all;
 
         // Print a fancy tree with build results.
         var print_node: PrintNode = .{ .parent = null };
@@ -1109,7 +1112,6 @@ fn cleanExit() void {
 }
 
 const Color = enum { auto, off, on };
-const Summary = enum { all, failures, none };
 
 fn get_tty_conf(color: Color, stderr: std.fs.File) std.io.tty.Config {
     return switch (color) {

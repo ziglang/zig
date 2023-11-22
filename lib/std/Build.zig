@@ -74,6 +74,7 @@ verbose_llvm_ir: ?[]const u8,
 verbose_llvm_bc: ?[]const u8,
 verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
+summary: ?Summary = null,
 reference_trace: ?u32 = null,
 invalid_user_input: bool,
 zig_exe: [:0]const u8,
@@ -171,6 +172,8 @@ const InitializedDepContext = struct {
         return true;
     }
 };
+
+pub const Summary = enum { all, failures, none };
 
 pub const RunError = error{
     ReadFailure,
