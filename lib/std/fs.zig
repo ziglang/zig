@@ -7,11 +7,11 @@ const base64 = std.base64;
 const crypto = std.crypto;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const math = std.math;
 
 const is_darwin = builtin.os.tag.isDarwin();
 
 pub const Dir = @import("fs/Dir.zig");
+pub const AtomicFile = @import("fs/AtomicFile.zig");
 
 pub const has_executable_bit = switch (builtin.os.tag) {
     .windows, .wasi => false,
@@ -149,85 +149,6 @@ pub fn copyFileAbsolute(
     const my_cwd = cwd();
     return Dir.copyFile(my_cwd, source_path, my_cwd, dest_path, args);
 }
-
-pub const AtomicFile = struct {
-    file: File,
-    // TODO either replace this with rand_buf or use []u16 on Windows
-    tmp_path_buf: [TMP_PATH_LEN:0]u8,
-    dest_basename: []const u8,
-    file_open: bool,
-    file_exists: bool,
-    close_dir_on_deinit: bool,
-    dir: Dir,
-
-    pub const InitError = File.OpenError;
-
-    const RANDOM_BYTES = 12;
-    const TMP_PATH_LEN = base64_encoder.calcSize(RANDOM_BYTES);
-
-    /// Note that the `Dir.atomicFile` API may be more handy than this lower-level function.
-    pub fn init(
-        dest_basename: []const u8,
-        mode: File.Mode,
-        dir: Dir,
-        close_dir_on_deinit: bool,
-    ) InitError!AtomicFile {
-        var rand_buf: [RANDOM_BYTES]u8 = undefined;
-        var tmp_path_buf: [TMP_PATH_LEN:0]u8 = undefined;
-
-        while (true) {
-            crypto.random.bytes(rand_buf[0..]);
-            const tmp_path = base64_encoder.encode(&tmp_path_buf, &rand_buf);
-            tmp_path_buf[tmp_path.len] = 0;
-
-            const file = dir.createFile(
-                tmp_path,
-                .{ .mode = mode, .exclusive = true },
-            ) catch |err| switch (err) {
-                error.PathAlreadyExists => continue,
-                else => |e| return e,
-            };
-
-            return AtomicFile{
-                .file = file,
-                .tmp_path_buf = tmp_path_buf,
-                .dest_basename = dest_basename,
-                .file_open = true,
-                .file_exists = true,
-                .close_dir_on_deinit = close_dir_on_deinit,
-                .dir = dir,
-            };
-        }
-    }
-
-    /// Always call deinit, even after a successful finish().
-    pub fn deinit(self: *AtomicFile) void {
-        if (self.file_open) {
-            self.file.close();
-            self.file_open = false;
-        }
-        if (self.file_exists) {
-            self.dir.deleteFile(&self.tmp_path_buf) catch {};
-            self.file_exists = false;
-        }
-        if (self.close_dir_on_deinit) {
-            self.dir.close();
-        }
-        self.* = undefined;
-    }
-
-    pub const FinishError = std.os.RenameError;
-
-    pub fn finish(self: *AtomicFile) FinishError!void {
-        assert(self.file_exists);
-        if (self.file_open) {
-            self.file.close();
-            self.file_open = false;
-        }
-        try os.renameat(self.dir.fd, self.tmp_path_buf[0..], self.dir.fd, self.dest_basename);
-        self.file_exists = false;
-    }
-};
 
 /// Create a new directory, based on an absolute path.
 /// Asserts that the path is absolute. See `Dir.makeDir` for a function that operates
