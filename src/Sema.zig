@@ -20844,6 +20844,12 @@ fn zirReify(
                     explicit_tags_seen[enum_index] = true;
                 }
 
+                const gop = field_name_table.getOrPutAssumeCapacity(field_name);
+                if (gop.found_existing) {
+                    // TODO: better source location
+                    return sema.fail(block, src, "duplicate union field {}", .{field_name.fmt(ip)});
+                }
+
                 const field_ty = type_val.toType();
                 const alignment_val_int = (try alignment_val.getUnsignedIntAdvanced(mod, sema)).?;
                 if (alignment_val_int > 0 and !math.isPowerOfTwo(alignment_val_int)) {
@@ -20859,12 +20865,6 @@ fn zirReify(
                     .type = field_ty.toIntern(),
                     .alignment = field_align,
                 });
-
-                const gop = field_name_table.getOrPutAssumeCapacity(field_name);
-                if (gop.found_existing) {
-                    // TODO: better source location
-                    return sema.fail(block, src, "duplicate union field {}", .{field_name.fmt(ip)});
-                }
 
                 if (field_ty.zigTypeTag(mod) == .Opaque) {
                     const msg = msg: {
