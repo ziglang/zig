@@ -9931,7 +9931,7 @@ fn zirStructInitFieldPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = inst_data.src();
-    const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
+    const field_name_src: LazySrcLoc = .{ .node_offset_field_name_init = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Field, inst_data.payload_index).data;
     const field_name = try mod.intern_pool.getOrPutString(sema.gpa, sema.code.nullTerminatedString(extra.field_name_start));
     const object_ptr = try sema.resolveInst(extra.lhs);
@@ -19921,7 +19921,7 @@ fn zirStructInitFieldType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const extra = sema.code.extraData(Zir.Inst.FieldType, inst_data.payload_index).data;
     const ty_src = inst_data.src();
-    const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
+    const field_name_src: LazySrcLoc = .{ .node_offset_field_name_init = inst_data.src_node };
     const wrapped_aggregate_ty = sema.resolveType(block, ty_src, extra.container_type) catch |err| switch (err) {
         // Since this is a ZIR instruction that returns a type, encountering
         // generic poison should not result in a failed compilation, but the
