@@ -3040,7 +3040,8 @@ fn zirEnumDecl(
 
         const field_name_zir = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
         extra_index += 2; // field name, doc comment
-        assert(incomplete_enum.addFieldName(&mod.intern_pool, field_name_zir) == null);
+        const field_name = try mod.intern_pool.getOrPutString(gpa, field_name_zir);
+        assert(incomplete_enum.addFieldName(&mod.intern_pool, field_name) == null);
 
         const tag_overflow = if (has_tag_value) overflow: {
             const tag_val_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
