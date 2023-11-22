@@ -249,7 +249,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/fs.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fs/AtomicFile.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fs/Dir.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/fs/file.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/fs/File.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fs/get_app_data_dir.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fs/path.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/hash.zig"

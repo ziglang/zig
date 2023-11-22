@@ -1,6 +1,6 @@
 file: File,
 // TODO either replace this with rand_buf or use []u16 on Windows
-tmp_path_buf: [TMP_PATH_LEN:0]u8,
+tmp_path_buf: [tmp_path_len:0]u8,
 dest_basename: []const u8,
 file_open: bool,
 file_exists: bool,
@@ -9,8 +9,8 @@ dir: Dir,
 
 pub const InitError = File.OpenError;
 
-const RANDOM_BYTES = 12;
-const TMP_PATH_LEN = fs.base64_encoder.calcSize(RANDOM_BYTES);
+pub const random_bytes_len = 12;
+const tmp_path_len = fs.base64_encoder.calcSize(random_bytes_len);
 
 /// Note that the `Dir.atomicFile` API may be more handy than this lower-level function.
 pub fn init(
@@ -19,8 +19,8 @@ pub fn init(
     dir: Dir,
     close_dir_on_deinit: bool,
 ) InitError!AtomicFile {
-    var rand_buf: [RANDOM_BYTES]u8 = undefined;
-    var tmp_path_buf: [TMP_PATH_LEN:0]u8 = undefined;
+    var rand_buf: [random_bytes_len]u8 = undefined;
+    var tmp_path_buf: [tmp_path_len:0]u8 = undefined;
 
     while (true) {
         std.crypto.random.bytes(rand_buf[0..]);
@@ -81,4 +81,5 @@ const File = std.fs.File;
 const Dir = std.fs.Dir;
 const fs = std.fs;
 const assert = std.debug.assert;
+// https://github.com/ziglang/zig/issues/5019
 const posix = std.os;
