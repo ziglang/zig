@@ -1,7 +1,6 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 
-pub const Queue = @import("atomic/queue.zig").Queue;
 pub const Atomic = @import("atomic/Atomic.zig").Atomic;
 
 /// Signals to the processor that the caller is inside a busy-wait spin-loop.
@@ -85,6 +84,5 @@ pub const cache_line = switch (builtin.cpu.arch) {
 };
 
 test {
-    _ = Queue;
     _ = Atomic;
 }
