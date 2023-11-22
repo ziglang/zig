@@ -22,6 +22,10 @@ test "comptime @setAlignStack call" {
     comptime @setAlignStack(1);
 }
 
+test "comptime @breakpoint call" {
+    comptime @breakpoint();
+}
+
 // error
 // backend=stage2
 // target=native
@@ -33,3 +37,4 @@ test "comptime @setAlignStack call" {
 // :14:14: error: encountered @panic at comptime
 // :18:14: error: encountered @trap at comptime
 // :22:14: error: encountered @setAlignStack at comptime
+// :26:14: error: encountered @breakpoint at comptime
