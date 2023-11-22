@@ -601,9 +601,8 @@ fn renderFieldName(writer: anytype, operands: []const g.Operand, field_index: us
     const operand = operands[field_index];
 
     // Should be enough for all names - adjust as needed.
-    var name_buffer = std.BoundedArray(u8, 64){
-        .buffer = undefined,
-    };
+    var name_backing_buffer: [64]u8 = undefined;
+    var name_buffer = std.ArrayListUnmanaged(u8).initBuffer(&name_backing_buffer);
 
     derive_from_kind: {
         // Operand names are often in the json encoded as "'Name'" (with two sets of quotes).
@@ -617,33 +616,33 @@ fn renderFieldName(writer: anytype, operands: []const g.Operand, field_index: us
         // Use the same loop to transform to snake-case.
         for (name) |c| {
             switch (c) {
-                'a'...'z', '0'...'9' => try name_buffer.append(c),
-                'A'...'Z' => try name_buffer.append(std.ascii.toLower(c)),
-                ' ', '~' => try name_buffer.append('_'),
+                'a'...'z', '0'...'9' => name_buffer.appendAssumeCapacity(c),
+                'A'...'Z' => name_buffer.appendAssumeCapacity(std.ascii.toLower(c)),
+                ' ', '~' => name_buffer.appendAssumeCapacity('_'),
                 else => break :derive_from_kind,
             }
         }
 
         // Assume there are no duplicate 'name' fields.
-        try writer.print("{}", .{std.zig.fmtId(name_buffer.slice())});
+        try writer.print("{}", .{std.zig.fmtId(name_buffer.items)});
         return;
     }
 
     // Translate to snake case.
-    name_buffer.len = 0;
+    name_buffer.items.len = 0;
     for (operand.kind, 0..) |c, i| {
         switch (c) {
-            'a'...'z', '0'...'9' => try name_buffer.append(c),
+            'a'...'z', '0'...'9' => name_buffer.appendAssumeCapacity(c),
             'A'...'Z' => if (i > 0 and std.ascii.isLower(operand.kind[i - 1])) {
-                try name_buffer.appendSlice(&[_]u8{ '_', std.ascii.toLower(c) });
+                name_buffer.appendSliceAssumeCapacity(&[_]u8{ '_', std.ascii.toLower(c) });
             } else {
-                try name_buffer.append(std.ascii.toLower(c));
+                name_buffer.appendAssumeCapacity(std.ascii.toLower(c));
             },
             else => unreachable, // Assume that the name is valid C-syntax (and contains no underscores).
         }
     }
 
-    try writer.print("{}", .{std.zig.fmtId(name_buffer.slice())});
+    try writer.print("{}", .{std.zig.fmtId(name_buffer.items)});
 
     // For fields derived from type name, there could be any amount.
     // Simply check against all other fields, and if another similar one exists, add a number.
