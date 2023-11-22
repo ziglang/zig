@@ -3038,8 +3038,9 @@ fn zirEnumDecl(
         const has_tag_value = @as(u1, @truncate(cur_bit_bag)) != 0;
         cur_bit_bag >>= 1;
 
-        // doc comment
-        extra_index += 2;
+        const field_name_zir = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
+        extra_index += 2; // field name, doc comment
+        assert(incomplete_enum.addFieldName(&mod.intern_pool, field_name_zir) == null);
 
         const tag_overflow = if (has_tag_value) overflow: {
             const tag_val_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
