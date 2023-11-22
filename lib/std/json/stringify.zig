@@ -451,14 +451,14 @@ pub fn WriteStream(
                     }
                 },
                 .Enum, .EnumLiteral => {
-                    if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
+                    if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
 
                     return self.stringValue(@tagName(value));
                 },
                 .Union => {
-                    if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
+                    if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
 
@@ -487,7 +487,7 @@ pub fn WriteStream(
                     }
                 },
                 .Struct => |S| {
-                    if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
+                    if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
 

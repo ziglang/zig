@@ -290,7 +290,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/mem/Allocator.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/meta.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/meta/trailer_flags.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/meta/trait.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/multi_array_list.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/linux.zig"

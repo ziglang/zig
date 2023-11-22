@@ -478,7 +478,7 @@ pub fn formatType(
         return formatAddress(value, options, writer);
     }
 
-    if (comptime std.meta.trait.hasFn("format")(T)) {
+    if (std.meta.hasFn(T, "format")) {
         return try value.format(actual_fmt, options, writer);
     }
 
@@ -611,15 +611,12 @@ pub fn formatType(
                             else => {},
                         }
                     }
-                    if (comptime std.meta.trait.isZigString(info.child)) {
-                        for (value, 0..) |item, i| {
-                            comptime checkTextFmt(actual_fmt);
-                            if (i != 0) try formatBuf(", ", options, writer);
-                            try formatBuf(item, options, writer);
-                        }
-                        return;
+                    for (value, 0..) |item, i| {
+                        comptime checkTextFmt(actual_fmt);
+                        if (i != 0) try formatBuf(", ", options, writer);
+                        try formatBuf(item, options, writer);
                     }
-                    invalidFmtError(fmt, value);
+                    return;
                 },
                 .Enum, .Union, .Struct => {
                     return formatType(value.*, actual_fmt, options, writer, max_depth);
