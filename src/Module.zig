@@ -1467,6 +1467,14 @@ pub const SrcLoc = struct {
                 const end = start + @as(u32, @intCast(tree.tokenSlice(tok_index).len));
                 return Span{ .start = start, .end = end, .main = start };
             },
+            .node_offset_field_name_init => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const tok_index = tree.firstToken(node) - 2;
+                const start = tree.tokens.items(.start)[tok_index];
+                const end = start + @as(u32, @intCast(tree.tokenSlice(tok_index).len));
+                return Span{ .start = start, .end = end, .main = start };
+            },
             .node_offset_deref_ptr => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2132,10 +2140,14 @@ pub const LazySrcLoc = union(enum) {
     /// The payload is offset from the containing Decl AST node.
     /// The source location points to the field name of:
     ///  * a field access expression (`a.b`), or
-    ///  * the callee of a method call (`a.b()`), or
-    ///  * the operand ("b" node) of a field initialization expression (`.a = b`), or
+    ///  * the callee of a method call (`a.b()`)
     /// The Decl is determined contextually.
     node_offset_field_name: i32,
+    /// The payload is offset from the containing Decl AST node.
+    /// The source location points to the field name of the operand ("b" node)
+    /// of a field initialization expression (`.a = b`)
+    /// The Decl is determined contextually.
+    node_offset_field_name_init: i32,
     /// The source location points to the pointer of a pointer deref expression,
     /// found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a pointer deref AST node. Next, navigate
@@ -2374,6 +2386,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_slice_sentinel,
             .node_offset_call_func,
             .node_offset_field_name,
+            .node_offset_field_name_init,
             .node_offset_deref_ptr,
             .node_offset_asm_source,
             .node_offset_asm_ret_ty,
