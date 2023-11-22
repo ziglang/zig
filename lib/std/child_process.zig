@@ -62,6 +62,10 @@ pub const ChildProcess = struct {
 
     expand_arg0: Arg0Expand,
 
+    /// Linux and Darwin only. If true, will call PTRACE_TRACEME on the child process
+    /// after forking so the parent may issue further ptrace calls
+    ptrace_traceme: bool = false,
+
     /// Darwin-only. Disable ASLR for the child process.
     disable_aslr: bool = false,
 
@@ -138,6 +142,7 @@ pub const ChildProcess = struct {
         CurrentWorkingDirectoryUnlinked,
     } ||
         os.ExecveError ||
+        os.PtraceError ||
         os.SetIdError ||
         os.ChangeCurDirError ||
         windows.CreateProcessError ||
@@ -607,6 +612,12 @@ pub const ChildProcess = struct {
 
             if (self.uid) |uid| {
                 os.setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
+            }
+
+            if (self.ptrace_traceme) {
+                os.ptrace(linux.PTRACE.TRACEME, 0, 0, 0) catch |err| {
+                    forkChildErrReport(err_pipe[1], err);
+                };
             }
 
             const err = switch (self.expand_arg0) {
