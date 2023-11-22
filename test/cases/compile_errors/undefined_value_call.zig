@@ -6,4 +6,4 @@ pub export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :2:31: error: unable to call 'undefined'
+// :2:31: error: use of undefined value here causes undefined behavior
