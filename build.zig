@@ -264,7 +264,20 @@ pub fn build(b: *std.Build) !void {
         var code: u8 = undefined;
         const git_describe_untrimmed = b.runAllowFail(&[_][]const u8{
             "git", "-C", b.build_root.path orelse ".", "describe", "--match", "*.*.*", "--tags",
-        }, &code, .Ignore) catch {
+        }, &code, .Ignore) catch |err| {
+            std.debug.print("`git describe` failed: {s}. Stderr: ", .{@errorName(err)});
+            print_stderr: {
+                const described = std.process.Child.run(.{
+                    .allocator = b.allocator,
+                    .argv = &[_][]const u8{
+                        "git", "-C", b.build_root.path orelse ".", "describe", "--match", "*.*.*", "--tags",
+                    },
+                }) catch |do_err| {
+                    std.debug.print("(cannot get info: ({s})\n", .{@errorName(do_err)});
+                    break :print_stderr;
+                };
+                std.debug.print("{s}\n", .{described.stderr});
+            }
             break :v version_string;
         };
         const git_describe = mem.trim(u8, git_describe_untrimmed, " \n\r");
