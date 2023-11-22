@@ -65,6 +65,16 @@ pub fn emit(
     section.writeOperands(opcode.Operands(), operands);
 }
 
+pub fn emitBranch(
+    section: *Section,
+    allocator: Allocator,
+    target_label: spec.IdRef,
+) !void {
+    try section.emit(allocator, .OpBranch, .{
+        .target_label = target_label,
+    });
+}
+
 pub fn emitSpecConstantOp(
     section: *Section,
     allocator: Allocator,
