@@ -35649,6 +35649,8 @@ fn semaStructFields(
     const zir = mod.namespacePtr(namespace_index).file_scope.zir;
     const zir_index = struct_type.zir_index;
 
+    const src = LazySrcLoc.nodeOffset(0);
+    _ = src;
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
     if (fields_len == 0) switch (struct_type.layout) {
@@ -35744,6 +35746,12 @@ fn semaStructFields(
                 fields[field_i].type_ref = @enumFromInt(zir.extra[extra_index]);
             }
             extra_index += 1;
+
+            // This string needs to outlive the ZIR code.
+            if (opt_field_name_zir) |field_name_zir| {
+                const field_name = try ip.getOrPutString(gpa, field_name_zir);
+                assert(struct_type.addFieldName(ip, field_name) == null);
+            }
 
             if (has_align) {
                 fields[field_i].align_body_len = zir.extra[extra_index];
