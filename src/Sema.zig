@@ -6146,6 +6146,8 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const src = LazySrcLoc.nodeOffset(extra.node);
     const alignment = try sema.resolveAlign(block, operand_src, extra.operand);
+    if (block.is_comptime)
+        return sema.fail(block, src, "encountered @setAlignStack at comptime", .{});
     if (alignment.order(Alignment.fromNonzeroByteUnits(256)).compare(.gt)) {
         return sema.fail(block, src, "attempt to @setAlignStack({d}); maximum is 256", .{
             alignment.toByteUnitsOptional().?,
@@ -25254,6 +25256,16 @@ fn zirWorkItem(
     const dimension_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const builtin_src = LazySrcLoc.nodeOffset(extra.node);
     const target = sema.mod.getTarget();
+
+    if (block.is_comptime) {
+        const builtin_name = switch (zir_tag) {
+            .work_item_id => "workItemId",
+            .work_group_size => "workGroupSize",
+            .work_group_id => "workGroupId",
+            else => unreachable,
+        };
+        return sema.fail(block, builtin_src, "encountered @{s} at comptime", .{builtin_name});
+    }
 
     switch (target.cpu.arch) {
         // TODO: Allow for other GPU targets.
