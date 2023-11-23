@@ -1285,7 +1285,7 @@ fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const w
     wr.* = wr_h;
 }
 
-var pipe_name_counter = std.atomic.Atomic(u32).init(1);
+var pipe_name_counter = std.atomic.Value(u32).init(1);
 
 fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
     var tmp_bufw: [128]u16 = undefined;
