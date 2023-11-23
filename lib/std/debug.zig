@@ -1078,13 +1078,8 @@ pub fn readElfDebugInfo(
     parent_mapped_mem: ?[]align(mem.page_size) const u8,
 ) !ModuleDebugInfo {
     nosuspend {
-
-        // TODO https://github.com/ziglang/zig/issues/5525
         const elf_file = (if (elf_filename) |filename| blk: {
-            break :blk if (fs.path.isAbsolute(filename))
-                fs.openFileAbsolute(filename, .{ .intended_io_mode = .blocking })
-            else
-                fs.cwd().openFile(filename, .{ .intended_io_mode = .blocking });
+            break :blk fs.cwd().openFile(filename, .{ .intended_io_mode = .blocking });
         } else fs.openSelfExe(.{ .intended_io_mode = .blocking })) catch |err| switch (err) {
             error.FileNotFound => return error.MissingDebugInfo,
             else => return err,
