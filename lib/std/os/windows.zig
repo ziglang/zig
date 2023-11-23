@@ -21,8 +21,6 @@ test {
 pub const advapi32 = @import("windows/advapi32.zig");
 pub const kernel32 = @import("windows/kernel32.zig");
 pub const ntdll = @import("windows/ntdll.zig");
-pub const ole32 = @import("windows/ole32.zig");
-pub const shell32 = @import("windows/shell32.zig");
 pub const ws2_32 = @import("windows/ws2_32.zig");
 pub const crypt32 = @import("windows/crypt32.zig");
 pub const nls = @import("windows/nls.zig");
@@ -3527,7 +3525,8 @@ pub const SEC_LARGE_PAGES = 0x80000000;
 
 pub const HKEY = *opaque {};
 
-pub const HKEY_LOCAL_MACHINE: HKEY = @as(HKEY, @ptrFromInt(0x80000002));
+pub const HKEY_CLASSES_ROOT: HKEY = @ptrFromInt(0x80000000);
+pub const HKEY_LOCAL_MACHINE: HKEY = @ptrFromInt(0x80000002);
 
 /// Combines the STANDARD_RIGHTS_REQUIRED, KEY_QUERY_VALUE, KEY_SET_VALUE, KEY_CREATE_SUB_KEY,
 /// KEY_ENUMERATE_SUB_KEYS, KEY_NOTIFY, and KEY_CREATE_LINK access rights.
