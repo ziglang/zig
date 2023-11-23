@@ -242,8 +242,8 @@
 
       @media (prefers-color-scheme: dark) {
         :root{
-	    color-scheme: dark;
-	}
+            color-scheme: dark;
+        }
         body{
             background:#121212;
             color: #ccc;
