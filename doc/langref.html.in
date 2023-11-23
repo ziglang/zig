@@ -187,6 +187,17 @@
         border-left: 0.25em solid #f7a41d;
         padding: 0 1em 0 1em;
       }
+      
+      #contents h2{
+        border-bottom: 1px solid;
+      } 
+      #contents h2,h3,h4{
+        margin-top:1.5em;
+        margin-bottom:0.5em;
+      }	
+      h3{
+        font-size: 1.25em;
+      }
 
       h1 a, h2 a, h3 a, h4 a, h5 a {
         text-decoration: none;
