@@ -2048,29 +2048,38 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             }
             _ = try c.addToken(.r_brace, "}");
 
-            if (payload.inits.len < 2) {
-                return c.addNode(.{
+            return switch (payload.inits.len) {
+                0 => c.addNode(.{
+                    .tag = .struct_init_one,
+                    .main_token = l_brace,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = 0,
+                    },
+                }),
+                1 => c.addNode(.{
                     .tag = .struct_init_one_comma,
                     .main_token = l_brace,
                     .data = .{
                         .lhs = lhs,
                         .rhs = inits[0],
                     },
-                });
-            } else {
-                const span = try c.listToSpan(inits);
-                return c.addNode(.{
-                    .tag = .struct_init_comma,
-                    .main_token = l_brace,
-                    .data = .{
-                        .lhs = lhs,
-                        .rhs = try c.addExtra(NodeSubRange{
-                            .start = span.start,
-                            .end = span.end,
-                        }),
-                    },
-                });
-            }
+                }),
+                else => blk: {
+                    const span = try c.listToSpan(inits);
+                    break :blk c.addNode(.{
+                        .tag = .struct_init_comma,
+                        .main_token = l_brace,
+                        .data = .{
+                            .lhs = lhs,
+                            .rhs = try c.addExtra(NodeSubRange{
+                                .start = span.start,
+                                .end = span.end,
+                            }),
+                        },
+                    });
+                },
+            };
         },
         .@"anytype" => unreachable, // Handled in renderParams
     }
