@@ -280,7 +280,7 @@ pub fn run(f: *Fetch) RunError!void {
         },
         .remote => |remote| remote,
         .path_or_url => |path_or_url| {
-            if (fs.cwd().openIterableDir(path_or_url, .{})) |dir| {
+            if (fs.cwd().openDir(path_or_url, .{ .iterate = true })) |dir| {
                 var resource: Resource = .{ .dir = dir };
                 return runResource(f, path_or_url, &resource, null);
             } else |dir_err| {
@@ -363,7 +363,9 @@ fn runResource(
         var tmp_directory: Cache.Directory = .{
             .path = tmp_directory_path,
             .handle = handle: {
-                const dir = cache_root.handle.makeOpenPathIterable(tmp_dir_sub_path, .{}) catch |err| {
+                const dir = cache_root.handle.makeOpenPath(tmp_dir_sub_path, .{
+                    .iterate = true,
+                }) catch |err| {
                     try eb.addRootErrorMessage(.{
                         .msg = try eb.printString("unable to create temporary directory '{s}': {s}", .{
                             tmp_directory_path, @errorName(err),
@@ -371,7 +373,7 @@ fn runResource(
                     });
                     return error.FetchFailed;
                 };
-                break :handle dir.dir;
+                break :handle dir;
             },
         };
         defer tmp_directory.handle.close();
@@ -400,9 +402,9 @@ fn runResource(
         if (builtin.os.tag == .linux and f.job_queue.work_around_btrfs_bug) {
             // https://github.com/ziglang/zig/issues/17095
             tmp_directory.handle.close();
-            const iterable_dir = cache_root.handle.makeOpenPathIterable(tmp_dir_sub_path, .{}) catch
-                @panic("btrfs workaround failed");
-            tmp_directory.handle = iterable_dir.dir;
+            tmp_directory.handle = cache_root.handle.makeOpenPath(tmp_dir_sub_path, .{
+                .iterate = true,
+            }) catch @panic("btrfs workaround failed");
         }
 
         f.actual_hash = try computeHash(f, tmp_directory, filter);
@@ -717,7 +719,7 @@ const Resource = union(enum) {
     file: fs.File,
     http_request: std.http.Client.Request,
     git: Git,
-    dir: fs.IterableDir,
+    dir: fs.Dir,
 
     const Git = struct {
         fetch_stream: git.Session.FetchStream,
@@ -1198,7 +1200,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!void 
     try out_dir.deleteTree(".git");
 }
 
-fn recursiveDirectoryCopy(f: *Fetch, dir: fs.IterableDir, tmp_dir: fs.Dir) anyerror!void {
+fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void {
     const gpa = f.arena.child_allocator;
     // Recursive directory copy.
     var it = try dir.walk(gpa);
@@ -1207,7 +1209,7 @@ fn recursiveDirectoryCopy(f: *Fetch, dir: fs.IterableDir, tmp_dir: fs.Dir) anyer
         switch (entry.kind) {
             .directory => {}, // omit empty directories
             .file => {
-                dir.dir.copyFile(
+                dir.copyFile(
                     entry.path,
                     tmp_dir,
                     entry.path,
@@ -1215,14 +1217,14 @@ fn recursiveDirectoryCopy(f: *Fetch, dir: fs.IterableDir, tmp_dir: fs.Dir) anyer
                 ) catch |err| switch (err) {
                     error.FileNotFound => {
                         if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.makePath(dirname);
-                        try dir.dir.copyFile(entry.path, tmp_dir, entry.path, .{});
+                        try dir.copyFile(entry.path, tmp_dir, entry.path, .{});
                     },
                     else => |e| return e,
                 };
             },
             .sym_link => {
                 var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-                const link_name = try dir.dir.readLink(entry.path, &buf);
+                const link_name = try dir.readLink(entry.path, &buf);
                 // TODO: if this would create a symlink to outside
                 // the destination directory, fail with an error instead.
                 tmp_dir.symLink(link_name, entry.path, .{}) catch |err| switch (err) {
@@ -1296,7 +1298,7 @@ fn computeHash(
     var sus_dirs: std.StringArrayHashMapUnmanaged(void) = .{};
     defer sus_dirs.deinit(gpa);
 
-    var walker = try @as(fs.IterableDir, .{ .dir = tmp_directory.handle }).walk(gpa);
+    var walker = try tmp_directory.handle.walk(gpa);
     defer walker.deinit();
 
     {
