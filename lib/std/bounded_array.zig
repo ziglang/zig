@@ -43,7 +43,7 @@ pub fn BoundedArrayAligned(
 
         buffer: [buffer_capacity]T align(alignment) = undefined,
 
-        /// The active array length. Not that in order to save space, this is not
+        /// The active array length. Note that in order to save space, this is not
         /// a `usize`, but rather the smallest integer type that can hold the
         /// maximum capacity. In order to get the length as a `usize`, use `len()`.
         active_len: Len = 0,
@@ -405,7 +405,7 @@ test "BoundedArray sizeOf" {
 
     try testing.expectEqual(@sizeOf(BoundedArray(u8, 3)), 4);
 
-    // `len` is the minimum required size to hold the maximum capacity
+    // `active_len` is the minimum required size to hold the maximum capacity
     try testing.expectEqual(@TypeOf(@as(BoundedArray(u8, 15), undefined).active_len), u4);
     try testing.expectEqual(@TypeOf(@as(BoundedArray(u8, 16), undefined).active_len), u5);
 }
