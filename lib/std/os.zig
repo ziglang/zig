@@ -6461,7 +6461,7 @@ pub const CopyFileRangeError = error{
     CorruptedData,
 } || PReadError || PWriteError || UnexpectedError;
 
-var has_copy_file_range_syscall = std.atomic.Atomic(bool).init(true);
+var has_copy_file_range_syscall = std.atomic.Value(bool).init(true);
 
 /// Transfer data between file descriptors at specified offsets.
 /// Returns the number of bytes written, which can less than requested.
