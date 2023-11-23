@@ -21071,7 +21071,7 @@ fn zirReify(
                 }
 
                 const param_type_val = opt_param_type_val.optionalValue(mod) orelse
-                    return sema.fail(block, src, "Type.Fn.Param.arg_type must be non-null for @Type", .{});
+                    return sema.fail(block, src, "Type.Fn.Param.type must be non-null for @Type", .{});
                 param_type.* = param_type_val.toIntern();
 
                 if (param_is_noalias_val.toBool()) {
