@@ -68,7 +68,7 @@
         padding-top: 0.75em;
         line-height: 1.15;
         overflow-wrap:anywhere;
-        line-break: wrap;
+        line-break: auto;
       }
       a {
         text-decoration: none;
