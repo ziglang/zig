@@ -8,6 +8,21 @@ const iovec_const = std.os.iovec_const;
 extern "c" fn __errno() *c_int;
 pub const _errno = __errno;
 
+pub const _POSIX_HOST_NAME_MAX: c_int = 0xFF;
+pub const _SC_HOST_NAME_MAX: c_int = 0xB4;
+
+pub const VT_ACTIVATE: c_int = 0x5606;
+pub const VT_WAITACTIVE: c_int = 0x5607;
+
+pub const KDGETLED: c_int = 0x4B31;
+pub const KDGKBLED: c_int = 0x4B64;
+
+pub const LED_NUM: c_int = 0x02;
+pub const LED_CAP: c_int = 0x04;
+
+pub const K_NUMLOCK: c_int = 0x02;
+pub const K_CAPSLOCK: c_int = 0x04;
+
 pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 

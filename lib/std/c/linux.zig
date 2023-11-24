@@ -105,6 +105,21 @@ pub const user_desc = linux.user_desc;
 pub const utsname = linux.utsname;
 pub const PR = linux.PR;
 
+pub const _POSIX_HOST_NAME_MAX: c_int = 0xFF;
+pub const _SC_HOST_NAME_MAX: c_int = 0xB4;
+
+pub const VT_ACTIVATE: c_int = 0x5606;
+pub const VT_WAITACTIVE: c_int = 0x5607;
+
+pub const KDGETLED: c_int = 0x4B31;
+pub const KDGKBLED: c_int = 0x4B64;
+
+pub const LED_NUM: c_int = 0x02;
+pub const LED_CAP: c_int = 0x04;
+
+pub const K_NUMLOCK: c_int = 0x02;
+pub const K_CAPSLOCK: c_int = 0x04;
+
 pub const _errno = switch (native_abi) {
     .android => struct {
         extern fn __errno() *c_int;

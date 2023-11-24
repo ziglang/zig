@@ -121,10 +121,15 @@ pub fn getErrno(rc: anytype) c.E {
 
 pub extern "c" var environ: [*:null]?[*:0]u8;
 
+pub const O_RDONLY: c_uint = 0x00;
+pub const O_WRONLY: c_uint = 0x01;
+pub const O_RDWR: c_uint = 0x02;
+
 pub extern "c" fn fopen(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;
 pub extern "c" fn fclose(stream: *FILE) c_int;
 pub extern "c" fn fwrite(noalias ptr: [*]const u8, size_of_type: usize, item_count: usize, noalias stream: *FILE) usize;
 pub extern "c" fn fread(noalias ptr: [*]u8, size_of_type: usize, item_count: usize, noalias stream: *FILE) usize;
+pub extern "c" fn fileno(stream: *FILE) c_int;
 
 pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
 pub extern "c" fn abort() noreturn;
@@ -189,6 +194,22 @@ pub extern "c" fn fcntl(fd: c.fd_t, cmd: c_int, ...) c_int;
 pub extern "c" fn flock(fd: c.fd_t, operation: c_int) c_int;
 pub extern "c" fn ioctl(fd: c.fd_t, request: c_int, ...) c_int;
 pub extern "c" fn uname(buf: *c.utsname) c_int;
+
+pub const tm = extern struct {
+    tm_sec: c_int,
+    tm_min: c_int,
+    tm_hour: c_int,
+    tm_mday: c_int,
+    tm_mon: c_int,
+    tm_year: c_int,
+    tm_wday: c_int,
+    tm_yday: c_int,
+    tm_isdst: c_int,
+};
+
+pub extern "c" fn time(second: ?*c_long) c_long;
+pub extern "c" fn localtime(timer: *const c_long) *tm;
+pub extern "c" fn strftime(str: [*]u8, maxsize: usize, format: [*]const u8, timeptr: *const tm) usize;
 
 pub extern "c" fn gethostname(name: [*]u8, len: usize) c_int;
 pub extern "c" fn shutdown(socket: c.fd_t, how: c_int) c_int;
@@ -407,6 +428,8 @@ pub extern "c" fn closelog() void;
 pub extern "c" fn setlogmask(maskpri: c_int) c_int;
 
 pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
+
+pub extern "c" fn sysconf(name: c_int) c_long;
 
 pub usingnamespace if (builtin.target.isAndroid()) struct {
     // android bionic libc does not implement getcontext,

@@ -9,6 +9,21 @@ pub fn _errno() *c_int {
     return &errno;
 }
 
+pub const _POSIX_HOST_NAME_MAX: c_int = 0xFF;
+pub const _SC_HOST_NAME_MAX: c_int = 0xB4;
+
+pub const VT_ACTIVATE: c_int = 0x5606;
+pub const VT_WAITACTIVE: c_int = 0x5607;
+
+pub const KDGETLED: c_int = 0x4B31;
+pub const KDGKBLED: c_int = 0x4B64;
+
+pub const LED_NUM: c_int = 0x02;
+pub const LED_CAP: c_int = 0x04;
+
+pub const K_NUMLOCK: c_int = 0x02;
+pub const K_CAPSLOCK: c_int = 0x04;
+
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
