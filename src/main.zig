@@ -5132,7 +5132,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                     error.FileNotFound => {
                         dirname = fs.path.dirname(dirname) orelse {
                             std.log.info("{s}", .{
-                                \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
+                                \\Initialize a 'build.zig' template file with `zig init`,
                                 \\or see `zig --help` for more options.
                             });
                             fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
