@@ -431,7 +431,7 @@ pub fn bcrypt(
     const trimmed_len = @min(password.len, password_buf.len - 1);
     @memcpy(password_buf[0..trimmed_len], password[0..trimmed_len]);
     password_buf[trimmed_len] = 0;
-    var passwordZ = password_buf[0 .. trimmed_len + 1];
+    const passwordZ = password_buf[0 .. trimmed_len + 1];
     state.expand(salt[0..], passwordZ);
 
     const rounds: u64 = @as(u64, 1) << params.rounds_log;

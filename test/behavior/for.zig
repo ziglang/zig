@@ -26,7 +26,7 @@ test "break from outer for loop" {
 }
 
 fn testBreakOuter() !void {
-    var array = "aoeu";
+    const array = "aoeu";
     var count: usize = 0;
     outer: for (array) |_| {
         for (array) |_| {
@@ -43,7 +43,7 @@ test "continue outer for loop" {
 }
 
 fn testContinueOuter() !void {
-    var array = "aoeu";
+    const array = "aoeu";
     var counter: usize = 0;
     outer: for (array) |_| {
         for (array) |_| {
@@ -137,7 +137,7 @@ test "2 break statements and an else" {
         fn entry(t: bool, f: bool) !void {
             var buf: [10]u8 = undefined;
             var ok = false;
-            ok = for (buf) |item| {
+            ok = for (&buf) |*item| {
                 _ = item;
                 if (f) break false;
                 if (t) break true;
@@ -201,7 +201,7 @@ test "for on slice with allowzero ptr" {
 
     const S = struct {
         fn doTheTest(slice: []const u8) !void {
-            var ptr = @as([*]allowzero const u8, @ptrCast(slice.ptr))[0..slice.len];
+            const ptr = @as([*]allowzero const u8, @ptrCast(slice.ptr))[0..slice.len];
             for (ptr, 0..) |x, i| try expect(x == i + 1);
             for (ptr, 0..) |*x, i| try expect(x.* == i + 1);
         }
@@ -230,6 +230,7 @@ test "for loop with else branch" {
 
     {
         var x = [_]u32{ 1, 2 };
+        _ = &x;
         const q = for (x) |y| {
             if ((y & 1) != 0) continue;
             break y * 2;
@@ -238,6 +239,7 @@ test "for loop with else branch" {
     }
     {
         var x = [_]u32{ 1, 2 };
+        _ = &x;
         const q = for (x) |y| {
             if ((y & 1) != 0) continue;
             break y * 2;
@@ -310,6 +312,7 @@ test "slice and two counters, one is offset and one is runtime" {
 
     const slice: []const u8 = "blah";
     var start: usize = 0;
+    _ = &start;
 
     for (slice, start..4, 1..5) |a, b, c| {
         if (a == 'b') {
@@ -394,6 +397,7 @@ test "inline for with slice as the comptime-known" {
 
     const comptime_slice = "hello";
     var runtime_i: usize = 3;
+    _ = &runtime_i;
 
     const S = struct {
         var ok: usize = 0;
@@ -424,6 +428,7 @@ test "inline for with counter as the comptime-known" {
 
     var runtime_slice = "hello";
     var runtime_i: usize = 3;
+    _ = &runtime_i;
 
     const S = struct {
         var ok: usize = 0;
@@ -484,14 +489,16 @@ test "inferred alloc ptr of for loop" {
 
     {
         var cond = false;
-        var opt = for (0..1) |_| {
+        _ = &cond;
+        const opt = for (0..1) |_| {
             if (cond) break cond;
         } else null;
         try expectEqual(@as(?bool, null), opt);
     }
     {
         var cond = true;
-        var opt = for (0..1) |_| {
+        _ = &cond;
+        const opt = for (0..1) |_| {
             if (cond) break cond;
         } else null;
         try expectEqual(@as(?bool, true), opt);

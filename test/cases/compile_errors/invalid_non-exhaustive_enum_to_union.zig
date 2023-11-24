@@ -10,12 +10,12 @@ const U = union(E) {
 export fn foo() void {
     var e: E = @enumFromInt(15);
     var u: U = e;
-    _ = u;
+    _ = .{ &e, &u };
 }
 export fn bar() void {
     const e: E = @enumFromInt(15);
     var u: U = e;
-    _ = u;
+    _ = &u;
 }
 
 // error

@@ -82,7 +82,7 @@ pub const Header = struct {
 
     pub fn fileSize(header: Header) !u64 {
         const raw = header.bytes[124..][0..12];
-        const ltrimmed = std.mem.trimLeft(u8, raw, "0");
+        const ltrimmed = std.mem.trimLeft(u8, raw, "0 ");
         const rtrimmed = std.mem.trimRight(u8, ltrimmed, " \x00");
         if (rtrimmed.len == 0) return 0;
         return std.fmt.parseInt(u64, rtrimmed, 8);
@@ -218,7 +218,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 if (file_size == 0 and unstripped_file_name.len == 0) return;
                 const file_name = try stripComponents(unstripped_file_name, options.strip_components);
 
-                var file = dir.createFile(file_name, .{}) catch |err| switch (err) {
+                const file = dir.createFile(file_name, .{}) catch |err| switch (err) {
                     error.FileNotFound => again: {
                         const code = code: {
                             if (std.fs.path.dirname(file_name)) |dir_name| {

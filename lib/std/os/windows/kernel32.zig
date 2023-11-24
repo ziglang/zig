@@ -276,10 +276,6 @@ pub extern "kernel32" fn MoveFileExW(
 
 pub extern "kernel32" fn PostQueuedCompletionStatus(CompletionPort: HANDLE, dwNumberOfBytesTransferred: DWORD, dwCompletionKey: ULONG_PTR, lpOverlapped: ?*OVERLAPPED) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn QueryPerformanceCounter(lpPerformanceCount: *LARGE_INTEGER) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn QueryPerformanceFrequency(lpFrequency: *LARGE_INTEGER) callconv(WINAPI) BOOL;
-
 pub extern "kernel32" fn ReadDirectoryChangesW(
     hDirectory: HANDLE,
     lpBuffer: [*]align(@alignOf(FILE_NOTIFY_INFORMATION)) u8,

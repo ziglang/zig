@@ -16,26 +16,32 @@ test "@abs integers" {
 fn testAbsIntegers() !void {
     {
         var x: i32 = -1000;
+        _ = &x;
         try expect(@abs(x) == 1000);
     }
     {
         var x: i32 = 0;
+        _ = &x;
         try expect(@abs(x) == 0);
     }
     {
         var x: i32 = 1000;
+        _ = &x;
         try expect(@abs(x) == 1000);
     }
     {
         var x: i64 = std.math.minInt(i64);
+        _ = &x;
         try expect(@abs(x) == @as(u64, -std.math.minInt(i64)));
     }
     {
         var x: i5 = -1;
+        _ = &x;
         try expect(@abs(x) == 1);
     }
     {
         var x: i5 = -5;
+        _ = &x;
         try expect(@abs(x) == 5);
     }
     comptime {
@@ -56,22 +62,27 @@ test "@abs unsigned integers" {
 fn testAbsUnsignedIntegers() !void {
     {
         var x: u32 = 1000;
+        _ = &x;
         try expect(@abs(x) == 1000);
     }
     {
         var x: u32 = 0;
+        _ = &x;
         try expect(@abs(x) == 0);
     }
     {
         var x: u32 = 1000;
+        _ = &x;
         try expect(@abs(x) == 1000);
     }
     {
         var x: u5 = 1;
+        _ = &x;
         try expect(@abs(x) == 1);
     }
     {
         var x: u5 = 5;
+        _ = &x;
         try expect(@abs(x) == 5);
     }
     comptime {
@@ -102,27 +113,33 @@ test "@abs floats" {
 fn testAbsFloats(comptime T: type) !void {
     {
         var x: T = -2.62;
+        _ = &x;
         try expect(@abs(x) == 2.62);
     }
     {
         var x: T = 2.62;
+        _ = &x;
         try expect(@abs(x) == 2.62);
     }
     {
         var x: T = 0.0;
+        _ = &x;
         try expect(@abs(x) == 0.0);
     }
     {
         var x: T = -std.math.pi;
+        _ = &x;
         try expect(@abs(x) == std.math.pi);
     }
 
     {
         var x: T = -std.math.inf(T);
+        _ = &x;
         try expect(@abs(x) == std.math.inf(T));
     }
     {
         var x: T = std.math.inf(T);
+        _ = &x;
         try expect(@abs(x) == std.math.inf(T));
     }
     comptime {
@@ -164,31 +181,37 @@ fn testAbsIntVectors(comptime len: comptime_int) !void {
     {
         var x: I32 = @splat(-10);
         var y: U32 = @splat(10);
+        _ = .{ &x, &y };
         try expect(std.mem.eql(u32, &@as([len]u32, y), &@as([len]u32, @abs(x))));
     }
     {
         var x: I32 = @splat(10);
         var y: U32 = @splat(10);
+        _ = .{ &x, &y };
         try expect(std.mem.eql(u32, &@as([len]u32, y), &@as([len]u32, @abs(x))));
     }
     {
         var x: I32 = @splat(0);
         var y: U32 = @splat(0);
+        _ = .{ &x, &y };
         try expect(std.mem.eql(u32, &@as([len]u32, y), &@as([len]u32, @abs(x))));
     }
     {
         var x: I64 = @splat(-10);
         var y: U64 = @splat(10);
+        _ = .{ &x, &y };
         try expect(std.mem.eql(u64, &@as([len]u64, y), &@as([len]u64, @abs(x))));
     }
     {
         var x: I64 = @splat(std.math.minInt(i64));
         var y: U64 = @splat(-std.math.minInt(i64));
+        _ = .{ &x, &y };
         try expect(std.mem.eql(u64, &@as([len]u64, y), &@as([len]u64, @abs(x))));
     }
     {
         var x = std.simd.repeat(len, @Vector(4, i32){ -2, 5, std.math.minInt(i32), -7 });
         var y = std.simd.repeat(len, @Vector(4, u32){ 2, 5, -std.math.minInt(i32), 7 });
+        _ = .{ &x, &y };
         try expect(std.mem.eql(u32, &@as([len]u32, y), &@as([len]u32, @abs(x))));
     }
 }
@@ -225,26 +248,31 @@ fn testAbsUnsignedIntVectors(comptime len: comptime_int) !void {
     {
         var x: U32 = @splat(10);
         var y: U32 = @splat(10);
+        _ = .{ &x, &y };
         try expect(std.mem.eql(u32, &@as([len]u32, y), &@as([len]u32, @abs(x))));
     }
     {
         var x: U32 = @splat(10);
         var y: U32 = @splat(10);
+        _ = .{ &x, &y };
         try expect(std.mem.eql(u32, &@as([len]u32, y), &@as([len]u32, @abs(x))));
     }
     {
         var x: U32 = @splat(0);
         var y: U32 = @splat(0);
+        _ = .{ &x, &y };
         try expect(std.mem.eql(u32, &@as([len]u32, y), &@as([len]u32, @abs(x))));
     }
     {
         var x: U64 = @splat(10);
         var y: U64 = @splat(10);
+        _ = .{ &x, &y };
         try expect(std.mem.eql(u64, &@as([len]u64, y), &@as([len]u64, @abs(x))));
     }
     {
         var x = std.simd.repeat(len, @Vector(3, u32){ 2, 5, 7 });
         var y = std.simd.repeat(len, @Vector(3, u32){ 2, 5, 7 });
+        _ = .{ &x, &y };
         try expect(std.mem.eql(u32, &@as([len]u32, y), &@as([len]u32, @abs(x))));
     }
 }
@@ -346,26 +374,31 @@ fn testAbsFloatVectors(comptime T: type, comptime len: comptime_int) !void {
     {
         var x: V = @splat(-7.5);
         var y: V = @splat(7.5);
+        _ = .{ &x, &y };
         try expect(std.mem.eql(T, &@as([len]T, y), &@as([len]T, @abs(x))));
     }
     {
         var x: V = @splat(7.5);
         var y: V = @splat(7.5);
+        _ = .{ &x, &y };
         try expect(std.mem.eql(T, &@as([len]T, y), &@as([len]T, @abs(x))));
     }
     {
         var x: V = @splat(0.0);
         var y: V = @splat(0.0);
+        _ = .{ &x, &y };
         try expect(std.mem.eql(T, &@as([len]T, y), &@as([len]T, @abs(x))));
     }
     {
         var x: V = @splat(-std.math.pi);
         var y: V = @splat(std.math.pi);
+        _ = .{ &x, &y };
         try expect(std.mem.eql(T, &@as([len]T, y), &@as([len]T, @abs(x))));
     }
     {
         var x: V = @splat(std.math.pi);
         var y: V = @splat(std.math.pi);
+        _ = .{ &x, &y };
         try expect(std.mem.eql(T, &@as([len]T, y), &@as([len]T, @abs(x))));
     }
 }

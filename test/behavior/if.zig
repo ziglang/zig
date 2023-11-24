@@ -61,6 +61,7 @@ test "unwrap mutable global var" {
 test "labeled break inside comptime if inside runtime if" {
     var answer: i32 = 0;
     var c = true;
+    _ = &c;
     if (c) {
         answer = if (true) blk: {
             break :blk @as(i32, 42);
@@ -73,6 +74,7 @@ test "const result loc, runtime if cond, else unreachable" {
     const Num = enum { One, Two };
 
     var t = true;
+    _ = &t;
     const x = if (t) Num.Two else unreachable;
     try expect(x == .Two);
 }
@@ -103,6 +105,7 @@ test "if prongs cast to expected type instead of peer type resolution" {
             try expect(x == 2);
 
             var b = true;
+            _ = &b;
             const y: i32 = if (b) 1 else 2;
             try expect(y == 1);
         }
@@ -118,10 +121,11 @@ test "if peer expressions inferred optional type" {
 
     var self: []const u8 = "abcdef";
     var index: usize = 0;
-    var left_index = (index << 1) + 1;
-    var right_index = left_index + 1;
-    var left = if (left_index < self.len) self[left_index] else null;
-    var right = if (right_index < self.len) self[right_index] else null;
+    _ = .{ &self, &index };
+    const left_index = (index << 1) + 1;
+    const right_index = left_index + 1;
+    const left = if (left_index < self.len) self[left_index] else null;
+    const right = if (right_index < self.len) self[right_index] else null;
     try expect(left_index < self.len);
     try expect(right_index < self.len);
     try expect(left.? == 98);
@@ -135,6 +139,7 @@ test "if-else expression with runtime condition result location is inferred opti
 
     const A = struct { b: u64, c: u64 };
     var d: bool = true;
+    _ = &d;
     const e = if (d) A{ .b = 15, .c = 30 } else null;
     try expect(e != null);
 }
@@ -142,7 +147,8 @@ test "if-else expression with runtime condition result location is inferred opti
 test "result location with inferred type ends up being pointer to comptime_int" {
     var a: ?u32 = 1234;
     var b: u32 = 2000;
-    var c = if (a) |d| blk: {
+    _ = .{ &a, &b };
+    const c = if (a) |d| blk: {
         if (d < b) break :blk @as(u32, 1);
         break :blk 0;
     } else @as(u32, 0);
@@ -152,6 +158,7 @@ test "result location with inferred type ends up being pointer to comptime_int" 
 test "if-@as-if chain" {
     var fast = true;
     var very_fast = false;
+    _ = .{ &fast, &very_fast };
 
     const num_frames = if (fast)
         @as(u32, if (very_fast) 16 else 4)

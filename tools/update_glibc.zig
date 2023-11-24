@@ -47,7 +47,7 @@ pub fn main() !void {
 
     const dest_dir_path = try std.fmt.allocPrint(arena, "{s}/lib/libc/glibc", .{zig_src_path});
 
-    var dest_dir = fs.cwd().openIterableDir(dest_dir_path, .{}) catch |err| {
+    var dest_dir = fs.cwd().openDir(dest_dir_path, .{ .iterate = true }) catch |err| {
         fatal("unable to open destination directory '{s}': {s}", .{
             dest_dir_path, @errorName(err),
         });
@@ -72,14 +72,14 @@ pub fn main() !void {
                 if (mem.endsWith(u8, entry.path, ext)) continue :walk;
             }
 
-            glibc_src_dir.copyFile(entry.path, dest_dir.dir, entry.path, .{}) catch |err| {
+            glibc_src_dir.copyFile(entry.path, dest_dir, entry.path, .{}) catch |err| {
                 log.warn("unable to copy '{s}/{s}' to '{s}/{s}': {s}", .{
                     glibc_src_path,  entry.path,
                     dest_dir_path,   entry.path,
                     @errorName(err),
                 });
                 if (err == error.FileNotFound) {
-                    try dest_dir.dir.deleteFile(entry.path);
+                    try dest_dir.deleteFile(entry.path);
                 }
             };
         }
@@ -88,7 +88,7 @@ pub fn main() !void {
     // Warn about duplicated files inside glibc/include/* that can be omitted
     // because they are already in generic-glibc/*.
 
-    var include_dir = dest_dir.dir.openIterableDir("include", .{}) catch |err| {
+    var include_dir = dest_dir.openDir("include", .{ .iterate = true }) catch |err| {
         fatal("unable to open directory '{s}/include': {s}", .{
             dest_dir_path, @errorName(err),
         });
@@ -125,7 +125,7 @@ pub fn main() !void {
                 generic_glibc_path, entry.path, @errorName(e),
             }),
         };
-        const glibc_include_contents = include_dir.dir.readFileAlloc(
+        const glibc_include_contents = include_dir.readFileAlloc(
             arena,
             entry.path,
             max_file_size,

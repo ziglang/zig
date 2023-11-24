@@ -1870,18 +1870,15 @@ pub const LoadCommandIterator = struct {
 
         pub fn cast(lc: LoadCommand, comptime Cmd: type) ?Cmd {
             if (lc.data.len < @sizeOf(Cmd)) return null;
-            return @as(*const Cmd, @ptrCast(@alignCast(&lc.data[0]))).*;
+            return @as(*align(1) const Cmd, @ptrCast(lc.data.ptr)).*;
         }
 
         /// Asserts LoadCommand is of type segment_command_64.
-        pub fn getSections(lc: LoadCommand) []const section_64 {
+        pub fn getSections(lc: LoadCommand) []align(1) const section_64 {
             const segment_lc = lc.cast(segment_command_64).?;
             if (segment_lc.nsects == 0) return &[0]section_64{};
             const data = lc.data[@sizeOf(segment_command_64)..];
-            const sections = @as(
-                [*]const section_64,
-                @ptrCast(@alignCast(&data[0])),
-            )[0..segment_lc.nsects];
+            const sections = @as([*]align(1) const section_64, @ptrCast(data.ptr))[0..segment_lc.nsects];
             return sections;
         }
 
@@ -1900,12 +1897,12 @@ pub const LoadCommandIterator = struct {
         }
 
         /// Asserts LoadCommand is of type build_version_command.
-        pub fn getBuildVersionTools(lc: LoadCommand) []const build_tool_version {
+        pub fn getBuildVersionTools(lc: LoadCommand) []align(1) const build_tool_version {
             const build_lc = lc.cast(build_version_command).?;
             const ntools = build_lc.ntools;
             if (ntools == 0) return &[0]build_tool_version{};
             const data = lc.data[@sizeOf(build_version_command)..];
-            const tools = @as([*]const build_tool_version, @ptrCast(@alignCast(&data[0])))[0..ntools];
+            const tools = @as([*]align(1) const build_tool_version, @ptrCast(data.ptr))[0..ntools];
             return tools;
         }
     };
@@ -1913,16 +1910,13 @@ pub const LoadCommandIterator = struct {
     pub fn next(it: *LoadCommandIterator) ?LoadCommand {
         if (it.index >= it.ncmds) return null;
 
-        const hdr = @as(
-            *const load_command,
-            @ptrCast(@alignCast(&it.buffer[0])),
-        ).*;
+        const hdr = @as(*align(1) const load_command, @ptrCast(it.buffer.ptr)).*;
         const cmd = LoadCommand{
             .hdr = hdr,
             .data = it.buffer[0..hdr.cmdsize],
         };
 
-        it.buffer = @alignCast(it.buffer[hdr.cmdsize..]);
+        it.buffer = it.buffer[hdr.cmdsize..];
         it.index += 1;
 
         return cmd;

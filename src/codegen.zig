@@ -368,7 +368,7 @@ pub fn generateSymbol(
                 .bytes => |bytes| try code.appendSlice(bytes),
                 .elems, .repeated_elem => {
                     var index: u64 = 0;
-                    var len_including_sentinel =
+                    const len_including_sentinel =
                         array_type.len + @intFromBool(array_type.sentinel != .none);
                     while (index < len_including_sentinel) : (index += 1) {
                         switch (try generateSymbol(bin_file, src_loc, .{
@@ -912,7 +912,9 @@ fn genDeclRef(
         }
         const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
         const sym = elf_file.symbol(sym_index);
-        sym.flags.needs_zig_got = true;
+        if (is_threadlocal) {
+            return GenResult.mcv(.{ .load_tlv = sym.esym_index });
+        }
         return GenResult.mcv(.{ .load_symbol = sym.esym_index });
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
         if (is_extern) {

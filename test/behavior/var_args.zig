@@ -147,6 +147,7 @@ test "simple variadic function" {
         var runtime: bool = true;
         var a: i32 = 1;
         var b: i32 = 2;
+        _ = .{ &runtime, &a, &b };
         try expect(1 == S.add(1, if (runtime) a else b));
     }
 }

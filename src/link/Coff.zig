@@ -388,7 +388,6 @@ fn populateMissingMetadata(self: *Coff) !void {
         self.rdata_section_index = try self.allocateSection(".rdata", file_size, .{
             .CNT_INITIALIZED_DATA = 1,
             .MEM_READ = 1,
-            .MEM_WRITE = 1,
         });
     }
 
@@ -564,7 +563,7 @@ fn allocateAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignme
 
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
-    var vaddr = blk: {
+    const vaddr = blk: {
         var i: usize = 0;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
@@ -816,7 +815,7 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
 }
 
 fn debugMem(allocator: Allocator, handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
-    var buffer = try allocator.alloc(u8, code.len);
+    const buffer = try allocator.alloc(u8, code.len);
     defer allocator.free(buffer);
     const memread = try std.os.windows.ReadProcessMemory(handle, pvaddr, buffer);
     log.debug("to write: {x}", .{std.fmt.fmtSliceHexLower(code)});
@@ -920,7 +919,7 @@ fn markRelocsDirtyByTarget(self: *Coff, target: SymbolWithLoc) void {
 fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
     const got_moved = blk: {
         const sect_id = self.got_section_index orelse break :blk false;
-        break :blk self.sections.items(.header)[sect_id].virtual_address > addr;
+        break :blk self.sections.items(.header)[sect_id].virtual_address >= addr;
     };
 
     // TODO: dirty relocations targeting import table if that got moved in memory
@@ -931,7 +930,7 @@ fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
                 reloc.dirty = reloc.dirty or got_moved;
             } else {
                 const target_vaddr = reloc.getTargetAddress(self) orelse continue;
-                if (target_vaddr > addr) reloc.dirty = true;
+                if (target_vaddr >= addr) reloc.dirty = true;
             }
         }
     }
@@ -939,7 +938,7 @@ fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
     // TODO: dirty only really affected GOT cells
     for (self.got_table.entries.items) |entry| {
         const target_addr = self.getSymbol(entry).value;
-        if (target_addr > addr) {
+        if (target_addr >= addr) {
             self.got_table_contents_dirty = true;
             break;
         }
@@ -1072,7 +1071,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
         &code_buffer,
         .none,
     );
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1133,7 +1132,7 @@ fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, required_alignment:
     const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| return .{ .fail = em },
     };
@@ -1197,7 +1196,7 @@ pub fn updateDecl(
     }, &code_buffer, .none, .{
         .parent_atom_index = atom.getSymbolIndex().?,
     });
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1722,6 +1721,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         var code = std.ArrayList(u8).init(gpa);
         defer code.deinit();
         try code.resize(math.cast(usize, atom.size) orelse return error.Overflow);
+        assert(atom.size > 0);
 
         const amt = try self.base.file.?.preadAll(code.items, file_offset);
         if (amt != code.items.len) return error.InputOutput;

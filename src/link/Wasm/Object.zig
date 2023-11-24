@@ -252,7 +252,7 @@ fn checkLegacyIndirectFunctionTable(object: *Object) !?Symbol {
         return error.MissingTableSymbols;
     }
 
-    var table_import: types.Import = for (object.imports) |imp| {
+    const table_import: types.Import = for (object.imports) |imp| {
         if (imp.kind == .table) {
             break imp;
         }
@@ -512,7 +512,7 @@ fn Parser(comptime ReaderType: type) type {
                         try assertEnd(reader);
                     },
                     .code => {
-                        var start = reader.context.bytes_left;
+                        const start = reader.context.bytes_left;
                         var index: u32 = 0;
                         const count = try readLeb(u32, reader);
                         while (index < count) : (index += 1) {
@@ -532,7 +532,7 @@ fn Parser(comptime ReaderType: type) type {
                         }
                     },
                     .data => {
-                        var start = reader.context.bytes_left;
+                        const start = reader.context.bytes_left;
                         var index: u32 = 0;
                         const count = try readLeb(u32, reader);
                         while (index < count) : (index += 1) {
@@ -838,11 +838,10 @@ fn ElementType(comptime ptr: type) type {
 /// signedness of the given type `T`.
 /// Asserts `T` is an integer.
 fn readLeb(comptime T: type, reader: anytype) !T {
-    if (comptime std.meta.trait.isSignedInt(T)) {
-        return try leb.readILEB128(T, reader);
-    } else {
-        return try leb.readULEB128(T, reader);
-    }
+    return switch (@typeInfo(T).Int.signedness) {
+        .signed => try leb.readILEB128(T, reader),
+        .unsigned => try leb.readULEB128(T, reader),
+    };
 }
 
 /// Reads an enum type from the given reader.

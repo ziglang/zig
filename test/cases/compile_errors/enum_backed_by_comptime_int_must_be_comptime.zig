@@ -1,7 +1,7 @@
 pub export fn entry() void {
     const E = enum(comptime_int) { a, b, c, _ };
     var e: E = .a;
-    _ = e;
+    _ = &e;
 }
 
 // error

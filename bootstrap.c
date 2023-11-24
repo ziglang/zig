@@ -42,11 +42,6 @@ static void run(char **argv) {
     if (WEXITSTATUS(status) != 0)
         panic("child process failed");
 }
-
-static void run_execv(char **argv) {
-    if (execv(argv[0], argv) == -1 && errno == ENOENT) return;
-    perror("execv failed");
-}
 #endif
 
 static void print_and_run(const char **argv) {
@@ -87,9 +82,6 @@ static const char *get_host_triple(void) {
 }
 
 int main(int argc, char **argv) {
-    argv[0] = "./zig2";
-    run_execv(argv);
-
     const char *cc = get_c_compiler();
     const char *host_triple = get_host_triple();
 
@@ -148,9 +140,12 @@ int main(int argc, char **argv) {
             "-ofmt=c", "-lc", "-OReleaseSmall",
             "--name", "zig2", "-femit-bin=zig2.c",
             "--mod", "build_options::config.zig",
+            "--mod", "aro_options::src/stubs/aro_options.zig",
             "--mod", "Builtins/Builtin.def::src/stubs/aro_builtins.zig",
             "--mod", "Attribute/names.def::src/stubs/aro_names.zig",
-            "--mod", "aro:Builtins/Builtin.def,Attribute/names.def:deps/aro/lib.zig",
+            "--mod", "Diagnostics/messages.def::src/stubs/aro_messages.zig",
+            "--mod", "aro_backend:build_options=aro_options:deps/aro/backend.zig",
+            "--mod", "aro:Builtins/Builtin.def,Attribute/names.def,Diagnostics/messages.def,build_options=aro_options,backend=aro_backend:deps/aro/aro.zig",
             "--deps", "build_options,aro",
             "-target", host_triple,
             NULL,
@@ -188,7 +183,4 @@ int main(int argc, char **argv) {
         };
         print_and_run(child_argv);
     }
-
-    run_execv(argv);
-    panic("build script failed to create valid zig2 executable");
 }

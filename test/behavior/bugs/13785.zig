@@ -9,5 +9,6 @@ test {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var a: u8 = 0;
+    _ = &a;
     try std.io.null_writer.print("\n{} {}\n", .{ a, S{} });
 }

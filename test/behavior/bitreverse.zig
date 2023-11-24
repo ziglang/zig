@@ -86,11 +86,30 @@ fn testBitReverse() !void {
     try expect(@bitReverse(@as(i24, -6773785)) == @bitReverse(neg24));
     var neg32: i32 = -16773785;
     try expect(@bitReverse(@as(i32, -16773785)) == @bitReverse(neg32));
+
+    _ = .{
+        &num0,
+        &num5,
+        &num8,
+        &num16,
+        &num24,
+        &num32,
+        &num40,
+        &num48,
+        &num56,
+        &num64,
+        &num128,
+        &neg8,
+        &neg16,
+        &neg24,
+        &neg32,
+    };
 }
 
 fn vector8() !void {
     var v = @Vector(2, u8){ 0x12, 0x23 };
-    var result = @bitReverse(v);
+    _ = &v;
+    const result = @bitReverse(v);
     try expect(result[0] == 0x48);
     try expect(result[1] == 0xc4);
 }
@@ -109,7 +128,8 @@ test "bitReverse vectors u8" {
 
 fn vector16() !void {
     var v = @Vector(2, u16){ 0x1234, 0x2345 };
-    var result = @bitReverse(v);
+    _ = &v;
+    const result = @bitReverse(v);
     try expect(result[0] == 0x2c48);
     try expect(result[1] == 0xa2c4);
 }
@@ -128,7 +148,8 @@ test "bitReverse vectors u16" {
 
 fn vector24() !void {
     var v = @Vector(2, u24){ 0x123456, 0x234567 };
-    var result = @bitReverse(v);
+    _ = &v;
+    const result = @bitReverse(v);
     try expect(result[0] == 0x6a2c48);
     try expect(result[1] == 0xe6a2c4);
 }
@@ -147,7 +168,8 @@ test "bitReverse vectors u24" {
 
 fn vector0() !void {
     var v = @Vector(2, u0){ 0, 0 };
-    var result = @bitReverse(v);
+    _ = &v;
+    const result = @bitReverse(v);
     try expect(result[0] == 0);
     try expect(result[1] == 0);
 }

@@ -877,7 +877,7 @@ pub fn getSourceSectionIndexByName(self: Object, segname: []const u8, sectname: 
     } else return null;
 }
 
-pub fn getSourceSections(self: Object) []const macho.section_64 {
+pub fn getSourceSections(self: Object) []align(1) const macho.section_64 {
     var it = LoadCommandIterator{
         .ncmds = self.header.ncmds,
         .buffer = self.contents[@sizeOf(macho.mach_header_64)..][0..self.header.sizeofcmds],

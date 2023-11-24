@@ -512,7 +512,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             var buckets = &self.buckets[bucket_index];
             const slot_count = @divExact(page_size, size_class);
             if (self.cur_buckets[bucket_index] == null or self.cur_buckets[bucket_index].?.alloc_cursor == slot_count) {
-                var new_bucket = try self.createBucket(size_class);
+                const new_bucket = try self.createBucket(size_class);
                 errdefer self.freeBucket(new_bucket, size_class);
                 const node = try self.bucket_node_pool.create();
                 node.key = new_bucket;
@@ -526,7 +526,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const slot_index = bucket.alloc_cursor;
             bucket.alloc_cursor += 1;
 
-            var used_bits_byte = bucket.usedBits(slot_index / 8);
+            const used_bits_byte = bucket.usedBits(slot_index / 8);
             const used_bit_index: u3 = @as(u3, @intCast(slot_index % 8)); // TODO cast should be unnecessary
             used_bits_byte.* |= (@as(u8, 1) << used_bit_index);
             bucket.used_count += 1;
@@ -915,7 +915,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             if (bucket.used_count == 0) {
                 var entry = self.buckets[bucket_index].getEntryFor(bucket);
                 // save the node for destruction/insertion into in empty_buckets
-                var node = entry.node.?;
+                const node = entry.node.?;
                 entry.set(null);
                 if (self.cur_buckets[bucket_index] == bucket) {
                     self.cur_buckets[bucket_index] = null;

@@ -22,6 +22,7 @@ fn foo(a: bool, b: bool) !void {
     var prefix_op = PrefixOp{
         .AddrOf = Value{ .align_expr = 1234 },
     };
+    _ = &prefix_op;
     if (a) {} else {
         switch (prefix_op) {
             PrefixOp.AddrOf => |addr_of_info| {

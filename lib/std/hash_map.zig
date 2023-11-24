@@ -4,8 +4,6 @@ const assert = std.debug.assert;
 const autoHash = std.hash.autoHash;
 const math = std.math;
 const mem = std.mem;
-const meta = std.meta;
-const trait = meta.trait;
 const Allocator = mem.Allocator;
 const Wyhash = std.hash.Wyhash;
 
@@ -24,7 +22,7 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
     return struct {
         fn hash(ctx: Context, key: K) u64 {
             _ = ctx;
-            if (comptime trait.hasUniqueRepresentation(K)) {
+            if (std.meta.hasUniqueRepresentation(K)) {
                 return Wyhash.hash(0, std.mem.asBytes(&key));
             } else {
                 var hasher = Wyhash.init(0);
@@ -39,7 +37,7 @@ pub fn getAutoEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K
     return struct {
         fn eql(ctx: Context, a: K, b: K) bool {
             _ = ctx;
-            return meta.eql(a, b);
+            return std.meta.eql(a, b);
         }
     }.eql;
 }
@@ -1484,8 +1482,8 @@ pub fn HashMapUnmanaged(
 
             var i: Size = 0;
             var metadata = self.metadata.?;
-            var keys_ptr = self.keys();
-            var values_ptr = self.values();
+            const keys_ptr = self.keys();
+            const values_ptr = self.values();
             while (i < self.capacity()) : (i += 1) {
                 if (metadata[i].isUsed()) {
                     other.putAssumeCapacityNoClobberContext(keys_ptr[i], values_ptr[i], new_ctx);
@@ -1521,8 +1519,8 @@ pub fn HashMapUnmanaged(
                 const old_capacity = self.capacity();
                 var i: Size = 0;
                 var metadata = self.metadata.?;
-                var keys_ptr = self.keys();
-                var values_ptr = self.values();
+                const keys_ptr = self.keys();
+                const values_ptr = self.values();
                 while (i < old_capacity) : (i += 1) {
                     if (metadata[i].isUsed()) {
                         map.putAssumeCapacityNoClobberContext(keys_ptr[i], values_ptr[i], ctx);

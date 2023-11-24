@@ -470,7 +470,7 @@ test "std.PriorityQueue: remove at index" {
             break idx;
         idx += 1;
     } else unreachable;
-    var sorted_items = [_]u32{ 1, 3, 4, 5, 8, 9 };
+    const sorted_items = [_]u32{ 1, 3, 4, 5, 8, 9 };
     try expectEqual(queue.removeIndex(two_idx), 2);
 
     var i: usize = 0;

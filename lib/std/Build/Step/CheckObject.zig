@@ -293,7 +293,7 @@ const Check = struct {
 
 /// Creates a new empty sequence of actions.
 pub fn checkStart(self: *CheckObject) void {
-    var new_check = Check.create(self.step.owner.allocator);
+    const new_check = Check.create(self.step.owner.allocator);
     self.checks.append(new_check) catch @panic("OOM");
 }
 

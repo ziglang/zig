@@ -6,7 +6,7 @@ const Value = union(Letter) {
 };
 export fn entry() void {
     var x: Value = Letter.A;
-    _ = x;
+    _ = &x;
 }
 
 // error

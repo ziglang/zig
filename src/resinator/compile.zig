@@ -666,7 +666,7 @@ pub const Compiler = struct {
                                 },
                             },
                             .dib => {
-                                var bitmap_header: *ico.BitmapHeader = @ptrCast(@alignCast(&header_bytes));
+                                const bitmap_header: *ico.BitmapHeader = @ptrCast(@alignCast(&header_bytes));
                                 if (native_endian == .big) {
                                     std.mem.byteSwapAllFields(ico.BitmapHeader, bitmap_header);
                                 }
@@ -1773,13 +1773,13 @@ pub const Compiler = struct {
         }
         try data_writer.writeByteNTimes(0, num_padding);
 
-        var style = if (control.style) |style_expression|
+        const style = if (control.style) |style_expression|
             // Certain styles are implied by the control type
             evaluateFlagsExpressionWithDefault(res.ControlClass.getImpliedStyle(control_type), style_expression, self.source, self.input_code_pages)
         else
             res.ControlClass.getImpliedStyle(control_type);
 
-        var exstyle = if (control.exstyle) |exstyle_expression|
+        const exstyle = if (control.exstyle) |exstyle_expression|
             evaluateFlagsExpressionWithDefault(0, exstyle_expression, self.source, self.input_code_pages)
         else
             0;
@@ -3205,7 +3205,7 @@ pub const StringTable = struct {
                 const trimmed_string = trim: {
                     // Two NUL characters in a row act as a terminator
                     // Note: This is only the case for STRINGTABLE strings
-                    var trimmed = trimToDoubleNUL(u16, utf16_string);
+                    const trimmed = trimToDoubleNUL(u16, utf16_string);
                     // We also want to trim any trailing NUL characters
                     break :trim std.mem.trimRight(u16, trimmed, &[_]u16{0});
                 };

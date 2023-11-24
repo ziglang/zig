@@ -17,5 +17,5 @@ const T = extern struct {
 
 test {
     var t: T = .{};
-    _ = t;
+    _ = &t;
 }
