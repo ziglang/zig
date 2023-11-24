@@ -7,7 +7,6 @@ const os = std.os;
 const windows = os.windows;
 const maxInt = std.math.maxInt;
 const Thread = std.Thread;
-const Atomic = std.atomic.Atomic;
 
 const is_windows = builtin.os.tag == .windows;
 
@@ -854,7 +853,7 @@ pub const Loop = struct {
         waiters: Waiters,
         thread: std.Thread,
         event: std.Thread.ResetEvent,
-        is_running: Atomic(bool),
+        is_running: std.atomic.Value(bool),
 
         /// Initialize the delay queue by spawning the timer thread
         /// and starting any timer resources.
@@ -866,7 +865,7 @@ pub const Loop = struct {
                 },
                 .thread = undefined,
                 .event = .{},
-                .is_running = Atomic(bool).init(true),
+                .is_running = std.atomic.Value(bool).init(true),
             };
 
             // Must be after init so that it can read the other state, such as `is_running`.

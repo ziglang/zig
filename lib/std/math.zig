@@ -186,9 +186,7 @@ test "approxEqAbs and approxEqRel" {
     }
 }
 
-pub fn doNotOptimizeAway(val: anytype) void {
-    return mem.doNotOptimizeAway(val);
-}
+pub const doNotOptimizeAway = @compileError("Deprecated: use `std.mem.doNotOptimizeAway` instead");
 
 pub fn raiseInvalid() void {
     // Raise INVALID fpu exception
@@ -801,7 +799,7 @@ fn testDivFloor() !void {
 /// zero.
 pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if ((comptime std.meta.trait.isNumber(T)) and denominator == 0) return error.DivisionByZero;
+    if (denominator == 0) return error.DivisionByZero;
     const info = @typeInfo(T);
     switch (info) {
         .ComptimeFloat, .Float => return @ceil(numerator / denominator),

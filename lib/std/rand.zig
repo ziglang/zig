@@ -3,8 +3,6 @@
 //! use `std.crypto.random`.
 //! Be sure to use a CSPRNG when required, otherwise using a normal PRNG will
 //! be faster and use substantially less stack space.
-//!
-//! TODO(tiehuis): Benchmark these against other reference implementations.
 
 const std = @import("std.zig");
 const builtin = @import("builtin");
@@ -383,34 +381,34 @@ pub const Random = struct {
     /// This is useful for selecting an item from a slice where weights are not equal.
     /// `T` must be a numeric type capable of holding the sum of `proportions`.
     pub fn weightedIndex(r: std.rand.Random, comptime T: type, proportions: []const T) usize {
-        // This implementation works by summing the proportions and picking a random
-        //  point in [0, sum).  We then loop over the proportions, accumulating
-        //  until our accumulator is greater than the random point.
+        // This implementation works by summing the proportions and picking a
+        // random point in [0, sum).  We then loop over the proportions,
+        // accumulating until our accumulator is greater than the random point.
 
-        var sum: T = 0;
-        for (proportions) |v| {
-            sum += v;
-        }
+        const sum = s: {
+            var sum: T = 0;
+            for (proportions) |v| sum += v;
+            break :s sum;
+        };
 
-        const point = if (comptime std.meta.trait.isSignedInt(T))
-            r.intRangeLessThan(T, 0, sum)
-        else if (comptime std.meta.trait.isUnsignedInt(T))
-            r.uintLessThan(T, sum)
-        else if (comptime std.meta.trait.isFloat(T))
+        const point = switch (@typeInfo(T)) {
+            .Int => |int_info| switch (int_info.signedness) {
+                .signed => r.intRangeLessThan(T, 0, sum),
+                .unsigned => r.uintLessThan(T, sum),
+            },
             // take care that imprecision doesn't lead to a value slightly greater than sum
-            @min(r.float(T) * sum, sum - std.math.floatEps(T))
-        else
-            @compileError("weightedIndex does not support proportions of type " ++ @typeName(T));
+            .Float => @min(r.float(T) * sum, sum - std.math.floatEps(T)),
+            else => @compileError("weightedIndex does not support proportions of type " ++
+                @typeName(T)),
+        };
 
-        std.debug.assert(point < sum);
+        assert(point < sum);
 
         var accumulator: T = 0;
         for (proportions, 0..) |p, index| {
             accumulator += p;
             if (point < accumulator) return index;
-        }
-
-        unreachable;
+        } else unreachable;
     }
 
     /// Returns the smallest of `Index` and `usize`.

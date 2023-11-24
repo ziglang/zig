@@ -4567,7 +4567,10 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
 }
 
 fn transCreateNodeNumber(c: *Context, num: anytype, num_kind: enum { int, float }) !Node {
-    const fmt_s = if (comptime meta.trait.isNumber(@TypeOf(num))) "{d}" else "{s}";
+    const fmt_s = switch (@typeInfo(@TypeOf(num))) {
+        .Int, .ComptimeInt => "{d}",
+        else => "{s}",
+    };
     const str = try std.fmt.allocPrint(c.arena, fmt_s, .{num});
     if (num_kind == .float)
         return Tag.float_literal.create(c.arena, str)

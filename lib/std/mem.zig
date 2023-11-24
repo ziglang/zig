@@ -4,8 +4,6 @@ const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
 const mem = @This();
-const meta = std.meta;
-const trait = meta.trait;
 const testing = std.testing;
 const Endian = std.builtin.Endian;
 const native_endian = builtin.cpu.arch.endian();
@@ -736,7 +734,7 @@ test "span" {
 }
 
 /// Helper for the return type of sliceTo()
-fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
+fn SliceTo(comptime T: type, comptime end: std.meta.Elem(T)) type {
     switch (@typeInfo(T)) {
         .Optional => |optional_info| {
             return ?SliceTo(optional_info.child, end);
@@ -796,7 +794,7 @@ fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
 /// resulting slice is also sentinel terminated.
 /// Pointer properties such as mutability and alignment are preserved.
 /// C pointers are assumed to be non-null.
-pub fn sliceTo(ptr: anytype, comptime end: meta.Elem(@TypeOf(ptr))) SliceTo(@TypeOf(ptr), end) {
+pub fn sliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) SliceTo(@TypeOf(ptr), end) {
     if (@typeInfo(@TypeOf(ptr)) == .Optional) {
         const non_null = ptr orelse return null;
         return sliceTo(non_null, end);
@@ -852,7 +850,7 @@ test "sliceTo" {
 }
 
 /// Private helper for sliceTo(). If you want the length, use sliceTo(foo, x).len
-fn lenSliceTo(ptr: anytype, comptime end: meta.Elem(@TypeOf(ptr))) usize {
+fn lenSliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) usize {
     switch (@typeInfo(@TypeOf(ptr))) {
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
@@ -1319,7 +1317,7 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
     if (needle.len > haystack.len) return null;
     if (needle.len == 0) return haystack.len;
 
-    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
+    if (!std.meta.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return lastIndexOfLinear(T, haystack, needle);
 
     const haystack_bytes = sliceAsBytes(haystack);
@@ -1350,7 +1348,7 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
         return indexOfScalarPos(T, haystack, start_index, needle[0]);
     }
 
-    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
+    if (!std.meta.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return indexOfPosLinear(T, haystack, start_index, needle);
 
     const haystack_bytes = sliceAsBytes(haystack);
@@ -3368,13 +3366,7 @@ fn ReverseIterator(comptime T: type) type {
 
 /// Iterates over a slice in reverse.
 pub fn reverseIterator(slice: anytype) ReverseIterator(@TypeOf(slice)) {
-    const T = @TypeOf(slice);
-    if (comptime trait.isPtrTo(.Array)(T)) {
-        return .{ .ptr = slice, .index = slice.len };
-    } else {
-        comptime assert(trait.isSlice(T));
-        return .{ .ptr = slice.ptr, .index = slice.len };
-    }
+    return .{ .ptr = slice.ptr, .index = slice.len };
 }
 
 test "reverseIterator" {
@@ -3394,7 +3386,7 @@ test "reverseIterator" {
         try testing.expectEqual(@as(?i32, null), it.next());
 
         it = reverseIterator(slice);
-        try testing.expect(trait.isConstPtr(@TypeOf(it.nextPtr().?)));
+        try testing.expect(*const i32 == @TypeOf(it.nextPtr().?));
         try testing.expectEqual(@as(?i32, 7), it.nextPtr().?.*);
         try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
         try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
@@ -3414,7 +3406,7 @@ test "reverseIterator" {
         try testing.expectEqual(@as(?i32, null), it.next());
 
         it = reverseIterator(ptr_to_array);
-        try testing.expect(trait.isConstPtr(@TypeOf(it.nextPtr().?)));
+        try testing.expect(*const i32 == @TypeOf(it.nextPtr().?));
         try testing.expectEqual(@as(?i32, 7), it.nextPtr().?.*);
         try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
         try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
@@ -3730,11 +3722,7 @@ fn CopyPtrAttrs(
 }
 
 fn AsBytesReturnType(comptime P: type) type {
-    if (!trait.isSingleItemPtr(P))
-        @compileError("expected single item pointer, passed " ++ @typeName(P));
-
-    const size = @sizeOf(meta.Child(P));
-
+    const size = @sizeOf(std.meta.Child(P));
     return CopyPtrAttrs(P, .One, [size]u8);
 }
 
@@ -3818,21 +3806,13 @@ test "toBytes" {
 }
 
 fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
-    const size = @as(usize, @sizeOf(T));
-
-    if (comptime !trait.is(.Pointer)(B) or
-        (meta.Child(B) != [size]u8 and meta.Child(B) != [size:0]u8))
-    {
-        @compileError(std.fmt.comptimePrint("expected *[{}]u8, passed " ++ @typeName(B), .{size}));
-    }
-
     return CopyPtrAttrs(B, .One, T);
 }
 
 /// Given a pointer to an array of bytes, returns a pointer to a value of the specified type
 /// backed by those bytes, preserving pointer attributes.
 pub fn bytesAsValue(comptime T: type, bytes: anytype) BytesAsValueReturnType(T, @TypeOf(bytes)) {
-    return @as(BytesAsValueReturnType(T, @TypeOf(bytes)), @ptrCast(bytes));
+    return @ptrCast(bytes);
 }
 
 test "bytesAsValue" {
@@ -3872,7 +3852,7 @@ test "bytesAsValue" {
         .big => "\xA1\xDE\xEF\xBE",
     };
     const inst2 = bytesAsValue(S, inst_bytes);
-    try testing.expect(meta.eql(inst, inst2.*));
+    try testing.expect(std.meta.eql(inst, inst2.*));
 }
 
 test "bytesAsValue preserves pointer attributes" {
@@ -3905,14 +3885,6 @@ test "bytesToValue" {
 }
 
 fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
-    if (!(trait.isSlice(bytesType) or trait.isPtrTo(.Array)(bytesType)) or meta.Elem(bytesType) != u8) {
-        @compileError("expected []u8 or *[_]u8, passed " ++ @typeName(bytesType));
-    }
-
-    if (trait.isPtrTo(.Array)(bytesType) and @typeInfo(meta.Child(bytesType)).Array.len % @sizeOf(T) != 0) {
-        @compileError("number of bytes in " ++ @typeName(bytesType) ++ " is not divisible by size of " ++ @typeName(T));
-    }
-
     return CopyPtrAttrs(bytesType, .Slice, T);
 }
 
@@ -4000,10 +3972,6 @@ test "bytesAsSlice preserves pointer attributes" {
 }
 
 fn SliceAsBytesReturnType(comptime Slice: type) type {
-    if (!trait.isSlice(Slice) and !trait.isPtrTo(.Array)(Slice)) {
-        @compileError("expected []T or *[_]T, passed " ++ @typeName(Slice));
-    }
-
     return CopyPtrAttrs(Slice, .Slice, u8);
 }
 
@@ -4012,15 +3980,15 @@ pub fn sliceAsBytes(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
     const Slice = @TypeOf(slice);
 
     // a slice of zero-bit values always occupies zero bytes
-    if (@sizeOf(meta.Elem(Slice)) == 0) return &[0]u8{};
+    if (@sizeOf(std.meta.Elem(Slice)) == 0) return &[0]u8{};
 
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (slice.len == 0 and comptime meta.sentinel(Slice) == null) return &[0]u8{};
+    if (slice.len == 0 and std.meta.sentinel(Slice) == null) return &[0]u8{};
 
     const cast_target = CopyPtrAttrs(Slice, .Many, u8);
 
-    return @as(cast_target, @ptrCast(slice))[0 .. slice.len * @sizeOf(meta.Elem(Slice))];
+    return @as(cast_target, @ptrCast(slice))[0 .. slice.len * @sizeOf(std.meta.Elem(Slice))];
 }
 
 test "sliceAsBytes" {

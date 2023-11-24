@@ -1,12 +1,11 @@
 const std = @import("std");
-const Atomic = std.atomic.Atomic;
 const assert = std.debug.assert;
 const WaitGroup = @This();
 
 const is_waiting: usize = 1 << 0;
 const one_pending: usize = 1 << 1;
 
-state: Atomic(usize) = Atomic(usize).init(0),
+state: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 event: std.Thread.ResetEvent = .{},
 
 pub fn start(self: *WaitGroup) void {
