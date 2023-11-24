@@ -375,7 +375,7 @@ pub fn panicExtra(
 
 /// Non-zero whenever the program triggered a panic.
 /// The counter is incremented/decremented atomically.
-var panicking = std.atomic.Atomic(u8).init(0);
+var panicking = std.atomic.Value(u8).init(0);
 
 // Locked to avoid interleaving panic messages from multiple threads.
 var panic_mutex = std.Thread.Mutex{};
@@ -448,7 +448,7 @@ fn waitForOtherThreadToFinishPanicking() void {
         if (builtin.single_threaded) unreachable;
 
         // Sleep forever without hammering the CPU
-        var futex = std.atomic.Atomic(u32).init(0);
+        var futex = std.atomic.Value(u32).init(0);
         while (true) std.Thread.Futex.wait(&futex, 0);
         unreachable;
     }
@@ -1078,13 +1078,8 @@ pub fn readElfDebugInfo(
     parent_mapped_mem: ?[]align(mem.page_size) const u8,
 ) !ModuleDebugInfo {
     nosuspend {
-
-        // TODO https://github.com/ziglang/zig/issues/5525
         const elf_file = (if (elf_filename) |filename| blk: {
-            break :blk if (fs.path.isAbsolute(filename))
-                fs.openFileAbsolute(filename, .{ .intended_io_mode = .blocking })
-            else
-                fs.cwd().openFile(filename, .{ .intended_io_mode = .blocking });
+            break :blk fs.cwd().openFile(filename, .{ .intended_io_mode = .blocking });
         } else fs.openSelfExe(.{ .intended_io_mode = .blocking })) catch |err| switch (err) {
             error.FileNotFound => return error.MissingDebugInfo,
             else => return err,

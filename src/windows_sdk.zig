@@ -14,7 +14,11 @@ const product_version_max_length = version_major_minor_max_length + ".65535".len
 /// Iterates via `iterator` and collects all folders with names starting with `optional_prefix`
 /// and similar to SemVer. Returns slice of folder names sorted in descending order.
 /// Caller owns result.
-fn iterateAndFilterBySemVer(iterator: *std.fs.IterableDir.Iterator, allocator: std.mem.Allocator, comptime optional_prefix: ?[]const u8) error{ OutOfMemory, VersionNotFound }![][]const u8 {
+fn iterateAndFilterBySemVer(
+    iterator: *std.fs.Dir.Iterator,
+    allocator: std.mem.Allocator,
+    comptime optional_prefix: ?[]const u8,
+) error{ OutOfMemory, VersionNotFound }![][]const u8 {
     var dirs_filtered_list = std.ArrayList([]const u8).init(allocator);
     errdefer {
         for (dirs_filtered_list.items) |filtered_dir| allocator.free(filtered_dir);
@@ -84,7 +88,7 @@ const RegistryUtf8 = struct {
     key: windows.HKEY,
 
     /// Assert that `key` is valid UTF-8 string
-    pub fn openKey(key: []const u8) error{KeyNotFound}!RegistryUtf8 {
+    pub fn openKey(hkey: windows.HKEY, key: []const u8) error{KeyNotFound}!RegistryUtf8 {
         const key_utf16le: [:0]const u16 = key_utf16le: {
             var key_utf16le_buf: [RegistryUtf16Le.key_name_max_len]u16 = undefined;
             const key_utf16le_len: usize = std.unicode.utf8ToUtf16Le(key_utf16le_buf[0..], key) catch |err| switch (err) {
@@ -94,7 +98,7 @@ const RegistryUtf8 = struct {
             break :key_utf16le key_utf16le_buf[0..key_utf16le_len :0];
         };
 
-        const registry_utf16le = try RegistryUtf16Le.openKey(key_utf16le);
+        const registry_utf16le = try RegistryUtf16Le.openKey(hkey, key_utf16le);
         return RegistryUtf8{ .key = registry_utf16le.key };
     }
 
@@ -187,10 +191,10 @@ const RegistryUtf16Le = struct {
     /// Under HKEY_LOCAL_MACHINE with flags:
     /// KEY_QUERY_VALUE, KEY_WOW64_32KEY, and KEY_ENUMERATE_SUB_KEYS.
     /// After finishing work, call `closeKey`.
-    fn openKey(key_utf16le: [:0]const u16) error{KeyNotFound}!RegistryUtf16Le {
+    fn openKey(hkey: windows.HKEY, key_utf16le: [:0]const u16) error{KeyNotFound}!RegistryUtf16Le {
         var key: windows.HKEY = undefined;
         const return_code_int: windows.HRESULT = windows.advapi32.RegOpenKeyExW(
-            windows.HKEY_LOCAL_MACHINE,
+            hkey,
             key_utf16le,
             0,
             windows.KEY_QUERY_VALUE | windows.KEY_WOW64_32KEY | windows.KEY_ENUMERATE_SUB_KEYS,
@@ -348,7 +352,7 @@ pub const Windows10Sdk = struct {
     /// Caller owns the result's fields.
     /// After finishing work, call `free(allocator)`.
     fn find(allocator: std.mem.Allocator) error{ OutOfMemory, Windows10SdkNotFound, PathTooLong, VersionTooLong }!Windows10Sdk {
-        const v10_key = RegistryUtf8.openKey("SOFTWARE\\Microsoft\\Microsoft SDKs\\Windows\\v10.0") catch |err| switch (err) {
+        const v10_key = RegistryUtf8.openKey(windows.HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Microsoft SDKs\\Windows\\v10.0") catch |err| switch (err) {
             error.KeyNotFound => return error.Windows10SdkNotFound,
         };
         defer v10_key.closeKey();
@@ -413,7 +417,7 @@ pub const Windows10Sdk = struct {
             error.NoSpaceLeft => return false,
         };
 
-        const options_key = RegistryUtf8.openKey(reg_query_as_utf8) catch |err| switch (err) {
+        const options_key = RegistryUtf8.openKey(windows.HKEY_LOCAL_MACHINE, reg_query_as_utf8) catch |err| switch (err) {
             error.KeyNotFound => return false,
         };
         defer options_key.closeKey();
@@ -476,7 +480,9 @@ pub const Windows81Sdk = struct {
             if (!std.fs.path.isAbsolute(sdk_lib_dir_path)) return error.Windows81SdkNotFound;
 
             // enumerate files in sdk path looking for latest version
-            var sdk_lib_dir = std.fs.openIterableDirAbsolute(sdk_lib_dir_path, .{}) catch |err| switch (err) {
+            var sdk_lib_dir = std.fs.openDirAbsolute(sdk_lib_dir_path, .{
+                .iterate = true,
+            }) catch |err| switch (err) {
                 error.NameTooLong => return error.PathTooLong,
                 else => return error.Windows81SdkNotFound,
             };
@@ -517,7 +523,7 @@ pub const ZigWindowsSDK = struct {
         if (builtin.os.tag != .windows) return error.NotFound;
 
         //note(dimenus): If this key doesn't exist, neither the Win 8 SDK nor the Win 10 SDK is installed
-        const roots_key = RegistryUtf8.openKey(WINDOWS_KIT_REG_KEY) catch |err| switch (err) {
+        const roots_key = RegistryUtf8.openKey(windows.HKEY_LOCAL_MACHINE, WINDOWS_KIT_REG_KEY) catch |err| switch (err) {
             error.KeyNotFound => return error.NotFound,
         };
         defer roots_key.closeKey();
@@ -575,113 +581,169 @@ pub const ZigWindowsSDK = struct {
 };
 
 const MsvcLibDir = struct {
-    // https://learn.microsoft.com/en-us/dotnet/api/microsoft.visualstudio.setup.configuration
+    fn findInstancesDirViaCLSID(allocator: std.mem.Allocator) error{ OutOfMemory, PathNotFound }!std.fs.Dir {
+        const setup_configuration_clsid = "{177f0c4a-1cd3-4de7-a32c-71dbbb9fa36d}";
+        const setup_config_key = RegistryUtf8.openKey(windows.HKEY_CLASSES_ROOT, "CLSID\\" ++ setup_configuration_clsid) catch |err| switch (err) {
+            error.KeyNotFound => return error.PathNotFound,
+        };
+        defer setup_config_key.closeKey();
+
+        const dll_path = setup_config_key.getString(allocator, "InprocServer32", "") catch |err| switch (err) {
+            error.NotAString,
+            error.ValueNameNotFound,
+            error.StringNotFound,
+            => return error.PathNotFound,
+
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+        defer allocator.free(dll_path);
+
+        var path_it = std.fs.path.componentIterator(dll_path) catch return error.PathNotFound;
+        // the .dll filename
+        _ = path_it.last();
+        const root_path = while (path_it.previous()) |dir_component| {
+            if (std.ascii.eqlIgnoreCase(dir_component.name, "VisualStudio")) {
+                break dir_component.path;
+            }
+        } else {
+            return error.PathNotFound;
+        };
+
+        const instances_path = try std.fs.path.join(allocator, &.{ root_path, "Packages", "_Instances" });
+        defer allocator.free(instances_path);
+
+        return std.fs.openDirAbsolute(instances_path, .{ .iterate = true }) catch return error.PathNotFound;
+    }
+
+    fn findInstancesDir(allocator: std.mem.Allocator) error{ OutOfMemory, PathNotFound }!std.fs.Dir {
+        // First try to get the path from the .dll that would have been
+        // loaded via COM for SetupConfiguration.
+        return findInstancesDirViaCLSID(allocator) catch |orig_err| {
+            // If that can't be found, fall back to manually appending
+            // `Microsoft\VisualStudio\Packages\_Instances` to %PROGRAMDATA%
+            const program_data = std.process.getEnvVarOwned(allocator, "PROGRAMDATA") catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
+                else => return orig_err,
+            };
+            defer allocator.free(program_data);
+
+            const instances_path = try std.fs.path.join(allocator, &.{ program_data, "Microsoft", "VisualStudio", "Packages", "_Instances" });
+            defer allocator.free(instances_path);
+
+            return std.fs.openDirAbsolute(instances_path, .{ .iterate = true }) catch return orig_err;
+        };
+    }
+
+    /// Intended to be equivalent to `ISetupHelper.ParseVersion`
+    /// Example: 17.4.33205.214 -> 0x0011000481b500d6
+    fn parseVersionQuad(version: []const u8) error{InvalidVersion}!u64 {
+        var it = std.mem.splitScalar(u8, version, '.');
+        const a = it.next() orelse return error.InvalidVersion;
+        const b = it.next() orelse return error.InvalidVersion;
+        const c = it.next() orelse return error.InvalidVersion;
+        const d = it.next() orelse return error.InvalidVersion;
+        if (it.next()) |_| return error.InvalidVersion;
+        var result: u64 = undefined;
+        var result_bytes = std.mem.asBytes(&result);
+
+        std.mem.writeInt(
+            u16,
+            result_bytes[0..2],
+            std.fmt.parseUnsigned(u16, d, 10) catch return error.InvalidVersion,
+            .little,
+        );
+        std.mem.writeInt(
+            u16,
+            result_bytes[2..4],
+            std.fmt.parseUnsigned(u16, c, 10) catch return error.InvalidVersion,
+            .little,
+        );
+        std.mem.writeInt(
+            u16,
+            result_bytes[4..6],
+            std.fmt.parseUnsigned(u16, b, 10) catch return error.InvalidVersion,
+            .little,
+        );
+        std.mem.writeInt(
+            u16,
+            result_bytes[6..8],
+            std.fmt.parseUnsigned(u16, a, 10) catch return error.InvalidVersion,
+            .little,
+        );
+
+        return result;
+    }
+
+    /// Intended to be equivalent to ISetupConfiguration.EnumInstances:
+    /// https://learn.microsoft.com/en-us/dotnet/api/microsoft.visualstudio.setup.configuration
+    /// but without the use of COM in order to avoid a dependency on ole32.dll
+    ///
+    /// The logic in this function is intended to match what ISetupConfiguration does
+    /// under-the-hood, as verified using Procmon.
     fn findViaCOM(allocator: std.mem.Allocator) error{ OutOfMemory, PathNotFound }![]const u8 {
-        switch (windows.ole32.CoInitializeEx(null, windows.COINIT.MULTITHREADED)) {
-            windows.S_OK, windows.S_FALSE => {},
-            windows.E_OUTOFMEMORY => return error.OutOfMemory,
-            else => return error.PathNotFound,
-        }
-        // > To close the COM library gracefully on a thread, each successful
-        // > call to CoInitialize or CoInitializeEx, including any call that
-        // > returns S_FALSE, must be balanced by a corresponding call to CoUninitialize.
-        // https://learn.microsoft.com/en-us/windows/win32/api/combaseapi/nf-combaseapi-coinitializeex
-        defer windows.ole32.CoUninitialize();
+        // Typically `%PROGRAMDATA%\Microsoft\VisualStudio\Packages\_Instances`
+        // This will contain directories with names of instance IDs like 80a758ca,
+        // which will contain `state.json` files that have the version and
+        // installation directory.
+        var instances_dir = try findInstancesDir(allocator);
+        defer instances_dir.close();
 
-        var setup_config: *ISetupConfiguration = undefined;
-        switch (CoCreateInstance(
-            SetupConfiguration.CLSID,
-            null,
-            CLSCTX.INPROC_SERVER | CLSCTX.INPROC_HANDLER,
-            ISetupConfiguration.IID,
-            @ptrCast(&setup_config),
-        )) {
-            windows.S_OK => {},
-            windows.E_OUTOFMEMORY => return error.OutOfMemory,
-            else => return error.PathNotFound,
-        }
-        defer _ = setup_config.vtable.unknown.Release(setup_config);
+        var state_subpath_buf: [std.fs.MAX_NAME_BYTES + 32]u8 = undefined;
+        var latest_version_lib_dir = std.ArrayListUnmanaged(u8){};
+        errdefer latest_version_lib_dir.deinit(allocator);
 
-        var setup_helper: *ISetupHelper = undefined;
-        switch (setup_config.vtable.unknown.QueryInterface(
-            setup_config,
-            ISetupHelper.IID,
-            @ptrCast(&setup_helper),
-        )) {
-            windows.S_OK => {},
-            else => return error.PathNotFound,
-        }
+        var latest_version: u64 = 0;
+        var instances_dir_it = instances_dir.iterateAssumeFirstIteration();
+        while (instances_dir_it.next() catch return error.PathNotFound) |entry| {
+            if (entry.kind != .directory) continue;
 
-        var all_instances: *IEnumSetupInstances = undefined;
-        switch (setup_config.vtable.setup_configuration.EnumInstances(setup_config, &all_instances)) {
-            windows.S_OK => {},
-            windows.E_OUTOFMEMORY => return error.OutOfMemory,
-            else => return error.PathNotFound,
-        }
-        defer _ = all_instances.vtable.unknown.Release(all_instances);
+            var fbs = std.io.fixedBufferStream(&state_subpath_buf);
+            const writer = fbs.writer();
 
-        var latest_version: windows.ULONGLONG = 0;
-        var latest_version_lib_dir: ?[]const u8 = null;
-        while (true) {
-            var cur: *ISetupInstance = undefined;
-            switch (all_instances.vtable.enum_setup_instances.Next(all_instances, 1, &cur, null)) {
-                windows.S_OK => {},
-                windows.S_FALSE => break,
-                windows.E_OUTOFMEMORY => return error.OutOfMemory,
-                else => return error.PathNotFound,
-            }
-            defer _ = cur.vtable.unknown.Release(cur);
+            writer.writeAll(entry.name) catch unreachable;
+            writer.writeByte(std.fs.path.sep) catch unreachable;
+            writer.writeAll("state.json") catch unreachable;
 
-            var installation_version_bstr: windows.BSTR = undefined;
-            switch (cur.vtable.setup_instance.GetInstallationVersion(cur, &installation_version_bstr)) {
-                windows.S_OK => {},
-                windows.E_OUTOFMEMORY => return error.OutOfMemory,
-                else => continue,
-            }
-            defer SysFreeString(installation_version_bstr);
+            const json_contents = instances_dir.readFileAlloc(allocator, fbs.getWritten(), std.math.maxInt(usize)) catch continue;
+            defer allocator.free(json_contents);
 
-            var parsed_version: windows.ULONGLONG = undefined;
-            switch (setup_helper.vtable.setup_helper.ParseVersion(setup_helper, installation_version_bstr, &parsed_version)) {
-                windows.S_OK => {},
-                else => continue,
-            }
+            var parsed = std.json.parseFromSlice(std.json.Value, allocator, json_contents, .{}) catch continue;
+            defer parsed.deinit();
+
+            if (parsed.value != .object) continue;
+            const catalog_info = parsed.value.object.get("catalogInfo") orelse continue;
+            if (catalog_info != .object) continue;
+            const product_version_value = catalog_info.object.get("buildVersion") orelse continue;
+            if (product_version_value != .string) continue;
+            const product_version_text = product_version_value.string;
+            const parsed_version = parseVersionQuad(product_version_text) catch continue;
 
             // We want to end up with the most recent version installed
             if (parsed_version <= latest_version) continue;
 
-            var installation_path_bstr: windows.BSTR = undefined;
-            switch (cur.vtable.setup_instance.GetInstallationPath(cur, &installation_path_bstr)) {
-                windows.S_OK => {},
-                windows.E_OUTOFMEMORY => return error.OutOfMemory,
-                else => continue,
-            }
-            defer SysFreeString(installation_path_bstr);
+            const installation_path = parsed.value.object.get("installationPath") orelse continue;
+            if (installation_path != .string) continue;
 
-            const installation_path_w = std.mem.span(installation_path_bstr);
-            const lib_dir_path = libDirFromInstallationPath(allocator, installation_path_w) catch |err| switch (err) {
+            const lib_dir_path = libDirFromInstallationPath(allocator, installation_path.string) catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
                 error.PathNotFound => continue,
             };
-            errdefer allocator.free(lib_dir_path);
+            defer allocator.free(lib_dir_path);
 
-            if (latest_version_lib_dir) |prev_lib_dir| {
-                allocator.free(prev_lib_dir);
-            }
-            latest_version_lib_dir = lib_dir_path;
+            latest_version_lib_dir.clearRetainingCapacity();
+            try latest_version_lib_dir.appendSlice(allocator, lib_dir_path);
             latest_version = parsed_version;
         }
 
-        return latest_version_lib_dir orelse error.PathNotFound;
+        if (latest_version_lib_dir.items.len == 0) return error.PathNotFound;
+        return latest_version_lib_dir.toOwnedSlice(allocator);
     }
 
-    fn libDirFromInstallationPath(allocator: std.mem.Allocator, installation_path_w: []const u16) error{ OutOfMemory, PathNotFound }![]const u8 {
-        // Each UTF-16LE code unit may be expanded to 3 UTF-8 bytes.
-        var lib_dir_buf = try std.ArrayList(u8).initCapacity(allocator, installation_path_w.len * 3);
+    fn libDirFromInstallationPath(allocator: std.mem.Allocator, installation_path: []const u8) error{ OutOfMemory, PathNotFound }![]const u8 {
+        var lib_dir_buf = try std.ArrayList(u8).initCapacity(allocator, installation_path.len + 64);
         errdefer lib_dir_buf.deinit();
 
-        lib_dir_buf.items.len = std.unicode.utf16leToUtf8(lib_dir_buf.unusedCapacitySlice(), installation_path_w) catch {
-            return error.PathNotFound;
-        };
+        lib_dir_buf.appendSliceAssumeCapacity(installation_path);
 
         if (!std.fs.path.isSep(lib_dir_buf.getLast())) {
             try lib_dir_buf.append('\\');
@@ -727,7 +789,9 @@ const MsvcLibDir = struct {
             if (!std.fs.path.isAbsolute(visualstudio_folder_path)) return error.PathNotFound;
             // enumerate folders that contain `privateregistry.bin`, looking for all versions
             // f.i. %localappdata%\Microsoft\VisualStudio\17.0_9e9cbb98\
-            var visualstudio_folder = std.fs.openIterableDirAbsolute(visualstudio_folder_path, .{}) catch return error.PathNotFound;
+            var visualstudio_folder = std.fs.openDirAbsolute(visualstudio_folder_path, .{
+                .iterate = true,
+            }) catch return error.PathNotFound;
             defer visualstudio_folder.close();
 
             var iterator = visualstudio_folder.iterate();
@@ -830,7 +894,7 @@ const MsvcLibDir = struct {
                 }
             }
 
-            const vs7_key = RegistryUtf8.openKey("SOFTWARE\\Microsoft\\VisualStudio\\SxS\\VS7") catch return error.PathNotFound;
+            const vs7_key = RegistryUtf8.openKey(windows.HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\VisualStudio\\SxS\\VS7") catch return error.PathNotFound;
             defer vs7_key.closeKey();
             try_vs7_key: {
                 const path_maybe_with_trailing_slash = vs7_key.getString(allocator, "", "14.0") catch |err| switch (err) {
@@ -901,175 +965,4 @@ const MsvcLibDir = struct {
 
         return full_path;
     }
-};
-
-const IUnknown = extern struct {
-    vtable: *VTable(IUnknown),
-
-    const IID_Value = windows.GUID.parse("{00000000-0000-0000-c000-000000000046}");
-    pub const IID = &IID_Value;
-
-    pub fn VTable(comptime T: type) type {
-        return extern struct {
-            QueryInterface: *const fn (
-                self: *T,
-                riid: ?*const windows.GUID,
-                ppvObject: ?*?*anyopaque,
-            ) callconv(windows.WINAPI) windows.HRESULT,
-            AddRef: *const fn (
-                self: *T,
-            ) callconv(windows.WINAPI) u32,
-            Release: *const fn (
-                self: *T,
-            ) callconv(windows.WINAPI) u32,
-        };
-    }
-};
-
-const ISetupConfiguration = extern struct {
-    vtable: *extern struct {
-        unknown: IUnknown.VTable(ISetupConfiguration),
-        setup_configuration: VTable(ISetupConfiguration),
-    },
-
-    const IID_Value = windows.GUID.parse("{42843719-db4c-46c2-8e7c-64f1816efd5b}");
-    pub const IID = &IID_Value;
-
-    pub fn VTable(comptime T: type) type {
-        return extern struct {
-            EnumInstances: *const fn (
-                self: *T,
-                ppEnumInstances: **IEnumSetupInstances, // [out]
-            ) callconv(windows.WINAPI) windows.HRESULT,
-            GetInstanceForCurrentProcess: *const fn (
-                self: *T,
-                ppInstance: **ISetupInstance, // [out]
-            ) callconv(windows.WINAPI) windows.HRESULT,
-            GetInstanceForPath: *const fn (
-                self: *T,
-                wzPath: windows.LPCWSTR, // [in]
-                ppInstance: **ISetupInstance, // [out]
-            ) callconv(windows.WINAPI) windows.HRESULT,
-        };
-    }
-};
-
-const IEnumSetupInstances = extern struct {
-    vtable: *extern struct {
-        unknown: IUnknown.VTable(IEnumSetupInstances),
-        enum_setup_instances: VTable(IEnumSetupInstances),
-    },
-
-    const IID_Value = windows.GUID.parse("{6380bcff-41d3-4b2e-8b2e-bf8a6810c848}");
-    pub const IID = &IID_Value;
-
-    pub fn VTable(comptime T: type) type {
-        return extern struct {
-            /// Returns S_OK if the number of elements were fetched,
-            /// S_FALSE if nothing was fetched (at end of enumeration),
-            /// E_INVALIDARG if `celt` is greater than 1 and pceltFetched is NULL,
-            /// or E_OUTOFMEMORY if an ISetupInstance could not be allocated.
-            Next: *const fn (
-                self: *T,
-                /// The number of product instances to retrieve
-                celt: windows.ULONG, // [in]
-                /// A pointer to an array of ISetupInstance
-                rgelt: **ISetupInstance, // [out]
-                /// A pointer to the number of product instances retrieved.
-                /// If `celt` is 1 this paramter may be NULL
-                pceltFetched: ?*windows.ULONG,
-            ) callconv(windows.WINAPI) windows.HRESULT,
-            Skip: *const fn (
-                self: *T,
-                /// The number of product instances to skip
-                celt: windows.ULONG, // [in]
-            ) callconv(windows.WINAPI) windows.HRESULT,
-            Reset: *const fn (
-                self: *T,
-            ) callconv(windows.WINAPI) void,
-            Clone: *const fn (
-                self: *T,
-                ppenum: **IEnumSetupInstances, // [out]
-            ) callconv(windows.WINAPI) windows.HRESULT,
-        };
-    }
-};
-
-const ISetupInstance = extern struct {
-    vtable: *extern struct {
-        unknown: IUnknown.VTable(ISetupInstance),
-        setup_instance: VTable(ISetupInstance),
-    },
-
-    const IID_Value = windows.GUID.parse("{b41463c3-8866-43b5-bc33-2b0676f7f42e}");
-    pub const IID = &IID_Value;
-
-    pub fn VTable(comptime T: type) type {
-        return extern struct {
-            GetInstanceId: *const fn (
-                self: *T,
-                pbstrInstanceId: *windows.BSTR, // [out]
-            ) callconv(windows.WINAPI) windows.HRESULT,
-            GetInstallDate: *const fn (
-                self: *T,
-                pInstallDate: *windows.FILETIME, // [out]
-            ) callconv(windows.WINAPI) windows.HRESULT,
-            GetInstallationName: *const fn (
-                self: *T,
-                pbstrInstallationName: *windows.BSTR, // [out]
-            ) callconv(windows.WINAPI) windows.HRESULT,
-            GetInstallationPath: *const fn (
-                self: *T,
-                pbstrInstallationPath: *windows.BSTR, // [out]
-            ) callconv(windows.WINAPI) windows.HRESULT,
-            GetInstallationVersion: *const fn (
-                self: *T,
-                pbstrInstallationVersion: *windows.BSTR, // [out]
-            ) callconv(windows.WINAPI) windows.HRESULT,
-            GetDisplayName: *anyopaque,
-            GetDescription: *anyopaque,
-            ResolvePath: *anyopaque,
-        };
-    }
-};
-
-const ISetupHelper = extern struct {
-    vtable: *extern struct {
-        unknown: IUnknown.VTable(ISetupHelper),
-        setup_helper: VTable(ISetupHelper),
-    },
-
-    const IID_Value = windows.GUID.parse("{42b21b78-6192-463e-87bf-d577838f1d5c}");
-    pub const IID = &IID_Value;
-
-    pub fn VTable(comptime T: type) type {
-        return extern struct {
-            ParseVersion: *const fn (
-                self: *T,
-                pwszVersion: windows.BSTR, // [in]
-                pullVersion: *windows.ULONGLONG, // [out]
-            ) callconv(windows.WINAPI) windows.HRESULT,
-            ParseVersionRange: *anyopaque,
-        };
-    }
-};
-
-const SetupConfiguration = extern struct {
-    const CLSID_Value = windows.GUID.parse("{177f0c4a-1cd3-4de7-a32c-71dbbb9fa36d}");
-    pub const CLSID = &CLSID_Value;
-};
-
-extern "ole32" fn CoCreateInstance(
-    rclsid: ?*const windows.GUID, // [in]
-    pUnkOuter: ?*IUnknown, // [in]
-    dwClsContext: windows.DWORD, // [in]
-    riid: ?*const windows.GUID, // [in]
-    ppv: **anyopaque, // [out]
-) callconv(windows.WINAPI) windows.HRESULT;
-
-extern "oleaut32" fn SysFreeString(bstrString: ?windows.BSTR) callconv(windows.WINAPI) void;
-
-const CLSCTX = struct {
-    const INPROC_SERVER = 0x1;
-    const INPROC_HANDLER = 0x2;
 };

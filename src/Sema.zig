@@ -7132,6 +7132,9 @@ fn analyzeCall(
     const callee_ty = sema.typeOf(func);
     const func_ty_info = mod.typeToFunc(func_ty).?;
     const cc = func_ty_info.cc;
+    if (try sema.resolveValue(func)) |func_val|
+        if (func_val.isUndef(mod))
+            return sema.failWithUseOfUndef(block, call_src);
     if (cc == .Naked) {
         const maybe_decl = try sema.funcDeclSrc(func);
         const msg = msg: {
@@ -21068,7 +21071,7 @@ fn zirReify(
                 }
 
                 const param_type_val = opt_param_type_val.optionalValue(mod) orelse
-                    return sema.fail(block, src, "Type.Fn.Param.arg_type must be non-null for @Type", .{});
+                    return sema.fail(block, src, "Type.Fn.Param.type must be non-null for @Type", .{});
                 param_type.* = param_type_val.toIntern();
 
                 if (param_is_noalias_val.toBool()) {

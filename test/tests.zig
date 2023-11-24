@@ -1288,7 +1288,7 @@ pub fn addCases(
 
     var cases = @import("src/Cases.zig").init(gpa, arena);
 
-    var dir = try b.build_root.handle.openIterableDir("test/cases", .{});
+    var dir = try b.build_root.handle.openDir("test/cases", .{ .iterate = true });
     defer dir.close();
 
     cases.addFromDir(dir);

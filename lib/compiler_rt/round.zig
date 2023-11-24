@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 const arch = builtin.cpu.arch;
 const common = @import("common.zig");
@@ -45,7 +46,7 @@ pub fn roundf(x_: f32) callconv(.C) f32 {
         x = -x;
     }
     if (e < 0x7F - 1) {
-        math.doNotOptimizeAway(x + f32_toint);
+        mem.doNotOptimizeAway(x + f32_toint);
         return 0 * @as(f32, @bitCast(u));
     }
 
@@ -80,7 +81,7 @@ pub fn round(x_: f64) callconv(.C) f64 {
         x = -x;
     }
     if (e < 0x3ff - 1) {
-        math.doNotOptimizeAway(x + f64_toint);
+        mem.doNotOptimizeAway(x + f64_toint);
         return 0 * @as(f64, @bitCast(u));
     }
 
@@ -120,7 +121,7 @@ pub fn roundq(x_: f128) callconv(.C) f128 {
         x = -x;
     }
     if (e < 0x3FFF - 1) {
-        math.doNotOptimizeAway(x + f128_toint);
+        mem.doNotOptimizeAway(x + f128_toint);
         return 0 * @as(f128, @bitCast(u));
     }
 
