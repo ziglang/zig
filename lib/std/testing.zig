@@ -219,22 +219,6 @@ pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anyt
     return error.TestExpectedFmt;
 }
 
-/// This function is equivalent to std.fmt.expectFmt, but the formatting is done at comptime
-/// This function is intended to be used only in tests. When the formatted result of the template
-/// and its arguments does not equal the expected text, it prints diagnostics to stderr to show how
-/// they are not equal, then returns an error.
-pub fn expectComptimeFmt(expected: []const u8, comptime template: []const u8, args: anytype) !void {
-    const result = std.fmt.comptimePrint(template, args);
-    if (std.mem.eql(u8, result, expected)) return;
-
-    print("\n====== expected this output: =========\n", .{});
-    print("{s}", .{expected});
-    print("\n======== instead found this: =========\n", .{});
-    print("{s}", .{result});
-    print("\n======================================\n", .{});
-    return error.TestExpectedFmt;
-}
-
 /// This function is intended to be used only in tests. When the actual value is
 /// not approximately equal to the expected value, prints diagnostics to stderr
 /// to show exactly how they are not equal, then returns a test failure error.
