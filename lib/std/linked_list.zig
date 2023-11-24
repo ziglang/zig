@@ -189,7 +189,6 @@ pub fn SinglyLinkedList(comptime T: type) type {
     };
 }
 
-
 fn testLessThan(left: u32, right: u32) bool {
     return left < right;
 }
@@ -237,7 +236,6 @@ test "basic SinglyLinkedList test" {
     try testing.expect(list.first.?.data == 4);
     try testing.expect(list.first.?.next.?.data == 2);
     try testing.expect(list.first.?.next.?.next == null);
-
 
     list.prepend(&five); // {5, 4, 2}
     list.prepend(&one); // {1, 5, 4, 2}
