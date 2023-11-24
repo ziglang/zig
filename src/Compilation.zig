@@ -4194,7 +4194,7 @@ pub const CImportResult = struct {
 /// This API is currently coupled pretty tightly to stage1's needs; it will need to be reworked
 /// a bit when we want to start using it from self-hosted.
 pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
-    if (build_options.only_c) unreachable; // @cImport is not needed for bootstrapping
+    if (build_options.only_core_functionality) @panic("@cImport is not available in a zig2.c build");
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 

@@ -1,13 +1,13 @@
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
-const clang = @import("clang.zig");
-const ctok = std.c.tokenizer;
-const CToken = std.c.Token;
 const mem = std.mem;
 const math = std.math;
 const meta = std.meta;
 const CallingConvention = std.builtin.CallingConvention;
+const clang = @import("clang.zig");
+const aro = @import("aro");
+const CToken = aro.Tokenizer.Token;
 const ast = @import("translate_c/ast.zig");
 const Node = ast.Node;
 const Tag = Node.Tag;
@@ -190,19 +190,21 @@ pub fn translate(
 
 /// Determines whether macro is of the form: `#define FOO FOO` (Possibly with trailing tokens)
 /// Macros of this form will not be translated.
-fn isSelfDefinedMacro(unit: *const clang.ASTUnit, c: *const Context, macro: *const clang.MacroDefinitionRecord) bool {
-    const source = getMacroText(unit, c, macro);
-    var tokenizer = std.c.Tokenizer{
-        .buffer = source,
+fn isSelfDefinedMacro(unit: *const clang.ASTUnit, c: *const Context, macro: *const clang.MacroDefinitionRecord) !bool {
+    const source = try getMacroText(unit, c, macro);
+    var tokenizer: aro.Tokenizer = .{
+        .buf = source,
+        .source = .unused,
+        .langopts = .{},
     };
-    const name_tok = tokenizer.next();
+    const name_tok = tokenizer.nextNoWS();
     const name = source[name_tok.start..name_tok.end];
 
-    const first_tok = tokenizer.next();
+    const first_tok = tokenizer.nextNoWS();
     // We do not just check for `.Identifier` below because keyword tokens are preferentially matched first by
     // the tokenizer.
     // In other words we would miss `#define inline inline` (`inline` is a valid c89 identifier)
-    if (first_tok.id == .Eof) return false;
+    if (first_tok.id == .eof) return false;
     return mem.eql(u8, name, source[first_tok.start..first_tok.end]);
 }
 
@@ -223,7 +225,7 @@ fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
                 const raw_name = macro.getName_getNameStart();
                 const name = try c.str(raw_name);
 
-                if (!isSelfDefinedMacro(ast_unit, c, macro)) {
+                if (!try isSelfDefinedMacro(ast_unit, c, macro)) {
                     try c.global_names.put(c.gpa, name, {});
                 }
             },
@@ -5159,16 +5161,16 @@ pub const PatternList = struct {
     /// Assumes that `ms` represents a tokenized function-like macro.
     fn buildArgsHash(allocator: mem.Allocator, ms: MacroSlicer, hash: *ArgsPositionMap) MacroProcessingError!void {
         assert(ms.tokens.len > 2);
-        assert(ms.tokens[0].id == .Identifier);
-        assert(ms.tokens[1].id == .LParen);
+        assert(ms.tokens[0].id == .identifier or ms.tokens[0].id == .extended_identifier);
+        assert(ms.tokens[1].id == .l_paren);
 
         var i: usize = 2;
         while (true) : (i += 1) {
             const token = ms.tokens[i];
             switch (token.id) {
-                .RParen => break,
-                .Comma => continue,
-                .Identifier => {
+                .r_paren => break,
+                .comma => continue,
+                .identifier, .extended_identifier => {
                     const identifier = ms.slice(token);
                     try hash.put(allocator, identifier, i);
                 },
@@ -5220,18 +5222,18 @@ pub const PatternList = struct {
             if (args_hash.count() != self.args_hash.count()) return false;
 
             var i: usize = 2;
-            while (self.tokens[i].id != .RParen) : (i += 1) {}
+            while (self.tokens[i].id != .r_paren) : (i += 1) {}
 
             const pattern_slicer = MacroSlicer{ .source = self.source, .tokens = self.tokens };
             while (i < self.tokens.len) : (i += 1) {
                 const pattern_token = self.tokens[i];
                 const macro_token = ms.tokens[i];
-                if (meta.activeTag(pattern_token.id) != meta.activeTag(macro_token.id)) return false;
+                if (pattern_token.id != macro_token.id) return false;
 
                 const pattern_bytes = pattern_slicer.slice(pattern_token);
                 const macro_bytes = ms.slice(macro_token);
                 switch (pattern_token.id) {
-                    .Identifier => {
+                    .identifier, .extended_identifier => {
                         const pattern_arg_index = self.args_hash.get(pattern_bytes);
                         const macro_arg_index = args_hash.get(macro_bytes);
 
@@ -5243,7 +5245,7 @@ pub const PatternList = struct {
                             return false;
                         }
                     },
-                    .MacroString, .StringLiteral, .CharLiteral, .IntegerLiteral, .FloatLiteral => {
+                    .string_literal, .char_literal, .pp_num => {
                         if (!mem.eql(u8, pattern_bytes, macro_bytes)) return false;
                     },
                     else => {
@@ -5359,13 +5361,13 @@ const MacroCtx = struct {
         return self.list[self.i].id;
     }
 
-    fn skip(self: *MacroCtx, c: *Context, expected_id: std.meta.Tag(CToken.Id)) ParseError!void {
+    fn skip(self: *MacroCtx, c: *Context, expected_id: CToken.Id) ParseError!void {
         const next_id = self.next().?;
-        if (next_id != expected_id) {
+        if (next_id != expected_id and !(expected_id == .identifier and next_id == .extended_identifier)) {
             try self.fail(
                 c,
                 "unable to translate C expr: expected '{s}' instead got '{s}'",
-                .{ CToken.Id.symbolName(expected_id), next_id.symbol() },
+                .{ expected_id.symbol(), next_id.symbol() },
             );
             return error.ParseError;
         }
@@ -5396,12 +5398,12 @@ const MacroCtx = struct {
         while (i < self.list.len) : (i += 1) {
             const token = self.list[i];
             switch (token.id) {
-                .Period, .Arrow => i += 1, // skip next token since field identifiers can be unknown
-                .Keyword_struct, .Keyword_union, .Keyword_enum => if (!last_is_type_kw) {
+                .period, .arrow => i += 1, // skip next token since field identifiers can be unknown
+                .keyword_struct, .keyword_union, .keyword_enum => if (!last_is_type_kw) {
                     last_is_type_kw = true;
                     continue;
                 },
-                .Identifier => {
+                .identifier, .extended_identifier => {
                     const identifier = slicer.slice(token);
                     const is_param = for (params) |param| {
                         if (param.name != null and mem.eql(u8, identifier, param.name.?)) break true;
@@ -5422,31 +5424,38 @@ const MacroCtx = struct {
 };
 
 fn tokenizeMacro(source: []const u8, tok_list: *std.ArrayList(CToken)) Error!void {
-    var tokenizer = std.c.Tokenizer{
-        .buffer = source,
+    var tokenizer: aro.Tokenizer = .{
+        .buf = source,
+        .source = .unused,
+        .langopts = .{},
     };
     while (true) {
         const tok = tokenizer.next();
         switch (tok.id) {
-            .Nl, .Eof => {
+            .whitespace => continue,
+            .nl, .eof => {
                 try tok_list.append(tok);
                 break;
             },
-            .LineComment, .MultiLineComment => continue,
             else => {},
         }
         try tok_list.append(tok);
     }
 }
 
-fn getMacroText(unit: *const clang.ASTUnit, c: *const Context, macro: *const clang.MacroDefinitionRecord) []const u8 {
+fn getMacroText(unit: *const clang.ASTUnit, c: *const Context, macro: *const clang.MacroDefinitionRecord) ![]const u8 {
     const begin_loc = macro.getSourceRange_getBegin();
     const end_loc = clang.Lexer.getLocForEndOfToken(macro.getSourceRange_getEnd(), c.source_manager, unit);
 
     const begin_c = c.source_manager.getCharacterData(begin_loc);
     const end_c = c.source_manager.getCharacterData(end_loc);
     const slice_len = @intFromPtr(end_c) - @intFromPtr(begin_c);
-    return begin_c[0..slice_len];
+
+    var comp = aro.Compilation.init(c.gpa);
+    defer comp.deinit();
+    const result = comp.addSourceFromBuffer("", begin_c[0..slice_len]) catch return error.OutOfMemory;
+
+    return c.arena.dupe(u8, result.buf);
 }
 
 fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
@@ -5471,7 +5480,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                     continue;
                 }
 
-                const source = getMacroText(unit, c, macro);
+                const source = try getMacroText(unit, c, macro);
 
                 try tokenizeMacro(source, &tok_list);
 
@@ -5485,7 +5494,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
 
                 var macro_fn = false;
                 switch (macro_ctx.peek().?) {
-                    .Identifier => {
+                    .identifier, .extended_identifier => {
                         // if it equals itself, ignore. for example, from stdio.h:
                         // #define stdin stdin
                         const tok = macro_ctx.list[1];
@@ -5494,7 +5503,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                             continue;
                         }
                     },
-                    .Nl, .Eof => {
+                    .nl, .eof => {
                         // this means it is a macro without a value
                         // We define it as an empty string so that it can still be used with ++
                         const str_node = try Tag.string_literal.create(c.arena, "\"\"");
@@ -5503,7 +5512,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                         try c.global_scope.blank_macros.put(name, {});
                         continue;
                     },
-                    .LParen => {
+                    .l_paren => {
                         // if the name is immediately followed by a '(' then it is a function
                         macro_fn = macro_ctx.list[0].end == macro_ctx.list[1].start;
                     },
@@ -5534,7 +5543,7 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     // Check if the macro only uses other blank macros.
     while (true) {
         switch (m.peek().?) {
-            .Identifier => {
+            .identifier, .extended_identifier => {
                 const tok = m.list[m.i + 1];
                 const slice = m.source[tok.start..tok.end];
                 if (c.global_scope.blank_macros.contains(slice)) {
@@ -5542,7 +5551,7 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
                     continue;
                 }
             },
-            .Eof, .Nl => {
+            .eof, .nl => {
                 try c.global_scope.blank_macros.put(m.name, {});
                 const init_node = try Tag.string_literal.create(c.arena, "\"\"");
                 const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
@@ -5556,7 +5565,7 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
 
     const init_node = try parseCExpr(c, m, scope);
     const last = m.next().?;
-    if (last != .Eof and last != .Nl)
+    if (last != .eof and last != .nl)
         return m.fail(c, "unable to translate C expr: unexpected token '{s}'", .{last.symbol()});
 
     const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
@@ -5578,14 +5587,16 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
     defer block_scope.deinit();
     const scope = &block_scope.base;
 
-    try m.skip(c, .LParen);
+    try m.skip(c, .l_paren);
 
     var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
     defer fn_params.deinit();
 
     while (true) {
-        if (m.peek().? != .Identifier) break;
-        _ = m.next();
+        switch (m.peek().?) {
+            .identifier, .extended_identifier => _ = m.next(),
+            else => break,
+        }
 
         const mangled_name = try block_scope.makeMangledName(c, m.slice());
         try fn_params.append(.{
@@ -5594,11 +5605,11 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
             .type = Tag.@"anytype".init(),
         });
         try block_scope.discardVariable(c, mangled_name);
-        if (m.peek().? != .Comma) break;
+        if (m.peek().? != .comma) break;
         _ = m.next();
     }
 
-    try m.skip(c, .RParen);
+    try m.skip(c, .r_paren);
 
     if (m.checkTranslatableMacro(scope, fn_params.items)) |err| switch (err) {
         .undefined_identifier => |ident| return m.fail(c, "unable to translate macro: undefined identifier `{s}`", .{ident}),
@@ -5607,7 +5618,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
 
     const expr = try parseCExpr(c, m, scope);
     const last = m.next().?;
-    if (last != .Eof and last != .Nl)
+    if (last != .eof and last != .nl)
         return m.fail(c, "unable to translate C expr: unexpected token '{s}'", .{last.symbol()});
 
     const typeof_arg = if (expr.castTag(.block)) |some| blk: {
@@ -5644,7 +5655,7 @@ fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     defer block_scope.deinit();
 
     const node = try parseCCondExpr(c, m, &block_scope.base);
-    if (m.next().? != .Comma) {
+    if (m.next().? != .comma) {
         m.i -= 1;
         return node;
     }
@@ -5656,7 +5667,7 @@ fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         try block_scope.statements.append(ignore);
 
         last = try parseCCondExpr(c, m, &block_scope.base);
-        if (m.next().? != .Comma) {
+        if (m.next().? != .comma) {
             m.i -= 1;
             break;
         }
@@ -5670,118 +5681,135 @@ fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     return try block_scope.complete(c);
 }
 
-fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
-    var lit_bytes = m.slice();
+fn parseCNumLit(ctx: *Context, m: *MacroCtx) ParseError!Node {
+    const lit_bytes = m.slice();
+    var bytes = try std.ArrayListUnmanaged(u8).initCapacity(ctx.arena, lit_bytes.len + 3);
 
-    switch (m.list[m.i].id) {
-        .IntegerLiteral => |suffix| {
-            var base: []const u8 = "decimal";
-            if (lit_bytes.len >= 2 and lit_bytes[0] == '0') {
-                switch (lit_bytes[1]) {
-                    '0'...'7' => {
-                        // Octal
-                        lit_bytes = try std.fmt.allocPrint(c.arena, "0o{s}", .{lit_bytes[1..]});
-                        base = "octal";
-                    },
-                    'X' => {
-                        // Hexadecimal with capital X, valid in C but not in Zig
-                        lit_bytes = try std.fmt.allocPrint(c.arena, "0x{s}", .{lit_bytes[2..]});
-                        base = "hexadecimal";
-                    },
-                    'x' => {
-                        base = "hexadecimal";
-                    },
-                    else => {},
-                }
+    const prefix = aro.Tree.Token.NumberPrefix.fromString(lit_bytes);
+    switch (prefix) {
+        .binary => bytes.appendSliceAssumeCapacity("0b"),
+        .octal => bytes.appendSliceAssumeCapacity("0o"),
+        .hex => bytes.appendSliceAssumeCapacity("0x"),
+        .decimal => {},
+    }
+
+    const after_prefix = lit_bytes[prefix.stringLen()..];
+    const after_int = for (after_prefix, 0..) |c, i| switch (c) {
+        '.' => {
+            if (i == 0) {
+                bytes.appendAssumeCapacity('0');
             }
-
-            const type_node = try Tag.type.create(c.arena, switch (suffix) {
-                .none => "c_int",
-                .u => "c_uint",
-                .l => "c_long",
-                .lu => "c_ulong",
-                .ll => "c_longlong",
-                .llu => "c_ulonglong",
-                .f => unreachable,
-            });
-            lit_bytes = lit_bytes[0 .. lit_bytes.len - switch (suffix) {
-                .none => @as(u8, 0),
-                .u, .l => 1,
-                .lu, .ll => 2,
-                .llu => 3,
-                .f => unreachable,
-            }];
-
-            const value = std.fmt.parseInt(i128, lit_bytes, 0) catch math.maxInt(i128);
-
-            // make the output less noisy by skipping promoteIntLiteral where
-            // it's guaranteed to not be required because of C standard type constraints
-            const guaranteed_to_fit = switch (suffix) {
-                .none => math.cast(i16, value) != null,
-                .u => math.cast(u16, value) != null,
-                .l => math.cast(i32, value) != null,
-                .lu => math.cast(u32, value) != null,
-                .ll => math.cast(i64, value) != null,
-                .llu => math.cast(u64, value) != null,
-                .f => unreachable,
-            };
-
-            const literal_node = try transCreateNodeNumber(c, lit_bytes, .int);
-
-            if (guaranteed_to_fit) {
-                return Tag.as.create(c.arena, .{ .lhs = type_node, .rhs = literal_node });
-            } else {
-                return Tag.helpers_promoteIntLiteral.create(c.arena, .{
-                    .type = type_node,
-                    .value = literal_node,
-                    .base = try Tag.enum_literal.create(c.arena, base),
-                });
-            }
+            break after_prefix[i..];
         },
-        .FloatLiteral => |suffix| {
-            if (suffix != .none) lit_bytes = lit_bytes[0 .. lit_bytes.len - 1];
-
-            if (lit_bytes.len >= 2 and std.ascii.eqlIgnoreCase(lit_bytes[0..2], "0x")) {
-                if (mem.indexOfScalar(u8, lit_bytes, '.')) |dot_index| {
-                    if (dot_index == 2) {
-                        lit_bytes = try std.fmt.allocPrint(c.arena, "0x0{s}", .{lit_bytes[2..]});
-                    } else if (dot_index + 1 == lit_bytes.len or !std.ascii.isHex(lit_bytes[dot_index + 1])) {
-                        // If the literal lacks a digit after the `.`, we need to
-                        // add one since `0x1.p10` would be invalid syntax in Zig.
-                        lit_bytes = try std.fmt.allocPrint(c.arena, "0x{s}0{s}", .{
-                            lit_bytes[2 .. dot_index + 1],
-                            lit_bytes[dot_index + 1 ..],
-                        });
-                    }
-                }
-
-                if (lit_bytes[1] == 'X') {
-                    // Hexadecimal with capital X, valid in C but not in Zig
-                    lit_bytes = try std.fmt.allocPrint(c.arena, "0x{s}", .{lit_bytes[2..]});
-                }
-            } else if (mem.indexOfScalar(u8, lit_bytes, '.')) |dot_index| {
-                if (dot_index == 0) {
-                    lit_bytes = try std.fmt.allocPrint(c.arena, "0{s}", .{lit_bytes});
-                } else if (dot_index + 1 == lit_bytes.len or !std.ascii.isDigit(lit_bytes[dot_index + 1])) {
-                    // If the literal lacks a digit after the `.`, we need to
-                    // add one since `1.` or `1.e10` would be invalid syntax in Zig.
-                    lit_bytes = try std.fmt.allocPrint(c.arena, "{s}0{s}", .{
-                        lit_bytes[0 .. dot_index + 1],
-                        lit_bytes[dot_index + 1 ..],
-                    });
-                }
-            }
-
-            const type_node = try Tag.type.create(c.arena, switch (suffix) {
-                .f => "f32",
-                .none => "f64",
-                .l => "c_longdouble",
-                else => unreachable,
-            });
-            const rhs = try transCreateNodeNumber(c, lit_bytes, .float);
-            return Tag.as.create(c.arena, .{ .lhs = type_node, .rhs = rhs });
+        'e', 'E' => {
+            if (prefix != .hex) break after_prefix[i..];
+            bytes.appendAssumeCapacity(c);
         },
-        else => unreachable,
+        'p', 'P' => break after_prefix[i..],
+        '0'...'9', 'a'...'d', 'A'...'D', 'f', 'F' => {
+            if (!prefix.digitAllowed(c)) break after_prefix[i..];
+            bytes.appendAssumeCapacity(c);
+        },
+        '\'' => {
+            bytes.appendAssumeCapacity('_');
+        },
+        else => break after_prefix[i..],
+    } else "";
+
+    const after_frac = frac: {
+        if (after_int.len == 0 or after_int[0] != '.') break :frac after_int;
+        bytes.appendAssumeCapacity('.');
+        for (after_int[1..], 1..) |c, i| {
+            if (c == '\'') {
+                bytes.appendAssumeCapacity('_');
+                continue;
+            }
+            if (!prefix.digitAllowed(c)) break :frac after_int[i..];
+            bytes.appendAssumeCapacity(c);
+        }
+        break :frac "";
+    };
+
+    const suffix_str = exponent: {
+        if (after_frac.len == 0) break :exponent after_frac;
+        switch (after_frac[0]) {
+            'e', 'E' => {},
+            'p', 'P' => if (prefix != .hex) break :exponent after_frac,
+            else => break :exponent after_frac,
+        }
+        bytes.appendAssumeCapacity(after_frac[0]);
+        for (after_frac[1..], 1..) |c, i| switch (c) {
+            '+', '-', '0'...'9' => {
+                bytes.appendAssumeCapacity(c);
+            },
+            '\'' => {
+                bytes.appendAssumeCapacity('_');
+            },
+            else => break :exponent after_frac[i..],
+        };
+        break :exponent "";
+    };
+
+    const is_float = after_int.len != suffix_str.len;
+    const suffix = aro.Tree.Token.NumberSuffix.fromString(suffix_str, if (is_float) .float else .int) orelse {
+        try m.fail(ctx, "invalid number suffix: '{s}'", .{suffix_str});
+        return error.ParseError;
+    };
+    if (suffix.isImaginary()) {
+        try m.fail(ctx, "TODO: imaginary literals", .{});
+        return error.ParseError;
+    }
+    if (suffix.isBitInt()) {
+        try m.fail(ctx, "TODO: _BitInt literals", .{});
+        return error.ParseError;
+    }
+
+    if (is_float) {
+        const type_node = try Tag.type.create(ctx.arena, switch (suffix) {
+            .F16 => "f16",
+            .F => "f32",
+            .None => "f64",
+            .L => "c_longdouble",
+            .W => "f80",
+            .Q, .F128 => "f128",
+            else => unreachable,
+        });
+        const rhs = try Tag.float_literal.create(ctx.arena, bytes.items);
+        return Tag.as.create(ctx.arena, .{ .lhs = type_node, .rhs = rhs });
+    } else {
+        const type_node = try Tag.type.create(ctx.arena, switch (suffix) {
+            .None => "c_int",
+            .U => "c_uint",
+            .L => "c_long",
+            .UL => "c_ulong",
+            .LL => "c_longlong",
+            .ULL => "c_ulonglong",
+            else => unreachable,
+        });
+        const value = std.fmt.parseInt(i128, bytes.items, 0) catch math.maxInt(i128);
+
+        // make the output less noisy by skipping promoteIntLiteral where
+        // it's guaranteed to not be required because of C standard type constraints
+        const guaranteed_to_fit = switch (suffix) {
+            .None => math.cast(i16, value) != null,
+            .U => math.cast(u16, value) != null,
+            .L => math.cast(i32, value) != null,
+            .UL => math.cast(u32, value) != null,
+            .LL => math.cast(i64, value) != null,
+            .ULL => math.cast(u64, value) != null,
+            else => unreachable,
+        };
+
+        const literal_node = try Tag.integer_literal.create(ctx.arena, bytes.items);
+        if (guaranteed_to_fit) {
+            return Tag.as.create(ctx.arena, .{ .lhs = type_node, .rhs = literal_node });
+        } else {
+            return Tag.helpers_promoteIntLiteral.create(ctx.arena, .{
+                .type = type_node,
+                .value = literal_node,
+                .base = try Tag.enum_literal.create(ctx.arena, @tagName(prefix)),
+            });
+        }
     }
 }
 
@@ -5800,17 +5828,17 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
     } else return source;
     var bytes = try ctx.arena.alloc(u8, source.len * 2);
     var state: enum {
-        Start,
-        Escape,
-        Hex,
-        Octal,
-    } = .Start;
+        start,
+        escape,
+        hex,
+        octal,
+    } = .start;
     var i: usize = 0;
     var count: u8 = 0;
     var num: u8 = 0;
     for (source) |c| {
         switch (state) {
-            .Escape => {
+            .escape => {
                 switch (c) {
                     'n', 'r', 't', '\\', '\'', '\"' => {
                         bytes[i] = c;
@@ -5818,11 +5846,11 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                     '0'...'7' => {
                         count += 1;
                         num += c - '0';
-                        state = .Octal;
+                        state = .octal;
                         bytes[i] = 'x';
                     },
                     'x' => {
-                        state = .Hex;
+                        state = .hex;
                         bytes[i] = 'x';
                     },
                     'a' => {
@@ -5867,10 +5895,10 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                     },
                 }
                 i += 1;
-                if (state == .Escape)
-                    state = .Start;
+                if (state == .escape)
+                    state = .start;
             },
-            .Start => {
+            .start => {
                 if (c == '\t') {
                     bytes[i] = '\\';
                     i += 1;
@@ -5879,12 +5907,12 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                     continue;
                 }
                 if (c == '\\') {
-                    state = .Escape;
+                    state = .escape;
                 }
                 bytes[i] = c;
                 i += 1;
             },
-            .Hex => {
+            .hex => {
                 switch (c) {
                     '0'...'9' => {
                         num = std.math.mul(u8, num, 16) catch {
@@ -5911,15 +5939,15 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                         i += std.fmt.formatIntBuf(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
                         num = 0;
                         if (c == '\\')
-                            state = .Escape
+                            state = .escape
                         else
-                            state = .Start;
+                            state = .start;
                         bytes[i] = c;
                         i += 1;
                     },
                 }
             },
-            .Octal => {
+            .octal => {
                 const accept_digit = switch (c) {
                     // The maximum length of a octal literal is 3 digits
                     '0'...'7' => count < 3,
@@ -5938,16 +5966,16 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                     num = 0;
                     count = 0;
                     if (c == '\\')
-                        state = .Escape
+                        state = .escape
                     else
-                        state = .Start;
+                        state = .start;
                     bytes[i] = c;
                     i += 1;
                 }
             },
         }
     }
-    if (state == .Hex or state == .Octal)
+    if (state == .hex or state == .octal)
         i += std.fmt.formatIntBuf(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
     return bytes[0..i];
 }
@@ -5972,7 +6000,12 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
     const tok = m.next().?;
     const slice = m.slice();
     switch (tok) {
-        .CharLiteral => {
+        .char_literal,
+        .char_literal_utf_8,
+        .char_literal_utf_16,
+        .char_literal_utf_32,
+        .char_literal_wide,
+        => {
             if (slice[0] != '\'' or slice[1] == '\\' or slice.len == 3) {
                 return Tag.char_literal.create(c.arena, try escapeUnprintables(c, m));
             } else {
@@ -5980,13 +6013,18 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
                 return Tag.integer_literal.create(c.arena, str);
             }
         },
-        .StringLiteral => {
+        .string_literal,
+        .string_literal_utf_16,
+        .string_literal_utf_8,
+        .string_literal_utf_32,
+        .string_literal_wide,
+        => {
             return Tag.string_literal.create(c.arena, try escapeUnprintables(c, m));
         },
-        .IntegerLiteral, .FloatLiteral => {
+        .pp_num => {
             return parseCNumLit(c, m);
         },
-        .Identifier => {
+        .identifier, .extended_identifier => {
             if (c.global_scope.blank_macros.contains(slice)) {
                 return parseCPrimaryExprInner(c, m, scope);
             }
@@ -5996,10 +6034,10 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
             scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);
             return identifier;
         },
-        .LParen => {
+        .l_paren => {
             const inner_node = try parseCExpr(c, m, scope);
 
-            try m.skip(c, .RParen);
+            try m.skip(c, .r_paren);
             return inner_node;
         },
         else => {
@@ -6022,8 +6060,13 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     // after a primary expression.
     while (true) {
         switch (m.peek().?) {
-            .StringLiteral => {},
-            .Identifier => {
+            .string_literal,
+            .string_literal_utf_16,
+            .string_literal_utf_8,
+            .string_literal_utf_32,
+            .string_literal_wide,
+            => {},
+            .identifier, .extended_identifier => {
                 const tok = m.list[m.i + 1];
                 const slice = m.source[tok.start..tok.end];
                 if (c.global_scope.blank_macros.contains(slice)) {
@@ -6057,20 +6100,20 @@ fn macroIntToBool(c: *Context, node: Node) !Node {
 
 fn parseCCondExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     const node = try parseCOrExpr(c, m, scope);
-    if (m.peek().? != .QuestionMark) {
+    if (m.peek().? != .question_mark) {
         return node;
     }
     _ = m.next();
 
     const then_body = try parseCOrExpr(c, m, scope);
-    try m.skip(c, .Colon);
+    try m.skip(c, .colon);
     const else_body = try parseCCondExpr(c, m, scope);
     return Tag.@"if".create(c.arena, .{ .cond = node, .then = then_body, .@"else" = else_body });
 }
 
 fn parseCOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCAndExpr(c, m, scope);
-    while (m.next().? == .PipePipe) {
+    while (m.next().? == .pipe_pipe) {
         const lhs = try macroIntToBool(c, node);
         const rhs = try macroIntToBool(c, try parseCAndExpr(c, m, scope));
         node = try Tag.@"or".create(c.arena, .{ .lhs = lhs, .rhs = rhs });
@@ -6081,7 +6124,7 @@ fn parseCOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
 
 fn parseCAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCBitOrExpr(c, m, scope);
-    while (m.next().? == .AmpersandAmpersand) {
+    while (m.next().? == .ampersand_ampersand) {
         const lhs = try macroIntToBool(c, node);
         const rhs = try macroIntToBool(c, try parseCBitOrExpr(c, m, scope));
         node = try Tag.@"and".create(c.arena, .{ .lhs = lhs, .rhs = rhs });
@@ -6092,7 +6135,7 @@ fn parseCAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
 
 fn parseCBitOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCBitXorExpr(c, m, scope);
-    while (m.next().? == .Pipe) {
+    while (m.next().? == .pipe) {
         const lhs = try macroIntFromBool(c, node);
         const rhs = try macroIntFromBool(c, try parseCBitXorExpr(c, m, scope));
         node = try Tag.bit_or.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
@@ -6103,7 +6146,7 @@ fn parseCBitOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
 
 fn parseCBitXorExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCBitAndExpr(c, m, scope);
-    while (m.next().? == .Caret) {
+    while (m.next().? == .caret) {
         const lhs = try macroIntFromBool(c, node);
         const rhs = try macroIntFromBool(c, try parseCBitAndExpr(c, m, scope));
         node = try Tag.bit_xor.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
@@ -6114,7 +6157,7 @@ fn parseCBitXorExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
 
 fn parseCBitAndExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCEqExpr(c, m, scope);
-    while (m.next().? == .Ampersand) {
+    while (m.next().? == .ampersand) {
         const lhs = try macroIntFromBool(c, node);
         const rhs = try macroIntFromBool(c, try parseCEqExpr(c, m, scope));
         node = try Tag.bit_and.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
@@ -6127,13 +6170,13 @@ fn parseCEqExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCRelExpr(c, m, scope);
     while (true) {
         switch (m.peek().?) {
-            .BangEqual => {
+            .bang_equal => {
                 _ = m.next();
                 const lhs = try macroIntFromBool(c, node);
                 const rhs = try macroIntFromBool(c, try parseCRelExpr(c, m, scope));
                 node = try Tag.not_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
-            .EqualEqual => {
+            .equal_equal => {
                 _ = m.next();
                 const lhs = try macroIntFromBool(c, node);
                 const rhs = try macroIntFromBool(c, try parseCRelExpr(c, m, scope));
@@ -6148,25 +6191,25 @@ fn parseCRelExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCShiftExpr(c, m, scope);
     while (true) {
         switch (m.peek().?) {
-            .AngleBracketRight => {
+            .angle_bracket_right => {
                 _ = m.next();
                 const lhs = try macroIntFromBool(c, node);
                 const rhs = try macroIntFromBool(c, try parseCShiftExpr(c, m, scope));
                 node = try Tag.greater_than.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
-            .AngleBracketRightEqual => {
+            .angle_bracket_right_equal => {
                 _ = m.next();
                 const lhs = try macroIntFromBool(c, node);
                 const rhs = try macroIntFromBool(c, try parseCShiftExpr(c, m, scope));
                 node = try Tag.greater_than_equal.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
-            .AngleBracketLeft => {
+            .angle_bracket_left => {
                 _ = m.next();
                 const lhs = try macroIntFromBool(c, node);
                 const rhs = try macroIntFromBool(c, try parseCShiftExpr(c, m, scope));
                 node = try Tag.less_than.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
-            .AngleBracketLeftEqual => {
+            .angle_bracket_left_equal => {
                 _ = m.next();
                 const lhs = try macroIntFromBool(c, node);
                 const rhs = try macroIntFromBool(c, try parseCShiftExpr(c, m, scope));
@@ -6181,13 +6224,13 @@ fn parseCShiftExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCAddSubExpr(c, m, scope);
     while (true) {
         switch (m.peek().?) {
-            .AngleBracketAngleBracketLeft => {
+            .angle_bracket_angle_bracket_left => {
                 _ = m.next();
                 const lhs = try macroIntFromBool(c, node);
                 const rhs = try macroIntFromBool(c, try parseCAddSubExpr(c, m, scope));
                 node = try Tag.shl.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
-            .AngleBracketAngleBracketRight => {
+            .angle_bracket_angle_bracket_right => {
                 _ = m.next();
                 const lhs = try macroIntFromBool(c, node);
                 const rhs = try macroIntFromBool(c, try parseCAddSubExpr(c, m, scope));
@@ -6202,13 +6245,13 @@ fn parseCAddSubExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCMulExpr(c, m, scope);
     while (true) {
         switch (m.peek().?) {
-            .Plus => {
+            .plus => {
                 _ = m.next();
                 const lhs = try macroIntFromBool(c, node);
                 const rhs = try macroIntFromBool(c, try parseCMulExpr(c, m, scope));
                 node = try Tag.add.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
-            .Minus => {
+            .minus => {
                 _ = m.next();
                 const lhs = try macroIntFromBool(c, node);
                 const rhs = try macroIntFromBool(c, try parseCMulExpr(c, m, scope));
@@ -6223,17 +6266,17 @@ fn parseCMulExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     var node = try parseCCastExpr(c, m, scope);
     while (true) {
         switch (m.next().?) {
-            .Asterisk => {
+            .asterisk => {
                 const lhs = try macroIntFromBool(c, node);
                 const rhs = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
                 node = try Tag.mul.create(c.arena, .{ .lhs = lhs, .rhs = rhs });
             },
-            .Slash => {
+            .slash => {
                 const lhs = try macroIntFromBool(c, node);
                 const rhs = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
                 node = try Tag.macro_arithmetic.create(c.arena, .{ .op = .div, .lhs = lhs, .rhs = rhs });
             },
-            .Percent => {
+            .percent => {
                 const lhs = try macroIntFromBool(c, node);
                 const rhs = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
                 node = try Tag.macro_arithmetic.create(c.arena, .{ .op = .rem, .lhs = lhs, .rhs = rhs });
@@ -6248,17 +6291,18 @@ fn parseCMulExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
 
 fn parseCCastExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     switch (m.next().?) {
-        .LParen => {
+        .l_paren => {
             if (try parseCTypeName(c, m, scope, true)) |type_name| {
                 while (true) {
                     const next_token = m.next().?;
                     switch (next_token) {
-                        .RParen => break,
+                        .r_paren => break,
                         else => |next_tag| {
                             // Skip trailing blank defined before the RParen.
-                            if (next_tag == .Identifier and c.global_scope.blank_macros.contains(m.slice())) {
+                            if ((next_tag == .identifier or next_tag == .extended_identifier) and
+                                c.global_scope.blank_macros.contains(m.slice()))
                                 continue;
-                            }
+
                             try m.fail(
                                 c,
                                 "unable to translate C expr: expected ')' instead got '{s}'",
@@ -6268,7 +6312,7 @@ fn parseCCastExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
                         },
                     }
                 }
-                if (m.peek().? == .LBrace) {
+                if (m.peek().? == .l_brace) {
                     // initializer list
                     return parseCPostfixExpr(c, m, scope, type_name);
                 }
@@ -6294,7 +6338,7 @@ fn parseCTypeName(c: *Context, m: *MacroCtx, scope: *Scope, allow_fail: bool) Pa
 fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_fail: bool) ParseError!?Node {
     const tok = m.next().?;
     switch (tok) {
-        .Identifier => {
+        .identifier, .extended_identifier => {
             if (c.global_scope.blank_macros.contains(m.slice())) {
                 return try parseCSpecifierQualifierList(c, m, scope, allow_fail);
             }
@@ -6304,25 +6348,25 @@ fn parseCSpecifierQualifierList(c: *Context, m: *MacroCtx, scope: *Scope, allow_
                 return try Tag.identifier.create(c.arena, mangled_name);
             }
         },
-        .Keyword_void => return try Tag.type.create(c.arena, "anyopaque"),
-        .Keyword_bool => return try Tag.type.create(c.arena, "bool"),
-        .Keyword_char,
-        .Keyword_int,
-        .Keyword_short,
-        .Keyword_long,
-        .Keyword_float,
-        .Keyword_double,
-        .Keyword_signed,
-        .Keyword_unsigned,
-        .Keyword_complex,
+        .keyword_void => return try Tag.type.create(c.arena, "anyopaque"),
+        .keyword_bool => return try Tag.type.create(c.arena, "bool"),
+        .keyword_char,
+        .keyword_int,
+        .keyword_short,
+        .keyword_long,
+        .keyword_float,
+        .keyword_double,
+        .keyword_signed,
+        .keyword_unsigned,
+        .keyword_complex,
         => {
             m.i -= 1;
             return try parseCNumericType(c, m);
         },
-        .Keyword_enum, .Keyword_struct, .Keyword_union => {
+        .keyword_enum, .keyword_struct, .keyword_union => {
             // struct Foo will be declared as struct_Foo by transRecordDecl
             const slice = m.slice();
-            try m.skip(c, .Identifier);
+            try m.skip(c, .identifier);
 
             const name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ slice, m.slice() });
             return try Tag.identifier.create(c.arena, name);
@@ -6364,15 +6408,15 @@ fn parseCNumericType(c: *Context, m: *MacroCtx) ParseError!Node {
     var i: u8 = 0;
     while (i < math.maxInt(u8)) : (i += 1) {
         switch (m.next().?) {
-            .Keyword_double => kw.double += 1,
-            .Keyword_long => kw.long += 1,
-            .Keyword_int => kw.int += 1,
-            .Keyword_float => kw.float += 1,
-            .Keyword_short => kw.short += 1,
-            .Keyword_char => kw.char += 1,
-            .Keyword_unsigned => kw.unsigned += 1,
-            .Keyword_signed => kw.signed += 1,
-            .Keyword_complex => kw.complex += 1,
+            .keyword_double => kw.double += 1,
+            .keyword_long => kw.long += 1,
+            .keyword_int => kw.int += 1,
+            .keyword_float => kw.float += 1,
+            .keyword_short => kw.short += 1,
+            .keyword_char => kw.char += 1,
+            .keyword_unsigned => kw.unsigned += 1,
+            .keyword_signed => kw.signed += 1,
+            .keyword_complex => kw.complex += 1,
             else => {
                 m.i -= 1;
                 break;
@@ -6442,11 +6486,11 @@ fn parseCNumericType(c: *Context, m: *MacroCtx) ParseError!Node {
 
 fn parseCAbstractDeclarator(c: *Context, m: *MacroCtx, node: Node) ParseError!Node {
     switch (m.next().?) {
-        .Asterisk => {
+        .asterisk => {
             // last token of `node`
             const prev_id = m.list[m.i - 1].id;
 
-            if (prev_id == .Keyword_void) {
+            if (prev_id == .keyword_void) {
                 const ptr = try Tag.single_pointer.create(c.arena, .{
                     .is_const = false,
                     .is_volatile = false,
@@ -6472,28 +6516,28 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
     var node = type_name orelse try parseCPrimaryExpr(c, m, scope);
     while (true) {
         switch (m.next().?) {
-            .Period => {
-                try m.skip(c, .Identifier);
+            .period => {
+                try m.skip(c, .identifier);
 
                 node = try Tag.field_access.create(c.arena, .{ .lhs = node, .field_name = m.slice() });
             },
-            .Arrow => {
-                try m.skip(c, .Identifier);
+            .arrow => {
+                try m.skip(c, .identifier);
 
                 const deref = try Tag.deref.create(c.arena, node);
                 node = try Tag.field_access.create(c.arena, .{ .lhs = deref, .field_name = m.slice() });
             },
-            .LBracket => {
+            .l_bracket => {
                 const index_val = try macroIntFromBool(c, try parseCExpr(c, m, scope));
                 const index = try Tag.as.create(c.arena, .{
                     .lhs = try Tag.type.create(c.arena, "usize"),
                     .rhs = try Tag.int_cast.create(c.arena, index_val),
                 });
                 node = try Tag.array_access.create(c.arena, .{ .lhs = node, .rhs = index });
-                try m.skip(c, .RBracket);
+                try m.skip(c, .r_bracket);
             },
-            .LParen => {
-                if (m.peek().? == .RParen) {
+            .l_paren => {
+                if (m.peek().? == .r_paren) {
                     m.i += 1;
                     node = try Tag.call.create(c.arena, .{ .lhs = node, .args = &[0]Node{} });
                 } else {
@@ -6504,8 +6548,8 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
                         try args.append(arg);
                         const next_id = m.next().?;
                         switch (next_id) {
-                            .Comma => {},
-                            .RParen => break,
+                            .comma => {},
+                            .r_paren => break,
                             else => {
                                 try m.fail(c, "unable to translate C expr: expected ',' or ')' instead got '{s}'", .{next_id.symbol()});
                                 return error.ParseError;
@@ -6515,24 +6559,24 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
                     node = try Tag.call.create(c.arena, .{ .lhs = node, .args = try c.arena.dupe(Node, args.items) });
                 }
             },
-            .LBrace => {
+            .l_brace => {
                 // Check for designated field initializers
-                if (m.peek().? == .Period) {
+                if (m.peek().? == .period) {
                     var init_vals = std.ArrayList(ast.Payload.ContainerInitDot.Initializer).init(c.gpa);
                     defer init_vals.deinit();
 
                     while (true) {
-                        try m.skip(c, .Period);
-                        try m.skip(c, .Identifier);
+                        try m.skip(c, .period);
+                        try m.skip(c, .identifier);
                         const name = m.slice();
-                        try m.skip(c, .Equal);
+                        try m.skip(c, .equal);
 
                         const val = try parseCCondExpr(c, m, scope);
                         try init_vals.append(.{ .name = name, .value = val });
                         const next_id = m.next().?;
                         switch (next_id) {
-                            .Comma => {},
-                            .RBrace => break,
+                            .comma => {},
+                            .r_brace => break,
                             else => {
                                 try m.fail(c, "unable to translate C expr: expected ',' or '}}' instead got '{s}'", .{next_id.symbol()});
                                 return error.ParseError;
@@ -6552,8 +6596,8 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
                     try init_vals.append(val);
                     const next_id = m.next().?;
                     switch (next_id) {
-                        .Comma => {},
-                        .RBrace => break,
+                        .comma => {},
+                        .r_brace => break,
                         else => {
                             try m.fail(c, "unable to translate C expr: expected ',' or '}}' instead got '{s}'", .{next_id.symbol()});
                             return error.ParseError;
@@ -6563,7 +6607,7 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
                 const tuple_node = try Tag.tuple.create(c.arena, try c.arena.dupe(Node, init_vals.items));
                 node = try Tag.std_mem_zeroinit.create(c.arena, .{ .lhs = node, .rhs = tuple_node });
             },
-            .PlusPlus, .MinusMinus => {
+            .plus_plus, .minus_minus => {
                 try m.fail(c, "TODO postfix inc/dec expr", .{});
                 return error.ParseError;
             },
@@ -6577,47 +6621,47 @@ fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node)
 
 fn parseCUnaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     switch (m.next().?) {
-        .Bang => {
+        .bang => {
             const operand = try macroIntToBool(c, try parseCCastExpr(c, m, scope));
             return Tag.not.create(c.arena, operand);
         },
-        .Minus => {
+        .minus => {
             const operand = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
             return Tag.negate.create(c.arena, operand);
         },
-        .Plus => return try parseCCastExpr(c, m, scope),
-        .Tilde => {
+        .plus => return try parseCCastExpr(c, m, scope),
+        .tilde => {
             const operand = try macroIntFromBool(c, try parseCCastExpr(c, m, scope));
             return Tag.bit_not.create(c.arena, operand);
         },
-        .Asterisk => {
+        .asterisk => {
             const operand = try parseCCastExpr(c, m, scope);
             return Tag.deref.create(c.arena, operand);
         },
-        .Ampersand => {
+        .ampersand => {
             const operand = try parseCCastExpr(c, m, scope);
             return Tag.address_of.create(c.arena, operand);
         },
-        .Keyword_sizeof => {
-            const operand = if (m.peek().? == .LParen) blk: {
+        .keyword_sizeof => {
+            const operand = if (m.peek().? == .l_paren) blk: {
                 _ = m.next();
                 const inner = (try parseCTypeName(c, m, scope, false)).?;
-                try m.skip(c, .RParen);
+                try m.skip(c, .r_paren);
                 break :blk inner;
             } else try parseCUnaryExpr(c, m, scope);
 
             return Tag.helpers_sizeof.create(c.arena, operand);
         },
-        .Keyword_alignof => {
+        .keyword_alignof => {
             // TODO this won't work if using <stdalign.h>'s
             // #define alignof _Alignof
-            try m.skip(c, .LParen);
+            try m.skip(c, .l_paren);
             const operand = (try parseCTypeName(c, m, scope, false)).?;
-            try m.skip(c, .RParen);
+            try m.skip(c, .r_paren);
 
             return Tag.alignof.create(c.arena, operand);
         },
-        .PlusPlus, .MinusMinus => {
+        .plus_plus, .minus_minus => {
             try m.fail(c, "TODO unary inc/dec expr", .{});
             return error.ParseError;
         },
