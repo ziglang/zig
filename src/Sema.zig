@@ -19705,20 +19705,24 @@ fn zirArrayInit(
             },
             else => return err,
         };
-        if (is_tuple) if (try array_ty.structFieldValueComptime(mod, i)) |field_val| {
-            const init_val = try sema.resolveValue(dest.*) orelse {
-                const decl = mod.declPtr(block.src_decl);
-                const elem_src = mod.initSrc(src.node_offset.x, decl, i);
-                return sema.failWithNeededComptime(block, elem_src, .{
-                    .needed_comptime_reason = "value stored in comptime field must be comptime-known",
-                });
-            };
-            if (!field_val.eql(init_val, elem_ty, mod)) {
-                const decl = mod.declPtr(block.src_decl);
-                const elem_src = mod.initSrc(src.node_offset.x, decl, i);
-                return sema.failWithInvalidComptimeFieldStore(block, elem_src, array_ty, i);
+        if (is_tuple) {
+            if (array_ty.structFieldIsComptime(i, mod))
+                try sema.resolveStructFieldInits(array_ty);
+            if (try array_ty.structFieldValueComptime(mod, i)) |field_val| {
+                const init_val = try sema.resolveValue(dest.*) orelse {
+                    const decl = mod.declPtr(block.src_decl);
+                    const elem_src = mod.initSrc(src.node_offset.x, decl, i);
+                    return sema.failWithNeededComptime(block, elem_src, .{
+                        .needed_comptime_reason = "value stored in comptime field must be comptime-known",
+                    });
+                };
+                if (!field_val.eql(init_val, elem_ty, mod)) {
+                    const decl = mod.declPtr(block.src_decl);
+                    const elem_src = mod.initSrc(src.node_offset.x, decl, i);
+                    return sema.failWithInvalidComptimeFieldStore(block, elem_src, array_ty, i);
+                }
             }
-        };
+        }
     }
 
     if (root_msg) |msg| {
@@ -31481,7 +31485,10 @@ fn coerceTupleToTuple(
                 anon_struct_type.names.get(ip)[field_i]
             else
                 try ip.getOrPutStringFmt(sema.gpa, "{d}", .{field_i}),
-            .struct_type => |struct_type| struct_type.field_names.get(ip)[field_i],
+            .struct_type => |struct_type| if (struct_type.field_names.len > 0)
+                struct_type.field_names.get(ip)[field_i]
+            else
+                try ip.getOrPutStringFmt(sema.gpa, "{d}", .{field_i}),
             else => unreachable,
         };
 

@@ -1881,3 +1881,12 @@ test "field calls do not force struct field init resolution" {
     _ = &s;
     try expect(s.x == 123);
 }
+
+test "tuple with comptime-only field" {
+    const x = getTuple();
+    try expect(x.@"0" == 0);
+}
+
+fn getTuple() struct { comptime_int } {
+    return struct { comptime comptime_int = 0 }{0};
+}
