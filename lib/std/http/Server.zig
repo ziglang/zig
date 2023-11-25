@@ -1,3 +1,5 @@
+//! HTTP Server implementation.
+
 const std = @import("../std.zig");
 const testing = std.testing;
 const http = std.http;
@@ -10,13 +12,15 @@ const assert = std.debug.assert;
 const Server = @This();
 const proto = @import("protocol.zig");
 
-/// Allocator used for all allocations made by the client.
+/// Default allocator used for all allocations made by the client.
+///
+/// It's caller's responsibility to keep the allocator **thread safe**.
 allocator: Allocator,
 
 /// Server socket struct
 socket: net.StreamServer,
 
-/// An interface to a plain connection.
+/// An interface to underlying connection.
 pub const Connection = struct {
     pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
     pub const Protocol = enum { plain };
@@ -29,11 +33,12 @@ pub const Connection = struct {
 
     /// read buffer
     read_buf: [buffer_size]u8 = undefined,
-    /// read buffer starting position
     read_start: u16 = 0,
-    /// read buffer end position
     read_end: u16 = 0,
 
+    /// Tries to read at least `len` bytes into given `buffer` from given connection.
+    ///
+    /// Returns number of raw bytes successfully read or `ReadError` otherwise
     pub fn rawReadAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
         return switch (conn.protocol) {
             .plain => conn.stream.readAtLeast(buffer, len),
@@ -46,6 +51,7 @@ pub const Connection = struct {
         };
     }
 
+    /// Tries to fill entire read buffer given connection
     pub fn fill(conn: *Connection) ReadError!void {
         if (conn.read_end != conn.read_start) return;
 
@@ -66,8 +72,10 @@ pub const Connection = struct {
         conn.read_start += num;
     }
 
-    /// Reads specified number of bytes (`len`) from given buffer of data
-    /// Throws `ReadError` in case of errors.
+    /// Tries to read specified `len` of bytes into given `buffer`.
+    /// Function assumes len is lesser or equal to the overall buffer size.
+    ///
+    /// Returns `ReadError` in case of errors.
     pub fn readAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
         assert(len <= buffer.len);
 
@@ -104,6 +112,9 @@ pub const Connection = struct {
         return out_index;
     }
 
+    /// Tries to read entire connection data into given `buffer`
+    ///
+    /// Returns number of raw bytes read or `ReadError` in case of failure.
     pub fn read(conn: *Connection, buffer: []u8) ReadError!usize {
         return conn.readAtLeast(buffer, 1);
     }
@@ -122,8 +133,9 @@ pub const Connection = struct {
         return Reader{ .context = conn };
     }
 
-    /// Writes all data specified in buffer.
-    /// Throws `WriteError` in case of errors
+    /// Tries to write all data contained in `buffer` to the underlying connection.
+    ///
+    /// Returns `WriteError` in case of failure
     pub fn writeAll(conn: *Connection, buffer: []const u8) WriteError!void {
         return switch (conn.protocol) {
             .plain => conn.stream.writeAll(buffer),
@@ -134,8 +146,9 @@ pub const Connection = struct {
         };
     }
 
-    /// Writes a specified buffer of data.
-    /// Throws `WriteError` in case of errors
+    /// Tries to write data contained in `buffer` to the underlying connection.
+    ///
+    /// Returns number of bytes successfuly written or `WriteError` in case of failure.
     pub fn write(conn: *Connection, buffer: []const u8) WriteError!usize {
         return switch (conn.protocol) {
             .plain => conn.stream.write(buffer),
@@ -349,7 +362,8 @@ pub const Response = struct {
 
     pub const ResetState = enum { reset, closing };
 
-    /// Reset this response to its initial state. This must be called before handling a second request on the same connection.
+    /// Reset this response to its initial state.
+    /// This must be called before handling a second request on the same connection.
     pub fn reset(res: *Response) ResetState {
         if (res.state == .first) {
             res.state = .start;
@@ -609,7 +623,7 @@ pub const Response = struct {
         return out_index;
     }
 
-    /// Reads data from the response body. Must be called after `wait`.
+    /// Reads all data from the response body. Must be called after `wait`.
     pub fn readAll(res: *Response, buffer: []u8) !usize {
         var index: usize = 0;
         while (index < buffer.len) {
@@ -682,7 +696,7 @@ pub const Response = struct {
     }
 };
 
-/// Create a new HTTP server.
+/// Create a new HTTP server with given `options`
 pub fn init(allocator: Allocator, options: net.StreamServer.Options) Server {
     return .{
         .allocator = allocator,
@@ -695,11 +709,11 @@ pub fn deinit(server: *Server) void {
     server.socket.deinit();
 }
 
-/// Set of possible errors to expect if `listen()` method fails
 pub const ListenError = std.os.SocketError || std.os.BindError || std.os.ListenError || std.os.SetSockOptError || std.os.GetSockNameError;
 
 /// Start the HTTP server listening on the given address.
-/// Throws `ListenError` on failure.
+///
+/// Returns `ListenError` on failure.
 pub fn listen(server: *Server, address: net.Address) ListenError!void {
     try server.socket.listen(address);
 }
@@ -725,8 +739,8 @@ pub const AcceptOptions = struct {
     header_strategy: HeaderStrategy = .{ .dynamic = 8192 },
 };
 
-/// Accept a new connection.
-/// Throws `AcceptError`
+/// Accepts a new server connection, given `AcceptOptions`.
+/// Returns server `Response` on success, `AcceptError` in case of failure.
 pub fn accept(server: *Server, options: AcceptOptions) AcceptError!Response {
     const in = try server.socket.accept();
 

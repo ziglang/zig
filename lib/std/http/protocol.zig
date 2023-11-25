@@ -23,7 +23,7 @@ pub const State = enum {
     chunk_data_suffix,
     chunk_data_suffix_r,
 
-    /// Returns true if the parser is in a content state (ie. not waiting for more headers).
+    /// Returns `true` if the parser is in a content state (ie. not waiting for more headers).
     pub fn isContent(self: State) bool {
         return switch (self) {
             .invalid, .start, .seen_n, .seen_r, .seen_rn, .seen_rnr => false,

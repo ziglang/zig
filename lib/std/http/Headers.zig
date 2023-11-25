@@ -72,6 +72,7 @@ pub const Headers = struct {
         return new;
     }
 
+    /// Release all resources associated with this Header
     pub fn deinit(headers: *Headers) void {
         headers.deallocateIndexListsAndFields();
         headers.index.deinit(headers.allocator);
@@ -108,6 +109,7 @@ pub const Headers = struct {
         try headers.list.append(headers.allocator, entry);
     }
 
+    /// Returns `true` if given header name is present in current headers collection
     pub fn contains(headers: Headers, name: []const u8) bool {
         return headers.index.contains(name);
     }

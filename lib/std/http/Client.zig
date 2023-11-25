@@ -1,4 +1,5 @@
-//! Connecting and opening requests are threadsafe. Individual requests are not.
+//! HTTP client implementation.
+//! Connecting and opening requests are threadsafe, individual requests are **not**.
 
 const std = @import("../std.zig");
 const builtin = @import("builtin");
@@ -16,9 +17,9 @@ const proto = @import("protocol.zig");
 
 pub const disable_tls = std.options.http_disable_tls;
 
-/// Allocator used for all allocations made by the client.
+/// Default allocator used for all allocations made by the client.
 ///
-/// This allocator must be thread-safe.
+/// It's caller's responsibility to keep the allocator **thread safe**.
 allocator: Allocator,
 
 ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disable_tls) {} else .{},
@@ -28,16 +29,21 @@ ca_bundle_mutex: std.Thread.Mutex = .{},
 /// it will first rescan the system for root certificates.
 next_https_rescan_certs: bool = true,
 
-/// The pool of connections that can be reused (and currently in use).
+/// Array of `ConnectionPool`s that current `Client` contains.
+/// Initially empty.
 connection_pool: ConnectionPool = .{},
 
-/// This is the proxy that will handle http:// connections. It *must not* be modified when the client has any active connections.
+/// An HTTP proxy that handles all `http://` connection types.
+///
+/// It *must not* be modified when the client has any active connections.
 http_proxy: ?Proxy = null,
 
-/// This is the proxy that will handle https:// connections. It *must not* be modified when the client has any active connections.
+/// /// An HTTP proxy that handles all `https://` connection types.
+///
+/// It *must not* be modified when the client has any active connections.
 https_proxy: ?Proxy = null,
 
-/// A set of linked lists of connections that can be reused.
+/// A set of connections this `Client` pools.
 pub const ConnectionPool = struct {
     /// The criteria for a connection to be considered a match.
     pub const Criteria = struct {
@@ -49,16 +55,19 @@ pub const ConnectionPool = struct {
     const Queue = std.DoublyLinkedList(Connection);
     pub const Node = Queue.Node;
 
+    /// Standard mutex used for internal thread safety
     mutex: std.Thread.Mutex = .{},
-    /// Open connections that are currently in use.
+    /// Queue of open connections that are currently in use.
     used: Queue = .{},
-    /// Open connections that are not currently in use.
+    /// Queue of recently released connections.
     free: Queue = .{},
     free_len: usize = 0,
     free_size: usize = 32,
 
-    /// Finds and acquires a connection from the connection pool matching the criteria. This function is threadsafe.
+    /// Finds and acquires a connection from the connection pool matching given `criteria`.
     /// If no connection is found, null is returned.
+    ///
+    /// This function is threadsafe.
     pub fn findConnection(pool: *ConnectionPool, criteria: Criteria) ?*Connection {
         pool.mutex.lock();
         defer pool.mutex.unlock();
@@ -78,7 +87,10 @@ pub const ConnectionPool = struct {
         return null;
     }
 
-    /// Acquires an existing connection from the connection pool. This function is not threadsafe.
+    /// Tries to acquire given `Node` from given connection pool.
+    /// Acquired node will be removed from `free` connection pool and appended to `used` connection pool.
+    ///
+    /// This function is **not threadsafe**.
     pub fn acquireUnsafe(pool: *ConnectionPool, node: *Node) void {
         pool.free.remove(node);
         pool.free_len -= 1;
@@ -86,7 +98,10 @@ pub const ConnectionPool = struct {
         pool.used.append(node);
     }
 
-    /// Acquires an existing connection from the connection pool. This function is threadsafe.
+    /// Tries to acquire `node` from connection pool.
+    /// Acquired node will be removed from `free` connection pool and appended to `used` connection pool.
+    ///
+    /// This function is threadsafe.
     pub fn acquire(pool: *ConnectionPool, node: *Node) void {
         pool.mutex.lock();
         defer pool.mutex.unlock();
@@ -94,11 +109,15 @@ pub const ConnectionPool = struct {
         return pool.acquireUnsafe(node);
     }
 
-    /// Tries to release a connection back to the connection pool. This function is threadsafe.
+    /// Tries to release a `Connection` from given `ConnectionPool`
     /// If the connection is marked as closing, it will be closed instead.
+    /// Released connection will be added to `free`ed connection pool.
     ///
-    /// The allocator must be the owner of all nodes in this pool.
-    /// The allocator must be the owner of all resources associated with the connection.
+    /// Allocator rules:
+    ///  - The allocator **must** be the owner of all nodes in this pool.
+    ///  - The allocator **must** be the owner of all resources associated with the connection.
+    ///
+    /// This function is threadsafe.
     pub fn release(pool: *ConnectionPool, allocator: Allocator, connection: *Connection) void {
         pool.mutex.lock();
         defer pool.mutex.unlock();
@@ -120,8 +139,9 @@ pub const ConnectionPool = struct {
             allocator.destroy(popped);
         }
 
+        // proxied connections go to the end of the queue, always try direct connections first
         if (node.data.proxied) {
-            pool.free.prepend(node); // proxied connections go to the end of the queue, always try direct connections first
+            pool.free.prepend(node);
         } else {
             pool.free.append(node);
         }
@@ -129,7 +149,9 @@ pub const ConnectionPool = struct {
         pool.free_len += 1;
     }
 
-    /// Adds a newly created node to the pool of used connections. This function is threadsafe.
+    /// Adds a given node to the `ConnectionPool`
+    ///
+    /// This function is threadsafe.
     pub fn addUsed(pool: *ConnectionPool, node: *Node) void {
         pool.mutex.lock();
         defer pool.mutex.unlock();
@@ -137,9 +159,10 @@ pub const ConnectionPool = struct {
         pool.used.append(node);
     }
 
-    /// Resizes the connection pool. This function is threadsafe.
+    /// Resizes entire connection pool.
+    /// If the new size is smaller than the current size, then idle connections will be **closed** until the pool is the new size.
     ///
-    /// If the new size is smaller than the current size, then idle connections will be closed until the pool is the new size.
+    /// This function is threadsafe.
     pub fn resize(pool: *ConnectionPool, allocator: Allocator, new_size: usize) void {
         pool.mutex.lock();
         defer pool.mutex.unlock();
@@ -157,9 +180,12 @@ pub const ConnectionPool = struct {
         pool.free_size = new_size;
     }
 
-    /// Deinitializes a connection pool.
+    /// Deinitializes entire connection pool and destroys allocated resources
+    ///
+    /// This function is threadsafe.
     pub fn deinit(pool: *ConnectionPool, allocator: Allocator) void {
         pool.mutex.lock();
+        defer pool.mutex.unlock();
 
         var next = pool.free.first;
         while (next) |node| {
@@ -189,20 +215,30 @@ pub const Connection = struct {
     pub const Protocol = enum { plain, tls };
 
     stream: net.Stream,
-    /// undefined unless protocol is tls.
+    /// Default TLS client of the connection.
+    /// `undefined` unless protocol type is `tls`.
     tls_client: if (!disable_tls) *std.crypto.tls.Client else void,
 
+    /// Current connection protocol
     protocol: Protocol,
+    /// Connection host
     host: []u8,
+    /// Connection port
     port: u16,
 
+    /// Indicates if a connection is proxied connection
     proxied: bool = false,
+    /// Indicates if a connection is in closing state
     closing: bool = false,
 
+    /// Internal buffer read start position
     read_start: BufferSize = 0,
+    /// Internal buffer read end position
     read_end: BufferSize = 0,
     write_end: BufferSize = 0,
+    /// Default read buffer. Initially `undefined`.
     read_buf: [buffer_size]u8 = undefined,
+    /// Default write buffer. Initially `undefined`.
     write_buf: [buffer_size]u8 = undefined,
 
     pub fn readvDirectTls(conn: *Connection, buffers: []std.os.iovec) ReadError!usize {
@@ -547,9 +583,10 @@ pub const Request = struct {
     handle_redirects: bool,
     handle_continue: bool,
 
+    /// `Response` part of this `Request`
     response: Response,
 
-    /// Used as a allocator for resolving redirects locations.
+    /// Internal arena allocator used for resolving redirects locations.
     arena: std.heap.ArenaAllocator,
 
     /// Frees all resources associated with the request.
@@ -905,7 +942,7 @@ pub const Request = struct {
         return .{ .context = req };
     }
 
-    /// Reads data from the response body. Must be called after `wait`.
+    /// Reads data from the response body into the given buffer. Must be called after `wait`.
     pub fn read(req: *Request, buffer: []u8) ReadError!usize {
         const out_index = switch (req.response.compression) {
             .deflate => |*deflate| deflate.read(buffer) catch return error.DecompressionFailure,
@@ -934,7 +971,7 @@ pub const Request = struct {
         return out_index;
     }
 
-    /// Reads data from the response body. Must be called after `wait`.
+    /// Reads data from the response body into the given buffer. Must be called after `wait`.
     pub fn readAll(req: *Request, buffer: []u8) !usize {
         var index: usize = 0;
         while (index < buffer.len) {
@@ -954,7 +991,7 @@ pub const Request = struct {
         return .{ .context = req };
     }
 
-    /// Write `bytes` to the server. The `transfer_encoding` field determines how data will be sent.
+    /// Tries to write `bytes` to the server. The `transfer_encoding` field determines how data will be sent.
     /// Must be called after `send` and before `finish`.
     pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
         switch (req.transfer_encoding) {
@@ -1000,6 +1037,7 @@ pub const Request = struct {
     }
 };
 
+/// Proxy interface implementation
 pub const Proxy = struct {
     allocator: Allocator,
     headers: http.Headers,
@@ -1325,7 +1363,6 @@ const ConnectErrorPartial = ConnectTcpError || error{ UnsupportedUrlScheme, Conn
 pub const ConnectError = ConnectErrorPartial || RequestError;
 
 /// Connect to `host:port` using the specified protocol. This will reuse a connection if one is already open.
-///
 /// If a proxy is configured for the client, then the proxy will be used to connect to the host.
 ///
 /// This function is threadsafe.
