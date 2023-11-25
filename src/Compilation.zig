@@ -2512,7 +2512,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             std.debug.print("intern pool stats for '{s}':\n", .{
                 comp.bin_file.options.root_name,
             });
-            module.intern_pool.dump();
+            module.dump();
         }
 
         if (builtin.mode == .Debug and comp.verbose_generic_instances) {
@@ -2520,7 +2520,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                 comp.bin_file.options.root_name,
                 @as(usize, @intFromPtr(module)),
             });
-            module.intern_pool.dumpGenericInstances(comp.gpa);
+            module.dumpGenericInstances();
         }
 
         if (comp.bin_file.options.is_test and comp.totalErrorCount() == 0) {

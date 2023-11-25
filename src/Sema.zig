@@ -7097,15 +7097,15 @@ const InlineCallSema = struct {
             .callee => .caller,
         };
         // zig fmt: off
-        std.mem.swap(Zir,                &ics.sema.code,              &ics.other_code);
-        std.mem.swap(InternPool.Index,   &ics.sema.func_index,        &ics.other_func_index);
-        std.mem.swap(Type,               &ics.sema.fn_ret_ty,         &ics.other_fn_ret_ty);
-        std.mem.swap(?*InferredErrorSet, &ics.sema.fn_ret_ty_ies,     &ics.other_fn_ret_ty_ies);
-        std.mem.swap(InstMap,            &ics.sema.inst_map,          &ics.other_inst_map);
-        std.mem.swap(InternPool.Index,   &ics.sema.generic_owner,     &ics.other_generic_owner);
-        std.mem.swap(LazySrcLoc,         &ics.sema.generic_call_src,  &ics.other_generic_call_src);
+        std.mem.swap(Zir,                          &ics.sema.code,              &ics.other_code);
+        std.mem.swap(InternPool.Index,             &ics.sema.func_index,        &ics.other_func_index);
+        std.mem.swap(Type,                         &ics.sema.fn_ret_ty,         &ics.other_fn_ret_ty);
+        std.mem.swap(?*InferredErrorSet,           &ics.sema.fn_ret_ty_ies,     &ics.other_fn_ret_ty_ies);
+        std.mem.swap(InstMap,                      &ics.sema.inst_map,          &ics.other_inst_map);
+        std.mem.swap(InternPool.Index,             &ics.sema.generic_owner,     &ics.other_generic_owner);
+        std.mem.swap(LazySrcLoc,                   &ics.sema.generic_call_src,  &ics.other_generic_call_src);
         std.mem.swap(InternPool.OptionalDeclIndex, &ics.sema.generic_call_decl, &ics.other_generic_call_decl);
-        std.mem.swap(Air.Inst.Ref,       &ics.sema.error_return_trace_index_on_fn_entry, &ics.other_error_return_trace_index_on_fn_entry);
+        std.mem.swap(Air.Inst.Ref,                 &ics.sema.error_return_trace_index_on_fn_entry, &ics.other_error_return_trace_index_on_fn_entry);
         // zig fmt: on
     }
 };
@@ -9312,7 +9312,7 @@ fn funcCommon(
         if (inferred_error_set) {
             try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
         }
-        const func_index = try ip.getFuncInstance(gpa, .{
+        const func_index = try sema.getFuncInstance(.{
             .param_types = param_types,
             .noalias_bits = noalias_bits,
             .bare_return_type = bare_return_type.toIntern(),
@@ -38108,4 +38108,274 @@ fn ptrType(sema: *Sema, info: InternPool.Key.PtrType) CompileError!Type {
         _ = try sema.typeAbiAlignment(Type.fromInterned(info.child));
     }
     return sema.mod.ptrType(info);
+}
+
+const GetFuncInstanceKey = struct {
+    /// Has the length of the instance function (may be lesser than
+    /// comptime_args).
+    param_types: []InternPool.Index,
+    /// Has the length of generic_owner's parameters (may be greater than
+    /// param_types).
+    comptime_args: []const InternPool.Index,
+    noalias_bits: u32,
+    bare_return_type: InternPool.Index,
+    cc: std.builtin.CallingConvention,
+    alignment: Alignment,
+    section: InternPool.OptionalNullTerminatedString,
+    is_noinline: bool,
+    generic_owner: InternPool.Index,
+    inferred_error_set: bool,
+    generation: u32,
+};
+
+fn getFuncInstance(sema: *Sema, arg: GetFuncInstanceKey) Allocator.Error!InternPool.Index {
+    const gpa = sema.gpa;
+    const ip = &sema.mod.intern_pool;
+
+    if (arg.inferred_error_set)
+        return sema.getFuncInstanceIes(arg);
+
+    const func_ty = try ip.getFuncType(gpa, .{
+        .param_types = arg.param_types,
+        .return_type = arg.bare_return_type,
+        .noalias_bits = arg.noalias_bits,
+        .alignment = arg.alignment,
+        .cc = arg.cc,
+        .is_noinline = arg.is_noinline,
+    });
+
+    const generic_owner = ip.unwrapCoercedFunc(arg.generic_owner);
+
+    assert(arg.comptime_args.len == ip.funcTypeParamsLen(ip.typeOf(generic_owner)));
+
+    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(InternPool.Tag.FuncInstance).Struct.fields.len +
+        arg.comptime_args.len);
+    const prev_extra_len = ip.extra.items.len;
+    errdefer ip.extra.items.len = prev_extra_len;
+
+    const func_extra_index = ip.addExtraAssumeCapacity(InternPool.Tag.FuncInstance{
+        .analysis = .{
+            .state = if (arg.cc == .Inline) .inline_only else .none,
+            .is_cold = false,
+            .is_noinline = arg.is_noinline,
+            .calls_or_awaits_errorable_fn = false,
+            .stack_alignment = .none,
+            .inferred_error_set = false,
+        },
+        // This is populated after we create the Decl below. It is not read
+        // by equality or hashing functions.
+        .owner_decl = undefined,
+        .ty = func_ty,
+        .branch_quota = 0,
+        .generic_owner = generic_owner,
+    });
+    ip.extra.appendSliceAssumeCapacity(@ptrCast(arg.comptime_args));
+
+    const gop = try ip.map.getOrPutAdapted(gpa, InternPool.Key{
+        .func = ip.extraFuncInstance(func_extra_index),
+    }, InternPool.KeyAdapter{ .intern_pool = ip });
+    errdefer _ = ip.map.pop();
+
+    if (gop.found_existing) {
+        ip.extra.items.len = prev_extra_len;
+        return @enumFromInt(gop.index);
+    }
+
+    const func_index: InternPool.Index = @enumFromInt(ip.items.len);
+
+    try ip.items.append(gpa, .{
+        .tag = .func_instance,
+        .data = func_extra_index,
+    });
+    errdefer ip.items.len -= 1;
+
+    return sema.finishFuncInstance(
+        generic_owner,
+        func_index,
+        func_extra_index,
+        arg.generation,
+        func_ty,
+        arg.section,
+    );
+}
+
+/// This function exists separately than `getFuncInstance` because it needs to
+/// create 4 new items in the InternPool atomically before it can look for an
+/// existing item in the map.
+pub fn getFuncInstanceIes(sema: *Sema, arg: GetFuncInstanceKey) Allocator.Error!InternPool.Index {
+    const gpa = sema.gpa;
+    const ip = &sema.mod.intern_pool;
+
+    // Validate input parameters.
+    assert(arg.inferred_error_set);
+    assert(arg.bare_return_type != .none);
+    for (arg.param_types) |param_type| assert(param_type != .none);
+
+    const generic_owner = ip.unwrapCoercedFunc(arg.generic_owner);
+
+    // The strategy here is to add the function decl unconditionally, then to
+    // ask if it already exists, and if so, revert the lengths of the mutated
+    // arrays. This is similar to what `getOrPutTrailingString` does.
+    const prev_extra_len = ip.extra.items.len;
+    const params_len: u32 = @intCast(arg.param_types.len);
+
+    try ip.map.ensureUnusedCapacity(gpa, 4);
+    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(InternPool.Tag.FuncInstance).Struct.fields.len +
+        1 + // inferred_error_set
+        arg.comptime_args.len +
+        @typeInfo(InternPool.Tag.ErrorUnionType).Struct.fields.len +
+        @typeInfo(InternPool.Tag.TypeFunction).Struct.fields.len +
+        @intFromBool(arg.noalias_bits != 0) +
+        params_len);
+    try ip.items.ensureUnusedCapacity(gpa, 4);
+
+    const func_index: InternPool.Index = @enumFromInt(ip.items.len);
+    const error_union_type: InternPool.Index = @enumFromInt(ip.items.len + 1);
+    const error_set_type: InternPool.Index = @enumFromInt(ip.items.len + 2);
+    const func_ty: InternPool.Index = @enumFromInt(ip.items.len + 3);
+
+    const func_extra_index = ip.addExtraAssumeCapacity(InternPool.Tag.FuncInstance{
+        .analysis = .{
+            .state = if (arg.cc == .Inline) .inline_only else .none,
+            .is_cold = false,
+            .is_noinline = arg.is_noinline,
+            .calls_or_awaits_errorable_fn = false,
+            .stack_alignment = .none,
+            .inferred_error_set = true,
+        },
+        // This is populated after we create the Decl below. It is not read
+        // by equality or hashing functions.
+        .owner_decl = undefined,
+        .ty = func_ty,
+        .branch_quota = 0,
+        .generic_owner = generic_owner,
+    });
+    ip.extra.appendAssumeCapacity(@intFromEnum(InternPool.Index.none)); // resolved error set
+    ip.extra.appendSliceAssumeCapacity(@ptrCast(arg.comptime_args));
+
+    const func_type_extra_index = ip.addExtraAssumeCapacity(InternPool.Tag.TypeFunction{
+        .params_len = params_len,
+        .return_type = error_union_type,
+        .flags = .{
+            .alignment = arg.alignment,
+            .cc = arg.cc,
+            .is_var_args = false,
+            .has_comptime_bits = false,
+            .has_noalias_bits = arg.noalias_bits != 0,
+            .is_generic = false,
+            .is_noinline = arg.is_noinline,
+            .align_is_generic = false,
+            .cc_is_generic = false,
+            .section_is_generic = false,
+            .addrspace_is_generic = false,
+        },
+    });
+    // no comptime_bits because has_comptime_bits is false
+    if (arg.noalias_bits != 0) ip.extra.appendAssumeCapacity(arg.noalias_bits);
+    ip.extra.appendSliceAssumeCapacity(@ptrCast(arg.param_types));
+
+    // TODO: add appendSliceAssumeCapacity to MultiArrayList.
+    ip.items.appendAssumeCapacity(.{
+        .tag = .func_instance,
+        .data = func_extra_index,
+    });
+    ip.items.appendAssumeCapacity(.{
+        .tag = .type_error_union,
+        .data = ip.addExtraAssumeCapacity(InternPool.Tag.ErrorUnionType{
+            .error_set_type = error_set_type,
+            .payload_type = arg.bare_return_type,
+        }),
+    });
+    ip.items.appendAssumeCapacity(.{
+        .tag = .type_inferred_error_set,
+        .data = @intFromEnum(func_index),
+    });
+    ip.items.appendAssumeCapacity(.{
+        .tag = .type_function,
+        .data = func_type_extra_index,
+    });
+
+    const adapter: InternPool.KeyAdapter = .{ .intern_pool = ip };
+    const gop = ip.map.getOrPutAssumeCapacityAdapted(InternPool.Key{
+        .func = ip.extraFuncInstance(func_extra_index),
+    }, adapter);
+    if (gop.found_existing) {
+        // Hot path: undo the additions to our two arrays.
+        ip.items.len -= 4;
+        ip.extra.items.len = prev_extra_len;
+        return @enumFromInt(gop.index);
+    }
+
+    // Synchronize the map with items.
+    assert(!ip.map.getOrPutAssumeCapacityAdapted(InternPool.Key{ .error_union_type = .{
+        .error_set_type = error_set_type,
+        .payload_type = arg.bare_return_type,
+    } }, adapter).found_existing);
+    assert(!ip.map.getOrPutAssumeCapacityAdapted(InternPool.Key{
+        .inferred_error_set_type = func_index,
+    }, adapter).found_existing);
+    assert(!ip.map.getOrPutAssumeCapacityAdapted(InternPool.Key{
+        .func_type = ip.extraFuncType(func_type_extra_index),
+    }, adapter).found_existing);
+
+    return sema.finishFuncInstance(
+        generic_owner,
+        func_index,
+        func_extra_index,
+        arg.generation,
+        func_ty,
+        arg.section,
+    );
+}
+
+fn finishFuncInstance(
+    sema: *Sema,
+    generic_owner: InternPool.Index,
+    func_index: InternPool.Index,
+    func_extra_index: u32,
+    generation: u32,
+    func_ty: InternPool.Index,
+    section: InternPool.OptionalNullTerminatedString,
+) Allocator.Error!InternPool.Index {
+    const gpa = sema.gpa;
+    const ip = &sema.mod.intern_pool;
+
+    const fn_owner_decl = sema.mod.declPtr(ip.funcDeclOwner(generic_owner));
+    const decl_index = try sema.mod.createDecl(.{
+        .name = undefined,
+        .src_namespace = fn_owner_decl.src_namespace,
+        .src_node = fn_owner_decl.src_node,
+        .src_line = fn_owner_decl.src_line,
+        .has_tv = true,
+        .owns_tv = true,
+        .ty = @import("type.zig").Type.fromInterned(func_ty),
+        .val = @import("value.zig").Value.fromInterned(func_index),
+        .alignment = .none,
+        .@"linksection" = section,
+        .@"addrspace" = fn_owner_decl.@"addrspace",
+        .analysis = .complete,
+        .zir_decl_index = fn_owner_decl.zir_decl_index,
+        .src_scope = fn_owner_decl.src_scope,
+        .generation = generation,
+        .is_pub = fn_owner_decl.is_pub,
+        .is_exported = fn_owner_decl.is_exported,
+        .has_linksection_or_addrspace = fn_owner_decl.has_linksection_or_addrspace,
+        .has_align = fn_owner_decl.has_align,
+        .alive = true,
+        .kind = .anon,
+    });
+    errdefer sema.mod.destroyDecl(decl_index);
+
+    // Populate the owner_decl field which was left undefined until now.
+    ip.extra.items[
+        func_extra_index + std.meta.fieldIndex(InternPool.Tag.FuncInstance, "owner_decl").?
+    ] = @intFromEnum(decl_index);
+
+    // TODO: improve this name
+    const decl = sema.mod.declPtr(decl_index);
+    decl.name = try ip.getOrPutStringFmt(gpa, "{}__anon_{d}", .{
+        fn_owner_decl.name.fmt(ip), @intFromEnum(decl_index),
+    });
+
+    return func_index;
 }

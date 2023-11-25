@@ -5,9 +5,9 @@ const assert = std.debug.assert;
 const autoHash = std.hash.autoHash;
 const Target = std.Target;
 
-const Alignment = @import("../../InternPool.zig").Alignment;
-const Module = @import("../../Module.zig");
 const InternPool = @import("../../InternPool.zig");
+const Alignment = InternPool.Alignment;
+const Module = @import("../../Module.zig");
 const Type = @import("../../type.zig").Type;
 
 pub const CType = extern union {

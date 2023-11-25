@@ -10527,7 +10527,7 @@ fn genArgDbgInfo(self: Self, ty: Type, name: [:0]const u8, mcv: MCValue) !void {
                 else => unreachable, // not a valid function parameter
             };
             // TODO: this might need adjusting like the linkers do.
-            // Instead of flattening the owner and passing Decl.Index here we may
+            // Instead of flattening the owner and passing InternPool.DeclIndex here we may
             // want to special case LazySymbol in DWARF linker too.
             try dw.genArgDbgInfo(name, ty, self.owner.getDecl(mod), loc);
         },
@@ -10578,7 +10578,7 @@ fn genVarDbgInfo(
                 },
             };
             // TODO: this might need adjusting like the linkers do.
-            // Instead of flattening the owner and passing Decl.Index here we may
+            // Instead of flattening the owner and passing InternPool.DeclIndex here we may
             // want to special case LazySymbol in DWARF linker too.
             try dw.genVarDbgInfo(name, ty, self.owner.getDecl(mod), is_ptr, loc);
         },

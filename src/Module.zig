@@ -69,14 +69,14 @@ local_zir_cache: Compilation.Directory,
 /// map of Decl indexes to details about them being exported.
 /// The Export memory is owned by the `export_owners` table; the slice itself
 /// is owned by this table. The slice is guaranteed to not be empty.
-decl_exports: std.AutoArrayHashMapUnmanaged(Decl.Index, ArrayListUnmanaged(*Export)) = .{},
+decl_exports: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, ArrayListUnmanaged(*Export)) = .{},
 /// Same as `decl_exports` but for exported constant values.
 value_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, ArrayListUnmanaged(*Export)) = .{},
 /// This models the Decls that perform exports, so that `decl_exports` can be updated when a Decl
 /// is modified. Note that the key of this table is not the Decl being exported, but the Decl that
 /// is performing the export of another Decl.
 /// This table owns the Export memory.
-export_owners: std.AutoArrayHashMapUnmanaged(Decl.Index, ArrayListUnmanaged(*Export)) = .{},
+export_owners: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, ArrayListUnmanaged(*Export)) = .{},
 /// The set of all the Zig source files in the Module. We keep track of this in order
 /// to iterate over it and check which source files have been modified on the file system when
 /// an update is requested, as well as to cache `@import` results.
@@ -116,10 +116,10 @@ tmp_hack_arena: std.heap.ArenaAllocator,
 /// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
 /// Note that a Decl can succeed but the Fn it represents can fail. In this case,
 /// a Decl can have a failed_decls entry but have analysis status of success.
-failed_decls: std.AutoArrayHashMapUnmanaged(Decl.Index, *ErrorMsg) = .{},
+failed_decls: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, *ErrorMsg) = .{},
 /// Keep track of one `@compileLog` callsite per owner Decl.
 /// The value is the AST node index offset from the Decl.
-compile_log_decls: std.AutoArrayHashMapUnmanaged(Decl.Index, i32) = .{},
+compile_log_decls: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, i32) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `File`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .{},
@@ -130,7 +130,7 @@ failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .{},
 failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
 /// If a decl failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
-cimport_errors: std.AutoArrayHashMapUnmanaged(Decl.Index, std.zig.ErrorBundle) = .{},
+cimport_errors: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, std.zig.ErrorBundle) = .{},
 
 /// Key is the error name, index is the error tag value. Index 0 has a length-0 string.
 global_error_set: GlobalErrorSet = .{},
@@ -142,6 +142,25 @@ error_limit: ErrorInt,
 /// field to determine whether a Decl's status applies to an ongoing update, or a
 /// previous analysis.
 generation: u32 = 0,
+
+/// Rather than allocating Decl objects with an Allocator, we instead allocate
+/// them with this SegmentedList. This provides four advantages:
+///  * Stable memory so that one thread can access a Decl object while another
+///    thread allocates additional Decl objects from this list.
+///  * It allows us to use u32 indexes to reference Decl objects rather than
+///    pointers, saving memory in Type, Value, and dependency sets.
+///  * Using integers to reference Decl objects rather than pointers makes
+///    serialization trivial.
+///  * It provides a unique integer to be used for anonymous symbol names, avoiding
+///    multi-threaded contention on an atomic counter.
+allocated_decls: std.SegmentedList(Decl, 0) = .{},
+/// When a Decl object is freed from `allocated_decls`, it is pushed into this stack.
+decls_free_list: std.ArrayListUnmanaged(InternPool.DeclIndex) = .{},
+
+/// Same pattern as with `allocated_decls`.
+allocated_namespaces: std.SegmentedList(Namespace, 0) = .{},
+/// Same pattern as with `decls_free_list`.
+namespaces_free_list: std.ArrayListUnmanaged(InternPool.NamespaceIndex) = .{},
 
 stage1_flags: packed struct {
     have_winmain: bool = false,
@@ -159,16 +178,16 @@ compile_log_text: ArrayListUnmanaged(u8) = .{},
 
 emit_h: ?*GlobalEmitH,
 
-test_functions: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
+test_functions: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, void) = .{},
 
-global_assembly: std.AutoArrayHashMapUnmanaged(Decl.Index, []u8) = .{},
+global_assembly: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, []u8) = .{},
 
-reference_table: std.AutoHashMapUnmanaged(Decl.Index, struct {
-    referencer: Decl.Index,
+reference_table: std.AutoHashMapUnmanaged(InternPool.DeclIndex, struct {
+    referencer: InternPool.DeclIndex,
     src: LazySrcLoc,
 }) = .{},
 
-panic_messages: [PanicId.len]Decl.OptionalIndex = .{.none} ** PanicId.len,
+panic_messages: [PanicId.len]InternPool.OptionalDeclIndex = .{.none} ** PanicId.len,
 /// The panic function body.
 panic_func_index: InternPool.Index = .none,
 null_stack_trace: InternPool.Index = .none,
@@ -227,15 +246,15 @@ pub const GlobalEmitH = struct {
     /// When emit_h is non-null, each Decl gets one more compile error slot for
     /// emit-h failing for that Decl. This table is also how we tell if a Decl has
     /// failed emit-h or succeeded.
-    failed_decls: std.AutoArrayHashMapUnmanaged(Decl.Index, *ErrorMsg) = .{},
+    failed_decls: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, *ErrorMsg) = .{},
     /// Tracks all decls in order to iterate over them and emit .h code for them.
-    decl_table: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
+    decl_table: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, void) = .{},
     /// Similar to the allocated_decls field of Module, this is where `EmitH` objects
     /// are allocated. There will be exactly one EmitH object per Decl object, with
     /// identical indexes.
     allocated_emit_h: std.SegmentedList(EmitH, 0) = .{},
 
-    pub fn declPtr(global_emit_h: *GlobalEmitH, decl_index: Decl.Index) *EmitH {
+    pub fn declPtr(global_emit_h: *GlobalEmitH, decl_index: InternPool.DeclIndex) *EmitH {
         return global_emit_h.allocated_emit_h.at(@intFromEnum(decl_index));
     }
 };
@@ -244,7 +263,7 @@ pub const ErrorInt = u32;
 
 pub const Exported = union(enum) {
     /// The Decl being exported. Note this is *not* the Decl performing the export.
-    decl_index: Decl.Index,
+    decl_index: InternPool.DeclIndex,
     /// Constant value being exported.
     value: InternPool.Index,
 };
@@ -253,10 +272,10 @@ pub const Export = struct {
     opts: Options,
     src: LazySrcLoc,
     /// The Decl that performs the export. Note that this is *not* the Decl being exported.
-    owner_decl: Decl.Index,
+    owner_decl: InternPool.DeclIndex,
     /// The Decl containing the export statement.  Inline function calls
     /// may cause this to be different from the owner_decl.
-    src_decl: Decl.Index,
+    src_decl: InternPool.DeclIndex,
     exported: Exported,
     status: enum {
         in_progress,
@@ -364,7 +383,7 @@ pub const Decl = struct {
     /// Reference to externally owned memory.
     /// In the case of the Decl corresponding to a file, this is
     /// the namespace of the struct, since there is no parent.
-    src_namespace: Namespace.Index,
+    src_namespace: InternPool.NamespaceIndex,
 
     /// The scope which lexically contains this decl.  A decl must depend
     /// on its lexical parent, in order to ensure that this pointer is valid.
@@ -600,7 +619,7 @@ pub const Decl = struct {
         const ip = &mod.intern_pool;
         const count = count: {
             var count: usize = ip.stringToSlice(decl.name).len + 1;
-            var ns: Namespace.Index = decl.src_namespace;
+            var ns: InternPool.NamespaceIndex = decl.src_namespace;
             while (true) {
                 const namespace = mod.namespacePtr(ns);
                 const ns_decl = mod.declPtr(namespace.getDeclIndex(mod));
@@ -693,7 +712,7 @@ pub const Decl = struct {
 
     /// Gets the namespace that this Decl creates by being a struct, union,
     /// enum, or opaque.
-    pub fn getInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
+    pub fn getInnerNamespaceIndex(decl: Decl, mod: *Module) InternPool.OptionalNamespaceIndex {
         if (!decl.has_tv) return .none;
         return switch (decl.val.ip_index) {
             .empty_struct_type => .none,
@@ -709,7 +728,7 @@ pub const Decl = struct {
     }
 
     /// Like `getInnerNamespaceIndex`, but only returns it if the Decl is the owner.
-    pub fn getOwnedInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
+    pub fn getOwnedInnerNamespaceIndex(decl: Decl, mod: *Module) InternPool.OptionalNamespaceIndex {
         if (!decl.owns_tv) return .none;
         return decl.getInnerNamespaceIndex(mod);
     }
@@ -743,15 +762,15 @@ pub const Decl = struct {
         return mod.namespacePtr(decl.src_namespace).file_scope;
     }
 
-    pub fn removeDependant(decl: *Decl, other: Decl.Index) void {
+    pub fn removeDependant(decl: *Decl, other: InternPool.DeclIndex) void {
         assert(decl.dependants.swapRemove(other));
     }
 
-    pub fn removeDependency(decl: *Decl, other: Decl.Index) void {
+    pub fn removeDependency(decl: *Decl, other: InternPool.DeclIndex) void {
         assert(decl.dependencies.swapRemove(other));
     }
 
-    pub fn getExternDecl(decl: Decl, mod: *Module) OptionalIndex {
+    pub fn getExternDecl(decl: Decl, mod: *Module) InternPool.OptionalDeclIndex {
         assert(decl.has_tv);
         return switch (mod.intern_pool.indexToKey(decl.val.toIntern())) {
             .variable => |variable| if (variable.is_extern) variable.decl.toOptional() else .none,
@@ -784,7 +803,7 @@ pub const DeclAdapter = struct {
         return std.hash.uint32(@intFromEnum(s));
     }
 
-    pub fn eql(self: @This(), a: InternPool.NullTerminatedString, b_decl_index: Decl.Index, b_index: usize) bool {
+    pub fn eql(self: @This(), a: InternPool.NullTerminatedString, b_decl_index: InternPool.DeclIndex, b_index: usize) bool {
         _ = b_index;
         const b_decl = self.mod.declPtr(b_decl_index);
         return a == b_decl.name;
@@ -793,7 +812,7 @@ pub const DeclAdapter = struct {
 
 /// The container that structs, enums, unions, and opaques have.
 pub const Namespace = struct {
-    parent: OptionalIndex,
+    parent: InternPool.OptionalNamespaceIndex,
     file_scope: *File,
     /// Will be a struct, enum, union, or opaque.
     ty: Type,
@@ -802,7 +821,7 @@ pub const Namespace = struct {
     /// Declaration order is preserved via entry order.
     /// These are only declarations named directly by the AST; anonymous
     /// declarations are not stored here.
-    decls: std.ArrayHashMapUnmanaged(Decl.Index, void, DeclContext, true) = .{},
+    decls: std.ArrayHashMapUnmanaged(InternPool.DeclIndex, void, DeclContext, true) = .{},
 
     /// Key is usingnamespace Decl itself. To find the namespace being included,
     /// the Decl Value has to be resolved as a Type which has a Namespace.
@@ -815,12 +834,12 @@ pub const Namespace = struct {
     const DeclContext = struct {
         module: *Module,
 
-        pub fn hash(ctx: @This(), decl_index: Decl.Index) u32 {
+        pub fn hash(ctx: @This(), decl_index: InternPool.DeclIndex) u32 {
             const decl = ctx.module.declPtr(decl_index);
             return std.hash.uint32(@intFromEnum(decl.name));
         }
 
-        pub fn eql(ctx: @This(), a_decl_index: Decl.Index, b_decl_index: Decl.Index, b_index: usize) bool {
+        pub fn eql(ctx: @This(), a_decl_index: InternPool.DeclIndex, b_decl_index: InternPool.DeclIndex, b_index: usize) bool {
             _ = b_index;
             const a_decl = ctx.module.declPtr(a_decl_index);
             const b_decl = ctx.module.declPtr(b_decl_index);
@@ -862,14 +881,14 @@ pub const Namespace = struct {
         if (name != .empty) try writer.print("{c}{}", .{ separator_char, name.fmt(&mod.intern_pool) });
     }
 
-    pub fn getDeclIndex(ns: Namespace, mod: *Module) Decl.Index {
+    pub fn getDeclIndex(ns: Namespace, mod: *Module) InternPool.DeclIndex {
         return ns.ty.getOwnerDecl(mod);
     }
 };
 
 pub const File = struct {
     /// The Decl of the struct that represents this File.
-    root_decl: Decl.OptionalIndex,
+    root_decl: InternPool.OptionalDeclIndex,
     status: enum {
         never_loaded,
         retryable_failure,
@@ -900,11 +919,11 @@ pub const File = struct {
 
     /// Used by change detection algorithm, after astgen, contains the
     /// set of decls that existed in the previous ZIR but not in the new one.
-    deleted_decls: ArrayListUnmanaged(Decl.Index) = .{},
+    deleted_decls: ArrayListUnmanaged(InternPool.DeclIndex) = .{},
     /// Used by change detection algorithm, after astgen, contains the
     /// set of decls that existed both in the previous ZIR and in the new one,
     /// but their source code has been modified.
-    outdated_decls: ArrayListUnmanaged(Decl.Index) = .{},
+    outdated_decls: ArrayListUnmanaged(InternPool.DeclIndex) = .{},
 
     /// The most recent successful ZIR for this file, with no errors.
     /// This is only populated when a previously successful ZIR
@@ -2284,14 +2303,14 @@ pub const LazySrcLoc = union(enum) {
     for_capture_from_input: i32,
     /// The source location points to the argument node of a function call.
     call_arg: struct {
-        decl: Decl.Index,
+        decl: InternPool.DeclIndex,
         /// Points to the function call AST node.
         call_node_offset: i32,
         /// The index of the argument the source location points to.
         arg_index: u32,
     },
     fn_proto_param: struct {
-        decl: Decl.Index,
+        decl: InternPool.DeclIndex,
         /// Points to the function prototype AST node.
         fn_proto_node_offset: i32,
         /// The index of the parameter the source location points to.
@@ -2524,7 +2543,7 @@ pub fn deinit(mod: *Module) void {
     mod.reference_table.deinit(gpa);
 
     {
-        var it = mod.intern_pool.allocated_namespaces.iterator(0);
+        var it = mod.allocated_namespaces.iterator(0);
         while (it.next()) |namespace| {
             namespace.decls.deinit(gpa);
             namespace.usingnamespace_set.deinit(gpa);
@@ -2537,11 +2556,66 @@ pub fn deinit(mod: *Module) void {
     mod.capture_scope_parents.deinit(gpa);
     mod.runtime_capture_scopes.deinit(gpa);
     mod.comptime_capture_scopes.deinit(gpa);
+
+    mod.decls_free_list.deinit(gpa);
+    mod.allocated_decls.deinit(gpa);
+
+    mod.namespaces_free_list.deinit(gpa);
+    mod.allocated_namespaces.deinit(gpa);
 }
 
-pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
+pub fn declPtr(mod: *Module, index: InternPool.DeclIndex) *Module.Decl {
+    return mod.allocated_decls.at(@intFromEnum(index));
+}
+
+pub fn declPtrConst(mod: *const Module, index: InternPool.DeclIndex) *const Module.Decl {
+    return mod.allocated_decls.at(@intFromEnum(index));
+}
+
+pub fn namespacePtr(mod: *Module, index: InternPool.NamespaceIndex) *Module.Namespace {
+    return mod.allocated_namespaces.at(@intFromEnum(index));
+}
+
+pub fn createDecl(
+    mod: *Module,
+    initialization: Module.Decl,
+) Allocator.Error!InternPool.DeclIndex {
+    if (mod.decls_free_list.popOrNull()) |index| {
+        mod.allocated_decls.at(@intFromEnum(index)).* = initialization;
+        return index;
+    }
+    const ptr = try mod.allocated_decls.addOne(mod.gpa);
+    ptr.* = initialization;
+    return @enumFromInt(mod.allocated_decls.len - 1);
+}
+
+pub fn createNamespace(
+    mod: *Module,
+    initialization: Module.Namespace,
+) Allocator.Error!InternPool.NamespaceIndex {
+    if (mod.namespaces_free_list.popOrNull()) |index| {
+        mod.allocated_namespaces.at(@intFromEnum(index)).* = initialization;
+        return index;
+    }
+    const ptr = try mod.allocated_namespaces.addOne(mod.gpa);
+    ptr.* = initialization;
+    return @enumFromInt(mod.allocated_namespaces.len - 1);
+}
+
+pub fn destroyNamespace(mod: *Module, index: InternPool.NamespaceIndex) void {
+    mod.namespacePtr(index).* = .{
+        .parent = undefined,
+        .file_scope = undefined,
+        .ty = undefined,
+    };
+    mod.namespaces_free_list.append(mod.gpa, index) catch {
+        // In order to keep `destroyNamespace` a non-fallible function, we ignore memory
+        // allocation failures here, instead leaking the Namespace until garbage collection.
+    };
+}
+
+pub fn destroyDecl(mod: *Module, decl_index: InternPool.DeclIndex) void {
     const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
 
     {
         _ = mod.test_functions.swapRemove(decl_index);
@@ -2550,7 +2624,11 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
         }
     }
 
-    ip.destroyDecl(gpa, decl_index);
+    mod.declPtr(decl_index).* = undefined;
+    mod.decls_free_list.append(gpa, decl_index) catch {
+        // In order to keep `destroyDecl` a non-fallible function, we ignore memory
+        // allocation failures here, instead leaking the Decl until garbage collection.
+    };
 
     if (mod.emit_h) |mod_emit_h| {
         const decl_emit_h = mod_emit_h.declPtr(decl_index);
@@ -2559,20 +2637,12 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
     }
 }
 
-pub fn declPtr(mod: *Module, index: Decl.Index) *Decl {
-    return mod.intern_pool.declPtr(index);
-}
-
-pub fn namespacePtr(mod: *Module, index: Namespace.Index) *Namespace {
-    return mod.intern_pool.namespacePtr(index);
-}
-
-pub fn namespacePtrUnwrap(mod: *Module, index: Namespace.OptionalIndex) ?*Namespace {
+pub fn namespacePtrUnwrap(mod: *Module, index: InternPool.OptionalNamespaceIndex) ?*Namespace {
     return mod.namespacePtr(index.unwrap() orelse return null);
 }
 
 /// Returns true if and only if the Decl is the top level struct associated with a File.
-pub fn declIsRoot(mod: *Module, decl_index: Decl.Index) bool {
+pub fn declIsRoot(mod: *Module, decl_index: InternPool.DeclIndex) bool {
     const decl = mod.declPtr(decl_index);
     const namespace = mod.namespacePtr(decl.src_namespace);
     if (namespace.parent != .none)
@@ -2978,7 +3048,7 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
     // Walk the Decl graph, updating ZIR indexes, strings, and populating
     // the deleted and outdated lists.
 
-    var decl_stack: ArrayListUnmanaged(Decl.Index) = .{};
+    var decl_stack: ArrayListUnmanaged(InternPool.DeclIndex) = .{};
     defer decl_stack.deinit(gpa);
 
     try decl_stack.append(gpa, root_decl);
@@ -3173,7 +3243,7 @@ pub fn mapOldZirToNew(
 /// However the resolution status of the Type may not be fully resolved.
 /// For example an inferred error set is not resolved until after `analyzeFnBody`.
 /// is called.
-pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
+pub fn ensureDeclAnalyzed(mod: *Module, decl_index: InternPool.DeclIndex) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3485,7 +3555,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     defer sema_arena.deinit();
     const sema_arena_allocator = sema_arena.allocator();
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
+    var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
     defer comptime_mutable_decls.deinit();
 
     var sema: Sema = .{
@@ -3549,7 +3619,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
 /// Returns `true` if the Decl type changed.
 /// Returns `true` if this is the first time analyzing the Decl.
 /// Returns `false` otherwise.
-fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
+fn semaDecl(mod: *Module, decl_index: InternPool.DeclIndex) !bool {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3602,7 +3672,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
+    var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
     defer comptime_mutable_decls.deinit();
 
     var sema: Sema = .{
@@ -4129,7 +4199,7 @@ fn newEmbedFile(
 
 pub fn scanNamespace(
     mod: *Module,
-    namespace_index: Namespace.Index,
+    namespace_index: InternPool.NamespaceIndex,
     extra_start: usize,
     decls_len: u32,
     parent_decl: *Decl,
@@ -4174,7 +4244,7 @@ pub fn scanNamespace(
 
 const ScanDeclIter = struct {
     module: *Module,
-    namespace_index: Namespace.Index,
+    namespace_index: InternPool.NamespaceIndex,
     parent_decl: *Decl,
     usingnamespace_index: usize = 0,
     comptime_index: usize = 0,
@@ -4353,11 +4423,10 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
 /// This function is exclusively called for anonymous decls.
 /// All resources referenced by anonymous decls are owned by InternPool
 /// so there is no cleanup to do here.
-pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
+pub fn deleteUnusedDecl(mod: *Module, decl_index: InternPool.DeclIndex) void {
     const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
 
-    ip.destroyDecl(gpa, decl_index);
+    mod.destroyDecl(decl_index);
 
     if (mod.emit_h) |mod_emit_h| {
         const decl_emit_h = mod_emit_h.declPtr(decl_index);
@@ -4368,13 +4437,13 @@ pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
 
 /// Cancel the creation of an anon decl and delete any references to it.
 /// If other decls depend on this decl, they must be aborted first.
-pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
+pub fn abortAnonDecl(mod: *Module, decl_index: InternPool.DeclIndex) void {
     assert(!mod.declIsRoot(decl_index));
     mod.destroyDecl(decl_index);
 }
 
 /// Finalize the creation of an anon decl.
-pub fn finalizeAnonDecl(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
+pub fn finalizeAnonDecl(mod: *Module, decl_index: InternPool.DeclIndex) Allocator.Error!void {
     // The Decl starts off with alive=false and the codegen backend will set alive=true
     // if the Decl is referenced by an instruction or another constant. Otherwise,
     // the Decl will be garbage collected by the `codegen_decl` task instead of sent
@@ -4386,7 +4455,7 @@ pub fn finalizeAnonDecl(mod: *Module, decl_index: Decl.Index) Allocator.Error!vo
 
 /// Delete all the Export objects that are caused by this Decl. Re-analysis of
 /// this Decl will cause them to be re-created (or not).
-fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
+fn deleteDeclExports(mod: *Module, decl_index: InternPool.DeclIndex) Allocator.Error!void {
     var export_owners = (mod.export_owners.fetchSwapRemove(decl_index) orelse return).value;
 
     for (export_owners.items) |exp| {
@@ -4451,7 +4520,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
+    var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
     defer comptime_mutable_decls.deinit();
 
     // In the case of a generic function instance, this is the type of the
@@ -4690,7 +4759,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     };
 }
 
-fn markOutdatedDecl(mod: *Module, decl_index: Decl.Index) !void {
+fn markOutdatedDecl(mod: *Module, decl_index: InternPool.DeclIndex) !void {
     const decl = mod.declPtr(decl_index);
     try mod.comp.work_queue.writeItem(.{ .analyze_decl = decl_index });
     if (mod.failed_decls.fetchSwapRemove(decl_index)) |kv| {
@@ -4709,23 +4778,14 @@ fn markOutdatedDecl(mod: *Module, decl_index: Decl.Index) !void {
     decl.analysis = .outdated;
 }
 
-pub fn createNamespace(mod: *Module, initialization: Namespace) !Namespace.Index {
-    return mod.intern_pool.createNamespace(mod.gpa, initialization);
-}
-
-pub fn destroyNamespace(mod: *Module, index: Namespace.Index) void {
-    return mod.intern_pool.destroyNamespace(mod.gpa, index);
-}
-
 pub fn allocateNewDecl(
     mod: *Module,
-    namespace: Namespace.Index,
+    namespace: InternPool.NamespaceIndex,
     src_node: Ast.Node.Index,
     src_scope: CaptureScope.Index,
-) !Decl.Index {
-    const ip = &mod.intern_pool;
+) !InternPool.DeclIndex {
     const gpa = mod.gpa;
-    const decl_index = try ip.createDecl(gpa, .{
+    const decl_index = try mod.createDecl(.{
         .name = undefined,
         .src_namespace = namespace,
         .src_node = src_node,
@@ -4780,7 +4840,7 @@ pub fn errorSetBits(mod: *Module) u16 {
     return std.math.log2_int_ceil(ErrorInt, mod.error_limit + 1); // +1 for no error
 }
 
-pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedValue) !Decl.Index {
+pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedValue) !InternPool.DeclIndex {
     const src_decl = mod.declPtr(block.src_decl);
     return mod.createAnonymousDeclFromDecl(src_decl, block.namespace, block.wip_capture_scope, typed_value);
 }
@@ -4788,10 +4848,10 @@ pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedV
 pub fn createAnonymousDeclFromDecl(
     mod: *Module,
     src_decl: *Decl,
-    namespace: Namespace.Index,
+    namespace: InternPool.NamespaceIndex,
     src_scope: CaptureScope.Index,
     tv: TypedValue,
-) !Decl.Index {
+) !InternPool.DeclIndex {
     const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node, src_scope);
     errdefer mod.destroyDecl(new_decl_index);
     const name = try mod.intern_pool.getOrPutStringFmt(mod.gpa, "{}__anon_{d}", .{
@@ -4803,7 +4863,7 @@ pub fn createAnonymousDeclFromDecl(
 
 pub fn initNewAnonDecl(
     mod: *Module,
-    new_decl_index: Decl.Index,
+    new_decl_index: InternPool.DeclIndex,
     src_line: u32,
     typed_value: TypedValue,
     name: InternPool.NullTerminatedString,
@@ -5338,7 +5398,7 @@ pub fn populateTestFunctions(
         defer gpa.free(test_fn_vals);
 
         // Add a dependency on each test name and function pointer.
-        var array_decl_dependencies = std.ArrayListUnmanaged(Decl.Index){};
+        var array_decl_dependencies = std.ArrayListUnmanaged(InternPool.DeclIndex){};
         defer array_decl_dependencies.deinit(gpa);
         try array_decl_dependencies.ensureUnusedCapacity(gpa, test_fn_vals.len * 2);
 
@@ -5436,7 +5496,7 @@ pub fn populateTestFunctions(
     try mod.linkerUpdateDecl(decl_index);
 }
 
-pub fn linkerUpdateDecl(mod: *Module, decl_index: Decl.Index) !void {
+pub fn linkerUpdateDecl(mod: *Module, decl_index: InternPool.DeclIndex) !void {
     const comp = mod.comp;
 
     const no_bin_file = (comp.bin_file.options.emit == null and
@@ -5546,11 +5606,11 @@ pub fn markDeclAlive(mod: *Module, decl: *Decl) Allocator.Error!void {
     try mod.markReferencedDeclsAlive(decl.val);
 }
 
-fn markDeclIndexAlive(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
+fn markDeclIndexAlive(mod: *Module, decl_index: InternPool.DeclIndex) Allocator.Error!void {
     return mod.markDeclAlive(mod.declPtr(decl_index));
 }
 
-pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u8) !void {
+pub fn addGlobalAssembly(mod: *Module, decl_index: InternPool.DeclIndex, source: []const u8) !void {
     const gop = try mod.global_assembly.getOrPut(mod.gpa, decl_index);
     if (gop.found_existing) {
         const new_value = try std.fmt.allocPrint(mod.gpa, "{s}\n{s}", .{ gop.value_ptr.*, source });
@@ -5565,7 +5625,7 @@ pub fn wantDllExports(mod: Module) bool {
     return mod.comp.bin_file.options.dll_export_fns and mod.getTarget().os.tag == .windows;
 }
 
-pub fn getDeclExports(mod: Module, decl_index: Decl.Index) []const *Export {
+pub fn getDeclExports(mod: Module, decl_index: InternPool.DeclIndex) []const *Export {
     if (mod.decl_exports.get(decl_index)) |l| {
         return l.items;
     } else {
@@ -6070,11 +6130,11 @@ pub fn opaqueFullyQualifiedName(mod: *Module, opaque_type: InternPool.Key.Opaque
     return mod.declPtr(opaque_type.decl).getFullyQualifiedName(mod);
 }
 
-pub fn declFileScope(mod: *Module, decl_index: Decl.Index) *File {
+pub fn declFileScope(mod: *Module, decl_index: InternPool.DeclIndex) *File {
     return mod.declPtr(decl_index).getFileScope(mod);
 }
 
-pub fn namespaceDeclIndex(mod: *Module, namespace_index: Namespace.Index) Decl.Index {
+pub fn namespaceDeclIndex(mod: *Module, namespace_index: InternPool.NamespaceIndex) InternPool.DeclIndex {
     return mod.namespacePtr(namespace_index).getDeclIndex(mod);
 }
 
@@ -6117,7 +6177,7 @@ pub fn funcOwnerDeclPtr(mod: *Module, func_index: InternPool.Index) *Decl {
     return mod.declPtr(mod.funcOwnerDeclIndex(func_index));
 }
 
-pub fn funcOwnerDeclIndex(mod: *Module, func_index: InternPool.Index) Decl.Index {
+pub fn funcOwnerDeclIndex(mod: *Module, func_index: InternPool.Index) InternPool.DeclIndex {
     return mod.funcInfo(func_index).owner_decl;
 }
 
@@ -6129,7 +6189,7 @@ pub fn funcInfo(mod: *Module, func_index: InternPool.Index) InternPool.Key.Func 
     return mod.intern_pool.indexToKey(func_index).func;
 }
 
-pub fn fieldSrcLoc(mod: *Module, owner_decl_index: Decl.Index, query: FieldSrcQuery) SrcLoc {
+pub fn fieldSrcLoc(mod: *Module, owner_decl_index: InternPool.DeclIndex, query: FieldSrcQuery) SrcLoc {
     @setCold(true);
     const owner_decl = mod.declPtr(owner_decl_index);
     const file = owner_decl.getFileScope(mod);
@@ -6362,4 +6422,380 @@ pub fn structPackedFieldBitOffset(
         bit_sum += field_ty.bitSize(mod);
     }
     unreachable; // index out of bounds
+}
+
+pub fn dump(mod: *const Module) void {
+    mod.dumpStatsFallible(std.heap.page_allocator) catch return;
+    mod.dumpAllFallible() catch return;
+}
+
+fn dumpStatsFallible(mod: *const Module, arena: Allocator) anyerror!void {
+    const ip = mod.intern_pool;
+
+    const items_size = (1 + 4) * ip.items.len;
+    const extra_size = 4 * ip.extra.items.len;
+    const limbs_size = 8 * ip.limbs.items.len;
+    const decls_size = mod.allocated_decls.len * @sizeOf(Module.Decl);
+
+    // TODO: map overhead size is not taken into account
+    const total_size = @sizeOf(InternPool) + items_size + extra_size + limbs_size + decls_size;
+
+    std.debug.print(
+        \\InternPool size: {d} bytes
+        \\  {d} items: {d} bytes
+        \\  {d} extra: {d} bytes
+        \\  {d} limbs: {d} bytes
+        \\  {d} decls: {d} bytes
+        \\
+    , .{
+        total_size,
+        ip.items.len,
+        items_size,
+        ip.extra.items.len,
+        extra_size,
+        ip.limbs.items.len,
+        limbs_size,
+        mod.allocated_decls.len,
+        decls_size,
+    });
+
+    const tags = ip.items.items(.tag);
+    const datas = ip.items.items(.data);
+    const TagStats = struct {
+        count: usize = 0,
+        bytes: usize = 0,
+    };
+    var counts = std.AutoArrayHashMap(InternPool.Tag, TagStats).init(arena);
+    for (tags, datas) |tag, data| {
+        const gop = try counts.getOrPut(tag);
+        if (!gop.found_existing) gop.value_ptr.* = .{};
+        gop.value_ptr.count += 1;
+        gop.value_ptr.bytes += 1 + 4 + @as(usize, switch (tag) {
+            .type_int_signed => 0,
+            .type_int_unsigned => 0,
+            .type_array_small => @sizeOf(InternPool.Vector),
+            .type_array_big => @sizeOf(InternPool.Array),
+            .type_vector => @sizeOf(InternPool.Vector),
+            .type_pointer => @sizeOf(InternPool.Tag.TypePointer),
+            .type_slice => 0,
+            .type_optional => 0,
+            .type_anyframe => 0,
+            .type_error_union => @sizeOf(InternPool.Key.ErrorUnionType),
+            .type_anyerror_union => 0,
+            .type_error_set => b: {
+                const info = ip.extraData(InternPool.Tag.ErrorSet, data);
+                break :b @sizeOf(InternPool.Tag.ErrorSet) + (@sizeOf(u32) * info.names_len);
+            },
+            .type_inferred_error_set => 0,
+            .type_enum_explicit, .type_enum_nonexhaustive => @sizeOf(InternPool.EnumExplicit),
+            .type_enum_auto => @sizeOf(InternPool.EnumAuto),
+            .type_opaque => @sizeOf(InternPool.Key.OpaqueType),
+            .type_struct => b: {
+                const info = ip.extraData(InternPool.Tag.TypeStruct, data);
+                var ints: usize = @typeInfo(InternPool.Tag.TypeStruct).Struct.fields.len;
+                ints += info.fields_len; // types
+                if (!info.flags.is_tuple) {
+                    ints += 1; // names_map
+                    ints += info.fields_len; // names
+                }
+                if (info.flags.any_default_inits)
+                    ints += info.fields_len; // inits
+                ints += @intFromBool(info.flags.has_namespace); // namespace
+                if (info.flags.any_aligned_fields)
+                    ints += (info.fields_len + 3) / 4; // aligns
+                if (info.flags.any_comptime_fields)
+                    ints += (info.fields_len + 31) / 32; // comptime bits
+                if (!info.flags.is_extern)
+                    ints += info.fields_len; // runtime order
+                ints += info.fields_len; // offsets
+                break :b @sizeOf(u32) * ints;
+            },
+            .type_struct_ns => @sizeOf(Module.Namespace),
+            .type_struct_anon => b: {
+                const info = ip.extraData(InternPool.TypeStructAnon, data);
+                break :b @sizeOf(InternPool.TypeStructAnon) + (@sizeOf(u32) * 3 * info.fields_len);
+            },
+            .type_struct_packed => b: {
+                const info = ip.extraData(InternPool.Tag.TypeStructPacked, data);
+                break :b @sizeOf(u32) * (@typeInfo(InternPool.Tag.TypeStructPacked).Struct.fields.len +
+                    info.fields_len + info.fields_len);
+            },
+            .type_struct_packed_inits => b: {
+                const info = ip.extraData(InternPool.Tag.TypeStructPacked, data);
+                break :b @sizeOf(u32) * (@typeInfo(InternPool.Tag.TypeStructPacked).Struct.fields.len +
+                    info.fields_len + info.fields_len + info.fields_len);
+            },
+            .type_tuple_anon => b: {
+                const info = ip.extraData(InternPool.TypeStructAnon, data);
+                break :b @sizeOf(InternPool.TypeStructAnon) + (@sizeOf(u32) * 2 * info.fields_len);
+            },
+
+            .type_union => b: {
+                const info = ip.extraData(InternPool.Tag.TypeUnion, data);
+                const enum_info = ip.indexToKey(info.tag_ty).enum_type;
+                const fields_len: u32 = @intCast(enum_info.names.len);
+                const per_field = @sizeOf(u32); // field type
+                // 1 byte per field for alignment, rounded up to the nearest 4 bytes
+                const alignments = if (info.flags.any_aligned_fields)
+                    ((fields_len + 3) / 4) * 4
+                else
+                    0;
+                break :b @sizeOf(InternPool.Tag.TypeUnion) + (fields_len * per_field) + alignments;
+            },
+
+            .type_function => b: {
+                const info = ip.extraData(InternPool.Tag.TypeFunction, data);
+                break :b @sizeOf(InternPool.Tag.TypeFunction) +
+                    (@sizeOf(InternPool.Index) * info.params_len) +
+                    (@as(u32, 4) * @intFromBool(info.flags.has_comptime_bits)) +
+                    (@as(u32, 4) * @intFromBool(info.flags.has_noalias_bits));
+            },
+
+            .undef => 0,
+            .simple_type => 0,
+            .simple_value => 0,
+            .ptr_decl => @sizeOf(InternPool.PtrDecl),
+            .ptr_mut_decl => @sizeOf(InternPool.PtrMutDecl),
+            .ptr_anon_decl => @sizeOf(InternPool.PtrAnonDecl),
+            .ptr_anon_decl_aligned => @sizeOf(InternPool.PtrAnonDeclAligned),
+            .ptr_comptime_field => @sizeOf(InternPool.PtrComptimeField),
+            .ptr_int => @sizeOf(InternPool.PtrBase),
+            .ptr_eu_payload => @sizeOf(InternPool.PtrBase),
+            .ptr_opt_payload => @sizeOf(InternPool.PtrBase),
+            .ptr_elem => @sizeOf(InternPool.PtrBaseIndex),
+            .ptr_field => @sizeOf(InternPool.PtrBaseIndex),
+            .ptr_slice => @sizeOf(InternPool.PtrSlice),
+            .opt_null => 0,
+            .opt_payload => @sizeOf(InternPool.Tag.TypeValue),
+            .int_u8 => 0,
+            .int_u16 => 0,
+            .int_u32 => 0,
+            .int_i32 => 0,
+            .int_usize => 0,
+            .int_comptime_int_u32 => 0,
+            .int_comptime_int_i32 => 0,
+            .int_small => @sizeOf(InternPool.IntSmall),
+
+            .int_positive,
+            .int_negative,
+            => b: {
+                const int = ip.limbData(InternPool.Int, data);
+                break :b @sizeOf(InternPool.Int) + int.limbs_len * 8;
+            },
+
+            .int_lazy_align, .int_lazy_size => @sizeOf(InternPool.IntLazy),
+
+            .error_set_error, .error_union_error => @sizeOf(InternPool.Key.Error),
+            .error_union_payload => @sizeOf(InternPool.Tag.TypeValue),
+            .enum_literal => 0,
+            .enum_tag => @sizeOf(InternPool.Tag.EnumTag),
+
+            .bytes => b: {
+                const info = ip.extraData(InternPool.Bytes, data);
+                const len = @as(u32, @intCast(ip.aggregateTypeLenIncludingSentinel(info.ty)));
+                break :b @sizeOf(InternPool.Bytes) + len +
+                    @intFromBool(ip.string_bytes.items[@intFromEnum(info.bytes) + len - 1] != 0);
+            },
+            .aggregate => b: {
+                const info = ip.extraData(InternPool.Tag.Aggregate, data);
+                const fields_len: u32 = @intCast(ip.aggregateTypeLenIncludingSentinel(info.ty));
+                break :b @sizeOf(InternPool.Tag.Aggregate) + (@sizeOf(InternPool.Index) * fields_len);
+            },
+            .repeated => @sizeOf(InternPool.Repeated),
+
+            .float_f16 => 0,
+            .float_f32 => 0,
+            .float_f64 => @sizeOf(InternPool.Float64),
+            .float_f80 => @sizeOf(InternPool.Float80),
+            .float_f128 => @sizeOf(InternPool.Float128),
+            .float_c_longdouble_f80 => @sizeOf(InternPool.Float80),
+            .float_c_longdouble_f128 => @sizeOf(InternPool.Float128),
+            .float_comptime_float => @sizeOf(InternPool.Float128),
+            .variable => @sizeOf(InternPool.Tag.Variable),
+            .extern_func => @sizeOf(InternPool.Tag.ExternFunc),
+            .func_decl => @sizeOf(InternPool.Tag.FuncDecl),
+            .func_instance => b: {
+                const info = ip.extraData(InternPool.Tag.FuncInstance, data);
+                const ty = ip.typeOf(info.generic_owner);
+                const params_len = ip.indexToKey(ty).func_type.param_types.len;
+                break :b @sizeOf(InternPool.Tag.FuncInstance) + @sizeOf(InternPool.Index) * params_len;
+            },
+            .func_coerced => @sizeOf(InternPool.Tag.FuncCoerced),
+            .only_possible_value => 0,
+            .union_value => @sizeOf(InternPool.Key.Union),
+
+            .memoized_call => b: {
+                const info = ip.extraData(InternPool.MemoizedCall, data);
+                break :b @sizeOf(InternPool.MemoizedCall) + (@sizeOf(InternPool.Index) * info.args_len);
+            },
+        });
+    }
+    const SortContext = struct {
+        map: *std.AutoArrayHashMap(InternPool.Tag, TagStats),
+        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+            const values = ctx.map.values();
+            return values[a_index].bytes > values[b_index].bytes;
+            //return values[a_index].count > values[b_index].count;
+        }
+    };
+    counts.sort(SortContext{ .map = &counts });
+    const len = @min(50, counts.count());
+    std.debug.print("  top 50 tags:\n", .{});
+    for (counts.keys()[0..len], counts.values()[0..len]) |tag, stats| {
+        std.debug.print("    {s}: {d} occurrences, {d} total bytes\n", .{
+            @tagName(tag), stats.count, stats.bytes,
+        });
+    }
+}
+
+fn dumpAllFallible(mod: *const Module) anyerror!void {
+    const ip = mod.intern_pool;
+
+    const tags = ip.items.items(.tag);
+    const datas = ip.items.items(.data);
+    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
+    const w = bw.writer();
+    for (tags, datas, 0..) |tag, data, i| {
+        try w.print("${d} = {s}(", .{ i, @tagName(tag) });
+        switch (tag) {
+            .simple_type => try w.print("{s}", .{@tagName(@as(InternPool.SimpleType, @enumFromInt(data)))}),
+            .simple_value => try w.print("{s}", .{@tagName(@as(InternPool.SimpleValue, @enumFromInt(data)))}),
+
+            .type_int_signed,
+            .type_int_unsigned,
+            .type_array_small,
+            .type_array_big,
+            .type_vector,
+            .type_pointer,
+            .type_optional,
+            .type_anyframe,
+            .type_error_union,
+            .type_anyerror_union,
+            .type_error_set,
+            .type_inferred_error_set,
+            .type_enum_explicit,
+            .type_enum_nonexhaustive,
+            .type_enum_auto,
+            .type_opaque,
+            .type_struct,
+            .type_struct_ns,
+            .type_struct_anon,
+            .type_struct_packed,
+            .type_struct_packed_inits,
+            .type_tuple_anon,
+            .type_union,
+            .type_function,
+            .undef,
+            .ptr_decl,
+            .ptr_mut_decl,
+            .ptr_anon_decl,
+            .ptr_anon_decl_aligned,
+            .ptr_comptime_field,
+            .ptr_int,
+            .ptr_eu_payload,
+            .ptr_opt_payload,
+            .ptr_elem,
+            .ptr_field,
+            .ptr_slice,
+            .opt_payload,
+            .int_u8,
+            .int_u16,
+            .int_u32,
+            .int_i32,
+            .int_usize,
+            .int_comptime_int_u32,
+            .int_comptime_int_i32,
+            .int_small,
+            .int_positive,
+            .int_negative,
+            .int_lazy_align,
+            .int_lazy_size,
+            .error_set_error,
+            .error_union_error,
+            .error_union_payload,
+            .enum_literal,
+            .enum_tag,
+            .bytes,
+            .aggregate,
+            .repeated,
+            .float_f16,
+            .float_f32,
+            .float_f64,
+            .float_f80,
+            .float_f128,
+            .float_c_longdouble_f80,
+            .float_c_longdouble_f128,
+            .float_comptime_float,
+            .variable,
+            .extern_func,
+            .func_decl,
+            .func_instance,
+            .func_coerced,
+            .union_value,
+            .memoized_call,
+            => try w.print("{d}", .{data}),
+
+            .opt_null,
+            .type_slice,
+            .only_possible_value,
+            => try w.print("${d}", .{data}),
+        }
+        try w.writeAll(")\n");
+    }
+    try bw.flush();
+}
+
+pub fn dumpGenericInstances(mod: *const Module) void {
+    mod.dumpGenericInstancesFallible() catch return;
+}
+
+pub fn dumpGenericInstancesFallible(mod: *const Module) anyerror!void {
+    var arena_allocator = std.heap.ArenaAllocator.init(mod.gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    const ip = &mod.intern_pool;
+
+    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
+    const w = bw.writer();
+
+    var instances: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayListUnmanaged(InternPool.Index)) = .{};
+    const datas = ip.items.items(.data);
+    for (ip.items.items(.tag), 0..) |tag, i| {
+        if (tag != .func_instance) continue;
+        const info = ip.extraData(InternPool.Tag.FuncInstance, datas[i]);
+
+        const gop = try instances.getOrPut(arena, info.generic_owner);
+        if (!gop.found_existing) gop.value_ptr.* = .{};
+
+        try gop.value_ptr.append(arena, @enumFromInt(i));
+    }
+
+    const SortContext = struct {
+        values: []std.ArrayListUnmanaged(InternPool.Index),
+        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+            return ctx.values[a_index].items.len > ctx.values[b_index].items.len;
+        }
+    };
+
+    instances.sort(SortContext{ .values = instances.values() });
+    var it = instances.iterator();
+    while (it.next()) |entry| {
+        const generic_fn_owner_decl = mod.declPtrConst(ip.funcDeclOwner(entry.key_ptr.*));
+        try w.print("{} ({}): \n", .{ generic_fn_owner_decl.name.fmt(ip), entry.value_ptr.items.len });
+        for (entry.value_ptr.items) |index| {
+            const func = ip.extraFuncInstance(datas[@intFromEnum(index)]);
+            const owner_decl = mod.declPtrConst(func.owner_decl);
+            try w.print("  {}: (", .{owner_decl.name.fmt(ip)});
+            for (func.comptime_args.get(ip)) |arg| {
+                if (arg != .none) {
+                    const key = ip.indexToKey(arg);
+                    try w.print(" {} ", .{key});
+                }
+            }
+            try w.writeAll(")\n");
+        }
+    }
+
+    try bw.flush();
 }
