@@ -718,7 +718,6 @@ pub fn listen(server: *Server, address: net.Address) ListenError!void {
     try server.socket.listen(address);
 }
 
-/// Set of possible errors to expect if network accept operations fail
 pub const AcceptError = net.StreamServer.AcceptError || Allocator.Error;
 
 pub const HeaderStrategy = union(enum) {

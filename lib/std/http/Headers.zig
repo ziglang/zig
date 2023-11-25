@@ -35,6 +35,7 @@ pub const CaseInsensitiveStringContext = struct {
     }
 };
 
+/// HTTP header field implementation
 pub const Field = struct {
     name: []const u8,
     value: []const u8,
@@ -47,6 +48,7 @@ pub const Field = struct {
     }
 };
 
+/// HTTP Header implementation
 pub const Headers = struct {
     allocator: Allocator,
     list: HeaderList = .{},
