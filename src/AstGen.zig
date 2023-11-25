@@ -14,7 +14,7 @@ const isPrimitive = std.zig.primitives.isPrimitive;
 
 const Zir = @import("Zir.zig");
 const BuiltinFn = std.zig.BuiltinFn;
-const AstRlAnnotate = @import("AstRlAnnotate.zig");
+const AstRlAnnotate = std.zig.AstRlAnnotate;
 
 gpa: Allocator,
 tree: *const Ast,
