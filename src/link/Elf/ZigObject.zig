@@ -660,7 +660,7 @@ pub fn lowerAnonDecl(
 ) !codegen.Result {
     const gpa = elf_file.base.allocator;
     const mod = elf_file.base.options.module.?;
-    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
     const decl_alignment = switch (explicit_alignment) {
         .none => ty.abiAlignment(mod),
         else => explicit_alignment,
@@ -671,7 +671,7 @@ pub fn lowerAnonDecl(
             return .ok;
     }
 
-    const val = decl_val.toValue();
+    const val = Value.fromInterned(decl_val);
     const tv = TypedValue{ .ty = ty, .val = val };
     var name_buf: [32]u8 = undefined;
     const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
@@ -835,7 +835,7 @@ fn getDeclShdrIndex(
                     });
                 }
                 if (variable.is_const) break :blk elf_file.zig_data_rel_ro_section_index.?;
-                if (variable.init.toValue().isUndefDeep(mod)) {
+                if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
                     const mode = elf_file.base.options.optimize_mode;
                     if (mode == .Debug or mode == .ReleaseSafe) break :blk elf_file.zig_data_section_index.?;
                     break :blk elf_file.zig_bss_section_index.?;
@@ -1114,7 +1114,7 @@ pub fn updateDecl(
     defer if (decl_state) |*ds| ds.deinit();
 
     // TODO implement .debug_info for global variables
-    const decl_val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
+    const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const res = if (decl_state) |*ds|
         try codegen.generateSymbol(&elf_file.base, decl.srcLoc(mod), .{
             .ty = decl.ty,
@@ -1613,5 +1613,7 @@ const Module = @import("../../Module.zig");
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
 const StringTable = @import("../StringTable.zig");
+const Type = @import("../../type.zig").Type;
+const Value = @import("../../value.zig").Value;
 const TypedValue = @import("../../TypedValue.zig");
 const ZigObject = @This();

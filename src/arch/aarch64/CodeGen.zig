@@ -6245,7 +6245,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             }
 
             for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
-                const param_size = @as(u32, @intCast(ty.toType().abiSize(mod)));
+                const param_size = @as(u32, @intCast(Type.fromInterned(ty).abiSize(mod)));
                 if (param_size == 0) {
                     result_arg.* = .{ .none = {} };
                     continue;
@@ -6253,14 +6253,14 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
                 // We round up NCRN only for non-Apple platforms which allow the 16-byte aligned
                 // values to spread across odd-numbered registers.
-                if (ty.toType().abiAlignment(mod) == .@"16" and !self.target.isDarwin()) {
+                if (Type.fromInterned(ty).abiAlignment(mod) == .@"16" and !self.target.isDarwin()) {
                     // Round up NCRN to the next even number
                     ncrn += ncrn % 2;
                 }
 
                 if (std.math.divCeil(u32, param_size, 8) catch unreachable <= 8 - ncrn) {
                     if (param_size <= 8) {
-                        result_arg.* = .{ .register = self.registerAlias(c_abi_int_param_regs[ncrn], ty.toType()) };
+                        result_arg.* = .{ .register = self.registerAlias(c_abi_int_param_regs[ncrn], Type.fromInterned(ty)) };
                         ncrn += 1;
                     } else {
                         return self.fail("TODO MCValues with multiple registers", .{});
@@ -6271,7 +6271,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     ncrn = 8;
                     // TODO Apple allows the arguments on the stack to be non-8-byte aligned provided
                     // that the entire stack space consumed by the arguments is 8-byte aligned.
-                    if (ty.toType().abiAlignment(mod) == .@"8") {
+                    if (Type.fromInterned(ty).abiAlignment(mod) == .@"8") {
                         if (nsaa % 8 != 0) {
                             nsaa += 8 - (nsaa % 8);
                         }
@@ -6310,9 +6310,9 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             var stack_offset: u32 = 0;
 
             for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
-                if (ty.toType().abiSize(mod) > 0) {
-                    const param_size: u32 = @intCast(ty.toType().abiSize(mod));
-                    const param_alignment = ty.toType().abiAlignment(mod);
+                if (Type.fromInterned(ty).abiSize(mod) > 0) {
+                    const param_size: u32 = @intCast(Type.fromInterned(ty).abiSize(mod));
+                    const param_alignment = Type.fromInterned(ty).abiAlignment(mod);
 
                     stack_offset = @intCast(param_alignment.forward(stack_offset));
                     result_arg.* = .{ .stack_argument_offset = stack_offset };

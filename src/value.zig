@@ -196,13 +196,13 @@ pub const Value = struct {
             .enum_literal => |enum_literal| enum_literal,
             .ptr => |ptr| switch (ptr.len) {
                 .none => unreachable,
-                else => try arrayToIpString(val, ptr.len.toValue().toUnsignedInt(mod), mod),
+                else => try arrayToIpString(val, Value.fromInterned(ptr.len).toUnsignedInt(mod), mod),
             },
             .aggregate => |aggregate| switch (aggregate.storage) {
                 .bytes => |bytes| try ip.getOrPutString(mod.gpa, bytes),
                 .elems => try arrayToIpString(val, ty.arrayLen(mod), mod),
                 .repeated_elem => |elem| {
-                    const byte = @as(u8, @intCast(elem.toValue().toUnsignedInt(mod)));
+                    const byte = @as(u8, @intCast(Value.fromInterned(elem).toUnsignedInt(mod)));
                     const len = @as(usize, @intCast(ty.arrayLen(mod)));
                     try ip.string_bytes.appendNTimes(mod.gpa, byte, len);
                     return ip.getOrPutTrailingString(mod.gpa, len);
@@ -219,13 +219,13 @@ pub const Value = struct {
             .enum_literal => |enum_literal| allocator.dupe(u8, mod.intern_pool.stringToSlice(enum_literal)),
             .ptr => |ptr| switch (ptr.len) {
                 .none => unreachable,
-                else => try arrayToAllocatedBytes(val, ptr.len.toValue().toUnsignedInt(mod), allocator, mod),
+                else => try arrayToAllocatedBytes(val, Value.fromInterned(ptr.len).toUnsignedInt(mod), allocator, mod),
             },
             .aggregate => |aggregate| switch (aggregate.storage) {
                 .bytes => |bytes| try allocator.dupe(u8, bytes),
                 .elems => try arrayToAllocatedBytes(val, ty.arrayLen(mod), allocator, mod),
                 .repeated_elem => |elem| {
-                    const byte = @as(u8, @intCast(elem.toValue().toUnsignedInt(mod)));
+                    const byte = @as(u8, @intCast(Value.fromInterned(elem).toUnsignedInt(mod)));
                     const result = try allocator.alloc(u8, @as(usize, @intCast(ty.arrayLen(mod))));
                     @memset(result, byte);
                     return result;
@@ -316,8 +316,8 @@ pub const Value = struct {
                 for (new_elems, old_elems, 0..) |*new_elem, old_elem, field_i|
                     new_elem.* = try old_elem.intern(switch (ty_key) {
                         .struct_type => ty.structFieldType(field_i, mod),
-                        .anon_struct_type => |info| info.types.get(ip)[field_i].toType(),
-                        inline .array_type, .vector_type => |info| info.child.toType(),
+                        .anon_struct_type => |info| Type.fromInterned(info.types.get(ip)[field_i]),
+                        inline .array_type, .vector_type => |info| Type.fromInterned(info.child),
                         else => unreachable,
                     }, mod);
                 return mod.intern(.{ .aggregate = .{
@@ -378,39 +378,47 @@ pub const Value = struct {
 
             .error_union => |error_union| switch (error_union.val) {
                 .err_name => val,
-                .payload => |payload| Tag.eu_payload.create(arena, payload.toValue()),
+                .payload => |payload| Tag.eu_payload.create(arena, Value.fromInterned(payload)),
             },
 
             .ptr => |ptr| switch (ptr.len) {
                 .none => val,
                 else => |len| Tag.slice.create(arena, .{
                     .ptr = val.slicePtr(mod),
-                    .len = len.toValue(),
+                    .len = Value.fromInterned(len),
                 }),
             },
 
             .opt => |opt| switch (opt.val) {
                 .none => val,
-                else => |payload| Tag.opt_payload.create(arena, payload.toValue()),
+                else => |payload| Tag.opt_payload.create(arena, Value.fromInterned(payload)),
             },
 
             .aggregate => |aggregate| switch (aggregate.storage) {
                 .bytes => |bytes| Tag.bytes.create(arena, try arena.dupe(u8, bytes)),
                 .elems => |old_elems| {
                     const new_elems = try arena.alloc(Value, old_elems.len);
-                    for (new_elems, old_elems) |*new_elem, old_elem| new_elem.* = old_elem.toValue();
+                    for (new_elems, old_elems) |*new_elem, old_elem| new_elem.* = Value.fromInterned(old_elem);
                     return Tag.aggregate.create(arena, new_elems);
                 },
-                .repeated_elem => |elem| Tag.repeated.create(arena, elem.toValue()),
+                .repeated_elem => |elem| Tag.repeated.create(arena, Value.fromInterned(elem)),
             },
 
             .un => |un| Tag.@"union".create(arena, .{
                 // toValue asserts that the value cannot be .none which is valid on unions.
-                .tag = if (un.tag == .none) null else un.tag.toValue(),
-                .val = un.val.toValue(),
+                .tag = if (un.tag == .none) null else Value.fromInterned(un.tag),
+                .val = Value.fromInterned(un.val),
             }),
 
             .memoized_call => unreachable,
+        };
+    }
+
+    pub fn fromInterned(i: InternPool.Index) Value {
+        assert(i != .none);
+        return .{
+            .ip_index = i,
+            .legacy = undefined,
         };
     }
 
@@ -421,7 +429,7 @@ pub const Value = struct {
 
     /// Asserts that the value is representable as a type.
     pub fn toType(self: Value) Type {
-        return self.toIntern().toType();
+        return Type.fromInterned(self.toIntern());
     }
 
     pub fn intFromEnum(val: Value, ty: Type, mod: *Module) Allocator.Error!Value {
@@ -435,13 +443,13 @@ pub const Value = struct {
                     // Assume it is already an integer and return it directly.
                     .simple_type, .int_type => val,
                     .enum_type => |enum_type| if (enum_type.values.len != 0)
-                        enum_type.values.get(ip)[field_index].toValue()
+                        Value.fromInterned(enum_type.values.get(ip)[field_index])
                     else // Field index and integer values are the same.
-                        mod.intValue(enum_type.tag_ty.toType(), field_index),
+                        mod.intValue(Type.fromInterned(enum_type.tag_ty), field_index),
                     else => unreachable,
                 };
             },
-            .enum_type => |enum_type| try mod.getCoerced(val, enum_type.tag_ty.toType()),
+            .enum_type => |enum_type| try mod.getCoerced(val, Type.fromInterned(enum_type.tag_ty)),
             else => unreachable,
         };
     }
@@ -466,16 +474,16 @@ pub const Value = struct {
                 .int => |int| switch (int.storage) {
                     .u64, .i64, .big_int => int.storage.toBigInt(space),
                     .lazy_align, .lazy_size => |ty| {
-                        if (opt_sema) |sema| try sema.resolveTypeLayout(ty.toType());
+                        if (opt_sema) |sema| try sema.resolveTypeLayout(Type.fromInterned(ty));
                         const x = switch (int.storage) {
                             else => unreachable,
-                            .lazy_align => ty.toType().abiAlignment(mod).toByteUnits(0),
-                            .lazy_size => ty.toType().abiSize(mod),
+                            .lazy_align => Type.fromInterned(ty).abiAlignment(mod).toByteUnits(0),
+                            .lazy_size => Type.fromInterned(ty).abiSize(mod),
                         };
                         return BigIntMutable.init(&space.limbs, x).toConst();
                     },
                 },
-                .enum_tag => |enum_tag| enum_tag.int.toValue().toBigIntAdvanced(space, mod, opt_sema),
+                .enum_tag => |enum_tag| Value.fromInterned(enum_tag.int).toBigIntAdvanced(space, mod, opt_sema),
                 .opt, .ptr => BigIntMutable.init(
                     &space.limbs,
                     (try val.getUnsignedIntAdvanced(mod, opt_sema)).?,
@@ -530,24 +538,24 @@ pub const Value = struct {
                     .u64 => |x| x,
                     .i64 => |x| std.math.cast(u64, x),
                     .lazy_align => |ty| if (opt_sema) |sema|
-                        (try ty.toType().abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar.toByteUnits(0)
+                        (try Type.fromInterned(ty).abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar.toByteUnits(0)
                     else
-                        ty.toType().abiAlignment(mod).toByteUnits(0),
+                        Type.fromInterned(ty).abiAlignment(mod).toByteUnits(0),
                     .lazy_size => |ty| if (opt_sema) |sema|
-                        (try ty.toType().abiSizeAdvanced(mod, .{ .sema = sema })).scalar
+                        (try Type.fromInterned(ty).abiSizeAdvanced(mod, .{ .sema = sema })).scalar
                     else
-                        ty.toType().abiSize(mod),
+                        Type.fromInterned(ty).abiSize(mod),
                 },
                 .ptr => |ptr| switch (ptr.addr) {
-                    .int => |int| int.toValue().getUnsignedIntAdvanced(mod, opt_sema),
+                    .int => |int| Value.fromInterned(int).getUnsignedIntAdvanced(mod, opt_sema),
                     .elem => |elem| {
-                        const base_addr = (try elem.base.toValue().getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
-                        const elem_ty = mod.intern_pool.typeOf(elem.base).toType().elemType2(mod);
+                        const base_addr = (try Value.fromInterned(elem.base).getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
+                        const elem_ty = Type.fromInterned(mod.intern_pool.typeOf(elem.base)).elemType2(mod);
                         return base_addr + elem.index * elem_ty.abiSize(mod);
                     },
                     .field => |field| {
-                        const base_addr = (try field.base.toValue().getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
-                        const struct_ty = mod.intern_pool.typeOf(field.base).toType().childType(mod);
+                        const base_addr = (try Value.fromInterned(field.base).getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
+                        const struct_ty = Type.fromInterned(mod.intern_pool.typeOf(field.base)).childType(mod);
                         if (opt_sema) |sema| try sema.resolveTypeLayout(struct_ty);
                         return base_addr + struct_ty.structFieldOffset(@as(usize, @intCast(field.index)), mod);
                     },
@@ -555,7 +563,7 @@ pub const Value = struct {
                 },
                 .opt => |opt| switch (opt.val) {
                     .none => 0,
-                    else => |payload| payload.toValue().getUnsignedIntAdvanced(mod, opt_sema),
+                    else => |payload| Value.fromInterned(payload).getUnsignedIntAdvanced(mod, opt_sema),
                 },
                 else => null,
             },
@@ -577,8 +585,8 @@ pub const Value = struct {
                     .big_int => |big_int| big_int.to(i64) catch unreachable,
                     .i64 => |x| x,
                     .u64 => |x| @intCast(x),
-                    .lazy_align => |ty| @intCast(ty.toType().abiAlignment(mod).toByteUnits(0)),
-                    .lazy_size => |ty| @intCast(ty.toType().abiSize(mod)),
+                    .lazy_align => |ty| @intCast(Type.fromInterned(ty).abiAlignment(mod).toByteUnits(0)),
+                    .lazy_size => |ty| @intCast(Type.fromInterned(ty).abiSize(mod)),
                 },
                 else => unreachable,
             },
@@ -598,8 +606,8 @@ pub const Value = struct {
         while (true) switch (mod.intern_pool.indexToKey(check.toIntern())) {
             .ptr => |ptr| switch (ptr.addr) {
                 .decl, .mut_decl, .comptime_field, .anon_decl => return true,
-                .eu_payload, .opt_payload => |base| check = base.toValue(),
-                .elem, .field => |base_index| check = base_index.base.toValue(),
+                .eu_payload, .opt_payload => |base| check = Value.fromInterned(base),
+                .elem, .field => |base_index| check = Value.fromInterned(base_index.base),
                 .int => return false,
             },
             else => return false,
@@ -680,16 +688,16 @@ pub const Value = struct {
                                 .repeated => val.castTag(.repeated).?.data,
                                 else => unreachable,
                             },
-                            else => switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
+                            else => Value.fromInterned(switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
                                 .bytes => |bytes| {
                                     buffer[off] = bytes[i];
                                     continue;
                                 },
                                 .elems => |elems| elems[i],
                                 .repeated_elem => |elem| elem,
-                            }.toValue(),
+                            }),
                         };
-                        const field_ty = struct_type.field_types.get(ip)[i].toType();
+                        const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
                         try writeToMemory(field_val, field_ty, mod, buffer[off..]);
                     },
                     .Packed => {
@@ -720,7 +728,7 @@ pub const Value = struct {
                     if (val.unionTag(mod)) |union_tag| {
                         const union_obj = mod.typeToUnion(ty).?;
                         const field_index = mod.unionTagFieldIndex(union_obj, union_tag).?;
-                        const field_type = union_obj.field_types.get(&mod.intern_pool)[field_index].toType();
+                        const field_type = Type.fromInterned(union_obj.field_types.get(&mod.intern_pool)[field_index]);
                         const field_val = try val.fieldValue(mod, field_index);
                         const byte_count = @as(usize, @intCast(field_type.abiSize(mod)));
                         return writeToMemory(field_val, field_type, mod, buffer[0..byte_count]);
@@ -829,14 +837,14 @@ pub const Value = struct {
                 var bits: u16 = 0;
                 const storage = ip.indexToKey(val.toIntern()).aggregate.storage;
                 for (0..struct_type.field_types.len) |i| {
-                    const field_ty = struct_type.field_types.get(ip)[i].toType();
+                    const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
                     const field_bits: u16 = @intCast(field_ty.bitSize(mod));
                     const field_val = switch (storage) {
                         .bytes => unreachable,
                         .elems => |elems| elems[i],
                         .repeated_elem => |elem| elem,
                     };
-                    try field_val.toValue().writeToPackedMemory(field_ty, mod, buffer, bit_offset + bits);
+                    try Value.fromInterned(field_val).writeToPackedMemory(field_ty, mod, buffer, bit_offset + bits);
                     bits += field_bits;
                 }
             },
@@ -847,7 +855,7 @@ pub const Value = struct {
                     .Packed => {
                         if (val.unionTag(mod)) |union_tag| {
                             const field_index = mod.unionTagFieldIndex(union_obj, union_tag).?;
-                            const field_type = union_obj.field_types.get(ip)[field_index].toType();
+                            const field_type = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
                             const field_val = try val.fieldValue(mod, field_index);
                             return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
                         } else {
@@ -934,7 +942,7 @@ pub const Value = struct {
                     return mod.getCoerced(try mod.intValue_big(int_ty, bigint.toConst()), ty);
                 }
             },
-            .Float => return (try mod.intern(.{ .float = .{
+            .Float => return Value.fromInterned((try mod.intern(.{ .float = .{
                 .ty = ty.toIntern(),
                 .storage = switch (ty.floatBits(target)) {
                     16 => .{ .f16 = @as(f16, @bitCast(std.mem.readInt(u16, buffer[0..2], endian))) },
@@ -944,7 +952,7 @@ pub const Value = struct {
                     128 => .{ .f128 = @as(f128, @bitCast(std.mem.readInt(u128, buffer[0..16], endian))) },
                     else => unreachable,
                 },
-            } })).toValue(),
+            } }))),
             .Array => {
                 const elem_ty = ty.childType(mod);
                 const elem_size = elem_ty.abiSize(mod);
@@ -954,10 +962,10 @@ pub const Value = struct {
                     elem.* = try (try readFromMemory(elem_ty, mod, buffer[offset..], arena)).intern(elem_ty, mod);
                     offset += @as(usize, @intCast(elem_size));
                 }
-                return (try mod.intern(.{ .aggregate = .{
+                return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                     .ty = ty.toIntern(),
                     .storage = .{ .elems = elems },
-                } })).toValue();
+                } })));
             },
             .Vector => {
                 // We use byte_count instead of abi_size here, so that any padding bytes
@@ -973,15 +981,15 @@ pub const Value = struct {
                         const field_types = struct_type.field_types;
                         const field_vals = try arena.alloc(InternPool.Index, field_types.len);
                         for (field_vals, 0..) |*field_val, i| {
-                            const field_ty = field_types.get(ip)[i].toType();
+                            const field_ty = Type.fromInterned(field_types.get(ip)[i]);
                             const off: usize = @intCast(ty.structFieldOffset(i, mod));
                             const sz: usize = @intCast(field_ty.abiSize(mod));
                             field_val.* = try (try readFromMemory(field_ty, mod, buffer[off..(off + sz)], arena)).intern(field_ty, mod);
                         }
-                        return (try mod.intern(.{ .aggregate = .{
+                        return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                             .ty = ty.toIntern(),
                             .storage = .{ .elems = field_vals },
-                        } })).toValue();
+                        } })));
                     },
                     .Packed => {
                         const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
@@ -996,10 +1004,10 @@ pub const Value = struct {
                 const index = (int << @as(u6, @intCast(64 - bits))) >> @as(u6, @intCast(64 - bits));
                 const name = mod.global_error_set.keys()[@intCast(index)];
 
-                return (try mod.intern(.{ .err = .{
+                return Value.fromInterned((try mod.intern(.{ .err = .{
                     .ty = ty.toIntern(),
                     .name = name,
-                } })).toValue();
+                } })));
             },
             .Union => switch (ty.containerLayout(mod)) {
                 .Auto => return error.IllDefinedMemoryLayout,
@@ -1007,11 +1015,11 @@ pub const Value = struct {
                     const union_size = ty.abiSize(mod);
                     const array_ty = try mod.arrayType(.{ .len = union_size, .child = .u8_type });
                     const val = try (try readFromMemory(array_ty, mod, buffer, arena)).intern(array_ty, mod);
-                    return (try mod.intern(.{ .un = .{
+                    return Value.fromInterned((try mod.intern(.{ .un = .{
                         .ty = ty.toIntern(),
                         .tag = .none,
                         .val = val,
-                    } })).toValue();
+                    } })));
                 },
                 .Packed => {
                     const byte_count = (@as(usize, @intCast(ty.bitSize(mod))) + 7) / 8;
@@ -1021,23 +1029,23 @@ pub const Value = struct {
             .Pointer => {
                 assert(!ty.isSlice(mod)); // No well defined layout.
                 const int_val = try readFromMemory(Type.usize, mod, buffer, arena);
-                return (try mod.intern(.{ .ptr = .{
+                return Value.fromInterned((try mod.intern(.{ .ptr = .{
                     .ty = ty.toIntern(),
                     .addr = .{ .int = int_val.toIntern() },
-                } })).toValue();
+                } })));
             },
             .Optional => {
                 assert(ty.isPtrLikeOptional(mod));
                 const child_ty = ty.optionalChild(mod);
                 const child_val = try readFromMemory(child_ty, mod, buffer, arena);
-                return (try mod.intern(.{ .opt = .{
+                return Value.fromInterned((try mod.intern(.{ .opt = .{
                     .ty = ty.toIntern(),
                     .val = switch (child_val.orderAgainstZero(mod)) {
                         .lt => unreachable,
                         .eq => .none,
                         .gt => child_val.toIntern(),
                     },
-                } })).toValue();
+                } })));
             },
             else => return error.Unimplemented,
         }
@@ -1108,7 +1116,7 @@ pub const Value = struct {
                 bigint.readPackedTwosComplement(buffer, bit_offset, bits, endian, int_info.signedness);
                 return mod.intValue_big(ty, bigint.toConst());
             },
-            .Float => return (try mod.intern(.{ .float = .{
+            .Float => return Value.fromInterned((try mod.intern(.{ .float = .{
                 .ty = ty.toIntern(),
                 .storage = switch (ty.floatBits(target)) {
                     16 => .{ .f16 = @as(f16, @bitCast(std.mem.readPackedInt(u16, buffer, bit_offset, endian))) },
@@ -1118,7 +1126,7 @@ pub const Value = struct {
                     128 => .{ .f128 = @as(f128, @bitCast(std.mem.readPackedInt(u128, buffer, bit_offset, endian))) },
                     else => unreachable,
                 },
-            } })).toValue(),
+            } }))),
             .Vector => {
                 const elem_ty = ty.childType(mod);
                 const elems = try arena.alloc(InternPool.Index, @as(usize, @intCast(ty.arrayLen(mod))));
@@ -1131,10 +1139,10 @@ pub const Value = struct {
                     elems[tgt_elem_i] = try (try readFromPackedMemory(elem_ty, mod, buffer, bit_offset + bits, arena)).intern(elem_ty, mod);
                     bits += elem_bit_size;
                 }
-                return (try mod.intern(.{ .aggregate = .{
+                return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                     .ty = ty.toIntern(),
                     .storage = .{ .elems = elems },
-                } })).toValue();
+                } })));
             },
             .Struct => {
                 // Sema is supposed to have emitted a compile error already for Auto layout structs,
@@ -1143,26 +1151,26 @@ pub const Value = struct {
                 var bits: u16 = 0;
                 const field_vals = try arena.alloc(InternPool.Index, struct_type.field_types.len);
                 for (field_vals, 0..) |*field_val, i| {
-                    const field_ty = struct_type.field_types.get(ip)[i].toType();
+                    const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
                     const field_bits: u16 = @intCast(field_ty.bitSize(mod));
                     field_val.* = try (try readFromPackedMemory(field_ty, mod, buffer, bit_offset + bits, arena)).intern(field_ty, mod);
                     bits += field_bits;
                 }
-                return (try mod.intern(.{ .aggregate = .{
+                return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                     .ty = ty.toIntern(),
                     .storage = .{ .elems = field_vals },
-                } })).toValue();
+                } })));
             },
             .Union => switch (ty.containerLayout(mod)) {
                 .Auto, .Extern => unreachable, // Handled by non-packed readFromMemory
                 .Packed => {
                     const backing_ty = try ty.unionBackingType(mod);
                     const val = (try readFromPackedMemory(backing_ty, mod, buffer, bit_offset, arena)).toIntern();
-                    return (try mod.intern(.{ .un = .{
+                    return Value.fromInterned((try mod.intern(.{ .un = .{
                         .ty = ty.toIntern(),
                         .tag = .none,
                         .val = val,
-                    } })).toValue();
+                    } })));
                 },
             },
             .Pointer => {
@@ -1189,8 +1197,8 @@ pub const Value = struct {
                     }
                     return @floatFromInt(x);
                 },
-                .lazy_align => |ty| @floatFromInt(ty.toType().abiAlignment(mod).toByteUnits(0)),
-                .lazy_size => |ty| @floatFromInt(ty.toType().abiSize(mod)),
+                .lazy_align => |ty| @floatFromInt(Type.fromInterned(ty).abiAlignment(mod).toByteUnits(0)),
+                .lazy_size => |ty| @floatFromInt(Type.fromInterned(ty).abiSize(mod)),
             },
             .float => |float| switch (float.storage) {
                 inline else => |x| @floatCast(x),
@@ -1283,7 +1291,7 @@ pub const Value = struct {
     /// Caller can find out by equality checking the result against the operand.
     pub fn floatCast(self: Value, dest_ty: Type, mod: *Module) !Value {
         const target = mod.getTarget();
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = dest_ty.toIntern(),
             .storage = switch (dest_ty.floatBits(target)) {
                 16 => .{ .f16 = self.toFloat(f16, mod) },
@@ -1293,7 +1301,7 @@ pub const Value = struct {
                 128 => .{ .f128 = self.toFloat(f128, mod) },
                 else => unreachable,
             },
-        } })).toValue();
+        } })));
     }
 
     /// Asserts the value is a float
@@ -1321,8 +1329,8 @@ pub const Value = struct {
             else => switch (mod.intern_pool.indexToKey(lhs.toIntern())) {
                 .ptr => |ptr| switch (ptr.addr) {
                     .decl, .mut_decl, .comptime_field => .gt,
-                    .int => |int| int.toValue().orderAgainstZeroAdvanced(mod, opt_sema),
-                    .elem => |elem| switch (try elem.base.toValue().orderAgainstZeroAdvanced(mod, opt_sema)) {
+                    .int => |int| Value.fromInterned(int).orderAgainstZeroAdvanced(mod, opt_sema),
+                    .elem => |elem| switch (try Value.fromInterned(elem.base).orderAgainstZeroAdvanced(mod, opt_sema)) {
                         .lt => unreachable,
                         .gt => .gt,
                         .eq => if (elem.index == 0) .eq else .gt,
@@ -1333,7 +1341,7 @@ pub const Value = struct {
                     .big_int => |big_int| big_int.orderAgainstScalar(0),
                     inline .u64, .i64 => |x| std.math.order(x, 0),
                     .lazy_align => .gt, // alignment is never 0
-                    .lazy_size => |ty| return if (ty.toType().hasRuntimeBitsAdvanced(
+                    .lazy_size => |ty| return if (Type.fromInterned(ty).hasRuntimeBitsAdvanced(
                         mod,
                         false,
                         if (opt_sema) |sema| .{ .sema = sema } else .eager,
@@ -1342,7 +1350,7 @@ pub const Value = struct {
                         else => |e| return e,
                     }) .gt else .eq,
                 },
-                .enum_tag => |enum_tag| enum_tag.int.toValue().orderAgainstZeroAdvanced(mod, opt_sema),
+                .enum_tag => |enum_tag| Value.fromInterned(enum_tag.int).orderAgainstZeroAdvanced(mod, opt_sema),
                 .float => |float| switch (float.storage) {
                     inline else => |x| std.math.order(x, 0),
                 },
@@ -1494,9 +1502,9 @@ pub const Value = struct {
                     if (!std.math.order(byte, 0).compare(op)) break false;
                 } else true,
                 .elems => |elems| for (elems) |elem| {
-                    if (!try elem.toValue().compareAllWithZeroAdvancedExtra(op, mod, opt_sema)) break false;
+                    if (!try Value.fromInterned(elem).compareAllWithZeroAdvancedExtra(op, mod, opt_sema)) break false;
                 } else true,
-                .repeated_elem => |elem| elem.toValue().compareAllWithZeroAdvancedExtra(op, mod, opt_sema),
+                .repeated_elem => |elem| Value.fromInterned(elem).compareAllWithZeroAdvancedExtra(op, mod, opt_sema),
             },
             else => {},
         }
@@ -1513,8 +1521,8 @@ pub const Value = struct {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .ptr => |ptr| switch (ptr.addr) {
                 .mut_decl, .comptime_field => true,
-                .eu_payload, .opt_payload => |base_ptr| base_ptr.toValue().isComptimeMutablePtr(mod),
-                .elem, .field => |base_index| base_index.base.toValue().isComptimeMutablePtr(mod),
+                .eu_payload, .opt_payload => |base_ptr| Value.fromInterned(base_ptr).isComptimeMutablePtr(mod),
+                .elem, .field => |base_index| Value.fromInterned(base_index.base).isComptimeMutablePtr(mod),
                 else => false,
             },
             else => false,
@@ -1526,20 +1534,20 @@ pub const Value = struct {
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .error_union => |error_union| switch (error_union.val) {
                     .err_name => false,
-                    .payload => |payload| payload.toValue().canMutateComptimeVarState(mod),
+                    .payload => |payload| Value.fromInterned(payload).canMutateComptimeVarState(mod),
                 },
                 .ptr => |ptr| switch (ptr.addr) {
-                    .eu_payload, .opt_payload => |base| base.toValue().canMutateComptimeVarState(mod),
+                    .eu_payload, .opt_payload => |base| Value.fromInterned(base).canMutateComptimeVarState(mod),
                     else => false,
                 },
                 .opt => |opt| switch (opt.val) {
                     .none => false,
-                    else => |payload| payload.toValue().canMutateComptimeVarState(mod),
+                    else => |payload| Value.fromInterned(payload).canMutateComptimeVarState(mod),
                 },
                 .aggregate => |aggregate| for (aggregate.storage.values()) |elem| {
-                    if (elem.toValue().canMutateComptimeVarState(mod)) break true;
+                    if (Value.fromInterned(elem).canMutateComptimeVarState(mod)) break true;
                 } else false,
-                .un => |un| un.val.toValue().canMutateComptimeVarState(mod),
+                .un => |un| Value.fromInterned(un.val).canMutateComptimeVarState(mod),
                 else => false,
             },
         };
@@ -1566,7 +1574,7 @@ pub const Value = struct {
     pub const slice_len_index = 1;
 
     pub fn slicePtr(val: Value, mod: *Module) Value {
-        return mod.intern_pool.slicePtr(val.toIntern()).toValue();
+        return Value.fromInterned(mod.intern_pool.slicePtr(val.toIntern()));
     }
 
     pub fn sliceLen(val: Value, mod: *Module) u64 {
@@ -1583,7 +1591,7 @@ pub const Value = struct {
                 .array_type => |array_type| array_type.len,
                 else => 1,
             },
-            else => ptr.len.toValue().toUnsignedInt(mod),
+            else => Value.fromInterned(ptr.len).toUnsignedInt(mod),
         };
     }
 
@@ -1604,37 +1612,36 @@ pub const Value = struct {
                 else => null,
             },
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
-                .undef => |ty| (try mod.intern(.{
-                    .undef = ty.toType().elemType2(mod).toIntern(),
-                })).toValue(),
+                .undef => |ty| Value.fromInterned((try mod.intern(.{
+                    .undef = Type.fromInterned(ty).elemType2(mod).toIntern(),
+                }))),
                 .ptr => |ptr| switch (ptr.addr) {
                     .decl => |decl| mod.declPtr(decl).val.maybeElemValue(mod, index),
-                    .anon_decl => |anon_decl| anon_decl.val.toValue().maybeElemValue(mod, index),
-                    .mut_decl => |mut_decl| (try mod.declPtr(mut_decl.decl).internValue(mod))
-                        .toValue().maybeElemValue(mod, index),
+                    .anon_decl => |anon_decl| Value.fromInterned(anon_decl.val).maybeElemValue(mod, index),
+                    .mut_decl => |mut_decl| Value.fromInterned((try mod.declPtr(mut_decl.decl).internValue(mod))).maybeElemValue(mod, index),
                     .int, .eu_payload => null,
-                    .opt_payload => |base| base.toValue().maybeElemValue(mod, index),
-                    .comptime_field => |field_val| field_val.toValue().maybeElemValue(mod, index),
-                    .elem => |elem| elem.base.toValue().maybeElemValue(mod, index + @as(usize, @intCast(elem.index))),
-                    .field => |field| if (field.base.toValue().pointerDecl(mod)) |decl_index| {
+                    .opt_payload => |base| Value.fromInterned(base).maybeElemValue(mod, index),
+                    .comptime_field => |field_val| Value.fromInterned(field_val).maybeElemValue(mod, index),
+                    .elem => |elem| Value.fromInterned(elem.base).maybeElemValue(mod, index + @as(usize, @intCast(elem.index))),
+                    .field => |field| if (Value.fromInterned(field.base).pointerDecl(mod)) |decl_index| {
                         const base_decl = mod.declPtr(decl_index);
                         const field_val = try base_decl.val.fieldValue(mod, @as(usize, @intCast(field.index)));
                         return field_val.maybeElemValue(mod, index);
                     } else null,
                 },
-                .opt => |opt| opt.val.toValue().maybeElemValue(mod, index),
+                .opt => |opt| Value.fromInterned(opt.val).maybeElemValue(mod, index),
                 .aggregate => |aggregate| {
                     const len = mod.intern_pool.aggregateTypeLen(aggregate.ty);
-                    if (index < len) return switch (aggregate.storage) {
+                    if (index < len) return Value.fromInterned(switch (aggregate.storage) {
                         .bytes => |bytes| try mod.intern(.{ .int = .{
                             .ty = .u8_type,
                             .storage = .{ .u64 = bytes[index] },
                         } }),
                         .elems => |elems| elems[index],
                         .repeated_elem => |elem| elem,
-                    }.toValue();
+                    });
                     assert(index == len);
-                    return mod.intern_pool.indexToKey(aggregate.ty).array_type.sentinel.toValue();
+                    return Value.fromInterned(mod.intern_pool.indexToKey(aggregate.ty).array_type.sentinel);
                 },
                 else => null,
             },
@@ -1681,15 +1688,15 @@ pub const Value = struct {
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .ptr => |ptr| switch (ptr.addr) {
                     .decl => |decl| try mod.declPtr(decl).val.sliceArray(mod, arena, start, end),
-                    .mut_decl => |mut_decl| (try mod.declPtr(mut_decl.decl).internValue(mod)).toValue()
+                    .mut_decl => |mut_decl| Value.fromInterned((try mod.declPtr(mut_decl.decl).internValue(mod)))
                         .sliceArray(mod, arena, start, end),
-                    .comptime_field => |comptime_field| comptime_field.toValue()
+                    .comptime_field => |comptime_field| Value.fromInterned(comptime_field)
                         .sliceArray(mod, arena, start, end),
-                    .elem => |elem| elem.base.toValue()
+                    .elem => |elem| Value.fromInterned(elem.base)
                         .sliceArray(mod, arena, start + @as(usize, @intCast(elem.index)), end + @as(usize, @intCast(elem.index))),
                     else => unreachable,
                 },
-                .aggregate => |aggregate| (try mod.intern(.{ .aggregate = .{
+                .aggregate => |aggregate| Value.fromInterned((try mod.intern(.{ .aggregate = .{
                     .ty = switch (mod.intern_pool.indexToKey(mod.intern_pool.typeOf(val.toIntern()))) {
                         .array_type => |array_type| try mod.arrayType(.{
                             .len = @as(u32, @intCast(end - start)),
@@ -1707,7 +1714,7 @@ pub const Value = struct {
                         .elems => .{ .elems = try arena.dupe(InternPool.Index, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.elems[start..end]) },
                         .repeated_elem => |elem| .{ .repeated_elem = elem },
                     },
-                } })).toValue(),
+                } }))),
                 else => unreachable,
             },
         };
@@ -1728,19 +1735,19 @@ pub const Value = struct {
                 else => unreachable,
             },
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
-                .undef => |ty| (try mod.intern(.{
-                    .undef = ty.toType().structFieldType(index, mod).toIntern(),
-                })).toValue(),
-                .aggregate => |aggregate| switch (aggregate.storage) {
+                .undef => |ty| Value.fromInterned((try mod.intern(.{
+                    .undef = Type.fromInterned(ty).structFieldType(index, mod).toIntern(),
+                }))),
+                .aggregate => |aggregate| Value.fromInterned(switch (aggregate.storage) {
                     .bytes => |bytes| try mod.intern(.{ .int = .{
                         .ty = .u8_type,
                         .storage = .{ .u64 = bytes[index] },
                     } }),
                     .elems => |elems| elems[index],
                     .repeated_elem => |elem| elem,
-                }.toValue(),
+                }),
                 // TODO assert the tag is correct
-                .un => |un| un.val.toValue(),
+                .un => |un| Value.fromInterned(un.val),
                 else => unreachable,
             },
         };
@@ -1750,7 +1757,7 @@ pub const Value = struct {
         if (val.ip_index == .none) return val.castTag(.@"union").?.data.tag;
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .undef, .enum_tag => val,
-            .un => |un| if (un.tag != .none) un.tag.toValue() else return null,
+            .un => |un| if (un.tag != .none) Value.fromInterned(un.tag) else return null,
             else => unreachable,
         };
     }
@@ -1758,7 +1765,7 @@ pub const Value = struct {
     pub fn unionValue(val: Value, mod: *Module) Value {
         if (val.ip_index == .none) return val.castTag(.@"union").?.data.val;
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .un => |un| un.val.toValue(),
+            .un => |un| Value.fromInterned(un.val),
             else => unreachable,
         };
     }
@@ -1774,14 +1781,14 @@ pub const Value = struct {
         const ptr_val = switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .ptr => |ptr| ptr: {
                 switch (ptr.addr) {
-                    .elem => |elem| if (mod.intern_pool.typeOf(elem.base).toType().elemType2(mod).eql(elem_ty, mod))
-                        return (try mod.intern(.{ .ptr = .{
+                    .elem => |elem| if (Type.fromInterned(mod.intern_pool.typeOf(elem.base)).elemType2(mod).eql(elem_ty, mod))
+                        return Value.fromInterned((try mod.intern(.{ .ptr = .{
                             .ty = elem_ptr_ty.toIntern(),
                             .addr = .{ .elem = .{
                                 .base = elem.base,
                                 .index = elem.index + index,
                             } },
-                        } })).toValue(),
+                        } }))),
                     else => {},
                 }
                 break :ptr switch (ptr.len) {
@@ -1794,13 +1801,13 @@ pub const Value = struct {
         var ptr_ty_key = mod.intern_pool.indexToKey(elem_ptr_ty.toIntern()).ptr_type;
         assert(ptr_ty_key.flags.size != .Slice);
         ptr_ty_key.flags.size = .Many;
-        return (try mod.intern(.{ .ptr = .{
+        return Value.fromInterned((try mod.intern(.{ .ptr = .{
             .ty = elem_ptr_ty.toIntern(),
             .addr = .{ .elem = .{
                 .base = (try mod.getCoerced(ptr_val, try mod.ptrType(ptr_ty_key))).toIntern(),
                 .index = index,
             } },
-        } })).toValue();
+        } })));
     }
 
     pub fn isUndef(val: Value, mod: *Module) bool {
@@ -1824,13 +1831,13 @@ pub const Value = struct {
                 .simple_value => |v| v == .undefined,
                 .ptr => |ptr| switch (ptr.len) {
                     .none => false,
-                    else => for (0..@as(usize, @intCast(ptr.len.toValue().toUnsignedInt(mod)))) |index| {
+                    else => for (0..@as(usize, @intCast(Value.fromInterned(ptr.len).toUnsignedInt(mod)))) |index| {
                         if (try (try val.elemValue(mod, index)).anyUndef(mod)) break true;
                     } else false,
                 },
                 .aggregate => |aggregate| for (0..aggregate.storage.values().len) |i| {
                     const elem = mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.values()[i];
-                    if (try anyUndef(elem.toValue(), mod)) break true;
+                    if (try anyUndef(Value.fromInterned(elem), mod)) break true;
                 } else false,
                 else => false,
             },
@@ -1889,7 +1896,7 @@ pub const Value = struct {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .opt => |opt| switch (opt.val) {
                 .none => null,
-                else => |payload| payload.toValue(),
+                else => |payload| Value.fromInterned(payload),
             },
             .ptr => val,
             else => unreachable,
@@ -1923,10 +1930,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try floatFromIntScalar(elem_val, scalar_ty, mod, opt_sema)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return floatFromIntScalar(val, float_ty, mod, opt_sema);
     }
@@ -1941,14 +1948,14 @@ pub const Value = struct {
                 },
                 inline .u64, .i64 => |x| floatFromIntInner(x, float_ty, mod),
                 .lazy_align => |ty| if (opt_sema) |sema| {
-                    return floatFromIntInner((try ty.toType().abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar.toByteUnits(0), float_ty, mod);
+                    return floatFromIntInner((try Type.fromInterned(ty).abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar.toByteUnits(0), float_ty, mod);
                 } else {
-                    return floatFromIntInner(ty.toType().abiAlignment(mod).toByteUnits(0), float_ty, mod);
+                    return floatFromIntInner(Type.fromInterned(ty).abiAlignment(mod).toByteUnits(0), float_ty, mod);
                 },
                 .lazy_size => |ty| if (opt_sema) |sema| {
-                    return floatFromIntInner((try ty.toType().abiSizeAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
+                    return floatFromIntInner((try Type.fromInterned(ty).abiSizeAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
                 } else {
-                    return floatFromIntInner(ty.toType().abiSize(mod), float_ty, mod);
+                    return floatFromIntInner(Type.fromInterned(ty).abiSize(mod), float_ty, mod);
                 },
             },
             else => unreachable,
@@ -1965,10 +1972,10 @@ pub const Value = struct {
             128 => .{ .f128 = @floatFromInt(x) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = dest_ty.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     fn calcLimbLenFloat(scalar: anytype) usize {
@@ -2001,10 +2008,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try intAddSatScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return intAddSatScalar(lhs, rhs, ty, arena, mod);
     }
@@ -2051,10 +2058,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try intSubSatScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return intSubSatScalar(lhs, rhs, ty, arena, mod);
     }
@@ -2105,14 +2112,14 @@ pub const Value = struct {
                 scalar.* = try of_math_result.wrapped_result.intern(scalar_ty, mod);
             }
             return OverflowArithmeticResult{
-                .overflow_bit = (try mod.intern(.{ .aggregate = .{
+                .overflow_bit = Value.fromInterned((try mod.intern(.{ .aggregate = .{
                     .ty = (try mod.vectorType(.{ .len = vec_len, .child = .u1_type })).toIntern(),
                     .storage = .{ .elems = overflowed_data },
-                } })).toValue(),
-                .wrapped_result = (try mod.intern(.{ .aggregate = .{
+                } }))),
+                .wrapped_result = Value.fromInterned((try mod.intern(.{ .aggregate = .{
                     .ty = ty.toIntern(),
                     .storage = .{ .elems = result_data },
-                } })).toValue(),
+                } }))),
             };
         }
         return intMulWithOverflowScalar(lhs, rhs, ty, arena, mod);
@@ -2169,10 +2176,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try numberMulWrapScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return numberMulWrapScalar(lhs, rhs, ty, arena, mod);
     }
@@ -2215,10 +2222,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try intMulSatScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return intMulSatScalar(lhs, rhs, ty, arena, mod);
     }
@@ -2291,17 +2298,17 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try bitwiseNotScalar(elem_val, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return bitwiseNotScalar(val, ty, arena, mod);
     }
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseNotScalar(val: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (val.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+        if (val.isUndef(mod)) return Value.fromInterned((try mod.intern(.{ .undef = ty.toIntern() })));
         if (ty.toIntern() == .bool_type) return makeBool(!val.toBool());
 
         const info = ty.intInfo(mod);
@@ -2334,17 +2341,17 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try bitwiseAndScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return bitwiseAndScalar(lhs, rhs, ty, allocator, mod);
     }
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseAndScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.fromInterned((try mod.intern(.{ .undef = ty.toIntern() })));
         if (ty.toIntern() == .bool_type) return makeBool(lhs.toBool() and rhs.toBool());
 
         // TODO is this a performance issue? maybe we should try the operation without
@@ -2373,17 +2380,17 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try bitwiseNandScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return bitwiseNandScalar(lhs, rhs, ty, arena, mod);
     }
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseNandScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.fromInterned((try mod.intern(.{ .undef = ty.toIntern() })));
         if (ty.toIntern() == .bool_type) return makeBool(!(lhs.toBool() and rhs.toBool()));
 
         const anded = try bitwiseAnd(lhs, rhs, ty, arena, mod);
@@ -2401,17 +2408,17 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try bitwiseOrScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return bitwiseOrScalar(lhs, rhs, ty, allocator, mod);
     }
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseOrScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.fromInterned((try mod.intern(.{ .undef = ty.toIntern() })));
         if (ty.toIntern() == .bool_type) return makeBool(lhs.toBool() or rhs.toBool());
 
         // TODO is this a performance issue? maybe we should try the operation without
@@ -2439,17 +2446,17 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try bitwiseXorScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return bitwiseXorScalar(lhs, rhs, ty, allocator, mod);
     }
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseXorScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.fromInterned((try mod.intern(.{ .undef = ty.toIntern() })));
         if (ty.toIntern() == .bool_type) return makeBool(lhs.toBool() != rhs.toBool());
 
         // TODO is this a performance issue? maybe we should try the operation without
@@ -2505,10 +2512,10 @@ pub const Value = struct {
                 };
                 scalar.* = try val.intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return intDivScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -2553,10 +2560,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try intDivFloorScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return intDivFloorScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -2595,10 +2602,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try intModScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return intModScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -2669,10 +2676,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try floatRemScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return floatRemScalar(lhs, rhs, float_type, mod);
     }
@@ -2687,10 +2694,10 @@ pub const Value = struct {
             128 => .{ .f128 = @rem(lhs.toFloat(f128, mod), rhs.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn floatMod(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -2702,10 +2709,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try floatModScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return floatModScalar(lhs, rhs, float_type, mod);
     }
@@ -2720,10 +2727,10 @@ pub const Value = struct {
             128 => .{ .f128 = @mod(lhs.toFloat(f128, mod), rhs.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     /// If the value overflowed the type, returns a comptime_int (or vector thereof) instead, setting
@@ -2763,10 +2770,10 @@ pub const Value = struct {
                 };
                 scalar.* = try val.intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return intMulScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -2805,10 +2812,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try intTruncScalar(elem_val, scalar_ty, allocator, signedness, bits, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return intTruncScalar(val, ty, allocator, signedness, bits, mod);
     }
@@ -2830,10 +2837,10 @@ pub const Value = struct {
                 const bits_elem = try bits.elemValue(mod, i);
                 scalar.* = try (try intTruncScalar(elem_val, scalar_ty, allocator, signedness, @as(u16, @intCast(bits_elem.toUnsignedInt(mod))), mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return intTruncScalar(val, ty, allocator, signedness, @as(u16, @intCast(bits.toUnsignedInt(mod))), mod);
     }
@@ -2870,10 +2877,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try shlScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return shlScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -2922,14 +2929,14 @@ pub const Value = struct {
                 scalar.* = try of_math_result.wrapped_result.intern(scalar_ty, mod);
             }
             return OverflowArithmeticResult{
-                .overflow_bit = (try mod.intern(.{ .aggregate = .{
+                .overflow_bit = Value.fromInterned((try mod.intern(.{ .aggregate = .{
                     .ty = (try mod.vectorType(.{ .len = vec_len, .child = .u1_type })).toIntern(),
                     .storage = .{ .elems = overflowed_data },
-                } })).toValue(),
-                .wrapped_result = (try mod.intern(.{ .aggregate = .{
+                } }))),
+                .wrapped_result = Value.fromInterned((try mod.intern(.{ .aggregate = .{
                     .ty = ty.toIntern(),
                     .storage = .{ .elems = result_data },
-                } })).toValue(),
+                } }))),
             };
         }
         return shlWithOverflowScalar(lhs, rhs, ty, allocator, mod);
@@ -2981,10 +2988,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try shlSatScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return shlSatScalar(lhs, rhs, ty, arena, mod);
     }
@@ -3031,10 +3038,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try shlTruncScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return shlTruncScalar(lhs, rhs, ty, arena, mod);
     }
@@ -3061,10 +3068,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try shrScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return shrScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -3113,10 +3120,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try floatNegScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return floatNegScalar(val, float_type, mod);
     }
@@ -3135,10 +3142,10 @@ pub const Value = struct {
             128 => .{ .f128 = -val.toFloat(f128, mod) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn floatAdd(
@@ -3156,10 +3163,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try floatAddScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return floatAddScalar(lhs, rhs, float_type, mod);
     }
@@ -3179,10 +3186,10 @@ pub const Value = struct {
             128 => .{ .f128 = lhs.toFloat(f128, mod) + rhs.toFloat(f128, mod) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn floatSub(
@@ -3200,10 +3207,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try floatSubScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return floatSubScalar(lhs, rhs, float_type, mod);
     }
@@ -3223,10 +3230,10 @@ pub const Value = struct {
             128 => .{ .f128 = lhs.toFloat(f128, mod) - rhs.toFloat(f128, mod) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn floatDiv(
@@ -3244,10 +3251,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try floatDivScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return floatDivScalar(lhs, rhs, float_type, mod);
     }
@@ -3267,10 +3274,10 @@ pub const Value = struct {
             128 => .{ .f128 = lhs.toFloat(f128, mod) / rhs.toFloat(f128, mod) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn floatDivFloor(
@@ -3288,10 +3295,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try floatDivFloorScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return floatDivFloorScalar(lhs, rhs, float_type, mod);
     }
@@ -3311,10 +3318,10 @@ pub const Value = struct {
             128 => .{ .f128 = @divFloor(lhs.toFloat(f128, mod), rhs.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn floatDivTrunc(
@@ -3332,10 +3339,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try floatDivTruncScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return floatDivTruncScalar(lhs, rhs, float_type, mod);
     }
@@ -3355,10 +3362,10 @@ pub const Value = struct {
             128 => .{ .f128 = @divTrunc(lhs.toFloat(f128, mod), rhs.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn floatMul(
@@ -3376,10 +3383,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try floatMulScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return floatMulScalar(lhs, rhs, float_type, mod);
     }
@@ -3399,10 +3406,10 @@ pub const Value = struct {
             128 => .{ .f128 = lhs.toFloat(f128, mod) * rhs.toFloat(f128, mod) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn sqrt(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -3413,10 +3420,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try sqrtScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return sqrtScalar(val, float_type, mod);
     }
@@ -3431,10 +3438,10 @@ pub const Value = struct {
             128 => .{ .f128 = @sqrt(val.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn sin(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -3445,10 +3452,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try sinScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return sinScalar(val, float_type, mod);
     }
@@ -3463,10 +3470,10 @@ pub const Value = struct {
             128 => .{ .f128 = @sin(val.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn cos(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -3477,10 +3484,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try cosScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return cosScalar(val, float_type, mod);
     }
@@ -3495,10 +3502,10 @@ pub const Value = struct {
             128 => .{ .f128 = @cos(val.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn tan(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -3509,10 +3516,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try tanScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return tanScalar(val, float_type, mod);
     }
@@ -3527,10 +3534,10 @@ pub const Value = struct {
             128 => .{ .f128 = @tan(val.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn exp(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -3541,10 +3548,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try expScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return expScalar(val, float_type, mod);
     }
@@ -3559,10 +3566,10 @@ pub const Value = struct {
             128 => .{ .f128 = @exp(val.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn exp2(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -3573,10 +3580,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try exp2Scalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return exp2Scalar(val, float_type, mod);
     }
@@ -3591,10 +3598,10 @@ pub const Value = struct {
             128 => .{ .f128 = @exp2(val.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn log(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -3605,10 +3612,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try logScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return logScalar(val, float_type, mod);
     }
@@ -3623,10 +3630,10 @@ pub const Value = struct {
             128 => .{ .f128 = @log(val.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn log2(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -3637,10 +3644,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try log2Scalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return log2Scalar(val, float_type, mod);
     }
@@ -3655,10 +3662,10 @@ pub const Value = struct {
             128 => .{ .f128 = @log2(val.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn log10(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -3669,10 +3676,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try log10Scalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return log10Scalar(val, float_type, mod);
     }
@@ -3687,10 +3694,10 @@ pub const Value = struct {
             128 => .{ .f128 = @log10(val.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn abs(val: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
@@ -3701,10 +3708,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try absScalar(elem_val, scalar_ty, mod, arena)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return absScalar(val, ty, mod, arena);
     }
@@ -3735,10 +3742,10 @@ pub const Value = struct {
                     128 => .{ .f128 = @abs(val.toFloat(f128, mod)) },
                     else => unreachable,
                 };
-                return (try mod.intern(.{ .float = .{
+                return Value.fromInterned((try mod.intern(.{ .float = .{
                     .ty = ty.toIntern(),
                     .storage = storage,
-                } })).toValue();
+                } })));
             },
             else => unreachable,
         }
@@ -3752,10 +3759,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try floorScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return floorScalar(val, float_type, mod);
     }
@@ -3770,10 +3777,10 @@ pub const Value = struct {
             128 => .{ .f128 = @floor(val.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn ceil(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -3784,10 +3791,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try ceilScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return ceilScalar(val, float_type, mod);
     }
@@ -3802,10 +3809,10 @@ pub const Value = struct {
             128 => .{ .f128 = @ceil(val.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn round(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -3816,10 +3823,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try roundScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return roundScalar(val, float_type, mod);
     }
@@ -3834,10 +3841,10 @@ pub const Value = struct {
             128 => .{ .f128 = @round(val.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn trunc(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -3848,10 +3855,10 @@ pub const Value = struct {
                 const elem_val = try val.elemValue(mod, i);
                 scalar.* = try (try truncScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return truncScalar(val, float_type, mod);
     }
@@ -3866,10 +3873,10 @@ pub const Value = struct {
             128 => .{ .f128 = @trunc(val.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn mulAdd(
@@ -3889,10 +3896,10 @@ pub const Value = struct {
                 const addend_elem = try addend.elemValue(mod, i);
                 scalar.* = try (try mulAddScalar(scalar_ty, mulend1_elem, mulend2_elem, addend_elem, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return mulAddScalar(float_type, mulend1, mulend2, addend, mod);
     }
@@ -3913,10 +3920,10 @@ pub const Value = struct {
             128 => .{ .f128 = @mulAdd(f128, mulend1.toFloat(f128, mod), mulend2.toFloat(f128, mod), addend.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     /// If the value is represented in-memory as a series of bytes that all
@@ -3958,8 +3965,8 @@ pub const Value = struct {
         const ty = mod.intern_pool.typeOf(val.toIntern());
         if (ty == .comptime_int_type) return null;
         return .{
-            try ty.toType().minInt(mod, ty.toType()),
-            try ty.toType().maxInt(mod, ty.toType()),
+            try Type.fromInterned(ty).minInt(mod, Type.fromInterned(ty)),
+            try Type.fromInterned(ty).maxInt(mod, Type.fromInterned(ty)),
         };
     }
 

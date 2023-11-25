@@ -65,7 +65,7 @@ pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
             if (float_count <= byval_float_count) return .byval;
 
             for (union_obj.field_types.get(ip), 0..) |field_ty, field_index| {
-                if (field_ty.toType().bitSize(mod) > 32 or
+                if (Type.fromInterned(field_ty).bitSize(mod) > 32 or
                     mod.unionFieldNormalAlignment(union_obj, @intCast(field_index)).compare(.gt, .@"32"))
                 {
                     return Class.arrSize(bit_size, 64);
@@ -129,7 +129,7 @@ fn countFloats(ty: Type, mod: *Module, maybe_float_bits: *?u16) u32 {
             const union_obj = mod.typeToUnion(ty).?;
             var max_count: u32 = 0;
             for (union_obj.field_types.get(ip)) |field_ty| {
-                const field_count = countFloats(field_ty.toType(), mod, maybe_float_bits);
+                const field_count = countFloats(Type.fromInterned(field_ty), mod, maybe_float_bits);
                 if (field_count == invalid) return invalid;
                 if (field_count > max_count) max_count = field_count;
                 if (max_count > byval_float_count) return invalid;

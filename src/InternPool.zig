@@ -2096,19 +2096,6 @@ pub const Index = enum(u32) {
         }
     };
 
-    pub fn toType(i: Index) @import("type.zig").Type {
-        assert(i != .none);
-        return .{ .ip_index = i };
-    }
-
-    pub fn toValue(i: Index) @import("value.zig").Value {
-        assert(i != .none);
-        return .{
-            .ip_index = i,
-            .legacy = undefined,
-        };
-    }
-
     /// Used for a map of `Index` values to the index within a list of `Index` values.
     const Adapter = struct {
         indexes: []const Index,
@@ -6145,8 +6132,8 @@ fn finishFuncInstance(
         .src_line = fn_owner_decl.src_line,
         .has_tv = true,
         .owns_tv = true,
-        .ty = func_ty.toType(),
-        .val = func_index.toValue(),
+        .ty = @import("type.zig").Type.fromInterned(func_ty),
+        .val = @import("value.zig").Value.fromInterned(func_index),
         .alignment = .none,
         .@"linksection" = section,
         .@"addrspace" = fn_owner_decl.@"addrspace",

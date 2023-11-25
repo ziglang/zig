@@ -305,7 +305,7 @@ pub const DeclState = struct {
                                 // DW.AT.type, DW.FORM.ref4
                                 const index = dbg_info_buffer.items.len;
                                 try dbg_info_buffer.resize(index + 4);
-                                try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
+                                try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                                 // DW.AT.data_member_location, DW.FORM.udata
                                 const field_off = ty.structFieldOffset(field_index, mod);
                                 try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
@@ -323,7 +323,7 @@ pub const DeclState = struct {
 
                             if (struct_type.isTuple(ip)) {
                                 for (struct_type.field_types.get(ip), struct_type.offsets.get(ip), 0..) |field_ty, field_off, field_index| {
-                                    if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+                                    if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
                                     // DW.AT.member
                                     try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
                                     // DW.AT.name, DW.FORM.string
@@ -331,7 +331,7 @@ pub const DeclState = struct {
                                     // DW.AT.type, DW.FORM.ref4
                                     const index = dbg_info_buffer.items.len;
                                     try dbg_info_buffer.resize(index + 4);
-                                    try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
+                                    try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                                     // DW.AT.data_member_location, DW.FORM.udata
                                     try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
                                 }
@@ -341,7 +341,7 @@ pub const DeclState = struct {
                                     struct_type.field_types.get(ip),
                                     struct_type.offsets.get(ip),
                                 ) |field_name_ip, field_ty, field_off| {
-                                    if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+                                    if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
                                     const field_name = ip.stringToSlice(field_name_ip);
                                     // DW.AT.member
                                     try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
@@ -352,7 +352,7 @@ pub const DeclState = struct {
                                     // DW.AT.type, DW.FORM.ref4
                                     const index = dbg_info_buffer.items.len;
                                     try dbg_info_buffer.resize(index + 4);
-                                    try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
+                                    try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                                     // DW.AT.data_member_location, DW.FORM.udata
                                     try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
                                 }
@@ -389,7 +389,7 @@ pub const DeclState = struct {
                         const value = enum_type.values.get(ip)[field_i];
                         // TODO do not assume a 64bit enum value - could be bigger.
                         // See https://github.com/ziglang/zig/issues/645
-                        const field_int_val = try value.toValue().intFromEnum(ty, mod);
+                        const field_int_val = try Value.fromInterned(value).intFromEnum(ty, mod);
                         break :value @bitCast(field_int_val.toSignedInt(mod));
                     };
                     mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), value, target_endian);
@@ -443,7 +443,7 @@ pub const DeclState = struct {
                 }
 
                 for (union_obj.field_types.get(ip), union_obj.field_names.get(ip)) |field_ty, field_name| {
-                    if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+                    if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
                     // DW.AT.member
                     try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
                     // DW.AT.name, DW.FORM.string
@@ -452,7 +452,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
+                    try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try dbg_info_buffer.append(0);
                 }
@@ -469,7 +469,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom_index, union_obj.enum_tag_ty.toType(), @intCast(index));
+                    try self.addTypeRelocGlobal(atom_index, Type.fromInterned(union_obj.enum_tag_ty), @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try leb128.writeULEB128(dbg_info_buffer.writer(), tag_offset);
 

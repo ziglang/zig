@@ -659,7 +659,7 @@ pub const Decl = struct {
     pub fn internValue(decl: *Decl, mod: *Module) Allocator.Error!InternPool.Index {
         assert(decl.has_tv);
         const ip_index = try decl.val.intern(decl.ty, mod);
-        decl.val = ip_index.toValue();
+        decl.val = Value.fromInterned(ip_index);
         return ip_index;
     }
 
@@ -3556,8 +3556,8 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         _ = try decl.internValue(mod);
     }
 
-    new_namespace.ty = struct_ty.toType();
-    new_decl.val = struct_ty.toValue();
+    new_namespace.ty = Type.fromInterned(struct_ty);
+    new_decl.val = Value.fromInterned(struct_ty);
     new_decl.has_tv = true;
     new_decl.owns_tv = true;
     new_decl.analysis = .complete;
@@ -3711,7 +3711,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
             return sema.fail(&block_scope, ty_src, "type {} has no namespace", .{ty.fmt(mod)});
         }
 
-        decl.ty = InternPool.Index.type_type.toType();
+        decl.ty = Type.fromInterned(InternPool.Index.type_type);
         decl.val = ty.toValue();
         decl.alignment = .none;
         decl.@"linksection" = .none;
@@ -3741,7 +3741,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
                 }
 
                 decl.ty = decl_tv.ty;
-                decl.val = (try decl_tv.val.intern(decl_tv.ty, mod)).toValue();
+                decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
                 // linksection, align, and addrspace were already set by Sema
                 decl.has_tv = true;
                 decl.owns_tv = owns_tv;
@@ -3794,7 +3794,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     }
 
     decl.ty = decl_tv.ty;
-    decl.val = (try decl_tv.val.intern(decl_tv.ty, mod)).toValue();
+    decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
     decl.alignment = blk: {
         const align_ref = decl.zirAlignRef(mod);
         if (align_ref == .none) break :blk .none;
@@ -4509,7 +4509,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .owner_decl_index = decl_index,
         .func_index = func_index,
         .func_is_naked = fn_ty_info.cc == .Naked,
-        .fn_ret_ty = fn_ty_info.return_type.toType(),
+        .fn_ret_ty = Type.fromInterned(fn_ty_info.return_type),
         .fn_ret_ty_ies = null,
         .owner_func_index = func_index,
         .branch_quota = @max(func.branchQuota(ip).*, Sema.default_branch_quota),
@@ -4580,7 +4580,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         const param_ty = fn_ty_info.param_types.get(ip)[runtime_param_index];
         runtime_param_index += 1;
 
-        const opt_opv = sema.typeHasOnePossibleValue(param_ty.toType()) catch |err| switch (err) {
+        const opt_opv = sema.typeHasOnePossibleValue(Type.fromInterned(param_ty)) catch |err| switch (err) {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
@@ -4707,7 +4707,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     // Similarly, resolve any queued up types that were requested to be resolved for
     // the backends.
     for (sema.types_to_resolve.keys()) |ty| {
-        sema.resolveTypeFully(ty.toType()) catch |err| switch (err) {
+        sema.resolveTypeFully(Type.fromInterned(ty)) catch |err| switch (err) {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
@@ -5392,10 +5392,10 @@ pub fn populateTestFunctions(
                 });
                 const test_name_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .none, .{
                     .ty = test_name_decl_ty,
-                    .val = (try mod.intern(.{ .aggregate = .{
+                    .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
                         .ty = test_name_decl_ty.toIntern(),
                         .storage = .{ .bytes = test_decl_name },
-                    } })).toValue(),
+                    } }))),
                 });
                 break :n test_name_decl_index;
             };
@@ -5439,10 +5439,10 @@ pub fn populateTestFunctions(
         });
         const array_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .none, .{
             .ty = array_decl_ty,
-            .val = (try mod.intern(.{ .aggregate = .{
+            .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = array_decl_ty.toIntern(),
                 .storage = .{ .elems = test_fn_vals },
-            } })).toValue(),
+            } }))),
         });
 
         break :d array_decl_index;
@@ -5548,7 +5548,7 @@ pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
         .func => |func| try mod.markDeclIndexAlive(func.owner_decl),
         .error_union => |error_union| switch (error_union.val) {
             .err_name => {},
-            .payload => |payload| try mod.markReferencedDeclsAlive(payload.toValue()),
+            .payload => |payload| try mod.markReferencedDeclsAlive(Value.fromInterned(payload)),
         },
         .ptr => |ptr| {
             switch (ptr.addr) {
@@ -5556,17 +5556,17 @@ pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
                 .anon_decl => {},
                 .mut_decl => |mut_decl| try mod.markDeclIndexAlive(mut_decl.decl),
                 .int, .comptime_field => {},
-                .eu_payload, .opt_payload => |parent| try mod.markReferencedDeclsAlive(parent.toValue()),
-                .elem, .field => |base_index| try mod.markReferencedDeclsAlive(base_index.base.toValue()),
+                .eu_payload, .opt_payload => |parent| try mod.markReferencedDeclsAlive(Value.fromInterned(parent)),
+                .elem, .field => |base_index| try mod.markReferencedDeclsAlive(Value.fromInterned(base_index.base)),
             }
-            if (ptr.len != .none) try mod.markReferencedDeclsAlive(ptr.len.toValue());
+            if (ptr.len != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(ptr.len));
         },
-        .opt => |opt| if (opt.val != .none) try mod.markReferencedDeclsAlive(opt.val.toValue()),
+        .opt => |opt| if (opt.val != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(opt.val)),
         .aggregate => |aggregate| for (aggregate.storage.values()) |elem|
-            try mod.markReferencedDeclsAlive(elem.toValue()),
+            try mod.markReferencedDeclsAlive(Value.fromInterned(elem)),
         .un => |un| {
-            if (un.tag != .none) try mod.markReferencedDeclsAlive(un.tag.toValue());
-            try mod.markReferencedDeclsAlive(un.val.toValue());
+            if (un.tag != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(un.tag));
+            try mod.markReferencedDeclsAlive(Value.fromInterned(un.val));
         },
         else => {},
     }
@@ -5653,14 +5653,14 @@ pub fn intern(mod: *Module, key: InternPool.Key) Allocator.Error!InternPool.Inde
 
 /// Shortcut for calling `intern_pool.getCoerced`.
 pub fn getCoerced(mod: *Module, val: Value, new_ty: Type) Allocator.Error!Value {
-    return (try mod.intern_pool.getCoerced(mod.gpa, val.toIntern(), new_ty.toIntern())).toValue();
+    return Value.fromInterned((try mod.intern_pool.getCoerced(mod.gpa, val.toIntern(), new_ty.toIntern())));
 }
 
 pub fn intType(mod: *Module, signedness: std.builtin.Signedness, bits: u16) Allocator.Error!Type {
-    return (try intern(mod, .{ .int_type = .{
+    return Type.fromInterned((try intern(mod, .{ .int_type = .{
         .signedness = signedness,
         .bits = bits,
-    } })).toType();
+    } })));
 }
 
 pub fn errorIntType(mod: *Module) std.mem.Allocator.Error!Type {
@@ -5669,17 +5669,17 @@ pub fn errorIntType(mod: *Module) std.mem.Allocator.Error!Type {
 
 pub fn arrayType(mod: *Module, info: InternPool.Key.ArrayType) Allocator.Error!Type {
     const i = try intern(mod, .{ .array_type = info });
-    return i.toType();
+    return Type.fromInterned(i);
 }
 
 pub fn vectorType(mod: *Module, info: InternPool.Key.VectorType) Allocator.Error!Type {
     const i = try intern(mod, .{ .vector_type = info });
-    return i.toType();
+    return Type.fromInterned(i);
 }
 
 pub fn optionalType(mod: *Module, child_type: InternPool.Index) Allocator.Error!Type {
     const i = try intern(mod, .{ .opt_type = child_type });
-    return i.toType();
+    return Type.fromInterned(i);
 }
 
 pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type {
@@ -5692,7 +5692,7 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
     // pointee type needs to be resolved more, that needs to be done before calling
     // this ptr() function.
     if (info.flags.alignment != .none and
-        info.flags.alignment == info.child.toType().abiAlignment(mod))
+        info.flags.alignment == Type.fromInterned(info.child).abiAlignment(mod))
     {
         canon_info.flags.alignment = .none;
     }
@@ -5702,7 +5702,7 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
         // we change it to 0 here. If this causes an assertion trip, the pointee type
         // needs to be resolved before calling this ptr() function.
         .none => if (info.packed_offset.host_size != 0) {
-            const elem_bit_size = info.child.toType().bitSize(mod);
+            const elem_bit_size = Type.fromInterned(info.child).bitSize(mod);
             assert(info.packed_offset.bit_offset + elem_bit_size <= info.packed_offset.host_size * 8);
             if (info.packed_offset.host_size * 8 == elem_bit_size) {
                 canon_info.packed_offset.host_size = 0;
@@ -5712,7 +5712,7 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
         _ => assert(@intFromEnum(info.flags.vector_index) < info.packed_offset.host_size),
     }
 
-    return (try intern(mod, .{ .ptr_type = canon_info })).toType();
+    return Type.fromInterned((try intern(mod, .{ .ptr_type = canon_info })));
 }
 
 pub fn singleMutPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
@@ -5745,26 +5745,26 @@ pub fn adjustPtrTypeChild(mod: *Module, ptr_ty: Type, new_child: Type) Allocator
 }
 
 pub fn funcType(mod: *Module, key: InternPool.GetFuncTypeKey) Allocator.Error!Type {
-    return (try mod.intern_pool.getFuncType(mod.gpa, key)).toType();
+    return Type.fromInterned((try mod.intern_pool.getFuncType(mod.gpa, key)));
 }
 
 /// Use this for `anyframe->T` only.
 /// For `anyframe`, use the `InternPool.Index.anyframe` tag directly.
 pub fn anyframeType(mod: *Module, payload_ty: Type) Allocator.Error!Type {
-    return (try intern(mod, .{ .anyframe_type = payload_ty.toIntern() })).toType();
+    return Type.fromInterned((try intern(mod, .{ .anyframe_type = payload_ty.toIntern() })));
 }
 
 pub fn errorUnionType(mod: *Module, error_set_ty: Type, payload_ty: Type) Allocator.Error!Type {
-    return (try intern(mod, .{ .error_union_type = .{
+    return Type.fromInterned((try intern(mod, .{ .error_union_type = .{
         .error_set_type = error_set_ty.toIntern(),
         .payload_type = payload_ty.toIntern(),
-    } })).toType();
+    } })));
 }
 
 pub fn singleErrorSetType(mod: *Module, name: InternPool.NullTerminatedString) Allocator.Error!Type {
     const names: *const [1]InternPool.NullTerminatedString = &name;
     const new_ty = try mod.intern_pool.getErrorSetType(mod.gpa, names);
-    return new_ty.toType();
+    return Type.fromInterned(new_ty);
 }
 
 /// Sorts `names` in place.
@@ -5779,7 +5779,7 @@ pub fn errorSetFromUnsortedNames(
         InternPool.NullTerminatedString.indexLessThan,
     );
     const new_ty = try mod.intern_pool.getErrorSetType(mod.gpa, names);
-    return new_ty.toType();
+    return Type.fromInterned(new_ty);
 }
 
 /// Supports only pointers, not pointer-like optionals.
@@ -5789,7 +5789,7 @@ pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
         .ty = ty.toIntern(),
         .addr = .{ .int = (try mod.intValue_u64(Type.usize, x)).toIntern() },
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 /// Creates an enum tag value based on the integer tag value.
@@ -5802,7 +5802,7 @@ pub fn enumValue(mod: *Module, ty: Type, tag_int: InternPool.Index) Allocator.Er
         .ty = ty.toIntern(),
         .int = tag_int,
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 /// Creates an enum tag value based on the field index according to source code
@@ -5814,23 +5814,23 @@ pub fn enumValueFieldIndex(mod: *Module, ty: Type, field_index: u32) Allocator.E
 
     if (enum_type.values.len == 0) {
         // Auto-numbered fields.
-        return (try ip.get(gpa, .{ .enum_tag = .{
+        return Value.fromInterned((try ip.get(gpa, .{ .enum_tag = .{
             .ty = ty.toIntern(),
             .int = try ip.get(gpa, .{ .int = .{
                 .ty = enum_type.tag_ty,
                 .storage = .{ .u64 = field_index },
             } }),
-        } })).toValue();
+        } })));
     }
 
-    return (try ip.get(gpa, .{ .enum_tag = .{
+    return Value.fromInterned((try ip.get(gpa, .{ .enum_tag = .{
         .ty = ty.toIntern(),
         .int = enum_type.values.get(ip)[field_index],
-    } })).toValue();
+    } })));
 }
 
 pub fn undefValue(mod: *Module, ty: Type) Allocator.Error!Value {
-    return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+    return Value.fromInterned((try mod.intern(.{ .undef = ty.toIntern() })));
 }
 
 pub fn undefRef(mod: *Module, ty: Type) Allocator.Error!Air.Inst.Ref {
@@ -5854,7 +5854,7 @@ pub fn intValue_big(mod: *Module, ty: Type, x: BigIntConst) Allocator.Error!Valu
         .ty = ty.toIntern(),
         .storage = .{ .big_int = x },
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 pub fn intValue_u64(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
@@ -5862,7 +5862,7 @@ pub fn intValue_u64(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
         .ty = ty.toIntern(),
         .storage = .{ .u64 = x },
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 pub fn intValue_i64(mod: *Module, ty: Type, x: i64) Allocator.Error!Value {
@@ -5870,7 +5870,7 @@ pub fn intValue_i64(mod: *Module, ty: Type, x: i64) Allocator.Error!Value {
         .ty = ty.toIntern(),
         .storage = .{ .i64 = x },
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 pub fn unionValue(mod: *Module, union_ty: Type, tag: Value, val: Value) Allocator.Error!Value {
@@ -5879,7 +5879,7 @@ pub fn unionValue(mod: *Module, union_ty: Type, tag: Value, val: Value) Allocato
         .tag = tag.toIntern(),
         .val = val.toIntern(),
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 /// This function casts the float representation down to the representation of the type, potentially
@@ -5897,7 +5897,7 @@ pub fn floatValue(mod: *Module, ty: Type, x: anytype) Allocator.Error!Value {
         .ty = ty.toIntern(),
         .storage = storage,
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 pub fn nullValue(mod: *Module, opt_ty: Type) Allocator.Error!Value {
@@ -5907,7 +5907,7 @@ pub fn nullValue(mod: *Module, opt_ty: Type) Allocator.Error!Value {
         .ty = opt_ty.toIntern(),
         .val = .none,
     } });
-    return result.toValue();
+    return Value.fromInterned(result);
 }
 
 pub fn smallestUnsignedInt(mod: *Module, max: u64) Allocator.Error!Type {
@@ -5964,10 +5964,10 @@ pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
             return @as(u16, @intCast(big.bitCountTwosComp()));
         },
         .lazy_align => |lazy_ty| {
-            return Type.smallestUnsignedBits(lazy_ty.toType().abiAlignment(mod).toByteUnits(0)) + @intFromBool(sign);
+            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiAlignment(mod).toByteUnits(0)) + @intFromBool(sign);
         },
         .lazy_size => |lazy_ty| {
-            return Type.smallestUnsignedBits(lazy_ty.toType().abiSize(mod)) + @intFromBool(sign);
+            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiSize(mod)) + @intFromBool(sign);
         },
     }
 }
@@ -6252,14 +6252,14 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
     var payload_size: u64 = 0;
     var payload_align: Alignment = .@"1";
     for (u.field_types.get(ip), 0..) |field_ty, i| {
-        if (!field_ty.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
+        if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
 
         const explicit_align = u.fieldAlign(ip, @intCast(i));
         const field_align = if (explicit_align != .none)
             explicit_align
         else
-            field_ty.toType().abiAlignment(mod);
-        const field_size = field_ty.toType().abiSize(mod);
+            Type.fromInterned(field_ty).abiAlignment(mod);
+        const field_size = Type.fromInterned(field_ty).abiSize(mod);
         if (field_size > payload_size) {
             payload_size = field_size;
             biggest_field = @intCast(i);
@@ -6271,7 +6271,7 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
         }
     }
     const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
-    if (!have_tag or !u.enum_tag_ty.toType().hasRuntimeBits(mod)) {
+    if (!have_tag or !Type.fromInterned(u.enum_tag_ty).hasRuntimeBits(mod)) {
         return .{
             .abi_size = payload_align.forward(payload_size),
             .abi_align = payload_align,
@@ -6286,8 +6286,8 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
         };
     }
 
-    const tag_size = u.enum_tag_ty.toType().abiSize(mod);
-    const tag_align = u.enum_tag_ty.toType().abiAlignment(mod).max(.@"1");
+    const tag_size = Type.fromInterned(u.enum_tag_ty).abiSize(mod);
+    const tag_align = Type.fromInterned(u.enum_tag_ty).abiAlignment(mod).max(.@"1");
     return .{
         .abi_size = u.size,
         .abi_align = tag_align.max(payload_align),
@@ -6311,9 +6311,9 @@ pub fn unionAbiAlignment(mod: *Module, u: InternPool.UnionType) Alignment {
     const ip = &mod.intern_pool;
     const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
     var max_align: Alignment = .none;
-    if (have_tag) max_align = u.enum_tag_ty.toType().abiAlignment(mod);
+    if (have_tag) max_align = Type.fromInterned(u.enum_tag_ty).abiAlignment(mod);
     for (u.field_types.get(ip), 0..) |field_ty, field_index| {
-        if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+        if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
 
         const field_align = mod.unionFieldNormalAlignment(u, @intCast(field_index));
         max_align = max_align.max(field_align);
@@ -6328,7 +6328,7 @@ pub fn unionFieldNormalAlignment(mod: *Module, u: InternPool.UnionType, field_in
     const ip = &mod.intern_pool;
     const field_align = u.fieldAlign(ip, field_index);
     if (field_align != .none) return field_align;
-    const field_ty = u.field_types.get(ip)[field_index].toType();
+    const field_ty = Type.fromInterned(u.field_types.get(ip)[field_index]);
     return field_ty.abiAlignment(mod);
 }
 
@@ -6396,7 +6396,7 @@ pub fn structPackedFieldBitOffset(
         if (i == field_index) {
             return @intCast(bit_sum);
         }
-        const field_ty = struct_type.field_types.get(ip)[i].toType();
+        const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
         bit_sum += field_ty.bitSize(mod);
     }
     unreachable; // index out of bounds

@@ -3044,7 +3044,7 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
                 .storage = .{ .repeated_elem = mask_val.ip_index },
             } });
 
-            const splat_mcv = try self.genTypedValue(.{ .ty = splat_ty, .val = splat_val.toValue() });
+            const splat_mcv = try self.genTypedValue(.{ .ty = splat_ty, .val = Value.fromInterned(splat_val) });
             const splat_addr_mcv: MCValue = switch (splat_mcv) {
                 .memory, .indirect, .load_frame => splat_mcv.address(),
                 else => .{ .register = try self.copyToTmpRegister(Type.usize, splat_mcv.address()) },
@@ -3196,7 +3196,7 @@ fn activeIntBits(self: *Self, dst_air: Air.Inst.Ref) u16 {
         }
     } else if (Air.refToInterned(dst_air)) |ip_index| {
         var space: Value.BigIntSpace = undefined;
-        const src_int = ip_index.toValue().toBigInt(&space, mod);
+        const src_int = Value.fromInterned(ip_index).toBigInt(&space, mod);
         return @as(u16, @intCast(src_int.bitCountTwosComp())) +
             @intFromBool(src_int.positive and dst_info.signedness == .signed);
     }
@@ -4429,7 +4429,7 @@ fn airShlShrBinOp(self: *Self, inst: Air.Inst.Index) !void {
                                     self.register_manager.unlockReg(lock);
 
                                 const shift_imm =
-                                    Immediate.u(@intCast(rhs_elem.toValue().toUnsignedInt(mod)));
+                                    Immediate.u(@intCast(Value.fromInterned(rhs_elem).toUnsignedInt(mod)));
                                 if (self.hasFeature(.avx)) try self.asmRegisterRegisterImmediate(
                                     mir_tag,
                                     registerAlias(dst_reg, abi_size),
@@ -4477,14 +4477,14 @@ fn airShlShrBinOp(self: *Self, inst: Air.Inst.Index) !void {
                         const mask_ty = try mod.vectorType(.{ .len = 16, .child = .u8_type });
                         const mask_mcv = try self.genTypedValue(.{
                             .ty = mask_ty,
-                            .val = (try mod.intern(.{ .aggregate = .{
+                            .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
                                 .ty = mask_ty.toIntern(),
                                 .storage = .{ .elems = &([1]InternPool.Index{
                                     (try rhs_ty.childType(mod).maxIntScalar(mod, Type.u8)).toIntern(),
                                 } ++ [1]InternPool.Index{
                                     (try mod.intValue(Type.u8, 0)).toIntern(),
                                 } ** 15) },
-                            } })).toValue(),
+                            } }))),
                         });
                         const mask_addr_reg =
                             try self.copyToTmpRegister(Type.usize, mask_mcv.address());
@@ -6714,7 +6714,7 @@ fn packedLoad(self: *Self, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) Inn
     const mod = self.bin_file.options.module.?;
     const ptr_info = ptr_ty.ptrInfo(mod);
 
-    const val_ty = ptr_info.child.toType();
+    const val_ty = Type.fromInterned(ptr_info.child);
     if (!val_ty.hasRuntimeBitsIgnoreComptime(mod)) return;
     const val_abi_size: u32 = @intCast(val_ty.abiSize(mod));
 
@@ -10759,7 +10759,7 @@ fn genCall(self: *Self, info: union(enum) {
     switch (call_info.return_value.long) {
         .none, .unreach => {},
         .indirect => |reg_off| {
-            const ret_ty = fn_info.return_type.toType();
+            const ret_ty = Type.fromInterned(fn_info.return_type);
             const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(ret_ty, mod));
             try self.genSetReg(reg_off.reg, Type.usize, .{
                 .lea_frame = .{ .index = frame_index, .off = -reg_off.off },
@@ -15343,7 +15343,7 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
 
         const union_obj = mod.typeToUnion(union_ty).?;
         const field_name = union_obj.field_names.get(ip)[extra.field_index];
-        const tag_ty = union_obj.enum_tag_ty.toType();
+        const tag_ty = Type.fromInterned(union_obj.enum_tag_ty);
         const field_index = tag_ty.enumFieldIndex(field_name, mod).?;
         const tag_val = try mod.enumValueFieldIndex(tag_ty, field_index);
         const tag_int_val = try tag_val.intFromEnum(tag_ty, mod);
@@ -15812,7 +15812,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
         const ip_index = Air.refToInterned(ref).?;
         const gop = try self.const_tracking.getOrPut(self.gpa, ip_index);
         if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(init: {
-            const const_mcv = try self.genTypedValue(.{ .ty = ty, .val = ip_index.toValue() });
+            const const_mcv = try self.genTypedValue(.{ .ty = ty, .val = Value.fromInterned(ip_index) });
             switch (const_mcv) {
                 .lea_tlv => |tlv_sym| if (self.bin_file.cast(link.File.Elf)) |_| {
                     if (self.bin_file.options.pic) {
@@ -15921,7 +15921,7 @@ fn resolveCallingConventionValues(
     defer self.gpa.free(param_types);
 
     for (param_types[0..fn_info.param_types.len], fn_info.param_types.get(ip)) |*dest, src| {
-        dest.* = src.toType();
+        dest.* = Type.fromInterned(src);
     }
     for (param_types[fn_info.param_types.len..], var_args) |*param_ty, arg_ty|
         param_ty.* = self.promoteVarArg(arg_ty);
@@ -15937,7 +15937,7 @@ fn resolveCallingConventionValues(
     };
     errdefer self.gpa.free(result.args);
 
-    const ret_ty = fn_info.return_type.toType();
+    const ret_ty = Type.fromInterned(fn_info.return_type);
 
     const resolved_cc = abi.resolveCallingConvention(cc, self.target.*);
     switch (cc) {
