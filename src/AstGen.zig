@@ -8292,7 +8292,7 @@ fn builtinCall(
             .return_address,
             .frame_address,
             .breakpoint,
-            .src
+            .src,
             => return astgen.failNode(node, "'{s}' outside function scope", .{builtin_name}),
             else => {},
         }
