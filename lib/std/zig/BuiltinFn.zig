@@ -152,6 +152,8 @@ needs_mem_loc: MemLocRequirement = .never,
 eval_to_error: EvalToError = .never,
 /// `true` if the builtin call can be the left-hand side of an expression (assigned to).
 allows_lvalue: bool = false,
+/// `true` if builtin call available outside function scope
+valid_outside_function: bool = true,
 /// The number of parameters to this builtin function. `null` means variable number
 /// of parameters.
 param_count: ?u8,
@@ -258,6 +260,7 @@ pub const list = list: {
             .{
                 .tag = .breakpoint,
                 .param_count = 0,
+                .valid_outside_function = false,
             },
         },
         .{
@@ -378,24 +381,28 @@ pub const list = list: {
             "@cVaArg", .{
                 .tag = .c_va_arg,
                 .param_count = 2,
+                .valid_outside_function = false,
             },
         },
         .{
             "@cVaCopy", .{
                 .tag = .c_va_copy,
                 .param_count = 1,
+                .valid_outside_function = false,
             },
         },
         .{
             "@cVaEnd", .{
                 .tag = .c_va_end,
                 .param_count = 1,
+                .valid_outside_function = false,
             },
         },
         .{
             "@cVaStart", .{
                 .tag = .c_va_start,
                 .param_count = 0,
+                .valid_outside_function = false,
             },
         },
         .{
@@ -533,6 +540,7 @@ pub const list = list: {
             .{
                 .tag = .frame_address,
                 .param_count = 0,
+                .valid_outside_function = false,
             },
         },
         .{
@@ -709,6 +717,7 @@ pub const list = list: {
             .{
                 .tag = .return_address,
                 .param_count = 0,
+                .valid_outside_function = false,
             },
         },
         .{
@@ -723,6 +732,7 @@ pub const list = list: {
             .{
                 .tag = .set_align_stack,
                 .param_count = 1,
+                .valid_outside_function = false,
             },
         },
         .{
@@ -730,6 +740,7 @@ pub const list = list: {
             .{
                 .tag = .set_cold,
                 .param_count = 1,
+                .valid_outside_function = false,
             },
         },
         .{
@@ -808,6 +819,7 @@ pub const list = list: {
                 .tag = .src,
                 .needs_mem_loc = .always,
                 .param_count = 0,
+                .valid_outside_function = false,
             },
         },
         .{
@@ -997,6 +1009,7 @@ pub const list = list: {
             "@workItemId", .{
                 .tag = .work_item_id,
                 .param_count = 1,
+                .valid_outside_function = false,
             },
         },
         .{
@@ -1004,6 +1017,7 @@ pub const list = list: {
             .{
                 .tag = .work_group_size,
                 .param_count = 1,
+                .valid_outside_function = false,
             },
         },
         .{
@@ -1011,6 +1025,7 @@ pub const list = list: {
             .{
                 .tag = .work_group_id,
                 .param_count = 1,
+                .valid_outside_function = false,
             },
         },
     });
