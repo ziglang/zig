@@ -13,6 +13,7 @@ const codegen = @import("../codegen/c.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const Type = @import("../type.zig").Type;
+const Value = @import("../value.zig").Value;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 
@@ -254,8 +255,8 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
     }
 
     const tv: @import("../TypedValue.zig") = .{
-        .ty = module.intern_pool.typeOf(anon_decl).toType(),
-        .val = anon_decl.toValue(),
+        .ty = Type.fromInterned(module.intern_pool.typeOf(anon_decl)),
+        .val = Value.fromInterned(anon_decl),
     };
     const c_value: codegen.CValue = .{ .constant = anon_decl };
     const alignment: Alignment = self.aligned_anon_decls.get(anon_decl) orelse .none;

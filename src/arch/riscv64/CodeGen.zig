@@ -2656,7 +2656,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             const argument_registers = [_]Register{ .a0, .a1, .a2, .a3, .a4, .a5, .a6, .a7 };
 
             for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
-                const param_size = @as(u32, @intCast(ty.toType().abiSize(mod)));
+                const param_size = @as(u32, @intCast(Type.fromInterned(ty).abiSize(mod)));
                 if (param_size <= 8) {
                     if (next_register < argument_registers.len) {
                         result_arg.* = .{ .register = argument_registers[next_register] };

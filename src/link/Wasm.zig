@@ -23,6 +23,7 @@ const build_options = @import("build_options");
 const wasi_libc = @import("../wasi_libc.zig");
 const Cache = std.Build.Cache;
 const Type = @import("../type.zig").Type;
+const Value = @import("../value.zig").Value;
 const TypedValue = @import("../TypedValue.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Air = @import("../Air.zig");
@@ -1452,7 +1453,7 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
         const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
         return wasm.addOrUpdateImport(name, atom.sym_index, lib_name, null);
     }
-    const val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
+    const val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
 
     var code_writer = std.ArrayList(u8).init(wasm.base.allocator);
     defer code_writer.deinit();
@@ -1719,8 +1720,8 @@ pub fn lowerAnonDecl(
     const gop = try wasm.anon_decls.getOrPut(wasm.base.allocator, decl_val);
     if (!gop.found_existing) {
         const mod = wasm.base.options.module.?;
-        const ty = mod.intern_pool.typeOf(decl_val).toType();
-        const tv: TypedValue = .{ .ty = ty, .val = decl_val.toValue() };
+        const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
+        const tv: TypedValue = .{ .ty = ty, .val = Value.fromInterned(decl_val) };
         var name_buf: [32]u8 = undefined;
         const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
             @intFromEnum(decl_val),
@@ -1751,7 +1752,7 @@ pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: lin
     const parent_atom = wasm.getAtomPtr(parent_atom_index);
     const is_wasm32 = wasm.base.options.target.cpu.arch == .wasm32;
     const mod = wasm.base.options.module.?;
-    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
     if (ty.zigTypeTag(mod) == .Fn) {
         assert(reloc_info.addend == 0); // addend not allowed for function relocations
         // We found a function pointer, so add it to our table,
@@ -3533,7 +3534,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             } else if (decl.getOwnedVariable(mod)) |variable| {
                 if (variable.is_const) {
                     try wasm.parseAtom(atom_index, .{ .data = .read_only });
-                } else if (variable.init.toValue().isUndefDeep(mod)) {
+                } else if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
                     // for safe build modes, we store the atom in the data segment,
                     // whereas for unsafe build modes we store it in bss.
                     const is_initialized = wasm.base.options.optimize_mode == .Debug or
@@ -3558,7 +3559,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
         // parse anonymous declarations
         for (wasm.anon_decls.keys(), wasm.anon_decls.values()) |decl_val, atom_index| {
-            const ty = mod.intern_pool.typeOf(decl_val).toType();
+            const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
             if (ty.zigTypeTag(mod) == .Fn) {
                 try wasm.parseAtom(atom_index, .function);
             } else {

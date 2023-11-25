@@ -2400,7 +2400,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
         null;
     defer if (decl_state) |*ds| ds.deinit();
 
-    const decl_val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
+    const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const res = if (decl_state) |*ds|
         try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
             .ty = decl.ty,
@@ -2569,7 +2569,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
 
     const decl = module.declPtr(decl_index);
     const decl_metadata = self.decls.get(decl_index).?;
-    const decl_val = decl.val.getVariable(mod).?.init.toValue();
+    const decl_val = Value.fromInterned(decl.val.getVariable(mod).?.init);
     const res = if (decl_state) |*ds|
         try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
             .ty = decl.ty,
@@ -2995,7 +2995,7 @@ pub fn lowerAnonDecl(
 ) !codegen.Result {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
-    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
     const decl_alignment = switch (explicit_alignment) {
         .none => ty.abiAlignment(mod),
         else => explicit_alignment,
@@ -3006,7 +3006,7 @@ pub fn lowerAnonDecl(
             return .ok;
     }
 
-    const val = decl_val.toValue();
+    const val = Value.fromInterned(decl_val);
     const tv = TypedValue{ .ty = ty, .val = val };
     var name_buf: [32]u8 = undefined;
     const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{

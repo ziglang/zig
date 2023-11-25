@@ -1481,7 +1481,7 @@ pub const CType = extern union {
                                 info.flags.vector_index == .none)
                                 try mod.intType(.unsigned, info.packed_offset.host_size * 8)
                             else
-                                info.child.toType();
+                                Type.fromInterned(info.child);
 
                             if (try lookup.typeToIndex(pointee_ty, .forward)) |child_idx| {
                                 self.storage = .{ .child = .{
@@ -1496,7 +1496,7 @@ pub const CType = extern union {
 
                 .Struct, .Union => |zig_ty_tag| if (ty.containerLayout(mod) == .Packed) {
                     if (mod.typeToPackedStruct(ty)) |packed_struct| {
-                        try self.initType(packed_struct.backingIntType(ip).toType(), kind, lookup);
+                        try self.initType(Type.fromInterned(packed_struct.backingIntType(ip).*), kind, lookup);
                     } else {
                         const bits: u16 = @intCast(ty.bitSize(mod));
                         const int_ty = try mod.intType(.unsigned, bits);
@@ -1736,10 +1736,10 @@ pub const CType = extern union {
                                 .complete, .parameter, .global => .parameter,
                                 .payload => unreachable,
                             };
-                            _ = try lookup.typeToIndex(info.return_type.toType(), param_kind);
+                            _ = try lookup.typeToIndex(Type.fromInterned(info.return_type), param_kind);
                             for (info.param_types.get(ip)) |param_type| {
-                                if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
-                                _ = try lookup.typeToIndex(param_type.toType(), param_kind);
+                                if (!Type.fromInterned(param_type).hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                _ = try lookup.typeToIndex(Type.fromInterned(param_type), param_kind);
                             }
                         }
                         self.init(if (info.is_var_args) .varargs_function else .function);
@@ -2033,21 +2033,21 @@ pub const CType = extern union {
 
                     var c_params_len: usize = 0;
                     for (info.param_types.get(ip)) |param_type| {
-                        if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
+                        if (!Type.fromInterned(param_type).hasRuntimeBitsIgnoreComptime(mod)) continue;
                         c_params_len += 1;
                     }
 
                     const params_pl = try arena.alloc(Index, c_params_len);
                     var c_param_i: usize = 0;
                     for (info.param_types.get(ip)) |param_type| {
-                        if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
-                        params_pl[c_param_i] = store.set.typeToIndex(param_type.toType(), mod, param_kind).?;
+                        if (!Type.fromInterned(param_type).hasRuntimeBitsIgnoreComptime(mod)) continue;
+                        params_pl[c_param_i] = store.set.typeToIndex(Type.fromInterned(param_type), mod, param_kind).?;
                         c_param_i += 1;
                     }
 
                     const fn_pl = try arena.create(Payload.Function);
                     fn_pl.* = .{ .base = .{ .tag = t }, .data = .{
-                        .return_type = store.set.typeToIndex(info.return_type.toType(), mod, param_kind).?,
+                        .return_type = store.set.typeToIndex(Type.fromInterned(info.return_type), mod, param_kind).?,
                         .param_types = params_pl,
                     } };
                     return initPayload(fn_pl);
@@ -2167,18 +2167,18 @@ pub const CType = extern union {
                                 .payload => unreachable,
                             };
 
-                            if (!self.eqlRecurse(info.return_type.toType(), data.return_type, param_kind))
+                            if (!self.eqlRecurse(Type.fromInterned(info.return_type), data.return_type, param_kind))
                                 return false;
 
                             var c_param_i: usize = 0;
                             for (info.param_types.get(ip)) |param_type| {
-                                if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                if (!Type.fromInterned(param_type).hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 if (c_param_i >= data.param_types.len) return false;
                                 const param_cty = data.param_types[c_param_i];
                                 c_param_i += 1;
 
-                                if (!self.eqlRecurse(param_type.toType(), param_cty, param_kind))
+                                if (!self.eqlRecurse(Type.fromInterned(param_type), param_cty, param_kind))
                                     return false;
                             }
                             return c_param_i == data.param_types.len;
@@ -2282,10 +2282,10 @@ pub const CType = extern union {
                                 .payload => unreachable,
                             };
 
-                            self.updateHasherRecurse(hasher, info.return_type.toType(), param_kind);
+                            self.updateHasherRecurse(hasher, Type.fromInterned(info.return_type), param_kind);
                             for (info.param_types.get(ip)) |param_type| {
-                                if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
-                                self.updateHasherRecurse(hasher, param_type.toType(), param_kind);
+                                if (!Type.fromInterned(param_type).hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                self.updateHasherRecurse(hasher, Type.fromInterned(param_type), param_kind);
                             }
                         },
 

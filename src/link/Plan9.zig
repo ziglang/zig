@@ -13,6 +13,8 @@ const File = link.File;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
+const Type = @import("../type.zig").Type;
+const Value = @import("../value.zig").Value;
 const TypedValue = @import("../TypedValue.zig");
 
 const std = @import("std");
@@ -517,7 +519,7 @@ pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: Module.Decl.Index) !vo
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
-    const decl_val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
+    const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     // TODO we need the symbol index for symbol in the table of locals for the containing atom
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
         .ty = decl.ty,
@@ -1492,8 +1494,8 @@ pub fn lowerAnonDecl(self: *Plan9, decl_val: InternPool.Index, src_loc: Module.S
     const gop = try self.anon_decls.getOrPut(gpa, decl_val);
     const mod = self.base.options.module.?;
     if (!gop.found_existing) {
-        const ty = mod.intern_pool.typeOf(decl_val).toType();
-        const val = decl_val.toValue();
+        const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
+        const val = Value.fromInterned(decl_val);
         const tv = TypedValue{ .ty = ty, .val = val };
         const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
 

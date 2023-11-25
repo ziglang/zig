@@ -117,7 +117,7 @@ fn generateZirData(self: *Autodoc, output_dir: std.fs.Dir) !void {
                 // Not a real type, doesn't have a normal name
                 try tmpbuf.writer().writeAll("(generic poison)");
             } else {
-                try ip_index.toType().fmt(self.comp_module).format("", .{}, tmpbuf.writer());
+                try @import("type.zig").Type.fromInterned(ip_index).fmt(self.comp_module).format("", .{}, tmpbuf.writer());
             }
             try self.types.append(
                 self.arena,
