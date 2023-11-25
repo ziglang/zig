@@ -552,7 +552,7 @@ pub const File = struct {
     /// Called from within the CodeGen to lower a local variable instantion as an unnamed
     /// constant. Returns the symbol index of the lowered constant in the read-only section
     /// of the final binary.
-    pub fn lowerUnnamedConst(base: *File, tv: TypedValue, decl_index: Module.Decl.Index) UpdateDeclError!u32 {
+    pub fn lowerUnnamedConst(base: *File, tv: TypedValue, decl_index: InternPool.DeclIndex) UpdateDeclError!u32 {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             // zig fmt: off
@@ -591,7 +591,7 @@ pub const File = struct {
     }
 
     /// May be called before or after updateExports for any given Decl.
-    pub fn updateDecl(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
+    pub fn updateDecl(base: *File, module: *Module, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
         assert(decl.has_tv);
         if (build_options.only_c) {
@@ -632,7 +632,7 @@ pub const File = struct {
         }
     }
 
-    pub fn updateDeclLineNumber(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
+    pub fn updateDeclLineNumber(base: *File, module: *Module, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
         assert(decl.has_tv);
         if (build_options.only_c) {
@@ -849,7 +849,7 @@ pub const File = struct {
     }
 
     /// Called when a Decl is deleted from the Module.
-    pub fn freeDecl(base: *File, decl_index: Module.Decl.Index) void {
+    pub fn freeDecl(base: *File, decl_index: InternPool.DeclIndex) void {
         if (build_options.only_c) {
             assert(base.tag == .c);
             return @fieldParentPtr(C, "base", base).freeDecl(decl_index);
@@ -928,7 +928,7 @@ pub const File = struct {
     /// `Decl`'s address was not yet resolved, or the containing atom gets moved in virtual memory.
     /// May be called before or after updateFunc/updateDecl therefore it is up to the linker to allocate
     /// the block/atom.
-    pub fn getDeclVAddr(base: *File, decl_index: Module.Decl.Index, reloc_info: RelocInfo) !u64 {
+    pub fn getDeclVAddr(base: *File, decl_index: InternPool.DeclIndex, reloc_info: RelocInfo) !u64 {
         if (build_options.only_c) unreachable;
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl_index, reloc_info),
@@ -972,7 +972,7 @@ pub const File = struct {
         }
     }
 
-    pub fn deleteDeclExport(base: *File, decl_index: Module.Decl.Index, name: InternPool.NullTerminatedString) !void {
+    pub fn deleteDeclExport(base: *File, decl_index: InternPool.DeclIndex, name: InternPool.NullTerminatedString) !void {
         if (build_options.only_c) unreachable;
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).deleteDeclExport(decl_index, name),
@@ -1225,15 +1225,15 @@ pub const File = struct {
         kind: Kind,
         ty: Type,
 
-        pub fn initDecl(kind: Kind, decl: ?Module.Decl.Index, mod: *Module) LazySymbol {
+        pub fn initDecl(kind: Kind, decl: ?InternPool.DeclIndex, mod: *Module) LazySymbol {
             return .{ .kind = kind, .ty = if (decl) |decl_index|
                 mod.declPtr(decl_index).val.toType()
             else
                 Type.anyerror };
         }
 
-        pub fn getDecl(self: LazySymbol, mod: *Module) Module.Decl.OptionalIndex {
-            return Module.Decl.OptionalIndex.init(self.ty.getOwnerDeclOrNull(mod));
+        pub fn getDecl(self: LazySymbol, mod: *Module) InternPool.OptionalDeclIndex {
+            return InternPool.OptionalDeclIndex.init(self.ty.getOwnerDeclOrNull(mod));
         }
     };
 

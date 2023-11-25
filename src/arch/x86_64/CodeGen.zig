@@ -121,7 +121,7 @@ const Owner = union(enum) {
     func_index: InternPool.Index,
     lazy_sym: link.File.LazySymbol,
 
-    fn getDecl(owner: Owner, mod: *Module) Module.Decl.Index {
+    fn getDecl(owner: Owner, mod: *Module) InternPool.DeclIndex {
         return switch (owner) {
             .func_index => |func_index| mod.funcOwnerDeclIndex(func_index),
             .lazy_sym => |lazy_sym| lazy_sym.ty.getOwnerDecl(mod),
@@ -1048,7 +1048,7 @@ pub fn generateLazy(
 
 const FormatDeclData = struct {
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
 };
 fn formatDecl(
     data: FormatDeclData,
@@ -1058,7 +1058,7 @@ fn formatDecl(
 ) @TypeOf(writer).Error!void {
     try data.mod.declPtr(data.decl_index).renderFullyQualifiedName(data.mod, writer);
 }
-fn fmtDecl(self: *Self, decl_index: Module.Decl.Index) std.fmt.Formatter(formatDecl) {
+fn fmtDecl(self: *Self, decl_index: InternPool.DeclIndex) std.fmt.Formatter(formatDecl) {
     return .{ .data = .{
         .mod = self.bin_file.options.module.?,
         .decl_index = decl_index,

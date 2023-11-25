@@ -20,7 +20,7 @@ inst_map: InstMap = .{},
 /// and `src_decl` of `Block` is the `Decl` of the callee.
 /// This `Decl` owns the arena memory of this `Sema`.
 owner_decl: *Decl,
-owner_decl_index: Decl.Index,
+owner_decl_index: InternPool.DeclIndex,
 /// For an inline or comptime function call, this will be the root parent function
 /// which contains the callsite. Corresponds to `owner_decl`.
 /// This could be `none`, a `func_decl`, or a `func_instance`.
@@ -54,7 +54,7 @@ comptime_break_inst: Zir.Inst.Index = undefined,
 /// access to the source location set by the previous instruction which did
 /// contain a mapped source location.
 src: LazySrcLoc = .{ .token_offset = 0 },
-decl_val_table: std.AutoHashMapUnmanaged(Decl.Index, Air.Inst.Ref) = .{},
+decl_val_table: std.AutoHashMapUnmanaged(InternPool.DeclIndex, Air.Inst.Ref) = .{},
 /// When doing a generic function instantiation, this array collects a value
 /// for each parameter of the generic owner. `none` for non-comptime parameters.
 /// This is a separate array from `block.params` so that it can be passed
@@ -71,7 +71,7 @@ generic_owner: InternPool.Index = .none,
 /// declaration site.
 generic_call_src: LazySrcLoc = .unneeded,
 /// Corresponds to `generic_call_src`.
-generic_call_decl: Decl.OptionalIndex = .none,
+generic_call_decl: InternPool.OptionalDeclIndex = .none,
 /// The key is types that must be fully resolved prior to machine code
 /// generation pass. Types are added to this set when resolving them
 /// immediately could cause a dependency loop, but they do need to be resolved
@@ -101,7 +101,7 @@ unresolved_inferred_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, InferredAll
 /// TODO: this is a workaround for memory bugs triggered by the removal of
 /// Decl.value_arena. A better solution needs to be found. Probably this will
 /// involve transitioning comptime-mutable memory away from using Decls at all.
-comptime_mutable_decls: *std.ArrayList(Decl.Index),
+comptime_mutable_decls: *std.ArrayList(InternPool.DeclIndex),
 
 /// This is populated when `@setAlignStack` occurs so that if there is a duplicate
 /// one encountered, the conflicting source location can be shown.
@@ -323,7 +323,7 @@ pub const Block = struct {
     sema: *Sema,
     /// The namespace to use for lookups from this source block
     /// When analyzing fields, this is different from src_decl.src_namespace.
-    namespace: Namespace.Index,
+    namespace: InternPool.NamespaceIndex,
     /// The AIR instructions generated for this block.
     instructions: std.ArrayListUnmanaged(Air.Inst.Index),
     // `param` instructions are collected here to be used by the `func` instruction.
@@ -345,7 +345,7 @@ pub const Block = struct {
     /// This Decl is the Decl according to the Zig source code corresponding to this Block.
     /// This can vary during inline or comptime function calls. See `Sema.owner_decl`
     /// for the one that will be the same for all Block instances.
-    src_decl: Decl.Index,
+    src_decl: InternPool.DeclIndex,
     /// Non zero if a non-inline loop or a runtime conditional have been encountered.
     /// Stores to comptime variables are only allowed when var.runtime_index <= runtime_index.
     runtime_index: Value.RuntimeIndex = .zero,
@@ -800,7 +800,7 @@ pub const Block = struct {
         }
 
         /// `alignment` value of 0 means to use ABI alignment.
-        pub fn finish(wad: *WipAnonDecl, ty: Type, val: Value, alignment: Alignment) !Decl.Index {
+        pub fn finish(wad: *WipAnonDecl, ty: Type, val: Value, alignment: Alignment) !InternPool.DeclIndex {
             const sema = wad.block.sema;
             // Do this ahead of time because `createAnonymousDecl` depends on calling
             // `type.hasRuntimeBits()`.
@@ -2505,7 +2505,7 @@ fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.ErrorMsg)
             defer reference_stack.deinit();
 
             // Avoid infinite loops.
-            var seen = std.AutoHashMap(Decl.Index, void).init(gpa);
+            var seen = std.AutoHashMap(InternPool.DeclIndex, void).init(gpa);
             defer seen.deinit();
 
             while (mod.reference_table.get(referenced_by)) |ref| {
@@ -2652,8 +2652,8 @@ fn analyzeAsInt(
 
 pub fn getStructType(
     sema: *Sema,
-    decl: Module.Decl.Index,
-    namespace: Module.Namespace.Index,
+    decl: InternPool.DeclIndex,
+    namespace: InternPool.NamespaceIndex,
     zir_index: Zir.Inst.Index,
 ) !InternPool.Index {
     const mod = sema.mod;
@@ -2768,7 +2768,7 @@ fn createAnonymousDeclTypeNamed(
     name_strategy: Zir.Inst.NameStrategy,
     anon_prefix: []const u8,
     inst: ?Zir.Inst.Index,
-) !Decl.Index {
+) !InternPool.DeclIndex {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
     const gpa = sema.gpa;
@@ -6065,7 +6065,7 @@ pub fn analyzeExport(
     block: *Block,
     src: LazySrcLoc,
     options: Module.Export.Options,
-    exported_decl_index: Decl.Index,
+    exported_decl_index: InternPool.DeclIndex,
 ) !void {
     const gpa = sema.gpa;
     const mod = sema.mod;
@@ -6380,7 +6380,7 @@ fn zirDeclVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     return sema.analyzeDeclVal(block, src, decl);
 }
 
-fn lookupIdentifier(sema: *Sema, block: *Block, src: LazySrcLoc, name: InternPool.NullTerminatedString) !Decl.Index {
+fn lookupIdentifier(sema: *Sema, block: *Block, src: LazySrcLoc, name: InternPool.NullTerminatedString) !InternPool.DeclIndex {
     const mod = sema.mod;
     var namespace = block.namespace;
     while (true) {
@@ -6398,10 +6398,10 @@ fn lookupInNamespace(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    namespace_index: Namespace.Index,
+    namespace_index: InternPool.NamespaceIndex,
     ident_name: InternPool.NullTerminatedString,
     observe_usingnamespace: bool,
-) CompileError!?Decl.Index {
+) CompileError!?InternPool.DeclIndex {
     const mod = sema.mod;
 
     const namespace = mod.namespacePtr(namespace_index);
@@ -6419,7 +6419,7 @@ fn lookupInNamespace(
         defer checked_namespaces.deinit(gpa);
 
         // Keep track of name conflicts for error notes.
-        var candidates: std.ArrayListUnmanaged(Decl.Index) = .{};
+        var candidates: std.ArrayListUnmanaged(InternPool.DeclIndex) = .{};
         defer candidates.deinit(gpa);
 
         try checked_namespaces.put(gpa, namespace, namespace.file_scope == src_file);
@@ -7034,7 +7034,7 @@ const InlineCallSema = struct {
     other_error_return_trace_index_on_fn_entry: Air.Inst.Ref,
     other_generic_owner: InternPool.Index,
     other_generic_call_src: LazySrcLoc,
-    other_generic_call_decl: Decl.OptionalIndex,
+    other_generic_call_decl: InternPool.OptionalDeclIndex,
 
     /// Sema should currently be set up for the caller (i.e. unchanged yet). This init will not
     /// change that. The other parameters contain data for the callee Sema. The other modified
@@ -7104,7 +7104,7 @@ const InlineCallSema = struct {
         std.mem.swap(InstMap,            &ics.sema.inst_map,          &ics.other_inst_map);
         std.mem.swap(InternPool.Index,   &ics.sema.generic_owner,     &ics.other_generic_owner);
         std.mem.swap(LazySrcLoc,         &ics.sema.generic_call_src,  &ics.other_generic_call_src);
-        std.mem.swap(Decl.OptionalIndex, &ics.sema.generic_call_decl, &ics.other_generic_call_decl);
+        std.mem.swap(InternPool.OptionalDeclIndex, &ics.sema.generic_call_decl, &ics.other_generic_call_decl);
         std.mem.swap(Air.Inst.Ref,       &ics.sema.error_return_trace_index_on_fn_entry, &ics.other_error_return_trace_index_on_fn_entry);
         // zig fmt: on
     }
@@ -17825,7 +17825,7 @@ fn typeInfoDecls(
     block: *Block,
     src: LazySrcLoc,
     type_info_ty: Type,
-    opt_namespace: Module.Namespace.OptionalIndex,
+    opt_namespace: InternPool.OptionalNamespaceIndex,
 ) CompileError!InternPool.Index {
     const mod = sema.mod;
     const gpa = sema.gpa;
@@ -25760,7 +25760,7 @@ fn prepareSimplePanic(sema: *Sema, block: *Block) !void {
 /// Backends depend on panic decls being available when lowering safety-checked
 /// instructions. This function ensures the panic function will be available to
 /// be called during that time.
-fn preparePanicId(sema: *Sema, block: *Block, panic_id: Module.PanicId) !Module.Decl.Index {
+fn preparePanicId(sema: *Sema, block: *Block, panic_id: Module.PanicId) !InternPool.DeclIndex {
     const mod = sema.mod;
     const gpa = sema.gpa;
     if (mod.panic_messages[@intFromEnum(panic_id)].unwrap()) |x| return x;
@@ -26685,9 +26685,9 @@ fn namespaceLookup(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    namespace: Namespace.Index,
+    namespace: InternPool.NamespaceIndex,
     decl_name: InternPool.NullTerminatedString,
-) CompileError!?Decl.Index {
+) CompileError!?InternPool.DeclIndex {
     const mod = sema.mod;
     const gpa = sema.gpa;
     if (try sema.lookupInNamespace(block, src, namespace, decl_name, true)) |decl_index| {
@@ -26712,7 +26712,7 @@ fn namespaceLookupRef(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    namespace: Namespace.Index,
+    namespace: InternPool.NamespaceIndex,
     decl_name: InternPool.NullTerminatedString,
 ) CompileError!?Air.Inst.Ref {
     const decl = (try sema.namespaceLookup(block, src, namespace, decl_name)) orelse return null;
@@ -26724,7 +26724,7 @@ fn namespaceLookupVal(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    namespace: Namespace.Index,
+    namespace: InternPool.NamespaceIndex,
     decl_name: InternPool.NullTerminatedString,
 ) CompileError!?Air.Inst.Ref {
     const decl = (try sema.namespaceLookup(block, src, namespace, decl_name)) orelse return null;
@@ -31589,7 +31589,7 @@ fn analyzeDeclVal(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    decl_index: Decl.Index,
+    decl_index: InternPool.DeclIndex,
 ) CompileError!Air.Inst.Ref {
     try sema.addReferencedBy(block, src, decl_index);
     if (sema.decl_val_table.get(decl_index)) |result| {
@@ -31609,7 +31609,7 @@ fn addReferencedBy(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    decl_index: Decl.Index,
+    decl_index: InternPool.DeclIndex,
 ) !void {
     if (sema.mod.comp.reference_trace == 0) return;
     if (src == .unneeded) {
@@ -31626,7 +31626,7 @@ fn addReferencedBy(
     });
 }
 
-fn ensureDeclAnalyzed(sema: *Sema, decl_index: Decl.Index) CompileError!void {
+fn ensureDeclAnalyzed(sema: *Sema, decl_index: InternPool.DeclIndex) CompileError!void {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
     const decl = mod.declPtr(decl_index);
@@ -31670,7 +31670,7 @@ fn optRefValue(sema: *Sema, opt_val: ?Value) !Value {
     } })));
 }
 
-fn analyzeDeclRef(sema: *Sema, decl_index: Decl.Index) CompileError!Air.Inst.Ref {
+fn analyzeDeclRef(sema: *Sema, decl_index: InternPool.DeclIndex) CompileError!Air.Inst.Ref {
     return sema.analyzeDeclRefInner(decl_index, true);
 }
 
@@ -31678,7 +31678,7 @@ fn analyzeDeclRef(sema: *Sema, decl_index: Decl.Index) CompileError!Air.Inst.Ref
 /// only triggers analysis for function bodies if `analyze_fn_body` is true. If it's possible for a
 /// decl_ref to end up in runtime code, the function body must be analyzed: `analyzeDeclRef` wraps
 /// this function with `analyze_fn_body` set to true.
-fn analyzeDeclRefInner(sema: *Sema, decl_index: Decl.Index, analyze_fn_body: bool) CompileError!Air.Inst.Ref {
+fn analyzeDeclRefInner(sema: *Sema, decl_index: InternPool.DeclIndex, analyze_fn_body: bool) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     try sema.ensureDeclAnalyzed(decl_index);
 
@@ -31701,7 +31701,7 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: Decl.Index, analyze_fn_body: boo
     } })));
 }
 
-fn maybeQueueFuncBodyAnalysis(sema: *Sema, decl_index: Decl.Index) !void {
+fn maybeQueueFuncBodyAnalysis(sema: *Sema, decl_index: InternPool.DeclIndex) !void {
     const mod = sema.mod;
     const decl = mod.declPtr(decl_index);
     const tv = try decl.typedValue();
@@ -34861,7 +34861,7 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.Key.StructType) Comp
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
+    var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
     defer comptime_mutable_decls.deinit();
 
     var sema: Sema = .{
@@ -35683,7 +35683,7 @@ fn semaStructFields(
         },
     };
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
+    var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
     defer comptime_mutable_decls.deinit();
 
     var sema: Sema = .{
@@ -35949,7 +35949,7 @@ fn semaStructFieldInits(
     const zir_index = struct_type.zir_index;
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
+    var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
     defer comptime_mutable_decls.deinit();
 
     var sema: Sema = .{
@@ -36133,7 +36133,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
 
     const decl = mod.declPtr(decl_index);
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
+    var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
     defer comptime_mutable_decls.deinit();
 
     var sema: Sema = .{
@@ -36561,7 +36561,7 @@ fn generateUnionTagTypeSimple(
     sema: *Sema,
     block: *Block,
     enum_field_names: []const InternPool.NullTerminatedString,
-    maybe_decl_index: Module.Decl.OptionalIndex,
+    maybe_decl_index: InternPool.OptionalDeclIndex,
 ) !InternPool.Index {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
@@ -36630,7 +36630,7 @@ fn getBuiltin(sema: *Sema, name: []const u8) CompileError!Air.Inst.Ref {
     return sema.analyzeDeclVal(&block, src, decl_index);
 }
 
-fn getBuiltinDecl(sema: *Sema, block: *Block, name: []const u8) CompileError!Module.Decl.Index {
+fn getBuiltinDecl(sema: *Sema, block: *Block, name: []const u8) CompileError!InternPool.DeclIndex {
     const gpa = sema.gpa;
 
     const src = LazySrcLoc.nodeOffset(0);

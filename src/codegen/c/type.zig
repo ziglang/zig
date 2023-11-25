@@ -7,6 +7,7 @@ const Target = std.Target;
 
 const Alignment = @import("../../InternPool.zig").Alignment;
 const Module = @import("../../Module.zig");
+const InternPool = @import("../../InternPool.zig");
 const Type = @import("../../type.zig").Type;
 
 pub const CType = extern union {
@@ -238,7 +239,7 @@ pub const CType = extern union {
 
         pub const FwdDecl = struct {
             base: Payload,
-            data: Module.Decl.Index,
+            data: InternPool.DeclIndex,
         };
 
         pub const Fields = struct {
@@ -257,7 +258,7 @@ pub const CType = extern union {
             base: Payload,
             data: struct {
                 fields: Fields.Data,
-                owner_decl: Module.Decl.Index,
+                owner_decl: InternPool.DeclIndex,
                 id: u32,
             },
         };

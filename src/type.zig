@@ -2778,7 +2778,7 @@ pub const Type = struct {
     }
 
     /// Returns null if the type has no namespace.
-    pub fn getNamespaceIndex(ty: Type, mod: *Module) Module.Namespace.OptionalIndex {
+    pub fn getNamespaceIndex(ty: Type, mod: *Module) InternPool.OptionalNamespaceIndex {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
             .struct_type => |struct_type| struct_type.namespace,
@@ -3123,11 +3123,11 @@ pub const Type = struct {
         };
     }
 
-    pub fn getOwnerDecl(ty: Type, mod: *Module) Module.Decl.Index {
+    pub fn getOwnerDecl(ty: Type, mod: *Module) InternPool.DeclIndex {
         return ty.getOwnerDeclOrNull(mod) orelse unreachable;
     }
 
-    pub fn getOwnerDeclOrNull(ty: Type, mod: *Module) ?Module.Decl.Index {
+    pub fn getOwnerDeclOrNull(ty: Type, mod: *Module) ?InternPool.DeclIndex {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| struct_type.decl.unwrap(),
             .union_type => |union_type| union_type.decl,

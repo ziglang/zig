@@ -156,7 +156,7 @@ pub const Object = struct {
 
     /// The Zig module that this object file is generated for.
     /// A map of Zig decl indices to SPIR-V decl indices.
-    decl_link: std.AutoHashMapUnmanaged(Decl.Index, SpvModule.Decl.Index) = .{},
+    decl_link: std.AutoHashMapUnmanaged(InternPool.DeclIndex, SpvModule.Decl.Index) = .{},
 
     /// A map of Zig InternPool indices for anonymous decls to SPIR-V decl indices.
     anon_decl_link: std.AutoHashMapUnmanaged(struct { InternPool.Index, StorageClass }, SpvModule.Decl.Index) = .{},
@@ -187,7 +187,7 @@ pub const Object = struct {
     fn genDecl(
         self: *Object,
         mod: *Module,
-        decl_index: Decl.Index,
+        decl_index: InternPool.DeclIndex,
         air: Air,
         liveness: Liveness,
     ) !void {
@@ -247,14 +247,14 @@ pub const Object = struct {
     pub fn updateDecl(
         self: *Object,
         mod: *Module,
-        decl_index: Decl.Index,
+        decl_index: InternPool.DeclIndex,
     ) !void {
         try self.genDecl(mod, decl_index, undefined, undefined);
     }
 
     /// Fetch or allocate a result id for decl index. This function also marks the decl as alive.
     /// Note: Function does not actually generate the decl, it just allocates an index.
-    pub fn resolveDecl(self: *Object, mod: *Module, decl_index: Decl.Index) !SpvModule.Decl.Index {
+    pub fn resolveDecl(self: *Object, mod: *Module, decl_index: InternPool.DeclIndex) !SpvModule.Decl.Index {
         const decl = mod.declPtr(decl_index);
         try mod.markDeclAlive(decl);
 
@@ -289,7 +289,7 @@ const DeclGen = struct {
     spv: *SpvModule,
 
     /// The decl we are currently generating code for.
-    decl_index: Decl.Index,
+    decl_index: InternPool.DeclIndex,
 
     /// The intermediate code of the declaration we are currently generating. Note: If
     /// the declaration is not a function, this value will be undefined!
@@ -1115,7 +1115,7 @@ const DeclGen = struct {
         }
     }
 
-    fn constantDeclRef(self: *DeclGen, ty: Type, decl_index: Decl.Index) !IdRef {
+    fn constantDeclRef(self: *DeclGen, ty: Type, decl_index: InternPool.DeclIndex) !IdRef {
         const mod = self.module;
         const ty_ref = try self.resolveType(ty, .direct);
         const ty_id = self.typeId(ty_ref);

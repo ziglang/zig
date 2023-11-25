@@ -1043,7 +1043,7 @@ pub const Inst = struct {
         inferred_alloc: InferredAlloc,
 
         pub const InferredAllocComptime = struct {
-            decl_index: Module.Decl.Index,
+            decl_index: InternPool.DeclIndex,
             alignment: InternPool.Alignment,
             is_const: bool,
         };

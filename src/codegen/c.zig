@@ -39,8 +39,8 @@ pub const CValue = union(enum) {
     /// Index into a tuple's fields
     field: usize,
     /// By-value
-    decl: Decl.Index,
-    decl_ref: Decl.Index,
+    decl: InternPool.DeclIndex,
+    decl_ref: InternPool.DeclIndex,
     /// An undefined value (cannot be dereferenced)
     undef: Type,
     /// Render the slice as an identifier (using fmtIdent)
@@ -57,9 +57,9 @@ const BlockData = struct {
 pub const CValueMap = std.AutoHashMap(Air.Inst.Ref, CValue);
 
 pub const LazyFnKey = union(enum) {
-    tag_name: Decl.Index,
-    never_tail: Decl.Index,
-    never_inline: Decl.Index,
+    tag_name: InternPool.DeclIndex,
+    never_tail: InternPool.DeclIndex,
+    never_inline: InternPool.DeclIndex,
 };
 pub const LazyFnValue = struct {
     fn_name: []const u8,
@@ -534,7 +534,7 @@ pub const DeclGen = struct {
     aligned_anon_decls: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
 
     pub const Pass = union(enum) {
-        decl: Decl.Index,
+        decl: InternPool.DeclIndex,
         anon: InternPool.Index,
         flush,
     };
@@ -624,7 +624,7 @@ pub const DeclGen = struct {
         writer: anytype,
         ty: Type,
         val: Value,
-        decl_index: Decl.Index,
+        decl_index: InternPool.DeclIndex,
         location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
         const mod = dg.module;
@@ -1585,7 +1585,7 @@ pub const DeclGen = struct {
     fn renderFunctionSignature(
         dg: *DeclGen,
         w: anytype,
-        fn_decl_index: Decl.Index,
+        fn_decl_index: InternPool.DeclIndex,
         kind: CType.Kind,
         name: union(enum) {
             export_index: u32,
@@ -1926,7 +1926,7 @@ pub const DeclGen = struct {
         try dg.writeCValue(writer, member);
     }
 
-    fn renderFwdDecl(dg: *DeclGen, decl_index: Decl.Index, variable: InternPool.Key.Variable) !void {
+    fn renderFwdDecl(dg: *DeclGen, decl_index: InternPool.DeclIndex, variable: InternPool.Key.Variable) !void {
         const decl = dg.module.declPtr(decl_index);
         const fwd = dg.fwd_decl.writer();
         const is_global = dg.declIsGlobal(.{ .ty = decl.ty, .val = decl.val }) or variable.is_extern;
@@ -1948,7 +1948,7 @@ pub const DeclGen = struct {
         try fwd.writeAll(";\n");
     }
 
-    fn renderDeclName(dg: *DeclGen, writer: anytype, decl_index: Decl.Index, export_index: u32) !void {
+    fn renderDeclName(dg: *DeclGen, writer: anytype, decl_index: InternPool.DeclIndex, export_index: u32) !void {
         const mod = dg.module;
         const decl = mod.declPtr(decl_index);
         try mod.markDeclAlive(decl);

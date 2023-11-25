@@ -643,7 +643,7 @@ const CodeGen = @This();
 /// Reference to the function declaration the code
 /// section belongs to
 decl: *Decl,
-decl_index: Decl.Index,
+decl_index: InternPool.DeclIndex,
 /// Current block depth. Used to calculate the relative difference between a break
 /// and block
 block_depth: u32 = 0,
@@ -2194,7 +2194,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     const fn_info = mod.typeToFunc(fn_ty).?;
     const first_param_sret = firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), mod);
 
-    const callee: ?Decl.Index = blk: {
+    const callee: ?InternPool.DeclIndex = blk: {
         const func_val = (try func.air.value(pl_op.operand, mod)) orelse break :blk null;
 
         if (func_val.getFunction(mod)) |function| {
@@ -3131,7 +3131,7 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
     }
 }
 
-fn lowerParentPtrDecl(func: *CodeGen, ptr_val: Value, decl_index: Module.Decl.Index, offset: u32) InnerError!WValue {
+fn lowerParentPtrDecl(func: *CodeGen, ptr_val: Value, decl_index: InternPool.DeclIndex, offset: u32) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
     const decl = mod.declPtr(decl_index);
     try mod.markDeclAlive(decl);
@@ -3171,7 +3171,7 @@ fn lowerAnonDeclRef(
     } else return WValue{ .memory_offset = .{ .pointer = target_sym_index, .offset = offset } };
 }
 
-fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: Module.Decl.Index, offset: u32) InnerError!WValue {
+fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: InternPool.DeclIndex, offset: u32) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
     if (tv.ty.isSlice(mod)) {
         return WValue{ .memory = try func.bin_file.lowerUnnamedConst(tv, decl_index) };

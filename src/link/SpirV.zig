@@ -109,7 +109,7 @@ pub fn updateFunc(self: *SpirV, module: *Module, func_index: InternPool.Index, a
     try self.object.updateFunc(module, func_index, air, liveness);
 }
 
-pub fn updateDecl(self: *SpirV, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDecl(self: *SpirV, module: *Module, decl_index: InternPool.DeclIndex) !void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -144,7 +144,7 @@ pub fn updateExports(
     // TODO: Export regular functions, variables, etc using Linkage attributes.
 }
 
-pub fn freeDecl(self: *SpirV, decl_index: Module.Decl.Index) void {
+pub fn freeDecl(self: *SpirV, decl_index: InternPool.DeclIndex) void {
     _ = self;
     _ = decl_index;
 }

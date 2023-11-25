@@ -32,12 +32,12 @@ string_bytes: std.ArrayListUnmanaged(u8) = .{},
 ///    multi-threaded contention on an atomic counter.
 allocated_decls: std.SegmentedList(Module.Decl, 0) = .{},
 /// When a Decl object is freed from `allocated_decls`, it is pushed into this stack.
-decls_free_list: std.ArrayListUnmanaged(Module.Decl.Index) = .{},
+decls_free_list: std.ArrayListUnmanaged(DeclIndex) = .{},
 
 /// Same pattern as with `allocated_decls`.
 allocated_namespaces: std.SegmentedList(Module.Namespace, 0) = .{},
 /// Same pattern as with `decls_free_list`.
-namespaces_free_list: std.ArrayListUnmanaged(Module.Namespace.Index) = .{},
+namespaces_free_list: std.ArrayListUnmanaged(NamespaceIndex) = .{},
 
 /// Some types such as enums, structs, and unions need to store mappings from field names
 /// to field index, or value to field index. In such cases, they will store the underlying
@@ -68,7 +68,6 @@ const Hash = std.hash.Wyhash;
 const InternPool = @This();
 const Module = @import("Module.zig");
 const Zir = @import("Zir.zig");
-const Sema = @import("Sema.zig");
 
 const KeyAdapter = struct {
     intern_pool: *const InternPool,
@@ -110,6 +109,50 @@ pub const RuntimeIndex = enum(u32) {
 
     pub fn increment(ri: *RuntimeIndex) void {
         ri.* = @as(RuntimeIndex, @enumFromInt(@intFromEnum(ri.*) + 1));
+    }
+};
+
+pub const DeclIndex = enum(u32) {
+    _,
+
+    pub fn toOptional(i: DeclIndex) OptionalDeclIndex {
+        return @enumFromInt(@intFromEnum(i));
+    }
+};
+
+pub const OptionalDeclIndex = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn init(oi: ?DeclIndex) OptionalDeclIndex {
+        return @enumFromInt(@intFromEnum(oi orelse return .none));
+    }
+
+    pub fn unwrap(oi: OptionalDeclIndex) ?DeclIndex {
+        if (oi == .none) return null;
+        return @enumFromInt(@intFromEnum(oi));
+    }
+};
+
+pub const NamespaceIndex = enum(u32) {
+    _,
+
+    pub fn toOptional(i: NamespaceIndex) OptionalNamespaceIndex {
+        return @enumFromInt(@intFromEnum(i));
+    }
+};
+
+pub const OptionalNamespaceIndex = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn init(oi: ?NamespaceIndex) OptionalNamespaceIndex {
+        return @enumFromInt(@intFromEnum(oi orelse return .none));
+    }
+
+    pub fn unwrap(oi: OptionalNamespaceIndex) ?NamespaceIndex {
+        if (oi == .none) return null;
+        return @enumFromInt(@intFromEnum(oi));
     }
 };
 
@@ -351,9 +394,9 @@ pub const Key = union(enum) {
 
     pub const OpaqueType = extern struct {
         /// The Decl that corresponds to the opaque itself.
-        decl: Module.Decl.Index,
+        decl: DeclIndex,
         /// Represents the declarations inside this opaque.
-        namespace: Module.Namespace.Index,
+        namespace: NamespaceIndex,
     };
 
     /// Although packed structs and non-packed structs are encoded differently,
@@ -362,9 +405,9 @@ pub const Key = union(enum) {
     pub const StructType = struct {
         extra_index: u32,
         /// `none` when the struct is `@TypeOf(.{})`.
-        decl: Module.Decl.OptionalIndex,
+        decl: OptionalDeclIndex,
         /// `none` when the struct has no declarations.
-        namespace: Module.Namespace.OptionalIndex,
+        namespace: OptionalNamespaceIndex,
         /// Index of the struct_decl ZIR instruction.
         zir_index: Zir.Inst.Index,
         layout: std.builtin.Type.ContainerLayout,
@@ -718,11 +761,11 @@ pub const Key = union(enum) {
     /// * Provide the other fields that do not require chasing the enum type.
     pub const UnionType = struct {
         /// The Decl that corresponds to the union itself.
-        decl: Module.Decl.Index,
+        decl: DeclIndex,
         /// The index of the `Tag.TypeUnion` payload. Ignored by `get`,
         /// populated by `indexToKey`.
         extra_index: u32,
-        namespace: Module.Namespace.Index,
+        namespace: NamespaceIndex,
         flags: Tag.TypeUnion.Flags,
         /// The enum that provides the list of field names and values.
         enum_tag_ty: Index,
@@ -796,9 +839,9 @@ pub const Key = union(enum) {
 
     pub const EnumType = struct {
         /// The Decl that corresponds to the enum itself.
-        decl: Module.Decl.Index,
+        decl: DeclIndex,
         /// Represents the declarations inside this enum.
-        namespace: Module.Namespace.OptionalIndex,
+        namespace: OptionalNamespaceIndex,
         /// An integer type which is used for the numerical value of the enum.
         /// This field is present regardless of whether the enum has an
         /// explicitly provided tag type or auto-numbered.
@@ -866,9 +909,9 @@ pub const Key = union(enum) {
 
     pub const IncompleteEnumType = struct {
         /// Same as corresponding `EnumType` field.
-        decl: Module.Decl.Index,
+        decl: DeclIndex,
         /// Same as corresponding `EnumType` field.
-        namespace: Module.Namespace.OptionalIndex,
+        namespace: OptionalNamespaceIndex,
         /// The field names and field values are not known yet, but
         /// the number of fields must be known ahead of time.
         fields_len: u32,
@@ -961,7 +1004,7 @@ pub const Key = union(enum) {
     pub const Variable = struct {
         ty: Index,
         init: Index,
-        decl: Module.Decl.Index,
+        decl: DeclIndex,
         lib_name: OptionalNullTerminatedString = .none,
         is_extern: bool = false,
         is_const: bool = false,
@@ -972,7 +1015,7 @@ pub const Key = union(enum) {
     pub const ExternFunc = struct {
         ty: Index,
         /// The Decl that corresponds to the function itself.
-        decl: Module.Decl.Index,
+        decl: DeclIndex,
         /// Library name if specified.
         /// For example `extern "c" fn write(...) usize` would have 'c' as library name.
         /// Index into the string table bytes.
@@ -1008,7 +1051,7 @@ pub const Key = union(enum) {
         /// This will be 0 when the function is not a generic function instantiation.
         branch_quota_extra_index: u32,
         /// The Decl that corresponds to the function itself.
-        owner_decl: Module.Decl.Index,
+        owner_decl: DeclIndex,
         /// The ZIR instruction that is a function instruction. Use this to find
         /// the body. We store this rather than the body directly so that when ZIR
         /// is regenerated on update(), we can map this to the new corresponding
@@ -1130,7 +1173,7 @@ pub const Key = union(enum) {
         pub const Addr = union(enum) {
             const Tag = @typeInfo(Addr).Union.tag_type.?;
 
-            decl: Module.Decl.Index,
+            decl: DeclIndex,
             mut_decl: MutDecl,
             anon_decl: AnonDecl,
             comptime_field: Index,
@@ -1141,7 +1184,7 @@ pub const Key = union(enum) {
             field: BaseIndex,
 
             pub const MutDecl = struct {
-                decl: Module.Decl.Index,
+                decl: DeclIndex,
                 runtime_index: RuntimeIndex,
             };
             pub const BaseIndex = struct {
@@ -1796,9 +1839,9 @@ pub const RequiresComptime = enum(u2) { no, yes, unknown, wip };
 // needed by semantic analysis.
 pub const UnionType = struct {
     /// The Decl that corresponds to the union itself.
-    decl: Module.Decl.Index,
+    decl: DeclIndex,
     /// Represents the declarations inside this union.
-    namespace: Module.Namespace.Index,
+    namespace: NamespaceIndex,
     /// The enum tag type.
     enum_tag_ty: Index,
     /// The integer tag type of the enum.
@@ -2168,7 +2211,7 @@ pub const Index = enum(u32) {
         simple_type: struct { data: SimpleType },
         type_opaque: struct { data: *Key.OpaqueType },
         type_struct: struct { data: *Tag.TypeStruct },
-        type_struct_ns: struct { data: Module.Namespace.Index },
+        type_struct_ns: struct { data: NamespaceIndex },
         type_struct_anon: DataIsExtraIndexOfTypeStructAnon,
         type_struct_packed: struct { data: *Tag.TypeStructPacked },
         type_struct_packed_inits: struct { data: *Tag.TypeStructPacked },
@@ -2609,7 +2652,7 @@ pub const Tag = enum(u8) {
     /// data == 0 represents `@TypeOf(.{})`.
     type_struct,
     /// A non-packed struct type that has only a namespace; no fields.
-    /// data is Module.Namespace.Index.
+    /// data is NamespaceIndex.
     type_struct_ns,
     /// An AnonStructType which stores types, names, and values for fields.
     /// data is extra index of `TypeStructAnon`.
@@ -2902,7 +2945,7 @@ pub const Tag = enum(u8) {
         ty: Index,
         /// May be `none`.
         init: Index,
-        decl: Module.Decl.Index,
+        decl: DeclIndex,
         /// Library name if specified.
         /// For example `extern "c" var stderrp = ...` would have 'c' as library name.
         lib_name: OptionalNullTerminatedString,
@@ -2931,7 +2974,7 @@ pub const Tag = enum(u8) {
     ///    A `none` value marks that the inferred error set is not resolved yet.
     pub const FuncDecl = struct {
         analysis: FuncAnalysis,
-        owner_decl: Module.Decl.Index,
+        owner_decl: DeclIndex,
         ty: Index,
         zir_body_inst: Zir.Inst.Index,
         lbrace_line: u32,
@@ -2948,7 +2991,7 @@ pub const Tag = enum(u8) {
     pub const FuncInstance = struct {
         analysis: FuncAnalysis,
         // Needed by the linker for codegen. Not part of hashing or equality.
-        owner_decl: Module.Decl.Index,
+        owner_decl: DeclIndex,
         ty: Index,
         branch_quota: u32,
         /// Points to a `FuncDecl`.
@@ -3003,8 +3046,8 @@ pub const Tag = enum(u8) {
         size: u32,
         /// Only valid after .have_layout
         padding: u32,
-        decl: Module.Decl.Index,
-        namespace: Module.Namespace.Index,
+        decl: DeclIndex,
+        namespace: NamespaceIndex,
         /// The enum that provides the list of field names and values.
         tag_ty: Index,
         zir_index: Zir.Inst.Index,
@@ -3028,10 +3071,10 @@ pub const Tag = enum(u8) {
     /// 1. name: NullTerminatedString for each fields_len
     /// 2. init: Index for each fields_len // if tag is type_struct_packed_inits
     pub const TypeStructPacked = struct {
-        decl: Module.Decl.Index,
+        decl: DeclIndex,
         zir_index: Zir.Inst.Index,
         fields_len: u32,
-        namespace: Module.Namespace.OptionalIndex,
+        namespace: OptionalNamespaceIndex,
         backing_int_ty: Index,
         names_map: MapIndex,
         flags: Flags,
@@ -3066,7 +3109,7 @@ pub const Tag = enum(u8) {
     /// 2. if any_default_inits:
     ///    init: Index // for each field in declared order
     /// 3. if has_namespace:
-    ///    namespace: Module.Namespace.Index
+    ///    namespace: NamespaceIndex
     /// 4. if any_aligned_fields:
     ///    align: Alignment // for each field in declared order
     /// 5. if any_comptime_fields:
@@ -3075,7 +3118,7 @@ pub const Tag = enum(u8) {
     ///    field_index: RuntimeOrder // for each field in runtime order
     /// 7. field_offset: u32 // for each field in declared order, undef until layout_resolved
     pub const TypeStruct = struct {
-        decl: Module.Decl.Index,
+        decl: DeclIndex,
         zir_index: Zir.Inst.Index,
         fields_len: u32,
         flags: Flags,
@@ -3418,9 +3461,9 @@ pub const Array = struct {
 /// 1. tag value: Index for each fields_len; declaration order
 pub const EnumExplicit = struct {
     /// The Decl that corresponds to the enum itself.
-    decl: Module.Decl.Index,
+    decl: DeclIndex,
     /// This may be `none` if there are no declarations.
-    namespace: Module.Namespace.OptionalIndex,
+    namespace: OptionalNamespaceIndex,
     /// An integer type which is used for the numerical value of the enum, which
     /// has been explicitly provided by the enum declaration.
     int_tag_type: Index,
@@ -3437,9 +3480,9 @@ pub const EnumExplicit = struct {
 /// 0. field name: NullTerminatedString for each fields_len; declaration order
 pub const EnumAuto = struct {
     /// The Decl that corresponds to the enum itself.
-    decl: Module.Decl.Index,
+    decl: DeclIndex,
     /// This may be `none` if there are no declarations.
-    namespace: Module.Namespace.OptionalIndex,
+    namespace: OptionalNamespaceIndex,
     /// An integer type which is used for the numerical value of the enum, which
     /// was inferred by Zig based on the number of tags.
     int_tag_type: Index,
@@ -3463,7 +3506,7 @@ pub const PackedU64 = packed struct(u64) {
 
 pub const PtrDecl = struct {
     ty: Index,
-    decl: Module.Decl.Index,
+    decl: DeclIndex,
 };
 
 pub const PtrAnonDecl = struct {
@@ -3480,7 +3523,7 @@ pub const PtrAnonDeclAligned = struct {
 
 pub const PtrMutDecl = struct {
     ty: Index,
-    decl: Module.Decl.Index,
+    decl: DeclIndex,
     runtime_index: RuntimeIndex,
 };
 
@@ -3754,7 +3797,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
 
         .type_struct_ns => .{ .struct_type = .{
             .extra_index = 0,
-            .namespace = @as(Module.Namespace.Index, @enumFromInt(data)).toOptional(),
+            .namespace = @as(NamespaceIndex, @enumFromInt(data)).toOptional(),
             .decl = .none,
             .zir_index = undefined,
             .layout = .Auto,
@@ -4280,7 +4323,7 @@ fn extraStructType(ip: *const InternPool, extra_index: u32) Key.StructType {
     };
     const namespace = t: {
         if (!s.data.flags.has_namespace) break :t .none;
-        const namespace: Module.Namespace.Index = @enumFromInt(ip.extra.items[index]);
+        const namespace: NamespaceIndex = @enumFromInt(ip.extra.items[index]);
         index += 1;
         break :t namespace.toOptional();
     };
@@ -5313,8 +5356,8 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
 pub const UnionTypeInit = struct {
     flags: Tag.TypeUnion.Flags,
-    decl: Module.Decl.Index,
-    namespace: Module.Namespace.Index,
+    decl: DeclIndex,
+    namespace: NamespaceIndex,
     zir_index: Zir.Inst.Index,
     fields_len: u32,
     enum_tag_ty: Index,
@@ -5384,8 +5427,8 @@ pub fn getUnionType(ip: *InternPool, gpa: Allocator, ini: UnionTypeInit) Allocat
 }
 
 pub const StructTypeInit = struct {
-    decl: Module.Decl.Index,
-    namespace: Module.Namespace.OptionalIndex,
+    decl: DeclIndex,
+    namespace: OptionalNamespaceIndex,
     layout: std.builtin.Type.ContainerLayout,
     zir_index: Zir.Inst.Index,
     fields_len: u32,
@@ -5659,7 +5702,7 @@ pub fn getExternFunc(ip: *InternPool, gpa: Allocator, key: Key.ExternFunc) Alloc
 }
 
 pub const GetFuncDeclKey = struct {
-    owner_decl: Module.Decl.Index,
+    owner_decl: DeclIndex,
     ty: Index,
     zir_body_inst: Zir.Inst.Index,
     lbrace_line: u32,
@@ -5716,7 +5759,7 @@ pub fn getFuncDecl(ip: *InternPool, gpa: Allocator, key: GetFuncDeclKey) Allocat
 }
 
 pub const GetFuncDeclIesKey = struct {
-    owner_decl: Module.Decl.Index,
+    owner_decl: DeclIndex,
     param_types: []Index,
     noalias_bits: u32,
     comptime_bits: u32,
@@ -6321,8 +6364,8 @@ fn getIncompleteEnumExplicit(
 }
 
 pub const GetEnumInit = struct {
-    decl: Module.Decl.Index,
-    namespace: Module.Namespace.OptionalIndex,
+    decl: DeclIndex,
+    namespace: OptionalNamespaceIndex,
     tag_ty: Index,
     names: []const NullTerminatedString,
     values: []const Index,
@@ -6484,9 +6527,9 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
     inline for (@typeInfo(@TypeOf(extra)).Struct.fields) |field| {
         ip.extra.appendAssumeCapacity(switch (field.type) {
             Index,
-            Module.Decl.Index,
-            Module.Namespace.Index,
-            Module.Namespace.OptionalIndex,
+            DeclIndex,
+            NamespaceIndex,
+            OptionalNamespaceIndex,
             MapIndex,
             OptionalMapIndex,
             RuntimeIndex,
@@ -6560,9 +6603,9 @@ fn extraDataTrail(ip: *const InternPool, comptime T: type, index: usize) struct 
         const int32 = ip.extra.items[i + index];
         @field(result, field.name) = switch (field.type) {
             Index,
-            Module.Decl.Index,
-            Module.Namespace.Index,
-            Module.Namespace.OptionalIndex,
+            DeclIndex,
+            NamespaceIndex,
+            OptionalNamespaceIndex,
             MapIndex,
             OptionalMapIndex,
             RuntimeIndex,
@@ -7554,15 +7597,15 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     try bw.flush();
 }
 
-pub fn declPtr(ip: *InternPool, index: Module.Decl.Index) *Module.Decl {
+pub fn declPtr(ip: *InternPool, index: DeclIndex) *Module.Decl {
     return ip.allocated_decls.at(@intFromEnum(index));
 }
 
-pub fn declPtrConst(ip: *const InternPool, index: Module.Decl.Index) *const Module.Decl {
+pub fn declPtrConst(ip: *const InternPool, index: DeclIndex) *const Module.Decl {
     return ip.allocated_decls.at(@intFromEnum(index));
 }
 
-pub fn namespacePtr(ip: *InternPool, index: Module.Namespace.Index) *Module.Namespace {
+pub fn namespacePtr(ip: *InternPool, index: NamespaceIndex) *Module.Namespace {
     return ip.allocated_namespaces.at(@intFromEnum(index));
 }
 
@@ -7570,7 +7613,7 @@ pub fn createDecl(
     ip: *InternPool,
     gpa: Allocator,
     initialization: Module.Decl,
-) Allocator.Error!Module.Decl.Index {
+) Allocator.Error!DeclIndex {
     if (ip.decls_free_list.popOrNull()) |index| {
         ip.allocated_decls.at(@intFromEnum(index)).* = initialization;
         return index;
@@ -7580,7 +7623,7 @@ pub fn createDecl(
     return @enumFromInt(ip.allocated_decls.len - 1);
 }
 
-pub fn destroyDecl(ip: *InternPool, gpa: Allocator, index: Module.Decl.Index) void {
+pub fn destroyDecl(ip: *InternPool, gpa: Allocator, index: DeclIndex) void {
     ip.declPtr(index).* = undefined;
     ip.decls_free_list.append(gpa, index) catch {
         // In order to keep `destroyDecl` a non-fallible function, we ignore memory
@@ -7592,7 +7635,7 @@ pub fn createNamespace(
     ip: *InternPool,
     gpa: Allocator,
     initialization: Module.Namespace,
-) Allocator.Error!Module.Namespace.Index {
+) Allocator.Error!NamespaceIndex {
     if (ip.namespaces_free_list.popOrNull()) |index| {
         ip.allocated_namespaces.at(@intFromEnum(index)).* = initialization;
         return index;
@@ -7602,7 +7645,7 @@ pub fn createNamespace(
     return @enumFromInt(ip.allocated_namespaces.len - 1);
 }
 
-pub fn destroyNamespace(ip: *InternPool, gpa: Allocator, index: Module.Namespace.Index) void {
+pub fn destroyNamespace(ip: *InternPool, gpa: Allocator, index: NamespaceIndex) void {
     ip.namespacePtr(index).* = .{
         .parent = undefined,
         .file_scope = undefined,
@@ -7984,7 +8027,7 @@ pub fn isVariable(ip: *const InternPool, val: Index) bool {
     return ip.items.items(.tag)[@intFromEnum(val)] == .variable;
 }
 
-pub fn getBackingDecl(ip: *const InternPool, val: Index) Module.Decl.OptionalIndex {
+pub fn getBackingDecl(ip: *const InternPool, val: Index) OptionalDeclIndex {
     var base = @intFromEnum(val);
     while (true) {
         switch (ip.items.items(.tag)[base]) {
@@ -8358,7 +8401,7 @@ pub fn funcDeclInfo(ip: *const InternPool, i: Index) Key.Func {
     return extraFuncDecl(ip, datas[@intFromEnum(i)]);
 }
 
-pub fn funcDeclOwner(ip: *const InternPool, i: Index) Module.Decl.Index {
+pub fn funcDeclOwner(ip: *const InternPool, i: Index) DeclIndex {
     return funcDeclInfo(ip, i).owner_decl;
 }
 
@@ -8424,7 +8467,7 @@ pub fn anonStructFieldsLen(ip: *const InternPool, i: Index) u32 {
 }
 
 /// Asserts the type is a struct.
-pub fn structDecl(ip: *const InternPool, i: Index) Module.Decl.OptionalIndex {
+pub fn structDecl(ip: *const InternPool, i: Index) OptionalDeclIndex {
     return switch (ip.indexToKey(i)) {
         .struct_type => |t| t.decl,
         else => unreachable,

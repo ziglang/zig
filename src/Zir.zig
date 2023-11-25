@@ -21,9 +21,6 @@ const Ast = std.zig.Ast;
 
 const InternPool = @import("InternPool.zig");
 const Zir = @This();
-const Type = @import("type.zig").Type;
-const Value = @import("value.zig").Value;
-const TypedValue = @import("TypedValue.zig");
 const Module = @import("Module.zig");
 const LazySrcLoc = Module.LazySrcLoc;
 
