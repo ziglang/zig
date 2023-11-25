@@ -464,27 +464,8 @@ pub const Decl = struct {
         anon,
     };
 
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn toOptional(i: Index) OptionalIndex {
-            return @as(OptionalIndex, @enumFromInt(@intFromEnum(i)));
-        }
-    };
-
-    pub const OptionalIndex = enum(u32) {
-        none = std.math.maxInt(u32),
-        _,
-
-        pub fn init(oi: ?Index) OptionalIndex {
-            return @as(OptionalIndex, @enumFromInt(@intFromEnum(oi orelse return .none)));
-        }
-
-        pub fn unwrap(oi: OptionalIndex) ?Index {
-            if (oi == .none) return null;
-            return @as(Index, @enumFromInt(@intFromEnum(oi)));
-        }
-    };
+    const Index = InternPool.DeclIndex;
+    const OptionalIndex = InternPool.OptionalDeclIndex;
 
     pub const DepsTable = std.AutoArrayHashMapUnmanaged(Decl.Index, DepType);
 
@@ -828,27 +809,8 @@ pub const Namespace = struct {
     /// Value is whether the usingnamespace decl is marked `pub`.
     usingnamespace_set: std.AutoHashMapUnmanaged(Decl.Index, bool) = .{},
 
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn toOptional(i: Index) OptionalIndex {
-            return @as(OptionalIndex, @enumFromInt(@intFromEnum(i)));
-        }
-    };
-
-    pub const OptionalIndex = enum(u32) {
-        none = std.math.maxInt(u32),
-        _,
-
-        pub fn init(oi: ?Index) OptionalIndex {
-            return @as(OptionalIndex, @enumFromInt(@intFromEnum(oi orelse return .none)));
-        }
-
-        pub fn unwrap(oi: OptionalIndex) ?Index {
-            if (oi == .none) return null;
-            return @as(Index, @enumFromInt(@intFromEnum(oi)));
-        }
-    };
+    const Index = InternPool.NamespaceIndex;
+    const OptionalIndex = InternPool.OptionalNamespaceIndex;
 
     const DeclContext = struct {
         module: *Module,

@@ -56,10 +56,10 @@ path_arena: std.heap.ArenaAllocator,
 /// If we group the decls by file, it makes it really easy to do this (put the symbol in the correct place)
 fn_decl_table: std.AutoArrayHashMapUnmanaged(
     *Module.File,
-    struct { sym_index: u32, functions: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, FnDeclOutput) = .{} },
+    struct { sym_index: u32, functions: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, FnDeclOutput) = .{} },
 ) = .{},
 /// the code is modified when relocated, so that is why it is mutable
-data_decl_table: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, []u8) = .{},
+data_decl_table: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, []u8) = .{},
 
 /// Table of unnamed constants associated with a parent `Decl`.
 /// We store them here so that we can free the constants whenever the `Decl`
@@ -102,7 +102,7 @@ got_index_free_list: std.ArrayListUnmanaged(usize) = .{},
 syms_index_free_list: std.ArrayListUnmanaged(usize) = .{},
 
 atoms: std.ArrayListUnmanaged(Atom) = .{},
-decls: std.AutoHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
+decls: std.AutoHashMapUnmanaged(InternPool.DeclIndex, DeclMetadata) = .{},
 
 /// Indices of the three "special" symbols into atoms
 etext_edata_end_atom_indices: [3]?Atom.Index = .{ null, null, null },
@@ -129,9 +129,9 @@ const Bases = struct {
     data: u64,
 };
 
-const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
+const UnnamedConstTable = std.AutoHashMapUnmanaged(InternPool.DeclIndex, std.ArrayListUnmanaged(Atom.Index));
 
-const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
+const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.OptionalDeclIndex, LazySymbolMetadata);
 
 const LazySymbolMetadata = struct {
     const State = enum { unused, pending_flush, flushed };
@@ -168,7 +168,7 @@ pub const Atom = struct {
         code_ptr: ?[*]u8,
         other: union {
             code_len: usize,
-            decl_index: Module.Decl.Index,
+            decl_index: InternPool.DeclIndex,
         },
         fn fromSlice(slice: []u8) CodePtr {
             return .{ .code_ptr = slice.ptr, .other = .{ .code_len = slice.len } };
@@ -322,7 +322,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Plan9 {
     return self;
 }
 
-fn putFn(self: *Plan9, decl_index: Module.Decl.Index, out: FnDeclOutput) !void {
+fn putFn(self: *Plan9, decl_index: InternPool.DeclIndex, out: FnDeclOutput) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
@@ -447,7 +447,7 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
     return self.updateFinish(decl_index);
 }
 
-pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
+pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
     _ = try self.seeDecl(decl_index);
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -508,7 +508,7 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: Module.Decl.I
     return new_atom_idx;
 }
 
-pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: InternPool.DeclIndex) !void {
     const decl = mod.declPtr(decl_index);
 
     if (decl.isExtern(mod)) {
@@ -544,7 +544,7 @@ pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: Module.Decl.Index) !vo
     return self.updateFinish(decl_index);
 }
 /// called at the end of update{Decl,Func}
-fn updateFinish(self: *Plan9, decl_index: Module.Decl.Index) !void {
+fn updateFinish(self: *Plan9, decl_index: InternPool.DeclIndex) !void {
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
     const is_fn = (decl.ty.zigTypeTag(mod) == .Fn);
@@ -982,7 +982,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
 fn addDeclExports(
     self: *Plan9,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
     exports: []const *Module.Export,
 ) !void {
     const metadata = self.decls.getPtr(decl_index).?;
@@ -1017,7 +1017,7 @@ fn addDeclExports(
     }
 }
 
-pub fn freeDecl(self: *Plan9, decl_index: Module.Decl.Index) void {
+pub fn freeDecl(self: *Plan9, decl_index: InternPool.DeclIndex) void {
     // TODO audit the lifetimes of decls table entries. It's possible to get
     // freeDecl without any updateDecl in between.
     // However that is planned to change, see the TODO comment in Module.zig
@@ -1063,7 +1063,7 @@ pub fn freeDecl(self: *Plan9, decl_index: Module.Decl.Index) void {
         assert(self.relocs.remove(atom_index));
     }
 }
-fn freeUnnamedConsts(self: *Plan9, decl_index: Module.Decl.Index) void {
+fn freeUnnamedConsts(self: *Plan9, decl_index: InternPool.DeclIndex) void {
     const unnamed_consts = self.unnamed_const_atoms.getPtr(decl_index) orelse return;
     for (unnamed_consts.items) |atom_idx| {
         const atom = self.getAtom(atom_idx);
@@ -1088,7 +1088,7 @@ fn createAtom(self: *Plan9) !Atom.Index {
     return index;
 }
 
-pub fn seeDecl(self: *Plan9, decl_index: Module.Decl.Index) !Atom.Index {
+pub fn seeDecl(self: *Plan9, decl_index: InternPool.DeclIndex) !Atom.Index {
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
         const index = try self.createAtom();
@@ -1428,7 +1428,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
 }
 
 /// Must be called only after a successful call to `updateDecl`.
-pub fn updateDeclLineNumber(self: *Plan9, mod: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDeclLineNumber(self: *Plan9, mod: *Module, decl_index: InternPool.DeclIndex) !void {
     _ = self;
     _ = mod;
     _ = decl_index;
@@ -1436,7 +1436,7 @@ pub fn updateDeclLineNumber(self: *Plan9, mod: *Module, decl_index: Module.Decl.
 
 pub fn getDeclVAddr(
     self: *Plan9,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
     const mod = self.base.options.module.?;

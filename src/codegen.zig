@@ -757,7 +757,7 @@ fn lowerAnonDeclRef(
 fn lowerDeclRef(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
@@ -853,7 +853,7 @@ fn genDeclRef(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
     tv: TypedValue,
-    ptr_decl_index: Module.Decl.Index,
+    ptr_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
     const mod = bin_file.options.module.?;
     log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmt(mod), tv.val.fmtValue(tv.ty, mod) });
@@ -959,7 +959,7 @@ fn genUnnamedConst(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
     tv: TypedValue,
-    owner_decl_index: Module.Decl.Index,
+    owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
     const mod = bin_file.options.module.?;
     log.debug("genUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmt(mod), tv.val.fmtValue(tv.ty, mod) });
@@ -987,7 +987,7 @@ pub fn genTypedValue(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
     arg_tv: TypedValue,
-    owner_decl_index: Module.Decl.Index,
+    owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
     const mod = bin_file.options.module.?;
     const typed_value = arg_tv;

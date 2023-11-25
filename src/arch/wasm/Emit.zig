@@ -6,6 +6,7 @@ const std = @import("std");
 const Mir = @import("Mir.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
+const InternPool = @import("../../InternPool.zig");
 const codegen = @import("../../codegen.zig");
 const leb128 = std.leb;
 
@@ -21,7 +22,7 @@ code: *std.ArrayList(u8),
 /// List of allocated locals.
 locals: []const u8,
 /// The declaration that code is being generated for.
-decl_index: Module.Decl.Index,
+decl_index: InternPool.DeclIndex,
 
 // Debug information
 /// Holds the debug information for this emission

@@ -109,11 +109,11 @@ const HotUpdateState = struct {
     loaded_base_address: ?std.os.windows.HMODULE = null,
 };
 
-const DeclTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata);
+const DeclTable = std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, DeclMetadata);
 const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, DeclMetadata);
 const RelocTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
 const BaseRelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
-const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
+const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, std.ArrayListUnmanaged(Atom.Index));
 
 const default_file_alignment: u16 = 0x200;
 const default_size_of_stack_reserve: u32 = 0x1000000;
@@ -144,7 +144,7 @@ const Section = struct {
     free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
 };
 
-const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
+const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.OptionalDeclIndex, LazySymbolMetadata);
 
 const LazySymbolMetadata = struct {
     const State = enum { unused, pending_flush, flushed };
@@ -1087,7 +1087,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
     return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
-pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
+pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
@@ -1157,7 +1157,7 @@ fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, required_alignment:
 pub fn updateDecl(
     self: *Coff,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
 ) link.File.UpdateDeclError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -1302,7 +1302,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *Coff, sym: link.File.LazySymbol) !Ato
     return atom;
 }
 
-pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: Module.Decl.Index) !Atom.Index {
+pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: InternPool.DeclIndex) !Atom.Index {
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{
@@ -1314,7 +1314,7 @@ pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: Module.Decl.Index) !Atom.
     return gop.value_ptr.atom;
 }
 
-fn getDeclOutputSection(self: *Coff, decl_index: Module.Decl.Index) u16 {
+fn getDeclOutputSection(self: *Coff, decl_index: InternPool.DeclIndex) u16 {
     const decl = self.base.options.module.?.declPtr(decl_index);
     const ty = decl.ty;
     const mod = self.base.options.module.?;
@@ -1340,7 +1340,7 @@ fn getDeclOutputSection(self: *Coff, decl_index: Module.Decl.Index) u16 {
     return index;
 }
 
-fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, complex_type: coff.ComplexType) !void {
+fn updateDeclCode(self: *Coff, decl_index: InternPool.DeclIndex, code: []u8, complex_type: coff.ComplexType) !void {
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
 
@@ -1398,7 +1398,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, comple
     try self.writeAtom(atom_index, code);
 }
 
-fn freeUnnamedConsts(self: *Coff, decl_index: Module.Decl.Index) void {
+fn freeUnnamedConsts(self: *Coff, decl_index: InternPool.DeclIndex) void {
     const gpa = self.base.allocator;
     const unnamed_consts = self.unnamed_const_atoms.getPtr(decl_index) orelse return;
     for (unnamed_consts.items) |atom_index| {
@@ -1407,7 +1407,7 @@ fn freeUnnamedConsts(self: *Coff, decl_index: Module.Decl.Index) void {
     unnamed_consts.clearAndFree(gpa);
 }
 
-pub fn freeDecl(self: *Coff, decl_index: Module.Decl.Index) void {
+pub fn freeDecl(self: *Coff, decl_index: InternPool.DeclIndex) void {
     if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
 
     const mod = self.base.options.module.?;
@@ -1563,7 +1563,7 @@ pub fn updateExports(
 
 pub fn deleteDeclExport(
     self: *Coff,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
     name_ip: InternPool.NullTerminatedString,
 ) void {
     if (self.llvm_object) |_| return;
@@ -1766,7 +1766,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     assert(!self.imports_count_dirty);
 }
 
-pub fn getDeclVAddr(self: *Coff, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getDeclVAddr(self: *Coff, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
 
     const this_atom_index = try self.getOrCreateAtomForDecl(decl_index);
@@ -1882,7 +1882,7 @@ pub fn getGlobalSymbol(self: *Coff, name: []const u8, lib_name_name: ?[]const u8
     return global_index;
 }
 
-pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl_index: InternPool.DeclIndex) !void {
     _ = self;
     _ = module;
     _ = decl_index;

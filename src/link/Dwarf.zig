@@ -35,7 +35,7 @@ di_files: std.AutoArrayHashMapUnmanaged(*const Module.File, void) = .{},
 
 global_abbrev_relocs: std.ArrayListUnmanaged(AbbrevRelocation) = .{},
 
-const AtomTable = std.AutoHashMapUnmanaged(Module.Decl.Index, Atom.Index);
+const AtomTable = std.AutoHashMapUnmanaged(InternPool.DeclIndex, Atom.Index);
 
 const Atom = struct {
     /// Offset into .debug_info pointing to the tag for this Decl, or
@@ -555,7 +555,7 @@ pub const DeclState = struct {
         self: *DeclState,
         name: [:0]const u8,
         ty: Type,
-        owner_decl: Module.Decl.Index,
+        owner_decl: InternPool.DeclIndex,
         loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
         const dbg_info = &self.dbg_info;
@@ -669,7 +669,7 @@ pub const DeclState = struct {
         self: *DeclState,
         name: [:0]const u8,
         ty: Type,
-        owner_decl: Module.Decl.Index,
+        owner_decl: InternPool.DeclIndex,
         is_ptr: bool,
         loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
@@ -1073,7 +1073,7 @@ pub fn deinit(self: *Dwarf) void {
 
 /// Initializes Decl's state and its matching output buffers.
 /// Call this before `commitDeclState`.
-pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !DeclState {
+pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclIndex) !DeclState {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1191,7 +1191,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
 pub fn commitDeclState(
     self: *Dwarf,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
     sym_addr: u64,
     sym_size: u64,
     decl_state: *DeclState,
@@ -1640,7 +1640,7 @@ fn writeDeclDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []cons
     }
 }
 
-pub fn updateDeclLineNumber(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDeclLineNumber(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclIndex) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1682,7 +1682,7 @@ pub fn updateDeclLineNumber(self: *Dwarf, mod: *Module, decl_index: Module.Decl.
     }
 }
 
-pub fn freeDecl(self: *Dwarf, decl_index: Module.Decl.Index) void {
+pub fn freeDecl(self: *Dwarf, decl_index: InternPool.DeclIndex) void {
     const gpa = self.allocator;
 
     // Free SrcFn atom
@@ -2627,7 +2627,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
     }
 }
 
-fn addDIFile(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !u28 {
+fn addDIFile(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclIndex) !u28 {
     const decl = mod.declPtr(decl_index);
     const file_scope = decl.getFileScope(mod);
     const gop = try self.di_files.getOrPut(self.allocator, file_scope);
@@ -2771,7 +2771,7 @@ fn createAtom(self: *Dwarf, comptime kind: Kind) !Atom.Index {
     return index;
 }
 
-fn getOrCreateAtomForDecl(self: *Dwarf, comptime kind: Kind, decl_index: Module.Decl.Index) !Atom.Index {
+fn getOrCreateAtomForDecl(self: *Dwarf, comptime kind: Kind, decl_index: InternPool.DeclIndex) !Atom.Index {
     switch (kind) {
         .src_fn => {
             const gop = try self.src_fn_decls.getOrPut(self.allocator, decl_index);

@@ -1556,7 +1556,7 @@ pub const Value = struct {
     /// Gets the decl referenced by this pointer.  If the pointer does not point
     /// to a decl, or if it points to some part of a decl (like field_ptr or element_ptr),
     /// this function returns null.
-    pub fn pointerDecl(val: Value, mod: *Module) ?Module.Decl.Index {
+    pub fn pointerDecl(val: Value, mod: *Module) ?InternPool.DeclIndex {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .variable => |variable| variable.decl,
             .extern_func => |extern_func| extern_func.decl,

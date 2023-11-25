@@ -254,19 +254,19 @@ pub const RcIncludes = enum {
 
 const Job = union(enum) {
     /// Write the constant value for a Decl to the output file.
-    codegen_decl: Module.Decl.Index,
+    codegen_decl: InternPool.DeclIndex,
     /// Write the machine code for a function to the output file.
     /// This will either be a non-generic `func_decl` or a `func_instance`.
     codegen_func: InternPool.Index,
     /// Render the .h file snippet for the Decl.
-    emit_h_decl: Module.Decl.Index,
+    emit_h_decl: InternPool.DeclIndex,
     /// The Decl needs to be analyzed and possibly export itself.
     /// It may have already be analyzed, or it may have been determined
     /// to be outdated; in this case perform semantic analysis again.
-    analyze_decl: Module.Decl.Index,
+    analyze_decl: InternPool.DeclIndex,
     /// The source file containing the Decl has been updated, and so the
     /// Decl may need its line number information updated in the debug info.
-    update_line_number: Module.Decl.Index,
+    update_line_number: InternPool.DeclIndex,
     /// The main source file for the module needs to be analyzed.
     analyze_mod: *Package.Module,
 

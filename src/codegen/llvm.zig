@@ -809,11 +809,11 @@ pub const Object = struct {
     ///   version of the name and incorrectly get function not found in the llvm module.
     /// * it works for functions not all globals.
     /// Therefore, this table keeps track of the mapping.
-    decl_map: std.AutoHashMapUnmanaged(Module.Decl.Index, Builder.Global.Index),
+    decl_map: std.AutoHashMapUnmanaged(InternPool.DeclIndex, Builder.Global.Index),
     /// Same deal as `decl_map` but for anonymous declarations, which are always global constants.
     anon_decl_map: std.AutoHashMapUnmanaged(InternPool.Index, Builder.Global.Index),
     /// Serves the same purpose as `decl_map` but only used for the `is_named_enum_value` instruction.
-    named_enum_map: std.AutoHashMapUnmanaged(Module.Decl.Index, Builder.Function.Index),
+    named_enum_map: std.AutoHashMapUnmanaged(InternPool.DeclIndex, Builder.Function.Index),
     /// Maps Zig types to LLVM types. The table memory is backed by the GPA of
     /// the compiler.
     /// TODO when InternPool garbage collection is implemented, this map needs
@@ -827,7 +827,7 @@ pub const Object = struct {
     /// This map is usually very close to empty. It tracks only the cases when a
     /// second extern Decl could not be emitted with the correct name due to a
     /// name collision.
-    extern_collisions: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, void),
+    extern_collisions: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, void),
 
     /// Memoizes a null `?usize` value.
     null_opt_usize: Builder.Constant,
@@ -1660,7 +1660,7 @@ pub const Object = struct {
         try o.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
     }
 
-    pub fn updateDecl(self: *Object, module: *Module, decl_index: Module.Decl.Index) !void {
+    pub fn updateDecl(self: *Object, module: *Module, decl_index: InternPool.DeclIndex) !void {
         const decl = module.declPtr(decl_index);
         var dg: DeclGen = .{
             .object = self,
@@ -1893,7 +1893,7 @@ pub const Object = struct {
         }
     }
 
-    pub fn freeDecl(self: *Object, decl_index: Module.Decl.Index) void {
+    pub fn freeDecl(self: *Object, decl_index: InternPool.DeclIndex) void {
         const global = self.decl_map.get(decl_index) orelse return;
         global.delete(&self.builder);
     }
@@ -2860,7 +2860,7 @@ pub const Object = struct {
         }
     }
 
-    fn namespaceToDebugScope(o: *Object, namespace_index: Module.Namespace.Index) !*llvm.DIScope {
+    fn namespaceToDebugScope(o: *Object, namespace_index: InternPool.NamespaceIndex) !*llvm.DIScope {
         const mod = o.module;
         const namespace = mod.namespacePtr(namespace_index);
         if (namespace.parent == .none) {
@@ -2874,7 +2874,7 @@ pub const Object = struct {
     /// This is to be used instead of void for debug info types, to avoid tripping
     /// Assertion `!isa<DIType>(Scope) && "shouldn't make a namespace scope for a type"'
     /// when targeting CodeView (Windows).
-    fn makeEmptyNamespaceDIType(o: *Object, decl_index: Module.Decl.Index) !*llvm.DIType {
+    fn makeEmptyNamespaceDIType(o: *Object, decl_index: InternPool.DeclIndex) !*llvm.DIType {
         const mod = o.module;
         const decl = mod.declPtr(decl_index);
         const fields: [0]*llvm.DIType = .{};
@@ -2932,7 +2932,7 @@ pub const Object = struct {
     /// completed, so if any attributes rely on that, they must be done in updateFunc, not here.
     fn resolveLlvmFunction(
         o: *Object,
-        decl_index: Module.Decl.Index,
+        decl_index: InternPool.DeclIndex,
     ) Allocator.Error!Builder.Function.Index {
         const mod = o.module;
         const ip = &mod.intern_pool;
@@ -3152,7 +3152,7 @@ pub const Object = struct {
 
     fn resolveGlobalDecl(
         o: *Object,
-        decl_index: Module.Decl.Index,
+        decl_index: InternPool.DeclIndex,
     ) Allocator.Error!Builder.Variable.Index {
         const gop = try o.decl_map.getOrPut(o.gpa, decl_index);
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.variable;
@@ -4330,7 +4330,7 @@ pub const Object = struct {
         return o.builder.bigIntConst(try o.builder.intType(ty.intInfo(mod).bits), bigint);
     }
 
-    fn lowerParentPtrDecl(o: *Object, decl_index: Module.Decl.Index) Allocator.Error!Builder.Constant {
+    fn lowerParentPtrDecl(o: *Object, decl_index: InternPool.DeclIndex) Allocator.Error!Builder.Constant {
         const mod = o.module;
         const decl = mod.declPtr(decl_index);
         try mod.markDeclAlive(decl);
@@ -4505,7 +4505,7 @@ pub const Object = struct {
         } else .unneeded, llvm_val, try o.lowerType(ptr_ty));
     }
 
-    fn lowerDeclRefValue(o: *Object, ty: Type, decl_index: Module.Decl.Index) Allocator.Error!Builder.Constant {
+    fn lowerDeclRefValue(o: *Object, ty: Type, decl_index: InternPool.DeclIndex) Allocator.Error!Builder.Constant {
         const mod = o.module;
 
         // In the case of something like:
@@ -4653,7 +4653,7 @@ pub const Object = struct {
 pub const DeclGen = struct {
     object: *Object,
     decl: *Module.Decl,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
     err_msg: ?*Module.ErrorMsg,
 
     fn todo(dg: *DeclGen, comptime format: []const u8, args: anytype) Error {
