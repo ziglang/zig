@@ -1993,7 +1993,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             .generated, .dependency => {},
         };
 
-        zig_args.appendAssumeCapacity(rpath.getPath2(b, step));
+        zig_args.appendAssumeCapacity(rpath.getPathRelative(b, step));
     }
 
     {
