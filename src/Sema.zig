@@ -6189,10 +6189,7 @@ fn zirSetCold(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) 
     const mod = sema.mod;
     const ip = &mod.intern_pool;
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const builtin_src = LazySrcLoc.nodeOffset(extra.node);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
-    if (sema.func_index == .none)
-        return sema.fail(block, builtin_src, "@setCold outside function body", .{});
     const is_cold = try sema.resolveConstBool(block, operand_src, extra.operand, .{
         .needed_comptime_reason = "operand to @setCold must be comptime-known",
     });
@@ -16759,9 +16756,7 @@ fn zirRetAddr(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
-    const src = LazySrcLoc.nodeOffset(@bitCast(extended.operand));
-    if (sema.func_index == .none)
-        return sema.fail(block, src, "@returnAddress outside function body", .{});
+    _ = extended;
     if (block.is_comptime) {
         // TODO: we could give a meaningful lazy value here. #14938
         return sema.mod.intRef(Type.usize, 0);
