@@ -6151,9 +6151,6 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
             alignment.toByteUnitsOptional().?,
         });
     }
-    if (sema.func_index == .none) {
-        return sema.fail(block, src, "@setAlignStack outside function body", .{});
-    }
 
     const fn_owner_decl = mod.funcOwnerDeclPtr(sema.func_index);
     switch (fn_owner_decl.ty.fnCallingConvention(mod)) {
@@ -16780,13 +16777,12 @@ fn zirBuiltinSrc(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
+    _ = block;
     const tracy = trace(@src());
     defer tracy.end();
 
     const mod = sema.mod;
     const extra = sema.code.extraData(Zir.Inst.Src, extended.operand).data;
-    const src = LazySrcLoc.nodeOffset(extra.node);
-    if (sema.func_index == .none) return sema.fail(block, src, "@src outside function", .{});
     const fn_owner_decl = mod.funcOwnerDeclPtr(sema.func_index);
     const ip = &mod.intern_pool;
     const gpa = sema.gpa;
