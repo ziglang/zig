@@ -34,7 +34,7 @@ const isUpDir = @import("introspect.zig").isUpDir;
 const clang = @import("clang.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
-const BuiltinFn = @import("BuiltinFn.zig");
+const BuiltinFn = std.zig.BuiltinFn;
 
 comptime {
     @setEvalBranchQuota(4000);

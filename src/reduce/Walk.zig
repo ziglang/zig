@@ -2,7 +2,7 @@ const std = @import("std");
 const Ast = std.zig.Ast;
 const Walk = @This();
 const assert = std.debug.assert;
-const BuiltinFn = @import("../BuiltinFn.zig");
+const BuiltinFn = std.zig.BuiltinFn;
 
 ast: *const Ast,
 transformations: *std.ArrayList(Transformation),

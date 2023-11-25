@@ -13,9 +13,8 @@ const StringIndexContext = std.hash_map.StringIndexContext;
 const isPrimitive = std.zig.primitives.isPrimitive;
 
 const Zir = @import("Zir.zig");
-const trace = @import("tracy.zig").trace;
-const BuiltinFn = @import("BuiltinFn.zig");
-const AstRlAnnotate = @import("AstRlAnnotate.zig");
+const BuiltinFn = std.zig.BuiltinFn;
+const AstRlAnnotate = std.zig.AstRlAnnotate;
 
 gpa: Allocator,
 tree: *const Ast,
@@ -2265,9 +2264,6 @@ fn blockExpr(
     block_node: Ast.Node.Index,
     statements: []const Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
@@ -2349,9 +2345,6 @@ fn labeledBlockExpr(
     statements: []const Ast.Node.Index,
     force_comptime: bool,
 ) InnerError!Zir.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
@@ -7473,9 +7466,6 @@ fn identifier(
     ri: ResultInfo,
     ident: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
