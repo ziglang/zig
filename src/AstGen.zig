@@ -8276,6 +8276,27 @@ fn builtinCall(
         }
     }
 
+    // Check function scope-only builtins
+
+    if (astgen.fn_block == null) {
+        switch (info.tag) {
+            .c_va_arg,
+            .c_va_copy,
+            .c_va_end,
+            .c_va_start,
+            .work_item_id,
+            .work_group_size,
+            .work_group_id,
+            .set_align_stack,
+            .set_cold,
+            .return_address,
+            .frame_address,
+            .breakpoint,
+            => return astgen.failNode(node, "'{s}' outside function scope", .{builtin_name}),
+            else => {},
+        }
+    }
+
     switch (info.tag) {
         .import => {
             const node_tags = tree.nodes.items(.tag);
@@ -8812,9 +8833,6 @@ fn builtinCall(
             return rvalue(gz, ri, .void_value, node);
         },
         .c_va_arg => {
-            if (astgen.fn_block == null) {
-                return astgen.failNode(node, "'@cVaArg' outside function scope", .{});
-            }
             const result = try gz.addExtendedPayload(.c_va_arg, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
@@ -8823,9 +8841,6 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .c_va_copy => {
-            if (astgen.fn_block == null) {
-                return astgen.failNode(node, "'@cVaCopy' outside function scope", .{});
-            }
             const result = try gz.addExtendedPayload(.c_va_copy, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = try expr(gz, scope, .{ .rl = .none }, params[0]),
@@ -8833,9 +8848,6 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .c_va_end => {
-            if (astgen.fn_block == null) {
-                return astgen.failNode(node, "'@cVaEnd' outside function scope", .{});
-            }
             const result = try gz.addExtendedPayload(.c_va_end, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = try expr(gz, scope, .{ .rl = .none }, params[0]),
@@ -8843,9 +8855,6 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .c_va_start => {
-            if (astgen.fn_block == null) {
-                return astgen.failNode(node, "'@cVaStart' outside function scope", .{});
-            }
             if (!astgen.fn_var_args) {
                 return astgen.failNode(node, "'@cVaStart' in a non-variadic function", .{});
             }
@@ -8853,9 +8862,6 @@ fn builtinCall(
         },
 
         .work_item_id => {
-            if (astgen.fn_block == null) {
-                return astgen.failNode(node, "'@workItemId' outside function scope", .{});
-            }
             const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
             const result = try gz.addExtendedPayload(.work_item_id, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
@@ -8864,9 +8870,6 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .work_group_size => {
-            if (astgen.fn_block == null) {
-                return astgen.failNode(node, "'@workGroupSize' outside function scope", .{});
-            }
             const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
             const result = try gz.addExtendedPayload(.work_group_size, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
@@ -8875,9 +8878,6 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .work_group_id => {
-            if (astgen.fn_block == null) {
-                return astgen.failNode(node, "'@workGroupId' outside function scope", .{});
-            }
             const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
             const result = try gz.addExtendedPayload(.work_group_id, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
