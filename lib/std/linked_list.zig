@@ -123,74 +123,7 @@ pub fn SinglyLinkedList(comptime T: type) type {
                 return 0;
             }
         }
-
-        /// Performs a stable in-place merge sort on the entire list.
-        /// This operation is O(N log N) with O(1) memory (no allocator required).
-        /// Sorts in ascending order with respect to the given `lessThan` function.
-        /// Arguments:
-        ///     lessThanFn: Comparison function for the data of two nodes.
-        pub fn sort(
-            list: *Self,
-            comptime lessThanFn: fn (left: Node.Data, right: Node.Data) bool,
-        ) void {
-            list.first = mergeSort(list.first, lessThanFn);
-        }
-
-        /// Performs a stable in-place merge sort on the given node and its descendants.
-        /// This operation is O(N log N) with O(1) memory (no allocator required).
-        /// Sorts in ascending order with respect to the given `lessThan` function.
-        /// Arguments:
-        ///     node: Pointer to the first node of the list to sort.
-        ///     lessThanFn: Comparison function for the data of two nodes.
-        /// Returns:
-        ///     A pointer to the first node of the sorted list.
-        pub fn mergeSort(
-            node: ?*Node,
-            comptime lessThanFn: fn (left: Node.Data, right: Node.Data) bool,
-        ) ?*Node {
-            if (node == null or node.?.next == null) return node;
-
-            // find middle of list
-            var slow = node;
-            var fast = node;
-
-            while (fast.?.next != null and fast.?.next.?.next != null) {
-                slow = slow.?.next;
-                fast = fast.?.next.?.next;
-            }
-
-            // split list in half
-            const half = slow.?.next;
-            slow.?.next = null;
-
-            // sort both halfs
-            const left = mergeSort(node, lessThanFn);
-            const right = mergeSort(half, lessThanFn);
-
-            // merge sorted halfs
-            return merge(left, right, lessThanFn);
-        }
-        fn merge(
-            left: ?*Node,
-            right: ?*Node,
-            comptime lessThanFn: fn (left: Node.Data, right: Node.Data) bool,
-        ) ?*Node {
-            var left_ptr = left orelse return right;
-            var right_ptr = right orelse return left;
-
-            if (lessThanFn(left_ptr.data, right_ptr.data)) {
-                left_ptr.next = merge(left_ptr.next, right_ptr, lessThanFn);
-                return left_ptr;
-            } else {
-                right_ptr.next = merge(left_ptr, right_ptr.next, lessThanFn);
-                return right_ptr;
-            }
-        }
     };
-}
-
-fn testLessThan(left: u32, right: u32) bool {
-    return left < right;
 }
 
 test "basic SinglyLinkedList test" {
@@ -236,22 +169,6 @@ test "basic SinglyLinkedList test" {
     try testing.expect(list.first.?.data == 4);
     try testing.expect(list.first.?.next.?.data == 2);
     try testing.expect(list.first.?.next.?.next == null);
-
-    list.prepend(&five); // {5, 4, 2}
-    list.prepend(&one); // {1, 5, 4, 2}
-    list.prepend(&three); // {3, 1, 5, 4, 2}
-
-    list.sort(testLessThan);
-
-    // Traverse forwards.
-    {
-        var it = list.first;
-        var index: u32 = 1;
-        while (it) |node| : (it = node.next) {
-            try testing.expect(node.data == index);
-            index += 1;
-        }
-    }
 }
 
 /// A doubly-linked list has a pair of pointers to both the head and
