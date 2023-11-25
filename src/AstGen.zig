@@ -8268,7 +8268,7 @@ fn builtinCall(
 
     // Check function scope-only builtins
 
-    if (astgen.fn_block == null and !info.valid_outside_function)
+    if (astgen.fn_block == null and info.illegal_outside_function)
         return astgen.failNode(node, "'{s}' outside function scope", .{builtin_name});
 
     switch (info.tag) {
