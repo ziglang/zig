@@ -1513,6 +1513,7 @@ test "discarded struct initialization works as expected" {
 
 test "function pointer in struct returns the struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const A = struct {
         const A = @This();

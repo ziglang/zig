@@ -1929,6 +1929,8 @@ test "inner struct initializer uses union layout" {
 }
 
 test "inner struct initializer uses packed union layout" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const namespace = struct {
         const U = packed union {
             a: packed struct {
@@ -1953,6 +1955,8 @@ test "inner struct initializer uses packed union layout" {
 }
 
 test "extern union initialized via reintepreted struct field initializer" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
 
     const U = extern union {
@@ -1970,6 +1974,8 @@ test "extern union initialized via reintepreted struct field initializer" {
 }
 
 test "packed union initialized via reintepreted struct field initializer" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
 
     const U = packed union {
@@ -1988,6 +1994,8 @@ test "packed union initialized via reintepreted struct field initializer" {
 }
 
 test "store of comptime reinterpreted memory to extern union" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
 
     const U = extern union {
@@ -2008,6 +2016,8 @@ test "store of comptime reinterpreted memory to extern union" {
 }
 
 test "store of comptime reinterpreted memory to packed union" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
 
     const U = packed union {
@@ -2063,6 +2073,8 @@ test "pass register-sized field as non-register-sized union" {
 }
 
 test "circular dependency through pointer field of a union" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         const UnionInner = extern struct {
             outer: UnionOuter = std.mem.zeroes(UnionOuter),

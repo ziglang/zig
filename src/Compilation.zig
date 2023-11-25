@@ -1002,6 +1002,8 @@ pub const InitOptions = struct {
     /// (Windows) PDB output path
     pdb_out_path: ?[]const u8 = null,
     error_limit: ?Module.ErrorInt = null,
+    /// (SPIR-V) whether to generate a structured control flow graph or not
+    want_structured_cfg: ?bool = null,
 };
 
 fn addModuleTableToCacheHash(
@@ -1447,6 +1449,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         };
         const formatted_panics = options.formatted_panics orelse (options.optimize_mode == .Debug);
 
+        const error_limit = options.error_limit orelse (std.math.maxInt(u16) - 1);
+
         // We put everything into the cache hash that *cannot be modified
         // during an incremental update*. For example, one cannot change the
         // target between updates, but one can change source files, so the
@@ -1545,6 +1549,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             hash.add(options.skip_linker_dependencies);
             hash.add(options.parent_compilation_link_libc);
             hash.add(formatted_panics);
+            hash.add(options.emit_h != null);
+            hash.add(error_limit);
+            hash.addOptional(options.want_structured_cfg);
 
             // In the case of incremental cache mode, this `zig_cache_artifact_directory`
             // is computed based on a hash of non-linker inputs, and it is where all
@@ -1699,7 +1706,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .local_zir_cache = local_zir_cache,
                 .emit_h = emit_h,
                 .tmp_hack_arena = std.heap.ArenaAllocator.init(gpa),
-                .error_limit = options.error_limit orelse (std.math.maxInt(u16) - 1),
+                .error_limit = error_limit,
             };
             try module.init();
 
@@ -1958,6 +1965,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .force_undefined_symbols = options.force_undefined_symbols,
             .pdb_source_path = options.pdb_source_path,
             .pdb_out_path = options.pdb_out_path,
+            .want_structured_cfg = options.want_structured_cfg,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -2732,6 +2740,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.add(comp.bin_file.options.valgrind);
         man.hash.add(comp.bin_file.options.single_threaded);
         man.hash.add(comp.bin_file.options.use_llvm);
+        man.hash.add(comp.bin_file.options.use_lib_llvm);
         man.hash.add(comp.bin_file.options.dll_export_fns);
         man.hash.add(comp.bin_file.options.is_test);
         man.hash.add(comp.test_evented_io);
@@ -2739,8 +2748,10 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.addOptionalBytes(comp.test_name_prefix);
         man.hash.add(comp.bin_file.options.skip_linker_dependencies);
         man.hash.add(comp.bin_file.options.parent_compilation_link_libc);
+        man.hash.add(comp.formatted_panics);
         man.hash.add(mod.emit_h != null);
         man.hash.add(mod.error_limit);
+        man.hash.addOptional(comp.bin_file.options.want_structured_cfg);
     }
 
     try man.addOptionalFile(comp.bin_file.options.linker_script);
@@ -6823,6 +6834,7 @@ fn buildOutputFromZig(
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
         .parent_compilation_link_libc = comp.bin_file.options.link_libc,
+        .want_structured_cfg = comp.bin_file.options.want_structured_cfg,
     });
     defer sub_compilation.destroy();
 
@@ -6903,6 +6915,7 @@ pub fn build_crt_file(
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
         .parent_compilation_link_libc = comp.bin_file.options.link_libc,
+        .want_structured_cfg = comp.bin_file.options.want_structured_cfg,
     });
     defer sub_compilation.destroy();
 
