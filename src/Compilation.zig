@@ -1088,6 +1088,17 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const comp = try arena.create(Compilation);
         const root_name = try arena.dupeZ(u8, options.root_name);
 
+        // Make a decision on whether to use Clang or Aro for translate-c and compiling C files.
+        const c_frontend: CFrontend = blk: {
+            if (options.use_clang) |want_clang| {
+                break :blk if (want_clang) .clang else .aro;
+            }
+            break :blk if (build_options.have_llvm) .clang else .aro;
+        };
+        if (!build_options.have_llvm and c_frontend == .clang) {
+            return error.ZigCompilerNotBuiltWithLLVMExtensions;
+        }
+
         // Make a decision on whether to use LLVM or our own backend.
         const use_lib_llvm = options.use_lib_llvm orelse build_options.have_llvm;
         const use_llvm = blk: {
@@ -1096,6 +1107,10 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             // If emitting to LLVM bitcode object format, must use LLVM backend.
             if (options.emit_llvm_ir != null or options.emit_llvm_bc != null)
+                break :blk true;
+
+            // If clang is requested for compilation of c/c++ files.
+            if (options.c_source_files.len != 0 and c_frontend == .clang)
                 break :blk true;
 
             // If we have no zig code to compile, no need for LLVM.
@@ -1324,17 +1339,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             }
             break :pic explicit;
         } else pie or must_pic;
-
-        // Make a decision on whether to use Clang or Aro for translate-c and compiling C files.
-        const c_frontend: CFrontend = blk: {
-            if (options.use_clang) |want_clang| {
-                break :blk if (want_clang) .clang else .aro;
-            }
-            break :blk if (build_options.have_llvm) .clang else .aro;
-        };
-        if (!build_options.have_llvm and c_frontend == .clang) {
-            return error.ZigCompilerNotBuiltWithLLVMExtensions;
-        }
 
         const is_safe_mode = switch (options.optimize_mode) {
             .Debug, .ReleaseSafe => true,
