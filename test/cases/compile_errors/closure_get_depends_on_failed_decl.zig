@@ -21,6 +21,6 @@ pub export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :11:5: error: expected 0 argument(s), found 1
+// :11:5: error: expected 0 arguments, found 1
 // :1:12: note: function declared here
 // :17:19: note: called from here

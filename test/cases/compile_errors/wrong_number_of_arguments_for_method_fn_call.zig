@@ -15,5 +15,5 @@ export fn entry() usize {
 // backend=stage2
 // target=native
 //
-// :8:8: error: member function expected 1 argument(s), found 2
+// :8:8: error: member function expected 1 argument, found 2
 // :2:5: note: function declared here

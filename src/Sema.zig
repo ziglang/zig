@@ -6796,14 +6796,16 @@ fn checkCallArgumentCount(
     const member_str = if (member_fn) "member function " else "";
     const variadic_str = if (func_ty_info.is_var_args) "at least " else "";
     const msg = msg: {
+        const arg_count = fn_params_len - @intFromBool(member_fn),
         const msg = try sema.errMsg(
             block,
             func_src,
-            "{s}expected {s}{d} argument(s), found {d}",
+            "{s}expected {s}{d} argument{s}, found {d}",
             .{
                 member_str,
                 variadic_str,
-                fn_params_len - @intFromBool(member_fn),
+                arg_count,
+                if (arg_count == 1) "" else "s",
                 args_len,
             },
         );
