@@ -7267,9 +7267,6 @@ fn analyzeCall(
 
                     if (modifier == .always_inline)
                         return sema.fail(block, call_src, "inline call of function pointer", .{});
-                    
-                    if (func_ty_info.cc == .Inline)
-                        return sema.fail(block, call_src, "calling pointer of inline function", .{});
 
                     break :blk func_val_ptr;
                 },
