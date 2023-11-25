@@ -268,6 +268,9 @@ pub const Options = struct {
     /// (Windows) .def file to specify when linking
     module_definition_file: ?[]const u8 = null,
 
+    /// (SPIR-V) whether to generate a structured control flow graph or not
+    want_structured_cfg: ?bool = null,
+
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
     }

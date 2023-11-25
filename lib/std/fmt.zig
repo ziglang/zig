@@ -1302,7 +1302,7 @@ pub fn formatFloatDecimal(
             // We may have to zero pad, for instance 1e4 requires zero padding.
             try writer.writeAll(float_decimal.digits[0..num_digits_whole_no_pad]);
 
-            var i = num_digits_whole_no_pad;
+            var i: usize = num_digits_whole_no_pad;
             while (i < num_digits_whole) : (i += 1) {
                 try writer.writeAll("0");
             }
@@ -1360,7 +1360,7 @@ pub fn formatFloatDecimal(
             // We may have to zero pad, for instance 1e4 requires zero padding.
             try writer.writeAll(float_decimal.digits[0..num_digits_whole_no_pad]);
 
-            var i = num_digits_whole_no_pad;
+            var i: usize = num_digits_whole_no_pad;
             while (i < num_digits_whole) : (i += 1) {
                 try writer.writeAll("0");
             }
@@ -2059,6 +2059,8 @@ test "comptimePrint" {
     @setEvalBranchQuota(2000);
     try std.testing.expectEqual(*const [3:0]u8, @TypeOf(comptimePrint("{}", .{100})));
     try std.testing.expectEqualSlices(u8, "100", comptimePrint("{}", .{100}));
+    try std.testing.expectEqualStrings("30", comptimePrint("{d}", .{30.0}));
+    try std.testing.expectEqualStrings("30.0", comptimePrint("{d:3.1}", .{30.0}));
 }
 
 test "parse u64 digit too big" {
