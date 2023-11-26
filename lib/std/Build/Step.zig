@@ -371,8 +371,7 @@ pub fn evalZigProcess(
                 // TODO: use @ptrCast when the compiler supports it
                 const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
                 const extra_array = try arena.alloc(u32, unaligned_extra.len);
-                // TODO: use @memcpy when it supports slices
-                for (extra_array, unaligned_extra) |*dst, src| dst.* = src;
+                @memcpy(extra_array, unaligned_extra);
                 s.result_error_bundle = .{
                     .string_bytes = try arena.dupe(u8, string_bytes),
                     .extra = extra_array,
