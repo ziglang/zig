@@ -6,4 +6,4 @@ export fn b() void {
 
 // error
 //
-// :5:5: error: inline call of function pointer
+// :4:5: error: inline call of function pointer
