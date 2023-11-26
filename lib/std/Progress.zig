@@ -98,23 +98,21 @@ pub const Node = struct {
     /// Push this `Node` to the `parent.children` stack of the provided `Node` (insert at first index). Thread-safe
     fn tryPushToParentStack(self: *Node, target_node: *Node) void {
         const parent = target_node.parent orelse return;
-            inline for (parent.children) |child| if (child == self) return;
-            self.context.update_mutex.lock(); // lock below existence check for slight performance reasons
-            defer self.context.update_mutex.unlock(); // (downside: less precision, but not noticeable)
-            std.mem.copyBackwards(?*Node, parent.children[1..], parent.children[0 .. parent.children.len - 1]);
-            parent.children[0] = self;
-        }
+        inline for (parent.children) |child| if (child == self) return;
+        self.context.update_mutex.lock(); // lock below existence check for slight performance reasons
+        defer self.context.update_mutex.unlock(); // (downside: less precision, but not noticeable)
+        std.mem.copyBackwards(?*Node, parent.children[1..], parent.children[0 .. parent.children.len - 1]);
+        parent.children[0] = self;
     }
 
     /// Remove this `Node` from the `parent.children` stack of the provided `Node`. Thread-safe
     fn tryRemoveFromParentStack(self: *Node, target_node: *Node) void {
         const parent = target_node.parent orelse return;
-            self.context.update_mutex.lock();
-            defer self.context.update_mutex.unlock();
-            const index = std.mem.indexOfScalar(?*Node, parent.children[0..], self) orelse return;
-            std.mem.copyBackwards(?*Node, parent.children[index..], parent.children[index + 1 ..]);
-            parent.children[parent.children.len - 1] = null;
-        }
+        self.context.update_mutex.lock();
+        defer self.context.update_mutex.unlock();
+        const index = std.mem.indexOfScalar(?*Node, parent.children[0..], self) orelse return;
+        std.mem.copyBackwards(?*Node, parent.children[index..], parent.children[index + 1 ..]);
+        parent.children[parent.children.len - 1] = null;
     }
 
     /// Create a new child progress node. Thread-safe.
