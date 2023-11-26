@@ -4325,6 +4325,16 @@ pub const Function = struct {
                 };
             }
 
+            /// if the instruction is alloca returns pointee type, otherwise returns null
+            pub fn getAllocaPointeeTypeWip(self: Instruction.Index, wip: *const WipFunction) ?Type {
+                const instruction = wip.instructions.get(@intFromEnum(self));
+                return switch (instruction.tag) {
+                    .alloca, .@"alloca inalloca" => return wip.extraData(Alloca, instruction.data).type,
+
+                    else => null,
+                };
+            }
+
             pub fn typeOfWip(self: Instruction.Index, wip: *const WipFunction) Type {
                 const instruction = wip.instructions.get(@intFromEnum(self));
                 return switch (instruction.tag) {

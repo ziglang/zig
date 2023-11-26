@@ -8953,7 +8953,12 @@ pub const FuncGen = struct {
         alignment: Builder.Alignment,
     ) Allocator.Error!Builder.Value {
         const o = self.dg.object;
-        return self.buildAlloca(try o.builder.arrayType(ty.abiSize(o.module), .i8), alignment);
+        const ip = &o.module.intern_pool;
+        const pointee_llvm_ty = if (ip.isUnion(ty.toIntern()) or ip.isAggregateType(ty.toIntern()))
+            try o.builder.arrayType(ty.abiSize(o.module), .i8)
+        else
+            try o.lowerType(ty);
+        return self.buildAlloca(pointee_llvm_ty, alignment);
     }
 
     fn airStore(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !Builder.Value {
@@ -10532,6 +10537,22 @@ pub const FuncGen = struct {
             try o.builder.intType(@intCast(abi_size * 8))
         else
             payload_llvm_ty;
+        if (payload_llvm_ty != load_llvm_ty) {
+            const is_localvar_load = switch (payload_ptr.unwrap()) {
+                .instruction => |insn| if (insn.getAllocaPointeeTypeWip(&fg.wip)) |localvar_llvm_type|
+                    (localvar_llvm_type == payload_llvm_ty)
+                else
+                    false,
+                .constant => true,
+            };
+            if (is_localvar_load) {
+                // When loading from a local alloca var, let's assume it was written by a "store of the same type"
+                //  and that no masking is needed.
+                // This helps with llvm optimizers, see https://github.com/ziglang/zig/issues/17768
+                return try fg.wip.load(access_kind, payload_llvm_ty, payload_ptr, payload_alignment, "");
+            }
+        }
+
         const loaded = try fg.wip.load(access_kind, load_llvm_ty, payload_ptr, payload_alignment, "");
         const shifted = if (payload_llvm_ty != load_llvm_ty and o.target.cpu.arch.endian() == .big)
             try fg.wip.bin(.lshr, loaded, try o.builder.intValue(
