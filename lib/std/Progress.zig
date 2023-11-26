@@ -96,9 +96,8 @@ pub const Node = struct {
     const presentable_children = 10;
 
     /// Push this `Node` to the `parent.children` stack of the provided `Node` (insert at first index). Thread-safe
-    /// Returns void if `parent` is null
     fn tryPushToParentStack(self: *Node, target_node: *Node) void {
-        if (target_node.parent) |parent| {
+        const parent = target_node.parent orelse return;
             inline for (parent.children) |child| if (child == self) return;
             self.context.update_mutex.lock(); // lock below existence check for slight performance reasons
             defer self.context.update_mutex.unlock(); // (downside: less precision, but not noticeable)
