@@ -262,6 +262,12 @@ fn determineTerminalWidth(self: *Progress) ?usize {
             if (exit_code < 0) return null;
             return @intCast(window_size.ws_col);
         },
+        .macos => {
+            var window_size: std.c.winsize = undefined;
+            const exit_code = std.c.ioctl(self.terminal.?.handle, std.c.T.IOCGWINSZ, @intFromPtr(&window_size));
+            if (exit_code < 0) return null;
+            return @intCast(window_size.ws_col);
+        },
         .windows => {
             std.debug.assert(self.is_windows_terminal);
             var screen_buffer_info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
