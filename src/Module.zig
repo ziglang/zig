@@ -2420,6 +2420,26 @@ pub const LazySrcLoc = union(enum) {
             },
         };
     }
+
+    pub fn fromZirInstData(inst_data: anytype) LazySrcLoc {
+        switch (@TypeOf(inst_data)) {
+            std.meta.FieldType(Zir.Inst.Data, .un_node),
+            std.meta.FieldType(Zir.Inst.Data, .pl_node),
+            std.meta.FieldType(Zir.Inst.Data, .int_type),
+            std.meta.FieldType(Zir.Inst.Data, .@"unreachable"),
+            std.meta.FieldType(Zir.Inst.Data, .inst_node),
+            => {
+                return LazySrcLoc.nodeOffset(inst_data.src_node);
+            },
+            std.meta.FieldType(Zir.Inst.Data, .un_tok),
+            std.meta.FieldType(Zir.Inst.Data, .pl_tok),
+            std.meta.FieldType(Zir.Inst.Data, .str_tok),
+            => {
+                return .{ .token_offset = inst_data.src_tok };
+            },
+            else => @compileError("Cannot create LazySrcLoc from " ++ @typeName(@TypeOf(inst_data))),
+        }
+    }
 };
 
 pub const SemaError = error{ OutOfMemory, AnalysisFail };

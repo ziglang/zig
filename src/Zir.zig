@@ -21,8 +21,6 @@ const Ast = std.zig.Ast;
 
 const InternPool = @import("InternPool.zig");
 const Zir = @This();
-const Module = @import("Module.zig");
-const LazySrcLoc = Module.LazySrcLoc;
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// In order to store references to strings in fewer bytes, we copy all
@@ -2255,10 +2253,6 @@ pub const Inst = struct {
             src_node: i32,
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return LazySrcLoc.nodeOffset(self.src_node);
-            }
         },
         /// Used for unary operators, with a token source location.
         un_tok: struct {
@@ -2266,10 +2260,6 @@ pub const Inst = struct {
             src_tok: Ast.TokenIndex,
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return .{ .token_offset = self.src_tok };
-            }
         },
         pl_node: struct {
             /// Offset from Decl AST node index.
@@ -2278,10 +2268,6 @@ pub const Inst = struct {
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return LazySrcLoc.nodeOffset(self.src_node);
-            }
         },
         pl_tok: struct {
             /// Offset from Decl AST token index.
@@ -2289,10 +2275,6 @@ pub const Inst = struct {
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return .{ .token_offset = self.src_tok };
-            }
         },
         bin: Bin,
         /// For strings which may contain null bytes.
@@ -2314,10 +2296,6 @@ pub const Inst = struct {
 
             pub fn get(self: @This(), code: Zir) [:0]const u8 {
                 return code.nullTerminatedString(self.start);
-            }
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return .{ .token_offset = self.src_tok };
             }
         },
         /// Offset from Decl AST token index.
@@ -2347,10 +2325,6 @@ pub const Inst = struct {
             src_node: i32,
             signedness: std.builtin.Signedness,
             bit_count: u16,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return LazySrcLoc.nodeOffset(self.src_node);
-            }
         },
         bool_br: struct {
             lhs: Ref,
@@ -2361,10 +2335,6 @@ pub const Inst = struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
             src_node: i32,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return LazySrcLoc.nodeOffset(self.src_node);
-            }
         },
         @"break": struct {
             operand: Ref,
@@ -2378,10 +2348,6 @@ pub const Inst = struct {
             src_node: i32,
             /// The meaning of this operand depends on the corresponding `Tag`.
             inst: Index,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return LazySrcLoc.nodeOffset(self.src_node);
-            }
         },
         str_op: struct {
             /// Offset into `string_bytes`. Null-terminated.
