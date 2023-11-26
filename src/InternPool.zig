@@ -3401,16 +3401,6 @@ pub const Alignment = enum(u6) {
         if (n == @intFromEnum(Alignment.none)) return 0;
         return n + 1;
     }
-
-    const LlvmBuilderAlignment = @import("codegen/llvm/Builder.zig").Alignment;
-
-    pub fn toLlvm(this: @This()) LlvmBuilderAlignment {
-        return @enumFromInt(@intFromEnum(this));
-    }
-
-    pub fn fromLlvm(other: LlvmBuilderAlignment) @This() {
-        return @enumFromInt(@intFromEnum(other));
-    }
 };
 
 /// Used for non-sentineled arrays that have length fitting in u32, as well as

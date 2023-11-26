@@ -1087,7 +1087,7 @@ pub const Object = struct {
         table_variable_index.setMutability(.constant, &o.builder);
         table_variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
         table_variable_index.setAlignment(
-            slice_ty.abiAlignment(mod).toLlvm(),
+            Builder.Alignment.fromInternPool(slice_ty.abiAlignment(mod)),
             &o.builder,
         );
 
@@ -1346,7 +1346,7 @@ pub const Object = struct {
 
         const stack_alignment = func.analysis(ip).stack_alignment;
         if (stack_alignment != .none) {
-            try attributes.addFnAttr(.{ .alignstack = stack_alignment.toLlvm() }, &o.builder);
+            try attributes.addFnAttr(.{ .alignstack = Builder.Alignment.fromInternPool(stack_alignment) }, &o.builder);
             try attributes.addFnAttr(.@"noinline", &o.builder);
         } else {
             _ = try attributes.removeFnAttr(.alignstack);
@@ -1434,7 +1434,7 @@ pub const Object = struct {
                         const param = wip.arg(llvm_arg_i);
 
                         if (isByRef(param_ty, mod)) {
-                            const alignment = param_ty.abiAlignment(mod).toLlvm();
+                            const alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
                             const param_llvm_ty = param.typeOfWip(&wip);
                             const arg_ptr = try buildAllocaInner(&wip, false, param_llvm_ty, alignment, target);
                             _ = try wip.store(.normal, param, arg_ptr, alignment);
@@ -1450,7 +1450,7 @@ pub const Object = struct {
                         const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
                         const param_llvm_ty = try o.lowerType(param_ty);
                         const param = wip.arg(llvm_arg_i);
-                        const alignment = param_ty.abiAlignment(mod).toLlvm();
+                        const alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
 
                         try o.addByRefParamAttrs(&attributes, llvm_arg_i, alignment, it.byval_attr, param_llvm_ty);
                         llvm_arg_i += 1;
@@ -1465,7 +1465,7 @@ pub const Object = struct {
                         const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
                         const param_llvm_ty = try o.lowerType(param_ty);
                         const param = wip.arg(llvm_arg_i);
-                        const alignment = param_ty.abiAlignment(mod).toLlvm();
+                        const alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
 
                         try attributes.addParamAttr(llvm_arg_i, .noundef, &o.builder);
                         llvm_arg_i += 1;
@@ -1483,7 +1483,7 @@ pub const Object = struct {
                         llvm_arg_i += 1;
 
                         const param_llvm_ty = try o.lowerType(param_ty);
-                        const alignment = param_ty.abiAlignment(mod).toLlvm();
+                        const alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
                         const arg_ptr = try buildAllocaInner(&wip, false, param_llvm_ty, alignment, target);
                         _ = try wip.store(.normal, param, arg_ptr, alignment);
 
@@ -1508,10 +1508,10 @@ pub const Object = struct {
                         if (ptr_info.flags.is_const) {
                             try attributes.addParamAttr(llvm_arg_i, .readonly, &o.builder);
                         }
-                        const elem_align = (if (ptr_info.flags.alignment != .none)
+                        const elem_align = Builder.Alignment.fromInternPool(if (ptr_info.flags.alignment != .none)
                             @as(InternPool.Alignment, ptr_info.flags.alignment)
                         else
-                            Type.fromInterned(ptr_info.child).abiAlignment(mod).max(.@"1")).toLlvm();
+                            Type.fromInterned(ptr_info.child).abiAlignment(mod).max(.@"1"));
                         try attributes.addParamAttr(llvm_arg_i, .{ .@"align" = elem_align }, &o.builder);
                         const ptr_param = wip.arg(llvm_arg_i);
                         llvm_arg_i += 1;
@@ -1528,7 +1528,7 @@ pub const Object = struct {
                         const field_types = it.types_buffer[0..it.types_len];
                         const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
                         const param_llvm_ty = try o.lowerType(param_ty);
-                        const param_alignment = param_ty.abiAlignment(mod).toLlvm();
+                        const param_alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
                         const arg_ptr = try buildAllocaInner(&wip, false, param_llvm_ty, param_alignment, target);
                         const llvm_ty = try o.builder.structType(.normal, field_types);
                         for (0..field_types.len) |field_i| {
@@ -1558,7 +1558,7 @@ pub const Object = struct {
                         const param = wip.arg(llvm_arg_i);
                         llvm_arg_i += 1;
 
-                        const alignment = param_ty.abiAlignment(mod).toLlvm();
+                        const alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
                         const arg_ptr = try buildAllocaInner(&wip, false, param_llvm_ty, alignment, target);
                         _ = try wip.store(.normal, param, arg_ptr, alignment);
 
@@ -1573,7 +1573,7 @@ pub const Object = struct {
                         const param = wip.arg(llvm_arg_i);
                         llvm_arg_i += 1;
 
-                        const alignment = param_ty.abiAlignment(mod).toLlvm();
+                        const alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
                         const arg_ptr = try buildAllocaInner(&wip, false, param_llvm_ty, alignment, target);
                         _ = try wip.store(.normal, param, arg_ptr, alignment);
 
@@ -3007,7 +3007,7 @@ pub const Object = struct {
         }
 
         if (fn_info.alignment != .none)
-            function_index.setAlignment(fn_info.alignment.toLlvm(), &o.builder);
+            function_index.setAlignment(Builder.Alignment.fromInternPool(fn_info.alignment), &o.builder);
 
         // Function attributes that are independent of analysis results of the function body.
         try o.addCommonFnAttributes(&attributes);
@@ -3031,7 +3031,7 @@ pub const Object = struct {
                     const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
                     const param_llvm_ty = try o.lowerType(param_ty);
                     const alignment = param_ty.abiAlignment(mod);
-                    try o.addByRefParamAttrs(&attributes, it.llvm_index - 1, alignment.toLlvm(), it.byval_attr, param_llvm_ty);
+                    try o.addByRefParamAttrs(&attributes, it.llvm_index - 1, Builder.Alignment.fromInternPool(alignment), it.byval_attr, param_llvm_ty);
                 },
                 .byref_mut => try attributes.addParamAttr(it.llvm_index - 1, .noundef, &o.builder),
                 // No attributes needed for these.
@@ -3126,9 +3126,9 @@ pub const Object = struct {
         if (gop.found_existing) {
             // Keep the greater of the two alignments.
             const variable_index = gop.value_ptr.ptr(&o.builder).kind.variable;
-            const old_alignment = InternPool.Alignment.fromLlvm(variable_index.getAlignment(&o.builder));
+            const old_alignment = Builder.Alignment.toInternPool(variable_index.getAlignment(&o.builder));
             const max_alignment = old_alignment.maxStrict(alignment);
-            variable_index.setAlignment(max_alignment.toLlvm(), &o.builder);
+            variable_index.setAlignment(Builder.Alignment.fromInternPool(max_alignment), &o.builder);
             return variable_index;
         }
         errdefer assert(o.anon_decl_map.remove(decl_val));
@@ -3146,7 +3146,7 @@ pub const Object = struct {
         try variable_index.setInitializer(try o.lowerValue(decl_val), &o.builder);
         variable_index.setLinkage(.internal, &o.builder);
         variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
-        variable_index.setAlignment(alignment.toLlvm(), &o.builder);
+        variable_index.setAlignment(Builder.Alignment.fromInternPool(alignment), &o.builder);
         return variable_index;
     }
 
@@ -4621,7 +4621,7 @@ pub const Object = struct {
                 ptr_info.flags.alignment
             else
                 Type.fromInterned(ptr_info.child).abiAlignment(mod).max(.@"1");
-            try attributes.addParamAttr(llvm_arg_i, .{ .@"align" = elem_align.toLlvm() }, &o.builder);
+            try attributes.addParamAttr(llvm_arg_i, .{ .@"align" = Builder.Alignment.fromInternPool(elem_align) }, &o.builder);
         } else if (ccAbiPromoteInt(fn_info.cc, mod, param_ty)) |s| switch (s) {
             .signed => try attributes.addParamAttr(llvm_arg_i, .signext, &o.builder),
             .unsigned => try attributes.addParamAttr(llvm_arg_i, .zeroext, &o.builder),
@@ -4679,7 +4679,7 @@ pub const DeclGen = struct {
         } else {
             const variable_index = try o.resolveGlobalDecl(decl_index);
             variable_index.setAlignment(
-                decl.getAlignment(mod).toLlvm(),
+                Builder.Alignment.fromInternPool(decl.getAlignment(mod)),
                 &o.builder,
             );
             if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |section|
@@ -4821,7 +4821,7 @@ pub const FuncGen = struct {
         variable_index.setLinkage(.private, &o.builder);
         variable_index.setMutability(.constant, &o.builder);
         variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
-        variable_index.setAlignment(tv.ty.abiAlignment(mod).toLlvm(), &o.builder);
+        variable_index.setAlignment(Builder.Alignment.fromInternPool(tv.ty.abiAlignment(mod)), &o.builder);
         return o.builder.convConst(
             .unneeded,
             variable_index.toConst(&o.builder),
@@ -5137,7 +5137,7 @@ pub const FuncGen = struct {
             const llvm_ret_ty = try o.lowerType(return_type);
             try attributes.addParamAttr(0, .{ .sret = llvm_ret_ty }, &o.builder);
 
-            const alignment = return_type.abiAlignment(mod).toLlvm();
+            const alignment = Builder.Alignment.fromInternPool(return_type.abiAlignment(mod));
             const ret_ptr = try self.buildAllocaWorkaround(return_type, alignment);
             try llvm_args.append(ret_ptr);
             break :blk ret_ptr;
@@ -5159,7 +5159,7 @@ pub const FuncGen = struct {
                 const llvm_arg = try self.resolveInst(arg);
                 const llvm_param_ty = try o.lowerType(param_ty);
                 if (isByRef(param_ty, mod)) {
-                    const alignment = param_ty.abiAlignment(mod).toLlvm();
+                    const alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
                     const loaded = try self.wip.load(.normal, llvm_param_ty, llvm_arg, alignment, "");
                     try llvm_args.append(loaded);
                 } else {
@@ -5173,7 +5173,7 @@ pub const FuncGen = struct {
                 if (isByRef(param_ty, mod)) {
                     try llvm_args.append(llvm_arg);
                 } else {
-                    const alignment = param_ty.abiAlignment(mod).toLlvm();
+                    const alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
                     const param_llvm_ty = llvm_arg.typeOfWip(&self.wip);
                     const arg_ptr = try self.buildAlloca(param_llvm_ty, alignment);
                     _ = try self.wip.store(.normal, llvm_arg, arg_ptr, alignment);
@@ -5185,7 +5185,7 @@ pub const FuncGen = struct {
                 const param_ty = self.typeOf(arg);
                 const llvm_arg = try self.resolveInst(arg);
 
-                const alignment = param_ty.abiAlignment(mod).toLlvm();
+                const alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
                 const param_llvm_ty = try o.lowerType(param_ty);
                 const arg_ptr = try self.buildAllocaWorkaround(param_ty, alignment);
                 if (isByRef(param_ty, mod)) {
@@ -5203,13 +5203,13 @@ pub const FuncGen = struct {
                 const int_llvm_ty = try o.builder.intType(@intCast(param_ty.abiSize(mod) * 8));
 
                 if (isByRef(param_ty, mod)) {
-                    const alignment = param_ty.abiAlignment(mod).toLlvm();
+                    const alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
                     const loaded = try self.wip.load(.normal, int_llvm_ty, llvm_arg, alignment, "");
                     try llvm_args.append(loaded);
                 } else {
                     // LLVM does not allow bitcasting structs so we must allocate
                     // a local, store as one type, and then load as another type.
-                    const alignment = param_ty.abiAlignment(mod).toLlvm();
+                    const alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
                     const int_ptr = try self.buildAllocaWorkaround(param_ty, alignment);
                     _ = try self.wip.store(.normal, llvm_arg, int_ptr, alignment);
                     const loaded = try self.wip.load(.normal, int_llvm_ty, int_ptr, alignment, "");
@@ -5230,7 +5230,7 @@ pub const FuncGen = struct {
                 const llvm_arg = try self.resolveInst(arg);
                 const is_by_ref = isByRef(param_ty, mod);
                 const arg_ptr = if (is_by_ref) llvm_arg else ptr: {
-                    const alignment = param_ty.abiAlignment(mod).toLlvm();
+                    const alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
                     const ptr = try self.buildAlloca(llvm_arg.typeOfWip(&self.wip), alignment);
                     _ = try self.wip.store(.normal, llvm_arg, ptr, alignment);
                     break :ptr ptr;
@@ -5256,7 +5256,7 @@ pub const FuncGen = struct {
                 const arg = args[it.zig_index - 1];
                 const arg_ty = self.typeOf(arg);
                 var llvm_arg = try self.resolveInst(arg);
-                const alignment = arg_ty.abiAlignment(mod).toLlvm();
+                const alignment = Builder.Alignment.fromInternPool(arg_ty.abiAlignment(mod));
                 if (!isByRef(arg_ty, mod)) {
                     const ptr = try self.buildAlloca(llvm_arg.typeOfWip(&self.wip), alignment);
                     _ = try self.wip.store(.normal, llvm_arg, ptr, alignment);
@@ -5274,7 +5274,7 @@ pub const FuncGen = struct {
                 const arg = args[it.zig_index - 1];
                 const arg_ty = self.typeOf(arg);
                 var llvm_arg = try self.resolveInst(arg);
-                const alignment = arg_ty.abiAlignment(mod).toLlvm();
+                const alignment = Builder.Alignment.fromInternPool(arg_ty.abiAlignment(mod));
                 if (!isByRef(arg_ty, mod)) {
                     const ptr = try self.buildAlloca(llvm_arg.typeOfWip(&self.wip), alignment);
                     _ = try self.wip.store(.normal, llvm_arg, ptr, alignment);
@@ -5305,7 +5305,7 @@ pub const FuncGen = struct {
                     const param_index = it.zig_index - 1;
                     const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[param_index]);
                     const param_llvm_ty = try o.lowerType(param_ty);
-                    const alignment = param_ty.abiAlignment(mod).toLlvm();
+                    const alignment = Builder.Alignment.fromInternPool(param_ty.abiAlignment(mod));
                     try o.addByRefParamAttrs(&attributes, it.llvm_index - 1, alignment, it.byval_attr, param_llvm_ty);
                 },
                 .byref_mut => try attributes.addParamAttr(it.llvm_index - 1, .noundef, &o.builder),
@@ -5336,10 +5336,10 @@ pub const FuncGen = struct {
                     if (ptr_info.flags.is_const) {
                         try attributes.addParamAttr(llvm_arg_i, .readonly, &o.builder);
                     }
-                    const elem_align = (if (ptr_info.flags.alignment != .none)
+                    const elem_align = Builder.Alignment.fromInternPool(if (ptr_info.flags.alignment != .none)
                         @as(InternPool.Alignment, ptr_info.flags.alignment)
                     else
-                        Type.fromInterned(ptr_info.child).abiAlignment(mod).max(.@"1")).toLlvm();
+                        Type.fromInterned(ptr_info.child).abiAlignment(mod).max(.@"1"));
                     try attributes.addParamAttr(llvm_arg_i, .{ .@"align" = elem_align }, &o.builder);
                 },
             };
@@ -5374,7 +5374,7 @@ pub const FuncGen = struct {
                 return rp;
             } else {
                 // our by-ref status disagrees with sret so we must load.
-                const return_alignment = return_type.abiAlignment(mod).toLlvm();
+                const return_alignment = Builder.Alignment.fromInternPool(return_type.abiAlignment(mod));
                 return self.wip.load(.normal, llvm_ret_ty, rp, return_alignment, "");
             }
         }
@@ -5385,7 +5385,7 @@ pub const FuncGen = struct {
             // In this case the function return type is honoring the calling convention by having
             // a different LLVM type than the usual one. We solve this here at the callsite
             // by using our canonical type, then loading it if necessary.
-            const alignment = return_type.abiAlignment(mod).toLlvm();
+            const alignment = Builder.Alignment.fromInternPool(return_type.abiAlignment(mod));
             if (o.builder.useLibLlvm())
                 assert(o.target_data.abiSizeOfType(abi_ret_ty.toLlvm(&o.builder)) >=
                     o.target_data.abiSizeOfType(llvm_ret_ty.toLlvm(&o.builder)));
@@ -5400,7 +5400,7 @@ pub const FuncGen = struct {
         if (isByRef(return_type, mod)) {
             // our by-ref status disagrees with sret so we must allocate, store,
             // and return the allocation pointer.
-            const alignment = return_type.abiAlignment(mod).toLlvm();
+            const alignment = Builder.Alignment.fromInternPool(return_type.abiAlignment(mod));
             const rp = try self.buildAlloca(llvm_ret_ty, alignment);
             _ = try self.wip.store(.normal, call, rp, alignment);
             return rp;
@@ -5484,7 +5484,7 @@ pub const FuncGen = struct {
 
         const abi_ret_ty = try lowerFnRetTy(o, fn_info);
         const operand = try self.resolveInst(un_op);
-        const alignment = ret_ty.abiAlignment(mod).toLlvm();
+        const alignment = Builder.Alignment.fromInternPool(ret_ty.abiAlignment(mod));
 
         if (isByRef(ret_ty, mod)) {
             // operand is a pointer however self.ret_ptr is null so that means
@@ -5529,7 +5529,7 @@ pub const FuncGen = struct {
         }
         const ptr = try self.resolveInst(un_op);
         const abi_ret_ty = try lowerFnRetTy(o, fn_info);
-        const alignment = ret_ty.abiAlignment(mod).toLlvm();
+        const alignment = Builder.Alignment.fromInternPool(ret_ty.abiAlignment(mod));
         _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, ptr, alignment, ""));
         return .none;
     }
@@ -5552,7 +5552,7 @@ pub const FuncGen = struct {
         const llvm_va_list_ty = try o.lowerType(va_list_ty);
         const mod = o.module;
 
-        const result_alignment = va_list_ty.abiAlignment(mod).toLlvm();
+        const result_alignment = Builder.Alignment.fromInternPool(va_list_ty.abiAlignment(mod));
         const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
 
         _ = try self.wip.callIntrinsic(.normal, .none, .va_copy, &.{}, &.{ dest_list, src_list }, "");
@@ -5576,7 +5576,7 @@ pub const FuncGen = struct {
         const va_list_ty = self.typeOfIndex(inst);
         const llvm_va_list_ty = try o.lowerType(va_list_ty);
 
-        const result_alignment = va_list_ty.abiAlignment(mod).toLlvm();
+        const result_alignment = Builder.Alignment.fromInternPool(va_list_ty.abiAlignment(mod));
         const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
 
         _ = try self.wip.callIntrinsic(.normal, .none, .va_start, &.{}, &.{dest_list}, "");
@@ -5909,7 +5909,7 @@ pub const FuncGen = struct {
             return fg.wip.gepStruct(err_union_llvm_ty, err_union, offset, "");
         } else if (isByRef(err_union_ty, mod)) {
             const payload_ptr = try fg.wip.gepStruct(err_union_llvm_ty, err_union, offset, "");
-            const payload_alignment = payload_ty.abiAlignment(mod).toLlvm();
+            const payload_alignment = Builder.Alignment.fromInternPool(payload_ty.abiAlignment(mod));
             if (isByRef(payload_ty, mod)) {
                 if (can_elide_load)
                     return payload_ptr;
@@ -6235,7 +6235,7 @@ pub const FuncGen = struct {
             if (self.canElideLoad(body_tail))
                 return ptr;
 
-            const elem_alignment = elem_ty.abiAlignment(mod).toLlvm();
+            const elem_alignment = Builder.Alignment.fromInternPool(elem_ty.abiAlignment(mod));
             return self.loadByRef(ptr, elem_ty, elem_alignment, .normal);
         }
 
@@ -6275,7 +6275,7 @@ pub const FuncGen = struct {
                 const elem_ptr =
                     try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &indices, "");
                 if (canElideLoad(self, body_tail)) return elem_ptr;
-                const elem_alignment = elem_ty.abiAlignment(mod).toLlvm();
+                const elem_alignment = Builder.Alignment.fromInternPool(elem_ty.abiAlignment(mod));
                 return self.loadByRef(elem_ptr, elem_ty, elem_alignment, .normal);
             } else {
                 if (Air.refToIndex(bin_op.lhs)) |lhs_index| {
@@ -6334,7 +6334,7 @@ pub const FuncGen = struct {
             &.{rhs}, "");
         if (isByRef(elem_ty, mod)) {
             if (self.canElideLoad(body_tail)) return ptr;
-            const elem_alignment = elem_ty.abiAlignment(mod).toLlvm();
+            const elem_alignment = Builder.Alignment.fromInternPool(elem_ty.abiAlignment(mod));
             return self.loadByRef(ptr, elem_ty, elem_alignment, .normal);
         }
 
@@ -6464,7 +6464,7 @@ pub const FuncGen = struct {
                         return field_ptr;
 
                     assert(alignment != .none);
-                    const field_alignment = alignment.toLlvm();
+                    const field_alignment = Builder.Alignment.fromInternPool(alignment);
                     return self.loadByRef(field_ptr, field_ty, field_alignment, .normal);
                 } else {
                     return self.load(field_ptr, field_ptr_ty);
@@ -6476,7 +6476,7 @@ pub const FuncGen = struct {
                 const payload_index = @intFromBool(layout.tag_align.compare(.gte, layout.payload_align));
                 const field_ptr =
                     try self.wip.gepStruct(union_llvm_ty, struct_llvm_val, payload_index, "");
-                const payload_alignment = layout.payload_align.toLlvm();
+                const payload_alignment = Builder.Alignment.fromInternPool(layout.payload_align);
                 if (isByRef(field_ty, mod)) {
                     if (canElideLoad(self, body_tail)) return field_ptr;
                     return self.loadByRef(field_ptr, field_ty, payload_alignment, .normal);
@@ -6682,7 +6682,7 @@ pub const FuncGen = struct {
         if (isByRef(operand_ty, mod)) {
             _ = dib.insertDeclareAtEnd(operand.toLlvm(&self.wip), di_local_var, debug_loc, insert_block);
         } else if (o.module.comp.bin_file.options.optimize_mode == .Debug) {
-            const alignment = operand_ty.abiAlignment(mod).toLlvm();
+            const alignment = Builder.Alignment.fromInternPool(operand_ty.abiAlignment(mod));
             const alloca = try self.buildAlloca(operand.typeOfWip(&self.wip), alignment);
             _ = try self.wip.store(.normal, operand, alloca, alignment);
             _ = dib.insertDeclareAtEnd(alloca.toLlvm(&self.wip), di_local_var, debug_loc, insert_block);
@@ -6837,7 +6837,7 @@ pub const FuncGen = struct {
                     llvm_param_values[llvm_param_i] = arg_llvm_value;
                     llvm_param_types[llvm_param_i] = arg_llvm_value.typeOfWip(&self.wip);
                 } else {
-                    const alignment = arg_ty.abiAlignment(mod).toLlvm();
+                    const alignment = Builder.Alignment.fromInternPool(arg_ty.abiAlignment(mod));
                     const arg_llvm_ty = try o.lowerType(arg_ty);
                     const load_inst =
                         try self.wip.load(.normal, arg_llvm_ty, arg_llvm_value, alignment, "");
@@ -6849,7 +6849,7 @@ pub const FuncGen = struct {
                     llvm_param_values[llvm_param_i] = arg_llvm_value;
                     llvm_param_types[llvm_param_i] = arg_llvm_value.typeOfWip(&self.wip);
                 } else {
-                    const alignment = arg_ty.abiAlignment(mod).toLlvm();
+                    const alignment = Builder.Alignment.fromInternPool(arg_ty.abiAlignment(mod));
                     const arg_ptr = try self.buildAlloca(arg_llvm_value.typeOfWip(&self.wip), alignment);
                     _ = try self.wip.store(.normal, arg_llvm_value, arg_ptr, alignment);
                     llvm_param_values[llvm_param_i] = arg_ptr;
@@ -6901,7 +6901,7 @@ pub const FuncGen = struct {
                 llvm_param_values[llvm_param_i] = llvm_rw_val;
                 llvm_param_types[llvm_param_i] = llvm_rw_val.typeOfWip(&self.wip);
             } else {
-                const alignment = rw_ty.abiAlignment(mod).toLlvm();
+                const alignment = Builder.Alignment.fromInternPool(rw_ty.abiAlignment(mod));
                 const loaded = try self.wip.load(.normal, llvm_elem_ty, llvm_rw_val, alignment, "");
                 llvm_param_values[llvm_param_i] = loaded;
                 llvm_param_types[llvm_param_i] = llvm_elem_ty;
@@ -7062,7 +7062,7 @@ pub const FuncGen = struct {
                 const output_ptr = try self.resolveInst(output);
                 const output_ptr_ty = self.typeOf(output);
 
-                const alignment = output_ptr_ty.ptrAlignment(mod).toLlvm();
+                const alignment = Builder.Alignment.fromInternPool(output_ptr_ty.ptrAlignment(mod));
                 _ = try self.wip.store(.normal, output_value, output_ptr, alignment);
             } else {
                 ret_val = output_value;
@@ -7256,7 +7256,7 @@ pub const FuncGen = struct {
         if (operand_is_ptr) {
             return self.wip.gepStruct(err_union_llvm_ty, operand, offset, "");
         } else if (isByRef(err_union_ty, mod)) {
-            const payload_alignment = payload_ty.abiAlignment(mod).toLlvm();
+            const payload_alignment = Builder.Alignment.fromInternPool(payload_ty.abiAlignment(mod));
             const payload_ptr = try self.wip.gepStruct(err_union_llvm_ty, operand, offset, "");
             if (isByRef(payload_ty, mod)) {
                 if (self.canElideLoad(body_tail)) return payload_ptr;
@@ -7321,7 +7321,7 @@ pub const FuncGen = struct {
         const err_union_llvm_ty = try o.lowerType(err_union_ty);
         {
             const err_int_ty = try mod.errorIntType();
-            const error_alignment = err_int_ty.abiAlignment(mod).toLlvm();
+            const error_alignment = Builder.Alignment.fromInternPool(err_int_ty.abiAlignment(mod));
             const error_offset = try errUnionErrorOffset(payload_ty, mod);
             // First set the non-error value.
             const non_null_ptr = try self.wip.gepStruct(err_union_llvm_ty, operand, error_offset, "");
@@ -7407,7 +7407,7 @@ pub const FuncGen = struct {
             const optional_ptr = if (directReturn)
                 self.ret_ptr
             else brk: {
-                const alignment = optional_ty.abiAlignment(mod).toLlvm();
+                const alignment = Builder.Alignment.fromInternPool(optional_ty.abiAlignment(mod));
                 const optional_ptr = try self.buildAllocaWorkaround(optional_ty, alignment);
                 break :brk optional_ptr;
             };
@@ -7443,14 +7443,14 @@ pub const FuncGen = struct {
             const result_ptr = if (directReturn)
                 self.ret_ptr
             else brk: {
-                const alignment = err_un_ty.abiAlignment(mod).toLlvm();
+                const alignment = Builder.Alignment.fromInternPool(err_un_ty.abiAlignment(mod));
                 const result_ptr = try self.buildAllocaWorkaround(err_un_ty, alignment);
                 break :brk result_ptr;
             };
 
             const err_ptr = try self.wip.gepStruct(err_un_llvm_ty, result_ptr, error_offset, "");
             const err_int_ty = try mod.errorIntType();
-            const error_alignment = err_int_ty.abiAlignment(mod).toLlvm();
+            const error_alignment = Builder.Alignment.fromInternPool(err_int_ty.abiAlignment(mod));
             _ = try self.wip.store(.normal, ok_err_code, err_ptr, error_alignment);
             const payload_ptr = try self.wip.gepStruct(err_un_llvm_ty, result_ptr, payload_offset, "");
             const payload_ptr_ty = try mod.singleMutPtrType(payload_ty);
@@ -7481,14 +7481,14 @@ pub const FuncGen = struct {
             const result_ptr = if (directReturn)
                 self.ret_ptr
             else brk: {
-                const alignment = err_un_ty.abiAlignment(mod).toLlvm();
+                const alignment = Builder.Alignment.fromInternPool(err_un_ty.abiAlignment(mod));
                 const result_ptr = try self.buildAllocaWorkaround(err_un_ty, alignment);
                 break :brk result_ptr;
             };
 
             const err_ptr = try self.wip.gepStruct(err_un_llvm_ty, result_ptr, error_offset, "");
             const err_int_ty = try mod.errorIntType();
-            const error_alignment = err_int_ty.abiAlignment(mod).toLlvm();
+            const error_alignment = Builder.Alignment.fromInternPool(err_int_ty.abiAlignment(mod));
             _ = try self.wip.store(.normal, operand, err_ptr, error_alignment);
             const payload_ptr = try self.wip.gepStruct(err_un_llvm_ty, result_ptr, payload_offset, "");
             const payload_ptr_ty = try mod.singleMutPtrType(payload_ty);
@@ -7535,7 +7535,7 @@ pub const FuncGen = struct {
         const access_kind: Builder.MemoryAccessKind =
             if (vector_ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal;
         const elem_llvm_ty = try o.lowerType(vector_ptr_ty.childType(mod));
-        const alignment = vector_ptr_ty.ptrAlignment(mod).toLlvm();
+        const alignment = Builder.Alignment.fromInternPool(vector_ptr_ty.ptrAlignment(mod));
         const loaded = try self.wip.load(access_kind, elem_llvm_ty, vector_ptr, alignment, "");
 
         const new_vector = try self.wip.insertElement(loaded, operand, index, "");
@@ -7965,7 +7965,7 @@ pub const FuncGen = struct {
         const overflow_index = o.llvmFieldIndex(inst_ty, 1).?;
 
         if (isByRef(inst_ty, mod)) {
-            const result_alignment = inst_ty.abiAlignment(mod).toLlvm();
+            const result_alignment = Builder.Alignment.fromInternPool(inst_ty.abiAlignment(mod));
             const alloca_inst = try self.buildAllocaWorkaround(inst_ty, result_alignment);
             {
                 const field_ptr = try self.wip.gepStruct(llvm_inst_ty, alloca_inst, result_index, "");
@@ -8323,7 +8323,7 @@ pub const FuncGen = struct {
         const overflow_index = o.llvmFieldIndex(dest_ty, 1).?;
 
         if (isByRef(dest_ty, mod)) {
-            const result_alignment = dest_ty.abiAlignment(mod).toLlvm();
+            const result_alignment = Builder.Alignment.fromInternPool(dest_ty.abiAlignment(mod));
             const alloca_inst = try self.buildAllocaWorkaround(dest_ty, result_alignment);
             {
                 const field_ptr = try self.wip.gepStruct(llvm_dest_ty, alloca_inst, result_index, "");
@@ -8618,7 +8618,7 @@ pub const FuncGen = struct {
             const array_ptr = try self.buildAllocaWorkaround(inst_ty, .default);
             const bitcast_ok = elem_ty.bitSize(mod) == elem_ty.abiSize(mod) * 8;
             if (bitcast_ok) {
-                const alignment = inst_ty.abiAlignment(mod).toLlvm();
+                const alignment = Builder.Alignment.fromInternPool(inst_ty.abiAlignment(mod));
                 _ = try self.wip.store(.normal, operand, array_ptr, alignment);
             } else {
                 // If the ABI size of the element type is not evenly divisible by size in bits;
@@ -8646,7 +8646,7 @@ pub const FuncGen = struct {
             if (bitcast_ok) {
                 // The array is aligned to the element's alignment, while the vector might have a completely
                 // different alignment. This means we need to enforce the alignment of this load.
-                const alignment = elem_ty.abiAlignment(mod).toLlvm();
+                const alignment = Builder.Alignment.fromInternPool(elem_ty.abiAlignment(mod));
                 return self.wip.load(.normal, llvm_vector_ty, operand, alignment, "");
             } else {
                 // If the ABI size of the element type is not evenly divisible by size in bits;
@@ -8671,12 +8671,12 @@ pub const FuncGen = struct {
         }
 
         if (operand_is_ref) {
-            const alignment = operand_ty.abiAlignment(mod).toLlvm();
+            const alignment = Builder.Alignment.fromInternPool(operand_ty.abiAlignment(mod));
             return self.wip.load(.normal, llvm_dest_ty, operand, alignment, "");
         }
 
         if (result_is_ref) {
-            const alignment = operand_ty.abiAlignment(mod).max(inst_ty.abiAlignment(mod)).toLlvm();
+            const alignment = Builder.Alignment.fromInternPool(operand_ty.abiAlignment(mod).max(inst_ty.abiAlignment(mod)));
             const result_ptr = try self.buildAllocaWorkaround(inst_ty, alignment);
             _ = try self.wip.store(.normal, operand, result_ptr, alignment);
             return result_ptr;
@@ -8688,7 +8688,7 @@ pub const FuncGen = struct {
             // Both our operand and our result are values, not pointers,
             // but LLVM won't let us bitcast struct values or vectors with padding bits.
             // Therefore, we store operand to alloca, then load for result.
-            const alignment = operand_ty.abiAlignment(mod).max(inst_ty.abiAlignment(mod)).toLlvm();
+            const alignment = Builder.Alignment.fromInternPool(operand_ty.abiAlignment(mod).max(inst_ty.abiAlignment(mod)));
             const result_ptr = try self.buildAllocaWorkaround(inst_ty, alignment);
             _ = try self.wip.store(.normal, operand, result_ptr, alignment);
             return self.wip.load(.normal, llvm_dest_ty, result_ptr, alignment, "");
@@ -8734,7 +8734,7 @@ pub const FuncGen = struct {
             if (isByRef(inst_ty, mod)) {
                 _ = dib.insertDeclareAtEnd(arg_val.toLlvm(&self.wip), di_local_var, debug_loc, insert_block);
             } else if (o.module.comp.bin_file.options.optimize_mode == .Debug) {
-                const alignment = inst_ty.abiAlignment(mod).toLlvm();
+                const alignment = Builder.Alignment.fromInternPool(inst_ty.abiAlignment(mod));
                 const alloca = try self.buildAlloca(arg_val.typeOfWip(&self.wip), alignment);
                 _ = try self.wip.store(.normal, arg_val, alloca, alignment);
                 _ = dib.insertDeclareAtEnd(alloca.toLlvm(&self.wip), di_local_var, debug_loc, insert_block);
@@ -8755,7 +8755,7 @@ pub const FuncGen = struct {
             return (try o.lowerPtrToVoid(ptr_ty)).toValue();
 
         //const pointee_llvm_ty = try o.lowerType(pointee_type);
-        const alignment = ptr_ty.ptrAlignment(mod).toLlvm();
+        const alignment = Builder.Alignment.fromInternPool(ptr_ty.ptrAlignment(mod));
         return self.buildAllocaWorkaround(pointee_type, alignment);
     }
 
@@ -8768,7 +8768,7 @@ pub const FuncGen = struct {
             return (try o.lowerPtrToVoid(ptr_ty)).toValue();
         if (self.ret_ptr != .none) return self.ret_ptr;
         //const ret_llvm_ty = try o.lowerType(ret_ty);
-        const alignment = ptr_ty.ptrAlignment(mod).toLlvm();
+        const alignment = Builder.Alignment.fromInternPool(ptr_ty.ptrAlignment(mod));
         return self.buildAllocaWorkaround(ret_ty, alignment);
     }
 
@@ -8818,7 +8818,7 @@ pub const FuncGen = struct {
             const len = try o.builder.intValue(try o.lowerType(Type.usize), operand_ty.abiSize(mod));
             _ = try self.wip.callMemSet(
                 dest_ptr,
-                ptr_ty.ptrAlignment(mod).toLlvm(),
+                Builder.Alignment.fromInternPool(ptr_ty.ptrAlignment(mod)),
                 if (safety) try o.builder.intValue(.i8, 0xaa) else try o.builder.undefValue(.i8),
                 len,
                 if (ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal,
@@ -8949,7 +8949,7 @@ pub const FuncGen = struct {
             self.sync_scope,
             toLlvmAtomicOrdering(extra.successOrder()),
             toLlvmAtomicOrdering(extra.failureOrder()),
-            ptr_ty.ptrAlignment(mod).toLlvm(),
+            Builder.Alignment.fromInternPool(ptr_ty.ptrAlignment(mod)),
             "",
         );
 
@@ -8988,7 +8988,7 @@ pub const FuncGen = struct {
 
         const access_kind: Builder.MemoryAccessKind =
             if (ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal;
-        const ptr_alignment = ptr_ty.ptrAlignment(mod).toLlvm();
+        const ptr_alignment = Builder.Alignment.fromInternPool(ptr_ty.ptrAlignment(mod));
 
         if (llvm_abi_ty != .none) {
             // operand needs widening and truncating or bitcasting.
@@ -9044,10 +9044,10 @@ pub const FuncGen = struct {
         if (!elem_ty.hasRuntimeBitsIgnoreComptime(mod)) return .none;
         const ordering = toLlvmAtomicOrdering(atomic_load.order);
         const llvm_abi_ty = try o.getAtomicAbiType(elem_ty, false);
-        const ptr_alignment = (if (info.flags.alignment != .none)
+        const ptr_alignment = Builder.Alignment.fromInternPool(if (info.flags.alignment != .none)
             @as(InternPool.Alignment, info.flags.alignment)
         else
-            Type.fromInterned(info.child).abiAlignment(mod)).toLlvm();
+            Type.fromInterned(info.child).abiAlignment(mod));
         const access_kind: Builder.MemoryAccessKind =
             if (info.flags.is_volatile) .@"volatile" else .normal;
         const elem_llvm_ty = try o.lowerType(elem_ty);
@@ -9111,7 +9111,7 @@ pub const FuncGen = struct {
         const dest_slice = try self.resolveInst(bin_op.lhs);
         const ptr_ty = self.typeOf(bin_op.lhs);
         const elem_ty = self.typeOf(bin_op.rhs);
-        const dest_ptr_align = ptr_ty.ptrAlignment(mod).toLlvm();
+        const dest_ptr_align = Builder.Alignment.fromInternPool(ptr_ty.ptrAlignment(mod));
         const dest_ptr = try self.sliceOrArrayPtr(dest_slice, ptr_ty);
         const access_kind: Builder.MemoryAccessKind =
             if (ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal;
@@ -9215,13 +9215,13 @@ pub const FuncGen = struct {
 
         self.wip.cursor = .{ .block = body_block };
         const elem_abi_align = elem_ty.abiAlignment(mod);
-        const it_ptr_align = InternPool.Alignment.fromLlvm(dest_ptr_align).min(elem_abi_align).toLlvm();
+        const it_ptr_align = Builder.Alignment.fromInternPool(Builder.Alignment.toInternPool(dest_ptr_align).min(elem_abi_align));
         if (isByRef(elem_ty, mod)) {
             _ = try self.wip.callMemCpy(
                 it_ptr.toValue(),
                 it_ptr_align,
                 value,
-                elem_abi_align.toLlvm(),
+                Builder.Alignment.fromInternPool(elem_abi_align),
                 try o.builder.intValue(llvm_usize_ty, elem_abi_size),
                 access_kind,
             );
@@ -9287,9 +9287,9 @@ pub const FuncGen = struct {
             self.wip.cursor = .{ .block = memcpy_block };
             _ = try self.wip.callMemCpy(
                 dest_ptr,
-                dest_ptr_ty.ptrAlignment(mod).toLlvm(),
+                Builder.Alignment.fromInternPool(dest_ptr_ty.ptrAlignment(mod)),
                 src_ptr,
-                src_ptr_ty.ptrAlignment(mod).toLlvm(),
+                Builder.Alignment.fromInternPool(src_ptr_ty.ptrAlignment(mod)),
                 len,
                 access_kind,
             );
@@ -9300,9 +9300,9 @@ pub const FuncGen = struct {
 
         _ = try self.wip.callMemCpy(
             dest_ptr,
-            dest_ptr_ty.ptrAlignment(mod).toLlvm(),
+            Builder.Alignment.fromInternPool(dest_ptr_ty.ptrAlignment(mod)),
             src_ptr,
-            src_ptr_ty.ptrAlignment(mod).toLlvm(),
+            Builder.Alignment.fromInternPool(src_ptr_ty.ptrAlignment(mod)),
             len,
             access_kind,
         );
@@ -9958,7 +9958,7 @@ pub const FuncGen = struct {
                 if (isByRef(result_ty, mod)) {
                     // TODO in debug builds init to undef so that the padding will be 0xaa
                     // even if we fully populate the fields.
-                    const alignment = result_ty.abiAlignment(mod).toLlvm();
+                    const alignment = Builder.Alignment.fromInternPool(result_ty.abiAlignment(mod));
                     const alloca_inst = try self.buildAllocaWorkaround(result_ty, alignment);
 
                     for (elements, 0..) |elem, i| {
@@ -9995,7 +9995,7 @@ pub const FuncGen = struct {
 
                 const llvm_usize = try o.lowerType(Type.usize);
                 const usize_zero = try o.builder.intValue(llvm_usize, 0);
-                const alignment = result_ty.abiAlignment(mod).toLlvm();
+                const alignment = Builder.Alignment.fromInternPool(result_ty.abiAlignment(mod));
                 const alloca_inst = try self.buildAllocaWorkaround(result_ty, alignment);
 
                 const array_info = result_ty.arrayInfo(mod);
@@ -10071,7 +10071,7 @@ pub const FuncGen = struct {
         // necessarily match the format that we need, depending on which tag is active.
         // We must construct the correct unnamed struct type here, in order to then set
         // the fields appropriately.
-        const alignment = layout.abi_align.toLlvm();
+        const alignment = Builder.Alignment.fromInternPool(layout.abi_align);
         const result_ptr = try self.buildAllocaWorkaround(union_ty, alignment);
         const llvm_payload = try self.resolveInst(extra.init);
         const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[extra.field_index]);
@@ -10142,7 +10142,7 @@ pub const FuncGen = struct {
             const field_ptr = try self.wip.gep(.inbounds, llvm_union_ty, result_ptr, &indices, "");
             const tag_ty = try o.lowerType(Type.fromInterned(union_obj.enum_tag_ty));
             const llvm_tag = try o.builder.intValue(tag_ty, tag_int);
-            const tag_alignment = Type.fromInterned(union_obj.enum_tag_ty).abiAlignment(mod).toLlvm();
+            const tag_alignment = Builder.Alignment.fromInternPool(Type.fromInterned(union_obj.enum_tag_ty).abiAlignment(mod));
             _ = try self.wip.store(.normal, llvm_tag, field_ptr, tag_alignment);
         }
 
@@ -10279,7 +10279,7 @@ pub const FuncGen = struct {
         variable_index.setMutability(.constant, &o.builder);
         variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
         variable_index.setAlignment(
-            Type.slice_const_u8_sentinel_0.abiAlignment(mod).toLlvm(),
+            Builder.Alignment.fromInternPool(Type.slice_const_u8_sentinel_0.abiAlignment(mod)),
             &o.builder,
         );
 
@@ -10324,7 +10324,7 @@ pub const FuncGen = struct {
             // We have a pointer and we need to return a pointer to the first field.
             const payload_ptr = try fg.wip.gepStruct(opt_llvm_ty, opt_handle, 0, "");
 
-            const payload_alignment = payload_ty.abiAlignment(mod).toLlvm();
+            const payload_alignment = Builder.Alignment.fromInternPool(payload_ty.abiAlignment(mod));
             if (isByRef(payload_ty, mod)) {
                 if (can_elide_load)
                     return payload_ptr;
@@ -10350,7 +10350,7 @@ pub const FuncGen = struct {
         const mod = o.module;
 
         if (isByRef(optional_ty, mod)) {
-            const payload_alignment = optional_ty.abiAlignment(mod).toLlvm();
+            const payload_alignment = Builder.Alignment.fromInternPool(optional_ty.abiAlignment(mod));
             const alloca_inst = try self.buildAllocaWorkaround(optional_ty, payload_alignment);
 
             {
@@ -10493,7 +10493,7 @@ pub const FuncGen = struct {
         const o = fg.dg.object;
         const mod = o.module;
         //const pointee_llvm_ty = try o.lowerType(pointee_type);
-        const result_align = InternPool.Alignment.fromLlvm(ptr_alignment).max(pointee_type.abiAlignment(mod)).toLlvm();
+        const result_align = Builder.Alignment.fromInternPool(Builder.Alignment.toInternPool(ptr_alignment).max(pointee_type.abiAlignment(mod)));
         const result_ptr = try fg.buildAllocaWorkaround(pointee_type, result_align);
         const size_bytes = pointee_type.abiSize(mod);
         _ = try fg.wip.callMemCpy(
@@ -10517,10 +10517,10 @@ pub const FuncGen = struct {
         const elem_ty = Type.fromInterned(info.child);
         if (!elem_ty.hasRuntimeBitsIgnoreComptime(mod)) return .none;
 
-        const ptr_alignment = (if (info.flags.alignment != .none)
+        const ptr_alignment = Builder.Alignment.fromInternPool(if (info.flags.alignment != .none)
             @as(InternPool.Alignment, info.flags.alignment)
         else
-            elem_ty.abiAlignment(mod)).toLlvm();
+            elem_ty.abiAlignment(mod));
 
         const access_kind: Builder.MemoryAccessKind =
             if (info.flags.is_volatile) .@"volatile" else .normal;
@@ -10552,7 +10552,7 @@ pub const FuncGen = struct {
         const elem_llvm_ty = try o.lowerType(elem_ty);
 
         if (isByRef(elem_ty, mod)) {
-            const result_align = elem_ty.abiAlignment(mod).toLlvm();
+            const result_align = Builder.Alignment.fromInternPool(elem_ty.abiAlignment(mod));
             const result_ptr = try self.buildAllocaWorkaround(elem_ty, result_align);
 
             const same_size_int = try o.builder.intType(@intCast(elem_bits));
@@ -10590,7 +10590,7 @@ pub const FuncGen = struct {
         if (!elem_ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
             return;
         }
-        const ptr_alignment = ptr_ty.ptrAlignment(mod).toLlvm();
+        const ptr_alignment = Builder.Alignment.fromInternPool(ptr_ty.ptrAlignment(mod));
         const access_kind: Builder.MemoryAccessKind =
             if (info.flags.is_volatile) .@"volatile" else .normal;
 
@@ -10656,7 +10656,7 @@ pub const FuncGen = struct {
             ptr,
             ptr_alignment,
             elem,
-            elem_ty.abiAlignment(mod).toLlvm(),
+            Builder.Alignment.fromInternPool(elem_ty.abiAlignment(mod)),
             try o.builder.intValue(try o.lowerType(Type.usize), elem_ty.abiSize(mod)),
             access_kind,
         );
@@ -10688,7 +10688,7 @@ pub const FuncGen = struct {
         if (!target_util.hasValgrindSupport(target)) return default_value;
 
         const llvm_usize = try o.lowerType(Type.usize);
-        const usize_alignment = Type.usize.abiAlignment(mod).toLlvm();
+        const usize_alignment = Builder.Alignment.fromInternPool(Type.usize.abiAlignment(mod));
 
         const array_llvm_ty = try o.builder.arrayType(6, llvm_usize);
         const array_ptr = if (fg.valgrind_client_request_array == .none) a: {
