@@ -1756,13 +1756,15 @@ fn structInitExpr(
                     var error_notes = std.ArrayList(u32).init(astgen.arena);
 
                     for (record.items[1..]) |duplicate| {
-                        try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
+                        try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate name here", .{}));
                     }
+
+                    try error_notes.append(try astgen.errNoteNode(node, "struct declared here", .{}));
 
                     try astgen.appendErrorTokNotes(
                         record.items[0],
-                        "duplicate field",
-                        .{},
+                        "struct field name conflict: {s}",
+                        .{try astgen.identifierTokenString(record.items[0])},
                         error_notes.items,
                     );
                 }
@@ -5076,14 +5078,14 @@ fn structDeclInner(
                 var error_notes = std.ArrayList(u32).init(astgen.arena);
 
                 for (record.items[1..]) |duplicate| {
-                    try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
+                    try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate field here", .{}));
                 }
 
                 try error_notes.append(try astgen.errNoteNode(node, "struct declared here", .{}));
 
                 try astgen.appendErrorTokNotes(
                     record.items[0],
-                    "duplicate struct field: '{s}'",
+                    "struct field name conflict: '{s}'",
                     .{try astgen.identifierTokenString(record.items[0])},
                     error_notes.items,
                 );
@@ -5282,14 +5284,14 @@ fn unionDeclInner(
                 var error_notes = std.ArrayList(u32).init(astgen.arena);
 
                 for (record.items[1..]) |duplicate| {
-                    try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
+                    try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate field here", .{}));
                 }
 
                 try error_notes.append(try astgen.errNoteNode(node, "union declared here", .{}));
 
                 try astgen.appendErrorTokNotes(
                     record.items[0],
-                    "duplicate union field: '{s}'",
+                    "union field name conflict: '{s}'",
                     .{try astgen.identifierTokenString(record.items[0])},
                     error_notes.items,
                 );
@@ -5579,14 +5581,14 @@ fn containerDecl(
                         var error_notes = std.ArrayList(u32).init(astgen.arena);
 
                         for (record.items[1..]) |duplicate| {
-                            try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
+                            try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate field here", .{}));
                         }
 
                         try error_notes.append(try astgen.errNoteNode(node, "enum declared here", .{}));
 
                         try astgen.appendErrorTokNotes(
                             record.items[0],
-                            "duplicate enum field: '{s}'",
+                            "enum field name conflict: '{s}'",
                             .{try astgen.identifierTokenString(record.items[0])},
                             error_notes.items,
                         );
