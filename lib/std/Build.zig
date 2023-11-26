@@ -869,7 +869,7 @@ pub fn createModule(b: *Build, options: CreateModuleOptions) *Module {
     const module = b.allocator.create(Module) catch @panic("OOM");
     module.* = .{
         .builder = b,
-        .source_file = options.source_file,
+        .source_file = options.source_file.dupe(b),
         .dependencies = moduleDependenciesToArrayHashMap(b.allocator, options.dependencies),
     };
     return module;
