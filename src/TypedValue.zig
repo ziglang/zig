@@ -139,7 +139,7 @@ pub fn print(
                 const elem_ty = ty.elemType2(mod);
                 const len = payload.len.toUnsignedInt(mod);
 
-                if (elem_ty.eql(Type.u8, mod)) str: {
+                if (elem_ty.ip_index == Type.u8.ip_index) str: {
                     const max_len: usize = @min(len, max_string_len);
                     var buf: [max_string_len]u8 = undefined;
 
@@ -282,7 +282,7 @@ pub fn print(
                     }
                     const elem_ty = Type.fromInterned(ptr_ty.child);
                     const len = Value.fromInterned(ptr.len).toUnsignedInt(mod);
-                    if (elem_ty.eql(Type.u8, mod)) str: {
+                    if (elem_ty.ip_index == Type.u8.ip_index) str: {
                         const max_len = @min(len, max_string_len);
                         var buf: [max_string_len]u8 = undefined;
                         for (buf[0..max_len], 0..) |*c, i| {
@@ -488,7 +488,7 @@ fn printAggregate(
         const elem_ty = ty.elemType2(mod);
         const len = ty.arrayLen(mod);
 
-        if (elem_ty.eql(Type.u8, mod)) str: {
+        if (elem_ty.ip_index == Type.u8.ip_index) str: {
             const max_len: usize = @min(len, max_string_len);
             var buf: [max_string_len]u8 = undefined;
 

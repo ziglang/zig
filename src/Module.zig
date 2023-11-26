@@ -3663,7 +3663,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     try sema.resolveTypeLayout(decl_tv.ty);
 
     if (decl.kind == .@"usingnamespace") {
-        if (!decl_tv.ty.eql(Type.type, mod)) {
+        if (!(decl_tv.ty.ip_index == Type.type.ip_index)) {
             return sema.fail(&block_scope, ty_src, "expected type, found {}", .{
                 decl_tv.ty.fmt(mod),
             });
@@ -3696,7 +3696,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
                 if (decl.has_tv) {
                     prev_type_has_bits = decl.ty.isFnOrHasRuntimeBits(mod);
-                    type_changed = !decl.ty.eql(decl_tv.ty, mod);
+                    type_changed = !(decl.ty.ip_index == decl_tv.ty.ip_index);
                     if (decl.getOwnedFunction(mod)) |prev_func| {
                         prev_is_inline = prev_func.analysis(ip).state == .inline_only;
                     }
@@ -3726,7 +3726,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     }
     var type_changed = true;
     if (decl.has_tv) {
-        type_changed = !decl.ty.eql(decl_tv.ty, mod);
+        type_changed = !(decl.ty.ip_index == decl_tv.ty.ip_index);
     }
 
     decl.owns_tv = false;

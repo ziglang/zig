@@ -2399,8 +2399,8 @@ const DeclGen = struct {
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
 
-        assert(self.typeOf(bin_op.lhs).eql(ty, self.module));
-        assert(self.typeOf(bin_op.rhs).eql(ty, self.module));
+        assert(self.typeOf(bin_op.lhs).ip_index == ty.ip_index);
+        assert(self.typeOf(bin_op.rhs).ip_index == ty.ip_index);
 
         return try self.arithOp(ty, lhs_id, rhs_id, fop, sop, uop, modular);
     }

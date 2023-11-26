@@ -1781,7 +1781,7 @@ pub const Value = struct {
         const ptr_val = switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .ptr => |ptr| ptr: {
                 switch (ptr.addr) {
-                    .elem => |elem| if (Type.fromInterned(mod.intern_pool.typeOf(elem.base)).elemType2(mod).eql(elem_ty, mod))
+                    .elem => |elem| if (Type.fromInterned(mod.intern_pool.typeOf(elem.base)).elemType2(mod).ip_index == elem_ty.ip_index)
                         return Value.fromInterned((try mod.intern(.{ .ptr = .{
                             .ty = elem_ptr_ty.toIntern(),
                             .addr = .{ .elem = .{
