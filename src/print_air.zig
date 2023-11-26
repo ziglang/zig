@@ -7,7 +7,7 @@ const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
-const InternPool = @import("InternPool.zig");
+const InternPool = std.zig.InternPool;
 
 pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) void {
     const instruction_bytes = air.instructions.len *

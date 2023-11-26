@@ -14,14 +14,14 @@ const Air = @import("Air.zig");
 const Allocator = mem.Allocator;
 const Compilation = @import("Compilation.zig");
 const ErrorMsg = Module.ErrorMsg;
-const InternPool = @import("InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Liveness = @import("Liveness.zig");
 const Module = @import("Module.zig");
 const Target = std.Target;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 const Value = @import("value.zig").Value;
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 const Alignment = InternPool.Alignment;
 
 pub const Result = union(enum) {

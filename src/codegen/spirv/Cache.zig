@@ -22,7 +22,7 @@ const Opcode = spec.Opcode;
 const IdResult = spec.IdResult;
 const StorageClass = spec.StorageClass;
 
-const InternPool = @import("../../InternPool.zig");
+const InternPool = std.zig.InternPool;
 
 const Self = @This();
 

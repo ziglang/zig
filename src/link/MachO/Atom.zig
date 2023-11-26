@@ -35,7 +35,7 @@ alignment: Alignment = .@"1",
 next_index: ?Index = null,
 prev_index: ?Index = null,
 
-pub const Alignment = @import("../../InternPool.zig").Alignment;
+pub const Alignment = std.zig.InternPool.Alignment;
 
 pub const Index = u32;
 

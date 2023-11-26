@@ -12,7 +12,7 @@ const StringIndexContext = std.hash_map.StringIndexContext;
 
 const isPrimitive = std.zig.primitives.isPrimitive;
 
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 const BuiltinFn = std.zig.BuiltinFn;
 const AstRlAnnotate = std.zig.AstRlAnnotate;
 

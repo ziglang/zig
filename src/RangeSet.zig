@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Order = std.math.Order;
 
-const InternPool = @import("InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
 const Module = @import("Module.zig");

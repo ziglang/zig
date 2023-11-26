@@ -39,7 +39,7 @@ fde_end: u32 = 0,
 prev_index: Index = 0,
 next_index: Index = 0,
 
-pub const Alignment = @import("../../InternPool.zig").Alignment;
+pub const Alignment = std.zig.InternPool.Alignment;
 
 pub fn name(self: Atom, elf_file: *Elf) []const u8 {
     const file_ptr = self.file(elf_file).?;

@@ -11,7 +11,7 @@ const log = std.log.scoped(.codegen);
 
 const codegen = @import("../../codegen.zig");
 const Module = @import("../../Module.zig");
-const InternPool = @import("../../InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Decl = Module.Decl;
 const Type = @import("../../type.zig").Type;
 const Value = @import("../../value.zig").Value;

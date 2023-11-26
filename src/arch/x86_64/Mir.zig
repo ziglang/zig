@@ -1196,6 +1196,6 @@ const encoder = @import("encoder.zig");
 const std = @import("std");
 
 const IntegerBitSet = std.bit_set.IntegerBitSet;
-const InternPool = @import("../../InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Mir = @This();
 const Register = bits.Register;

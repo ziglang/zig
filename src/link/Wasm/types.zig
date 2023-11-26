@@ -109,7 +109,7 @@ pub const SubsectionType = enum(u8) {
     WASM_SYMBOL_TABLE = 8,
 };
 
-pub const Alignment = @import("../../InternPool.zig").Alignment;
+pub const Alignment = std.zig.InternPool.Alignment;
 
 pub const Segment = struct {
     /// Segment's name, encoded as UTF-8 bytes.

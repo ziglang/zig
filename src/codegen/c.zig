@@ -16,7 +16,7 @@ const trace = @import("../tracy.zig").trace;
 const LazySrcLoc = Module.LazySrcLoc;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
-const InternPool = @import("../InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Alignment = InternPool.Alignment;
 
 const BigIntLimb = std.math.big.Limb;

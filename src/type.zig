@@ -8,7 +8,7 @@ const log = std.log.scoped(.Type);
 const target_util = @import("target.zig");
 const TypedValue = @import("TypedValue.zig");
 const Sema = @import("Sema.zig");
-const InternPool = @import("InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Alignment = InternPool.Alignment;
 
 /// Both types and values are canonically represented by a single 32-bit integer

@@ -26,7 +26,7 @@ const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
 const Module = @import("Module.zig");
-const AstGen = @import("AstGen.zig");
+const AstGen = std.zig.AstGen;
 const mingw = @import("mingw.zig");
 const Server = std.zig.Server;
 
@@ -6363,7 +6363,7 @@ pub fn cmdAstCheck(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
-    const Zir = @import("Zir.zig");
+    const Zir = std.zig.Zir;
 
     var color: Color = .auto;
     var want_output_text = false;
@@ -6525,7 +6525,7 @@ pub fn cmdDumpZir(
     args: []const []const u8,
 ) !void {
     _ = arena;
-    const Zir = @import("Zir.zig");
+    const Zir = std.zig.Zir;
 
     const cache_file = args[0];
 
@@ -6585,7 +6585,7 @@ pub fn cmdChangelist(
     args: []const []const u8,
 ) !void {
     const color: Color = .auto;
-    const Zir = @import("Zir.zig");
+    const Zir = std.zig.Zir;
 
     const old_source_file = args[0];
     const new_source_file = args[1];

@@ -3,9 +3,9 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Ast = std.zig.Ast;
-const InternPool = @import("InternPool.zig");
+const InternPool = std.zig.InternPool;
 
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 const Module = @import("Module.zig");
 const LazySrcLoc = Module.LazySrcLoc;
 

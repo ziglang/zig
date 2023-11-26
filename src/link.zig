@@ -16,7 +16,7 @@ const Compilation = @import("Compilation.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const Liveness = @import("Liveness.zig");
 const Module = @import("Module.zig");
-const InternPool = @import("InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 

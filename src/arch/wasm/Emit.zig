@@ -6,8 +6,8 @@ const std = @import("std");
 const Mir = @import("Mir.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
-const InternPool = @import("../../InternPool.zig");
 const codegen = @import("../../codegen.zig");
+const InternPool = std.zig.InternPool;
 const leb128 = std.leb;
 
 /// Contains our list of instructions

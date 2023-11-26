@@ -6,7 +6,7 @@ const fs = std.fs;
 
 const C = @This();
 const Module = @import("../Module.zig");
-const InternPool = @import("../InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Alignment = InternPool.Alignment;
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen/c.zig");

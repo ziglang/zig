@@ -10,9 +10,9 @@ const Type = @import("../type.zig").Type;
 const Value = @import("../value.zig").Value;
 const LazySrcLoc = Module.LazySrcLoc;
 const Air = @import("../Air.zig");
-const Zir = @import("../Zir.zig");
+const Zir = std.zig.Zir;
 const Liveness = @import("../Liveness.zig");
-const InternPool = @import("../InternPool.zig");
+const InternPool = std.zig.InternPool;
 
 const spec = @import("spirv/spec.zig");
 const Opcode = spec.Opcode;

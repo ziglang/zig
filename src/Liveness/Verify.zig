@@ -602,5 +602,5 @@ const log = std.log.scoped(.liveness_verify);
 
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
-const InternPool = @import("../InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Verify = @This();

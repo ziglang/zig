@@ -47,7 +47,7 @@ const Limb = std.math.big.Limb;
 const Hash = std.hash.Wyhash;
 
 const InternPool = @This();
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 
 pub const KeyAdapter = struct {
     intern_pool: *const InternPool,

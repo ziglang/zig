@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const autoHash = std.hash.autoHash;
 const Target = std.Target;
 
-const InternPool = @import("../../InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Alignment = InternPool.Alignment;
 const Module = @import("../../Module.zig");
 const Type = @import("../../type.zig").Type;

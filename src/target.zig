@@ -1,7 +1,7 @@
 const std = @import("std");
 const Type = @import("type.zig").Type;
 const AddressSpace = std.builtin.AddressSpace;
-const Alignment = @import("InternPool.zig").Alignment;
+const Alignment = std.zig.InternPool.Alignment;
 
 pub const ArchOsAbi = struct {
     arch: std.Target.Cpu.Arch,

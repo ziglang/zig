@@ -152,7 +152,7 @@ const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 const Air = @import("Air.zig");
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 const Module = @import("Module.zig");
 const trace = @import("tracy.zig").trace;
 const Namespace = Module.Namespace;
@@ -167,7 +167,7 @@ const Package = @import("Package.zig");
 const crash_report = @import("crash_report.zig");
 const build_options = @import("build_options");
 const Compilation = @import("Compilation.zig");
-const InternPool = @import("InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Alignment = InternPool.Alignment;
 
 pub const default_branch_quota = 1000;

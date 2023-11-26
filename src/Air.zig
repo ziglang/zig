@@ -10,7 +10,7 @@ const assert = std.debug.assert;
 const Air = @This();
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
-const InternPool = @import("InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Module = @import("Module.zig");
 
 instructions: std.MultiArrayList(Inst).Slice,

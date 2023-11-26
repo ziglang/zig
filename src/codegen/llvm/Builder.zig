@@ -11730,7 +11730,7 @@ else
     @compileError("LLVM unavailable");
 const log = std.log.scoped(.llvm);
 const std = @import("std");
-const InternPool = @import("../../InternPool.zig");
+const InternPool = std.zig.InternPool;
 
 const Allocator = std.mem.Allocator;
 const Builder = @This();

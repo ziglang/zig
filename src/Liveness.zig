@@ -14,7 +14,7 @@ const Log2Int = std.math.Log2Int;
 const Liveness = @This();
 const trace = @import("tracy.zig").trace;
 const Air = @import("Air.zig");
-const InternPool = @import("InternPool.zig");
+const InternPool = std.zig.InternPool;
 
 pub const Verify = @import("Liveness/Verify.zig");
 

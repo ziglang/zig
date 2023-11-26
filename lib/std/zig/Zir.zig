@@ -19,7 +19,7 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Ast = std.zig.Ast;
 
-const InternPool = @import("InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Zir = @This();
 
 instructions: std.MultiArrayList(Inst).Slice,

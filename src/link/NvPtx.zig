@@ -13,7 +13,7 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 
 const Module = @import("../Module.zig");
-const InternPool = @import("../InternPool.zig");
+const InternPool = std.zig.InternPool;
 const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
