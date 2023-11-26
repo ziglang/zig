@@ -298,7 +298,7 @@ fn clearWithHeldLock(p: *Progress, end_ptr: *usize) void {
             p.terminal = null;
             break :winapi;
         }
-        var cursor_pos = windows.COORD{
+        const cursor_pos = windows.COORD{
             .X = 0,
             .Y = info.dwCursorPosition.Y - @as(windows.SHORT, @intCast(p.rows_written)),
         };
