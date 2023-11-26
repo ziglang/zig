@@ -8268,25 +8268,8 @@ fn builtinCall(
 
     // Check function scope-only builtins
 
-    if (astgen.fn_block == null) {
-        switch (info.tag) {
-            .c_va_arg,
-            .c_va_copy,
-            .c_va_end,
-            .c_va_start,
-            .work_item_id,
-            .work_group_size,
-            .work_group_id,
-            .set_align_stack,
-            .set_cold,
-            .return_address,
-            .frame_address,
-            .breakpoint,
-            .src,
-            => return astgen.failNode(node, "'{s}' outside function scope", .{builtin_name}),
-            else => {},
-        }
-    }
+    if (astgen.fn_block == null and info.illegal_outside_function)
+        return astgen.failNode(node, "'{s}' outside function scope", .{builtin_name});
 
     switch (info.tag) {
         .import => {
