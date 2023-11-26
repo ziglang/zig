@@ -12,6 +12,6 @@ export fn foo() void {
 // error
 // target=native
 //
-// :3:5: error: duplicate union field: 'a'
-// :4:5: note: other field here
+// :3:5: error: union field name conflict: 'a'
+// :4:5: note: duplicate field here
 // :2:11: note: union declared here

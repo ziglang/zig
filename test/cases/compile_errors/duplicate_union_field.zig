@@ -12,5 +12,5 @@ export fn entry() void {
 // target=native
 //
 // :2:5: error: duplicate union field: 'Bar'
-// :3:5: note: other field here
+// :3:5: note: duplicate field here
 // :1:13: note: union declared here
