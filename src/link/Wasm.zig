@@ -2134,10 +2134,14 @@ const Kind = union(enum) {
 fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
     const atom = wasm.getAtomPtr(atom_index);
     const symbol = (SymbolLoc{ .file = null, .index = atom.sym_index }).getSymbol(wasm);
-    if (symbol.isDead()) {
+    const do_garbage_collect = wasm.base.options.gc_sections orelse
+        (wasm.base.options.output_mode != .Obj);
+
+    if (symbol.isDead() and do_garbage_collect) {
         // Prevent unreferenced symbols from being parsed.
         return;
     }
+
     const final_index: u32 = switch (kind) {
         .function => result: {
             const index: u32 = @intCast(wasm.functions.count() + wasm.imported_functions_count);
@@ -2289,16 +2293,23 @@ fn allocateAtoms(wasm: *Wasm) !void {
             if (sym.isDead()) {
                 // Dead symbols must be unlinked from the linked-list to prevent them
                 // from being emit into the binary.
-                if (atom.prev) |prev_index| {
-                    const prev = wasm.getAtomPtr(prev_index);
-                    prev.next = atom.next;
+                if (atom.next) |next_index| {
+                    const next = wasm.getAtomPtr(next_index);
+                    next.prev = atom.prev;
+                } else if (entry.value_ptr.* == atom_index) {
+                    // When the atom is dead and is also the first atom retrieved from wasm.atoms(index) we update
+                    // the entry to point it to the previous atom to ensure we do not start with a dead symbol that
+                    // was removed and therefore do not emit any code at all.
+                    if (atom.prev) |prev| {
+                        entry.value_ptr.* = prev;
+                    }
                 }
-                atom_index = atom.next orelse {
-                    atom.prev = null;
+                atom_index = atom.prev orelse {
+                    atom.next = null;
                     break;
                 };
-                const next = wasm.getAtomPtr(atom_index);
-                next.prev = atom.prev;
+                const prev = wasm.getAtomPtr(atom_index);
+                prev.next = atom.next;
                 atom.prev = null;
                 atom.next = null;
                 continue;
@@ -2787,6 +2798,7 @@ fn mergeSections(wasm: *Wasm) !void {
                     // We found an alias to the same function, discard this symbol in favor of
                     // the original symbol and point the discard function to it. This ensures
                     // we only emit a single function, instead of duplicates.
+                    symbol.unmark();
                     try wasm.discarded.putNoClobber(
                         wasm.base.allocator,
                         sym_loc,
@@ -2815,7 +2827,6 @@ fn mergeSections(wasm: *Wasm) !void {
     // For any removed duplicates, remove them from the resolved symbols list
     for (removed_duplicates.items) |sym_loc| {
         assert(wasm.resolved_symbols.swapRemove(sym_loc));
-        sym_loc.getSymbol(wasm).unmark();
     }
 
     log.debug("Merged ({d}) functions", .{wasm.functions.count()});
@@ -3741,8 +3752,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .type,
-            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
-            @as(u32, @intCast(wasm.func_types.items.len)),
+            @intCast(binary_bytes.items.len - header_offset - header_size),
+            @intCast(wasm.func_types.items.len),
         );
         section_count += 1;
     }
@@ -3774,8 +3785,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .import,
-            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
-            @as(u32, @intCast(wasm.imports.count() + @intFromBool(import_memory))),
+            @intCast(binary_bytes.items.len - header_offset - header_size),
+            @intCast(wasm.imports.count() + @intFromBool(import_memory)),
         );
         section_count += 1;
     }
@@ -3791,8 +3802,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .function,
-            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
-            @as(u32, @intCast(wasm.functions.count())),
+            @intCast(binary_bytes.items.len - header_offset - header_size),
+            @intCast(wasm.functions.count()),
         );
         section_count += 1;
     }
@@ -3810,8 +3821,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .table,
-            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
-            @as(u32, @intCast(wasm.tables.items.len)),
+            @intCast(binary_bytes.items.len - header_offset - header_size),
+            @intCast(wasm.tables.items.len),
         );
         section_count += 1;
     }
@@ -3825,8 +3836,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .memory,
-            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
-            @as(u32, 1), // wasm currently only supports 1 linear memory segment
+            @intCast(binary_bytes.items.len - header_offset - header_size),
+            1, // wasm currently only supports 1 linear memory segment
         );
         section_count += 1;
     }
@@ -3845,8 +3856,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .global,
-            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
-            @as(u32, @intCast(wasm.wasm_globals.items.len)),
+            @intCast(binary_bytes.items.len - header_offset - header_size),
+            @intCast(wasm.wasm_globals.items.len),
         );
         section_count += 1;
     }
@@ -3874,8 +3885,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .@"export",
-            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
-            @as(u32, @intCast(wasm.exports.items.len)) + @intFromBool(export_memory),
+            @intCast(binary_bytes.items.len - header_offset - header_size),
+            @intCast(wasm.exports.items.len + @intFromBool(export_memory)),
         );
         section_count += 1;
     }
@@ -3918,8 +3929,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .element,
-            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
-            @as(u32, 1),
+            @intCast(binary_bytes.items.len - header_offset - header_size),
+            1,
         );
         section_count += 1;
     }
@@ -3932,8 +3943,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .data_count,
-            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
-            @as(u32, @intCast(data_segments_count)),
+            @intCast(binary_bytes.items.len - header_offset - header_size),
+            @intCast(data_segments_count),
         );
     }
 
@@ -3978,7 +3989,7 @@ fn writeToFile(
             header_offset,
             .code,
             code_section_size,
-            @as(u32, @intCast(wasm.functions.count())),
+            @intCast(wasm.functions.count()),
         );
         code_section_index = section_count;
         section_count += 1;
@@ -4049,8 +4060,8 @@ fn writeToFile(
             binary_bytes.items,
             header_offset,
             .data,
-            @as(u32, @intCast(binary_bytes.items.len - header_offset - header_size)),
-            @as(u32, @intCast(segment_count)),
+            @intCast(binary_bytes.items.len - header_offset - header_size),
+            @intCast(segment_count),
         );
         data_section_index = section_count;
         section_count += 1;
@@ -4597,6 +4608,14 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append("--export-table");
         }
 
+        if (wasm.base.options.gc_sections) |gc| {
+            // For wasm-ld we only need to specify '--no-gc-sections' when the user explicitly
+            // specified it as garbage collection is enabled by default.
+            if (!gc) {
+                try argv.append("--no-gc-sections");
+            }
+        }
+
         if (wasm.base.options.strip) {
             try argv.append("-s");
         }
@@ -4882,7 +4901,7 @@ fn emitLinkSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: 
     try wasm.emitSymbolTable(binary_bytes, symbol_table);
     try wasm.emitSegmentInfo(binary_bytes);
 
-    const size = @as(u32, @intCast(binary_bytes.items.len - offset - 6));
+    const size: u32 = @intCast(binary_bytes.items.len - offset - 6);
     try writeCustomSectionHeader(binary_bytes.items, offset, size);
 }
 
@@ -4930,7 +4949,7 @@ fn emitSymbolTable(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: 
     }
 
     var buf: [10]u8 = undefined;
-    leb.writeUnsignedFixed(5, buf[0..5], @as(u32, @intCast(binary_bytes.items.len - table_offset + 5)));
+    leb.writeUnsignedFixed(5, buf[0..5], @intCast(binary_bytes.items.len - table_offset + 5));
     leb.writeUnsignedFixed(5, buf[5..], symbol_count);
     try binary_bytes.insertSlice(table_offset, &buf);
 }
@@ -5013,7 +5032,7 @@ fn emitCodeRelocations(
     var buf: [5]u8 = undefined;
     leb.writeUnsignedFixed(5, &buf, count);
     try binary_bytes.insertSlice(reloc_start, &buf);
-    const size = @as(u32, @intCast(binary_bytes.items.len - header_offset - 6));
+    const size: u32 = @intCast(binary_bytes.items.len - header_offset - 6);
     try writeCustomSectionHeader(binary_bytes.items, header_offset, size);
 }
 
@@ -5123,10 +5142,14 @@ pub fn storeDeclType(wasm: *Wasm, decl_index: InternPool.DeclIndex, func_type: s
 fn markReferences(wasm: *Wasm) !void {
     const tracy = trace(@src());
     defer tracy.end();
+    const do_garbage_collect = wasm.base.options.gc_sections orelse
+        (wasm.base.options.output_mode != .Obj);
+
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const sym = sym_loc.getSymbol(wasm);
-        if (sym.isExported(wasm.base.options.rdynamic) or sym.isNoStrip()) {
+        if (sym.isExported(wasm.base.options.rdynamic) or sym.isNoStrip() or !do_garbage_collect) {
             try wasm.mark(sym_loc);
+            continue;
         }
 
         // Debug sections may require to be parsed and marked when it contains
@@ -5139,7 +5162,7 @@ fn markReferences(wasm: *Wasm) !void {
             for (atom.relocs.items) |reloc| {
                 const target_loc: SymbolLoc = .{ .index = reloc.index, .file = atom.file };
                 const target_sym = target_loc.getSymbol(wasm);
-                if (target_sym.isAlive()) {
+                if (target_sym.isAlive() or !do_garbage_collect) {
                     sym.mark();
                     continue; // Skip all other relocations as this debug atom is already marked now
                 }

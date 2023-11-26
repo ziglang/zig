@@ -920,7 +920,7 @@ pub fn parseSymbolIntoAtom(object: *Object, object_index: u16, symbol_index: u32
         const start = searchRelocStart(relocations, relocatable_data.offset);
         const len = searchRelocEnd(relocations[start..], relocatable_data.offset + atom.size);
         atom.relocs = std.ArrayListUnmanaged(types.Relocation).fromOwnedSlice(relocations[start..][0..len]);
-        for (atom.relocs.items) |*reloc| {
+        for (atom.relocs.items) |reloc| {
             switch (reloc.relocation_type) {
                 .R_WASM_TABLE_INDEX_I32,
                 .R_WASM_TABLE_INDEX_I64,
