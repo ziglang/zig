@@ -381,12 +381,12 @@ fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node, end_ptr: *usize) v
         if (node.node_tree_depth > 0) {
             const depth: usize = @min(10, node.node_tree_depth);
             const whitespace_length: usize = if (depth > 1) (depth - 1) * 2 else 0;
-            const indentation_buffer = [1]u8{' '} ** 18; // fits indentation up to depth 10
             self.bufWriteInsertNewline(&end);
-            self.bufWriteLineTruncate(&end, "{s}{s}{c} ", .{
-                indentation_buffer[0..whitespace_length],
+            self.bufWriteLineTruncate(&end, "{s: <[3]}{s}{c} ", .{
+                "",
                 if (node.node_tree_depth > 10) "_ " else "",
                 self.bullet,
+                whitespace_length,
             });
         }
         if (node.name.len != 0) {
