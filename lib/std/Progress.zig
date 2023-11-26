@@ -107,9 +107,8 @@ pub const Node = struct {
     }
 
     /// Remove this `Node` from the `parent.children` stack of the provided `Node`. Thread-safe
-    /// Returns void if `parent` is null
     fn tryRemoveFromParentStack(self: *Node, target_node: *Node) void {
-        if (target_node.parent) |parent| {
+        const parent = target_node.parent orelse return;
             self.context.update_mutex.lock();
             defer self.context.update_mutex.unlock();
             const index = std.mem.indexOfScalar(?*Node, parent.children[0..], self) orelse return;
