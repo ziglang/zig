@@ -3807,7 +3807,7 @@ fn serve(
         switch (hdr.tag) {
             .exit => return,
             .update => {
-                assert(main_progress_node.recently_updated_child == null);
+                for (main_progress_node.children) |child| assert(child == null);
                 tracy.frameMark();
 
                 if (arg_mode == .translate_c) {
@@ -3872,7 +3872,7 @@ fn serve(
             },
             .hot_update => {
                 tracy.frameMark();
-                assert(main_progress_node.recently_updated_child == null);
+                for (main_progress_node.children) |child| assert(child == null);
                 if (child_pid) |pid| {
                     try comp.hotCodeSwap(main_progress_node, pid);
                     try serveUpdateResults(&server, comp);
@@ -3911,48 +3911,13 @@ fn progressThread(progress: *std.Progress, server: *const Server, reset: *std.Th
             error.Timeout => {},
         }
 
-        var buf: std.BoundedArray(u8, 160) = .{};
-
-        {
-            progress.update_mutex.lock();
-            defer progress.update_mutex.unlock();
-
-            var need_ellipse = false;
-            var maybe_node: ?*std.Progress.Node = &progress.root;
-            while (maybe_node) |node| {
-                if (need_ellipse) {
-                    buf.appendSlice("... ") catch {};
-                }
-                need_ellipse = false;
-                const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .Monotonic);
-                const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .Monotonic);
-                const current_item = completed_items + 1;
-                if (node.name.len != 0 or eti > 0) {
-                    if (node.name.len != 0) {
-                        buf.appendSlice(node.name) catch {};
-                        need_ellipse = true;
-                    }
-                    if (eti > 0) {
-                        if (need_ellipse) buf.appendSlice(" ") catch {};
-                        buf.writer().print("[{d}/{d}] ", .{ current_item, eti }) catch {};
-                        need_ellipse = false;
-                    } else if (completed_items != 0) {
-                        if (need_ellipse) buf.appendSlice(" ") catch {};
-                        buf.writer().print("[{d}] ", .{current_item}) catch {};
-                        need_ellipse = false;
-                    }
-                }
-                maybe_node = @atomicLoad(?*std.Progress.Node, &node.recently_updated_child, .Acquire);
-            }
-        }
-
-        const progress_string = buf.slice();
+        progress.refresh();
 
         server.serveMessage(.{
             .tag = .progress,
-            .bytes_len = @as(u32, @intCast(progress_string.len)),
+            .bytes_len = @as(u32, @intCast(progress.end)),
         }, &.{
-            progress_string,
+            progress.output_buffer[0..progress.end],
         }) catch |err| {
             fatal("unable to write to client: {s}", .{@errorName(err)});
         };
