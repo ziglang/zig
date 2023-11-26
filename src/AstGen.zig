@@ -1790,7 +1790,6 @@ fn structInitExpr(
         .none => return structInitExprAnon(gz, scope, node, struct_init),
         .discard => {
             // Even if discarding we must perform an anonymous init to check for duplicate field names.
-            // TODO: should duplicate field names be caught in AstGen?
             _ = try structInitExprAnon(gz, scope, node, struct_init);
             return .void_value;
         },
