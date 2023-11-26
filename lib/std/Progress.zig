@@ -43,7 +43,10 @@ prev_refresh_timestamp: u64 = undefined,
 
 /// This buffer represents the maximum number of bytes written to the terminal
 /// with each refresh.
-output_buffer: [100]u8 = undefined,
+output_buffer: [400]u8 = undefined,
+
+/// This symbol will be used as a bullet in the tree listing.
+bullet: u8 = '-',
 
 /// How many nanoseconds between writing updates to the terminal.
 refresh_rate_ns: u64 = 50 * std.time.ns_per_ms,
@@ -53,14 +56,14 @@ initial_delay_ns: u64 = 500 * std.time.ns_per_ms,
 
 done: bool = true,
 
-/// Protects the `refresh` function, as well as `node.recently_updated_child`.
+/// Protects the `refresh` function, as well as `Node` attributes.
 /// Without this, callsites would call `Node.end` and then free `Node` memory
 /// while it was still being accessed by the `refresh` function.
 update_mutex: std.Thread.Mutex = .{},
 
-/// Keeps track of how many columns in the terminal have been output, so that
+/// Keeps track of how many rows in the terminal have been output, so that
 /// we can move the cursor back later.
-columns_written: usize = undefined,
+rows_written: usize = undefined,
 
 /// Represents one unit of progress. Each node can have children nodes, or
 /// one can use integers with `update`.
@@ -69,17 +72,45 @@ pub const Node = struct {
     parent: ?*Node,
     name: []const u8,
     unit: []const u8 = "",
-    /// Must be handled atomically to be thread-safe.
-    recently_updated_child: ?*Node = null,
+    /// Depth of the Node within the tree
+    node_tree_depth: usize = undefined,
+    /// Must be handled using `update_mutex.lock` to be thread-safe.
+    children: [presentable_children]?*Node = [1]?*Node{null} ** presentable_children,
     /// Must be handled atomically to be thread-safe. 0 means null.
     unprotected_estimated_total_items: usize,
     /// Must be handled atomically to be thread-safe.
     unprotected_completed_items: usize,
 
+    const presentable_children = 10;
+
+    /// Push this `Node` to the `parent.children` stack of the provided `Node` (insert at first index). Thread-safe
+    /// Returns void if `parent` is null
+    fn tryPushToParentStack(self: *Node, target_node: *Node) void {
+        if (target_node.parent) |parent| {
+            inline for (parent.children) |child| if (child == self) return;
+            self.context.update_mutex.lock(); // lock below existence check for slight performance reasons
+            defer self.context.update_mutex.unlock(); // (downside: less precision, but not noticeable)
+            std.mem.copyBackwards(?*Node, parent.children[1..], parent.children[0 .. parent.children.len - 1]);
+            parent.children[0] = self;
+        }
+    }
+
+    /// Remove this `Node` from the `parent.children` stack of the provided `Node`. Thread-safe
+    /// Returns void if `parent` is null
+    fn tryRemoveFromParentStack(self: *Node, target_node: *Node) void {
+        if (target_node.parent) |parent| {
+            self.context.update_mutex.lock();
+            defer self.context.update_mutex.unlock();
+            const index = std.mem.indexOfScalar(?*Node, parent.children[0..], self) orelse return;
+            std.mem.copyBackwards(?*Node, parent.children[index..], parent.children[index + 1 ..]);
+            parent.children[parent.children.len - 1] = null;
+        }
+    }
+
     /// Create a new child progress node. Thread-safe.
     /// Call `Node.end` when done.
     /// TODO solve https://github.com/ziglang/zig/issues/2765 and then change this
-    /// API to set `self.parent.recently_updated_child` with the return value.
+    /// API to set `self.children` with the return value.
     /// Until that is fixed you probably want to call `activate` on the return value.
     /// Passing 0 for `estimated_total_items` means unknown.
     pub fn start(self: *Node, name: []const u8, estimated_total_items: usize) Node {
@@ -87,6 +118,7 @@ pub const Node = struct {
             .context = self.context,
             .parent = self,
             .name = name,
+            .node_tree_depth = self.node_tree_depth + 1,
             .unprotected_estimated_total_items = estimated_total_items,
             .unprotected_completed_items = 0,
         };
@@ -94,9 +126,6 @@ pub const Node = struct {
 
     /// This is the same as calling `start` and then `end` on the returned `Node`. Thread-safe.
     pub fn completeOne(self: *Node) void {
-        if (self.parent) |parent| {
-            @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
-        }
         _ = @atomicRmw(usize, &self.unprotected_completed_items, .Add, 1, .Monotonic);
         self.context.maybeRefresh();
     }
@@ -105,11 +134,7 @@ pub const Node = struct {
     pub fn end(self: *Node) void {
         self.context.maybeRefresh();
         if (self.parent) |parent| {
-            {
-                self.context.update_mutex.lock();
-                defer self.context.update_mutex.unlock();
-                _ = @cmpxchgStrong(?*Node, &parent.recently_updated_child, self, null, .Monotonic, .Monotonic);
-            }
+            self.tryRemoveFromParentStack(self);
             parent.completeOne();
         } else {
             self.context.update_mutex.lock();
@@ -121,40 +146,28 @@ pub const Node = struct {
 
     /// Tell the parent node that this node is actively being worked on. Thread-safe.
     pub fn activate(self: *Node) void {
-        if (self.parent) |parent| {
-            @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
-            self.context.maybeRefresh();
-        }
+        self.tryPushToParentStack(self);
+        self.context.maybeRefresh();
     }
 
-    /// Thread-safe.
+    /// Will also tell the parent node that this node is actively being worked on. Thread-safe.
     pub fn setName(self: *Node, name: []const u8) void {
+        self.tryPushToParentStack(self);
         const progress = self.context;
         progress.update_mutex.lock();
         defer progress.update_mutex.unlock();
         self.name = name;
-        if (self.parent) |parent| {
-            @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
-            if (parent.parent) |grand_parent| {
-                @atomicStore(?*Node, &grand_parent.recently_updated_child, parent, .Release);
-            }
-            if (progress.timer) |*timer| progress.maybeRefreshWithHeldLock(timer);
-        }
+        if (progress.timer) |*timer| progress.maybeRefreshWithHeldLock(timer);
     }
 
-    /// Thread-safe.
+    /// Will also tell the parent node that this node is actively being worked on. Thread-safe.
     pub fn setUnit(self: *Node, unit: []const u8) void {
+        self.tryPushToParentStack(self);
         const progress = self.context;
         progress.update_mutex.lock();
         defer progress.update_mutex.unlock();
         self.unit = unit;
-        if (self.parent) |parent| {
-            @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
-            if (parent.parent) |grand_parent| {
-                @atomicStore(?*Node, &grand_parent.recently_updated_child, parent, .Release);
-            }
-            if (progress.timer) |*timer| progress.maybeRefreshWithHeldLock(timer);
-        }
+        if (progress.timer) |*timer| progress.maybeRefreshWithHeldLock(timer);
     }
 
     /// Thread-safe. 0 means unknown.
@@ -190,10 +203,11 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
         .context = self,
         .parent = null,
         .name = name,
+        .node_tree_depth = 0,
         .unprotected_estimated_total_items = estimated_total_items,
         .unprotected_completed_items = 0,
     };
-    self.columns_written = 0;
+    self.rows_written = 0;
     self.prev_refresh_timestamp = 0;
     self.timer = std.time.Timer.start() catch null;
     self.done = false;
@@ -230,69 +244,68 @@ pub fn refresh(self: *Progress) void {
 fn clearWithHeldLock(p: *Progress, end_ptr: *usize) void {
     const file = p.terminal orelse return;
     var end = end_ptr.*;
-    if (p.columns_written > 0) {
-        // restore the cursor position by moving the cursor
-        // `columns_written` cells to the left, then clear the rest of the
-        // line
-        if (p.supports_ansi_escape_codes) {
-            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[{d}D", .{p.columns_written}) catch unreachable).len;
-            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
-        } else if (builtin.os.tag == .windows) winapi: {
-            std.debug.assert(p.is_windows_terminal);
 
-            var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-            if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
-                // stop trying to write to this file
-                p.terminal = null;
-                break :winapi;
-            }
-
-            var cursor_pos = windows.COORD{
-                .X = info.dwCursorPosition.X - @as(windows.SHORT, @intCast(p.columns_written)),
-                .Y = info.dwCursorPosition.Y,
-            };
-
-            if (cursor_pos.X < 0)
-                cursor_pos.X = 0;
-
-            const fill_chars = @as(windows.DWORD, @intCast(info.dwSize.X - cursor_pos.X));
-
-            var written: windows.DWORD = undefined;
-            if (windows.kernel32.FillConsoleOutputAttribute(
-                file.handle,
-                info.wAttributes,
-                fill_chars,
-                cursor_pos,
-                &written,
-            ) != windows.TRUE) {
-                // stop trying to write to this file
-                p.terminal = null;
-                break :winapi;
-            }
-            if (windows.kernel32.FillConsoleOutputCharacterW(
-                file.handle,
-                ' ',
-                fill_chars,
-                cursor_pos,
-                &written,
-            ) != windows.TRUE) {
-                // stop trying to write to this file
-                p.terminal = null;
-                break :winapi;
-            }
-            if (windows.kernel32.SetConsoleCursorPosition(file.handle, cursor_pos) != windows.TRUE) {
-                // stop trying to write to this file
-                p.terminal = null;
-                break :winapi;
-            }
+    // restore the cursor position by moving the cursor
+    // `rows_written` cells up, beginning of line,
+    // then clear to the end of the screen
+    if (p.supports_ansi_escape_codes) {
+        if (p.rows_written == 0) {
+            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[0G", .{}) catch unreachable).len; // beginning of line
+            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len; // clear till end of line
         } else {
-            // we are in a "dumb" terminal like in acme or writing to a file
-            p.output_buffer[end] = '\n';
-            end += 1;
+            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[{d}F", .{p.rows_written}) catch unreachable).len; // move up and to start
+            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[0J", .{}) catch unreachable).len; // clear till end of screen
         }
+    } else if (builtin.os.tag == .windows) winapi: {
+        std.debug.assert(p.is_windows_terminal);
 
-        p.columns_written = 0;
+        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+        if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
+            // stop trying to write to this file
+            p.terminal = null;
+            break :winapi;
+        }
+        var cursor_pos = windows.COORD{
+            .X = 0,
+            .Y = info.dwCursorPosition.Y - @as(windows.SHORT, @intCast(p.rows_written)),
+        };
+
+        const fill_chars = @as(windows.DWORD, @intCast(info.dwSize.Y - cursor_pos.Y));
+
+        var written: windows.DWORD = undefined;
+        if (windows.kernel32.FillConsoleOutputAttribute(
+            file.handle,
+            info.wAttributes,
+            fill_chars,
+            cursor_pos,
+            &written,
+        ) != windows.TRUE) {
+            // stop trying to write to this file
+            p.terminal = null;
+            break :winapi;
+        }
+        if (windows.kernel32.FillConsoleOutputCharacterW(
+            file.handle,
+            ' ',
+            fill_chars,
+            cursor_pos,
+            &written,
+        ) != windows.TRUE) {
+            // stop trying to write to this file
+            p.terminal = null;
+            break :winapi;
+        }
+        if (windows.kernel32.SetConsoleCursorPosition(file.handle, cursor_pos) != windows.TRUE) {
+            // stop trying to write to this file
+            p.terminal = null;
+            break :winapi;
+        }
+    } else {
+        // we are in a "dumb" terminal like in acme or writing to a file
+        p.output_buffer[end] = '\n';
+        end += 1;
     }
+    p.rows_written = 0;
     end_ptr.* = end;
 }
 
@@ -306,36 +319,7 @@ fn refreshWithHeldLock(self: *Progress) void {
     clearWithHeldLock(self, &end);
 
     if (!self.done) {
-        var need_ellipse = false;
-        var maybe_node: ?*Node = &self.root;
-        while (maybe_node) |node| {
-            if (need_ellipse) {
-                self.bufWrite(&end, "... ", .{});
-            }
-            need_ellipse = false;
-            const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .Monotonic);
-            const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .Monotonic);
-            const current_item = completed_items + 1;
-            if (node.name.len != 0 or eti > 0) {
-                if (node.name.len != 0) {
-                    self.bufWrite(&end, "{s}", .{node.name});
-                    need_ellipse = true;
-                }
-                if (eti > 0) {
-                    if (need_ellipse) self.bufWrite(&end, " ", .{});
-                    self.bufWrite(&end, "[{d}/{d}{s}] ", .{ current_item, eti, node.unit });
-                    need_ellipse = false;
-                } else if (completed_items != 0) {
-                    if (need_ellipse) self.bufWrite(&end, " ", .{});
-                    self.bufWrite(&end, "[{d}{s}] ", .{ current_item, node.unit });
-                    need_ellipse = false;
-                }
-            }
-            maybe_node = @atomicLoad(?*Node, &node.recently_updated_child, .Acquire);
-        }
-        if (need_ellipse) {
-            self.bufWrite(&end, "... ", .{});
-        }
+        refreshOutputBufWithHeldLock(self, &self.root, &end);
     }
 
     _ = file.write(self.output_buffer[0..end]) catch {
@@ -345,6 +329,48 @@ fn refreshWithHeldLock(self: *Progress) void {
     if (self.timer) |*timer| {
         self.prev_refresh_timestamp = timer.read();
     }
+}
+
+fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node, end_ptr: *usize) void {
+    var end = end_ptr.*;
+    var need_ellipse = false;
+
+    const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .Monotonic);
+    const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .Monotonic);
+    const current_item = completed_items + 1;
+
+    if (node.name.len != 0 or eti > 0) {
+        if (node.node_tree_depth > 0) {
+            const depth: usize = @min(10, node.node_tree_depth);
+            const whitespace_length: usize = if (depth > 1) (depth - 1) * 2 else 0;
+            const indentation_buffer = [1]u8{' '} ** 18; // fits indentation up to depth 10
+            self.bufWrite(&end, "\n{s}{s}{c} ", .{
+                indentation_buffer[0..whitespace_length],
+                if (node.node_tree_depth > 10) "_ " else "",
+                self.bullet,
+            });
+        }
+        if (node.name.len != 0) {
+            self.bufWrite(&end, "{s} ", .{node.name});
+            need_ellipse = true;
+        }
+        if (eti > 0) {
+            self.bufWrite(&end, "[{d}/{d}{s}]", .{ current_item, eti, node.unit });
+            need_ellipse = false;
+        } else if (completed_items != 0) {
+            self.bufWrite(&end, "[{d}{s}]", .{ current_item, node.unit });
+            need_ellipse = false;
+        }
+        if (need_ellipse) {
+            self.bufWrite(&end, "...", .{});
+        }
+    }
+
+    for (node.children) |maybe_child| {
+        if (maybe_child) |child| refreshOutputBufWithHeldLock(self, child, &end);
+    }
+
+    end_ptr.* = end;
 }
 
 pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
@@ -357,7 +383,7 @@ pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
         self.terminal = null;
         return;
     };
-    self.columns_written = 0;
+    if (self.rows_written > 0) self.rows_written -= 1;
 }
 
 /// Allows the caller to freely write to stderr until unlock_stderr() is called.
@@ -382,14 +408,13 @@ pub fn unlock_stderr(p: *Progress) void {
 
 fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: anytype) void {
     if (std.fmt.bufPrint(self.output_buffer[end.*..], format, args)) |written| {
+        self.rows_written += std.mem.count(u8, format, "\n");
         const amt = written.len;
         end.* += amt;
-        self.columns_written += amt;
     } else |err| switch (err) {
         error.NoSpaceLeft => {
-            self.columns_written += self.output_buffer.len - end.*;
             end.* = self.output_buffer.len;
-            const suffix = "... ";
+            const suffix = "...";
             @memcpy(self.output_buffer[self.output_buffer.len - suffix.len ..], suffix);
         },
     }
