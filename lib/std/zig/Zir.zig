@@ -2244,38 +2244,71 @@ pub const Inst = struct {
     /// this union. `Tag` determines which union field is active, as well as
     /// how to interpret the data within.
     pub const Data = union {
-        /// Used for `Tag.extended`. The extended opcode determines the meaning
-        /// of the `small` and `operand` fields.
-        extended: Extended.InstData,
-        /// Used for unary operators, with an AST node source location.
-        un_node: struct {
-            /// Offset from Decl AST node index.
-            src_node: i32,
-            /// The meaning of this operand depends on the corresponding `Tag`.
-            operand: Ref,
-        },
-        /// Used for unary operators, with a token source location.
-        un_tok: struct {
+        pub const UnTok = struct {
             /// Offset from Decl AST token index.
             src_tok: Ast.TokenIndex,
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
-        },
-        pl_node: struct {
+        };
+
+        pub const PlNode = struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
             src_node: i32,
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
-        },
-        pl_tok: struct {
+        };
+
+        pub const PlTok = struct {
             /// Offset from Decl AST token index.
             src_tok: Ast.TokenIndex,
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
-        },
+        };
+
+        pub const StrTok = struct {
+            /// Offset into `string_bytes`. Null-terminated.
+            start: u32,
+            /// Offset from Decl AST token index.
+            src_tok: u32,
+
+            pub fn get(self: @This(), code: Zir) [:0]const u8 {
+                return code.nullTerminatedString(self.start);
+            }
+        };
+
+        pub const IntType = struct {
+            /// Offset from Decl AST node index.
+            /// `Tag` determines which kind of AST node this points to.
+            src_node: i32,
+            signedness: std.builtin.Signedness,
+            bit_count: u16,
+        };
+
+        pub const Unreachable = struct {
+            /// Offset from Decl AST node index.
+            /// `Tag` determines which kind of AST node this points to.
+            src_node: i32,
+        };
+
+        pub const InstNode = struct {
+            /// Offset from Decl AST node index.
+            src_node: i32,
+            /// The meaning of this operand depends on the corresponding `Tag`.
+            inst: Index,
+        };
+
+        /// Used for `Tag.extended`. The extended opcode determines the meaning
+        /// of the `small` and `operand` fields.
+        extended: Extended.InstData,
+        /// Used for unary operators, with an AST node source location.
+        un_node: UnNode.InstData,
+        /// Used for unary operators, with a token source location.
+        un_tok: UnTok,
+        pl_node: PlNode,
+        pl_tok: PlTok,
         bin: Bin,
         /// For strings which may contain null bytes.
         str: struct {
@@ -2288,16 +2321,7 @@ pub const Inst = struct {
                 return code.string_bytes[self.start..][0..self.len];
             }
         },
-        str_tok: struct {
-            /// Offset into `string_bytes`. Null-terminated.
-            start: u32,
-            /// Offset from Decl AST token index.
-            src_tok: u32,
-
-            pub fn get(self: @This(), code: Zir) [:0]const u8 {
-                return code.nullTerminatedString(self.start);
-            }
-        },
+        str_tok: StrTok,
         /// Offset from Decl AST token index.
         tok: Ast.TokenIndex,
         /// Offset from Decl AST node index.
@@ -2319,23 +2343,13 @@ pub const Inst = struct {
             /// Index into extra. See `PtrType`.
             payload_index: u32,
         },
-        int_type: struct {
-            /// Offset from Decl AST node index.
-            /// `Tag` determines which kind of AST node this points to.
-            src_node: i32,
-            signedness: std.builtin.Signedness,
-            bit_count: u16,
-        },
+        int_type: IntType,
         bool_br: struct {
             lhs: Ref,
             /// Points to a `Block`.
             payload_index: u32,
         },
-        @"unreachable": struct {
-            /// Offset from Decl AST node index.
-            /// `Tag` determines which kind of AST node this points to.
-            src_node: i32,
-        },
+        @"unreachable": Unreachable,
         @"break": struct {
             operand: Ref,
             payload_index: u32,
@@ -2343,12 +2357,7 @@ pub const Inst = struct {
         dbg_stmt: LineColumn,
         /// Used for unary operators which reference an inst,
         /// with an AST node source location.
-        inst_node: struct {
-            /// Offset from Decl AST node index.
-            src_node: i32,
-            /// The meaning of this operand depends on the corresponding `Tag`.
-            inst: Index,
-        },
+        inst_node: InstNode,
         str_op: struct {
             /// Offset into `string_bytes`. Null-terminated.
             str: u32,
@@ -2742,6 +2751,13 @@ pub const Inst = struct {
     pub const UnNode = struct {
         node: i32,
         operand: Ref,
+
+        pub const InstData = struct {
+            /// Offset from Decl AST node index.
+            src_node: i32,
+            /// The meaning of this operand depends on the corresponding `Tag`.
+            operand: Ref,
+        };
     };
 
     pub const ElemPtrImm = struct {
