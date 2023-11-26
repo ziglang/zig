@@ -40,17 +40,109 @@ const SpvTypeInfo = struct {
 
 const TypeMap = std.AutoHashMapUnmanaged(InternPool.Index, SpvTypeInfo);
 
-const IncomingBlock = struct {
-    src_label_id: IdRef,
-    break_value_id: IdRef,
-};
+const ControlFlow = union(enum) {
+    const Structured = struct {
+        /// This type indicates the way that a block is terminated. The
+        /// state of a particular block is used to track how a jump from
+        /// inside the block must reach the outside.
+        const Block = union(enum) {
+            const Incoming = struct {
+                src_label: IdRef,
+                /// Instruction that returns an u32 value of the
+                /// `Air.Inst.Index` that control flow should jump to.
+                next_block: IdRef,
+            };
 
-const Block = struct {
-    label_id: ?IdRef,
-    incoming_blocks: std.ArrayListUnmanaged(IncomingBlock),
-};
+            const SelectionMerge = struct {
+                /// Incoming block from the `then` label.
+                /// Note that hte incoming block from the `else` label is
+                /// either given by the next element in the stack.
+                incoming: Incoming,
+                /// The label id of the cond_br's merge block.
+                /// For the top-most element in the stack, this
+                /// value is undefined.
+                merge_block: IdRef,
+            };
 
-const BlockMap = std.AutoHashMapUnmanaged(Air.Inst.Index, *Block);
+            /// For a `selection` type block, we cannot use early exits, and we
+            /// must generate a 'merge ladder' of OpSelection instructions. To that end,
+            /// we keep a stack of the merges that still must be closed at the end of
+            /// a block.
+            ///
+            /// This entire structure basically just resembles a tree like
+            ///     a   x
+            ///      \ /
+            ///   b   o   merge
+            ///    \ /
+            /// c   o   merge
+            ///  \ /
+            ///   o   merge
+            ///  /
+            /// o   jump to next block
+            selection: struct {
+                /// In order to know which merges we still need to do, we need to keep
+                /// a stack of those.
+                merge_stack: std.ArrayListUnmanaged(SelectionMerge) = .{},
+            },
+            /// For a `loop` type block, we can early-exit the block by
+            /// jumping to the loop exit node, and we don't need to generate
+            /// an entire stack of merges.
+            loop: struct {
+                /// The next block to jump to can be determined from any number
+                /// of conditions that jump to the loop exit.
+                merges: std.ArrayListUnmanaged(Incoming) = .{},
+                /// The label id of the loop's merge block.
+                merge_block: IdRef,
+            },
+
+            fn deinit(self: *Structured.Block, a: Allocator) void {
+                switch (self.*) {
+                    .selection => |*merge| merge.merge_stack.deinit(a),
+                    .loop => |*merge| merge.merges.deinit(a),
+                }
+                self.* = undefined;
+            }
+        };
+        /// The stack of (structured) blocks that we are currently in. This determines
+        /// how exits from the current block must be handled.
+        block_stack: std.ArrayListUnmanaged(*Structured.Block) = .{},
+        /// Maps `block` inst indices to the variable that the block's result
+        /// value must be written to.
+        block_results: std.AutoHashMapUnmanaged(Air.Inst.Index, IdRef) = .{},
+    };
+
+    const Unstructured = struct {
+        const Incoming = struct {
+            src_label: IdRef,
+            break_value_id: IdRef,
+        };
+
+        const Block = struct {
+            label: ?IdRef = null,
+            incoming_blocks: std.ArrayListUnmanaged(Incoming) = .{},
+        };
+
+        /// We need to keep track of result ids for block labels, as well as the 'incoming'
+        /// blocks for a block.
+        blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *Block) = .{},
+    };
+
+    structured: Structured,
+    unstructured: Unstructured,
+
+    pub fn deinit(self: *ControlFlow, a: Allocator) void {
+        switch (self.*) {
+            .structured => |*cf| {
+                cf.block_stack.deinit(a);
+                cf.block_results.deinit(a);
+            },
+            .unstructured => |*cf| {
+                cf.blocks.deinit(a);
+            },
+        }
+        self.* = undefined;
+    }
+};
 
 /// This structure holds information that is relevant to the entire compilation,
 /// in contrast to `DeclGen`, which only holds relevant information about a
@@ -64,7 +156,7 @@ pub const Object = struct {
 
     /// The Zig module that this object file is generated for.
     /// A map of Zig decl indices to SPIR-V decl indices.
-    decl_link: std.AutoHashMapUnmanaged(Decl.Index, SpvModule.Decl.Index) = .{},
+    decl_link: std.AutoHashMapUnmanaged(InternPool.DeclIndex, SpvModule.Decl.Index) = .{},
 
     /// A map of Zig InternPool indices for anonymous decls to SPIR-V decl indices.
     anon_decl_link: std.AutoHashMapUnmanaged(struct { InternPool.Index, StorageClass }, SpvModule.Decl.Index) = .{},
@@ -95,10 +187,18 @@ pub const Object = struct {
     fn genDecl(
         self: *Object,
         mod: *Module,
-        decl_index: Decl.Index,
+        decl_index: InternPool.DeclIndex,
         air: Air,
         liveness: Liveness,
     ) !void {
+        const target = mod.getTarget();
+        // We always want a structured control flow in shaders. This option is only relevant
+        // for OpenCL kernels.
+        const want_structured_cfg = switch (target.os.tag) {
+            .opencl => mod.comp.bin_file.options.want_structured_cfg orelse false,
+            else => true,
+        };
+
         var decl_gen = DeclGen{
             .gpa = self.gpa,
             .object = self,
@@ -108,7 +208,11 @@ pub const Object = struct {
             .air = air,
             .liveness = liveness,
             .type_map = &self.type_map,
-            .current_block_label_id = undefined,
+            .control_flow = switch (want_structured_cfg) {
+                true => .{ .structured = .{} },
+                false => .{ .unstructured = .{} },
+            },
+            .current_block_label = undefined,
         };
         defer decl_gen.deinit();
 
@@ -143,14 +247,14 @@ pub const Object = struct {
     pub fn updateDecl(
         self: *Object,
         mod: *Module,
-        decl_index: Decl.Index,
+        decl_index: InternPool.DeclIndex,
     ) !void {
         try self.genDecl(mod, decl_index, undefined, undefined);
     }
 
     /// Fetch or allocate a result id for decl index. This function also marks the decl as alive.
     /// Note: Function does not actually generate the decl, it just allocates an index.
-    pub fn resolveDecl(self: *Object, mod: *Module, decl_index: Decl.Index) !SpvModule.Decl.Index {
+    pub fn resolveDecl(self: *Object, mod: *Module, decl_index: InternPool.DeclIndex) !SpvModule.Decl.Index {
         const decl = mod.declPtr(decl_index);
         try mod.markDeclAlive(decl);
 
@@ -185,7 +289,7 @@ const DeclGen = struct {
     spv: *SpvModule,
 
     /// The decl we are currently generating code for.
-    decl_index: Decl.Index,
+    decl_index: InternPool.DeclIndex,
 
     /// The intermediate code of the declaration we are currently generating. Note: If
     /// the declaration is not a function, this value will be undefined!
@@ -213,12 +317,11 @@ const DeclGen = struct {
     /// is already in this map, its recursive.
     wip_pointers: std.AutoHashMapUnmanaged(struct { InternPool.Index, StorageClass }, CacheRef) = .{},
 
-    /// We need to keep track of result ids for block labels, as well as the 'incoming'
-    /// blocks for a block.
-    blocks: BlockMap = .{},
+    /// This field keeps track of the current state wrt structured or unstructured control flow.
+    control_flow: ControlFlow,
 
     /// The label of the SPIR-V block we are currently generating.
-    current_block_label_id: IdRef,
+    current_block_label: IdRef,
 
     /// The code (prologue and body) for the function we are currently generating code for.
     func: SpvModule.Fn = .{},
@@ -300,7 +403,7 @@ const DeclGen = struct {
         self.args.deinit(self.gpa);
         self.inst_results.deinit(self.gpa);
         self.wip_pointers.deinit(self.gpa);
-        self.blocks.deinit(self.gpa);
+        self.control_flow.deinit(self.gpa);
         self.func.deinit(self.gpa);
         self.base_line_stack.deinit(self.gpa);
     }
@@ -362,7 +465,7 @@ const DeclGen = struct {
         };
 
         const mod = self.module;
-        const ty = mod.intern_pool.typeOf(val).toType();
+        const ty = Type.fromInterned(mod.intern_pool.typeOf(val));
         const ptr_ty_ref = try self.ptrType(ty, storage_class);
 
         const var_id = self.spv.declPtr(spv_decl_index).result_id;
@@ -384,10 +487,11 @@ const DeclGen = struct {
         // TODO: This should probably be made a little more robust.
         const func = self.func;
         defer self.func = func;
-        const block_label_id = self.current_block_label_id;
-        defer self.current_block_label_id = block_label_id;
+        const block_label = self.current_block_label;
+        defer self.current_block_label = block_label;
 
         self.func = .{};
+        defer self.func.deinit(self.gpa);
 
         // TODO: Merge this with genDecl?
         const begin = self.spv.beginGlobal();
@@ -409,9 +513,9 @@ const DeclGen = struct {
         try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
             .id_result = root_block_id,
         });
-        self.current_block_label_id = root_block_id;
+        self.current_block_label = root_block_id;
 
-        const val_id = try self.constant(ty, val.toValue(), .indirect);
+        const val_id = try self.constant(ty, Value.fromInterned(val), .indirect);
         try self.func.body.emit(self.spv.gpa, .OpStore, .{
             .pointer = var_id,
             .object = val_id,
@@ -432,9 +536,9 @@ const DeclGen = struct {
     /// block we are currently generating.
     /// Note that there is no such thing as nested blocks like in ZIR or AIR, so we don't need to
     /// keep track of the previous block.
-    fn beginSpvBlock(self: *DeclGen, label_id: IdResult) !void {
-        try self.func.body.emit(self.spv.gpa, .OpLabel, .{ .id_result = label_id });
-        self.current_block_label_id = label_id;
+    fn beginSpvBlock(self: *DeclGen, label: IdResult) !void {
+        try self.func.body.emit(self.spv.gpa, .OpLabel, .{ .id_result = label });
+        self.current_block_label = label;
     }
 
     /// SPIR-V requires enabling specific integer sizes through capabilities, and so if they are not enabled, we need
@@ -718,10 +822,10 @@ const DeclGen = struct {
                     .payload => err_int_ty,
                 };
                 const err_val = switch (error_union.val) {
-                    .err_name => |err_name| (try mod.intern(.{ .err = .{
+                    .err_name => |err_name| Value.fromInterned((try mod.intern(.{ .err = .{
                         .ty = ty.errorUnionSet(mod).toIntern(),
                         .name = err_name,
-                    } })).toValue(),
+                    } }))),
                     .payload => try mod.intValue(err_int_ty, 0),
                 };
                 const payload_ty = ty.errorUnionPayload(mod);
@@ -731,10 +835,10 @@ const DeclGen = struct {
                     return try self.constant(err_ty, err_val, .indirect);
                 }
 
-                const payload_val = switch (error_union.val) {
+                const payload_val = Value.fromInterned(switch (error_union.val) {
                     .err_name => try mod.intern(.{ .undef = payload_ty.toIntern() }),
                     .payload => |payload| payload,
-                }.toValue();
+                });
 
                 var constituents: [2]IdRef = undefined;
                 var types: [2]Type = undefined;
@@ -765,7 +869,7 @@ const DeclGen = struct {
                     return ptr_id;
                 }
 
-                const len_id = try self.constant(Type.usize, ptr.len.toValue(), .indirect);
+                const len_id = try self.constant(Type.usize, Value.fromInterned(ptr.len), .indirect);
                 return try self.constructStruct(
                     ty,
                     &.{ ptr_ty, Type.usize },
@@ -805,7 +909,7 @@ const DeclGen = struct {
             },
             .aggregate => |aggregate| switch (ip.indexToKey(ty.ip_index)) {
                 inline .array_type, .vector_type => |array_type, tag| {
-                    const elem_ty = array_type.child.toType();
+                    const elem_ty = Type.fromInterned(array_type.child);
                     const elem_ty_ref = try self.resolveType(elem_ty, .indirect);
 
                     const constituents = try self.gpa.alloc(IdRef, @as(u32, @intCast(ty.arrayLenIncludingSentinel(mod))));
@@ -821,11 +925,11 @@ const DeclGen = struct {
                         },
                         .elems => |elems| {
                             for (0..@as(usize, @intCast(array_type.len))) |i| {
-                                constituents[i] = try self.constant(elem_ty, elems[i].toValue(), .indirect);
+                                constituents[i] = try self.constant(elem_ty, Value.fromInterned(elems[i]), .indirect);
                             }
                         },
                         .repeated_elem => |elem| {
-                            const val_id = try self.constant(elem_ty, elem.toValue(), .indirect);
+                            const val_id = try self.constant(elem_ty, Value.fromInterned(elem), .indirect);
                             for (0..@as(usize, @intCast(array_type.len))) |i| {
                                 constituents[i] = val_id;
                             }
@@ -834,7 +938,7 @@ const DeclGen = struct {
 
                     switch (tag) {
                         inline .array_type => if (array_type.sentinel != .none) {
-                            constituents[constituents.len - 1] = try self.constant(elem_ty, array_type.sentinel.toValue(), .indirect);
+                            constituents[constituents.len - 1] = try self.constant(elem_ty, Value.fromInterned(array_type.sentinel), .indirect);
                         },
                         else => {},
                     }
@@ -855,7 +959,7 @@ const DeclGen = struct {
 
                     var it = struct_type.iterateRuntimeOrder(ip);
                     while (it.next()) |field_index| {
-                        const field_ty = struct_type.field_types.get(ip)[field_index].toType();
+                        const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
                         if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                             // This is a zero-bit field - we only needed it for the alignment.
                             continue;
@@ -875,11 +979,11 @@ const DeclGen = struct {
                 else => unreachable,
             },
             .un => |un| {
-                const active_field = ty.unionTagFieldIndex(un.tag.toValue(), mod).?;
+                const active_field = ty.unionTagFieldIndex(Value.fromInterned(un.tag), mod).?;
                 const union_obj = mod.typeToUnion(ty).?;
-                const field_ty = union_obj.field_types.get(ip)[active_field].toType();
+                const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[active_field]);
                 const payload = if (field_ty.hasRuntimeBitsIgnoreComptime(mod))
-                    try self.constant(field_ty, un.val.toValue(), .direct)
+                    try self.constant(field_ty, Value.fromInterned(un.val), .direct)
                 else
                     null;
                 return try self.unionInit(ty, active_field, payload);
@@ -903,7 +1007,7 @@ const DeclGen = struct {
                 try self.func.body.emit(self.spv.gpa, .OpConvertUToPtr, .{
                     .id_result_type = self.typeId(result_ty_ref),
                     .id_result = ptr_id,
-                    .integer_value = try self.constant(Type.usize, int.toValue(), .direct),
+                    .integer_value = try self.constant(Type.usize, Value.fromInterned(int), .direct),
                 });
                 return ptr_id;
             },
@@ -911,8 +1015,8 @@ const DeclGen = struct {
             .opt_payload => unreachable, // TODO
             .comptime_field => unreachable,
             .elem => |elem_ptr| {
-                const parent_ptr_ty = mod.intern_pool.typeOf(elem_ptr.base).toType();
-                const parent_ptr_id = try self.constantPtr(parent_ptr_ty, elem_ptr.base.toValue());
+                const parent_ptr_ty = Type.fromInterned(mod.intern_pool.typeOf(elem_ptr.base));
+                const parent_ptr_id = try self.constantPtr(parent_ptr_ty, Value.fromInterned(elem_ptr.base));
                 const size_ty_ref = try self.sizeType();
                 const index_id = try self.constInt(size_ty_ref, elem_ptr.index);
 
@@ -936,8 +1040,8 @@ const DeclGen = struct {
                 return result_id;
             },
             .field => |field| {
-                const base_ptr_ty = mod.intern_pool.typeOf(field.base).toType();
-                const base_ptr = try self.constantPtr(base_ptr_ty, field.base.toValue());
+                const base_ptr_ty = Type.fromInterned(mod.intern_pool.typeOf(field.base));
+                const base_ptr = try self.constantPtr(base_ptr_ty, Value.fromInterned(field.base));
                 const field_index: u32 = @intCast(field.index);
                 return try self.structFieldPtr(ptr_ty, base_ptr_ty, base_ptr, field_index);
             },
@@ -955,12 +1059,12 @@ const DeclGen = struct {
         const ip = &mod.intern_pool;
         const ty_ref = try self.resolveType(ty, .direct);
         const decl_val = anon_decl.val;
-        const decl_ty = ip.typeOf(decl_val).toType();
+        const decl_ty = Type.fromInterned(ip.typeOf(decl_val));
 
-        if (decl_val.toValue().getFunction(mod)) |func| {
+        if (Value.fromInterned(decl_val).getFunction(mod)) |func| {
             _ = func;
             unreachable; // TODO
-        } else if (decl_val.toValue().getExternFunc(mod)) |func| {
+        } else if (Value.fromInterned(decl_val).getExternFunc(mod)) |func| {
             _ = func;
             unreachable;
         }
@@ -1011,7 +1115,7 @@ const DeclGen = struct {
         }
     }
 
-    fn constantDeclRef(self: *DeclGen, ty: Type, decl_index: Decl.Index) !IdRef {
+    fn constantDeclRef(self: *DeclGen, ty: Type, decl_index: InternPool.DeclIndex) !IdRef {
         const mod = self.module;
         const ty_ref = try self.resolveType(ty, .direct);
         const ty_id = self.typeId(ty_ref);
@@ -1163,7 +1267,7 @@ const DeclGen = struct {
         const layout = self.unionLayout(ty);
         if (!layout.has_payload) {
             // No payload, so represent this as just the tag type.
-            return try self.resolveType(union_obj.enum_tag_ty.toType(), .indirect);
+            return try self.resolveType(Type.fromInterned(union_obj.enum_tag_ty), .indirect);
         }
 
         if (self.type_map.get(ty.toIntern())) |info| return info.ty_ref;
@@ -1174,7 +1278,7 @@ const DeclGen = struct {
         const u8_ty_ref = try self.intType(.unsigned, 8); // TODO: What if Int8Type is not enabled?
 
         if (layout.tag_size != 0) {
-            const tag_ty_ref = try self.resolveType(union_obj.enum_tag_ty.toType(), .indirect);
+            const tag_ty_ref = try self.resolveType(Type.fromInterned(union_obj.enum_tag_ty), .indirect);
             member_types[layout.tag_index] = tag_ty_ref;
             member_names[layout.tag_index] = try self.spv.resolveString("(tag)");
         }
@@ -1326,13 +1430,13 @@ const DeclGen = struct {
                     defer self.gpa.free(param_ty_refs);
                     var param_index: usize = 0;
                     for (fn_info.param_types.get(ip)) |param_ty_index| {
-                        const param_ty = param_ty_index.toType();
+                        const param_ty = Type.fromInterned(param_ty_index);
                         if (!param_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                         param_ty_refs[param_index] = try self.resolveType(param_ty, .direct);
                         param_index += 1;
                     }
-                    const return_ty_ref = try self.resolveFnReturnType(fn_info.return_type.toType());
+                    const return_ty_ref = try self.resolveFnReturnType(Type.fromInterned(fn_info.return_type));
 
                     const ty_ref = try self.spv.resolve(.{ .function_type = .{
                         .return_type = return_ty_ref,
@@ -1355,7 +1459,7 @@ const DeclGen = struct {
                 // in ptrType()!
 
                 const storage_class = spvStorageClass(ptr_info.flags.address_space);
-                const ptr_ty_ref = try self.ptrType(ptr_info.child.toType(), storage_class);
+                const ptr_ty_ref = try self.ptrType(Type.fromInterned(ptr_info.child), storage_class);
 
                 if (ptr_info.flags.size != .Slice) {
                     return ptr_ty_ref;
@@ -1390,9 +1494,9 @@ const DeclGen = struct {
 
                         var member_index: usize = 0;
                         for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, field_val| {
-                            if (field_val != .none or !field_ty.toType().hasRuntimeBits(mod)) continue;
+                            if (field_val != .none or !Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
 
-                            member_types[member_index] = try self.resolveType(field_ty.toType(), .indirect);
+                            member_types[member_index] = try self.resolveType(Type.fromInterned(field_ty), .indirect);
                             member_index += 1;
                         }
 
@@ -1409,7 +1513,7 @@ const DeclGen = struct {
                 };
 
                 if (struct_type.layout == .Packed) {
-                    return try self.resolveType(struct_type.backingIntType(ip).toType(), .direct);
+                    return try self.resolveType(Type.fromInterned(struct_type.backingIntType(ip).*), .direct);
                 }
 
                 var member_types = std.ArrayList(CacheRef).init(self.gpa);
@@ -1420,7 +1524,7 @@ const DeclGen = struct {
 
                 var it = struct_type.iterateRuntimeOrder(ip);
                 while (it.next()) |field_index| {
-                    const field_ty = struct_type.field_types.get(ip)[field_index].toType();
+                    const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
                     if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                         // This is a zero-bit field - we only needed it for the alignment.
                         continue;
@@ -1624,7 +1728,7 @@ const DeclGen = struct {
 
         if (union_layout.has_payload) {
             const most_aligned_field = layout.most_aligned_field;
-            const most_aligned_field_ty = union_obj.field_types.get(ip)[most_aligned_field].toType();
+            const most_aligned_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[most_aligned_field]);
             union_layout.payload_ty = most_aligned_field_ty;
             union_layout.payload_size = @intCast(most_aligned_field_ty.abiSize(mod));
         } else {
@@ -1751,7 +1855,7 @@ const DeclGen = struct {
         if (decl.val.getFunction(mod)) |_| {
             assert(decl.ty.zigTypeTag(mod) == .Fn);
             const fn_info = mod.typeToFunc(decl.ty).?;
-            const return_ty_ref = try self.resolveFnReturnType(fn_info.return_type.toType());
+            const return_ty_ref = try self.resolveFnReturnType(Type.fromInterned(fn_info.return_type));
 
             const prototype_id = try self.resolveTypeId(decl.ty);
             try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
@@ -1763,7 +1867,7 @@ const DeclGen = struct {
 
             try self.args.ensureUnusedCapacity(self.gpa, fn_info.param_types.len);
             for (fn_info.param_types.get(ip)) |param_ty_index| {
-                const param_ty = param_ty_index.toType();
+                const param_ty = Type.fromInterned(param_ty_index);
                 if (!param_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                 const param_type_id = try self.resolveTypeId(param_ty);
@@ -1783,13 +1887,22 @@ const DeclGen = struct {
             try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
                 .id_result = root_block_id,
             });
-            self.current_block_label_id = root_block_id;
+            self.current_block_label = root_block_id;
 
             const main_body = self.air.getMainBody();
-            try self.genBody(main_body);
-
-            // Append the actual code into the functions section.
+            switch (self.control_flow) {
+                .structured => {
+                    _ = try self.genStructuredBody(.selection, main_body);
+                    // We always expect paths to here to end, but we still need the block
+                    // to act as a dummy merge block.
+                    try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
+                },
+                .unstructured => {
+                    try self.genBody(main_body);
+                },
+            }
             try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
+            // Append the actual code into the functions section.
             try self.spv.addFunction(spv_decl_index, self.func);
 
             const fqn = ip.stringToSlice(try decl.getFullyQualifiedName(self.module));
@@ -1801,7 +1914,7 @@ const DeclGen = struct {
             }
         } else {
             const init_val = if (decl.val.getVariable(mod)) |payload|
-                payload.init.toValue()
+                Value.fromInterned(payload.init)
             else
                 decl.val;
 
@@ -1847,7 +1960,7 @@ const DeclGen = struct {
             try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
                 .id_result = root_block_id,
             });
-            self.current_block_label_id = root_block_id;
+            self.current_block_label = root_block_id;
 
             const val_id = try self.constant(decl.ty, init_val, .indirect);
             try self.func.body.emit(self.spv.gpa, .OpStore, .{
@@ -2492,7 +2605,7 @@ const DeclGen = struct {
         const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
         const a = try self.resolve(extra.a);
         const b = try self.resolve(extra.b);
-        const mask = extra.mask.toValue();
+        const mask = Value.fromInterned(extra.mask);
         const mask_len = extra.mask_len;
         const a_len = self.typeOf(extra.a).vectorLen(mod);
 
@@ -3126,11 +3239,11 @@ const DeclGen = struct {
                     .anon_struct_type => |tuple| {
                         for (tuple.types.get(ip), elements, 0..) |field_ty, element, i| {
                             if ((try result_ty.structFieldValueComptime(mod, i)) != null) continue;
-                            assert(field_ty.toType().hasRuntimeBits(mod));
+                            assert(Type.fromInterned(field_ty).hasRuntimeBits(mod));
 
                             const id = try self.resolve(element);
-                            types[index] = field_ty.toType();
-                            constituents[index] = try self.convertToIndirect(field_ty.toType(), id);
+                            types[index] = Type.fromInterned(field_ty);
+                            constituents[index] = try self.convertToIndirect(Type.fromInterned(field_ty), id);
                             index += 1;
                         }
                     },
@@ -3139,7 +3252,7 @@ const DeclGen = struct {
                         for (elements, 0..) |element, i| {
                             const field_index = it.next().?;
                             if ((try result_ty.structFieldValueComptime(mod, i)) != null) continue;
-                            const field_ty = struct_type.field_types.get(ip)[field_index].toType();
+                            const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
                             assert(field_ty.hasRuntimeBitsIgnoreComptime(mod));
 
                             const id = try self.resolve(element);
@@ -3414,7 +3527,7 @@ const DeclGen = struct {
             try self.store(maybe_tag_ty.?, ptr_id, tag_id, .{});
         }
 
-        const payload_ty = union_ty.field_types.get(ip)[active_field].toType();
+        const payload_ty = Type.fromInterned(union_ty.field_types.get(ip)[active_field]);
         if (payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             const pl_ptr_ty_ref = try self.ptrType(layout.payload_ty, .Function);
             const pl_ptr_id = try self.accessChain(pl_ptr_ty_ref, tmp_id, &.{layout.payload_index});
@@ -3447,7 +3560,7 @@ const DeclGen = struct {
         const ty = self.typeOfIndex(inst);
 
         const union_obj = mod.typeToUnion(ty).?;
-        const field_ty = union_obj.field_types.get(ip)[extra.field_index].toType();
+        const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[extra.field_index]);
         const payload = if (field_ty.hasRuntimeBitsIgnoreComptime(mod))
             try self.resolve(extra.init)
         else
@@ -3646,6 +3759,154 @@ const DeclGen = struct {
         return self.args.items[self.next_arg_index];
     }
 
+    /// Given a slice of incoming block connections, returns the block-id of the next
+    /// block to jump to. This function emits instructions, so it should be emitted
+    /// inside the merge block of the block.
+    /// This function should only be called with structured control flow generation.
+    fn structuredNextBlock(self: *DeclGen, incoming: []const ControlFlow.Structured.Block.Incoming) !IdRef {
+        assert(self.control_flow == .structured);
+
+        const result_id = self.spv.allocId();
+        const block_id_ty_ref = try self.intType(.unsigned, 32);
+        try self.func.body.emitRaw(self.spv.gpa, .OpPhi, @intCast(2 + incoming.len * 2)); // result type + result + variable/parent...
+        self.func.body.writeOperand(spec.IdResultType, self.typeId(block_id_ty_ref));
+        self.func.body.writeOperand(spec.IdRef, result_id);
+
+        for (incoming) |incoming_block| {
+            self.func.body.writeOperand(spec.PairIdRefIdRef, .{ incoming_block.next_block, incoming_block.src_label });
+        }
+
+        return result_id;
+    }
+
+    /// Jumps to the block with the target block-id. This function must only be called when
+    /// terminating a body, there should be no instructions after it.
+    /// This function should only be called with structured control flow generation.
+    fn structuredBreak(self: *DeclGen, target_block: IdRef) !void {
+        assert(self.control_flow == .structured);
+
+        const sblock = self.control_flow.structured.block_stack.getLast();
+        const merge_block = switch (sblock.*) {
+            .selection => |*merge| blk: {
+                const merge_label = self.spv.allocId();
+                try merge.merge_stack.append(self.gpa, .{
+                    .incoming = .{
+                        .src_label = self.current_block_label,
+                        .next_block = target_block,
+                    },
+                    .merge_block = merge_label,
+                });
+                break :blk merge_label;
+            },
+            // Loop blocks do not end in a break. Not through a direct break,
+            // and also not through another instruction like cond_br or unreachable (these
+            // situations are replaced by `cond_br` in sema, or there is a `block` instruction
+            // placed around them).
+            .loop => unreachable,
+        };
+
+        try self.func.body.emitBranch(self.spv.gpa, merge_block);
+    }
+
+    /// Generate a body in a way that exits the body using only structured constructs.
+    /// Returns the block-id of the next block to jump to. After this function, a jump
+    /// should still be emitted to the block that should follow this structured body.
+    /// This function should only be called with structured control flow generation.
+    fn genStructuredBody(
+        self: *DeclGen,
+        /// This parameter defines the method that this structured body is exited with.
+        block_merge_type: union(enum) {
+            /// Using selection; early exits from this body are surrounded with
+            /// if() statements.
+            selection,
+            /// Using loops; loops can be early exited by jumping to the merge block at
+            /// any time.
+            loop: struct {
+                merge_label: IdRef,
+                continue_label: IdRef,
+            },
+        },
+        body: []const Air.Inst.Index,
+    ) !IdRef {
+        assert(self.control_flow == .structured);
+
+        var sblock: ControlFlow.Structured.Block = switch (block_merge_type) {
+            .loop => |merge| .{ .loop = .{
+                .merge_block = merge.merge_label,
+            } },
+            .selection => .{ .selection = .{} },
+        };
+        defer sblock.deinit(self.gpa);
+
+        {
+            try self.control_flow.structured.block_stack.append(self.gpa, &sblock);
+            defer _ = self.control_flow.structured.block_stack.pop();
+
+            try self.genBody(body);
+        }
+
+        switch (sblock) {
+            .selection => |merge| {
+                // Now generate the merge block for all merges that
+                // still need to be performed.
+                const merge_stack = merge.merge_stack.items;
+
+                // If no merges on the stack, this block didn't generate any jumps (all paths
+                // ended with a return or an unreachable). In that case, we don't need to do
+                // any merging.
+                if (merge_stack.len == 0) {
+                    // We still need to return a value of a next block to jump to.
+                    // For example, if we have code like
+                    //  if (x) {
+                    //    if (y) return else return;
+                    //  } else {}
+                    // then we still need the outer to have an OpSelectionMerge and consequently
+                    // a phi node. In that case we can just return bogus, since we know that its
+                    // path will never be taken.
+
+                    // Make sure that we are still in a block when exiting the function.
+                    // TODO: Can we get rid of that?
+                    try self.beginSpvBlock(self.spv.allocId());
+                    const block_id_ty_ref = try self.intType(.unsigned, 32);
+                    return try self.spv.constUndef(block_id_ty_ref);
+                }
+
+                // The top-most merge actually only has a single source, the
+                // final jump of the block, or the merge block of a sub-block, cond_br,
+                // or loop. Therefore we just need to generate a block with a jump to the
+                // next merge block.
+                try self.beginSpvBlock(merge_stack[merge_stack.len - 1].merge_block);
+
+                // Now generate a merge ladder for the remaining merges in the stack.
+                var incoming = ControlFlow.Structured.Block.Incoming{
+                    .src_label = self.current_block_label,
+                    .next_block = merge_stack[merge_stack.len - 1].incoming.next_block,
+                };
+                var i = merge_stack.len - 1;
+                while (i > 0) {
+                    i -= 1;
+                    const step = merge_stack[i];
+                    try self.func.body.emitBranch(self.spv.gpa, step.merge_block);
+                    try self.beginSpvBlock(step.merge_block);
+                    const next_block = try self.structuredNextBlock(&.{ incoming, step.incoming });
+                    incoming = .{
+                        .src_label = step.merge_block,
+                        .next_block = next_block,
+                    };
+                }
+
+                return incoming.next_block;
+            },
+            .loop => |merge| {
+                // Close the loop by jumping to the continue label
+                try self.func.body.emitBranch(self.spv.gpa, block_merge_type.loop.continue_label);
+                // For blocks we must simple merge all the incoming blocks to get the next block.
+                try self.beginSpvBlock(merge.merge_block);
+                return try self.structuredNextBlock(merge.merges.items);
+            },
+        }
+    }
+
     fn airBlock(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         // In AIR, a block doesn't really define an entry point like a block, but
         // more like a scope that breaks can jump out of and "return" a value from.
@@ -3661,62 +3922,170 @@ const DeclGen = struct {
         const body = self.air.extra[extra.end..][0..extra.data.body_len];
         const have_block_result = ty.isFnOrHasRuntimeBitsIgnoreComptime(mod);
 
-        // 4 chosen as arbitrary initial capacity.
-        var block = Block{
-            // Label id is lazily allocated if needed.
-            .label_id = null,
-            .incoming_blocks = try std.ArrayListUnmanaged(IncomingBlock).initCapacity(self.gpa, 4),
+        const cf = switch (self.control_flow) {
+            .structured => |*cf| cf,
+            .unstructured => |*cf| {
+                var block = ControlFlow.Unstructured.Block{};
+                defer block.incoming_blocks.deinit(self.gpa);
+
+                // 4 chosen as arbitrary initial capacity.
+                try block.incoming_blocks.ensureUnusedCapacity(self.gpa, 4);
+
+                try cf.blocks.putNoClobber(self.gpa, inst, &block);
+                defer assert(cf.blocks.remove(inst));
+
+                try self.genBody(body);
+
+                // Only begin a new block if there were actually any breaks towards it.
+                if (block.label) |label| {
+                    try self.beginSpvBlock(label);
+                }
+
+                if (!have_block_result)
+                    return null;
+
+                assert(block.label != null);
+                const result_id = self.spv.allocId();
+                const result_type_id = try self.resolveTypeId(ty);
+
+                try self.func.body.emitRaw(
+                    self.spv.gpa,
+                    .OpPhi,
+                    // result type + result + variable/parent...
+                    2 + @as(u16, @intCast(block.incoming_blocks.items.len * 2)),
+                );
+                self.func.body.writeOperand(spec.IdResultType, result_type_id);
+                self.func.body.writeOperand(spec.IdRef, result_id);
+
+                for (block.incoming_blocks.items) |incoming| {
+                    self.func.body.writeOperand(
+                        spec.PairIdRefIdRef,
+                        .{ incoming.break_value_id, incoming.src_label },
+                    );
+                }
+
+                return result_id;
+            },
         };
-        defer block.incoming_blocks.deinit(self.gpa);
 
-        try self.blocks.putNoClobber(self.gpa, inst, &block);
-        defer assert(self.blocks.remove(inst));
+        const maybe_block_result_var_id = if (have_block_result) blk: {
+            const block_result_var_id = try self.alloc(ty, .{ .storage_class = .Function });
+            try cf.block_results.putNoClobber(self.gpa, inst, block_result_var_id);
+            break :blk block_result_var_id;
+        } else null;
+        defer if (have_block_result) assert(cf.block_results.remove(inst));
 
-        try self.genBody(body);
+        const next_block = try self.genStructuredBody(.selection, body);
 
-        // Only begin a new block if there were actually any breaks towards it.
-        if (block.label_id) |label_id| {
-            try self.beginSpvBlock(label_id);
+        // When encountering a block instruction, we are always at least in the function's scope,
+        // so there always has to be another entry.
+        assert(cf.block_stack.items.len > 0);
+
+        // Check if the target of the branch was this current block.
+        const block_id_ty_ref = try self.intType(.unsigned, 32);
+        const this_block = try self.constInt(block_id_ty_ref, inst);
+        const jump_to_this_block_id = self.spv.allocId();
+        const bool_ty_ref = try self.resolveType(Type.bool, .direct);
+        try self.func.body.emit(self.spv.gpa, .OpIEqual, .{
+            .id_result_type = self.typeId(bool_ty_ref),
+            .id_result = jump_to_this_block_id,
+            .operand_1 = next_block,
+            .operand_2 = this_block,
+        });
+
+        const sblock = cf.block_stack.getLast();
+
+        if (ty.isNoReturn(mod)) {
+            // If this block is noreturn, this instruction is the last of a block,
+            // and we must simply jump to the block's merge unconditionally.
+            try self.structuredBreak(next_block);
+        } else {
+            switch (sblock.*) {
+                .selection => |*merge| {
+                    // To jump out of a selection block, push a new entry onto its merge stack and
+                    // generate a conditional branch to there and to the instructions following this block.
+                    const merge_label = self.spv.allocId();
+                    const then_label = self.spv.allocId();
+                    try self.func.body.emit(self.spv.gpa, .OpSelectionMerge, .{
+                        .merge_block = merge_label,
+                        .selection_control = .{},
+                    });
+                    try self.func.body.emit(self.spv.gpa, .OpBranchConditional, .{
+                        .condition = jump_to_this_block_id,
+                        .true_label = then_label,
+                        .false_label = merge_label,
+                    });
+                    try merge.merge_stack.append(self.gpa, .{
+                        .incoming = .{
+                            .src_label = self.current_block_label,
+                            .next_block = next_block,
+                        },
+                        .merge_block = merge_label,
+                    });
+
+                    try self.beginSpvBlock(then_label);
+                },
+                .loop => |*merge| {
+                    // To jump out of a loop block, generate a conditional that exits the block
+                    // to the loop merge if the target ID is not the one of this block.
+                    const continue_label = self.spv.allocId();
+                    try self.func.body.emit(self.spv.gpa, .OpBranchConditional, .{
+                        .condition = jump_to_this_block_id,
+                        .true_label = continue_label,
+                        .false_label = merge.merge_block,
+                    });
+                    try merge.merges.append(self.gpa, .{
+                        .src_label = self.current_block_label,
+                        .next_block = next_block,
+                    });
+                    try self.beginSpvBlock(continue_label);
+                },
+            }
         }
 
-        if (!have_block_result)
-            return null;
-
-        assert(block.label_id != null);
-        const result_id = self.spv.allocId();
-        const result_type_id = try self.resolveTypeId(ty);
-
-        try self.func.body.emitRaw(self.spv.gpa, .OpPhi, 2 + @as(u16, @intCast(block.incoming_blocks.items.len * 2))); // result type + result + variable/parent...
-        self.func.body.writeOperand(spec.IdResultType, result_type_id);
-        self.func.body.writeOperand(spec.IdRef, result_id);
-
-        for (block.incoming_blocks.items) |incoming| {
-            self.func.body.writeOperand(spec.PairIdRefIdRef, .{ incoming.break_value_id, incoming.src_label_id });
+        if (maybe_block_result_var_id) |block_result_var_id| {
+            return try self.load(ty, block_result_var_id, .{});
         }
 
-        return result_id;
+        return null;
     }
 
     fn airBr(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const mod = self.module;
         const br = self.air.instructions.items(.data)[inst].br;
         const operand_ty = self.typeOf(br.operand);
-        const block = self.blocks.get(br.block_inst).?;
 
-        const mod = self.module;
-        if (operand_ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
-            const operand_id = try self.resolve(br.operand);
-            // current_block_label_id should not be undefined here, lest there is a br or br_void in the function's body.
-            try block.incoming_blocks.append(self.gpa, .{
-                .src_label_id = self.current_block_label_id,
-                .break_value_id = operand_id,
-            });
+        switch (self.control_flow) {
+            .structured => |*cf| {
+                if (operand_ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
+                    const operand_id = try self.resolve(br.operand);
+                    const block_result_var_id = cf.block_results.get(br.block_inst).?;
+                    try self.store(operand_ty, block_result_var_id, operand_id, .{});
+                }
+
+                const block_id_ty_ref = try self.intType(.unsigned, 32);
+                const next_block = try self.constInt(block_id_ty_ref, br.block_inst);
+                try self.structuredBreak(next_block);
+            },
+            .unstructured => |cf| {
+                const block = cf.blocks.get(br.block_inst).?;
+                if (operand_ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
+                    const operand_id = try self.resolve(br.operand);
+                    // current_block_label should not be undefined here, lest there
+                    // is a br or br_void in the function's body.
+                    try block.incoming_blocks.append(self.gpa, .{
+                        .src_label = self.current_block_label,
+                        .break_value_id = operand_id,
+                    });
+                }
+
+                if (block.label == null) {
+                    block.label = self.spv.allocId();
+                }
+
+                try self.func.body.emitBranch(self.spv.gpa, block.label.?);
+            },
         }
-
-        if (block.label_id == null) {
-            block.label_id = self.spv.allocId();
-        }
-
-        try self.func.body.emit(self.spv.gpa, .OpBranch, .{ .target_label = block.label_id.? });
     }
 
     fn airCondBr(self: *DeclGen, inst: Air.Inst.Index) !void {
@@ -3726,23 +4095,104 @@ const DeclGen = struct {
         const else_body = self.air.extra[cond_br.end + then_body.len ..][0..cond_br.data.else_body_len];
         const condition_id = try self.resolve(pl_op.operand);
 
-        // These will always generate a new SPIR-V block, since they are ir.Body and not ir.Block.
-        const then_label_id = self.spv.allocId();
-        const else_label_id = self.spv.allocId();
+        const then_label = self.spv.allocId();
+        const else_label = self.spv.allocId();
 
-        // TODO: We can generate OpSelectionMerge here if we know the target block that both of these will resolve to,
-        // but i don't know if those will always resolve to the same block.
+        switch (self.control_flow) {
+            .structured => {
+                const merge_label = self.spv.allocId();
 
-        try self.func.body.emit(self.spv.gpa, .OpBranchConditional, .{
-            .condition = condition_id,
-            .true_label = then_label_id,
-            .false_label = else_label_id,
-        });
+                try self.func.body.emit(self.spv.gpa, .OpSelectionMerge, .{
+                    .merge_block = merge_label,
+                    .selection_control = .{},
+                });
+                try self.func.body.emit(self.spv.gpa, .OpBranchConditional, .{
+                    .condition = condition_id,
+                    .true_label = then_label,
+                    .false_label = else_label,
+                });
 
-        try self.beginSpvBlock(then_label_id);
-        try self.genBody(then_body);
-        try self.beginSpvBlock(else_label_id);
-        try self.genBody(else_body);
+                try self.beginSpvBlock(then_label);
+                const then_next = try self.genStructuredBody(.selection, then_body);
+                const then_incoming = ControlFlow.Structured.Block.Incoming{
+                    .src_label = self.current_block_label,
+                    .next_block = then_next,
+                };
+                try self.func.body.emitBranch(self.spv.gpa, merge_label);
+
+                try self.beginSpvBlock(else_label);
+                const else_next = try self.genStructuredBody(.selection, else_body);
+                const else_incoming = ControlFlow.Structured.Block.Incoming{
+                    .src_label = self.current_block_label,
+                    .next_block = else_next,
+                };
+                try self.func.body.emitBranch(self.spv.gpa, merge_label);
+
+                try self.beginSpvBlock(merge_label);
+                const next_block = try self.structuredNextBlock(&.{ then_incoming, else_incoming });
+
+                try self.structuredBreak(next_block);
+            },
+            .unstructured => {
+                try self.func.body.emit(self.spv.gpa, .OpBranchConditional, .{
+                    .condition = condition_id,
+                    .true_label = then_label,
+                    .false_label = else_label,
+                });
+
+                try self.beginSpvBlock(then_label);
+                try self.genBody(then_body);
+                try self.beginSpvBlock(else_label);
+                try self.genBody(else_body);
+            },
+        }
+    }
+
+    fn airLoop(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const loop = self.air.extraData(Air.Block, ty_pl.payload);
+        const body = self.air.extra[loop.end..][0..loop.data.body_len];
+
+        const body_label = self.spv.allocId();
+
+        switch (self.control_flow) {
+            .structured => {
+                const header_label = self.spv.allocId();
+                const merge_label = self.spv.allocId();
+                const continue_label = self.spv.allocId();
+
+                // The back-edge must point to the loop header, so generate a separate block for the
+                // loop header so that we don't accidentally include some instructions from there
+                // in the loop.
+                try self.func.body.emitBranch(self.spv.gpa, header_label);
+                try self.beginSpvBlock(header_label);
+
+                // Emit loop header and jump to loop body
+                try self.func.body.emit(self.spv.gpa, .OpLoopMerge, .{
+                    .merge_block = merge_label,
+                    .continue_target = continue_label,
+                    .loop_control = .{},
+                });
+                try self.func.body.emitBranch(self.spv.gpa, body_label);
+
+                try self.beginSpvBlock(body_label);
+
+                const next_block = try self.genStructuredBody(.{ .loop = .{
+                    .merge_label = merge_label,
+                    .continue_label = continue_label,
+                } }, body);
+                try self.structuredBreak(next_block);
+
+                try self.beginSpvBlock(continue_label);
+                try self.func.body.emitBranch(self.spv.gpa, header_label);
+            },
+            .unstructured => {
+                try self.func.body.emitBranch(self.spv.gpa, body_label);
+                try self.beginSpvBlock(body_label);
+                try self.genBody(body);
+                try self.func.body.emitBranch(self.spv.gpa, body_label);
+            },
+        }
     }
 
     fn airLoad(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -3766,22 +4216,6 @@ const DeclGen = struct {
         try self.store(elem_ty, ptr, value, .{ .is_volatile = ptr_ty.isVolatilePtr(self.module) });
     }
 
-    fn airLoop(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-        const loop = self.air.extraData(Air.Block, ty_pl.payload);
-        const body = self.air.extra[loop.end..][0..loop.data.body_len];
-        const loop_label_id = self.spv.allocId();
-
-        // Jump to the loop entry point
-        try self.func.body.emit(self.spv.gpa, .OpBranch, .{ .target_label = loop_label_id });
-
-        // TODO: Look into OpLoopMerge.
-        try self.beginSpvBlock(loop_label_id);
-        try self.genBody(body);
-
-        try self.func.body.emit(self.spv.gpa, .OpBranch, .{ .target_label = loop_label_id });
-    }
-
     fn airRet(self: *DeclGen, inst: Air.Inst.Index) !void {
         const operand = self.air.instructions.items(.data)[inst].un_op;
         const ret_ty = self.typeOf(operand);
@@ -3789,7 +4223,7 @@ const DeclGen = struct {
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             const decl = mod.declPtr(self.decl_index);
             const fn_info = mod.typeToFunc(decl.ty).?;
-            if (fn_info.return_type.toType().isError(mod)) {
+            if (Type.fromInterned(fn_info.return_type).isError(mod)) {
                 // Functions with an empty error set are emitted with an error code
                 // return type and return zero so they can be function pointers coerced
                 // to functions that return anyerror.
@@ -3814,7 +4248,7 @@ const DeclGen = struct {
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             const decl = mod.declPtr(self.decl_index);
             const fn_info = mod.typeToFunc(decl.ty).?;
-            if (fn_info.return_type.toType().isError(mod)) {
+            if (Type.fromInterned(fn_info.return_type).isError(mod)) {
                 // Functions with an empty error set are emitted with an error code
                 // return type and return zero so they can be function pointers coerced
                 // to functions that return anyerror.
@@ -3870,7 +4304,20 @@ const DeclGen = struct {
             const err_block = self.spv.allocId();
             const ok_block = self.spv.allocId();
 
-            // TODO: Merge block
+            switch (self.control_flow) {
+                .structured => {
+                    // According to AIR documentation, this block is guaranteed
+                    // to not break and end in a return instruction. Thus,
+                    // for structured control flow, we can just naively use
+                    // the ok block as the merge block here.
+                    try self.func.body.emit(self.spv.gpa, .OpSelectionMerge, .{
+                        .merge_block = ok_block,
+                        .selection_control = .{},
+                    });
+                },
+                .unstructured => {},
+            }
+
             try self.func.body.emit(self.spv.gpa, .OpBranchConditional, .{
                 .condition = is_err_id,
                 .true_label = err_block,
@@ -3881,7 +4328,6 @@ const DeclGen = struct {
             try self.genBody(body);
 
             try self.beginSpvBlock(ok_block);
-            // Now just extract the payload, if required.
         }
         if (self.liveness.isUnused(inst)) {
             return null;
@@ -3890,6 +4336,7 @@ const DeclGen = struct {
             return null;
         }
 
+        // Now just extract the payload, if required.
         return try self.extractField(payload_ty, err_union_id, eu_layout.payloadFieldIndex());
     }
 
@@ -4155,9 +4602,8 @@ const DeclGen = struct {
         // Zig switches are grouped by condition, so we need to loop through all of them
         const num_conditions = blk: {
             var extra_index: usize = switch_br.end;
-            var case_i: u32 = 0;
             var num_conditions: u32 = 0;
-            while (case_i < num_cases) : (case_i += 1) {
+            for (0..num_cases) |_| {
                 const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
                 const case_body = self.air.extra[case.end + case.data.items_len ..][0..case.data.body_len];
                 extra_index = case.end + case.data.items_len + case_body.len;
@@ -4171,6 +4617,18 @@ const DeclGen = struct {
         // We always need the default case - if zig has none, we will generate unreachable there.
         const default = self.spv.allocId();
 
+        const merge_label = switch (self.control_flow) {
+            .structured => self.spv.allocId(),
+            .unstructured => null,
+        };
+
+        if (self.control_flow == .structured) {
+            try self.func.body.emit(self.spv.gpa, .OpSelectionMerge, .{
+                .merge_block = merge_label.?,
+                .selection_control = .{},
+            });
+        }
+
         // Emit the instruction before generating the blocks.
         try self.func.body.emitRaw(self.spv.gpa, .OpSwitch, 2 + (cond_words + 1) * num_conditions);
         self.func.body.writeOperand(IdRef, cond_indirect);
@@ -4179,20 +4637,17 @@ const DeclGen = struct {
         // Emit each of the cases
         {
             var extra_index: usize = switch_br.end;
-            var case_i: u32 = 0;
-            while (case_i < num_cases) : (case_i += 1) {
+            for (0..num_cases) |case_i| {
                 // SPIR-V needs a literal here, which' width depends on the case condition.
                 const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
                 const items = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[case.end..][0..case.data.items_len]));
                 const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
                 extra_index = case.end + case.data.items_len + case_body.len;
 
-                const label = IdRef{ .id = first_case_label.id + case_i };
+                const label = IdRef{ .id = @intCast(first_case_label.id + case_i) };
 
                 for (items) |item| {
-                    const value = (try self.air.value(item, mod)) orelse {
-                        return self.todo("switch on runtime value???", .{});
-                    };
+                    const value = (try self.air.value(item, mod)) orelse unreachable;
                     const int_val = switch (cond_ty.zigTypeTag(mod)) {
                         .Bool, .Int => if (cond_ty.isSignedInt(mod)) @as(u64, @bitCast(value.toSignedInt(mod))) else value.toUnsignedInt(mod),
                         .Enum => blk: {
@@ -4213,27 +4668,64 @@ const DeclGen = struct {
             }
         }
 
+        var incoming_structured_blocks = std.ArrayListUnmanaged(ControlFlow.Structured.Block.Incoming){};
+        defer incoming_structured_blocks.deinit(self.gpa);
+
+        if (self.control_flow == .structured) {
+            try incoming_structured_blocks.ensureUnusedCapacity(self.gpa, num_cases + 1);
+        }
+
         // Now, finally, we can start emitting each of the cases.
         var extra_index: usize = switch_br.end;
-        var case_i: u32 = 0;
-        while (case_i < num_cases) : (case_i += 1) {
+        for (0..num_cases) |case_i| {
             const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
             const items = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[case.end..][0..case.data.items_len]));
             const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
             extra_index = case.end + case.data.items_len + case_body.len;
 
-            const label = IdResult{ .id = first_case_label.id + case_i };
+            const label = IdResult{ .id = @intCast(first_case_label.id + case_i) };
 
             try self.beginSpvBlock(label);
-            try self.genBody(case_body);
+
+            switch (self.control_flow) {
+                .structured => {
+                    const next_block = try self.genStructuredBody(.selection, case_body);
+                    incoming_structured_blocks.appendAssumeCapacity(.{
+                        .src_label = self.current_block_label,
+                        .next_block = next_block,
+                    });
+                    try self.func.body.emitBranch(self.spv.gpa, merge_label.?);
+                },
+                .unstructured => {
+                    try self.genBody(case_body);
+                },
+            }
         }
 
         const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
         try self.beginSpvBlock(default);
         if (else_body.len != 0) {
-            try self.genBody(else_body);
+            switch (self.control_flow) {
+                .structured => {
+                    const next_block = try self.genStructuredBody(.selection, else_body);
+                    incoming_structured_blocks.appendAssumeCapacity(.{
+                        .src_label = self.current_block_label,
+                        .next_block = next_block,
+                    });
+                    try self.func.body.emitBranch(self.spv.gpa, merge_label.?);
+                },
+                .unstructured => {
+                    try self.genBody(else_body);
+                },
+            }
         } else {
             try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
+        }
+
+        if (self.control_flow == .structured) {
+            try self.beginSpvBlock(merge_label.?);
+            const next_block = try self.structuredNextBlock(incoming_structured_blocks.items);
+            try self.structuredBreak(next_block);
         }
     }
 
@@ -4421,7 +4913,7 @@ const DeclGen = struct {
         const fn_info = mod.typeToFunc(zig_fn_ty).?;
         const return_type = fn_info.return_type;
 
-        const result_type_ref = try self.resolveFnReturnType(return_type.toType());
+        const result_type_ref = try self.resolveFnReturnType(Type.fromInterned(return_type));
         const result_id = self.spv.allocId();
         const callee_id = try self.resolve(pl_op.operand);
 
@@ -4452,7 +4944,7 @@ const DeclGen = struct {
             try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
         }
 
-        if (self.liveness.isUnused(inst) or !return_type.toType().hasRuntimeBitsIgnoreComptime(mod)) {
+        if (self.liveness.isUnused(inst) or !Type.fromInterned(return_type).hasRuntimeBitsIgnoreComptime(mod)) {
             return null;
         }
 

@@ -8,4 +8,4 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :4:5: error: use of undefined value here causes undefined behavior
+// :4:6: error: use of undefined value here causes undefined behavior

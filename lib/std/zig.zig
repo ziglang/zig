@@ -17,6 +17,8 @@ pub const primitives = @import("zig/primitives.zig");
 pub const Ast = @import("zig/Ast.zig");
 pub const system = @import("zig/system.zig");
 pub const CrossTarget = @import("zig/CrossTarget.zig");
+pub const BuiltinFn = @import("zig/BuiltinFn.zig");
+pub const AstRlAnnotate = @import("zig/AstRlAnnotate.zig");
 
 // Character literal parsing
 pub const ParsedCharLiteral = string_literal.ParsedCharLiteral;

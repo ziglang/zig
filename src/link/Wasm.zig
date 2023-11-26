@@ -23,6 +23,7 @@ const build_options = @import("build_options");
 const wasi_libc = @import("../wasi_libc.zig");
 const Cache = std.Build.Cache;
 const Type = @import("../type.zig").Type;
+const Value = @import("../value.zig").Value;
 const TypedValue = @import("../TypedValue.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Air = @import("../Air.zig");
@@ -47,7 +48,7 @@ llvm_object: ?*LlvmObject = null,
 host_name: []const u8 = "env",
 /// List of all `Decl` that are currently alive.
 /// Each index maps to the corresponding `Atom.Index`.
-decls: std.AutoHashMapUnmanaged(Module.Decl.Index, Atom.Index) = .{},
+decls: std.AutoHashMapUnmanaged(InternPool.DeclIndex, Atom.Index) = .{},
 /// Mapping between an `Atom` and its type index representing the Wasm
 /// type of the function signature.
 atom_types: std.AutoHashMapUnmanaged(Atom.Index, u32) = .{},
@@ -597,10 +598,10 @@ fn parseObjectFile(wasm: *Wasm, path: []const u8) !bool {
     return true;
 }
 
-/// For a given `Module.Decl.Index` returns its corresponding `Atom.Index`.
+/// For a given `InternPool.DeclIndex` returns its corresponding `Atom.Index`.
 /// When the index was not found, a new `Atom` will be created, and its index will be returned.
 /// The newly created Atom is empty with default fields as specified by `Atom.empty`.
-pub fn getOrCreateAtomForDecl(wasm: *Wasm, decl_index: Module.Decl.Index) !Atom.Index {
+pub fn getOrCreateAtomForDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex) !Atom.Index {
     const gop = try wasm.decls.getOrPut(wasm.base.allocator, decl_index);
     if (!gop.found_existing) {
         const atom_index = try wasm.createAtom();
@@ -1426,7 +1427,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: InternPool.Index, air: 
 
 // Generate code for the Decl, storing it in memory to be later written to
 // the file on flush().
-pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: InternPool.DeclIndex) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -1452,7 +1453,7 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
         const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
         return wasm.addOrUpdateImport(name, atom.sym_index, lib_name, null);
     }
-    const val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
+    const val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
 
     var code_writer = std.ArrayList(u8).init(wasm.base.allocator);
     defer code_writer.deinit();
@@ -1478,7 +1479,7 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     return wasm.finishUpdateDecl(decl_index, code, .data);
 }
 
-pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: InternPool.DeclIndex) !void {
     if (wasm.llvm_object) |_| return;
     if (wasm.dwarf) |*dw| {
         const tracy = trace(@src());
@@ -1492,7 +1493,7 @@ pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.I
     }
 }
 
-fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8, symbol_tag: Symbol.Tag) !void {
+fn finishUpdateDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex, code: []const u8, symbol_tag: Symbol.Tag) !void {
     const mod = wasm.base.options.module.?;
     const decl = mod.declPtr(decl_index);
     const atom_index = wasm.decls.get(decl_index).?;
@@ -1555,7 +1556,7 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
 /// Lowers a constant typed value to a local symbol and atom.
 /// Returns the symbol index of the local
 /// The given `decl` is the parent decl whom owns the constant.
-pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
+pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
     const mod = wasm.base.options.module.?;
     assert(tv.ty.zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
     const decl = mod.declPtr(decl_index);
@@ -1671,7 +1672,7 @@ pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !u3
 /// Returns the given pointer address
 pub fn getDeclVAddr(
     wasm: *Wasm,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
     const mod = wasm.base.options.module.?;
@@ -1719,8 +1720,8 @@ pub fn lowerAnonDecl(
     const gop = try wasm.anon_decls.getOrPut(wasm.base.allocator, decl_val);
     if (!gop.found_existing) {
         const mod = wasm.base.options.module.?;
-        const ty = mod.intern_pool.typeOf(decl_val).toType();
-        const tv: TypedValue = .{ .ty = ty, .val = decl_val.toValue() };
+        const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
+        const tv: TypedValue = .{ .ty = ty, .val = Value.fromInterned(decl_val) };
         var name_buf: [32]u8 = undefined;
         const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
             @intFromEnum(decl_val),
@@ -1751,7 +1752,7 @@ pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: lin
     const parent_atom = wasm.getAtomPtr(parent_atom_index);
     const is_wasm32 = wasm.base.options.target.cpu.arch == .wasm32;
     const mod = wasm.base.options.module.?;
-    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
     if (ty.zigTypeTag(mod) == .Fn) {
         assert(reloc_info.addend == 0); // addend not allowed for function relocations
         // We found a function pointer, so add it to our table,
@@ -1779,7 +1780,7 @@ pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: lin
     return target_symbol_index;
 }
 
-pub fn deleteDeclExport(wasm: *Wasm, decl_index: Module.Decl.Index) void {
+pub fn deleteDeclExport(wasm: *Wasm, decl_index: InternPool.DeclIndex) void {
     if (wasm.llvm_object) |_| return;
     const atom_index = wasm.decls.get(decl_index) orelse return;
     const sym_index = wasm.getAtom(atom_index).sym_index;
@@ -1922,7 +1923,7 @@ pub fn updateExports(
     }
 }
 
-pub fn freeDecl(wasm: *Wasm, decl_index: Module.Decl.Index) void {
+pub fn freeDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex) void {
     if (wasm.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     const mod = wasm.base.options.module.?;
     const decl = mod.declPtr(decl_index);
@@ -3533,7 +3534,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             } else if (decl.getOwnedVariable(mod)) |variable| {
                 if (variable.is_const) {
                     try wasm.parseAtom(atom_index, .{ .data = .read_only });
-                } else if (variable.init.toValue().isUndefDeep(mod)) {
+                } else if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
                     // for safe build modes, we store the atom in the data segment,
                     // whereas for unsafe build modes we store it in bss.
                     const is_initialized = wasm.base.options.optimize_mode == .Debug or
@@ -3558,7 +3559,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
         // parse anonymous declarations
         for (wasm.anon_decls.keys(), wasm.anon_decls.values()) |decl_val, atom_index| {
-            const ty = mod.intern_pool.typeOf(decl_val).toType();
+            const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
             if (ty.zigTypeTag(mod) == .Fn) {
                 try wasm.parseAtom(atom_index, .function);
             } else {
@@ -5011,7 +5012,7 @@ pub fn putOrGetFuncType(wasm: *Wasm, func_type: std.wasm.Type) !u32 {
 /// For the given `decl_index`, stores the corresponding type representing the function signature.
 /// Asserts declaration has an associated `Atom`.
 /// Returns the index into the list of types.
-pub fn storeDeclType(wasm: *Wasm, decl_index: Module.Decl.Index, func_type: std.wasm.Type) !u32 {
+pub fn storeDeclType(wasm: *Wasm, decl_index: InternPool.DeclIndex, func_type: std.wasm.Type) !u32 {
     const atom_index = wasm.decls.get(decl_index).?;
     const index = try wasm.putOrGetFuncType(func_type);
     try wasm.atom_types.put(wasm.base.allocator, atom_index, index);

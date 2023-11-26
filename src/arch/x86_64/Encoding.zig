@@ -812,36 +812,32 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 }
 
 const mnemonic_to_encodings_map = init: {
-    @setEvalBranchQuota(60_000);
+    @setEvalBranchQuota(4_000);
+    const mnemonic_count = @typeInfo(Mnemonic).Enum.fields.len;
+    var mnemonic_map: [mnemonic_count][]Data = .{&.{}} ** mnemonic_count;
     const encodings = @import("encodings.zig");
-    var entries = encodings.table;
-    std.mem.sort(encodings.Entry, &entries, {}, struct {
-        fn lessThan(_: void, lhs: encodings.Entry, rhs: encodings.Entry) bool {
-            return @intFromEnum(lhs[0]) < @intFromEnum(rhs[0]);
-        }
-    }.lessThan);
-    var data_storage: [entries.len]Data = undefined;
-    var mnemonic_map: [@typeInfo(Mnemonic).Enum.fields.len][]const Data = undefined;
-    var mnemonic_int = 0;
-    var mnemonic_start = 0;
-    for (&data_storage, entries, 0..) |*data, entry, data_index| {
-        data.* = .{
+    for (encodings.table) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
+    var data_storage: [encodings.table.len]Data = undefined;
+    var storage_i: usize = 0;
+    for (&mnemonic_map) |*value| {
+        value.ptr = data_storage[storage_i..].ptr;
+        storage_i += value.len;
+    }
+    var mnemonic_i: [mnemonic_count]usize = .{0} ** mnemonic_count;
+    const ops_len = @typeInfo(std.meta.FieldType(Data, .ops)).Array.len;
+    const opc_len = @typeInfo(std.meta.FieldType(Data, .opc)).Array.len;
+    for (encodings.table) |entry| {
+        const i = &mnemonic_i[@intFromEnum(entry[0])];
+        mnemonic_map[@intFromEnum(entry[0])][i.*] = .{
             .op_en = entry[1],
-            .ops = (entry[2] ++ .{.none} ** (data.ops.len - entry[2].len)).*,
+            .ops = (entry[2] ++ .{.none} ** (ops_len - entry[2].len)).*,
             .opc_len = entry[3].len,
-            .opc = (entry[3] ++ .{undefined} ** (data.opc.len - entry[3].len)).*,
+            .opc = (entry[3] ++ .{undefined} ** (opc_len - entry[3].len)).*,
             .modrm_ext = entry[4],
             .mode = entry[5],
             .feature = entry[6],
         };
-        while (mnemonic_int < @intFromEnum(entry[0])) : (mnemonic_int += 1) {
-            mnemonic_map[mnemonic_int] = data_storage[mnemonic_start..data_index];
-            mnemonic_start = data_index;
-        }
-    }
-    while (mnemonic_int < mnemonic_map.len) : (mnemonic_int += 1) {
-        mnemonic_map[mnemonic_int] = data_storage[mnemonic_start..];
-        mnemonic_start = data_storage.len;
+        i.* += 1;
     }
     break :init mnemonic_map;
 };

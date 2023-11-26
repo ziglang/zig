@@ -215,7 +215,7 @@ pub fn intCast(v: *Value, dest_ty: Type, comp: *Compilation) !void {
 
     const limbs = try comp.gpa.alloc(
         std.math.big.Limb,
-        std.math.big.int.calcTwosCompLimbCount(bits),
+        std.math.big.int.calcTwosCompLimbCount(@max(big.bitCountTwosComp(), bits)),
     );
     defer comp.gpa.free(limbs);
     var result_bigint = std.math.big.int.Mutable{ .limbs = limbs, .positive = undefined, .len = undefined };

@@ -5,14 +5,6 @@ const page_size = std.mem.page_size;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
 
-test {
-    _ = tokenizer;
-}
-
-pub const tokenizer = @import("c/tokenizer.zig");
-pub const Token = tokenizer.Token;
-pub const Tokenizer = tokenizer.Tokenizer;
-
 /// The return type is `type` to force comptime function call execution.
 /// TODO: https://github.com/ziglang/zig/issues/425
 /// If not linking libc, returns struct{pub const ok = false;}

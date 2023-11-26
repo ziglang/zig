@@ -572,6 +572,8 @@ test "comptime cast fn to ptr" {
 }
 
 test "equality compare fn ptrs" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // Uses function pointers
+
     var a = &emptyFn;
     _ = &a;
     try expect(a == a);

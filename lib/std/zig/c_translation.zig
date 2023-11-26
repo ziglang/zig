@@ -252,7 +252,7 @@ test "sizeof" {
     try testing.expect(sizeof(anyopaque) == 1);
 }
 
-pub const CIntLiteralBase = enum { decimal, octal, hexadecimal };
+pub const CIntLiteralBase = enum { decimal, octal, hex };
 
 /// Deprecated: use `CIntLiteralBase`
 pub const CIntLiteralRadix = CIntLiteralBase;
@@ -289,13 +289,13 @@ pub fn promoteIntLiteral(
 }
 
 test "promoteIntLiteral" {
-    const signed_hex = promoteIntLiteral(c_int, math.maxInt(c_int) + 1, .hexadecimal);
+    const signed_hex = promoteIntLiteral(c_int, math.maxInt(c_int) + 1, .hex);
     try testing.expectEqual(c_uint, @TypeOf(signed_hex));
 
     if (math.maxInt(c_longlong) == math.maxInt(c_int)) return;
 
     const signed_decimal = promoteIntLiteral(c_int, math.maxInt(c_int) + 1, .decimal);
-    const unsigned = promoteIntLiteral(c_uint, math.maxInt(c_uint) + 1, .hexadecimal);
+    const unsigned = promoteIntLiteral(c_uint, math.maxInt(c_uint) + 1, .hex);
 
     if (math.maxInt(c_long) > math.maxInt(c_int)) {
         try testing.expectEqual(c_long, @TypeOf(signed_decimal));

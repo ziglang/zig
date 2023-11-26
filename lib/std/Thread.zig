@@ -8,7 +8,6 @@ const math = std.math;
 const os = std.os;
 const assert = std.debug.assert;
 const target = builtin.target;
-const Atomic = std.atomic.Atomic;
 
 pub const Futex = @import("Thread/Futex.zig");
 pub const ResetEvent = @import("Thread/ResetEvent.zig");
@@ -388,7 +387,7 @@ pub fn yield() YieldError!void {
 }
 
 /// State to synchronize detachment of spawner thread to spawned thread
-const Completion = Atomic(enum(u8) {
+const Completion = std.atomic.Value(enum(u8) {
     running,
     detached,
     completed,
@@ -746,7 +745,7 @@ const WasiThreadImpl = struct {
 
     const WasiThread = struct {
         /// Thread ID
-        tid: Atomic(i32) = Atomic(i32).init(0),
+        tid: std.atomic.Value(i32) = std.atomic.Value(i32).init(0),
         /// Contains all memory which was allocated to bootstrap this thread, including:
         /// - Guard page
         /// - Stack
@@ -784,7 +783,7 @@ const WasiThreadImpl = struct {
         original_stack_pointer: [*]u8,
     };
 
-    const State = Atomic(enum(u8) { running, completed, detached });
+    const State = std.atomic.Value(enum(u8) { running, completed, detached });
 
     fn getCurrentId() Id {
         return tls_thread_id;
@@ -1048,7 +1047,7 @@ const LinuxThreadImpl = struct {
 
     const ThreadCompletion = struct {
         completion: Completion = Completion.init(.running),
-        child_tid: Atomic(i32) = Atomic(i32).init(1),
+        child_tid: std.atomic.Value(i32) = std.atomic.Value(i32).init(1),
         parent_tid: i32 = undefined,
         mapped: []align(std.mem.page_size) u8,
 
@@ -1304,7 +1303,7 @@ const LinuxThreadImpl = struct {
             @intFromPtr(instance),
             &instance.thread.parent_tid,
             tls_ptr,
-            &instance.thread.child_tid.value,
+            &instance.thread.child_tid.raw,
         ))) {
             .SUCCESS => return Impl{ .thread = &instance.thread },
             .AGAIN => return error.ThreadQuotaExceeded,
@@ -1346,7 +1345,7 @@ const LinuxThreadImpl = struct {
             }
 
             switch (linux.getErrno(linux.futex_wait(
-                &self.thread.child_tid.value,
+                &self.thread.child_tid.raw,
                 linux.FUTEX.WAIT,
                 tid,
                 null,
@@ -1387,7 +1386,7 @@ test "setName, getName" {
         test_done_event: ResetEvent = .{},
         thread_done_event: ResetEvent = .{},
 
-        done: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(false),
+        done: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
         thread: Thread = undefined,
 
         pub fn run(ctx: *@This()) !void {

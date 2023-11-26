@@ -1246,13 +1246,16 @@ pub const Parser = struct {
         self.nextToken(.normal) catch unreachable;
         switch (statement_type) {
             .file_version, .product_version => {
-                var parts = std.BoundedArray(*Node, 4){};
+                var parts_buffer: [4]*Node = undefined;
+                var parts = std.ArrayListUnmanaged(*Node).initBuffer(&parts_buffer);
 
-                while (parts.len < 4) {
+                while (true) {
                     const value = try self.parseExpression(.{ .allowed_types = .{ .number = true } });
                     parts.addOneAssumeCapacity().* = value;
 
-                    if (parts.len == 4 or !(try self.parseOptionalToken(.comma))) {
+                    if (parts.unusedCapacitySlice().len == 0 or
+                        !(try self.parseOptionalToken(.comma)))
+                    {
                         break;
                     }
                 }
@@ -1260,7 +1263,7 @@ pub const Parser = struct {
                 const node = try self.state.arena.create(Node.VersionStatement);
                 node.* = .{
                     .type = type_token,
-                    .parts = try self.state.arena.dupe(*Node, parts.slice()),
+                    .parts = try self.state.arena.dupe(*Node, parts.items),
                 };
                 return &node.base;
             },

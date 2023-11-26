@@ -70,7 +70,7 @@ pub fn updateFunc(self: *NvPtx, module: *Module, func_index: InternPool.Index, a
     try self.llvm_object.updateFunc(module, func_index, air, liveness);
 }
 
-pub fn updateDecl(self: *NvPtx, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDecl(self: *NvPtx, module: *Module, decl_index: InternPool.DeclIndex) !void {
     return self.llvm_object.updateDecl(module, decl_index);
 }
 
@@ -86,7 +86,7 @@ pub fn updateExports(
     return self.llvm_object.updateExports(module, exported, exports);
 }
 
-pub fn freeDecl(self: *NvPtx, decl_index: Module.Decl.Index) void {
+pub fn freeDecl(self: *NvPtx, decl_index: InternPool.DeclIndex) void {
     return self.llvm_object.freeDecl(decl_index);
 }
 

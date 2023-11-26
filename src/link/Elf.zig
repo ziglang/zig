@@ -400,7 +400,7 @@ pub fn deinit(self: *Elf) void {
     self.comdat_group_sections.deinit(gpa);
 }
 
-pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getDeclVAddr(self: *Elf, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
     return self.zigObjectPtr().?.getDeclVAddr(self, decl_index, reloc_info);
 }
@@ -3127,7 +3127,7 @@ fn writeElfHeader(self: *Elf) !void {
     try self.base.file.?.pwriteAll(hdr_buf[0..index], 0);
 }
 
-pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
+pub fn freeDecl(self: *Elf, decl_index: InternPool.DeclIndex) void {
     if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     return self.zigObjectPtr().?.freeDecl(self, decl_index);
 }
@@ -3143,7 +3143,7 @@ pub fn updateFunc(self: *Elf, mod: *Module, func_index: InternPool.Index, air: A
 pub fn updateDecl(
     self: *Elf,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
 ) link.File.UpdateDeclError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -3152,7 +3152,7 @@ pub fn updateDecl(
     return self.zigObjectPtr().?.updateDecl(self, mod, decl_index);
 }
 
-pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module.Decl.Index) !u32 {
+pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
     return self.zigObjectPtr().?.lowerUnnamedConst(self, typed_value, decl_index);
 }
 
@@ -3170,14 +3170,14 @@ pub fn updateExports(
     return self.zigObjectPtr().?.updateExports(self, mod, exported, exports);
 }
 
-pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl_index: InternPool.DeclIndex) !void {
     if (self.llvm_object) |_| return;
     return self.zigObjectPtr().?.updateDeclLineNumber(mod, decl_index);
 }
 
 pub fn deleteDeclExport(
     self: *Elf,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
     name: InternPool.NullTerminatedString,
 ) void {
     if (self.llvm_object) |_| return;

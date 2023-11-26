@@ -493,6 +493,8 @@ const usage_build_generic =
     \\    msvc                    Use msvc include paths (must be present on the system)
     \\    gnu                     Use mingw include paths (distributed with Zig)
     \\    none                    Do not use any autodetected include paths
+    \\  -fstructured-cfg          (SPIR-V) force SPIR-V kernels to use structured control flow
+    \\  -fno-structured-cfg       (SPIR-V) force SPIR-V kernels to not use structured control flow
     \\
     \\Link Options:
     \\  -l[lib], --library [lib]       Link against system library (only if actually used)
@@ -913,7 +915,7 @@ fn buildOutputType(
     var pdb_out_path: ?[]const u8 = null;
     var dwarf_format: ?std.dwarf.Format = null;
     var error_limit: ?Module.ErrorInt = null;
-
+    var want_structured_cfg: ?bool = null;
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
     // CPU features.
@@ -1070,6 +1072,10 @@ fn buildOutputType(
                             if (mem.eql(u8, next_arg, "--")) break;
                             try extra_rcflags.append(next_arg);
                         }
+                    } else if (mem.startsWith(u8, arg, "-fstructured-cfg")) {
+                        want_structured_cfg = true;
+                    } else if (mem.startsWith(u8, arg, "-fno-structured-cfg")) {
+                        want_structured_cfg = false;
                     } else if (mem.eql(u8, arg, "--color")) {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected [auto|on|off] after --color", .{});
@@ -3595,6 +3601,7 @@ fn buildOutputType(
         .error_tracing = error_tracing,
         .pdb_out_path = pdb_out_path,
         .error_limit = error_limit,
+        .want_structured_cfg = want_structured_cfg,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;
@@ -4286,7 +4293,7 @@ fn updateModule(comp: *Compilation) !void {
 }
 
 fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilation.CImportResult) !void {
-    if (build_options.only_c) unreachable; // translate-c is not needed for bootstrapping
+    if (build_options.only_core_functionality) @panic("@translate-c is not available in a zig2.c build");
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
@@ -5698,13 +5705,13 @@ fn fmtPathDir(
     parent_dir: fs.Dir,
     parent_sub_path: []const u8,
 ) FmtError!void {
-    var iterable_dir = try parent_dir.openIterableDir(parent_sub_path, .{});
-    defer iterable_dir.close();
+    var dir = try parent_dir.openDir(parent_sub_path, .{ .iterate = true });
+    defer dir.close();
 
-    const stat = try iterable_dir.dir.stat();
+    const stat = try dir.stat();
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
-    var dir_it = iterable_dir.iterate();
+    var dir_it = dir.iterate();
     while (try dir_it.next()) |entry| {
         const is_dir = entry.kind == .directory;
 
@@ -5715,9 +5722,9 @@ fn fmtPathDir(
             defer fmt.gpa.free(full_path);
 
             if (is_dir) {
-                try fmtPathDir(fmt, full_path, check_mode, iterable_dir.dir, entry.name);
+                try fmtPathDir(fmt, full_path, check_mode, dir, entry.name);
             } else {
-                fmtPathFile(fmt, full_path, check_mode, iterable_dir.dir, entry.name) catch |err| {
+                fmtPathFile(fmt, full_path, check_mode, dir, entry.name) catch |err| {
                     warn("unable to format '{s}': {s}", .{ full_path, @errorName(err) });
                     fmt.any_error = true;
                     return;

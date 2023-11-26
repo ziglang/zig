@@ -424,7 +424,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    });
         \\}
         ,
-        \\pub const B = A(@as(f32, 0.0));
+        \\pub const B = A(@as(f32, 0));
     });
 
     cases.add("complex switch",
@@ -633,7 +633,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("#define hex literal with capital X",
         \\#define VAL 0XF00D
     , &[_][]const u8{
-        \\pub const VAL = @import("std").zig.c_translation.promoteIntLiteral(c_int, 0xF00D, .hexadecimal);
+        \\pub const VAL = @import("std").zig.c_translation.promoteIntLiteral(c_int, 0xF00D, .hex);
     });
 
     cases.add("anonymous struct & unions",
@@ -1243,12 +1243,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\extern const long double my_extended_precision_longdouble = 1.0000000000000003l;
     , &([_][]const u8{
         "pub const foo = @as(f32, 3.14);",
-        "pub const bar = @as(c_longdouble, 16.0e-2);",
+        "pub const bar = @as(c_longdouble, 16.e-2);",
         "pub const FOO = @as(f64, 0.12345);",
         "pub const BAR = @as(f64, 0.12345);",
         "pub const baz = @as(f64, 1e1);",
         "pub const BAZ = @as(f32, 42e-3);",
-        "pub const foobar = -@as(c_longdouble, 73.0);",
+        "pub const foobar = -@as(c_longdouble, 73);",
         "pub export const my_float: f32 = 1.0;",
         "pub export const my_double: f64 = 1.0;",
         "pub export const my_longdouble: c_longdouble = 1.0;",
@@ -1272,7 +1272,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         "pub const BAR = -@as(f32, 0x8F.BP5);",
         "pub const FOOBAR = @as(f64, 0x0P+0);",
         "pub const BAZ = -@as(f64, 0x0.0a5dp+12);",
-        "pub const FOOBAZ = @as(c_longdouble, 0xfE.0P-1);",
+        "pub const FOOBAZ = @as(c_longdouble, 0xfE.P-1);",
     });
 
     cases.add("comments",
@@ -3730,7 +3730,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const NULL = @import("std").zig.c_translation.cast(?*anyopaque, @as(c_int, 0));
         ,
-        \\pub const FOO = @import("std").zig.c_translation.cast(c_int, @import("std").zig.c_translation.promoteIntLiteral(c_int, 0x8000, .hexadecimal));
+        \\pub const FOO = @import("std").zig.c_translation.cast(c_int, @import("std").zig.c_translation.promoteIntLiteral(c_int, 0x8000, .hex));
     });
 
     if (builtin.abi == .msvc) {
@@ -3812,7 +3812,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const MAY_NEED_PROMOTION_1 = @import("std").zig.c_translation.promoteIntLiteral(c_int, 10241024, .decimal);
         \\pub const MAY_NEED_PROMOTION_2 = @import("std").zig.c_translation.promoteIntLiteral(c_long, 307230723072, .decimal);
         \\pub const MAY_NEED_PROMOTION_3 = @import("std").zig.c_translation.promoteIntLiteral(c_ulong, 819281928192, .decimal);
-        \\pub const MAY_NEED_PROMOTION_HEX = @import("std").zig.c_translation.promoteIntLiteral(c_int, 0x80000000, .hexadecimal);
+        \\pub const MAY_NEED_PROMOTION_HEX = @import("std").zig.c_translation.promoteIntLiteral(c_int, 0x80000000, .hex);
         \\pub const MAY_NEED_PROMOTION_OCT = @import("std").zig.c_translation.promoteIntLiteral(c_int, 0o20000000000, .octal);
     });
 

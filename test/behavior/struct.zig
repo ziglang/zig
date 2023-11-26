@@ -1513,6 +1513,7 @@ test "discarded struct initialization works as expected" {
 
 test "function pointer in struct returns the struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const A = struct {
         const A = @This();
@@ -1879,4 +1880,13 @@ test "field calls do not force struct field init resolution" {
     var s: S = .{};
     _ = &s;
     try expect(s.x == 123);
+}
+
+test "tuple with comptime-only field" {
+    const x = getTuple();
+    try expect(x.@"0" == 0);
+}
+
+fn getTuple() struct { comptime_int } {
+    return struct { comptime comptime_int = 0 }{0};
 }

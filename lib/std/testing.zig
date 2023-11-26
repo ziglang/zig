@@ -543,22 +543,6 @@ pub const TmpDir = struct {
     }
 };
 
-pub const TmpIterableDir = struct {
-    iterable_dir: std.fs.IterableDir,
-    parent_dir: std.fs.Dir,
-    sub_path: [sub_path_len]u8,
-
-    const random_bytes_count = 12;
-    const sub_path_len = std.fs.base64_encoder.calcSize(random_bytes_count);
-
-    pub fn cleanup(self: *TmpIterableDir) void {
-        self.iterable_dir.close();
-        self.parent_dir.deleteTree(&self.sub_path) catch {};
-        self.parent_dir.close();
-        self.* = undefined;
-    }
-};
-
 pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
     var random_bytes: [TmpDir.random_bytes_count]u8 = undefined;
     std.crypto.random.bytes(&random_bytes);
@@ -576,28 +560,6 @@ pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
 
     return .{
         .dir = dir,
-        .parent_dir = parent_dir,
-        .sub_path = sub_path,
-    };
-}
-
-pub fn tmpIterableDir(opts: std.fs.Dir.OpenDirOptions) TmpIterableDir {
-    var random_bytes: [TmpIterableDir.random_bytes_count]u8 = undefined;
-    std.crypto.random.bytes(&random_bytes);
-    var sub_path: [TmpIterableDir.sub_path_len]u8 = undefined;
-    _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
-
-    const cwd = std.fs.cwd();
-    var cache_dir = cwd.makeOpenPath("zig-cache", .{}) catch
-        @panic("unable to make tmp dir for testing: unable to make and open zig-cache dir");
-    defer cache_dir.close();
-    const parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
-        @panic("unable to make tmp dir for testing: unable to make and open zig-cache/tmp dir");
-    const dir = parent_dir.makeOpenPathIterable(&sub_path, opts) catch
-        @panic("unable to make tmp dir for testing: unable to make and open the tmp dir");
-
-    return .{
-        .iterable_dir = dir,
         .parent_dir = parent_dir,
         .sub_path = sub_path,
     };

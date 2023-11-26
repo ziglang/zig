@@ -184,6 +184,7 @@ pub fn deinit(self: *Module) void {
     self.sections.debug_strings.deinit(self.gpa);
     self.sections.debug_names.deinit(self.gpa);
     self.sections.annotations.deinit(self.gpa);
+    self.sections.types_globals_constants.deinit(self.gpa);
     self.sections.functions.deinit(self.gpa);
 
     self.source_file_names.deinit(self.gpa);

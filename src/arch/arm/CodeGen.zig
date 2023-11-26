@@ -6209,10 +6209,10 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             }
 
             for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
-                if (ty.toType().abiAlignment(mod) == .@"8")
+                if (Type.fromInterned(ty).abiAlignment(mod) == .@"8")
                     ncrn = std.mem.alignForward(usize, ncrn, 2);
 
-                const param_size = @as(u32, @intCast(ty.toType().abiSize(mod)));
+                const param_size = @as(u32, @intCast(Type.fromInterned(ty).abiSize(mod)));
                 if (std.math.divCeil(u32, param_size, 4) catch unreachable <= 4 - ncrn) {
                     if (param_size <= 4) {
                         result_arg.* = .{ .register = c_abi_int_param_regs[ncrn] };
@@ -6224,7 +6224,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     return self.fail("TODO MCValues split between registers and stack", .{});
                 } else {
                     ncrn = 4;
-                    if (ty.toType().abiAlignment(mod) == .@"8")
+                    if (Type.fromInterned(ty).abiAlignment(mod) == .@"8")
                         nsaa = std.mem.alignForward(u32, nsaa, 8);
 
                     result_arg.* = .{ .stack_argument_offset = nsaa };
@@ -6259,9 +6259,9 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             var stack_offset: u32 = 0;
 
             for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
-                if (ty.toType().abiSize(mod) > 0) {
-                    const param_size: u32 = @intCast(ty.toType().abiSize(mod));
-                    const param_alignment = ty.toType().abiAlignment(mod);
+                if (Type.fromInterned(ty).abiSize(mod) > 0) {
+                    const param_size: u32 = @intCast(Type.fromInterned(ty).abiSize(mod));
+                    const param_alignment = Type.fromInterned(ty).abiAlignment(mod);
 
                     stack_offset = @intCast(param_alignment.forward(stack_offset));
                     result_arg.* = .{ .stack_argument_offset = stack_offset };

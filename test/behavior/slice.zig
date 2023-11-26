@@ -853,6 +853,7 @@ test "slice with dereferenced value" {
 
 test "empty slice ptr is non null" {
     if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // Test assumes `undefined` is non-zero
 
     {
         const empty_slice: []u8 = &[_]u8{};
