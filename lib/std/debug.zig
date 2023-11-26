@@ -2387,6 +2387,7 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
         else => unreachable,
     };
 
+    const code = if (native_os == .netbsd) info.info.code else info.code;
     nosuspend switch (panic_stage) {
         0 => {
             panic_stage = 1;
@@ -2396,14 +2397,14 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
                 panic_mutex.lock();
                 defer panic_mutex.unlock();
 
-                dumpSegfaultInfoPosix(sig, info.code, addr, ctx_ptr);
+                dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
             }
 
             waitForOtherThreadToFinishPanicking();
         },
         else => {
             // panic mutex already locked
-            dumpSegfaultInfoPosix(sig, info.code, addr, ctx_ptr);
+            dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
         },
     };
 
