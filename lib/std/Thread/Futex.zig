@@ -306,7 +306,7 @@ const FreebsdImpl = struct {
         }
 
         const rc = os.freebsd._umtx_op(
-            @intFromPtr(&ptr.value),
+            @intFromPtr(&ptr.raw),
             @intFromEnum(os.freebsd.UMTX_OP.WAIT_UINT_PRIVATE),
             @as(c_ulong, expect),
             tm_size,
@@ -328,7 +328,7 @@ const FreebsdImpl = struct {
 
     fn wake(ptr: *const atomic.Value(u32), max_waiters: u32) void {
         const rc = os.freebsd._umtx_op(
-            @intFromPtr(&ptr.value),
+            @intFromPtr(&ptr.raw),
             @intFromEnum(os.freebsd.UMTX_OP.WAKE_PRIVATE),
             @as(c_ulong, max_waiters),
             0, // there is no timeout struct
@@ -354,7 +354,7 @@ const OpenbsdImpl = struct {
         }
 
         const rc = os.openbsd.futex(
-            @as(*const volatile u32, @ptrCast(&ptr.value)),
+            @as(*const volatile u32, @ptrCast(&ptr.raw)),
             os.openbsd.FUTEX_WAIT | os.openbsd.FUTEX_PRIVATE_FLAG,
             @as(c_int, @bitCast(expect)),
             if (timeout != null) &ts else null,
@@ -379,7 +379,7 @@ const OpenbsdImpl = struct {
 
     fn wake(ptr: *const atomic.Value(u32), max_waiters: u32) void {
         const rc = os.openbsd.futex(
-            @as(*const volatile u32, @ptrCast(&ptr.value)),
+            @as(*const volatile u32, @ptrCast(&ptr.raw)),
             os.openbsd.FUTEX_WAKE | os.openbsd.FUTEX_PRIVATE_FLAG,
             std.math.cast(c_int, max_waiters) orelse std.math.maxInt(c_int),
             null, // FUTEX_WAKE takes no timeout ptr
@@ -414,7 +414,7 @@ const DragonflyImpl = struct {
         }
 
         const value = @as(c_int, @bitCast(expect));
-        const addr = @as(*const volatile c_int, @ptrCast(&ptr.value));
+        const addr = @as(*const volatile c_int, @ptrCast(&ptr.raw));
         const rc = os.dragonfly.umtx_sleep(addr, value, timeout_us);
 
         switch (os.errno(rc)) {
@@ -443,7 +443,7 @@ const DragonflyImpl = struct {
         // https://man.dragonflybsd.org/?command=umtx&section=2
         // > umtx_wakeup() will generally return 0 unless the address is bad.
         // We are fine with the address being bad (e.g. for Semaphore.post() where Semaphore.wait() frees the Semaphore)
-        const addr = @as(*const volatile c_int, @ptrCast(&ptr.value));
+        const addr = @as(*const volatile c_int, @ptrCast(&ptr.raw));
         _ = os.dragonfly.umtx_wakeup(addr, to_wake);
     }
 };
@@ -461,7 +461,7 @@ const WasmImpl = struct {
             \\memory.atomic.wait32 0
             \\local.set %[ret]
             : [ret] "=r" (-> u32),
-            : [ptr] "r" (&ptr.value),
+            : [ptr] "r" (&ptr.raw),
               [expected] "r" (@as(i32, @bitCast(expect))),
               [timeout] "r" (to),
         );
@@ -484,7 +484,7 @@ const WasmImpl = struct {
             \\memory.atomic.notify 0
             \\local.set %[ret]
             : [ret] "=r" (-> u32),
-            : [ptr] "r" (&ptr.value),
+            : [ptr] "r" (&ptr.raw),
               [waiters] "r" (max_waiters),
         );
         _ = woken_count; // can be 0 when linker flag 'shared-memory' is not enabled
