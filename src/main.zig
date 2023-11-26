@@ -4293,7 +4293,7 @@ fn updateModule(comp: *Compilation) !void {
 }
 
 fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilation.CImportResult) !void {
-    if (build_options.only_c) unreachable; // translate-c is not needed for bootstrapping
+    if (build_options.only_core_functionality) @panic("@translate-c is not available in a zig2.c build");
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 

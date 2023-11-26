@@ -363,7 +363,6 @@ pub const Specifier = enum {
     // data.sub_type
     pointer,
     unspecified_variable_len_array,
-    decayed_unspecified_variable_len_array,
     // data.func
     /// int foo(int bar, char baz) and int (void)
     func,
@@ -375,15 +374,11 @@ pub const Specifier = enum {
 
     // data.array
     array,
-    decayed_array,
     static_array,
-    decayed_static_array,
     incomplete_array,
-    decayed_incomplete_array,
     vector,
     // data.expr
     variable_len_array,
-    decayed_variable_len_array,
 
     // data.record
     @"struct",
@@ -394,13 +389,9 @@ pub const Specifier = enum {
 
     /// typeof(type-name)
     typeof_type,
-    /// decayed array created with typeof(type-name)
-    decayed_typeof_type,
 
     /// typeof(expression)
     typeof_expr,
-    /// decayed array created with typeof(expression)
-    decayed_typeof_expr,
 
     /// data.attributed
     attributed,
@@ -428,6 +419,7 @@ data: union {
 } = .{ .none = {} },
 specifier: Specifier,
 qual: Qualifiers = .{},
+decayed: bool = false,
 
 pub const int = Type{ .specifier = .int };
 pub const invalid = Type{ .specifier = .invalid };
@@ -442,7 +434,7 @@ pub fn is(ty: Type, specifier: Specifier) bool {
 pub fn withAttributes(self: Type, allocator: std.mem.Allocator, attributes: []const Attribute) !Type {
     if (attributes.len == 0) return self;
     const attributed_type = try Type.Attributed.create(allocator, self, self.getAttributes(), attributes);
-    return Type{ .specifier = .attributed, .data = .{ .attributed = attributed_type } };
+    return Type{ .specifier = .attributed, .data = .{ .attributed = attributed_type }, .decayed = self.decayed };
 }
 
 pub fn isCallable(ty: Type) ?Type {
@@ -468,10 +460,10 @@ pub fn isFunc(ty: Type) bool {
 
 pub fn isArray(ty: Type) bool {
     return switch (ty.specifier) {
-        .array, .static_array, .incomplete_array, .variable_len_array, .unspecified_variable_len_array => true,
-        .typeof_type => ty.data.sub_type.isArray(),
-        .typeof_expr => ty.data.expr.ty.isArray(),
-        .attributed => ty.data.attributed.base.isArray(),
+        .array, .static_array, .incomplete_array, .variable_len_array, .unspecified_variable_len_array => !ty.isDecayed(),
+        .typeof_type => !ty.isDecayed() and ty.data.sub_type.isArray(),
+        .typeof_expr => !ty.isDecayed() and ty.data.expr.ty.isArray(),
+        .attributed => !ty.isDecayed() and ty.data.attributed.base.isArray(),
         else => false,
     };
 }
@@ -502,35 +494,22 @@ pub fn isScalarNonInt(ty: Type) bool {
 }
 
 pub fn isDecayed(ty: Type) bool {
-    const decayed = switch (ty.specifier) {
-        .decayed_array,
-        .decayed_static_array,
-        .decayed_incomplete_array,
-        .decayed_variable_len_array,
-        .decayed_unspecified_variable_len_array,
-        .decayed_typeof_type,
-        .decayed_typeof_expr,
-        => true,
-        else => false,
-    };
-    std.debug.assert(decayed or !std.mem.startsWith(u8, @tagName(ty.specifier), "decayed"));
-    return decayed;
+    return ty.decayed;
 }
 
 pub fn isPtr(ty: Type) bool {
     return switch (ty.specifier) {
-        .pointer,
-        .decayed_array,
-        .decayed_static_array,
-        .decayed_incomplete_array,
-        .decayed_variable_len_array,
-        .decayed_unspecified_variable_len_array,
-        .decayed_typeof_type,
-        .decayed_typeof_expr,
-        => true,
-        .typeof_type => ty.data.sub_type.isPtr(),
-        .typeof_expr => ty.data.expr.ty.isPtr(),
-        .attributed => ty.data.attributed.base.isPtr(),
+        .pointer => true,
+
+        .array,
+        .static_array,
+        .incomplete_array,
+        .variable_len_array,
+        .unspecified_variable_len_array,
+        => ty.isDecayed(),
+        .typeof_type => ty.isDecayed() or ty.data.sub_type.isPtr(),
+        .typeof_expr => ty.isDecayed() or ty.data.expr.ty.isPtr(),
+        .attributed => ty.isDecayed() or ty.data.attributed.base.isPtr(),
         else => false,
     };
 }
@@ -608,15 +587,15 @@ pub fn isVoidStar(ty: Type) bool {
 
 pub fn isTypeof(ty: Type) bool {
     return switch (ty.specifier) {
-        .typeof_type, .typeof_expr, .decayed_typeof_type, .decayed_typeof_expr => true,
+        .typeof_type, .typeof_expr => true,
         else => false,
     };
 }
 
 pub fn isConst(ty: Type) bool {
     return switch (ty.specifier) {
-        .typeof_type, .decayed_typeof_type => ty.qual.@"const" or ty.data.sub_type.isConst(),
-        .typeof_expr, .decayed_typeof_expr => ty.qual.@"const" or ty.data.expr.ty.isConst(),
+        .typeof_type => ty.qual.@"const" or ty.data.sub_type.isConst(),
+        .typeof_expr => ty.qual.@"const" or ty.data.expr.ty.isConst(),
         .attributed => ty.data.attributed.base.isConst(),
         else => ty.qual.@"const",
     };
@@ -630,7 +609,7 @@ pub fn signedness(ty: Type, comp: *const Compilation) std.builtin.Signedness {
     return switch (ty.specifier) {
         // zig fmt: off
         .char, .complex_char => return comp.getCharSignedness(),
-        .uchar, .ushort, .uint, .ulong, .ulong_long, .bool, .complex_uchar, .complex_ushort,
+        .uchar, .ushort, .uint, .ulong, .ulong_long, .uint128, .bool, .complex_uchar, .complex_ushort,
         .complex_uint, .complex_ulong, .complex_ulong_long, .complex_uint128 => .unsigned,
         // zig fmt: on
         .bit_int, .complex_bit_int => ty.data.int.signedness,
@@ -678,16 +657,16 @@ pub fn isAnonymousRecord(ty: Type, comp: *const Compilation) bool {
 
 pub fn elemType(ty: Type) Type {
     return switch (ty.specifier) {
-        .pointer, .unspecified_variable_len_array, .decayed_unspecified_variable_len_array => ty.data.sub_type.*,
-        .array, .static_array, .incomplete_array, .decayed_array, .decayed_static_array, .decayed_incomplete_array, .vector => ty.data.array.elem,
-        .variable_len_array, .decayed_variable_len_array => ty.data.expr.ty,
-        .typeof_type, .decayed_typeof_type, .typeof_expr, .decayed_typeof_expr => {
+        .pointer, .unspecified_variable_len_array => ty.data.sub_type.*,
+        .array, .static_array, .incomplete_array, .vector => ty.data.array.elem,
+        .variable_len_array => ty.data.expr.ty,
+        .typeof_type, .typeof_expr => {
             const unwrapped = ty.canonicalize(.preserve_quals);
             var elem = unwrapped.elemType();
             elem.qual = elem.qual.mergeAll(unwrapped.qual);
             return elem;
         },
-        .attributed => ty.data.attributed.base,
+        .attributed => ty.data.attributed.base.elemType(),
         .invalid => Type.invalid,
         // zig fmt: off
         .complex_float, .complex_double, .complex_long_double, .complex_float80,
@@ -703,8 +682,8 @@ pub fn elemType(ty: Type) Type {
 pub fn returnType(ty: Type) Type {
     return switch (ty.specifier) {
         .func, .var_args_func, .old_style_func => ty.data.func.return_type,
-        .typeof_type, .decayed_typeof_type => ty.data.sub_type.returnType(),
-        .typeof_expr, .decayed_typeof_expr => ty.data.expr.ty.returnType(),
+        .typeof_type => ty.data.sub_type.returnType(),
+        .typeof_expr => ty.data.expr.ty.returnType(),
         .attributed => ty.data.attributed.base.returnType(),
         .invalid => Type.invalid,
         else => unreachable,
@@ -714,8 +693,8 @@ pub fn returnType(ty: Type) Type {
 pub fn params(ty: Type) []Func.Param {
     return switch (ty.specifier) {
         .func, .var_args_func, .old_style_func => ty.data.func.params,
-        .typeof_type, .decayed_typeof_type => ty.data.sub_type.params(),
-        .typeof_expr, .decayed_typeof_expr => ty.data.expr.ty.params(),
+        .typeof_type => ty.data.sub_type.params(),
+        .typeof_expr => ty.data.expr.ty.params(),
         .attributed => ty.data.attributed.base.params(),
         .invalid => &.{},
         else => unreachable,
@@ -724,9 +703,9 @@ pub fn params(ty: Type) []Func.Param {
 
 pub fn arrayLen(ty: Type) ?u64 {
     return switch (ty.specifier) {
-        .array, .static_array, .decayed_array, .decayed_static_array => ty.data.array.len,
-        .typeof_type, .decayed_typeof_type => ty.data.sub_type.arrayLen(),
-        .typeof_expr, .decayed_typeof_expr => ty.data.expr.ty.arrayLen(),
+        .array, .static_array => ty.data.array.len,
+        .typeof_type => ty.data.sub_type.arrayLen(),
+        .typeof_expr => ty.data.expr.ty.arrayLen(),
         .attributed => ty.data.attributed.base.arrayLen(),
         else => null,
     };
@@ -748,8 +727,8 @@ pub fn anyQual(ty: Type) bool {
 pub fn getAttributes(ty: Type) []const Attribute {
     return switch (ty.specifier) {
         .attributed => ty.data.attributed.attributes,
-        .typeof_type, .decayed_typeof_type => ty.data.sub_type.getAttributes(),
-        .typeof_expr, .decayed_typeof_expr => ty.data.expr.ty.getAttributes(),
+        .typeof_type => ty.data.sub_type.getAttributes(),
+        .typeof_expr => ty.data.expr.ty.getAttributes(),
         else => &.{},
     };
 }
@@ -757,8 +736,8 @@ pub fn getAttributes(ty: Type) []const Attribute {
 pub fn getRecord(ty: Type) ?*const Type.Record {
     return switch (ty.specifier) {
         .attributed => ty.data.attributed.base.getRecord(),
-        .typeof_type, .decayed_typeof_type => ty.data.sub_type.getRecord(),
-        .typeof_expr, .decayed_typeof_expr => ty.data.expr.ty.getRecord(),
+        .typeof_type => ty.data.sub_type.getRecord(),
+        .typeof_expr => ty.data.expr.ty.getRecord(),
         .@"struct", .@"union" => ty.data.record,
         else => null,
     };
@@ -901,6 +880,7 @@ pub fn bitfieldPromotion(ty: Type, comp: *Compilation, width: u32) ?Type {
 }
 
 pub fn hasIncompleteSize(ty: Type) bool {
+    if (ty.isDecayed()) return false;
     return switch (ty.specifier) {
         .void, .incomplete_array => true,
         .@"enum" => ty.data.@"enum".isIncomplete() and !ty.data.@"enum".fixed,
@@ -917,20 +897,14 @@ pub fn hasUnboundVLA(ty: Type) bool {
     var cur = ty;
     while (true) {
         switch (cur.specifier) {
-            .unspecified_variable_len_array,
-            .decayed_unspecified_variable_len_array,
-            => return true,
+            .unspecified_variable_len_array => return true,
             .array,
             .static_array,
             .incomplete_array,
             .variable_len_array,
-            .decayed_array,
-            .decayed_static_array,
-            .decayed_incomplete_array,
-            .decayed_variable_len_array,
             => cur = cur.elemType(),
-            .typeof_type, .decayed_typeof_type => cur = cur.data.sub_type.*,
-            .typeof_expr, .decayed_typeof_expr => cur = cur.data.expr.ty,
+            .typeof_type => cur = cur.data.sub_type.*,
+            .typeof_expr => cur = cur.data.expr.ty,
             .attributed => cur = cur.data.attributed.base,
             else => return false,
         }
@@ -1006,9 +980,11 @@ pub fn sizeCompare(a: Type, b: Type, comp: *Compilation) TypeSizeOrder {
 
 /// Size of type as reported by sizeof
 pub fn sizeof(ty: Type, comp: *const Compilation) ?u64 {
+    if (ty.isPtr()) return comp.target.ptrBitWidth() / 8;
+
     return switch (ty.specifier) {
         .auto_type, .c23_auto => unreachable,
-        .variable_len_array, .unspecified_variable_len_array => return null,
+        .variable_len_array, .unspecified_variable_len_array => null,
         .incomplete_array => return if (comp.langopts.emulate == .msvc) @as(?u64, 0) else null,
         .func, .var_args_func, .old_style_func, .void, .bool => 1,
         .char, .schar, .uchar => 1,
@@ -1037,14 +1013,7 @@ pub fn sizeof(ty: Type, comp: *const Compilation) ?u64 {
         .complex_long_double, .complex_float80, .complex_float128, .complex_bit_int,
         => return 2 * ty.makeReal().sizeof(comp).?,
         // zig fmt: on
-        .pointer,
-        .decayed_array,
-        .decayed_static_array,
-        .decayed_incomplete_array,
-        .decayed_variable_len_array,
-        .decayed_unspecified_variable_len_array,
-        .decayed_typeof_type,
-        .decayed_typeof_expr,
+        .pointer => unreachable,
         .static_array,
         .nullptr_t,
         => comp.target.ptrBitWidth() / 8,
@@ -1073,8 +1042,8 @@ pub fn sizeof(ty: Type, comp: *const Compilation) ?u64 {
 pub fn bitSizeof(ty: Type, comp: *const Compilation) ?u64 {
     return switch (ty.specifier) {
         .bool => if (comp.langopts.emulate == .msvc) @as(u64, 8) else 1,
-        .typeof_type, .decayed_typeof_type => ty.data.sub_type.bitSizeof(comp),
-        .typeof_expr, .decayed_typeof_expr => ty.data.expr.ty.bitSizeof(comp),
+        .typeof_type => ty.data.sub_type.bitSizeof(comp),
+        .typeof_expr => ty.data.expr.ty.bitSizeof(comp),
         .attributed => ty.data.attributed.base.bitSizeof(comp),
         .bit_int => return ty.data.int.bits,
         .long_double => comp.target.c_type_bit_size(.longdouble),
@@ -1117,7 +1086,10 @@ pub fn alignof(ty: Type, comp: *const Compilation) u29 {
         .unspecified_variable_len_array,
         .array,
         .vector,
-        => ty.elemType().alignof(comp),
+        => if (ty.isPtr()) switch (comp.target.cpu.arch) {
+            .avr => 1,
+            else => comp.target.ptrBitWidth() / 8,
+        } else ty.elemType().alignof(comp),
         .func, .var_args_func, .old_style_func => target_util.defaultFunctionAlignment(comp.target),
         .char, .schar, .uchar, .void, .bool => 1,
 
@@ -1153,11 +1125,6 @@ pub fn alignof(ty: Type, comp: *const Compilation) u29 {
 
         .float80, .float128 => 16,
         .pointer,
-        .decayed_array,
-        .decayed_static_array,
-        .decayed_incomplete_array,
-        .decayed_variable_len_array,
-        .decayed_unspecified_variable_len_array,
         .static_array,
         .nullptr_t,
         => switch (comp.target.cpu.arch) {
@@ -1166,8 +1133,8 @@ pub fn alignof(ty: Type, comp: *const Compilation) u29 {
         },
         .@"struct", .@"union" => if (ty.data.record.isIncomplete()) 0 else @intCast(ty.data.record.type_layout.field_alignment_bits / 8),
         .@"enum" => if (ty.data.@"enum".isIncomplete() and !ty.data.@"enum".fixed) 0 else ty.data.@"enum".tag_ty.alignof(comp),
-        .typeof_type, .decayed_typeof_type => ty.data.sub_type.alignof(comp),
-        .typeof_expr, .decayed_typeof_expr => ty.data.expr.ty.alignof(comp),
+        .typeof_type => ty.data.sub_type.alignof(comp),
+        .typeof_expr => ty.data.expr.ty.alignof(comp),
         .attributed => ty.data.attributed.base.alignof(comp),
     };
 }
@@ -1179,7 +1146,10 @@ pub fn alignof(ty: Type, comp: *const Compilation) u29 {
 /// arrays and pointers.
 pub fn canonicalize(ty: Type, qual_handling: enum { standard, preserve_quals }) Type {
     var cur = ty;
-    if (cur.specifier == .attributed) cur = cur.data.attributed.base;
+    if (cur.specifier == .attributed) {
+        cur = cur.data.attributed.base;
+        cur.decayed = ty.decayed;
+    }
     if (!cur.isTypeof()) return cur;
 
     var qual = cur.qual;
@@ -1187,14 +1157,6 @@ pub fn canonicalize(ty: Type, qual_handling: enum { standard, preserve_quals }) 
         switch (cur.specifier) {
             .typeof_type => cur = cur.data.sub_type.*,
             .typeof_expr => cur = cur.data.expr.ty,
-            .decayed_typeof_type => {
-                cur = cur.data.sub_type.*;
-                cur.decayArray();
-            },
-            .decayed_typeof_expr => {
-                cur = cur.data.expr.ty;
-                cur.decayArray();
-            },
             else => break,
         }
         qual = qual.mergeAll(cur.qual);
@@ -1204,6 +1166,7 @@ pub fn canonicalize(ty: Type, qual_handling: enum { standard, preserve_quals }) 
     } else {
         cur.qual = qual;
     }
+    cur.decayed = ty.decayed;
     return cur;
 }
 
@@ -1219,8 +1182,8 @@ pub fn get(ty: *const Type, specifier: Specifier) ?*const Type {
 
 pub fn requestedAlignment(ty: Type, comp: *const Compilation) ?u29 {
     return switch (ty.specifier) {
-        .typeof_type, .decayed_typeof_type => ty.data.sub_type.requestedAlignment(comp),
-        .typeof_expr, .decayed_typeof_expr => ty.data.expr.ty.requestedAlignment(comp),
+        .typeof_type => ty.data.sub_type.requestedAlignment(comp),
+        .typeof_expr => ty.data.expr.ty.requestedAlignment(comp),
         .attributed => annotationAlignment(comp, ty.data.attributed.attributes),
         else => null,
     };
@@ -1265,14 +1228,11 @@ pub fn eql(a_param: Type, b_param: Type, comp: *const Compilation, check_qualifi
         if (a.qual.@"volatile" != b.qual.@"volatile") return false;
     }
 
+    if (a.isPtr()) {
+        return a_param.elemType().eql(b_param.elemType(), comp, check_qualifiers);
+    }
     switch (a.specifier) {
-        .pointer,
-        .decayed_array,
-        .decayed_static_array,
-        .decayed_incomplete_array,
-        .decayed_variable_len_array,
-        .decayed_unspecified_variable_len_array,
-        => if (!a_param.elemType().eql(b_param.elemType(), comp, check_qualifiers)) return false,
+        .pointer => unreachable,
 
         .func,
         .var_args_func,
@@ -1293,8 +1253,9 @@ pub fn eql(a_param: Type, b_param: Type, comp: *const Compilation, check_qualifi
             }
             if (!a.elemType().eql(b.elemType(), comp, false)) return false;
         },
-        .variable_len_array => if (!a.elemType().eql(b.elemType(), comp, check_qualifiers)) return false,
-
+        .variable_len_array => {
+            if (!a.elemType().eql(b.elemType(), comp, check_qualifiers)) return false;
+        },
         .@"struct", .@"union" => if (a.data.record != b.data.record) return false,
         .@"enum" => if (a.data.@"enum" != b.data.@"enum") return false,
         .bit_int, .complex_bit_int => return a.data.int.bits == b.data.int.bits and a.data.int.signedness == b.data.int.signedness,
@@ -1306,14 +1267,14 @@ pub fn eql(a_param: Type, b_param: Type, comp: *const Compilation, check_qualifi
 
 /// Decays an array to a pointer
 pub fn decayArray(ty: *Type) void {
-    // the decayed array type is the current specifier +1
-    ty.specifier = @enumFromInt(@intFromEnum(ty.specifier) + 1);
+    std.debug.assert(ty.isArray());
+    ty.decayed = true;
 }
 
 pub fn originalTypeOfDecayedArray(ty: Type) Type {
     std.debug.assert(ty.isDecayed());
     var copy = ty;
-    copy.specifier = @enumFromInt(@intFromEnum(ty.specifier) - 1);
+    copy.decayed = false;
     return copy;
 }
 
@@ -1405,25 +1366,23 @@ pub fn combine(inner: *Type, outer: Type) Parser.Error!void {
     switch (inner.specifier) {
         .pointer => return inner.data.sub_type.combine(outer),
         .unspecified_variable_len_array => {
+            std.debug.assert(!inner.isDecayed());
             try inner.data.sub_type.combine(outer);
         },
         .variable_len_array => {
+            std.debug.assert(!inner.isDecayed());
             try inner.data.expr.ty.combine(outer);
         },
         .array, .static_array, .incomplete_array => {
+            std.debug.assert(!inner.isDecayed());
             try inner.data.array.elem.combine(outer);
         },
         .func, .var_args_func, .old_style_func => {
             try inner.data.func.return_type.combine(outer);
         },
-        .decayed_array,
-        .decayed_static_array,
-        .decayed_incomplete_array,
-        .decayed_variable_len_array,
-        .decayed_unspecified_variable_len_array,
-        .decayed_typeof_type,
-        .decayed_typeof_expr,
-        => unreachable, // type should not be able to decay before being combined
+        .typeof_type,
+        .typeof_expr,
+        => std.debug.assert(!inner.isDecayed()),
         .void, .invalid => inner.* = outer,
         else => unreachable,
     }
@@ -1474,8 +1433,8 @@ pub fn validateCombinedType(ty: Type, p: *Parser, source_tok: TokenIndex) Parser
                 try p.errStr(.suggest_pointer_for_invalid_fp16, source_tok, "function return value");
             }
         },
-        .typeof_type, .decayed_typeof_type => return ty.data.sub_type.validateCombinedType(p, source_tok),
-        .typeof_expr, .decayed_typeof_expr => return ty.data.expr.ty.validateCombinedType(p, source_tok),
+        .typeof_type => return ty.data.sub_type.validateCombinedType(p, source_tok),
+        .typeof_expr => return ty.data.expr.ty.validateCombinedType(p, source_tok),
         .attributed => return ty.data.attributed.base.validateCombinedType(p, source_tok),
         else => {},
     }
@@ -1610,6 +1569,7 @@ pub const Builder = struct {
         decayed_typeof_expr: *Expr,
 
         attributed: *Attributed,
+        decayed_attributed: *Attributed,
 
         pub fn str(spec: Builder.Specifier, langopts: LangOpts) ?[]const u8 {
             return switch (spec) {
@@ -1835,13 +1795,10 @@ pub const Builder = struct {
                 ty.specifier = .pointer;
                 ty.data = .{ .sub_type = data };
             },
-            .unspecified_variable_len_array => |data| {
+            .unspecified_variable_len_array, .decayed_unspecified_variable_len_array => |data| {
                 ty.specifier = .unspecified_variable_len_array;
                 ty.data = .{ .sub_type = data };
-            },
-            .decayed_unspecified_variable_len_array => |data| {
-                ty.specifier = .decayed_unspecified_variable_len_array;
-                ty.data = .{ .sub_type = data };
+                ty.decayed = b.specifier == .decayed_unspecified_variable_len_array;
             },
             .func => |data| {
                 ty.specifier = .func;
@@ -1855,41 +1812,29 @@ pub const Builder = struct {
                 ty.specifier = .old_style_func;
                 ty.data = .{ .func = data };
             },
-            .array => |data| {
+            .array, .decayed_array => |data| {
                 ty.specifier = .array;
                 ty.data = .{ .array = data };
+                ty.decayed = b.specifier == .decayed_array;
             },
-            .decayed_array => |data| {
-                ty.specifier = .decayed_array;
-                ty.data = .{ .array = data };
-            },
-            .static_array => |data| {
+            .static_array, .decayed_static_array => |data| {
                 ty.specifier = .static_array;
                 ty.data = .{ .array = data };
+                ty.decayed = b.specifier == .decayed_static_array;
             },
-            .decayed_static_array => |data| {
-                ty.specifier = .decayed_static_array;
-                ty.data = .{ .array = data };
-            },
-            .incomplete_array => |data| {
+            .incomplete_array, .decayed_incomplete_array => |data| {
                 ty.specifier = .incomplete_array;
                 ty.data = .{ .array = data };
-            },
-            .decayed_incomplete_array => |data| {
-                ty.specifier = .decayed_incomplete_array;
-                ty.data = .{ .array = data };
+                ty.decayed = b.specifier == .decayed_incomplete_array;
             },
             .vector => |data| {
                 ty.specifier = .vector;
                 ty.data = .{ .array = data };
             },
-            .variable_len_array => |data| {
+            .variable_len_array, .decayed_variable_len_array => |data| {
                 ty.specifier = .variable_len_array;
                 ty.data = .{ .expr = data };
-            },
-            .decayed_variable_len_array => |data| {
-                ty.specifier = .decayed_variable_len_array;
-                ty.data = .{ .expr = data };
+                ty.decayed = b.specifier == .decayed_variable_len_array;
             },
             .@"struct" => |data| {
                 ty.specifier = .@"struct";
@@ -1903,25 +1848,20 @@ pub const Builder = struct {
                 ty.specifier = .@"enum";
                 ty.data = .{ .@"enum" = data };
             },
-            .typeof_type => |data| {
+            .typeof_type, .decayed_typeof_type => |data| {
                 ty.specifier = .typeof_type;
                 ty.data = .{ .sub_type = data };
+                ty.decayed = b.specifier == .decayed_typeof_type;
             },
-            .decayed_typeof_type => |data| {
-                ty.specifier = .decayed_typeof_type;
-                ty.data = .{ .sub_type = data };
-            },
-            .typeof_expr => |data| {
+            .typeof_expr, .decayed_typeof_expr => |data| {
                 ty.specifier = .typeof_expr;
                 ty.data = .{ .expr = data };
+                ty.decayed = b.specifier == .decayed_typeof_expr;
             },
-            .decayed_typeof_expr => |data| {
-                ty.specifier = .decayed_typeof_expr;
-                ty.data = .{ .expr = data };
-            },
-            .attributed => |data| {
+            .attributed, .decayed_attributed => |data| {
                 ty.specifier = .attributed;
                 ty.data = .{ .attributed = data };
+                ty.decayed = b.specifier == .decayed_attributed;
             },
         }
         if (!ty.isReal() and ty.isInt()) {
@@ -2359,30 +2299,47 @@ pub const Builder = struct {
             .complex_float128 => .complex_float128,
 
             .pointer => .{ .pointer = ty.data.sub_type },
-            .unspecified_variable_len_array => .{ .unspecified_variable_len_array = ty.data.sub_type },
-            .decayed_unspecified_variable_len_array => .{ .decayed_unspecified_variable_len_array = ty.data.sub_type },
+            .unspecified_variable_len_array => if (ty.isDecayed())
+                .{ .decayed_unspecified_variable_len_array = ty.data.sub_type }
+            else
+                .{ .unspecified_variable_len_array = ty.data.sub_type },
             .func => .{ .func = ty.data.func },
             .var_args_func => .{ .var_args_func = ty.data.func },
             .old_style_func => .{ .old_style_func = ty.data.func },
-            .array => .{ .array = ty.data.array },
-            .decayed_array => .{ .decayed_array = ty.data.array },
-            .static_array => .{ .static_array = ty.data.array },
-            .decayed_static_array => .{ .decayed_static_array = ty.data.array },
-            .incomplete_array => .{ .incomplete_array = ty.data.array },
-            .decayed_incomplete_array => .{ .decayed_incomplete_array = ty.data.array },
+            .array => if (ty.isDecayed())
+                .{ .decayed_array = ty.data.array }
+            else
+                .{ .array = ty.data.array },
+            .static_array => if (ty.isDecayed())
+                .{ .decayed_static_array = ty.data.array }
+            else
+                .{ .static_array = ty.data.array },
+            .incomplete_array => if (ty.isDecayed())
+                .{ .decayed_incomplete_array = ty.data.array }
+            else
+                .{ .incomplete_array = ty.data.array },
             .vector => .{ .vector = ty.data.array },
-            .variable_len_array => .{ .variable_len_array = ty.data.expr },
-            .decayed_variable_len_array => .{ .decayed_variable_len_array = ty.data.expr },
+            .variable_len_array => if (ty.isDecayed())
+                .{ .decayed_variable_len_array = ty.data.expr }
+            else
+                .{ .variable_len_array = ty.data.expr },
             .@"struct" => .{ .@"struct" = ty.data.record },
             .@"union" => .{ .@"union" = ty.data.record },
             .@"enum" => .{ .@"enum" = ty.data.@"enum" },
 
-            .typeof_type => .{ .typeof_type = ty.data.sub_type },
-            .decayed_typeof_type => .{ .decayed_typeof_type = ty.data.sub_type },
-            .typeof_expr => .{ .typeof_expr = ty.data.expr },
-            .decayed_typeof_expr => .{ .decayed_typeof_expr = ty.data.expr },
+            .typeof_type => if (ty.isDecayed())
+                .{ .decayed_typeof_type = ty.data.sub_type }
+            else
+                .{ .typeof_type = ty.data.sub_type },
+            .typeof_expr => if (ty.isDecayed())
+                .{ .decayed_typeof_expr = ty.data.expr }
+            else
+                .{ .typeof_expr = ty.data.expr },
 
-            .attributed => .{ .attributed = ty.data.attributed },
+            .attributed => if (ty.isDecayed())
+                .{ .decayed_attributed = ty.data.attributed }
+            else
+                .{ .attributed = ty.data.attributed },
             else => unreachable,
         };
     }
@@ -2472,24 +2429,17 @@ fn printPrologue(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts
         try w.writeAll(")");
         return true;
     }
+    if (ty.isPtr()) {
+        const elem_ty = ty.elemType();
+        const simple = try elem_ty.printPrologue(mapper, langopts, w);
+        if (simple) try w.writeByte(' ');
+        if (elem_ty.isFunc() or elem_ty.isArray()) try w.writeByte('(');
+        try w.writeByte('*');
+        try ty.qual.dump(w);
+        return false;
+    }
     switch (ty.specifier) {
-        .pointer,
-        .decayed_array,
-        .decayed_static_array,
-        .decayed_incomplete_array,
-        .decayed_variable_len_array,
-        .decayed_unspecified_variable_len_array,
-        .decayed_typeof_type,
-        .decayed_typeof_expr,
-        => {
-            const elem_ty = ty.elemType();
-            const simple = try elem_ty.printPrologue(mapper, langopts, w);
-            if (simple) try w.writeByte(' ');
-            if (elem_ty.isFunc() or elem_ty.isArray()) try w.writeByte('(');
-            try w.writeByte('*');
-            try ty.qual.dump(w);
-            return false;
-        },
+        .pointer => unreachable,
         .func, .var_args_func, .old_style_func => {
             const ret_ty = ty.data.func.return_type;
             const simple = try ret_ty.printPrologue(mapper, langopts, w);
@@ -2541,20 +2491,14 @@ fn printPrologue(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts
 
 fn printEpilogue(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: anytype) @TypeOf(w).Error!void {
     if (ty.qual.atomic) return;
+    if (ty.isPtr()) {
+        const elem_ty = ty.elemType();
+        if (elem_ty.isFunc() or elem_ty.isArray()) try w.writeByte(')');
+        try elem_ty.printEpilogue(mapper, langopts, w);
+        return;
+    }
     switch (ty.specifier) {
-        .pointer,
-        .decayed_array,
-        .decayed_static_array,
-        .decayed_incomplete_array,
-        .decayed_variable_len_array,
-        .decayed_unspecified_variable_len_array,
-        .decayed_typeof_type,
-        .decayed_typeof_expr,
-        => {
-            const elem_ty = ty.elemType();
-            if (elem_ty.isFunc() or elem_ty.isArray()) try w.writeByte(')');
-            try elem_ty.printEpilogue(mapper, langopts, w);
-        },
+        .pointer => unreachable, // handled above
         .func, .var_args_func, .old_style_func => {
             try w.writeByte('(');
             for (ty.data.func.params, 0..) |param, i| {
@@ -2637,10 +2581,10 @@ pub fn dump(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: 
             try w.writeAll(") ");
             try ty.data.func.return_type.dump(mapper, langopts, w);
         },
-        .array, .static_array, .decayed_array, .decayed_static_array => {
-            if (ty.specifier == .decayed_array or ty.specifier == .decayed_static_array) try w.writeAll("*d");
+        .array, .static_array => {
+            if (ty.isDecayed()) try w.writeAll("*d");
             try w.writeByte('[');
-            if (ty.specifier == .static_array or ty.specifier == .decayed_static_array) try w.writeAll("static ");
+            if (ty.specifier == .static_array) try w.writeAll("static ");
             try w.print("{d}]", .{ty.data.array.len});
             try ty.data.array.elem.dump(mapper, langopts, w);
         },
@@ -2649,8 +2593,8 @@ pub fn dump(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: 
             try ty.data.array.elem.dump(mapper, langopts, w);
             try w.writeAll(")");
         },
-        .incomplete_array, .decayed_incomplete_array => {
-            if (ty.specifier == .decayed_incomplete_array) try w.writeAll("*d");
+        .incomplete_array => {
+            if (ty.isDecayed()) try w.writeAll("*d");
             try w.writeAll("[]");
             try ty.data.array.elem.dump(mapper, langopts, w);
         },
@@ -2672,27 +2616,28 @@ pub fn dump(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: 
             try w.print("union {s}", .{mapper.lookup(ty.data.record.name)});
             if (dump_detailed_containers) try dumpRecord(ty.data.record, mapper, langopts, w);
         },
-        .unspecified_variable_len_array, .decayed_unspecified_variable_len_array => {
-            if (ty.specifier == .decayed_unspecified_variable_len_array) try w.writeAll("*d");
+        .unspecified_variable_len_array => {
+            if (ty.isDecayed()) try w.writeAll("*d");
             try w.writeAll("[*]");
             try ty.data.sub_type.dump(mapper, langopts, w);
         },
-        .variable_len_array, .decayed_variable_len_array => {
-            if (ty.specifier == .decayed_variable_len_array) try w.writeAll("*d");
+        .variable_len_array => {
+            if (ty.isDecayed()) try w.writeAll("*d");
             try w.writeAll("[<expr>]");
             try ty.data.expr.ty.dump(mapper, langopts, w);
         },
-        .typeof_type, .decayed_typeof_type => {
+        .typeof_type => {
             try w.writeAll("typeof(");
             try ty.data.sub_type.dump(mapper, langopts, w);
             try w.writeAll(")");
         },
-        .typeof_expr, .decayed_typeof_expr => {
+        .typeof_expr => {
             try w.writeAll("typeof(<expr>: ");
             try ty.data.expr.ty.dump(mapper, langopts, w);
             try w.writeAll(")");
         },
         .attributed => {
+            if (ty.isDecayed()) try w.writeAll("*d:");
             try w.writeAll("attributed(");
             try ty.data.attributed.base.dump(mapper, langopts, w);
             try w.writeAll(")");

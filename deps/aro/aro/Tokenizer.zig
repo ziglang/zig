@@ -749,12 +749,15 @@ pub const Token = struct {
                 .string_literal_utf_8,
                 .string_literal_utf_32,
                 .string_literal_wide,
+                .unterminated_string_literal,
                 => "a string literal",
                 .char_literal,
                 .char_literal_utf_8,
                 .char_literal_utf_16,
                 .char_literal_utf_32,
                 .char_literal_wide,
+                .unterminated_char_literal,
+                .empty_char_literal,
                 => "a character literal",
                 .pp_num, .embed_byte => "A number",
                 else => id.lexeme().?,
@@ -798,7 +801,7 @@ pub const Token = struct {
             };
         }
 
-        pub fn allowsDigraphs(id: Id, comp: *const Compilation) bool {
+        pub fn allowsDigraphs(id: Id, langopts: LangOpts) bool {
             return switch (id) {
                 .l_bracket,
                 .r_bracket,
@@ -806,7 +809,7 @@ pub const Token = struct {
                 .r_brace,
                 .hash,
                 .hash_hash,
-                => comp.langopts.hasDigraphs(),
+                => langopts.hasDigraphs(),
                 else => false,
             };
         }
@@ -829,15 +832,15 @@ pub const Token = struct {
     /// double underscore and underscore + capital letter identifiers
     /// belong to the implementation namespace, so we always convert them
     /// to keywords.
-    pub fn getTokenId(comp: *const Compilation, str: []const u8) Token.Id {
+    pub fn getTokenId(langopts: LangOpts, str: []const u8) Token.Id {
         const kw = all_kws.get(str) orelse return .identifier;
-        const standard = comp.langopts.standard;
+        const standard = langopts.standard;
         return switch (kw) {
             .keyword_inline => if (standard.isGNU() or standard.atLeast(.c99)) kw else .identifier,
             .keyword_restrict => if (standard.atLeast(.c99)) kw else .identifier,
             .keyword_typeof => if (standard.isGNU() or standard.atLeast(.c23)) kw else .identifier,
             .keyword_asm => if (standard.isGNU()) kw else .identifier,
-            .keyword_declspec => if (comp.langopts.declspec_attrs) kw else .identifier,
+            .keyword_declspec => if (langopts.declspec_attrs) kw else .identifier,
 
             .keyword_c23_alignas,
             .keyword_c23_alignof,
@@ -864,7 +867,7 @@ pub const Token = struct {
             .keyword_stdcall2,
             .keyword_thiscall2,
             .keyword_vectorcall2,
-            => if (comp.langopts.ms_extensions) kw else .identifier,
+            => if (langopts.ms_extensions) kw else .identifier,
             else => kw,
         };
     }
@@ -1023,7 +1026,7 @@ const Tokenizer = @This();
 buf: []const u8,
 index: u32 = 0,
 source: Source.Id,
-comp: *const Compilation,
+langopts: LangOpts,
 line: u32 = 1,
 
 pub fn next(self: *Tokenizer) Token {
@@ -1162,14 +1165,14 @@ pub fn next(self: *Tokenizer) Token {
                 '#' => state = .hash,
                 '0'...'9' => state = .pp_num,
                 '\t', '\x0B', '\x0C', ' ' => state = .whitespace,
-                '$' => if (self.comp.langopts.dollars_in_identifiers) {
+                '$' => if (self.langopts.dollars_in_identifiers) {
                     state = .extended_identifier;
                 } else {
                     id = .invalid;
                     self.index += 1;
                     break;
                 },
-                0x1A => if (self.comp.langopts.ms_extensions) {
+                0x1A => if (self.langopts.ms_extensions) {
                     id = .eof;
                     break;
                 } else {
@@ -1306,15 +1309,15 @@ pub fn next(self: *Tokenizer) Token {
             },
             .identifier, .extended_identifier => switch (c) {
                 'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
-                '$' => if (self.comp.langopts.dollars_in_identifiers) {
+                '$' => if (self.langopts.dollars_in_identifiers) {
                     state = .extended_identifier;
                 } else {
-                    id = if (state == .identifier) Token.getTokenId(self.comp, self.buf[start..self.index]) else .extended_identifier;
+                    id = if (state == .identifier) Token.getTokenId(self.langopts, self.buf[start..self.index]) else .extended_identifier;
                     break;
                 },
                 0x80...0xFF => state = .extended_identifier,
                 else => {
-                    id = if (state == .identifier) Token.getTokenId(self.comp, self.buf[start..self.index]) else .extended_identifier;
+                    id = if (state == .identifier) Token.getTokenId(self.langopts, self.buf[start..self.index]) else .extended_identifier;
                     break;
                 },
             },
@@ -1358,7 +1361,7 @@ pub fn next(self: *Tokenizer) Token {
             },
             .colon => switch (c) {
                 '>' => {
-                    if (self.comp.langopts.hasDigraphs()) {
+                    if (self.langopts.hasDigraphs()) {
                         id = .r_bracket;
                         self.index += 1;
                     } else {
@@ -1367,7 +1370,7 @@ pub fn next(self: *Tokenizer) Token {
                     break;
                 },
                 ':' => {
-                    if (self.comp.langopts.standard.atLeast(.c23)) {
+                    if (self.langopts.standard.atLeast(.c23)) {
                         id = .colon_colon;
                         self.index += 1;
                         break;
@@ -1388,7 +1391,7 @@ pub fn next(self: *Tokenizer) Token {
                     break;
                 },
                 '>' => {
-                    if (self.comp.langopts.hasDigraphs()) {
+                    if (self.langopts.hasDigraphs()) {
                         id = .r_brace;
                         self.index += 1;
                     } else {
@@ -1397,7 +1400,7 @@ pub fn next(self: *Tokenizer) Token {
                     break;
                 },
                 ':' => {
-                    if (self.comp.langopts.hasDigraphs()) {
+                    if (self.langopts.hasDigraphs()) {
                         state = .hash_digraph;
                     } else {
                         id = .percent;
@@ -1444,7 +1447,7 @@ pub fn next(self: *Tokenizer) Token {
                     break;
                 },
                 ':' => {
-                    if (self.comp.langopts.hasDigraphs()) {
+                    if (self.langopts.hasDigraphs()) {
                         id = .l_bracket;
                         self.index += 1;
                     } else {
@@ -1453,7 +1456,7 @@ pub fn next(self: *Tokenizer) Token {
                     break;
                 },
                 '%' => {
-                    if (self.comp.langopts.hasDigraphs()) {
+                    if (self.langopts.hasDigraphs()) {
                         id = .l_brace;
                         self.index += 1;
                     } else {
@@ -1613,7 +1616,7 @@ pub fn next(self: *Tokenizer) Token {
             },
             .line_comment => switch (c) {
                 '\n' => {
-                    if (self.comp.langopts.preserve_comments) {
+                    if (self.langopts.preserve_comments) {
                         id = .comment;
                         break;
                     }
@@ -1629,7 +1632,7 @@ pub fn next(self: *Tokenizer) Token {
             },
             .multi_line_comment_asterisk => switch (c) {
                 '/' => {
-                    if (self.comp.langopts.preserve_comments) {
+                    if (self.langopts.preserve_comments) {
                         self.index += 1;
                         id = .comment;
                         break;
@@ -1673,7 +1676,7 @@ pub fn next(self: *Tokenizer) Token {
                 '.',
                 => {},
                 'e', 'E', 'p', 'P' => state = .pp_num_exponent,
-                '\'' => if (self.comp.langopts.standard.atLeast(.c23)) {
+                '\'' => if (self.langopts.standard.atLeast(.c23)) {
                     state = .pp_num_digit_separator;
                 } else {
                     id = .pp_num;
@@ -1721,7 +1724,7 @@ pub fn next(self: *Tokenizer) Token {
     } else if (self.index == self.buf.len) {
         switch (state) {
             .start, .line_comment => {},
-            .u, .u8, .U, .L, .identifier => id = Token.getTokenId(self.comp, self.buf[start..self.index]),
+            .u, .u8, .U, .L, .identifier => id = Token.getTokenId(self.langopts, self.buf[start..self.index]),
             .extended_identifier => id = .extended_identifier,
 
             .period2 => {
@@ -2149,7 +2152,7 @@ fn expectTokensExtra(contents: []const u8, expected_tokens: []const Token.Id, st
     var tokenizer = Tokenizer{
         .buf = source.buf,
         .source = source.id,
-        .comp = &comp,
+        .langopts = comp.langopts,
     };
     var i: usize = 0;
     while (i < expected_tokens.len) {

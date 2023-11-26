@@ -408,6 +408,17 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
         \\
     );
 
+    // atomics
+    try w.writeAll(
+        \\#define __ATOMIC_RELAXED 0
+        \\#define __ATOMIC_CONSUME 1
+        \\#define __ATOMIC_ACQUIRE 2
+        \\#define __ATOMIC_RELEASE 3
+        \\#define __ATOMIC_ACQ_REL 4
+        \\#define __ATOMIC_SEQ_CST 5
+        \\
+    );
+
     // types
     if (comp.getCharSignedness() == .unsigned) try w.writeAll("#define __CHAR_UNSIGNED__ 1\n");
     try w.writeAll("#define __CHAR_BIT__ 8\n");
@@ -445,6 +456,10 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
     try comp.generateSizeofType(w, "__SIZEOF_WCHAR_T__", comp.types.wchar);
     // try comp.generateSizeofType(w, "__SIZEOF_WINT_T__", .{ .specifier = .pointer });
 
+    if (target_util.hasInt128(comp.target)) {
+        try comp.generateSizeofType(w, "__SIZEOF_INT128__", .{ .specifier = .int128 });
+    }
+
     // various int types
     const mapper = comp.string_interner.getSlowTypeMapper();
     try generateTypeMacro(w, mapper, "__INTPTR_TYPE__", comp.types.intptr, comp.langopts);
@@ -461,6 +476,7 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
     try generateTypeMacro(w, mapper, "__WCHAR_TYPE__", comp.types.wchar, comp.langopts);
 
     try comp.generateExactWidthTypes(w, mapper);
+    try comp.generateFastAndLeastWidthTypes(w, mapper);
 
     if (target_util.FPSemantics.halfPrecisionType(comp.target)) |half| {
         try generateFloatMacros(w, "FLT16", half, "F16");
@@ -497,10 +513,11 @@ pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefi
         );
     }
 
+    try buf.appendSlice("#define __STDC__ 1\n");
+    try buf.writer().print("#define __STDC_HOSTED__ {d}\n", .{@intFromBool(comp.target.os.tag != .freestanding)});
+
     // standard macros
     try buf.appendSlice(
-        \\#define __STDC__ 1
-        \\#define __STDC_HOSTED__ 1
         \\#define __STDC_NO_ATOMICS__ 1
         \\#define __STDC_NO_COMPLEX__ 1
         \\#define __STDC_NO_THREADS__ 1
@@ -678,6 +695,14 @@ fn generateBuiltinTypes(comp: *Compilation) !void {
 
 /// Smallest integer type with at least N bits
 fn intLeastN(comp: *const Compilation, bits: usize, signedness: std.builtin.Signedness) Type {
+    if (bits == 64 and (comp.target.isDarwin() or comp.target.isWasm())) {
+        // WebAssembly and Darwin use `long long` for `int_least64_t` and `int_fast64_t`.
+        return .{ .specifier = if (signedness == .signed) .long_long else .ulong_long };
+    }
+    if (bits == 16 and comp.target.cpu.arch == .avr) {
+        // AVR uses int for int_least16_t and int_fast16_t.
+        return .{ .specifier = if (signedness == .signed) .int else .uint };
+    }
     const candidates = switch (signedness) {
         .signed => &[_]Type.Specifier{ .schar, .short, .int, .long, .long_long },
         .unsigned => &[_]Type.Specifier{ .uchar, .ushort, .uint, .ulong, .ulong_long },
@@ -691,6 +716,52 @@ fn intLeastN(comp: *const Compilation, bits: usize, signedness: std.builtin.Sign
 fn intSize(comp: *const Compilation, specifier: Type.Specifier) u64 {
     const ty = Type{ .specifier = specifier };
     return ty.sizeof(comp).?;
+}
+
+fn generateFastOrLeastType(
+    comp: *Compilation,
+    bits: usize,
+    kind: enum { least, fast },
+    signedness: std.builtin.Signedness,
+    w: anytype,
+    mapper: StrInt.TypeMapper,
+) !void {
+    const ty = comp.intLeastN(bits, signedness); // defining the fast types as the least types is permitted
+
+    var buf: [32]u8 = undefined;
+    const suffix = "_TYPE__";
+    const base_name = switch (signedness) {
+        .signed => "__INT_",
+        .unsigned => "__UINT_",
+    };
+    const kind_str = switch (kind) {
+        .fast => "FAST",
+        .least => "LEAST",
+    };
+
+    const full = std.fmt.bufPrint(&buf, "{s}{s}{d}{s}", .{
+        base_name, kind_str, bits, suffix,
+    }) catch return error.OutOfMemory;
+
+    try generateTypeMacro(w, mapper, full, ty, comp.langopts);
+
+    const prefix = full[2 .. full.len - suffix.len]; // remove "__" and "_TYPE__"
+
+    switch (signedness) {
+        .signed => try comp.generateIntMaxAndWidth(w, prefix, ty),
+        .unsigned => try comp.generateIntMax(w, prefix, ty),
+    }
+    try comp.generateFmt(prefix, w, ty);
+}
+
+fn generateFastAndLeastWidthTypes(comp: *Compilation, w: anytype, mapper: StrInt.TypeMapper) !void {
+    const sizes = [_]usize{ 8, 16, 32, 64 };
+    for (sizes) |size| {
+        try comp.generateFastOrLeastType(size, .least, .signed, w, mapper);
+        try comp.generateFastOrLeastType(size, .least, .unsigned, w, mapper);
+        try comp.generateFastOrLeastType(size, .fast, .signed, w, mapper);
+        try comp.generateFastOrLeastType(size, .fast, .unsigned, w, mapper);
+    }
 }
 
 fn generateExactWidthTypes(comp: *const Compilation, w: anytype, mapper: StrInt.TypeMapper) !void {
