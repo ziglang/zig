@@ -14,7 +14,7 @@ const assert = std.debug.assert;
 const Progress = @This();
 
 /// `null` if the current node (and its children) should
-/// not print on update()
+/// not print on update(), refreshes the `output_buffer` nonetheless
 terminal: ?std.fs.File = undefined,
 
 /// Is this a windows API terminal (note: this is not the same as being run on windows
@@ -350,8 +350,6 @@ fn refreshWithHeldLock(self: *Progress) void {
     const is_dumb = !self.supports_ansi_escape_codes and !self.is_windows_terminal;
     if (is_dumb and self.dont_print_on_dumb) return;
 
-    const file = self.terminal orelse return;
-
     self.end = 0;
     self.columns_written = 0;
     clearWithHeldLock(self, &self.end);
@@ -359,6 +357,8 @@ fn refreshWithHeldLock(self: *Progress) void {
     if (!self.done) {
         refreshOutputBufWithHeldLock(self, &self.root, &self.end);
     }
+
+    const file = self.terminal orelse return;
 
     _ = file.write(self.output_buffer[0..self.end]) catch {
         // stop trying to write to this file
