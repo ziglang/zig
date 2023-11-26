@@ -45,6 +45,10 @@ prev_refresh_timestamp: u64 = undefined,
 /// with each refresh.
 output_buffer: [400]u8 = undefined,
 
+/// This is the end index for the `output_buffer`
+/// that will be used for printing to the terminal.
+end: usize = undefined,
+
 /// This symbol will be used as a bullet in the tree listing.
 bullet: u8 = '-',
 
@@ -215,6 +219,7 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
         .unprotected_estimated_total_items = estimated_total_items,
         .unprotected_completed_items = 0,
     };
+    self.end = 0;
     self.rows_written = 0;
     self.columns_written = 0;
     self.max_columns = determineTerminalWidth(self) orelse 0;
@@ -347,15 +352,15 @@ fn refreshWithHeldLock(self: *Progress) void {
 
     const file = self.terminal orelse return;
 
-    var end: usize = 0;
+    self.end = 0;
     self.columns_written = 0;
-    clearWithHeldLock(self, &end);
+    clearWithHeldLock(self, &self.end);
 
     if (!self.done) {
-        refreshOutputBufWithHeldLock(self, &self.root, &end);
+        refreshOutputBufWithHeldLock(self, &self.root, &self.end);
     }
 
-    _ = file.write(self.output_buffer[0..end]) catch {
+    _ = file.write(self.output_buffer[0..self.end]) catch {
         // stop trying to write to this file
         self.terminal = null;
     };
