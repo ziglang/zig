@@ -65,6 +65,14 @@ update_mutex: std.Thread.Mutex = .{},
 /// we can move the cursor back later.
 rows_written: usize = undefined,
 
+/// Keeps track of how many cols in the terminal have been output, so that
+/// we can apply truncation if needed.
+columns_written: usize = undefined,
+
+/// Stores the current max width of the terminal.
+/// If not available then 0.
+max_columns: usize = undefined,
+
 /// Represents one unit of progress. Each node can have children nodes, or
 /// one can use integers with `update`.
 pub const Node = struct {
@@ -208,6 +216,8 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
         .unprotected_completed_items = 0,
     };
     self.rows_written = 0;
+    self.columns_written = 0;
+    self.max_columns = determineTerminalWidth(self) orelse 0;
     self.prev_refresh_timestamp = 0;
     self.timer = std.time.Timer.start() catch null;
     self.done = false;
@@ -239,6 +249,28 @@ pub fn refresh(self: *Progress) void {
     defer self.update_mutex.unlock();
 
     return self.refreshWithHeldLock();
+}
+
+/// Determine the terminal window width in columns
+fn determineTerminalWidth(self: *Progress) ?usize {
+    if (self.terminal == null) return null;
+    switch (builtin.os.tag) {
+        .linux => {
+            var window_size: std.os.linux.winsize = undefined;
+            const exit_code = std.os.linux.ioctl(self.terminal.?.handle, std.os.linux.T.IOCGWINSZ, @intFromPtr(&window_size));
+            if (exit_code < 0) return null;
+            return @intCast(window_size.ws_col);
+        },
+        .windows => {
+            std.debug.assert(self.is_windows_terminal);
+            var screen_buffer_info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+            const exit_code = windows.kernel32.GetConsoleScreenBufferInfo(self.terminal.?.handle, &screen_buffer_info);
+            if (exit_code != windows.TRUE) return null;
+            return @intCast(screen_buffer_info.dwSize.X - 1);
+        },
+        else => return null,
+    }
+    return null;
 }
 
 fn clearWithHeldLock(p: *Progress, end_ptr: *usize) void {
@@ -316,6 +348,7 @@ fn refreshWithHeldLock(self: *Progress) void {
     const file = self.terminal orelse return;
 
     var end: usize = 0;
+    self.columns_written = 0;
     clearWithHeldLock(self, &end);
 
     if (!self.done) {
@@ -344,25 +377,26 @@ fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node, end_ptr: *usize) v
             const depth: usize = @min(10, node.node_tree_depth);
             const whitespace_length: usize = if (depth > 1) (depth - 1) * 2 else 0;
             const indentation_buffer = [1]u8{' '} ** 18; // fits indentation up to depth 10
-            self.bufWrite(&end, "\n{s}{s}{c} ", .{
+            self.bufWriteInsertNewline(&end);
+            self.bufWriteLineTruncate(&end, "{s}{s}{c} ", .{
                 indentation_buffer[0..whitespace_length],
                 if (node.node_tree_depth > 10) "_ " else "",
                 self.bullet,
             });
         }
         if (node.name.len != 0) {
-            self.bufWrite(&end, "{s} ", .{node.name});
+            self.bufWriteLineTruncate(&end, "{s} ", .{node.name});
             need_ellipse = true;
         }
         if (eti > 0) {
-            self.bufWrite(&end, "[{d}/{d}{s}]", .{ current_item, eti, node.unit });
+            self.bufWriteLineTruncate(&end, "[{d}/{d}{s}]", .{ current_item, eti, node.unit });
             need_ellipse = false;
         } else if (completed_items != 0) {
-            self.bufWrite(&end, "[{d}{s}]", .{ current_item, node.unit });
+            self.bufWriteLineTruncate(&end, "[{d}{s}]", .{ current_item, node.unit });
             need_ellipse = false;
         }
         if (need_ellipse) {
-            self.bufWrite(&end, "...", .{});
+            self.bufWriteLineTruncate(&end, "...", .{});
         }
     }
 
@@ -406,9 +440,30 @@ pub fn unlock_stderr(p: *Progress) void {
     p.update_mutex.unlock();
 }
 
+/// Wrapping function around `bufWrite` that cares about the terminal width
+fn bufWriteLineTruncate(self: *Progress, end: *usize, comptime format: []const u8, args: anytype) void {
+    comptime assert(std.mem.count(u8, format, "\n") == 0);
+    const ellipse = "...";
+    const start_index = end.*;
+    if (self.max_columns <= 0 or self.columns_written < self.max_columns) self.bufWrite(end, format, args);
+    const actual_columns_written = end.* - start_index;
+    const truncated_end_index = start_index + @min(self.max_columns - self.columns_written, actual_columns_written);
+    if (self.max_columns > 0) end.* = truncated_end_index;
+    self.columns_written += truncated_end_index - start_index;
+    if (self.max_columns > 0 and actual_columns_written + self.columns_written > self.max_columns) {
+        @memcpy(self.output_buffer[end.* - ellipse.len .. end.*], ellipse);
+    }
+}
+
+/// Wrapping function around `bufWrite` that inserts a new line
+fn bufWriteInsertNewline(self: *Progress, end: *usize) void {
+    self.bufWrite(end, "\n", .{});
+    self.columns_written = 0;
+}
+
 fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: anytype) void {
     if (std.fmt.bufPrint(self.output_buffer[end.*..], format, args)) |written| {
-        self.rows_written += std.mem.count(u8, format, "\n");
+        self.rows_written += comptime std.mem.count(u8, format, "\n");
         const amt = written.len;
         end.* += amt;
     } else |err| switch (err) {
