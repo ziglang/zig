@@ -190,10 +190,6 @@ test "Allocator.resize" {
     }
 }
 
-/// Deprecated: use `@memcpy` if the arguments do not overlap, or
-/// `copyForwards` if they do.
-pub const copy = copyForwards;
-
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
