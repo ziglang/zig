@@ -88,7 +88,7 @@ pub fn timestamp() i64 {
 /// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
 pub fn milliTimestamp() i64 {
-    return @as(i64, @intCast(@divFloor(nanoTimestamp(), ns_per_ms)));
+    return @intCast(@divFloor(nanoTimestamp(), ns_per_ms));
 }
 
 /// Get a calendar timestamp, in microseconds, relative to UTC 1970-01-01.
@@ -97,7 +97,7 @@ pub fn milliTimestamp() i64 {
 /// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
 pub fn microTimestamp() i64 {
-    return @as(i64, @intCast(@divFloor(nanoTimestamp(), ns_per_us)));
+    return @intCast(@divFloor(nanoTimestamp(), ns_per_us));
 }
 
 /// Get a calendar timestamp, in nanoseconds, relative to UTC 1970-01-01.
@@ -259,7 +259,7 @@ pub const Instant = struct {
             // Convert to ns using fixed point.
             const scale = @as(u64, std.time.ns_per_s << 32) / @as(u32, @intCast(qpf));
             const result = (@as(u96, qpc) * scale) >> 32;
-            return @as(u64, @truncate(result));
+            return @truncate(result);
         }
 
         // WASI timestamps are directly in nanoseconds
