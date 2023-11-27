@@ -1072,8 +1072,7 @@ fn linuxLookupName(
             key |= DAS_USABLE;
             os.getsockname(fd, sa, &salen) catch break :syscalls;
             if (addr.addr.any.family == os.AF.INET) {
-                // TODO sa6.addr[12..16] should return *[4]u8, making this cast unnecessary.
-                mem.writeInt(u32, @as(*[4]u8, @ptrCast(&sa6.addr[12])), sa4.addr, native_endian);
+                mem.writeInt(u32, sa6.addr[12..16], sa4.addr, native_endian);
             }
             if (dscope == @as(i32, scopeOf(sa6.addr))) key |= DAS_MATCHINGSCOPE;
             if (dlabel == labelOf(sa6.addr)) key |= DAS_MATCHINGLABEL;
