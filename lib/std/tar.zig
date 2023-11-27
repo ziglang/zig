@@ -174,6 +174,144 @@ const Buffer = struct {
     }
 };
 
+fn Iterator(comptime ReaderType: type) type {
+    return struct {
+        file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined,
+        file_name_len: usize = 0,
+        buffer: Buffer = .{},
+        reader: ReaderType,
+        pad_len: usize = 0,
+        diagnostics: ?*Options.Diagnostics,
+
+        const Self = @This();
+
+        const File = struct {
+            file_name: []const u8,
+            link_name: []const u8,
+            size: usize,
+            file_type: Header.FileType,
+            iter: *Self,
+
+            pub fn write(self: File, writer: anytype) !void {
+                const rounded_file_size = std.mem.alignForward(u64, self.size, 512);
+                var file_off: usize = 0;
+                while (true) {
+                    const temp = try self.iter.buffer.readChunk(self.iter.reader, @intCast(rounded_file_size + 512 - file_off));
+                    if (temp.len == 0) return error.UnexpectedEndOfStream;
+                    const slice = temp[0..@intCast(@min(self.size - file_off, temp.len))];
+                    try writer.writeAll(slice);
+
+                    file_off += slice.len;
+                    self.iter.buffer.advance(slice.len);
+                    if (file_off >= self.size) {
+                        return;
+                        //     self.iter.buffer.advance(pad_len);
+                        //     continue :header;
+                    }
+                }
+            }
+
+            pub fn skip(self: File) void {
+                _ = self;
+                unreachable;
+            }
+        };
+
+        pub fn next(self: *Self) !?File {
+            self.buffer.advance(self.pad_len);
+            self.pad_len = 0;
+            self.file_name_len = 0;
+
+            while (true) {
+                const chunk = try self.buffer.readChunk(self.reader, 1024);
+                switch (chunk.len) {
+                    0 => return null,
+                    1...511 => return error.UnexpectedEndOfStream,
+                    else => {},
+                }
+                self.buffer.advance(512);
+
+                const header: Header = .{ .bytes = chunk[0..512] };
+                const file_size = try header.fileSize();
+                const file_type = header.fileType();
+                const link_name = header.linkName();
+                const rounded_file_size = std.mem.alignForward(u64, file_size, 512);
+                self.pad_len = @intCast(rounded_file_size - file_size);
+                const file_name = if (self.file_name_len == 0)
+                    try header.fullFileName(&self.file_name_buffer)
+                else
+                    self.file_name_buffer[0..self.file_name_len];
+
+                switch (file_type) {
+                    .directory, .normal, .symbolic_link => {
+                        return File{
+                            .file_name = file_name,
+                            .link_name = link_name,
+                            .size = file_size,
+                            .file_type = file_type,
+                            .iter = self,
+                        };
+                    },
+                    .global_extended_header => {
+                        self.buffer.skip(self.reader, @intCast(rounded_file_size)) catch return error.TarHeadersTooBig;
+                    },
+                    .extended_header => {
+                        if (file_size == 0) {
+                            self.buffer.advance(@intCast(rounded_file_size));
+                            continue;
+                        }
+
+                        const chunk_size: usize = @intCast(rounded_file_size + 512);
+                        var data_off: usize = 0;
+                        const file_name_override_len = while (data_off < file_size) {
+                            const slice = try self.buffer.readChunk(self.reader, chunk_size - data_off);
+                            if (slice.len == 0) return error.UnexpectedEndOfStream;
+                            const remaining_size: usize = @intCast(file_size - data_off);
+                            const attr_info = try parsePaxAttribute(slice[0..@min(remaining_size, slice.len)], remaining_size);
+
+                            if (std.mem.eql(u8, attr_info.key, "path")) {
+                                if (attr_info.value_len > self.file_name_buffer.len) return error.NameTooLong;
+                                self.buffer.advance(attr_info.value_off);
+                                data_off += attr_info.value_off;
+                                break attr_info.value_len;
+                            }
+
+                            try self.buffer.skip(self.reader, attr_info.size);
+                            data_off += attr_info.size;
+                        } else 0;
+
+                        var i: usize = 0;
+                        while (i < file_name_override_len) {
+                            const slice = try self.buffer.readChunk(self.reader, chunk_size - data_off - i);
+                            if (slice.len == 0) return error.UnexpectedEndOfStream;
+                            const copy_size: usize = @intCast(@min(file_name_override_len - i, slice.len));
+                            @memcpy(self.file_name_buffer[i .. i + copy_size], slice[0..copy_size]);
+                            self.buffer.advance(copy_size);
+                            i += copy_size;
+                        }
+
+                        try self.buffer.skip(self.reader, @intCast(rounded_file_size - data_off - file_name_override_len));
+                        self.file_name_len = file_name_override_len;
+                        continue;
+                    },
+                    .hard_link => return error.TarUnsupportedFileType,
+                    else => {
+                        const d = self.diagnostics orelse return error.TarUnsupportedFileType;
+                        try d.errors.append(d.allocator, .{ .unsupported_file_type = .{
+                            .file_name = try d.allocator.dupe(u8, file_name),
+                            .file_type = file_type,
+                        } });
+                    },
+                }
+            }
+        }
+    };
+}
+
+pub fn iterator(reader: anytype, diagnostics: ?*Options.Diagnostics) Iterator(@TypeOf(reader)) {
+    return .{ .reader = reader, .diagnostics = diagnostics };
+}
+
 pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !void {
     switch (options.mode_mode) {
         .ignore => {},
@@ -186,37 +324,20 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
             @panic("TODO: unimplemented: tar ModeMode.executable_bit_only");
         },
     }
-    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var file_name_override_len: usize = 0;
-    var buffer: Buffer = .{};
-    header: while (true) {
-        const chunk = try buffer.readChunk(reader, 1024);
-        switch (chunk.len) {
-            0 => return,
-            1...511 => return error.UnexpectedEndOfStream,
-            else => {},
-        }
-        buffer.advance(512);
 
-        const header: Header = .{ .bytes = chunk[0..512] };
-        const file_size = try header.fileSize();
-        const rounded_file_size = std.mem.alignForward(u64, file_size, 512);
-        const pad_len: usize = @intCast(rounded_file_size - file_size);
-        const unstripped_file_name = if (file_name_override_len > 0)
-            file_name_buffer[0..file_name_override_len]
-        else
-            try header.fullFileName(&file_name_buffer);
-        file_name_override_len = 0;
-        switch (header.fileType()) {
+    var iter = iterator(reader, options.diagnostics);
+
+    while (try iter.next()) |iter_file| {
+        switch (iter_file.file_type) {
             .directory => {
-                const file_name = try stripComponents(unstripped_file_name, options.strip_components);
+                const file_name = try stripComponents(iter_file.file_name, options.strip_components);
                 if (file_name.len != 0 and !options.exclude_empty_directories) {
                     try dir.makePath(file_name);
                 }
             },
             .normal => {
-                if (file_size == 0 and unstripped_file_name.len == 0) return;
-                const file_name = try stripComponents(unstripped_file_name, options.strip_components);
+                if (iter_file.size == 0 and iter_file.file_name.len == 0) return;
+                const file_name = try stripComponents(iter_file.file_name, options.strip_components);
 
                 const file = dir.createFile(file_name, .{}) catch |err| switch (err) {
                     error.FileNotFound => again: {
@@ -240,68 +361,17 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 };
                 defer if (file) |f| f.close();
 
-                var file_off: usize = 0;
-                while (true) {
-                    const temp = try buffer.readChunk(reader, @intCast(rounded_file_size + 512 - file_off));
-                    if (temp.len == 0) return error.UnexpectedEndOfStream;
-                    const slice = temp[0..@intCast(@min(file_size - file_off, temp.len))];
-                    if (file) |f| try f.writeAll(slice);
-
-                    file_off += slice.len;
-                    buffer.advance(slice.len);
-                    if (file_off >= file_size) {
-                        buffer.advance(pad_len);
-                        continue :header;
-                    }
+                if (file) |f| {
+                    try iter_file.write(f);
+                } else {
+                    iter_file.skip();
                 }
             },
-            .extended_header => {
-                if (file_size == 0) {
-                    buffer.advance(@intCast(rounded_file_size));
-                    continue;
-                }
-
-                const chunk_size: usize = @intCast(rounded_file_size + 512);
-                var data_off: usize = 0;
-                file_name_override_len = while (data_off < file_size) {
-                    const slice = try buffer.readChunk(reader, chunk_size - data_off);
-                    if (slice.len == 0) return error.UnexpectedEndOfStream;
-                    const remaining_size: usize = @intCast(file_size - data_off);
-                    const attr_info = try parsePaxAttribute(slice[0..@min(remaining_size, slice.len)], remaining_size);
-
-                    if (std.mem.eql(u8, attr_info.key, "path")) {
-                        if (attr_info.value_len > file_name_buffer.len) return error.NameTooLong;
-                        buffer.advance(attr_info.value_off);
-                        data_off += attr_info.value_off;
-                        break attr_info.value_len;
-                    }
-
-                    try buffer.skip(reader, attr_info.size);
-                    data_off += attr_info.size;
-                } else 0;
-
-                var i: usize = 0;
-                while (i < file_name_override_len) {
-                    const slice = try buffer.readChunk(reader, chunk_size - data_off - i);
-                    if (slice.len == 0) return error.UnexpectedEndOfStream;
-                    const copy_size: usize = @intCast(@min(file_name_override_len - i, slice.len));
-                    @memcpy(file_name_buffer[i .. i + copy_size], slice[0..copy_size]);
-                    buffer.advance(copy_size);
-                    i += copy_size;
-                }
-
-                try buffer.skip(reader, @intCast(rounded_file_size - data_off - file_name_override_len));
-                continue :header;
-            },
-            .global_extended_header => {
-                buffer.skip(reader, @intCast(rounded_file_size)) catch return error.TarHeadersTooBig;
-            },
-            .hard_link => return error.TarUnsupportedFileType,
             .symbolic_link => {
                 // The file system path of the symbolic link.
-                const file_name = try stripComponents(unstripped_file_name, options.strip_components);
+                const file_name = try stripComponents(iter_file.file_name, options.strip_components);
                 // The data inside the symbolic link.
-                const link_name = header.linkName();
+                const link_name = iter_file.link_name;
 
                 dir.symLink(link_name, file_name, .{}) catch |err| again: {
                     const code = code: {
@@ -323,13 +393,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                     } });
                 };
             },
-            else => |file_type| {
-                const d = options.diagnostics orelse return error.TarUnsupportedFileType;
-                try d.errors.append(d.allocator, .{ .unsupported_file_type = .{
-                    .file_name = try d.allocator.dupe(u8, unstripped_file_name),
-                    .file_type = file_type,
-                } });
-            },
+            else => unreachable,
         }
     }
 }
