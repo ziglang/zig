@@ -158,7 +158,7 @@ pub const Builder = struct {
         const a = b.arena.allocator();
         const input_refs = try a.alloc(Ref, inputs.len * 2 + 1);
         input_refs[0] = @enumFromInt(inputs.len);
-        std.mem.copy(Ref, input_refs[1..], std.mem.bytesAsSlice(Ref, std.mem.sliceAsBytes(inputs)));
+        @memcpy(input_refs[1..], std.mem.bytesAsSlice(Ref, std.mem.sliceAsBytes(inputs)));
 
         return b.addInst(.phi, .{ .phi = .{ .ptr = input_refs.ptr } }, ty);
     }

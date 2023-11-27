@@ -2948,12 +2948,12 @@ fn joinMaybeZ(allocator: Allocator, separator: []const u8, slices: []const []con
     const buf = try allocator.alloc(u8, total_len);
     errdefer allocator.free(buf);
 
-    copy(u8, buf, slices[0]);
+    @memcpy(buf, slices[0]);
     var buf_index: usize = slices[0].len;
     for (slices[1..]) |slice| {
-        copy(u8, buf[buf_index..], separator);
+        @memcpy(buf[buf_index..], separator);
         buf_index += separator.len;
-        copy(u8, buf[buf_index..], slice);
+        @memcpy(buf[buf_index..], slice);
         buf_index += slice.len;
     }
 
@@ -3046,7 +3046,7 @@ pub fn concatMaybeSentinel(allocator: Allocator, comptime T: type, slices: []con
 
     var buf_index: usize = 0;
     for (slices) |slice| {
-        copy(T, buf[buf_index..], slice);
+        @memcpy(buf[buf_index..], slice);
         buf_index += slice.len;
     }
 
