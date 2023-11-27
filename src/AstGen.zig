@@ -1762,7 +1762,7 @@ fn structInitExpr(
 
                     try astgen.appendErrorTokNotes(
                         record.items[0],
-                        "struct field name conflict: {s}",
+                        "struct field name conflict: '{s}'",
                         .{try astgen.identifierTokenString(record.items[0])},
                         error_notes.items,
                     );

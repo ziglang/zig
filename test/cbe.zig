@@ -507,7 +507,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\    return p.y - p.x - p.x;
             \\}
         , &.{
-            ":4:10: error: struct field name conflict: y",
+            ":4:10: error: struct field name conflict: 'y'",
             ":6:10: note: duplicate name here",
             ":3:21: note: struct declared here",
         });
