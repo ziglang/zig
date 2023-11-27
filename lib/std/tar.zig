@@ -134,6 +134,13 @@ pub const Header = struct {
         }
         return header.bytes[start..i];
     }
+
+    pub fn isZeroBlock(header: Header) bool {
+        for (header.bytes) |b| {
+            if (b != 0) return false;
+        }
+        return true;
+    }
 };
 
 fn BufferedReader(comptime ReaderType: type) type {
@@ -225,7 +232,7 @@ fn Iterator(comptime ReaderType: type) type {
         const Self = @This();
 
         const File = struct {
-            file_name: []const u8,
+            name: []const u8,
             link_name: []const u8,
             size: usize,
             file_type: Header.FileType,
@@ -238,6 +245,31 @@ fn Iterator(comptime ReaderType: type) type {
             pub fn skip(self: File) !void {
                 const rounded_file_size = std.mem.alignForward(usize, self.size, 512);
                 try self.iter.reader.skip(rounded_file_size);
+            }
+
+            fn chksum(self: File) ![16]u8 {
+                var cs = [_]u8{0} ** 16;
+                if (self.size == 0) return cs;
+
+                var buffer: [512]u8 = undefined;
+                var h = std.crypto.hash.Md5.init(.{});
+
+                var remaining_bytes: usize = self.size;
+                while (remaining_bytes > 0) {
+                    const copy_size = @min(buffer.len, remaining_bytes);
+                    try self.iter.reader.copy(&buffer, copy_size);
+                    h.update(buffer[0..copy_size]);
+                    remaining_bytes -= copy_size;
+                }
+                h.final(&cs);
+                try self.skipPadding();
+                return cs;
+            }
+
+            fn skipPadding(self: File) !void {
+                const rounded_file_size = std.mem.alignForward(usize, self.size, 512);
+                const pad_len: usize = rounded_file_size - self.size;
+                self.iter.reader.advance(pad_len);
             }
         };
 
@@ -253,6 +285,7 @@ fn Iterator(comptime ReaderType: type) type {
                 self.reader.advance(512);
 
                 const header: Header = .{ .bytes = chunk[0..512] };
+                if (header.isZeroBlock()) return null;
                 const file_size = try header.fileSize();
                 const file_type = header.fileType();
                 const link_name = header.linkName();
@@ -266,10 +299,10 @@ fn Iterator(comptime ReaderType: type) type {
                 switch (file_type) {
                     .directory, .normal, .symbolic_link => {
                         return File{
-                            .file_name = file_name,
-                            .link_name = link_name,
+                            .name = file_name,
                             .size = file_size,
                             .file_type = file_type,
+                            .link_name = link_name,
                             .iter = self,
                         };
                     },
@@ -341,19 +374,19 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
 
     var iter = iterator(reader, options.diagnostics);
 
-    while (try iter.next()) |iter_file| {
-        switch (iter_file.file_type) {
+    while (try iter.next()) |file| {
+        switch (file.file_type) {
             .directory => {
-                const file_name = try stripComponents(iter_file.file_name, options.strip_components);
+                const file_name = try stripComponents(file.name, options.strip_components);
                 if (file_name.len != 0 and !options.exclude_empty_directories) {
                     try dir.makePath(file_name);
                 }
             },
             .normal => {
-                if (iter_file.size == 0 and iter_file.file_name.len == 0) return;
-                const file_name = try stripComponents(iter_file.file_name, options.strip_components);
+                if (file.size == 0 and file.name.len == 0) return;
+                const file_name = try stripComponents(file.name, options.strip_components);
 
-                const file = dir.createFile(file_name, .{}) catch |err| switch (err) {
+                const fs_file = dir.createFile(file_name, .{}) catch |err| switch (err) {
                     error.FileNotFound => again: {
                         const code = code: {
                             if (std.fs.path.dirname(file_name)) |dir_name| {
@@ -373,19 +406,19 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                     },
                     else => |e| return e,
                 };
-                defer if (file) |f| f.close();
+                defer if (fs_file) |f| f.close();
 
-                if (file) |f| {
-                    try iter_file.write(f);
+                if (fs_file) |f| {
+                    try file.write(f);
                 } else {
-                    try iter_file.skip();
+                    try file.skip();
                 }
             },
             .symbolic_link => {
                 // The file system path of the symbolic link.
-                const file_name = try stripComponents(iter_file.file_name, options.strip_components);
+                const file_name = try stripComponents(file.name, options.strip_components);
                 // The data inside the symbolic link.
-                const link_name = iter_file.link_name;
+                const link_name = file.link_name;
 
                 dir.symLink(link_name, file_name, .{}) catch |err| again: {
                     const code = code: {
@@ -473,3 +506,274 @@ test parsePaxAttribute {
 
 const std = @import("std.zig");
 const assert = std.debug.assert;
+
+const TestCase = struct {
+    const File = struct {
+        const empty_string = &[0]u8{};
+
+        name: []const u8,
+        size: usize = 0,
+        link_name: []const u8 = empty_string,
+        file_type: Header.FileType = .normal,
+    };
+
+    path: []const u8,
+    files: []const File = &[_]TestCase.File{},
+    chksums: []const []const u8 = &[_][]const u8{},
+    err: ?anyerror = null,
+};
+
+test "Go test cases" {
+    const test_dir = try std.fs.openDirAbsolute("/usr/local/go/src/archive/tar/testdata", .{});
+    const cases = [_]TestCase{
+        .{
+            .path = "gnu.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "small.txt",
+                    .size = 5,
+                    .file_type = .normal,
+                },
+                .{
+                    .name = "small2.txt",
+                    .size = 11,
+                    .file_type = .normal,
+                },
+            },
+            .chksums = &[_][]const u8{
+                "e38b27eaccb4391bdec553a7f3ae6b2f",
+                "c65bd2e50a56a2138bf1716f2fd56fe9",
+            },
+        },
+        .{
+            .path = "sparse-formats.tar",
+            .err = error.TarUnsupportedFileType,
+        },
+        .{
+            .path = "star.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "small.txt",
+                    .size = 5,
+                    .file_type = .normal,
+                },
+                .{
+                    .name = "small2.txt",
+                    .size = 11,
+                    .file_type = .normal,
+                },
+            },
+            .chksums = &[_][]const u8{
+                "e38b27eaccb4391bdec553a7f3ae6b2f",
+                "c65bd2e50a56a2138bf1716f2fd56fe9",
+            },
+        },
+        .{
+            .path = "v7.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "small.txt",
+                    .size = 5,
+                    .file_type = .normal,
+                },
+                .{
+                    .name = "small2.txt",
+                    .size = 11,
+                    .file_type = .normal,
+                },
+            },
+            .chksums = &[_][]const u8{
+                "e38b27eaccb4391bdec553a7f3ae6b2f",
+                "c65bd2e50a56a2138bf1716f2fd56fe9",
+            },
+        },
+        .{
+            .path = "pax.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "a/123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100",
+                    .size = 7,
+                    .file_type = .normal,
+                },
+                .{
+                    .name = "a/b",
+                    .size = 0,
+                    .file_type = .symbolic_link,
+                    .link_name = "1234567891011121314151617181920212223242526272829303132333435363738394041424344454647484950515253545",
+                    // TODO fix reading link name from pax header
+                    // .link_name = "123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100",
+                },
+            },
+            .chksums = &[_][]const u8{
+                "3c382e8f5b6631aa2db52643912ffd4a",
+            },
+        },
+        // TODO: this should fail
+        // .{
+        //     .path = "pax-bad-hdr-file.tar",
+        //     .err = error.TarBadHeader,
+        // },
+        // .{
+        //     .path = "pax-bad-mtime-file.tar",
+        //     .err = error.TarBadHeader,
+        // },
+        //
+        // TODO: giving wrong result because we are not reading pax size header
+        // .{
+        //     .path = "pax-pos-size-file.tar",
+        //     .files = &[_]TestCase.File{
+        //         .{
+        //             .name = "foo",
+        //             .size = 999,
+        //             .file_type = .normal,
+        //         },
+        //     },
+        //     .chksums = &[_][]const u8{
+        //         "0afb597b283fe61b5d4879669a350556",
+        //     },
+        // },
+        .{
+            // has pax records which we are not interested in
+            .path = "pax-records.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "file",
+                },
+            },
+        },
+        .{
+            // has global records which we are ignoring
+            .path = "pax-global-records.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "file1",
+                },
+                .{
+                    .name = "file2",
+                },
+                .{
+                    .name = "file3",
+                },
+                .{
+                    .name = "file4",
+                },
+            },
+        },
+        .{
+            .path = "nil-uid.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "P1050238.JPG.log",
+                    .size = 14,
+                    .file_type = .normal,
+                },
+            },
+            .chksums = &[_][]const u8{
+                "08d504674115e77a67244beac19668f5",
+            },
+        },
+        .{
+            // has xattrs and pax records which we are ignoring
+            .path = "xattrs.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "small.txt",
+                    .size = 5,
+                    .file_type = .normal,
+                },
+                .{
+                    .name = "small2.txt",
+                    .size = 11,
+                    .file_type = .normal,
+                },
+            },
+            .chksums = &[_][]const u8{
+                "e38b27eaccb4391bdec553a7f3ae6b2f",
+                "c65bd2e50a56a2138bf1716f2fd56fe9",
+            },
+        },
+        .{
+            .path = "gnu-multi-hdrs.tar",
+            .err = error.TarUnsupportedFileType,
+        },
+        .{
+            .path = "gnu-incremental.tar",
+            .err = error.TarUnsupportedFileType,
+        },
+        // .{
+        //     .path = "pax-multi-hdrs.tar",
+        // },
+        // .{
+        //     .path = "gnu-long-nul.tar",
+        //     .files = &[_]TestCase.File{
+        //         .{
+        //             .name = "012233456789",
+        //         },
+        //     },
+        // },
+        // .{
+        //     .path = "gnu-utf8.tar",
+        //     .files = &[_]TestCase.File{
+        //         .{
+        //             .name = "012233456789",
+        //         },
+        //     },
+        // },
+        //
+        .{
+            .path = "gnu-not-utf8.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "hi\x80\x81\x82\x83bye",
+                },
+            },
+        },
+        // TODO some files with errors:
+        // pax-nul-xattrs.tar, pax-nul-path.tar, neg-size.tar, issue10968.tar, issue11169.tar, issue12435.tar
+        .{
+            .path = "trailing-slash.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "123456789/" ** 30,
+                    .file_type = .directory,
+                },
+            },
+        },
+    };
+
+    for (cases) |case| {
+        // if (!std.mem.eql(u8, case.path, "pax.tar")) continue;
+
+        var fs_file = try test_dir.openFile(case.path, .{});
+        defer fs_file.close();
+
+        var iter = iterator(fs_file.reader(), null);
+        var i: usize = 0;
+        while (iter.next() catch |err| {
+            if (case.err) |e| {
+                try std.testing.expectEqual(e, err);
+                continue;
+            } else {
+                return err;
+            }
+        }) |actual| {
+            const expected = case.files[i];
+            try std.testing.expectEqualStrings(expected.name, actual.name);
+            try std.testing.expectEqual(expected.size, actual.size);
+            try std.testing.expectEqual(expected.file_type, actual.file_type);
+            try std.testing.expectEqualStrings(expected.link_name, actual.link_name);
+
+            if (case.chksums.len > i) {
+                var actual_chksum = try actual.chksum();
+                var hex_to_bytes_buffer: [16]u8 = undefined;
+                const expected_chksum = try std.fmt.hexToBytes(&hex_to_bytes_buffer, case.chksums[i]);
+                // std.debug.print("actual chksum: {s}\n", .{std.fmt.fmtSliceHexLower(&actual_chksum)});
+                try std.testing.expectEqualStrings(expected_chksum, &actual_chksum);
+            } else {
+                try actual.skip(); // skip file content
+            }
+            i += 1;
+        }
+        try std.testing.expectEqual(case.files.len, i);
+    }
+}
