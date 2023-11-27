@@ -874,7 +874,7 @@ fn findConfigH(b: *std.Build, config_h_path_option: ?[]const u8) ?[]const u8 {
             return null;
         }
         check_dir = new_check_dir.?;
-    } else unreachable; // TODO should not need `else unreachable`.
+    }
 }
 
 fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {

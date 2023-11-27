@@ -803,7 +803,14 @@ pub const Value = struct {
                 switch (ip.indexToKey((try val.intFromEnum(ty, mod)).toIntern()).int.storage) {
                     inline .u64, .i64 => |int| std.mem.writeVarPackedInt(buffer, bit_offset, bits, int, endian),
                     .big_int => |bigint| bigint.writePackedTwosComplement(buffer, bit_offset, bits, endian),
-                    else => unreachable,
+                    .lazy_align => |lazy_align| {
+                        const num = Type.fromInterned(lazy_align).abiAlignment(mod).toByteUnits(0);
+                        std.mem.writeVarPackedInt(buffer, bit_offset, bits, num, endian);
+                    },
+                    .lazy_size => |lazy_size| {
+                        const num = Type.fromInterned(lazy_size).abiSize(mod);
+                        std.mem.writeVarPackedInt(buffer, bit_offset, bits, num, endian);
+                    },
                 }
             },
             .Float => switch (ty.floatBits(target)) {

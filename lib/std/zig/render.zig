@@ -26,6 +26,8 @@ pub const Fixups = struct {
     omit_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
     /// These expressions will be replaced with the string value.
     replace_nodes_with_string: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+    /// The string value will be inserted directly after the node.
+    append_string_after_node: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
     /// These nodes will be replaced with a different node.
     replace_nodes_with_node: std.AutoHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .{},
     /// Change all identifier names matching the key to be value instead.
@@ -40,6 +42,7 @@ pub const Fixups = struct {
             f.gut_functions.count() +
             f.omit_nodes.count() +
             f.replace_nodes_with_string.count() +
+            f.append_string_after_node.count() +
             f.replace_nodes_with_node.count() +
             f.rename_identifiers.count() +
             @intFromBool(f.rebase_imported_paths != null);
@@ -50,6 +53,7 @@ pub const Fixups = struct {
         f.gut_functions.clearRetainingCapacity();
         f.omit_nodes.clearRetainingCapacity();
         f.replace_nodes_with_string.clearRetainingCapacity();
+        f.append_string_after_node.clearRetainingCapacity();
         f.replace_nodes_with_node.clearRetainingCapacity();
         f.rename_identifiers.clearRetainingCapacity();
 
@@ -61,6 +65,7 @@ pub const Fixups = struct {
         f.gut_functions.deinit(gpa);
         f.omit_nodes.deinit(gpa);
         f.replace_nodes_with_string.deinit(gpa);
+        f.append_string_after_node.deinit(gpa);
         f.replace_nodes_with_node.deinit(gpa);
         f.rename_identifiers.deinit(gpa);
         f.* = undefined;
@@ -909,6 +914,16 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .test_decl => unreachable,
         .asm_output => unreachable,
         .asm_input => unreachable,
+    }
+}
+
+/// Same as `renderExpression`, but afterwards looks for any
+/// append_string_after_node fixups to apply
+fn renderExpressionFixup(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
+    const ais = r.ais;
+    try renderExpression(r, node, space);
+    if (r.fixups.append_string_after_node.get(node)) |bytes| {
+        try ais.writer().writeAll(bytes);
     }
 }
 
@@ -2093,10 +2108,11 @@ fn renderStructInit(
         // Don't output a space after the = if expression is a multiline string,
         // since then it will start on the next line.
         const nodes = tree.nodes.items(.tag);
-        const expr = nodes[struct_init.ast.fields[0]];
+        const field_node = struct_init.ast.fields[0];
+        const expr = nodes[field_node];
         var space_after_equal: Space = if (expr == .multiline_string_literal) .none else .space;
         try renderToken(r, struct_init.ast.lbrace + 3, space_after_equal); // =
-        try renderExpression(r, struct_init.ast.fields[0], .comma);
+        try renderExpressionFixup(r, field_node, .comma);
 
         for (struct_init.ast.fields[1..]) |field_init| {
             const init_token = tree.firstToken(field_init);
@@ -2105,7 +2121,7 @@ fn renderStructInit(
             try renderIdentifier(r, init_token - 2, .space, .eagerly_unquote); // name
             space_after_equal = if (nodes[field_init] == .multiline_string_literal) .none else .space;
             try renderToken(r, init_token - 1, space_after_equal); // =
-            try renderExpression(r, field_init, .comma);
+            try renderExpressionFixup(r, field_init, .comma);
         }
 
         ais.popIndent();
@@ -2118,7 +2134,7 @@ fn renderStructInit(
             try renderToken(r, init_token - 3, .none); // .
             try renderIdentifier(r, init_token - 2, .space, .eagerly_unquote); // name
             try renderToken(r, init_token - 1, .space); // =
-            try renderExpression(r, field_init, .comma_space);
+            try renderExpressionFixup(r, field_init, .comma_space);
         }
     }
 
