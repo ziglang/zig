@@ -1395,31 +1395,49 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     // TODO fstat and make sure that the file has the correct size
 
     var buf: [mem.page_size]u8 = undefined;
-    var line: usize = 1;
-    var column: usize = 1;
-    while (true) {
-        const amt_read = try f.read(buf[0..]);
-        const slice = buf[0..amt_read];
-
-        for (slice) |byte| {
-            if (line == line_info.line) {
-                switch (byte) {
-                    '\t' => try out_stream.writeByte(' '),
-                    else => try out_stream.writeByte(byte),
-                }
-                if (byte == '\n') {
-                    return;
-                }
-            }
-            if (byte == '\n') {
-                line += 1;
-                column = 1;
+    var amt_read = try f.read(buf[0..]);
+    const line_start = seek: {
+        var current_line_start: usize = 0;
+        var next_line: usize = 1;
+        while (next_line != line_info.line) {
+            const slice = buf[current_line_start..amt_read];
+            if (mem.indexOfScalar(u8, slice, '\n')) |pos| {
+                next_line += 1;
+                if (pos == slice.len - 1) {
+                    amt_read = try f.read(buf[0..]);
+                    current_line_start = 0;
+                } else current_line_start += pos + 1;
+            } else if (amt_read < buf.len) {
+                return error.EndOfFile;
             } else {
-                column += 1;
+                amt_read = try f.read(buf[0..]);
+                current_line_start = 0;
             }
         }
-
-        if (amt_read < buf.len) return error.EndOfFile;
+        break :seek current_line_start;
+    };
+    const slice = buf[line_start..amt_read];
+    if (mem.indexOfScalar(u8, slice, '\n')) |pos| {
+        const line = slice[0 .. pos + 1];
+        mem.replaceScalar(u8, line, '\t', ' ');
+        return out_stream.writeAll(line);
+    } else { // Line is the last inside the buffer, requires another read to find delimiter. Alternatively the file ends.
+        mem.replaceScalar(u8, slice, '\t', ' ');
+        try out_stream.writeAll(slice);
+        while (amt_read == buf.len) {
+            amt_read = try f.read(buf[0..]);
+            if (mem.indexOfScalar(u8, buf[0..amt_read], '\n')) |pos| {
+                const line = buf[0..][0 .. pos + 1];
+                mem.replaceScalar(u8, line, '\t', ' ');
+                return out_stream.writeAll(line);
+            } else {
+                const line = buf[0..amt_read];
+                mem.replaceScalar(u8, line, '\t', ' ');
+                try out_stream.writeAll(line);
+            }
+            // Make sure printing last line of file inserts extra newline
+            try out_stream.writeByte('\n');
+        }
     }
 }
 
