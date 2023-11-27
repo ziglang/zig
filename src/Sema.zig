@@ -11179,7 +11179,6 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     // AstGen guarantees that the instruction immediately preceding
     // switch_block_err_union is a dbg_stmt
     const cond_dbg_node_index: Zir.Inst.Index = @enumFromInt(@intFromEnum(inst) - 1);
-    _ = cond_dbg_node_index;
 
     var header_extra_index: usize = extra.end;
 
@@ -11340,13 +11339,73 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     }
 
     if (child_block.is_comptime) {
-        _ = try sema.resolveConstDefinedValue(&child_block, operand_src, operand, .{
+        _ = try sema.resolveConstDefinedValue(&child_block, operand_src, raw_operand_val, .{
             .needed_comptime_reason = "condition in comptime switch must be comptime-known",
             .block_comptime_reason = child_block.comptime_reason,
         });
         unreachable;
     }
-    return sema.fail(block, src, "TODO: implement more of switch_block_err_union", .{});
+
+    const cond = try sema.analyzeIsNonErr(block, src, raw_operand_val);
+
+    var sub_block = child_block.makeSubBlock();
+    sub_block.runtime_loop = null;
+    sub_block.runtime_cond = operand_src;
+    sub_block.runtime_index.increment();
+    defer sub_block.instructions.deinit(gpa);
+
+    try sema.analyzeBodyRuntimeBreak(&sub_block, non_error_case.body);
+    const true_instructions = try sub_block.instructions.toOwnedSlice(gpa);
+    defer gpa.free(true_instructions);
+
+    spa.operand = try sema.analyzeErrUnionCode(&sub_block, operand_src, raw_operand_val);
+    _ = try sema.analyzeSwitchRuntimeBlock(
+        spa,
+        &sub_block,
+        src,
+        try sema.switchCond(block, operand_src, spa.operand),
+        operand_err_set_ty,
+        operand_src,
+        case_vals,
+        .{
+            .body = else_case.body,
+            .end = else_case.end,
+            .capture = if (else_case.has_capture) .by_val else .none,
+            .is_inline = else_case.is_inline,
+            .has_tag_capture = false,
+        },
+        scalar_cases_len,
+        multi_cases_len,
+        false,
+        undefined,
+        true,
+        src_node_offset,
+        else_prong_src,
+        undefined,
+        seen_errors,
+        undefined,
+        undefined,
+        undefined,
+        cond_dbg_node_index,
+    );
+
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).Struct.fields.len +
+        true_instructions.len + sub_block.instructions.items.len);
+
+    _ = try child_block.addInst(.{
+        .tag = .cond_br,
+        .data = .{ .pl_op = .{
+            .operand = cond,
+            .payload = sema.addExtraAssumeCapacity(Air.CondBr{
+                .then_body_len = @intCast(true_instructions.len),
+                .else_body_len = @intCast(sub_block.instructions.items.len),
+            }),
+        } },
+    });
+    sema.air_extra.appendSliceAssumeCapacity(@ptrCast(true_instructions));
+    sema.air_extra.appendSliceAssumeCapacity(@ptrCast(sub_block.instructions.items));
+
+    return sema.analyzeBlockBody(block, src, &child_block, merges);
 }
 
 fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_ref: bool) CompileError!Air.Inst.Ref {
