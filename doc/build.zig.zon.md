@@ -61,7 +61,7 @@ String.
 
 When this is provided, the package is found in a directory relative to the
 build root. In this case the package's hash is irrelevant and therefore not
-computed.
+computed. This field and `url` are mutually exclusive.
 
 ### `paths`
 
