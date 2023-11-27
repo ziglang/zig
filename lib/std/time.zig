@@ -65,11 +65,11 @@ pub fn sleepSync(nanoseconds: u64) void {
     std.os.nanosleep(s, ns);
 }
 
-test "sleep" {
+test sleep {
     sleep(1);
 }
 
-test "sleepSync" {
+test sleepSync {
     sleepSync(1);
 }
 
