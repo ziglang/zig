@@ -7,13 +7,19 @@ const math = std.math;
 
 pub const epoch = @import("time/epoch.zig");
 
-/// Spurious wakeups are possible and no precision of timing is guaranteed.
+/// Spurious wakeups are possible and no precision of timing is guaranteed. If
+/// the event loop is enabled, then uses the current event loop's sleep
+/// implementation.
 pub fn sleep(nanoseconds: u64) void {
-    // TODO: opting out of async sleeping?
     if (std.io.is_async) {
         return std.event.Loop.instance.?.sleep(nanoseconds);
     }
 
+    return sleepSync(nanoseconds);
+}
+
+/// Spurious wakeups are possible and no precision of timing is guaranteed.
+pub fn sleepSync(nanoseconds: u64) void {
     if (builtin.os.tag == .windows) {
         const big_ms_from_ns = nanoseconds / ns_per_ms;
         const ms = math.cast(os.windows.DWORD, big_ms_from_ns) orelse math.maxInt(os.windows.DWORD);
@@ -61,6 +67,10 @@ pub fn sleep(nanoseconds: u64) void {
 
 test "sleep" {
     sleep(1);
+}
+
+test "sleepSync" {
+    sleepSync(1);
 }
 
 /// Get a calendar timestamp, in seconds, relative to UTC 1970-01-01.
