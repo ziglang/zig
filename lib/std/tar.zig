@@ -226,6 +226,9 @@ fn Iterator(comptime ReaderType: type) type {
     return struct {
         file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined,
         file_name_len: usize = 0,
+        link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined,
+        link_name_len: usize = 0,
+
         reader: BufferedReader(ReaderType),
         diagnostics: ?*Options.Diagnostics,
 
@@ -275,6 +278,8 @@ fn Iterator(comptime ReaderType: type) type {
 
         pub fn next(self: *Self) !?File {
             self.file_name_len = 0;
+            self.link_name_len = 0;
+
             while (true) {
                 const chunk = try self.reader.readChunk(1024);
                 switch (chunk.len) {
@@ -287,10 +292,12 @@ fn Iterator(comptime ReaderType: type) type {
                 const header: Header = .{ .bytes = chunk[0..512] };
                 if (header.isZeroBlock()) return null;
                 const file_size = try header.fileSize();
-                const file_type = header.fileType();
-                const link_name = header.linkName();
                 const rounded_file_size: usize = std.mem.alignForward(usize, file_size, 512);
-
+                const file_type = header.fileType();
+                const link_name = if (self.link_name_len == 0)
+                    header.linkName()
+                else
+                    self.link_name_buffer[0..self.link_name_len];
                 const file_name = if (self.file_name_len == 0)
                     try header.fullFileName(&self.file_name_buffer)
                 else
@@ -314,7 +321,7 @@ fn Iterator(comptime ReaderType: type) type {
 
                         const chunk_size: usize = rounded_file_size + 512;
                         var data_off: usize = 0;
-                        const file_name_override_len = while (data_off < file_size) {
+                        while (data_off < file_size) {
                             const slice = try self.reader.readChunk(chunk_size - data_off);
                             if (slice.len == 0) return error.UnexpectedEndOfStream;
                             const remaining_size: usize = file_size - data_off;
@@ -323,18 +330,22 @@ fn Iterator(comptime ReaderType: type) type {
                             if (std.mem.eql(u8, attr_info.key, "path")) {
                                 if (attr_info.value_len > self.file_name_buffer.len) return error.NameTooLong;
                                 self.reader.advance(attr_info.value_off);
-                                data_off += attr_info.value_off;
-                                break attr_info.value_len;
+                                try self.reader.copy(&self.file_name_buffer, attr_info.value_len);
+                                self.file_name_len = attr_info.value_len;
+                                self.reader.advance(1);
+                            } else if (std.mem.eql(u8, attr_info.key, "linkpath")) {
+                                if (attr_info.value_len > self.link_name_buffer.len) return error.NameTooLong;
+                                self.reader.advance(attr_info.value_off);
+                                try self.reader.copy(&self.link_name_buffer, attr_info.value_len);
+                                self.link_name_len = attr_info.value_len;
+                                self.reader.advance(1);
+                            } else {
+                                try self.reader.skip(attr_info.size);
                             }
-
-                            try self.reader.skip(attr_info.size);
                             data_off += attr_info.size;
-                        } else 0;
+                        }
+                        try self.reader.skip(rounded_file_size - data_off);
 
-                        try self.reader.copy(&self.file_name_buffer, file_name_override_len);
-
-                        try self.reader.skip(rounded_file_size - data_off - file_name_override_len);
-                        self.file_name_len = file_name_override_len;
                         continue;
                     },
                     .hard_link => return error.TarUnsupportedFileType,
@@ -599,9 +610,7 @@ test "Go test cases" {
                     .name = "a/b",
                     .size = 0,
                     .file_type = .symbolic_link,
-                    .link_name = "1234567891011121314151617181920212223242526272829303132333435363738394041424344454647484950515253545",
-                    // TODO fix reading link name from pax header
-                    // .link_name = "123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100",
+                    .link_name = "123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100",
                 },
             },
             .chksums = &[_][]const u8{
