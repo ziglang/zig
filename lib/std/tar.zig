@@ -136,51 +136,90 @@ pub const Header = struct {
     }
 };
 
-const Buffer = struct {
-    buffer: [512 * 8]u8 = undefined,
-    start: usize = 0,
-    end: usize = 0,
+fn BufferedReader(comptime ReaderType: type) type {
+    return struct {
+        unbuffered_reader: ReaderType,
+        buffer: [512 * 8]u8 = undefined,
+        start: usize = 0,
+        end: usize = 0,
 
-    pub fn readChunk(b: *Buffer, reader: anytype, count: usize) ![]const u8 {
-        b.ensureCapacity(1024);
+        const Self = @This();
 
-        const ask = @min(b.buffer.len - b.end, count -| (b.end - b.start));
-        b.end += try reader.readAtLeast(b.buffer[b.end..], ask);
+        pub fn readChunk(self: *Self, count: usize) ![]const u8 {
+            self.ensureCapacity(1024);
 
-        return b.buffer[b.start..b.end];
-    }
+            const ask = @min(self.buffer.len - self.end, count -| (self.end - self.start));
+            self.end += try self.unbuffered_reader.readAtLeast(self.buffer[self.end..], ask);
 
-    pub fn advance(b: *Buffer, count: usize) void {
-        b.start += count;
-        assert(b.start <= b.end);
-    }
-
-    pub fn skip(b: *Buffer, reader: anytype, count: usize) !void {
-        if (b.start + count > b.end) {
-            try reader.skipBytes(b.start + count - b.end, .{});
-            b.start = b.end;
-        } else {
-            b.advance(count);
+            return self.buffer[self.start..self.end];
         }
-    }
 
-    inline fn ensureCapacity(b: *Buffer, count: usize) void {
-        if (b.buffer.len - b.start < count) {
-            const dest_end = b.end - b.start;
-            @memcpy(b.buffer[0..dest_end], b.buffer[b.start..b.end]);
-            b.end = dest_end;
-            b.start = 0;
+        pub fn advance(self: *Self, count: usize) void {
+            self.start += count;
+            assert(self.start <= self.end);
         }
-    }
-};
+
+        pub fn skip(self: *Self, count: usize) !void {
+            if (self.start + count > self.end) {
+                try self.unbuffered_reader.skipBytes(self.start + count - self.end, .{});
+                self.start = self.end;
+            } else {
+                self.advance(count);
+            }
+        }
+
+        inline fn ensureCapacity(self: *Self, count: usize) void {
+            if (self.buffer.len - self.start < count) {
+                const dest_end = self.end - self.start;
+                @memcpy(self.buffer[0..dest_end], self.buffer[self.start..self.end]);
+                self.end = dest_end;
+                self.start = 0;
+            }
+        }
+
+        pub fn write(self: *Self, writer: anytype, size: usize) !void {
+            const rounded_file_size = std.mem.alignForward(usize, size, 512);
+            const chunk_size = rounded_file_size + 512;
+            const pad_len: usize = rounded_file_size - size;
+
+            var file_off: usize = 0;
+            while (true) {
+                const temp = try self.readChunk(chunk_size - file_off);
+                if (temp.len == 0) return error.UnexpectedEndOfStream;
+                const slice = temp[0..@min(size - file_off, temp.len)];
+                try writer.writeAll(slice);
+
+                file_off += slice.len;
+                self.advance(slice.len);
+                if (file_off >= size) {
+                    self.advance(pad_len);
+                    return;
+                }
+            }
+        }
+
+        pub fn copy(self: *Self, dst_buffer: []u8, size: usize) !void {
+            const rounded_file_size = std.mem.alignForward(usize, size, 512);
+            const chunk_size = rounded_file_size + 512;
+
+            var i: usize = 0;
+            while (i < size) {
+                const slice = try self.readChunk(chunk_size - i);
+                if (slice.len == 0) return error.UnexpectedEndOfStream;
+                const copy_size: usize = @min(size - i, slice.len);
+                @memcpy(dst_buffer[i .. i + copy_size], slice[0..copy_size]);
+                self.advance(copy_size);
+                i += copy_size;
+            }
+        }
+    };
+}
 
 fn Iterator(comptime ReaderType: type) type {
     return struct {
         file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined,
         file_name_len: usize = 0,
-        buffer: Buffer = .{},
-        reader: ReaderType,
-        pad_len: usize = 0,
+        reader: BufferedReader(ReaderType),
         diagnostics: ?*Options.Diagnostics,
 
         const Self = @This();
@@ -193,50 +232,32 @@ fn Iterator(comptime ReaderType: type) type {
             iter: *Self,
 
             pub fn write(self: File, writer: anytype) !void {
-                const rounded_file_size = std.mem.alignForward(u64, self.size, 512);
-                var file_off: usize = 0;
-                while (true) {
-                    const temp = try self.iter.buffer.readChunk(self.iter.reader, @intCast(rounded_file_size + 512 - file_off));
-                    if (temp.len == 0) return error.UnexpectedEndOfStream;
-                    const slice = temp[0..@intCast(@min(self.size - file_off, temp.len))];
-                    try writer.writeAll(slice);
-
-                    file_off += slice.len;
-                    self.iter.buffer.advance(slice.len);
-                    if (file_off >= self.size) {
-                        return;
-                        //     self.iter.buffer.advance(pad_len);
-                        //     continue :header;
-                    }
-                }
+                try self.iter.reader.write(writer, self.size);
             }
 
-            pub fn skip(self: File) void {
-                _ = self;
-                unreachable;
+            pub fn skip(self: File) !void {
+                const rounded_file_size = std.mem.alignForward(usize, self.size, 512);
+                try self.iter.reader.skip(rounded_file_size);
             }
         };
 
         pub fn next(self: *Self) !?File {
-            self.buffer.advance(self.pad_len);
-            self.pad_len = 0;
             self.file_name_len = 0;
-
             while (true) {
-                const chunk = try self.buffer.readChunk(self.reader, 1024);
+                const chunk = try self.reader.readChunk(1024);
                 switch (chunk.len) {
                     0 => return null,
                     1...511 => return error.UnexpectedEndOfStream,
                     else => {},
                 }
-                self.buffer.advance(512);
+                self.reader.advance(512);
 
                 const header: Header = .{ .bytes = chunk[0..512] };
                 const file_size = try header.fileSize();
                 const file_type = header.fileType();
                 const link_name = header.linkName();
-                const rounded_file_size = std.mem.alignForward(u64, file_size, 512);
-                self.pad_len = @intCast(rounded_file_size - file_size);
+                const rounded_file_size: usize = std.mem.alignForward(usize, file_size, 512);
+
                 const file_name = if (self.file_name_len == 0)
                     try header.fullFileName(&self.file_name_buffer)
                 else
@@ -253,44 +274,33 @@ fn Iterator(comptime ReaderType: type) type {
                         };
                     },
                     .global_extended_header => {
-                        self.buffer.skip(self.reader, @intCast(rounded_file_size)) catch return error.TarHeadersTooBig;
+                        self.reader.skip(rounded_file_size) catch return error.TarHeadersTooBig;
                     },
                     .extended_header => {
-                        if (file_size == 0) {
-                            self.buffer.advance(@intCast(rounded_file_size));
-                            continue;
-                        }
+                        if (file_size == 0) continue;
 
-                        const chunk_size: usize = @intCast(rounded_file_size + 512);
+                        const chunk_size: usize = rounded_file_size + 512;
                         var data_off: usize = 0;
                         const file_name_override_len = while (data_off < file_size) {
-                            const slice = try self.buffer.readChunk(self.reader, chunk_size - data_off);
+                            const slice = try self.reader.readChunk(chunk_size - data_off);
                             if (slice.len == 0) return error.UnexpectedEndOfStream;
-                            const remaining_size: usize = @intCast(file_size - data_off);
+                            const remaining_size: usize = file_size - data_off;
                             const attr_info = try parsePaxAttribute(slice[0..@min(remaining_size, slice.len)], remaining_size);
 
                             if (std.mem.eql(u8, attr_info.key, "path")) {
                                 if (attr_info.value_len > self.file_name_buffer.len) return error.NameTooLong;
-                                self.buffer.advance(attr_info.value_off);
+                                self.reader.advance(attr_info.value_off);
                                 data_off += attr_info.value_off;
                                 break attr_info.value_len;
                             }
 
-                            try self.buffer.skip(self.reader, attr_info.size);
+                            try self.reader.skip(attr_info.size);
                             data_off += attr_info.size;
                         } else 0;
 
-                        var i: usize = 0;
-                        while (i < file_name_override_len) {
-                            const slice = try self.buffer.readChunk(self.reader, chunk_size - data_off - i);
-                            if (slice.len == 0) return error.UnexpectedEndOfStream;
-                            const copy_size: usize = @intCast(@min(file_name_override_len - i, slice.len));
-                            @memcpy(self.file_name_buffer[i .. i + copy_size], slice[0..copy_size]);
-                            self.buffer.advance(copy_size);
-                            i += copy_size;
-                        }
+                        try self.reader.copy(&self.file_name_buffer, file_name_override_len);
 
-                        try self.buffer.skip(self.reader, @intCast(rounded_file_size - data_off - file_name_override_len));
+                        try self.reader.skip(rounded_file_size - data_off - file_name_override_len);
                         self.file_name_len = file_name_override_len;
                         continue;
                     },
@@ -309,7 +319,11 @@ fn Iterator(comptime ReaderType: type) type {
 }
 
 pub fn iterator(reader: anytype, diagnostics: ?*Options.Diagnostics) Iterator(@TypeOf(reader)) {
-    return .{ .reader = reader, .diagnostics = diagnostics };
+    const ReaderType = @TypeOf(reader);
+    return .{
+        .reader = BufferedReader(ReaderType){ .unbuffered_reader = reader },
+        .diagnostics = diagnostics,
+    };
 }
 
 pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !void {
@@ -364,7 +378,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 if (file) |f| {
                     try iter_file.write(f);
                 } else {
-                    iter_file.skip();
+                    try iter_file.skip();
                 }
             },
             .symbolic_link => {
