@@ -207,7 +207,7 @@ pub const Options = struct {
             cwd.access(options.input_filename, .{}) catch |err| switch (err) {
                 error.FileNotFound => {
                     var filename_bytes = try options.allocator.alloc(u8, options.input_filename.len + 3);
-                    @memcpy(filename_bytes, options.input_filename);
+                    @memcpy(filename_bytes[0 .. filename_bytes.len - 3], options.input_filename);
                     @memcpy(filename_bytes[filename_bytes.len - 3 ..], ".rc");
                     options.allocator.free(options.input_filename);
                     options.input_filename = filename_bytes;

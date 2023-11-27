@@ -10509,7 +10509,7 @@ test "using an allocator" {
 
 fn concat(allocator: Allocator, a: []const u8, b: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, a.len + b.len);
-    @memcpy(result, a);
+    @memcpy(result[0..a.len], a);
     @memcpy(result[a.len..], b);
     return result;
 }

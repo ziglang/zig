@@ -149,7 +149,7 @@ pub const Attributed = struct {
         errdefer allocator.destroy(attributed_type);
 
         const all_attrs = try allocator.alloc(Attribute, existing_attributes.len + attributes.len);
-        @memcpy(all_attrs, existing_attributes);
+        @memcpy(all_attrs[0..existing_attributes.len], existing_attributes);
         @memcpy(all_attrs[existing_attributes.len..], attributes);
 
         attributed_type.* = .{
