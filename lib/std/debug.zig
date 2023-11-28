@@ -1421,13 +1421,13 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
         const line = slice[0 .. pos + 1];
         mem.replaceScalar(u8, line, '\t', ' ');
         return out_stream.writeAll(line);
-    } else { // Line is the last inside the buffer, requires another read to find delimiter. Alternatively the file ends.
+    } else { // Line is the last inside the buffer, and requires another read to find delimiter. Alternatively the file ends.
         mem.replaceScalar(u8, slice, '\t', ' ');
         try out_stream.writeAll(slice);
         while (amt_read == buf.len) {
             amt_read = try f.read(buf[0..]);
             if (mem.indexOfScalar(u8, buf[0..amt_read], '\n')) |pos| {
-                const line = buf[0..][0 .. pos + 1];
+                const line = buf[0 .. pos + 1];
                 mem.replaceScalar(u8, line, '\t', ' ');
                 return out_stream.writeAll(line);
             } else {
@@ -1435,9 +1435,129 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
                 mem.replaceScalar(u8, line, '\t', ' ');
                 try out_stream.writeAll(line);
             }
-            // Make sure printing last line of file inserts extra newline
-            try out_stream.writeByte('\n');
         }
+        // Make sure printing last line of file inserts extra newline
+        try out_stream.writeByte('\n');
+    }
+}
+
+test "printLineFromFileAnyOs" {
+    var output = std.ArrayList(u8).init(std.testing.allocator);
+    defer output.deinit();
+    const output_stream = output.writer();
+
+    const allocator = std.testing.allocator;
+    const join = std.fs.path.join;
+    const expectError = std.testing.expectError;
+    const expectEqualStrings = std.testing.expectEqualStrings;
+
+    var test_dir = std.testing.tmpDir(.{});
+    defer test_dir.cleanup();
+    // Relies on testing.tmpDir internals which is not ideal, but LineInfo requires paths.
+    const test_dir_path = try join(allocator, &.{ "zig-cache", "tmp", test_dir.sub_path[0..] });
+    defer allocator.free(test_dir_path);
+
+    // Cases
+    {
+        const path = try join(allocator, &.{ test_dir_path, "one_line.zig" });
+        defer allocator.free(path);
+        try test_dir.dir.writeFile("one_line.zig", "no new lines in this file, but one is printed anyway");
+
+        try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings("no new lines in this file, but one is printed anyway\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "three_lines.zig" });
+        defer allocator.free(path);
+        try test_dir.dir.writeFile("three_lines.zig",
+            \\1
+            \\2
+            \\3
+        );
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings("1\n", output.items);
+        output.clearRetainingCapacity();
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 3, .column = 0 });
+        try expectEqualStrings("3\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const file = try test_dir.dir.createFile("line_overlaps_page_boundary.zig", .{});
+        defer file.close();
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "line_overlaps_page_boundary.zig" });
+        defer allocator.free(path);
+
+        const overlap = 10;
+        var writer = file.writer();
+        try writer.writeByteNTimes('a', mem.page_size - overlap);
+        try writer.writeByte('\n');
+        try writer.writeByteNTimes('a', overlap);
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
+        try expectEqualStrings(("a" ** overlap) ++ "\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const file = try test_dir.dir.createFile("file_ends_on_page_boundary.zig", .{});
+        defer file.close();
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "file_ends_on_page_boundary.zig" });
+        defer allocator.free(path);
+
+        var writer = file.writer();
+        try writer.writeByteNTimes('a', mem.page_size);
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings(("a" ** mem.page_size) ++ "\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const file = try test_dir.dir.createFile("very_long_first_line_spanning_multiple_pages.zig", .{});
+        defer file.close();
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "very_long_first_line_spanning_multiple_pages.zig" });
+        defer allocator.free(path);
+
+        var writer = file.writer();
+        try writer.writeByteNTimes('a', 3 * mem.page_size);
+
+        try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings(("a" ** (3 * mem.page_size)) ++ "\n", output.items);
+        output.clearRetainingCapacity();
+
+        try writer.writeAll("a\na");
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings(("a" ** (3 * mem.page_size)) ++ "a\n", output.items);
+        output.clearRetainingCapacity();
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
+        try expectEqualStrings("a\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const file = try test_dir.dir.createFile("file_of_newlines.zig", .{});
+        defer file.close();
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "file_of_newlines.zig" });
+        defer allocator.free(path);
+
+        var writer = file.writer();
+        const real_file_start = 3 * mem.page_size;
+        try writer.writeByteNTimes('\n', real_file_start);
+        try writer.writeAll("abc\ndef");
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 1, .column = 0 });
+        try expectEqualStrings("abc\n", output.items);
+        output.clearRetainingCapacity();
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 2, .column = 0 });
+        try expectEqualStrings("def\n", output.items);
+        output.clearRetainingCapacity();
     }
 }
 
