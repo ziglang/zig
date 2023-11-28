@@ -339,7 +339,7 @@ pub fn supportsStackProtector(target: std.Target, backend: std.builtin.CompilerB
     }
     return switch (backend) {
         .stage2_llvm => true,
-        else => false,
+        else => libcProvidesStackProtector(target),
     };
 }
 
