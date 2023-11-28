@@ -23,6 +23,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     lib.use_llvm = false;
     lib.use_lld = false;
     lib.strip = false;
+    lib.link_gc_sections = false; // so data is not garbage collected and we can verify data section
     b.installArtifact(lib);
 
     const check_lib = lib.checkObject();
