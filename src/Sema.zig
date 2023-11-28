@@ -11253,7 +11253,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     var spa: SwitchProngAnalysis = .{
         .sema = sema,
         .parent_block = block,
-        .operand = raw_operand_val,
+        .operand = undefined, // must be set to the unwrapped error code before use
         .operand_ptr = .none,
         .cond = raw_operand_val,
         .else_error_ty = else_error_ty,
@@ -11387,6 +11387,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         undefined,
         undefined,
         cond_dbg_node_index,
+        true,
     );
 
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).Struct.fields.len +
@@ -11970,7 +11971,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         if (special_prong == .none) {
             return sema.fail(block, src, "switch must handle all possibilities", .{});
         }
-        if (err_set and try sema.maybeErrorUnwrap(block, special.body, operand, operand_src)) {
+        if (err_set and try sema.maybeErrorUnwrap(block, special.body, operand, operand_src, false)) {
             return .unreachable_value;
         }
         if (mod.backendSupportsFeature(.is_named_enum_value) and block.wantSafety() and operand_ty.zigTypeTag(mod) == .Enum and
@@ -12024,6 +12025,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         true_count,
         false_count,
         cond_dbg_node_index,
+        false,
     );
 
     return sema.analyzeBlockBody(block, src, &child_block, merges);
@@ -12060,6 +12062,7 @@ fn analyzeSwitchRuntimeBlock(
     true_count: u8,
     false_count: u8,
     cond_dbg_node_index: Zir.Inst.Index,
+    allow_err_code_unwrap: bool,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const gpa = sema.gpa;
@@ -12101,7 +12104,7 @@ fn analyzeSwitchRuntimeBlock(
             break :blk field_ty.zigTypeTag(mod) != .NoReturn;
         } else true;
 
-        if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src)) {
+        if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src, allow_err_code_unwrap)) {
             // nothing to do here
         } else if (analyze_body) {
             try spa.analyzeProngRuntime(
@@ -12285,7 +12288,7 @@ fn analyzeSwitchRuntimeBlock(
 
             const body = sema.code.bodySlice(extra_index, info.body_len);
             extra_index += info.body_len;
-            if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src)) {
+            if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src, allow_err_code_unwrap)) {
                 // nothing to do here
             } else if (analyze_body) {
                 try spa.analyzeProngRuntime(
@@ -12369,7 +12372,7 @@ fn analyzeSwitchRuntimeBlock(
 
             const body = sema.code.bodySlice(extra_index, info.body_len);
             extra_index += info.body_len;
-            if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src)) {
+            if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src, allow_err_code_unwrap)) {
                 // nothing to do here
             } else {
                 try spa.analyzeProngRuntime(
@@ -12612,7 +12615,7 @@ fn analyzeSwitchRuntimeBlock(
         else
             true;
         if (special.body.len != 0 and err_set and
-            try sema.maybeErrorUnwrap(&case_block, special.body, operand, operand_src))
+            try sema.maybeErrorUnwrap(&case_block, special.body, operand, operand_src, allow_err_code_unwrap))
         {
             // nothing to do here
         } else if (special.body.len != 0 and analyze_body and !special.is_inline) {
@@ -13266,7 +13269,14 @@ fn validateSwitchNoRange(
     return sema.failWithOwnedErrorMsg(block, msg);
 }
 
-fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, operand: Air.Inst.Ref, operand_src: LazySrcLoc) !bool {
+fn maybeErrorUnwrap(
+    sema: *Sema,
+    block: *Block,
+    body: []const Zir.Inst.Index,
+    operand: Air.Inst.Ref,
+    operand_src: LazySrcLoc,
+    allow_err_code_inst: bool,
+) !bool {
     const mod = sema.mod;
     if (!mod.backendSupportsFeature(.panic_unwrap_error)) return false;
 
@@ -13274,6 +13284,7 @@ fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, op
     for (body) |inst| {
         switch (tags[@intFromEnum(inst)]) {
             .@"unreachable" => if (!block.wantSafety()) return false,
+            .err_union_code => if (!allow_err_code_inst) return false,
             .save_err_ret_index,
             .dbg_block_begin,
             .dbg_block_end,
@@ -13291,6 +13302,7 @@ fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, op
         const air_inst = switch (tags[@intFromEnum(inst)]) {
             .dbg_block_begin,
             .dbg_block_end,
+            .err_union_code,
             => continue,
             .dbg_stmt => {
                 try sema.zirDbgStmt(block, inst);
@@ -18754,7 +18766,7 @@ fn zirCondbr(
         break :blk try sub_block.addTyOp(.unwrap_errunion_err, result_ty, err_operand);
     };
 
-    if (err_cond != null and try sema.maybeErrorUnwrap(&sub_block, else_body, err_cond.?, cond_src)) {
+    if (err_cond != null and try sema.maybeErrorUnwrap(&sub_block, else_body, err_cond.?, cond_src, false)) {
         // nothing to do
     } else {
         try sema.analyzeBodyRuntimeBreak(&sub_block, else_body);
