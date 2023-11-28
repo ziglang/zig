@@ -443,7 +443,7 @@ test "wrap" {
 ///  -------/-------
 ///        /|
 ///  _____/ |
-//          |
+///         |
 /// Limit val to the inclusive range [lower, upper].
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
     assert(lower <= upper);
