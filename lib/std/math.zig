@@ -427,7 +427,7 @@ test "wrap" {
     try testing.expect(std.math.wrap(@as(i32, 361), @as(i32, 180)) == 1);
 
     // Floating point
-    try testing.expect(std.math.wrap(@as(f32, 1.1), @as(f32, 1.0)) == 0.1);
+    try testing.expect(std.math.wrap(@as(f32, 1.1), @as(f32, 1.0)) == -0.9);
     try testing.expect(std.math.wrap(@as(f32, -127.5), @as(f32, 180)) == -127.5);
 
     // Mix of comptime and non-comptime
