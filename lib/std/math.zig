@@ -414,7 +414,7 @@ pub const ln = @compileError("deprecated; use @log instead");
 ///   /    /|   /
 ///  /    / |  /
 ///         |
-/// Limit val to the interval [-r, r).
+/// Limit x to the interval [-r, r).
 pub fn wrap(x: anytype, r: anytype) @TypeOf(x) {
     return @mod(x + r, 2 * r) - r;
 }
