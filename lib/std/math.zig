@@ -407,6 +407,7 @@ pub const max3 = @compileError("deprecated; use @max instead");
 pub const ln = @compileError("deprecated; use @log instead");
 
 /// Odd sawtooth function
+/// ```
 ///         |
 ///      /  | /    /
 ///     /   |/    /
@@ -414,6 +415,7 @@ pub const ln = @compileError("deprecated; use @log instead");
 ///   /    /|   /
 ///  /    / |  /
 ///         |
+/// ```
 /// Limit x to the half-open interval [-r, r).
 pub fn wrap(x: anytype, r: anytype) @TypeOf(x) {
     return @mod(x + r, 2 * r) - r;
@@ -437,6 +439,7 @@ test "wrap" {
 }
 
 /// Odd ramp function
+/// ```
 ///         |  _____
 ///         | /
 ///         |/
@@ -444,6 +447,7 @@ test "wrap" {
 ///        /|
 ///  _____/ |
 ///         |
+/// ```
 /// Limit val to the inclusive range [lower, upper].
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
     assert(lower <= upper);
