@@ -406,6 +406,44 @@ pub const min3 = @compileError("deprecated; use @min instead");
 pub const max3 = @compileError("deprecated; use @max instead");
 pub const ln = @compileError("deprecated; use @log instead");
 
+/// Odd sawtooth function
+///         |
+///      /  | /    /
+///     /   |/    /
+///  --/----/----/--
+///   /    /|   /
+///  /    / |  /
+///         |
+/// Limit val to the interval [-r, r).
+pub fn wrap(x: anytype, r: anytype) @TypeOf(x) {
+    return @mod(x + r, 2 * r) - r;
+}
+test "wrap" {
+    // Within range
+    try testing.expect(std.math.wrap(@as(i32, -75), @as(i32, 180)) == -75);
+    // Below
+    try testing.expect(std.math.wrap(@as(i32, -225), @as(i32, 180)) == 135);
+    // Above
+    try testing.expect(std.math.wrap(@as(i32, 361), @as(i32, 180)) == 1);
+
+    // Floating point
+    try testing.expect(std.math.wrap(@as(f32, 1.1), @as(f32, 1.0)) == 0.1);
+    try testing.expect(std.math.wrap(@as(f32, -127.5), @as(f32, 180)) == -127.5);
+
+    // Mix of comptime and non-comptime
+    var i: i32 = 1;
+    _ = &i;
+    try testing.expect(std.math.wrap(i, 10) == 1);
+}
+
+/// Odd ramp function
+///         |  _____
+///         | /
+///         |/
+///  -------/-------
+///        /|
+///  _____/ |
+//          |
 /// Limit val to the inclusive range [lower, upper].
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
     assert(lower <= upper);
