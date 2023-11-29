@@ -164,7 +164,7 @@ pub const Header = struct {
         const ltrimmed = std.mem.trimLeft(u8, raw, "0 ");
         const rtrimmed = std.mem.trimRight(u8, ltrimmed, " \x00");
         if (rtrimmed.len == 0) return 0;
-        return std.fmt.parseInt(u64, rtrimmed, 8);
+        return std.fmt.parseInt(u64, rtrimmed, 8) catch return error.TarHeader;
     }
 
     // Sum of all bytes in the header block. The chksum field is treated as if
@@ -287,6 +287,10 @@ fn BufferedReader(comptime ReaderType: type) type {
             fn advance(self: *@This(), len: usize) !void {
                 self.offset += len;
                 try self.reader.skip(len);
+            }
+
+            fn byte(self: *@This()) u8 {
+                return self.reader.buffer[self.reader.start];
             }
 
             fn copy(self: *@This(), dst: []u8) ![]const u8 {
@@ -416,21 +420,25 @@ fn Iterator(comptime ReaderType: type) type {
                     },
                     .extended_header => {
                         if (file_size == 0) continue;
+                        // TODO: ovo resetiranje je nezgodno
+                        self.attrs.free();
+                        file = File{ .reader = &self.reader };
 
                         var rdr = self.reader.sliceReader(file_size, false);
                         while (try rdr.next()) |slice| {
                             const attr = try parsePaxAttribute(slice, rdr.remainingSize());
                             try rdr.advance(attr.value_off);
                             if (attr.is("path")) {
-                                file.name = try rdr.copy(try self.attrs.alloc(attr.value_len));
+                                file.name = try noNull(try rdr.copy(try self.attrs.alloc(attr.value_len)));
                             } else if (attr.is("linkpath")) {
-                                file.link_name = try rdr.copy(try self.attrs.alloc(attr.value_len));
+                                file.link_name = try noNull(try rdr.copy(try self.attrs.alloc(attr.value_len)));
                             } else if (attr.is("size")) {
                                 var buf = [_]u8{'0'} ** 32;
                                 file.size = try std.fmt.parseInt(usize, try rdr.copy(buf[0..attr.value_len]), 10);
                             } else {
                                 try rdr.advance(attr.value_len);
                             }
+                            if (rdr.byte() != '\n') return error.InvalidPaxAttribute;
                             try rdr.advance(1);
                         }
                         try self.reader.skipPadding(file_size);
@@ -582,15 +590,21 @@ fn parsePaxAttribute(data: []const u8, max_size: usize) !PaxAttributeInfo {
     if (kv_size > max_size) {
         return error.InvalidPaxAttribute;
     }
+    const key = data[pos_space + 1 .. pos_equals];
     return .{
         .size = kv_size,
-        .key = data[pos_space + 1 .. pos_equals],
+        .key = try noNull(key),
         .value_off = pos_equals + 1,
         .value_len = kv_size - pos_equals - 2,
     };
 }
 
-test parsePaxAttribute {
+fn noNull(str: []const u8) ![]const u8 {
+    if (std.mem.indexOfScalar(u8, str, 0)) |_| return error.InvalidPaxAttribute;
+    return str;
+}
+
+test "parsePaxAttribute" {
     const expectEqual = std.testing.expectEqual;
     const expectEqualStrings = std.testing.expectEqualStrings;
     const expectError = std.testing.expectError;
@@ -605,6 +619,7 @@ test parsePaxAttribute {
     try expectEqual(attr_info, try parsePaxAttribute(header, 1012));
     try expectError(error.InvalidPaxAttribute, parsePaxAttribute(header, 1010));
     try expectError(error.InvalidPaxAttribute, parsePaxAttribute("", 0));
+    try expectError(error.InvalidPaxAttribute, parsePaxAttribute("13 pa\x00th=abc\n", 1024)); // null in key
 }
 
 const TestCase = struct {
@@ -633,12 +648,10 @@ test "Go test cases" {
                 .{
                     .name = "small.txt",
                     .size = 5,
-                    .file_type = .normal,
                 },
                 .{
                     .name = "small2.txt",
                     .size = 11,
-                    .file_type = .normal,
                 },
             },
             .chksums = &[_][]const u8{
@@ -656,12 +669,10 @@ test "Go test cases" {
                 .{
                     .name = "small.txt",
                     .size = 5,
-                    .file_type = .normal,
                 },
                 .{
                     .name = "small2.txt",
                     .size = 11,
-                    .file_type = .normal,
                 },
             },
             .chksums = &[_][]const u8{
@@ -675,12 +686,10 @@ test "Go test cases" {
                 .{
                     .name = "small.txt",
                     .size = 5,
-                    .file_type = .normal,
                 },
                 .{
                     .name = "small2.txt",
                     .size = 11,
-                    .file_type = .normal,
                 },
             },
             .chksums = &[_][]const u8{
@@ -694,7 +703,6 @@ test "Go test cases" {
                 .{
                     .name = "a/123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100",
                     .size = 7,
-                    .file_type = .normal,
                 },
                 .{
                     .name = "a/b",
@@ -707,18 +715,25 @@ test "Go test cases" {
                 "3c382e8f5b6631aa2db52643912ffd4a",
             },
         },
-        // TODO: this should fail
-        // .{
-        //     .path = "pax-bad-hdr-file.tar",
-        //     .err = error.TarBadHeader,
-        // },
+        .{
+            // pax attribute don't end with \n
+            .path = "pax-bad-hdr-file.tar",
+            // .files = &[_]TestCase.File{
+            //     .{
+            //         .name = "PAX1/PAX1/long-path-name",
+            //         .size = 684,
+            //     },
+            // },
+            .err = error.InvalidPaxAttribute,
+        },
+        //
         // .{
         //     .path = "pax-bad-mtime-file.tar",
         //     .err = error.TarBadHeader,
         // },
         //
-        // TODO: giving wrong result because we are not reading pax size header
         .{
+            // size is in pax attribute
             .path = "pax-pos-size-file.tar",
             .files = &[_]TestCase.File{
                 .{
@@ -799,9 +814,17 @@ test "Go test cases" {
             .path = "gnu-incremental.tar",
             .err = error.TarUnsupportedFileType,
         },
-        // .{
-        //     .path = "pax-multi-hdrs.tar",
-        // },
+        .{
+            // should use values only from last pax header
+            .path = "pax-multi-hdrs.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "bar",
+                    .link_name = "PAX4/PAX4/long-linkpath-name",
+                    .file_type = .symbolic_link,
+                },
+            },
+        },
         // .{
         //     .path = "gnu-long-nul.tar",
         //     .files = &[_]TestCase.File{
@@ -827,8 +850,20 @@ test "Go test cases" {
                 },
             },
         },
+        .{
+            .path = "neg-size.tar",
+            .err = error.TarHeader,
+        },
+        .{
+            .path = "pax-nul-path.tar",
+            .err = error.InvalidPaxAttribute,
+        },
+        .{
+            .path = "pax-nul-xattrs.tar",
+            .err = error.InvalidPaxAttribute,
+        },
         // TODO some files with errors:
-        // pax-nul-xattrs.tar, pax-nul-path.tar, neg-size.tar, issue10968.tar, issue11169.tar, issue12435.tar
+        // issue10968.tar, issue11169.tar, issue12435.tar
         .{
             .path = "trailing-slash.tar",
             .files = &[_]TestCase.File{
