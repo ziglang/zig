@@ -44,7 +44,7 @@ struct add_rvalue_reference {
   using type = __add_rvalue_reference_t<_Tp>;
 };
 
-#if _LIBCPP_STD_VER > 11
+#if _LIBCPP_STD_VER >= 14
 template <class _Tp>
 using add_rvalue_reference_t = __add_rvalue_reference_t<_Tp>;
 #endif

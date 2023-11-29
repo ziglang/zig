@@ -21,13 +21,7 @@ test {
 pub const advapi32 = @import("windows/advapi32.zig");
 pub const kernel32 = @import("windows/kernel32.zig");
 pub const ntdll = @import("windows/ntdll.zig");
-pub const ole32 = @import("windows/ole32.zig");
-pub const psapi = @import("windows/psapi.zig");
-pub const shell32 = @import("windows/shell32.zig");
-pub const user32 = @import("windows/user32.zig");
 pub const ws2_32 = @import("windows/ws2_32.zig");
-pub const gdi32 = @import("windows/gdi32.zig");
-pub const winmm = @import("windows/winmm.zig");
 pub const crypt32 = @import("windows/crypt32.zig");
 pub const nls = @import("windows/nls.zig");
 
@@ -766,7 +760,9 @@ pub fn CreateSymbolicLink(
                 //       it will still resolve the path relative to the root of
                 //       the C:\ drive.
                 .rooted => break :target_path target_path,
-                else => {},
+                // Keep relative paths relative, but anything else needs to get NT-prefixed.
+                else => if (!std.fs.path.isAbsoluteWindowsWTF16(target_path))
+                    break :target_path target_path,
             },
             // Already an NT path, no need to do anything to it
             .nt => break :target_path target_path,
@@ -834,14 +830,14 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
 
     const rc = ntdll.NtCreateFile(
         &result_handle,
-        FILE_READ_ATTRIBUTES,
+        FILE_READ_ATTRIBUTES | SYNCHRONIZE,
         &attr,
         &io,
         null,
         FILE_ATTRIBUTE_NORMAL,
         FILE_SHARE_READ,
         FILE_OPEN,
-        FILE_OPEN_REPARSE_POINT,
+        FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
         null,
         0,
     );
@@ -992,8 +988,9 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     // are only supported on NTFS filesystems, so the version check on its own is only a partial solution. To support non-NTFS filesystems
     // like FAT32, we need to fallback to FileDispositionInformation if the usage of FileDispositionInformationEx gives
     // us INVALID_PARAMETER.
+    // The same reasoning for win10_rs5 as in os.renameatW() applies (FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5).
     var need_fallback = true;
-    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
+    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs5)) {
         // Deletion with posix semantics if the filesystem supports it.
         var info = FILE_DISPOSITION_INFORMATION_EX{
             .Flags = FILE_DISPOSITION_DELETE |
@@ -1167,7 +1164,7 @@ test "QueryObjectName" {
     const handle = tmp.dir.fd;
     var out_buffer: [PATH_MAX_WIDE]u16 = undefined;
 
-    var result_path = try QueryObjectName(handle, &out_buffer);
+    const result_path = try QueryObjectName(handle, &out_buffer);
     const required_len_in_u16 = result_path.len + @divExact(@intFromPtr(result_path.ptr) - @intFromPtr(&out_buffer), 2) + 1;
     //insufficient size
     try std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. required_len_in_u16 - 1]));
@@ -1590,11 +1587,12 @@ pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) Ge
     return buf_ptr[0..rc :0];
 }
 
-pub const TerminateProcessError = error{Unexpected};
+pub const TerminateProcessError = error{ PermissionDenied, Unexpected };
 
 pub fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) TerminateProcessError!void {
     if (kernel32.TerminateProcess(hProcess, uExitCode) == 0) {
         switch (kernel32.GetLastError()) {
+            Win32Error.ACCESS_DENIED => return error.PermissionDenied,
             else => |err| return unexpectedError(err),
         }
     }
@@ -1812,7 +1810,7 @@ pub fn QueryPerformanceFrequency() u64 {
     // "On systems that run Windows XP or later, the function will always succeed"
     // https://docs.microsoft.com/en-us/windows/desktop/api/profileapi/nf-profileapi-queryperformancefrequency
     var result: LARGE_INTEGER = undefined;
-    assert(kernel32.QueryPerformanceFrequency(&result) != 0);
+    assert(ntdll.RtlQueryPerformanceFrequency(&result) != 0);
     // The kernel treats this integer as unsigned.
     return @as(u64, @bitCast(result));
 }
@@ -1821,7 +1819,7 @@ pub fn QueryPerformanceCounter() u64 {
     // "On systems that run Windows XP or later, the function will always succeed"
     // https://docs.microsoft.com/en-us/windows/desktop/api/profileapi/nf-profileapi-queryperformancecounter
     var result: LARGE_INTEGER = undefined;
-    assert(kernel32.QueryPerformanceCounter(&result) != 0);
+    assert(ntdll.RtlQueryPerformanceCounter(&result) != 0);
     // The kernel treats this integer as unsigned.
     return @as(u64, @bitCast(result));
 }
@@ -1927,7 +1925,7 @@ pub fn teb() *TEB {
             if (builtin.zig_backend == .stage2_c) {
                 break :blk @ptrCast(@alignCast(zig_x86_windows_teb()));
             } else {
-                break :blk asm volatile (
+                break :blk asm (
                     \\ movl %%fs:0x18, %[ptr]
                     : [ptr] "=r" (-> *TEB),
                 );
@@ -1937,13 +1935,13 @@ pub fn teb() *TEB {
             if (builtin.zig_backend == .stage2_c) {
                 break :blk @ptrCast(@alignCast(zig_x86_64_windows_teb()));
             } else {
-                break :blk asm volatile (
+                break :blk asm (
                     \\ movq %%gs:0x30, %[ptr]
                     : [ptr] "=r" (-> *TEB),
                 );
             }
         },
-        .aarch64 => asm volatile (
+        .aarch64 => asm (
             \\ mov %[ptr], x18
             : [ptr] "=r" (-> *TEB),
         ),
@@ -2045,8 +2043,8 @@ pub fn eqlIgnoreCaseUtf8(a: []const u8, b: []const u8) bool {
     };
 
     while (true) {
-        var a_cp = a_utf8_it.nextCodepoint() orelse break;
-        var b_cp = b_utf8_it.nextCodepoint() orelse return false;
+        const a_cp = a_utf8_it.nextCodepoint() orelse break;
+        const b_cp = b_utf8_it.nextCodepoint() orelse return false;
 
         if (a_cp <= std.math.maxInt(u16) and b_cp <= std.math.maxInt(u16)) {
             if (a_cp != b_cp and upcaseImpl(@intCast(a_cp)) != upcaseImpl(@intCast(b_cp))) {
@@ -2532,7 +2530,7 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
     const rc = ws2_32.WSAIoctl(
         sock,
         ws2_32.SIO_GET_EXTENSION_FUNCTION_POINTER,
-        @as(*const anyopaque, @ptrCast(&guid)),
+        &guid,
         @sizeOf(GUID),
         @as(?*anyopaque, @ptrFromInt(@intFromPtr(&function))),
         @sizeOf(T),
@@ -2631,6 +2629,7 @@ pub const HWND = *opaque {};
 pub const HDC = *opaque {};
 pub const HGLRC = *opaque {};
 pub const FARPROC = *opaque {};
+pub const PROC = *opaque {};
 pub const INT = c_int;
 pub const LPCSTR = [*:0]const CHAR;
 pub const LPCVOID = *const anyopaque;
@@ -3359,13 +3358,13 @@ pub const GUID = extern struct {
     Data4: [8]u8,
 
     const hex_offsets = switch (builtin.target.cpu.arch.endian()) {
-        .Big => [16]u6{
+        .big => [16]u6{
             0,  2,  4,  6,
             9,  11, 14, 16,
             19, 21, 24, 26,
             28, 30, 32, 34,
         },
-        .Little => [16]u6{
+        .little => [16]u6{
             6,  4,  2,  0,
             11, 9,  16, 14,
             19, 21, 24, 26,
@@ -3432,6 +3431,10 @@ pub const E_ACCESSDENIED = @as(c_long, @bitCast(@as(c_ulong, 0x80070005)));
 pub const E_HANDLE = @as(c_long, @bitCast(@as(c_ulong, 0x80070006)));
 pub const E_OUTOFMEMORY = @as(c_long, @bitCast(@as(c_ulong, 0x8007000E)));
 pub const E_INVALIDARG = @as(c_long, @bitCast(@as(c_ulong, 0x80070057)));
+
+pub fn HRESULT_CODE(hr: HRESULT) Win32Error {
+    return @enumFromInt(hr & 0xFFFF);
+}
 
 pub const FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
 pub const FILE_FLAG_DELETE_ON_CLOSE = 0x04000000;
@@ -3522,7 +3525,8 @@ pub const SEC_LARGE_PAGES = 0x80000000;
 
 pub const HKEY = *opaque {};
 
-pub const HKEY_LOCAL_MACHINE: HKEY = @as(HKEY, @ptrFromInt(0x80000002));
+pub const HKEY_CLASSES_ROOT: HKEY = @ptrFromInt(0x80000000);
+pub const HKEY_LOCAL_MACHINE: HKEY = @ptrFromInt(0x80000002);
 
 /// Combines the STANDARD_RIGHTS_REQUIRED, KEY_QUERY_VALUE, KEY_SET_VALUE, KEY_CREATE_SUB_KEY,
 /// KEY_ENUMERATE_SUB_KEYS, KEY_NOTIFY, and KEY_CREATE_LINK access rights.
@@ -5203,7 +5207,7 @@ pub fn WriteProcessMemory(handle: HANDLE, addr: ?LPVOID, buffer: []const u8) Wri
     switch (ntdll.NtWriteVirtualMemory(
         handle,
         addr,
-        @as(*const anyopaque, @ptrCast(buffer.ptr)),
+        buffer.ptr,
         buffer.len,
         &nwritten,
     )) {

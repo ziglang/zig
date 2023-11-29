@@ -1,6 +1,7 @@
 gpa: Allocator,
 arena: Allocator,
 cases: std.ArrayList(Case),
+translate: std.ArrayList(Translate),
 incremental_cases: std.ArrayList(IncrementalCase),
 
 pub const IncrementalCase = struct {
@@ -36,7 +37,7 @@ pub const Update = struct {
         Execution: []const u8,
         /// A header update compiles the input with the equivalent of
         /// `-femit-h` and tests the produced header against the
-        /// expected result
+        /// expected result.
         Header: []const u8,
     },
 
@@ -59,6 +60,11 @@ pub const Backend = enum {
     stage1,
     stage2,
     llvm,
+};
+
+pub const CFrontend = enum {
+    clang,
+    aro,
 };
 
 /// A `Case` consists of a list of `Update`. The same `Compilation` is used for each
@@ -141,6 +147,25 @@ pub const Case = struct {
         }) catch @panic("out of memory");
         addSourceFile(self, "tmp.zig", src);
     }
+};
+
+pub const Translate = struct {
+    /// The name of the test case. This is shown if a test fails, and
+    /// otherwise ignored.
+    name: []const u8,
+
+    input: [:0]const u8,
+    target: CrossTarget,
+    link_libc: bool,
+    c_frontend: CFrontend,
+    kind: union(enum) {
+        /// Translate the input, run it and check that it
+        /// outputs the expected text.
+        run: []const u8,
+        /// Translate the input and check that it contains
+        /// the expected lines of code.
+        translate: []const []const u8,
+    },
 };
 
 pub fn addExe(
@@ -343,18 +368,21 @@ pub fn addCompile(
 /// Each file should include a test manifest as a contiguous block of comments at
 /// the end of the file. The first line should be the test type, followed by a set of
 /// key-value config values, followed by a blank line, then the expected output.
-pub fn addFromDir(ctx: *Cases, dir: std.fs.IterableDir) void {
+pub fn addFromDir(ctx: *Cases, dir: std.fs.Dir) void {
     var current_file: []const u8 = "none";
     ctx.addFromDirInner(dir, &current_file) catch |err| {
-        std.debug.panic("test harness failed to process file '{s}': {s}\n", .{
-            current_file, @errorName(err),
-        });
+        std.debug.panicExtra(
+            @errorReturnTrace(),
+            @returnAddress(),
+            "test harness failed to process file '{s}': {s}\n",
+            .{ current_file, @errorName(err) },
+        );
     };
 }
 
 fn addFromDirInner(
     ctx: *Cases,
-    iterable_dir: std.fs.IterableDir,
+    iterable_dir: std.fs.Dir,
     /// This is kept up to date with the currently being processed file so
     /// that if any errors occur the caller knows it happened during this file.
     current_file: *[]const u8,
@@ -388,16 +416,50 @@ fn addFromDirInner(
         }
 
         const max_file_size = 10 * 1024 * 1024;
-        const src = try iterable_dir.dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
+        const src = try iterable_dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
 
         // Parse the manifest
         var manifest = try TestManifest.parse(ctx.arena, src);
 
         const backends = try manifest.getConfigForKeyAlloc(ctx.arena, "backend", Backend);
         const targets = try manifest.getConfigForKeyAlloc(ctx.arena, "target", CrossTarget);
+        const c_frontends = try manifest.getConfigForKeyAlloc(ctx.arena, "c_frontend", CFrontend);
         const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
         const link_libc = try manifest.getConfigForKeyAssertSingle("link_libc", bool);
         const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
+
+        if (manifest.type == .translate_c) {
+            for (c_frontends) |c_frontend| {
+                for (targets) |target| {
+                    const output = try manifest.trailingLinesSplit(ctx.arena);
+                    try ctx.translate.append(.{
+                        .name = std.fs.path.stem(filename),
+                        .c_frontend = c_frontend,
+                        .target = target,
+                        .link_libc = link_libc,
+                        .input = src,
+                        .kind = .{ .translate = output },
+                    });
+                }
+            }
+            continue;
+        }
+        if (manifest.type == .run_translated_c) {
+            for (c_frontends) |c_frontend| {
+                for (targets) |target| {
+                    const output = try manifest.trailingSplit(ctx.arena);
+                    try ctx.translate.append(.{
+                        .name = std.fs.path.stem(filename),
+                        .c_frontend = c_frontend,
+                        .target = target,
+                        .link_libc = link_libc,
+                        .input = src,
+                        .kind = .{ .run = output },
+                    });
+                }
+            }
+            continue;
+        }
 
         var cases = std.ArrayList(usize).init(ctx.arena);
 
@@ -439,21 +501,15 @@ fn addFromDirInner(
                     case.addCompile(src);
                 },
                 .@"error" => {
-                    const errors = try manifest.trailingAlloc(ctx.arena);
+                    const errors = try manifest.trailingLines(ctx.arena);
                     case.addError(src, errors);
                 },
                 .run => {
-                    var output = std.ArrayList(u8).init(ctx.arena);
-                    var trailing_it = manifest.trailing();
-                    while (trailing_it.next()) |line| {
-                        try output.appendSlice(line);
-                        try output.append('\n');
-                    }
-                    if (output.items.len > 0) {
-                        try output.resize(output.items.len - 1);
-                    }
-                    case.addCompareOutput(src, try output.toOwnedSlice());
+                    const output = try manifest.trailingSplit(ctx.arena);
+                    case.addCompareOutput(src, output);
                 },
+                .translate_c => @panic("c_frontend specified for compile case"),
+                .run_translated_c => @panic("c_frontend specified for compile case"),
                 .cli => @panic("TODO cli tests"),
             }
         }
@@ -468,6 +524,7 @@ pub fn init(gpa: Allocator, arena: Allocator) Cases {
     return .{
         .gpa = gpa,
         .cases = std.ArrayList(Case).init(gpa),
+        .translate = std.ArrayList(Translate).init(gpa),
         .incremental_cases = std.ArrayList(IncrementalCase).init(gpa),
         .arena = arena,
     };
@@ -482,7 +539,7 @@ pub fn lowerToBuildSteps(
     incremental_exe: *std.Build.Step.Compile,
 ) void {
     const host = std.zig.system.NativeTargetInfo.detect(.{}) catch |err|
-        std.debug.panic("unable to detect notive host: {s}\n", .{@errorName(err)});
+        std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
 
     for (self.incremental_cases.items) |incr_case| {
         if (true) {
@@ -583,14 +640,14 @@ pub fn lowerToBuildSteps(
             },
             .Error => |expected_msgs| {
                 assert(expected_msgs.len != 0);
-                artifact.expect_errors = expected_msgs;
+                artifact.expect_errors = .{ .exact = expected_msgs };
                 parent_step.dependOn(&artifact.step);
             },
             .Execution => |expected_stdout| no_exec: {
                 const run = if (case.target.ofmt == .c) run_step: {
                     const target_info = std.zig.system.NativeTargetInfo.detect(case.target) catch |err|
-                        std.debug.panic("unable to detect notive host: {s}\n", .{@errorName(err)});
-                    if (host.getExternalExecutor(target_info, .{ .link_libc = true }) != .native) {
+                        std.debug.panic("unable to detect target host: {s}\n", .{@errorName(err)});
+                    if (host.getExternalExecutor(&target_info, .{ .link_libc = true }) != .native) {
                         // We wouldn't be able to run the compiled C code.
                         break :no_exec;
                     }
@@ -623,6 +680,68 @@ pub fn lowerToBuildSteps(
             .Header => @panic("TODO"),
         }
     }
+
+    for (self.translate.items) |case| switch (case.kind) {
+        .run => |output| {
+            const annotated_case_name = b.fmt("run-translated-c  {s}", .{case.name});
+            if (opt_test_filter) |filter| {
+                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) continue;
+            }
+            if (!std.process.can_spawn) {
+                std.debug.print("Unable to spawn child processes on {s}, skipping test.\n", .{@tagName(builtin.os.tag)});
+                continue; // Pass test.
+            }
+
+            const target_info = std.zig.system.NativeTargetInfo.detect(case.target) catch |err|
+                std.debug.panic("unable to detect target host: {s}\n", .{@errorName(err)});
+            if (host.getExternalExecutor(&target_info, .{ .link_libc = true }) != .native) {
+                // We wouldn't be able to run the compiled C code.
+                continue; // Pass test.
+            }
+
+            const write_src = b.addWriteFiles();
+            const file_source = write_src.add("tmp.c", case.input);
+
+            const translate_c = b.addTranslateC(.{
+                .source_file = file_source,
+                .optimize = .Debug,
+                .target = case.target,
+                .link_libc = case.link_libc,
+                .use_clang = case.c_frontend == .clang,
+            });
+            translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
+
+            const run_exe = translate_c.addExecutable(.{});
+            run_exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
+            run_exe.linkLibC();
+            const run = b.addRunArtifact(run_exe);
+            run.step.name = b.fmt("{s} run", .{annotated_case_name});
+            run.expectStdOutEqual(output);
+
+            parent_step.dependOn(&run.step);
+        },
+        .translate => |output| {
+            const annotated_case_name = b.fmt("zig translate-c {s}", .{case.name});
+            if (opt_test_filter) |filter| {
+                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) continue;
+            }
+
+            const write_src = b.addWriteFiles();
+            const file_source = write_src.add("tmp.c", case.input);
+
+            const translate_c = b.addTranslateC(.{
+                .source_file = file_source,
+                .optimize = .Debug,
+                .target = case.target,
+                .link_libc = case.link_libc,
+                .use_clang = case.c_frontend == .clang,
+            });
+            translate_c.step.name = annotated_case_name;
+
+            const check_file = translate_c.addCheckFile(output);
+            parent_step.dependOn(&check_file.step);
+        },
+    };
 }
 
 /// Sort test filenames in-place, so that incremental test cases ("foo.0.zig",
@@ -780,7 +899,7 @@ const TestManifestConfigDefaults = struct {
         if (std.mem.eql(u8, key, "backend")) {
             return "stage2";
         } else if (std.mem.eql(u8, key, "target")) {
-            if (@"type" == .@"error") {
+            if (@"type" == .@"error" or @"type" == .translate_c or @"type" == .run_translated_c) {
                 return "native";
             }
             return comptime blk: {
@@ -807,12 +926,16 @@ const TestManifestConfigDefaults = struct {
                 .@"error" => "Obj",
                 .run => "Exe",
                 .compile => "Obj",
+                .translate_c => "Obj",
+                .run_translated_c => "Obj",
                 .cli => @panic("TODO test harness for CLI tests"),
             };
         } else if (std.mem.eql(u8, key, "is_test")) {
-            return "0";
+            return "false";
         } else if (std.mem.eql(u8, key, "link_libc")) {
-            return "0";
+            return "false";
+        } else if (std.mem.eql(u8, key, "c_frontend")) {
+            return "clang";
         } else unreachable;
     }
 };
@@ -844,6 +967,8 @@ const TestManifest = struct {
         run,
         cli,
         compile,
+        translate_c,
+        run_translated_c,
     };
 
     const TrailingIterator = struct {
@@ -851,7 +976,7 @@ const TestManifest = struct {
 
         fn next(self: *TrailingIterator) ?[]const u8 {
             const next_inner = self.inner.next() orelse return null;
-            return std.mem.trim(u8, next_inner[2..], " \t");
+            return if (next_inner.len == 2) "" else std.mem.trimRight(u8, next_inner[3..], " \t");
         }
     };
 
@@ -912,6 +1037,10 @@ const TestManifest = struct {
                 break :blk .cli;
             } else if (std.mem.eql(u8, raw, "compile")) {
                 break :blk .compile;
+            } else if (std.mem.eql(u8, raw, "translate-c")) {
+                break :blk .translate_c;
+            } else if (std.mem.eql(u8, raw, "run-translated-c")) {
+                break :blk .run_translated_c;
             } else {
                 std.log.warn("unknown test case type requested: {s}", .{raw});
                 return error.UnknownTestCaseType;
@@ -979,13 +1108,49 @@ const TestManifest = struct {
         };
     }
 
-    fn trailingAlloc(self: TestManifest, allocator: Allocator) error{OutOfMemory}![]const []const u8 {
+    fn trailingSplit(self: TestManifest, allocator: Allocator) error{OutOfMemory}![]const u8 {
+        var out = std.ArrayList(u8).init(allocator);
+        defer out.deinit();
+        var trailing_it = self.trailing();
+        while (trailing_it.next()) |line| {
+            try out.appendSlice(line);
+            try out.append('\n');
+        }
+        if (out.items.len > 0) {
+            try out.resize(out.items.len - 1);
+        }
+        return try out.toOwnedSlice();
+    }
+
+    fn trailingLines(self: TestManifest, allocator: Allocator) error{OutOfMemory}![]const []const u8 {
         var out = std.ArrayList([]const u8).init(allocator);
         defer out.deinit();
         var it = self.trailing();
         while (it.next()) |line| {
             try out.append(line);
         }
+        return try out.toOwnedSlice();
+    }
+
+    fn trailingLinesSplit(self: TestManifest, allocator: Allocator) error{OutOfMemory}![]const []const u8 {
+        // Collect output lines split by empty lines
+        var out = std.ArrayList([]const u8).init(allocator);
+        defer out.deinit();
+        var buf = std.ArrayList(u8).init(allocator);
+        defer buf.deinit();
+        var it = self.trailing();
+        while (it.next()) |line| {
+            if (line.len == 0) {
+                if (buf.items.len != 0) {
+                    try out.append(try buf.toOwnedSlice());
+                    buf.items.len = 0;
+                }
+                continue;
+            }
+            try buf.appendSlice(line);
+            try buf.append('\n');
+        }
+        try out.append(try buf.toOwnedSlice());
         return try out.toOwnedSlice();
     }
 
@@ -996,10 +1161,7 @@ const TestManifest = struct {
     fn getDefaultParser(comptime T: type) ParseFn(T) {
         if (T == CrossTarget) return struct {
             fn parse(str: []const u8) anyerror!T {
-                var opts = CrossTarget.ParseOptions{
-                    .arch_os_abi = str,
-                };
-                return try CrossTarget.parse(opts);
+                return CrossTarget.parse(.{ .arch_os_abi = str });
             }
         }.parse;
 
@@ -1011,8 +1173,10 @@ const TestManifest = struct {
             }.parse,
             .Bool => return struct {
                 fn parse(str: []const u8) anyerror!T {
-                    const as_int = try std.fmt.parseInt(u1, str, 0);
-                    return as_int > 0;
+                    if (std.mem.eql(u8, str, "true")) return true;
+                    if (std.mem.eql(u8, str, "false")) return false;
+                    std.debug.print("{s}\n", .{str});
+                    return error.InvalidBool;
                 }
             }.parse,
             .Enum => return struct {
@@ -1082,7 +1246,7 @@ pub fn main() !void {
     var filenames = std.ArrayList([]const u8).init(arena);
 
     const case_dirname = std.fs.path.dirname(case_file_path).?;
-    var iterable_dir = try std.fs.cwd().openIterableDir(case_dirname, .{});
+    var iterable_dir = try std.fs.cwd().openDir(case_dirname, .{ .iterate = true });
     defer iterable_dir.close();
 
     if (std.mem.endsWith(u8, case_file_path, ".0.zig")) {
@@ -1116,7 +1280,7 @@ pub fn main() !void {
 
         for (batch) |filename| {
             const max_file_size = 10 * 1024 * 1024;
-            const src = try iterable_dir.dir.readFileAllocOptions(arena, filename, max_file_size, null, 1, 0);
+            const src = try iterable_dir.readFileAllocOptions(arena, filename, max_file_size, null, 1, 0);
 
             // Parse the manifest
             var manifest = try TestManifest.parse(arena, src);
@@ -1124,8 +1288,46 @@ pub fn main() !void {
             if (cases.items.len == 0) {
                 const backends = try manifest.getConfigForKeyAlloc(arena, "backend", Backend);
                 const targets = try manifest.getConfigForKeyAlloc(arena, "target", CrossTarget);
+                const c_frontends = try manifest.getConfigForKeyAlloc(ctx.arena, "c_frontend", CFrontend);
                 const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
+                const link_libc = try manifest.getConfigForKeyAssertSingle("link_libc", bool);
                 const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
+
+                if (manifest.type == .translate_c) {
+                    for (c_frontends) |c_frontend| {
+                        for (targets) |target| {
+                            const output = try manifest.trailingLinesSplit(ctx.arena);
+                            try ctx.translate.append(.{
+                                .name = std.fs.path.stem(filename),
+                                .c_frontend = c_frontend,
+                                .target = target,
+                                .is_test = is_test,
+                                .link_libc = link_libc,
+                                .input = src,
+                                .kind = .{ .translate = output },
+                            });
+                        }
+                    }
+                    continue;
+                }
+                if (manifest.type == .run_translated_c) {
+                    for (c_frontends) |c_frontend| {
+                        for (targets) |target| {
+                            const output = try manifest.trailingSplit(ctx.arena);
+                            try ctx.translate.append(.{
+                                .name = std.fs.path.stem(filename),
+                                .c_frontend = c_frontend,
+                                .target = target,
+                                .is_test = is_test,
+                                .link_libc = link_libc,
+                                .output = output,
+                                .input = src,
+                                .kind = .{ .run = output },
+                            });
+                        }
+                    }
+                    continue;
+                }
 
                 // Cross-product to get all possible test combinations
                 for (backends) |backend| {
@@ -1158,7 +1360,7 @@ pub fn main() !void {
                         case.addCompile(src);
                     },
                     .@"error" => {
-                        const errors = try manifest.trailingAlloc(arena);
+                        const errors = try manifest.trailingLines(arena);
                         switch (strategy) {
                             .independent => {
                                 case.addError(src, errors);
@@ -1169,17 +1371,11 @@ pub fn main() !void {
                         }
                     },
                     .run => {
-                        var output = std.ArrayList(u8).init(arena);
-                        var trailing_it = manifest.trailing();
-                        while (trailing_it.next()) |line| {
-                            try output.appendSlice(line);
-                            try output.append('\n');
-                        }
-                        if (output.items.len > 0) {
-                            try output.resize(output.items.len - 1);
-                        }
-                        case.addCompareOutput(src, try output.toOwnedSlice());
+                        const output = try manifest.trailingSplit(ctx.arena);
+                        case.addCompareOutput(src, output);
                     },
+                    .translate_c => @panic("c_frontend specified for compile case"),
+                    .run_translated_c => @panic("c_frontend specified for compile case"),
                     .cli => @panic("TODO cli tests"),
                 }
             }
@@ -1254,6 +1450,11 @@ fn runCases(self: *Cases, zig_exe_path: []const u8) !void {
                 global_cache_directory,
                 host,
             );
+        }
+
+        for (self.translate.items) |*case| {
+            _ = case;
+            @panic("TODO is this even used?");
         }
     }
 }
@@ -1487,7 +1688,7 @@ fn runOneCase(
                 var argv = std.ArrayList([]const u8).init(allocator);
                 defer argv.deinit();
 
-                var exec_result = x: {
+                const exec_result = x: {
                     var exec_node = update_node.start("execute", 0);
                     exec_node.activate();
                     defer exec_node.end();

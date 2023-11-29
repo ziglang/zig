@@ -89,12 +89,14 @@ void  operator delete[](void* ptr, void*) noexcept;
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
 #include <__config>
+#include <__exception/exception.h>
+#include <__type_traits/alignment_of.h>
 #include <__type_traits/is_function.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/remove_cv.h>
+#include <__verbose_abort>
 #include <cstddef>
 #include <cstdlib>
-#include <exception>
 #include <version>
 
 #if defined(_LIBCPP_ABI_VCRUNTIME)
@@ -123,10 +125,10 @@ namespace std  // purposefully not using versioning namespace
 {
 
 #if !defined(_LIBCPP_ABI_VCRUNTIME)
-struct _LIBCPP_TYPE_VIS nothrow_t { explicit nothrow_t() = default; };
-extern _LIBCPP_FUNC_VIS const nothrow_t nothrow;
+struct _LIBCPP_EXPORTED_FROM_ABI nothrow_t { explicit nothrow_t() = default; };
+extern _LIBCPP_EXPORTED_FROM_ABI const nothrow_t nothrow;
 
-class _LIBCPP_EXCEPTION_ABI bad_alloc
+class _LIBCPP_EXPORTED_FROM_ABI bad_alloc
     : public exception
 {
 public:
@@ -135,7 +137,7 @@ public:
     const char* what() const _NOEXCEPT override;
 };
 
-class _LIBCPP_EXCEPTION_ABI bad_array_new_length
+class _LIBCPP_EXPORTED_FROM_ABI bad_array_new_length
     : public bad_alloc
 {
 public:
@@ -145,8 +147,8 @@ public:
 };
 
 typedef void (*new_handler)();
-_LIBCPP_FUNC_VIS new_handler set_new_handler(new_handler) _NOEXCEPT;
-_LIBCPP_FUNC_VIS new_handler get_new_handler() _NOEXCEPT;
+_LIBCPP_EXPORTED_FROM_ABI new_handler set_new_handler(new_handler) _NOEXCEPT;
+_LIBCPP_EXPORTED_FROM_ABI new_handler get_new_handler() _NOEXCEPT;
 
 #elif defined(_HAS_EXCEPTIONS) && _HAS_EXCEPTIONS == 0 // !_LIBCPP_ABI_VCRUNTIME
 
@@ -168,15 +170,15 @@ public:
 };
 #endif // defined(_LIBCPP_ABI_VCRUNTIME) && defined(_HAS_EXCEPTIONS) && _HAS_EXCEPTIONS == 0
 
-_LIBCPP_NORETURN _LIBCPP_FUNC_VIS void __throw_bad_alloc();  // not in C++ spec
+_LIBCPP_NORETURN _LIBCPP_EXPORTED_FROM_ABI void __throw_bad_alloc();  // not in C++ spec
 
 _LIBCPP_NORETURN inline _LIBCPP_INLINE_VISIBILITY
 void __throw_bad_array_new_length()
 {
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
     throw bad_array_new_length();
 #else
-    _VSTD::abort();
+    _LIBCPP_VERBOSE_ABORT("bad_array_new_length was thrown in -fno-exceptions mode");
 #endif
 }
 
@@ -189,14 +191,14 @@ enum align_val_t { __zero = 0, __max = (size_t)-1 };
 #endif
 #endif
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 // Enable the declaration even if the compiler doesn't support the language
 // feature.
 struct destroying_delete_t {
   explicit destroying_delete_t() = default;
 };
 inline constexpr destroying_delete_t destroying_delete{};
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 } // namespace std
 
@@ -332,46 +334,6 @@ inline _LIBCPP_INLINE_VISIBILITY void __libcpp_deallocate_unsized(void* __ptr, s
 #endif
 }
 
-#if !defined(_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION)
-// Low-level helpers to call the aligned allocation and deallocation functions
-// on the target platform. This is used to implement libc++'s own memory
-// allocation routines -- if you need to allocate memory inside the library,
-// chances are that you want to use `__libcpp_allocate` instead.
-//
-// Returns the allocated memory, or `nullptr` on failure.
-inline _LIBCPP_INLINE_VISIBILITY void* __libcpp_aligned_alloc(std::size_t __alignment, std::size_t __size) {
-#  if defined(_LIBCPP_MSVCRT_LIKE)
-    return ::_aligned_malloc(__size, __alignment);
-#  elif _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_C11_ALIGNED_ALLOC)
-    // aligned_alloc() requires that __size is a multiple of __alignment,
-    // but for C++ [new.delete.general], only states "if the value of an
-    // alignment argument passed to any of these functions is not a valid
-    // alignment value, the behavior is undefined".
-    // To handle calls such as ::operator new(1, std::align_val_t(128)), we
-    // round __size up to the next multiple of __alignment.
-    size_t __rounded_size = (__size + __alignment - 1) & ~(__alignment - 1);
-    // Rounding up could have wrapped around to zero, so we have to add another
-    // max() ternary to the actual call site to avoid succeeded in that case.
-    return ::aligned_alloc(__alignment, __size > __rounded_size ? __size : __rounded_size);
-#  else
-    void* __result = nullptr;
-    (void)::posix_memalign(&__result, __alignment, __size);
-    // If posix_memalign fails, __result is unmodified so we still return `nullptr`.
-    return __result;
-#  endif
-}
-
-inline _LIBCPP_INLINE_VISIBILITY
-void __libcpp_aligned_free(void* __ptr) {
-#if defined(_LIBCPP_MSVCRT_LIKE)
-  ::_aligned_free(__ptr);
-#else
-  ::free(__ptr);
-#endif
-}
-#endif // !_LIBCPP_HAS_NO_ALIGNED_ALLOCATION
-
-
 template <class _Tp>
 _LIBCPP_NODISCARD_AFTER_CXX17 inline _LIBCPP_HIDE_FROM_ABI
 _LIBCPP_CONSTEXPR _Tp* __launder(_Tp* __p) _NOEXCEPT
@@ -381,7 +343,7 @@ _LIBCPP_CONSTEXPR _Tp* __launder(_Tp* __p) _NOEXCEPT
     return __builtin_launder(__p);
 }
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 _LIBCPP_NODISCARD_AFTER_CXX17 inline _LIBCPP_HIDE_FROM_ABI
 constexpr _Tp* launder(_Tp* __p) noexcept
@@ -390,7 +352,7 @@ constexpr _Tp* launder(_Tp* __p) noexcept
 }
 #endif
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 
 #if defined(__GCC_DESTRUCTIVE_SIZE) && defined(__GCC_CONSTRUCTIVE_SIZE)
 
@@ -399,11 +361,12 @@ inline constexpr size_t hardware_constructive_interference_size = __GCC_CONSTRUC
 
 #endif // defined(__GCC_DESTRUCTIVE_SIZE) && defined(__GCC_CONSTRUCTIVE_SIZE)
 
-#endif // _LIBCPP_STD_VER > 14
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_END_NAMESPACE_STD
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <exception>
 #  include <type_traits>
 #endif
 

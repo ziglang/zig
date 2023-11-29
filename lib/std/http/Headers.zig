@@ -14,14 +14,17 @@ pub const CaseInsensitiveStringContext = struct {
     pub fn hash(self: @This(), s: []const u8) u64 {
         _ = self;
         var buf: [64]u8 = undefined;
-        var i: u8 = 0;
+        var i: usize = 0;
 
         var h = std.hash.Wyhash.init(0);
-        while (i < s.len) : (i += 64) {
-            const left = @min(64, s.len - i);
-            const ret = ascii.lowerString(buf[0..], s[i..][0..left]);
+        while (i + 64 < s.len) : (i += 64) {
+            const ret = ascii.lowerString(buf[0..], s[i..][0..64]);
             h.update(ret);
         }
+
+        const left = @min(64, s.len - i);
+        const ret = ascii.lowerString(buf[0..], s[i..][0..left]);
+        h.update(ret);
 
         return h.final();
     }
@@ -57,6 +60,18 @@ pub const Headers = struct {
         return .{ .allocator = allocator };
     }
 
+    pub fn initList(allocator: Allocator, list: []const Field) !Headers {
+        var new = Headers.init(allocator);
+
+        try new.list.ensureTotalCapacity(allocator, list.len);
+        try new.index.ensureTotalCapacity(allocator, @intCast(list.len));
+        for (list) |field| {
+            try new.append(field.name, field.value);
+        }
+
+        return new;
+    }
+
     pub fn deinit(headers: *Headers) void {
         headers.deallocateIndexListsAndFields();
         headers.index.deinit(headers.allocator);
@@ -78,7 +93,7 @@ pub const Headers = struct {
             entry.name = kv.key_ptr.*;
             try kv.value_ptr.append(headers.allocator, n);
         } else {
-            const name_duped = if (headers.owned) try headers.allocator.dupe(u8, name) else name;
+            const name_duped = if (headers.owned) try std.ascii.allocLowerString(headers.allocator, name) else name;
             errdefer if (headers.owned) headers.allocator.free(name_duped);
 
             entry.name = name_duped;
@@ -97,6 +112,7 @@ pub const Headers = struct {
         return headers.index.contains(name);
     }
 
+    /// Removes all headers with the given name.
     pub fn delete(headers: *Headers, name: []const u8) bool {
         if (headers.index.fetchRemove(name)) |kv| {
             var index = kv.value;
@@ -236,7 +252,7 @@ pub const Headers = struct {
         try out_stream.writeAll("\r\n");
     }
 
-    /// Frees all `HeaderIndexList`s within `index`
+    /// Frees all `HeaderIndexList`s within `index`.
     /// Frees names and values of all fields if they are owned.
     fn deallocateIndexListsAndFields(headers: *Headers) void {
         var it = headers.index.iterator();
@@ -267,6 +283,18 @@ pub const Headers = struct {
         headers.deallocateIndexListsAndFields();
         headers.index.clearRetainingCapacity();
         headers.list.clearRetainingCapacity();
+    }
+
+    pub fn clone(headers: Headers, allocator: Allocator) !Headers {
+        var new = Headers.init(allocator);
+
+        try new.list.ensureTotalCapacity(allocator, headers.list.capacity);
+        try new.index.ensureTotalCapacity(allocator, headers.index.capacity());
+        for (headers.list.items) |field| {
+            try new.append(field.name, field.value);
+        }
+
+        return new;
     }
 };
 
@@ -435,4 +463,20 @@ test "Headers.clearRetainingCapacity and clearAndFree" {
     try testing.expectEqual(@as(usize, 0), h.index.count());
     try testing.expectEqual(@as(usize, 0), h.list.capacity);
     try testing.expectEqual(@as(usize, 0), h.index.capacity());
+}
+
+test "Headers.initList" {
+    var h = try Headers.initList(std.testing.allocator, &.{
+        .{ .name = "Accept-Encoding", .value = "gzip" },
+        .{ .name = "Authorization", .value = "it's over 9000!" },
+    });
+    defer h.deinit();
+
+    const encoding_values = (try h.getValues(testing.allocator, "Accept-Encoding")).?;
+    defer testing.allocator.free(encoding_values);
+    try testing.expectEqualDeep(@as([]const []const u8, &[_][]const u8{"gzip"}), encoding_values);
+
+    const authorization_values = (try h.getValues(testing.allocator, "Authorization")).?;
+    defer testing.allocator.free(authorization_values);
+    try testing.expectEqualDeep(@as([]const []const u8, &[_][]const u8{"it's over 9000!"}), authorization_values);
 }

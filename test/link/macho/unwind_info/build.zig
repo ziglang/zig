@@ -76,11 +76,13 @@ fn createScenario(
     });
     b.default_step.dependOn(&exe.step);
     exe.addIncludePath(.{ .path = "." });
-    exe.addCSourceFiles(&[_][]const u8{
-        "main.cpp",
-        "simple_string.cpp",
-        "simple_string_owner.cpp",
-    }, &[0][]const u8{});
+    exe.addCSourceFiles(.{
+        .files = &[_][]const u8{
+            "main.cpp",
+            "simple_string.cpp",
+            "simple_string_owner.cpp",
+        },
+    });
     exe.linkLibCpp();
     return exe;
 }

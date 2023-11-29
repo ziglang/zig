@@ -4,6 +4,7 @@
 // https://github.com/llvm/llvm-project/blob/02d85149a05cb1f6dc49f0ba7a2ceca53718ae17/compiler-rt/test/builtins/Unit/subtf3_test.c
 
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const qnan128: f128 = @bitCast(@as(u128, 0x7fff800000000000) << 64);
 

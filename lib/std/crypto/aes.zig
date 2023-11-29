@@ -6,7 +6,7 @@ const has_aesni = std.Target.x86.featureSetHas(builtin.cpu.features, .aes);
 const has_avx = std.Target.x86.featureSetHas(builtin.cpu.features, .avx);
 const has_armaes = std.Target.aarch64.featureSetHas(builtin.cpu.features, .aes);
 // C backend doesn't currently support passing vectors to inline asm.
-const impl = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_c and has_aesni and has_avx) impl: {
+const impl = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_c and builtin.zig_backend != .stage2_x86_64 and has_aesni and has_avx) impl: {
     break :impl @import("aes/aesni.zig");
 } else if (builtin.cpu.arch == .aarch64 and builtin.zig_backend != .stage2_c and has_armaes)
 impl: {
@@ -47,8 +47,8 @@ test "ctr" {
     };
 
     var out: [exp_out.len]u8 = undefined;
-    var ctx = Aes128.initEnc(key);
-    ctr(AesEncryptCtx(Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.Big);
+    const ctx = Aes128.initEnc(key);
+    ctr(AesEncryptCtx(Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.big);
     try testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
 }
 

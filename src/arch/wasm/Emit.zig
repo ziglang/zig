@@ -6,6 +6,7 @@ const std = @import("std");
 const Mir = @import("Mir.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
+const InternPool = @import("../../InternPool.zig");
 const codegen = @import("../../codegen.zig");
 const leb128 = std.leb;
 
@@ -21,7 +22,7 @@ code: *std.ArrayList(u8),
 /// List of allocated locals.
 locals: []const u8,
 /// The declaration that code is being generated for.
-decl_index: Module.Decl.Index,
+decl_index: InternPool.DeclIndex,
 
 // Debug information
 /// Holds the debug information for this emission
@@ -330,14 +331,14 @@ fn emitImm64(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn emitFloat32(emit: *Emit, inst: Mir.Inst.Index) !void {
     const value: f32 = emit.mir.instructions.items(.data)[inst].float32;
     try emit.code.append(std.wasm.opcode(.f32_const));
-    try emit.code.writer().writeIntLittle(u32, @as(u32, @bitCast(value)));
+    try emit.code.writer().writeInt(u32, @bitCast(value), .little);
 }
 
 fn emitFloat64(emit: *Emit, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const value = emit.mir.extraData(Mir.Float64, extra_index);
     try emit.code.append(std.wasm.opcode(.f64_const));
-    try emit.code.writer().writeIntLittle(u64, value.data.toU64());
+    try emit.code.writer().writeInt(u64, value.data.toU64(), .little);
 }
 
 fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {

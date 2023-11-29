@@ -12,6 +12,7 @@ tokens: TokenList.Slice,
 /// references to the root node, this means 0 is available to indicate null.
 nodes: NodeList.Slice,
 extra_data: []Node.Index,
+mode: Mode = .zig,
 
 errors: []const Error,
 
@@ -96,6 +97,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     // TODO experiment with compacting the MultiArrayList slices here
     return Ast{
         .source = source,
+        .mode = mode,
         .tokens = tokens.toOwnedSlice(),
         .nodes = parser.nodes.toOwnedSlice(),
         .extra_data = try parser.extra_data.toOwnedSlice(gpa),
@@ -111,12 +113,14 @@ pub fn render(tree: Ast, gpa: Allocator) RenderError![]u8 {
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
 
-    try tree.renderToArrayList(&buffer);
+    try tree.renderToArrayList(&buffer, .{});
     return buffer.toOwnedSlice();
 }
 
-pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8)) RenderError!void {
-    return @import("./render.zig").renderTree(buffer, tree);
+pub const Fixups = private_render.Fixups;
+
+pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), fixups: Fixups) RenderError!void {
+    return @import("./render.zig").renderTree(buffer, tree, fixups);
 }
 
 /// Returns an extra offset for column and byte offset of errors that
@@ -136,9 +140,20 @@ pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenInde
         .line_end = self.source.len,
     };
     const token_start = self.tokens.items(.start)[token_index];
-    for (self.source[start_offset..], 0..) |c, i| {
-        if (i + start_offset == token_start) {
-            loc.line_end = i + start_offset;
+
+    // Scan to by line until we go past the token start
+    while (std.mem.indexOfScalarPos(u8, self.source, loc.line_start, '\n')) |i| {
+        if (i >= token_start) {
+            break; // Went past
+        }
+        loc.line += 1;
+        loc.line_start = i + 1;
+    }
+
+    const offset = loc.line_start;
+    for (self.source[offset..], 0..) |c, i| {
+        if (i + offset == token_start) {
+            loc.line_end = i + offset;
             while (loc.line_end < self.source.len and self.source[loc.line_end] != '\n') {
                 loc.line_end += 1;
             }
@@ -238,6 +253,11 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .expected_expr_or_assignment => {
             return stream.print("expected expression or assignment, found '{s}'", .{
+                token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
+            });
+        },
+        .expected_expr_or_var_decl => {
+            return stream.print("expected expression or var decl, found '{s}'", .{
                 token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)].symbol(),
             });
         },
@@ -427,7 +447,7 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             return stream.writeAll("use 'var' or 'const' to declare variable");
         },
         .extra_for_capture => {
-            return stream.writeAll("excess for captures");
+            return stream.writeAll("extra capture in for loop");
         },
         .for_input_not_captured => {
             return stream.writeAll("for input is not captured");
@@ -583,6 +603,13 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .for_range,
         .error_union,
         => n = datas[n].lhs,
+
+        .assign_destructure => {
+            const extra_idx = datas[n].lhs;
+            const lhs_len = tree.extra_data[extra_idx];
+            assert(lhs_len > 0);
+            n = tree.extra_data[extra_idx + 1];
+        },
 
         .fn_decl,
         .fn_proto_simple,
@@ -816,6 +843,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .assign_add_sat,
         .assign_sub_sat,
         .assign,
+        .assign_destructure,
         .merge_error_sets,
         .mul,
         .div,
@@ -2528,18 +2556,6 @@ pub const full = struct {
             then_expr: Node.Index,
             else_expr: Node.Index,
         };
-
-        /// TODO: remove this after zig 0.11.0 is tagged.
-        pub fn isOldSyntax(f: For, token_tags: []const Token.Tag) bool {
-            if (f.ast.inputs.len != 1) return false;
-            if (token_tags[f.payload_token + 1] == .comma) return true;
-            if (token_tags[f.payload_token] == .asterisk and
-                token_tags[f.payload_token + 2] == .comma)
-            {
-                return true;
-            }
-            return false;
-        }
     };
 
     pub const ContainerField = struct {
@@ -2846,6 +2862,7 @@ pub const Error = struct {
         expected_container_members,
         expected_expr,
         expected_expr_or_assignment,
+        expected_expr_or_var_decl,
         expected_fn,
         expected_inlinable,
         expected_labelable,
@@ -2974,7 +2991,7 @@ pub const Node = struct {
         assign_mul,
         /// `lhs /= rhs`. main_token is op.
         assign_div,
-        /// `lhs *= rhs`. main_token is op.
+        /// `lhs %= rhs`. main_token is op.
         assign_mod,
         /// `lhs += rhs`. main_token is op.
         assign_add,
@@ -3006,6 +3023,20 @@ pub const Node = struct {
         assign_sub_sat,
         /// `lhs = rhs`. main_token is op.
         assign,
+        /// `a, b, ... = rhs`. main_token is op. lhs is index into `extra_data`
+        /// of an lhs elem count followed by an array of that many `Node.Index`,
+        /// with each node having one of the following types:
+        /// * `global_var_decl`
+        /// * `local_var_decl`
+        /// * `simple_var_decl`
+        /// * `aligned_var_decl`
+        /// * Any expression node
+        /// The first 3 types correspond to a `var` or `const` lhs node (note
+        /// that their `rhs` is always 0). An expression node corresponds to a
+        /// standard assignment LHS (which must be evaluated as an lvalue).
+        /// There may be a preceding `comptime` token, which does not create a
+        /// corresponding `comptime` node so must be manually detected.
+        assign_destructure,
         /// `lhs || rhs`. main_token is the `||`.
         merge_error_sets,
         /// `lhs * rhs`. main_token is the `*`.
@@ -3102,7 +3133,7 @@ pub const Node = struct {
         /// `lhs[b..c]`. rhs is index into Slice
         /// main_token is the lbracket.
         slice,
-        /// `lhs[b..c :d]`. rhs is index into SliceSentinel
+        /// `lhs[b..c :d]`. rhs is index into SliceSentinel. Slice end "c" can be omitted.
         /// main_token is the lbracket.
         slice_sentinel,
         /// `lhs.*`. rhs is unused.
@@ -3202,12 +3233,13 @@ pub const Node = struct {
         /// `while (lhs) : (a) b else c`. `While[rhs]`.
         /// `while (lhs) |x| : (a) b else c`. `While[rhs]`.
         /// `while (lhs) |x| : (a) b else |y| c`. `While[rhs]`.
+        /// The cont expression part `: (a)` may be omitted.
         @"while",
         /// `for (lhs) rhs`.
         for_simple,
         /// `for (lhs[0..inputs]) lhs[inputs + 1] else lhs[inputs + 2]`. `For[rhs]`.
         @"for",
-        /// `lhs..rhs`.
+        /// `lhs..rhs`. rhs can be omitted.
         for_range,
         /// `if (lhs) rhs`.
         /// `if (lhs) |a| rhs`.
@@ -3227,23 +3259,23 @@ pub const Node = struct {
         @"break",
         /// `return lhs`. lhs can be omitted. rhs is unused.
         @"return",
-        /// `fn(a: lhs) rhs`. lhs can be omitted.
+        /// `fn (a: lhs) rhs`. lhs can be omitted.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_simple,
-        /// `fn(a: b, c: d) rhs`. `sub_range_list[lhs]`.
+        /// `fn (a: b, c: d) rhs`. `sub_range_list[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_multi,
-        /// `fn(a: b) rhs addrspace(e) linksection(f) callconv(g)`. `FnProtoOne[lhs]`.
+        /// `fn (a: b) rhs addrspace(e) linksection(f) callconv(g)`. `FnProtoOne[lhs]`.
         /// zero or one parameters.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_one,
-        /// `fn(a: b, c: d) rhs addrspace(e) linksection(f) callconv(g)`. `FnProto[lhs]`.
+        /// `fn (a: b, c: d) rhs addrspace(e) linksection(f) callconv(g)`. `FnProto[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
@@ -3511,6 +3543,7 @@ const Token = std.zig.Token;
 const Ast = @This();
 const Allocator = std.mem.Allocator;
 const Parse = @import("Parse.zig");
+const private_render = @import("./render.zig");
 
 test {
     testing.refAllDecls(@This());

@@ -18,3 +18,4 @@ export fn entry() void {
 // :8:18: error: expected type 'tmp.A(u32)', found 'tmp.B(u32)'
 // :5:12: note: struct declared here
 // :2:12: note: struct declared here
+// :7:11: note: function return type declared here

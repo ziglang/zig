@@ -123,16 +123,16 @@ test "math.sinh64" {
 }
 
 test "math.sinh32.special" {
-    try expect(sinh32(0.0) == 0.0);
-    try expect(sinh32(-0.0) == -0.0);
+    try expect(math.isPositiveZero(sinh32(0.0)));
+    try expect(math.isNegativeZero(sinh32(-0.0)));
     try expect(math.isPositiveInf(sinh32(math.inf(f32))));
     try expect(math.isNegativeInf(sinh32(-math.inf(f32))));
     try expect(math.isNan(sinh32(math.nan(f32))));
 }
 
 test "math.sinh64.special" {
-    try expect(sinh64(0.0) == 0.0);
-    try expect(sinh64(-0.0) == -0.0);
+    try expect(math.isPositiveZero(sinh64(0.0)));
+    try expect(math.isNegativeZero(sinh64(-0.0)));
     try expect(math.isPositiveInf(sinh64(math.inf(f64))));
     try expect(math.isNegativeInf(sinh64(-math.inf(f64))));
     try expect(math.isNan(sinh64(math.nan(f64))));

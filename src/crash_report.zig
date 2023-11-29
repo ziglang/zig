@@ -139,18 +139,22 @@ fn dumpStatusReport() !void {
 
 var crash_heap: [16 * 4096]u8 = undefined;
 
-fn writeFilePath(file: *Module.File, stream: anytype) !void {
-    if (file.pkg.root_src_directory.path) |path| {
-        try stream.writeAll(path);
-        try stream.writeAll(std.fs.path.sep_str);
+fn writeFilePath(file: *Module.File, writer: anytype) !void {
+    if (file.mod.root.root_dir.path) |path| {
+        try writer.writeAll(path);
+        try writer.writeAll(std.fs.path.sep_str);
     }
-    try stream.writeAll(file.sub_file_path);
+    if (file.mod.root.sub_path.len > 0) {
+        try writer.writeAll(file.mod.root.sub_path);
+        try writer.writeAll(std.fs.path.sep_str);
+    }
+    try writer.writeAll(file.sub_file_path);
 }
 
-fn writeFullyQualifiedDeclWithFile(mod: *Module, decl: *Decl, stream: anytype) !void {
-    try writeFilePath(decl.getFileScope(mod), stream);
-    try stream.writeAll(": ");
-    try decl.renderFullyQualifiedDebugName(mod, stream);
+fn writeFullyQualifiedDeclWithFile(mod: *Module, decl: *Decl, writer: anytype) !void {
+    try writeFilePath(decl.getFileScope(mod), writer);
+    try writer.writeAll(": ");
+    try decl.renderFullyQualifiedDebugName(mod, writer);
 }
 
 pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, maybe_ret_addr: ?usize) noreturn {
@@ -190,7 +194,7 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
         .freebsd, .macos => @intFromPtr(info.addr),
         .netbsd => @intFromPtr(info.info.reason.fault.addr),
         .openbsd => @intFromPtr(info.data.fault.addr),
-        .solaris => @intFromPtr(info.reason.fault.addr),
+        .solaris, .illumos => @intFromPtr(info.reason.fault.addr),
         else => @compileError("TODO implement handleSegfaultPosix for new POSIX OS"),
     };
 
@@ -318,7 +322,7 @@ const PanicSwitch = struct {
     /// Updated atomically before taking the panic_mutex.
     /// In recoverable cases, the program will not abort
     /// until all panicking threads have dumped their traces.
-    var panicking = std.atomic.Atomic(u8).init(0);
+    var panicking = std.atomic.Value(u8).init(0);
 
     // Locked to avoid interleaving panic messages from multiple threads.
     var panic_mutex = std.Thread.Mutex{};
@@ -473,7 +477,7 @@ const PanicSwitch = struct {
             // and call abort()
 
             // Sleep forever without hammering the CPU
-            var futex = std.atomic.Atomic(u32).init(0);
+            var futex = std.atomic.Value(u32).init(0);
             while (true) std.Thread.Futex.wait(&futex, 0);
 
             // This should be unreachable, recurse into recoverAbort.

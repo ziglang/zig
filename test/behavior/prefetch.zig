@@ -6,6 +6,7 @@ test "@prefetch()" {
 
     var a: [2]u32 = .{ 42, 42 };
     var a_len = a.len;
+    _ = &a_len;
 
     @prefetch(&a, .{});
 

@@ -387,7 +387,7 @@ template <class Iterator>
 class move_iterator {
 public:
     using iterator_type     = Iterator;
-    using iterator_concept  = input_iterator_tag; // From C++20
+    using iterator_concept  = see below; // From C++20
     using iterator_category = see below; // not always present starting from C++20
     using value_type        = iter_value_t<Iterator>; // Until C++20, iterator_traits<Iterator>::value_type
     using difference_type   = iter_difference_t<Iterator>; // Until C++20, iterator_traits<Iterator>::difference_type;
@@ -676,7 +676,6 @@ template <class E> constexpr const E* data(initializer_list<E> il) noexcept;    
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__debug>
 #include <__iterator/access.h>
 #include <__iterator/advance.h>
 #include <__iterator/back_insert_iterator.h>
@@ -732,6 +731,7 @@ template <class E> constexpr const E* data(initializer_list<E> il) noexcept;    
 #endif
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <cstdlib>
 #  include <exception>
 #  include <new>
 #  include <type_traits>

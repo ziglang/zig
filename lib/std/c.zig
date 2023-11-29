@@ -5,14 +5,6 @@ const page_size = std.mem.page_size;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
 
-test {
-    _ = tokenizer;
-}
-
-pub const tokenizer = @import("c/tokenizer.zig");
-pub const Token = tokenizer.Token;
-pub const Tokenizer = tokenizer.Tokenizer;
-
 /// The return type is `type` to force comptime function call execution.
 /// TODO: https://github.com/ziglang/zig/issues/425
 /// If not linking libc, returns struct{pub const ok = false;}
@@ -49,7 +41,7 @@ pub usingnamespace switch (builtin.os.tag) {
     .openbsd => @import("c/openbsd.zig"),
     .haiku => @import("c/haiku.zig"),
     .hermit => @import("c/hermit.zig"),
-    .solaris => @import("c/solaris.zig"),
+    .solaris, .illumos => @import("c/solaris.zig"),
     .fuchsia => @import("c/fuchsia.zig"),
     .minix => @import("c/minix.zig"),
     .emscripten => @import("c/emscripten.zig"),
@@ -408,7 +400,11 @@ pub extern "c" fn setlogmask(maskpri: c_int) c_int;
 
 pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
 
-pub usingnamespace if (builtin.os.tag == .linux and builtin.target.isMusl()) struct {
+pub usingnamespace if (builtin.target.isAndroid()) struct {
+    // android bionic libc does not implement getcontext,
+    // and std.os.linux.getcontext also cannot be built for
+    // bionic libc currently.
+} else if (builtin.os.tag == .linux and builtin.target.isMusl()) struct {
     // musl does not implement getcontext
     pub const getcontext = std.os.linux.getcontext;
 } else struct {

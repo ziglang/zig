@@ -1,8 +1,10 @@
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const testing = std.testing;
 const mem = std.mem;
 
 const assert = std.debug.assert;
+const use_vectors = builtin.zig_backend != .stage2_x86_64;
 
 pub const State = enum {
     /// Begin header parsing states.
@@ -82,8 +84,8 @@ pub const HeadersParser = struct {
     /// If the amount returned is less than `bytes.len`, you may assume that the parser is in a content state and the
     /// first byte of content is located at `bytes[result]`.
     pub fn findHeadersEnd(r: *HeadersParser, bytes: []const u8) u32 {
-        const vector_len: comptime_int = comptime @max(std.simd.suggestVectorSize(u8) orelse 1, 8);
-        const len = @as(u32, @intCast(bytes.len));
+        const vector_len: comptime_int = @max(std.simd.suggestVectorSize(u8) orelse 1, 8);
+        const len: u32 = @intCast(bytes.len);
         var index: u32 = 0;
 
         while (true) {
@@ -175,18 +177,27 @@ pub const HeadersParser = struct {
                         continue;
                     },
                     else => {
-                        const Vector = @Vector(vector_len, u8);
-                        // const BoolVector = @Vector(vector_len, bool);
-                        const BitVector = @Vector(vector_len, u1);
-                        const SizeVector = @Vector(vector_len, u8);
-
                         const chunk = bytes[index..][0..vector_len];
-                        const v: Vector = chunk.*;
-                        const matches_r = @as(BitVector, @bitCast(v == @as(Vector, @splat('\r'))));
-                        const matches_n = @as(BitVector, @bitCast(v == @as(Vector, @splat('\n'))));
-                        const matches_or: SizeVector = matches_r | matches_n;
+                        const matches = if (use_vectors) matches: {
+                            const Vector = @Vector(vector_len, u8);
+                            // const BoolVector = @Vector(vector_len, bool);
+                            const BitVector = @Vector(vector_len, u1);
+                            const SizeVector = @Vector(vector_len, u8);
 
-                        const matches = @reduce(.Add, matches_or);
+                            const v: Vector = chunk.*;
+                            const matches_r: BitVector = @bitCast(v == @as(Vector, @splat('\r')));
+                            const matches_n: BitVector = @bitCast(v == @as(Vector, @splat('\n')));
+                            const matches_or: SizeVector = matches_r | matches_n;
+
+                            break :matches @reduce(.Add, matches_or);
+                        } else matches: {
+                            var matches: u8 = 0;
+                            for (chunk) |byte| switch (byte) {
+                                '\r', '\n' => matches += 1,
+                                else => {},
+                            };
+                            break :matches matches;
+                        };
                         switch (matches) {
                             0 => {},
                             1 => switch (chunk[vector_len - 1]) {
@@ -529,14 +540,14 @@ pub const HeadersParser = struct {
                         try conn.fill();
 
                         const nread = @min(conn.peek().len, data_avail);
-                        conn.drop(@as(u16, @intCast(nread)));
+                        conn.drop(@intCast(nread));
                         r.next_chunk_length -= nread;
 
                         if (r.next_chunk_length == 0) r.done = true;
 
-                        return 0;
-                    } else {
-                        const out_avail = buffer.len;
+                        return out_index;
+                    } else if (out_index < buffer.len) {
+                        const out_avail = buffer.len - out_index;
 
                         const can_read = @as(usize, @intCast(@min(data_avail, out_avail)));
                         const nread = try conn.read(buffer[0..can_read]);
@@ -545,19 +556,22 @@ pub const HeadersParser = struct {
                         if (r.next_chunk_length == 0) r.done = true;
 
                         return nread;
+                    } else {
+                        return out_index;
                     }
                 },
                 .chunk_data_suffix, .chunk_data_suffix_r, .chunk_head_size, .chunk_head_ext, .chunk_head_r => {
                     try conn.fill();
 
                     const i = r.findChunkedLen(conn.peek());
-                    conn.drop(@as(u16, @intCast(i)));
+                    conn.drop(@intCast(i));
 
                     switch (r.state) {
                         .invalid => return error.HttpChunkInvalid,
                         .chunk_data => if (r.next_chunk_length == 0) {
                             if (std.mem.eql(u8, conn.peek(), "\r\n")) {
                                 r.state = .finished;
+                                r.done = true;
                             } else {
                                 // The trailer section is formatted identically to the header section.
                                 r.state = .seen_rn;
@@ -579,7 +593,7 @@ pub const HeadersParser = struct {
                         try conn.fill();
 
                         const nread = @min(conn.peek().len, data_avail);
-                        conn.drop(@as(u16, @intCast(nread)));
+                        conn.drop(@intCast(nread));
                         r.next_chunk_length -= nread;
                     } else if (out_avail > 0) {
                         const can_read: usize = @intCast(@min(data_avail, out_avail));
@@ -614,8 +628,8 @@ inline fn int32(array: *const [4]u8) u32 {
 
 inline fn intShift(comptime T: type, x: anytype) T {
     switch (@import("builtin").cpu.arch.endian()) {
-        .Little => return @as(T, @truncate(x >> (@bitSizeOf(@TypeOf(x)) - @bitSizeOf(T)))),
-        .Big => return @as(T, @truncate(x)),
+        .little => return @as(T, @truncate(x >> (@bitSizeOf(@TypeOf(x)) - @bitSizeOf(T)))),
+        .big => return @as(T, @truncate(x)),
     }
 }
 
@@ -751,10 +765,9 @@ test "HeadersParser.read length" {
     var r = HeadersParser.initDynamic(256);
     defer r.header_bytes.deinit(std.testing.allocator);
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nHello";
-    var fbs = std.io.fixedBufferStream(data);
 
-    var conn = MockBufferedConnection{
-        .conn = fbs,
+    var conn: MockBufferedConnection = .{
+        .conn = std.io.fixedBufferStream(data),
     };
 
     while (true) { // read headers
@@ -782,10 +795,9 @@ test "HeadersParser.read chunked" {
     var r = HeadersParser.initDynamic(256);
     defer r.header_bytes.deinit(std.testing.allocator);
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n2\r\nHe\r\n2\r\nll\r\n1\r\no\r\n0\r\n\r\n";
-    var fbs = std.io.fixedBufferStream(data);
 
-    var conn = MockBufferedConnection{
-        .conn = fbs,
+    var conn: MockBufferedConnection = .{
+        .conn = std.io.fixedBufferStream(data),
     };
 
     while (true) { // read headers
@@ -812,10 +824,9 @@ test "HeadersParser.read chunked trailer" {
     var r = HeadersParser.initDynamic(256);
     defer r.header_bytes.deinit(std.testing.allocator);
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n2\r\nHe\r\n2\r\nll\r\n1\r\no\r\n0\r\nContent-Type: text/plain\r\n\r\n";
-    var fbs = std.io.fixedBufferStream(data);
 
-    var conn = MockBufferedConnection{
-        .conn = fbs,
+    var conn: MockBufferedConnection = .{
+        .conn = std.io.fixedBufferStream(data),
     };
 
     while (true) { // read headers

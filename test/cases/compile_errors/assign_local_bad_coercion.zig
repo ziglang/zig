@@ -9,7 +9,7 @@ export fn constEntry() u32 {
 
 export fn varEntry() u32 {
     var x: u32 = g();
-    return x;
+    return (&x).*;
 }
 
 // error

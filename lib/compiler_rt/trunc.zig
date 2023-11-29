@@ -8,6 +8,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 const common = @import("common.zig");
 
@@ -42,11 +43,11 @@ pub fn truncf(x: f32) callconv(.C) f32 {
         e = 1;
     }
 
-    m = @as(u32, math.maxInt(u32)) >> @as(u5, @intCast(e));
+    m = @as(u32, math.maxInt(u32)) >> @intCast(e);
     if (u & m == 0) {
         return x;
     } else {
-        math.doNotOptimizeAway(x + 0x1p120);
+        mem.doNotOptimizeAway(x + 0x1p120);
         return @bitCast(u & ~m);
     }
 }
@@ -63,22 +64,22 @@ pub fn trunc(x: f64) callconv(.C) f64 {
         e = 1;
     }
 
-    m = @as(u64, math.maxInt(u64)) >> @as(u6, @intCast(e));
+    m = @as(u64, math.maxInt(u64)) >> @intCast(e);
     if (u & m == 0) {
         return x;
     } else {
-        math.doNotOptimizeAway(x + 0x1p120);
+        mem.doNotOptimizeAway(x + 0x1p120);
         return @bitCast(u & ~m);
     }
 }
 
 pub fn __truncx(x: f80) callconv(.C) f80 {
     // TODO: more efficient implementation
-    return @as(f80, @floatCast(truncq(x)));
+    return @floatCast(truncq(x));
 }
 
 pub fn truncq(x: f128) callconv(.C) f128 {
-    const u = @as(u128, @bitCast(x));
+    const u: u128 = @bitCast(x);
     var e = @as(i32, @intCast(((u >> 112) & 0x7FFF))) - 0x3FFF + 16;
     var m: u128 = undefined;
 
@@ -89,12 +90,12 @@ pub fn truncq(x: f128) callconv(.C) f128 {
         e = 1;
     }
 
-    m = @as(u128, math.maxInt(u128)) >> @as(u7, @intCast(e));
+    m = @as(u128, math.maxInt(u128)) >> @intCast(e);
     if (u & m == 0) {
         return x;
     } else {
-        math.doNotOptimizeAway(x + 0x1p120);
-        return @as(f128, @bitCast(u & ~m));
+        mem.doNotOptimizeAway(x + 0x1p120);
+        return @bitCast(u & ~m);
     }
 }
 

@@ -231,7 +231,8 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
         };
 
         /// Return an iterator that walks the queue without consuming
-        /// it. Invalidated if the heap is modified.
+        /// it. The iteration order may differ from the priority order.
+        /// Invalidated if the heap is modified.
         pub fn iterator(self: *Self) Iterator {
             return Iterator{
                 .queue = self,
@@ -469,7 +470,7 @@ test "std.PriorityQueue: remove at index" {
             break idx;
         idx += 1;
     } else unreachable;
-    var sorted_items = [_]u32{ 1, 3, 4, 5, 8, 9 };
+    const sorted_items = [_]u32{ 1, 3, 4, 5, 8, 9 };
     try expectEqual(queue.removeIndex(two_idx), 2);
 
     var i: usize = 0;

@@ -28,6 +28,7 @@ pub const Target = struct {
             netbsd,
             openbsd,
             solaris,
+            uefi,
             windows,
             zos,
             haiku,
@@ -52,11 +53,12 @@ pub const Target = struct {
             wasi,
             emscripten,
             shadermodel,
-            uefi,
+            liteos,
             opencl,
             glsl450,
             vulkan,
             plan9,
+            illumos,
             other,
 
             pub inline fn isDarwin(tag: Tag) bool {
@@ -71,6 +73,10 @@ pub const Target = struct {
                     .kfreebsd, .freebsd, .openbsd, .netbsd, .dragonfly => true,
                     else => false,
                 };
+            }
+
+            pub inline fn isSolarish(tag: Tag) bool {
+                return tag == .solaris or tag == .illumos;
             }
 
             pub fn dynamicLibSuffix(tag: Tag) [:0]const u8 {
@@ -259,31 +265,33 @@ pub const Target = struct {
                     .emscripten,
                     .driverkit,
                     .shadermodel,
+                    .liteos,
                     .uefi,
                     .opencl, // TODO: OpenCL versions
                     .glsl450, // TODO: GLSL versions
                     .vulkan,
                     .plan9,
+                    .illumos,
                     .other,
                     => return .{ .none = {} },
 
                     .freebsd => return .{
                         .semver = Version.Range{
                             .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                            .max = .{ .major = 13, .minor = 1, .patch = 0 },
+                            .max = .{ .major = 14, .minor = 0, .patch = 0 },
                         },
                     },
                     .macos => return switch (arch) {
                         .aarch64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
+                                .max = .{ .major = 14, .minor = 1, .patch = 0 },
                             },
                         },
                         .x86_64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
+                                .max = .{ .major = 14, .minor = 1, .patch = 0 },
                             },
                         },
                         else => unreachable,
@@ -291,19 +299,19 @@ pub const Target = struct {
                     .ios => return .{
                         .semver = .{
                             .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                            .max = .{ .major = 13, .minor = 4, .patch = 0 },
+                            .max = .{ .major = 17, .minor = 1, .patch = 0 },
                         },
                     },
                     .watchos => return .{
                         .semver = .{
                             .min = .{ .major = 6, .minor = 0, .patch = 0 },
-                            .max = .{ .major = 6, .minor = 2, .patch = 0 },
+                            .max = .{ .major = 10, .minor = 1, .patch = 0 },
                         },
                     },
                     .tvos => return .{
                         .semver = .{
                             .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                            .max = .{ .major = 13, .minor = 4, .patch = 0 },
+                            .max = .{ .major = 17, .minor = 1, .patch = 0 },
                         },
                     },
                     .netbsd => return .{
@@ -315,7 +323,7 @@ pub const Target = struct {
                     .openbsd => return .{
                         .semver = .{
                             .min = .{ .major = 6, .minor = 8, .patch = 0 },
-                            .max = .{ .major = 7, .minor = 2, .patch = 0 },
+                            .max = .{ .major = 7, .minor = 4, .patch = 0 },
                         },
                     },
                     .dragonfly => return .{
@@ -334,10 +342,10 @@ pub const Target = struct {
                     .linux => return .{
                         .linux = .{
                             .range = .{
-                                .min = .{ .major = 3, .minor = 16, .patch = 0 },
-                                .max = .{ .major = 5, .minor = 10, .patch = 81 },
+                                .min = .{ .major = 4, .minor = 19, .patch = 0 },
+                                .max = .{ .major = 6, .minor = 5, .patch = 7 },
                             },
-                            .glibc = .{ .major = 2, .minor = 19, .patch = 0 },
+                            .glibc = .{ .major = 2, .minor = 28, .patch = 0 },
                         },
                     },
 
@@ -395,7 +403,7 @@ pub const Target = struct {
         /// On Darwin, we always link libSystem which contains libc.
         /// Similarly on FreeBSD and NetBSD we always link system libc
         /// since this is the stable syscall interface.
-        pub inline fn requiresLibC(os: Os) bool {
+        pub fn requiresLibC(os: Os) bool {
             return switch (os.tag) {
                 .freebsd,
                 .netbsd,
@@ -407,6 +415,7 @@ pub const Target = struct {
                 .openbsd,
                 .haiku,
                 .solaris,
+                .illumos,
                 => true,
 
                 .linux,
@@ -437,6 +446,7 @@ pub const Target = struct {
                 .emscripten,
                 .driverkit,
                 .shadermodel,
+                .liteos,
                 .uefi,
                 .opencl,
                 .glsl450,
@@ -523,7 +533,6 @@ pub const Target = struct {
                 .cloudabi,
                 .dragonfly,
                 .lv2,
-                .solaris,
                 .zos,
                 .minix,
                 .rtems,
@@ -565,6 +574,9 @@ pub const Target = struct {
                 .watchos,
                 .driverkit,
                 .shadermodel,
+                .liteos, // TODO: audit this
+                .solaris,
+                .illumos,
                 => return .none,
             }
         }
@@ -721,7 +733,14 @@ pub const Target = struct {
 
                 /// Adds the specified feature set but not its dependencies.
                 pub fn addFeatureSet(set: *Set, other_set: Set) void {
-                    set.ints = @as(@Vector(usize_count, usize), set.ints) | @as(@Vector(usize_count, usize), other_set.ints);
+                    switch (builtin.zig_backend) {
+                        .stage2_x86_64 => {
+                            for (&set.ints, other_set.ints) |*set_int, other_set_int| set_int.* |= other_set_int;
+                        },
+                        else => {
+                            set.ints = @as(@Vector(usize_count, usize), set.ints) | @as(@Vector(usize_count, usize), other_set.ints);
+                        },
+                    }
                 }
 
                 /// Removes the specified feature but not its dependents.
@@ -733,7 +752,14 @@ pub const Target = struct {
 
                 /// Removes the specified feature but not its dependents.
                 pub fn removeFeatureSet(set: *Set, other_set: Set) void {
-                    set.ints = @as(@Vector(usize_count, usize), set.ints) & ~@as(@Vector(usize_count, usize), other_set.ints);
+                    switch (builtin.zig_backend) {
+                        .stage2_x86_64 => {
+                            for (&set.ints, other_set.ints) |*set_int, other_set_int| set_int.* &= ~other_set_int;
+                        },
+                        else => {
+                            set.ints = @as(@Vector(usize_count, usize), set.ints) & ~@as(@Vector(usize_count, usize), other_set.ints);
+                        },
+                    }
                 }
 
                 pub fn populateDependencies(set: *Set, all_features_list: []const Cpu.Feature) void {
@@ -762,10 +788,20 @@ pub const Target = struct {
                 }
 
                 pub fn isSuperSetOf(set: Set, other_set: Set) bool {
-                    const V = @Vector(usize_count, usize);
-                    const set_v: V = set.ints;
-                    const other_v: V = other_set.ints;
-                    return @reduce(.And, (set_v & other_v) == other_v);
+                    switch (builtin.zig_backend) {
+                        .stage2_x86_64 => {
+                            var result = true;
+                            for (&set.ints, other_set.ints) |*set_int, other_set_int|
+                                result = result and (set_int.* & other_set_int) == other_set_int;
+                            return result;
+                        },
+                        else => {
+                            const V = @Vector(usize_count, usize);
+                            const set_v: V = set.ints;
+                            const other_v: V = other_set.ints;
+                            return @reduce(.And, (set_v & other_v) == other_v);
+                        },
+                    }
                 }
             };
 
@@ -787,7 +823,6 @@ pub const Target = struct {
 
                     /// Returns true if any specified feature is enabled.
                     pub fn featureSetHasAny(set: Set, features: anytype) bool {
-                        comptime std.debug.assert(std.meta.trait.isIndexable(@TypeOf(features)));
                         inline for (features) |feature| {
                             if (set.isEnabled(@intFromEnum(@as(F, feature)))) return true;
                         }
@@ -796,7 +831,6 @@ pub const Target = struct {
 
                     /// Returns true if every specified feature is enabled.
                     pub fn featureSetHasAll(set: Set, features: anytype) bool {
-                        comptime std.debug.assert(std.meta.trait.isIndexable(@TypeOf(features)));
                         inline for (features) |feature| {
                             if (!set.isEnabled(@intFromEnum(@as(F, feature)))) return false;
                         }
@@ -975,7 +1009,7 @@ pub const Target = struct {
                 return error.UnknownCpuModel;
             }
 
-            pub inline fn toElfMachine(arch: Arch) std.elf.EM {
+            pub fn toElfMachine(arch: Arch) std.elf.EM {
                 return switch (arch) {
                     .avr => .AVR,
                     .msp430 => .MSP430,
@@ -1040,7 +1074,7 @@ pub const Target = struct {
                 };
             }
 
-            pub inline fn toCoffMachine(arch: Arch) std.coff.MachineType {
+            pub fn toCoffMachine(arch: Arch) std.coff.MachineType {
                 return switch (arch) {
                     .avr => .Unknown,
                     .msp430 => .Unknown,
@@ -1105,7 +1139,7 @@ pub const Target = struct {
                 };
             }
 
-            pub inline fn endian(arch: Arch) std.builtin.Endian {
+            pub fn endian(arch: Arch) std.builtin.Endian {
                 return switch (arch) {
                     .avr,
                     .arm,
@@ -1155,7 +1189,7 @@ pub const Target = struct {
                     .loongarch32,
                     .loongarch64,
                     .arc,
-                    => .Little,
+                    => .little,
 
                     .armeb,
                     .aarch64_be,
@@ -1171,12 +1205,12 @@ pub const Target = struct {
                     .tce,
                     .lanai,
                     .s390x,
-                    => .Big,
+                    => .big,
                 };
             }
 
             /// Returns whether this architecture supports the address space
-            pub inline fn supportsAddressSpace(arch: Arch, address_space: std.builtin.AddressSpace) bool {
+            pub fn supportsAddressSpace(arch: Arch, address_space: std.builtin.AddressSpace) bool {
                 const is_nvptx = arch == .nvptx or arch == .nvptx64;
                 const is_spirv = arch == .spirv32 or arch == .spirv64;
                 const is_gpu = is_nvptx or is_spirv or arch == .amdgcn;
@@ -1469,7 +1503,6 @@ pub const Target = struct {
     pub const FloatAbi = enum {
         hard,
         soft,
-        soft_fp,
     };
 
     pub inline fn getFloatAbi(self: Target) FloatAbi {
@@ -1572,7 +1605,7 @@ pub const Target = struct {
             .netbsd => return copy(&result, "/libexec/ld.elf_so"),
             .openbsd => return copy(&result, "/usr/libexec/ld.so"),
             .dragonfly => return copy(&result, "/libexec/ld-elf.so.2"),
-            .solaris => return copy(&result, "/lib/64/ld.so.1"),
+            .solaris, .illumos => return copy(&result, "/lib/64/ld.so.1"),
             .linux => switch (self.cpu.arch) {
                 .x86,
                 .sparc,
@@ -1714,6 +1747,7 @@ pub const Target = struct {
             .hurd,
             .driverkit,
             .shadermodel,
+            .liteos,
             => return result,
         }
     }
@@ -1742,7 +1776,7 @@ pub const Target = struct {
         };
     }
 
-    pub inline fn maxIntAlignment(target: Target) u16 {
+    pub fn maxIntAlignment(target: Target) u16 {
         return switch (target.cpu.arch) {
             .avr => 1,
             .msp430 => 2,
@@ -1832,7 +1866,7 @@ pub const Target = struct {
         };
     }
 
-    pub inline fn ptrBitWidth(target: Target) u16 {
+    pub fn ptrBitWidth(target: Target) u16 {
         switch (target.abi) {
             .gnux32, .muslx32, .gnuabin32, .gnuilp32 => return 32,
             .gnuabi64 => return 64,
@@ -1909,7 +1943,7 @@ pub const Target = struct {
         }
     }
 
-    pub inline fn stackAlignment(target: Target) u16 {
+    pub fn stackAlignment(target: Target) u16 {
         return switch (target.cpu.arch) {
             .m68k => 2,
             .amdgcn => 4,
@@ -1954,7 +1988,7 @@ pub const Target = struct {
     /// Default signedness of `char` for the native C compiler for this target
     /// Note that char signedness is implementation-defined and many compilers provide
     /// an option to override the default signedness e.g. GCC's -funsigned-char / -fsigned-char
-    pub inline fn charSignedness(target: Target) std.builtin.Signedness {
+    pub fn charSignedness(target: Target) std.builtin.Signedness {
         switch (target.cpu.arch) {
             .aarch64,
             .aarch64_32,
@@ -1993,7 +2027,7 @@ pub const Target = struct {
         longdouble,
     };
 
-    pub inline fn c_type_byte_size(t: Target, c_type: CType) u16 {
+    pub fn c_type_byte_size(t: Target, c_type: CType) u16 {
         return switch (c_type) {
             .char,
             .short,
@@ -2019,7 +2053,7 @@ pub const Target = struct {
         };
     }
 
-    pub inline fn c_type_bit_size(target: Target, c_type: CType) u16 {
+    pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
         switch (target.os.tag) {
             .freestanding, .other => switch (target.cpu.arch) {
                 .msp430 => switch (c_type) {
@@ -2111,6 +2145,7 @@ pub const Target = struct {
             .emscripten,
             .plan9,
             .solaris,
+            .illumos,
             .haiku,
             .ananas,
             .fuchsia,
@@ -2329,11 +2364,12 @@ pub const Target = struct {
             .vulkan,
             .driverkit,
             .shadermodel,
+            .liteos,
             => @panic("TODO specify the C integer and float type sizes for this OS"),
         }
     }
 
-    pub inline fn c_type_alignment(target: Target, c_type: CType) u16 {
+    pub fn c_type_alignment(target: Target, c_type: CType) u16 {
         // Overrides for unusual alignments
         switch (target.cpu.arch) {
             .avr => return 1,
@@ -2440,7 +2476,7 @@ pub const Target = struct {
         );
     }
 
-    pub inline fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
+    pub fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
         // Overrides for unusual alignments
         switch (target.cpu.arch) {
             .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {

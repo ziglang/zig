@@ -163,7 +163,7 @@ pub const Scalar = struct {
         var s: [64]u8 = undefined;
         while (true) {
             crypto.random.bytes(&s);
-            const n = Scalar.fromBytes64(s, .Little);
+            const n = Scalar.fromBytes64(s, .little);
             if (!n.isZero()) {
                 return n;
             }
@@ -179,7 +179,7 @@ const ScalarDouble = struct {
         debug.assert(bits > 0 and bits <= 512 and bits >= Fe.saturated_bits and bits <= Fe.saturated_bits * 2);
 
         var s = s_;
-        if (endian == .Big) {
+        if (endian == .big) {
             for (s_, 0..) |x, i| s[s.len - 1 - i] = x;
         }
         var t = ScalarDouble{ .x1 = undefined, .x2 = Fe.zero };
@@ -187,13 +187,13 @@ const ScalarDouble = struct {
             var b = [_]u8{0} ** encoded_length;
             const len = @min(s.len, 32);
             b[0..len].* = s[0..len].*;
-            t.x1 = Fe.fromBytes(b, .Little) catch unreachable;
+            t.x1 = Fe.fromBytes(b, .little) catch unreachable;
         }
         if (s_.len >= 32) {
             var b = [_]u8{0} ** encoded_length;
             const len = @min(s.len - 32, 32);
             b[0..len].* = s[32..][0..len].*;
-            t.x2 = Fe.fromBytes(b, .Little) catch unreachable;
+            t.x2 = Fe.fromBytes(b, .little) catch unreachable;
         }
         return t;
     }

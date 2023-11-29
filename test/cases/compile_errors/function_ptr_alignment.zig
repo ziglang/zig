@@ -1,24 +1,24 @@
 comptime {
     var a: *align(2) @TypeOf(foo) = undefined;
-    _ = a;
+    _ = &a;
 }
 fn foo() void {}
 
 comptime {
     var a: *align(1) fn () void = undefined;
-    _ = a;
+    _ = &a;
 }
 comptime {
     var a: *align(2) fn () align(2) void = undefined;
-    _ = a;
+    _ = &a;
 }
 comptime {
     var a: *align(2) fn () void = undefined;
-    _ = a;
+    _ = &a;
 }
 comptime {
     var a: *align(1) fn () align(2) void = undefined;
-    _ = a;
+    _ = &a;
 }
 
 // error

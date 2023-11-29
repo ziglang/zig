@@ -21,10 +21,9 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_move_constructible
-    : public integral_constant<bool, __is_constructible(_Tp, __add_rvalue_reference_t<_Tp>)>
-    {};
+    : public integral_constant<bool, __is_constructible(_Tp, __add_rvalue_reference_t<_Tp>)> {};
 
-#if _LIBCPP_STD_VER > 14
+#if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 inline constexpr bool is_move_constructible_v = is_move_constructible<_Tp>::value;
 #endif

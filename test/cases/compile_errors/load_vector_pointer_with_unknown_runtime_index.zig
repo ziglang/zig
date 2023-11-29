@@ -3,7 +3,7 @@ export fn entry() void {
 
     var i: u32 = 0;
     var x = loadv(&v[i]);
-    _ = x;
+    _ = .{ &i, &x };
 }
 
 fn loadv(ptr: anytype) i31 {

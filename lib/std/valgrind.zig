@@ -171,7 +171,7 @@ pub fn createMempool(pool: [*]u8, rzB: usize, is_zeroed: bool, flags: usize) voi
 
 /// Destroy a memory pool.
 pub fn destroyMempool(pool: [*]u8) void {
-    doClientRequestStmt(.DestroyMempool, pool, 0, 0, 0, 0);
+    doClientRequestStmt(.DestroyMempool, @intFromPtr(pool), 0, 0, 0, 0);
 }
 
 /// Associate a piece of memory with a memory pool.
@@ -250,7 +250,7 @@ pub fn disableErrorReporting() void {
     doClientRequestStmt(.ChangeErrDisablement, 1, 0, 0, 0, 0);
 }
 
-/// Re-enable error reporting, (see disableErrorReporting())
+/// Re-enable error reporting. (see disableErrorReporting())
 pub fn enableErrorReporting() void {
     doClientRequestStmt(.ChangeErrDisablement, math.maxInt(usize), 0, 0, 0, 0);
 }

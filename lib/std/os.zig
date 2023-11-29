@@ -33,10 +33,12 @@ pub const haiku = std.c;
 pub const netbsd = std.c;
 pub const openbsd = std.c;
 pub const solaris = std.c;
+pub const illumos = std.c;
 pub const linux = @import("os/linux.zig");
 pub const plan9 = @import("os/plan9.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
+pub const emscripten = @import("os/emscripten.zig");
 pub const windows = @import("os/windows.zig");
 
 comptime {
@@ -147,6 +149,7 @@ pub const cpu_set_t = system.cpu_set_t;
 pub const dev_t = system.dev_t;
 pub const dl_phdr_info = system.dl_phdr_info;
 pub const empty_sigset = system.empty_sigset;
+pub const filled_sigset = system.filled_sigset;
 pub const fd_t = system.fd_t;
 pub const fdflags_t = system.fdflags_t;
 pub const fdstat_t = system.fdstat_t;
@@ -399,7 +402,7 @@ pub fn fchown(fd: fd_t, owner: ?uid_t, group: ?gid_t) FChownError!void {
         switch (system.getErrno(res)) {
             .SUCCESS => return,
             .INTR => continue,
-            .BADF => unreachable, // Can be reached if the fd refers to a non-iterable directory.
+            .BADF => unreachable, // Can be reached if the fd refers to a directory opened without `OpenDirOptions{ .iterate = true }`
 
             .FAULT => unreachable,
             .INVAL => unreachable,
@@ -507,6 +510,13 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
             }
         }
         return;
+    }
+    if (builtin.os.tag == .emscripten) {
+        const err = std.c.getErrno(std.c.getentropy(buffer.ptr, buffer.len));
+        switch (err) {
+            .SUCCESS => return,
+            else => return unexpectedErrno(err),
+        }
     }
     switch (builtin.os.tag) {
         .netbsd, .openbsd, .macos, .ios, .tvos, .watchos => {
@@ -629,14 +639,14 @@ pub fn raise(sig: u8) RaiseError!void {
     @compileError("std.os.raise unimplemented for this target");
 }
 
-pub const KillError = error{PermissionDenied} || UnexpectedError;
+pub const KillError = error{ ProcessNotFound, PermissionDenied } || UnexpectedError;
 
 pub fn kill(pid: pid_t, sig: u8) KillError!void {
     switch (errno(system.kill(pid, sig))) {
         .SUCCESS => return,
         .INVAL => unreachable, // invalid signal
         .PERM => return error.PermissionDenied,
-        .SRCH => unreachable, // always a race condition
+        .SRCH => return error.ProcessNotFound,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -676,6 +686,7 @@ pub const ReadError = error{
     ConnectionResetByPeer,
     ConnectionTimedOut,
     NotOpenForReading,
+    SocketNotConnected,
 
     // Windows only
     NetNameDeleted,
@@ -722,6 +733,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NOTCAPABLE => return error.AccessDenied,
@@ -750,6 +762,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             else => |err| return unexpectedErrno(err),
@@ -790,6 +803,9 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
@@ -809,7 +825,9 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -854,7 +872,9 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -887,7 +907,9 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -999,6 +1021,9 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -1025,6 +1050,9 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -1813,7 +1841,7 @@ pub fn execveZ(
                 .BADARCH => return error.InvalidExe,
                 else => return unexpectedErrno(err),
             },
-            .linux, .solaris => switch (err) {
+            .linux => switch (err) {
                 .LIBBAD => return error.InvalidExe,
                 else => return unexpectedErrno(err),
             },
@@ -1893,6 +1921,9 @@ pub fn execvpeZ(
 /// Get an environment variable.
 /// See also `getenvZ`.
 pub fn getenv(key: []const u8) ?[:0]const u8 {
+    if (builtin.os.tag == .windows) {
+        @compileError("std.os.getenv is unavailable for Windows because environment strings are in WTF-16 format. See std.process.getEnvVarOwned for a cross-platform API or std.os.getenvW for a Windows-specific API.");
+    }
     if (builtin.link_libc) {
         var ptr = std.c.environ;
         while (ptr[0]) |line| : (ptr += 1) {
@@ -1906,8 +1937,8 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
         }
         return null;
     }
-    if (builtin.os.tag == .windows) {
-        @compileError("std.os.getenv is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
+    if (builtin.os.tag == .wasi) {
+        @compileError("std.os.getenv is unavailable for WASI. See std.process.getEnvMap or std.process.getEnvVarOwned for a cross-platform API.");
     }
     // The simplified start logic doesn't populate environ.
     if (std.start.simplified_logic) return null;
@@ -2342,7 +2373,10 @@ pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
 
 /// Windows-only. Same as `unlink` except the parameter is null-terminated, WTF16 encoded.
 pub fn unlinkW(file_path_w: []const u16) UnlinkError!void {
-    return windows.DeleteFile(file_path_w, .{ .dir = std.fs.cwd().fd });
+    windows.DeleteFile(file_path_w, .{ .dir = std.fs.cwd().fd }) catch |err| switch (err) {
+        error.DirNotEmpty => unreachable, // we're not passing .remove_dir = true
+        else => |e| return e,
+    };
 }
 
 pub const UnlinkatError = UnlinkError || error{
@@ -2631,7 +2665,13 @@ pub fn renameatW(
 
     var need_fallback = true;
     var rc: windows.NTSTATUS = undefined;
-    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
+    // FILE_RENAME_INFORMATION_EX and FILE_RENAME_POSIX_SEMANTICS require >= win10_rs1,
+    // but FILE_RENAME_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5. We check >= rs5 here
+    // so that we only use POSIX_SEMANTICS when we know IGNORE_READONLY_ATTRIBUTE will also be
+    // supported in order to avoid either (1) using a redundant call that we can know in advance will return
+    // STATUS_NOT_SUPPORTED or (2) only setting IGNORE_READONLY_ATTRIBUTE when >= rs5
+    // and therefore having different behavior when the Windows version is >= rs1 but < rs5.
+    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs5)) {
         const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) + (MAX_PATH_BYTES - 1);
         var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION_EX)) = undefined;
         const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) - 1 + new_path_w.len * 2;
@@ -3007,6 +3047,7 @@ pub const FchdirError = error{
 } || UnexpectedError;
 
 pub fn fchdir(dirfd: fd_t) FchdirError!void {
+    if (dirfd == AT.FDCWD) return;
     while (true) {
         switch (errno(system.fchdir(dirfd))) {
             .SUCCESS => return,
@@ -3973,7 +4014,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .WSAEINVAL => unreachable,
             .WSAEISCONN => unreachable,
             .WSAENOTSOCK => unreachable,
-            .WSAEWOULDBLOCK => unreachable,
+            .WSAEWOULDBLOCK => return error.WouldBlock,
             .WSAEACCES => unreachable,
             .WSAENOBUFS => return error.SystemResources,
             .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
@@ -4322,6 +4363,73 @@ pub fn inotify_rm_watch(inotify_fd: i32, wd: i32) void {
     }
 }
 
+pub const FanotifyInitError = error{
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    SystemResources,
+    OperationNotSupported,
+    PermissionDenied,
+} || UnexpectedError;
+
+pub fn fanotify_init(flags: u32, event_f_flags: u32) FanotifyInitError!i32 {
+    const rc = system.fanotify_init(flags, event_f_flags);
+    switch (errno(rc)) {
+        .SUCCESS => return @as(i32, @intCast(rc)),
+        .INVAL => unreachable,
+        .MFILE => return error.ProcessFdQuotaExceeded,
+        .NFILE => return error.SystemFdQuotaExceeded,
+        .NOMEM => return error.SystemResources,
+        .NOSYS => return error.OperationNotSupported,
+        .PERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const FanotifyMarkError = error{
+    MarkAlreadyExists,
+    IsDir,
+    NotAssociatedWithFileSystem,
+    FileNotFound,
+    SystemResources,
+    UserMarkQuotaExceeded,
+    NotImplemented,
+    NotDir,
+    OperationNotSupported,
+    PermissionDenied,
+    NotSameFileSystem,
+    NameTooLong,
+} || UnexpectedError;
+
+pub fn fanotify_mark(fanotify_fd: i32, flags: u32, mask: u64, dirfd: i32, pathname: ?[]const u8) FanotifyMarkError!void {
+    if (pathname) |path| {
+        const path_c = try toPosixPath(path);
+        return fanotify_markZ(fanotify_fd, flags, mask, dirfd, &path_c);
+    }
+
+    return fanotify_markZ(fanotify_fd, flags, mask, dirfd, null);
+}
+
+pub fn fanotify_markZ(fanotify_fd: i32, flags: u32, mask: u64, dirfd: i32, pathname: ?[*:0]const u8) FanotifyMarkError!void {
+    const rc = system.fanotify_mark(fanotify_fd, flags, mask, dirfd, pathname);
+    switch (errno(rc)) {
+        .SUCCESS => return,
+        .BADF => unreachable,
+        .EXIST => return error.MarkAlreadyExists,
+        .INVAL => unreachable,
+        .ISDIR => return error.IsDir,
+        .NODEV => return error.NotAssociatedWithFileSystem,
+        .NOENT => return error.FileNotFound,
+        .NOMEM => return error.SystemResources,
+        .NOSPC => return error.UserMarkQuotaExceeded,
+        .NOSYS => return error.NotImplemented,
+        .NOTDIR => return error.NotDir,
+        .OPNOTSUPP => return error.OperationNotSupported,
+        .PERM => return error.PermissionDenied,
+        .XDEV => return error.NotSameFileSystem,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 pub const MProtectError = error{
     /// The memory cannot be given the specified access.  This can happen, for example, if you
     /// mmap(2)  a  file  to  which  you have read-only access, then ask mprotect() to mark it
@@ -4552,7 +4660,7 @@ pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessErr
         const path_w = try windows.sliceToPrefixedFileW(dirfd, path);
         return faccessatW(dirfd, path_w.span().ptr, mode, flags);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        var resolved = RelativePathWasi{ .dir_fd = dirfd, .relative_path = path };
+        const resolved = RelativePathWasi{ .dir_fd = dirfd, .relative_path = path };
 
         const file = blk: {
             break :blk fstatat(dirfd, path, flags);
@@ -4685,7 +4793,7 @@ pub fn pipe2(flags: u32) PipeError![2]fd_t {
         }
     }
 
-    var fds: [2]fd_t = try pipe();
+    const fds: [2]fd_t = try pipe();
     errdefer {
         close(fds[0]);
         close(fds[1]);
@@ -5209,6 +5317,7 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
         .macos, .ios, .watchos, .tvos,
         .linux,
         .solaris,
+        .illumos,
         .freebsd,
         => true,
         // zig fmt: on
@@ -5263,7 +5372,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             };
             return target;
         },
-        .solaris => {
+        .solaris, .illumos => {
             var procfs_buf: ["/proc/self/path/-2147483648\x00".len]u8 = undefined;
             const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/path/{d}", .{fd}) catch unreachable;
 
@@ -5402,7 +5511,7 @@ pub fn dl_iterate_phdr(
             }
         }.callbackC, @as(?*anyopaque, @ptrFromInt(@intFromPtr(&context))))) {
             0 => return,
-            else => |err| return @as(Error, @errSetCast(@errorFromInt(@as(u16, @intCast(err))))), // TODO don't hardcode u16
+            else => |err| return @as(Error, @errorCast(@errorFromInt(@as(u16, @intCast(err))))), // TODO don't hardcode u16
         }
     }
 
@@ -6370,7 +6479,7 @@ pub const CopyFileRangeError = error{
     CorruptedData,
 } || PReadError || PWriteError || UnexpectedError;
 
-var has_copy_file_range_syscall = std.atomic.Atomic(bool).init(true);
+var has_copy_file_range_syscall = std.atomic.Value(bool).init(true);
 
 /// Transfer data between file descriptors at specified offsets.
 /// Returns the number of bytes written, which can less than requested.
@@ -6533,6 +6642,7 @@ pub const RecvFromError = error{
     SystemResources,
 
     ConnectionResetByPeer,
+    ConnectionTimedOut,
 
     /// The socket has not been bound.
     SocketNotBound,
@@ -6572,6 +6682,7 @@ pub fn recvfrom(
                     .WSAENETDOWN => return error.NetworkSubsystemFailed,
                     .WSAENOTCONN => return error.SocketNotConnected,
                     .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSAETIMEDOUT => return error.ConnectionTimedOut,
                     // TODO: handle more errors
                     else => |err| return windows.unexpectedWSAError(err),
                 }
@@ -6591,6 +6702,7 @@ pub fn recvfrom(
                 .NOMEM => return error.SystemResources,
                 .CONNREFUSED => return error.ConnectionRefused,
                 .CONNRESET => return error.ConnectionResetByPeer,
+                .TIMEDOUT => return error.ConnectionTimedOut,
                 else => |err| return unexpectedErrno(err),
             }
         }
@@ -6618,7 +6730,7 @@ pub fn dn_expand(
         // loop invariants: p<end, dest<dend
         if ((p[0] & 0xc0) != 0) {
             if (p + 1 == end) return error.InvalidDnsPacket;
-            var j = ((p[0] & @as(usize, 0x3f)) << 8) | p[1];
+            const j = ((p[0] & @as(usize, 0x3f)) << 8) | p[1];
             if (len == std.math.maxInt(usize)) len = @intFromPtr(p) + 2 - @intFromPtr(comp_dn.ptr);
             if (j >= msg.len) return error.InvalidDnsPacket;
             p = msg.ptr + j;
@@ -7194,7 +7306,7 @@ pub const TimerFdGetError = error{InvalidHandle} || UnexpectedError;
 pub const TimerFdSetError = TimerFdGetError || error{Canceled};
 
 pub fn timerfd_create(clokid: i32, flags: u32) TimerFdCreateError!fd_t {
-    var rc = linux.timerfd_create(clokid, flags);
+    const rc = linux.timerfd_create(clokid, flags);
     return switch (errno(rc)) {
         .SUCCESS => @as(fd_t, @intCast(rc)),
         .INVAL => unreachable,
@@ -7208,7 +7320,7 @@ pub fn timerfd_create(clokid: i32, flags: u32) TimerFdCreateError!fd_t {
 }
 
 pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const linux.itimerspec, old_value: ?*linux.itimerspec) TimerFdSetError!void {
-    var rc = linux.timerfd_settime(fd, flags, new_value, old_value);
+    const rc = linux.timerfd_settime(fd, flags, new_value, old_value);
     return switch (errno(rc)) {
         .SUCCESS => {},
         .BADF => error.InvalidHandle,
@@ -7221,7 +7333,7 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const linux.itimerspec, 
 
 pub fn timerfd_gettime(fd: i32) TimerFdGetError!linux.itimerspec {
     var curr_value: linux.itimerspec = undefined;
-    var rc = linux.timerfd_gettime(fd, &curr_value);
+    const rc = linux.timerfd_gettime(fd, &curr_value);
     return switch (errno(rc)) {
         .SUCCESS => return curr_value,
         .BADF => error.InvalidHandle,

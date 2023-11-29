@@ -76,13 +76,16 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
     }
     // LC_SOURCE_VERSION
     sizeofcmds += @sizeOf(macho.source_version_command);
-    // LC_BUILD_VERSION or LC_VERSION_MIN_
-    if (Platform.fromTarget(options.target).isBuildVersionCompatible()) {
-        // LC_BUILD_VERSION
-        sizeofcmds += @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
-    } else {
-        // LC_VERSION_MIN_
-        sizeofcmds += @sizeOf(macho.version_min_command);
+    // LC_BUILD_VERSION or LC_VERSION_MIN_ or nothing
+    {
+        const platform = Platform.fromTarget(options.target);
+        if (platform.isBuildVersionCompatible()) {
+            // LC_BUILD_VERSION
+            sizeofcmds += @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
+        } else if (platform.isVersionMinCompatible()) {
+            // LC_VERSION_MIN_
+            sizeofcmds += @sizeOf(macho.version_min_command);
+        }
     }
     // LC_UUID
     sizeofcmds += @sizeOf(macho.uuid_command);
@@ -109,7 +112,7 @@ pub fn calcMinHeaderPad(gpa: Allocator, options: *const link.Options, ctx: CalcL
     log.debug("minimum requested headerpad size 0x{x}", .{padding + @sizeOf(macho.mach_header_64)});
 
     if (options.headerpad_max_install_names) {
-        var min_headerpad_size: u32 = try calcLCsSize(gpa, options, ctx, true);
+        const min_headerpad_size: u32 = try calcLCsSize(gpa, options, ctx, true);
         log.debug("headerpad_max_install_names minimum headerpad size 0x{x}", .{
             min_headerpad_size + @sizeOf(macho.mach_header_64),
         });
@@ -384,6 +387,15 @@ pub const Platform = struct {
         return false;
     }
 
+    pub fn isVersionMinCompatible(plat: Platform) bool {
+        inline for (supported_platforms) |sup_plat| {
+            if (sup_plat[0] == plat.os_tag and sup_plat[1] == plat.abi) {
+                return sup_plat[3] <= plat.toAppleVersion();
+            }
+        }
+        return false;
+    }
+
     pub fn fmtTarget(plat: Platform, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(formatTarget) {
         return .{ .data = .{ .platform = plat, .cpu_arch = cpu_arch } };
     }
@@ -455,8 +467,27 @@ pub inline fn appleVersionToSemanticVersion(version: u32) std.SemanticVersion {
     };
 }
 
-pub fn inferSdkVersionFromSdkPath(path: []const u8) ?std.SemanticVersion {
-    const stem = std.fs.path.stem(path);
+pub fn inferSdkVersion(gpa: Allocator, comp: *const Compilation) ?std.SemanticVersion {
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    const options = comp.bin_file.options;
+
+    const sdk_layout = options.darwin_sdk_layout orelse return null;
+    const sdk_dir = switch (sdk_layout) {
+        .sdk => options.sysroot.?,
+        .vendored => std.fs.path.join(arena, &.{ comp.zig_lib_directory.path.?, "libc", "darwin" }) catch return null,
+    };
+    if (readSdkVersionFromSettings(arena, sdk_dir)) |ver| {
+        return parseSdkVersion(ver);
+    } else |_| {
+        // Read from settings should always succeed when vendored.
+        if (sdk_layout == .vendored) @panic("zig installation bug: unable to parse SDK version");
+    }
+
+    // infer from pathname
+    const stem = std.fs.path.stem(sdk_dir);
     const start = for (stem, 0..) |c, i| {
         if (std.ascii.isDigit(c)) break i;
     } else stem.len;
@@ -465,6 +496,17 @@ pub fn inferSdkVersionFromSdkPath(path: []const u8) ?std.SemanticVersion {
         break i;
     } else stem.len;
     return parseSdkVersion(stem[start..end]);
+}
+
+// Official Apple SDKs ship with a `SDKSettings.json` located at the top of SDK fs layout.
+// Use property `MinimalDisplayName` to determine version.
+// The file/property is also available with vendored libc.
+fn readSdkVersionFromSettings(arena: Allocator, dir: []const u8) ![]const u8 {
+    const sdk_path = try std.fs.path.join(arena, &.{ dir, "SDKSettings.json" });
+    const contents = try std.fs.cwd().readFileAlloc(arena, sdk_path, std.math.maxInt(u16));
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena, contents, .{});
+    if (parsed.value.object.get("MinimalDisplayName")) |ver| return ver.string;
+    return error.SdkVersionFailure;
 }
 
 // Versions reported by Apple aren't exactly semantically valid as they usually omit
@@ -520,3 +562,4 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Dylib = @import("Dylib.zig");
 const MachO = @import("../MachO.zig");
+const Compilation = @import("../../Compilation.zig");

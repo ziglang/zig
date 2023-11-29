@@ -4,6 +4,8 @@ const testing = std.testing;
 const mem = std.mem;
 const math = std.math;
 
+pub const Mode = enum { stable, unstable };
+
 pub const block = @import("sort/block.zig").block;
 pub const pdq = @import("sort/pdq.zig").pdq;
 pub const pdqContext = @import("sort/pdq.zig").pdqContext;
@@ -385,7 +387,7 @@ test "sort fuzz testing" {
         var i: usize = 0;
         while (i < test_case_count) : (i += 1) {
             const array_size = random.intRangeLessThan(usize, 0, 1000);
-            var array = try testing.allocator.alloc(i32, array_size);
+            const array = try testing.allocator.alloc(i32, array_size);
             defer testing.allocator.free(array);
             // populate with random data
             for (array) |*item| {

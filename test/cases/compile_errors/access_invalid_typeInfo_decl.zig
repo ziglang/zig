@@ -6,6 +6,6 @@ test "Crash" {
 // error
 // backend=stage2
 // target=native
-// is_test=1
+// is_test=true
 //
 // :1:11: error: use of undeclared identifier 'B'

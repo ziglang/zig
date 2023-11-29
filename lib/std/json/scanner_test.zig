@@ -7,6 +7,7 @@ const TokenType = @import("./scanner.zig").TokenType;
 const Diagnostics = @import("./scanner.zig").Diagnostics;
 const Error = @import("./scanner.zig").Error;
 const validate = @import("./scanner.zig").validate;
+const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
 
 const example_document_str =
     \\{
@@ -397,7 +398,7 @@ test "skipValue" {
 }
 
 fn testEnsureStackCapacity(do_ensure: bool) !void {
-    var fail_alloc = std.testing.FailingAllocator.init(std.testing.allocator, 1);
+    var fail_alloc = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
     const failing_allocator = fail_alloc.allocator();
 
     const nestings = 999; // intentionally not a power of 2.
@@ -464,4 +465,16 @@ test "enableDiagnostics" {
         const s = "[" ** reps ++ "}";
         try testDiagnostics(error.SyntaxError, 1, s.len, s.len - 1, s);
     }
+}
+
+test isNumberFormattedLikeAnInteger {
+    try std.testing.expect(isNumberFormattedLikeAnInteger("0"));
+    try std.testing.expect(isNumberFormattedLikeAnInteger("1"));
+    try std.testing.expect(isNumberFormattedLikeAnInteger("123"));
+    try std.testing.expect(!isNumberFormattedLikeAnInteger("-0"));
+    try std.testing.expect(!isNumberFormattedLikeAnInteger("0.0"));
+    try std.testing.expect(!isNumberFormattedLikeAnInteger("1.0"));
+    try std.testing.expect(!isNumberFormattedLikeAnInteger("1.23"));
+    try std.testing.expect(!isNumberFormattedLikeAnInteger("1e10"));
+    try std.testing.expect(!isNumberFormattedLikeAnInteger("1E10"));
 }

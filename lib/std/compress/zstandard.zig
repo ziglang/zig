@@ -70,13 +70,11 @@ pub fn DecompressStream(
                     self.state = .NewFrame;
                 },
                 .zstandard => |header| {
-                    const frame_context = context: {
-                        break :context try decompress.FrameContext.init(
-                            header,
-                            options.window_size_max,
-                            options.verify_checksum,
-                        );
-                    };
+                    const frame_context = try decompress.FrameContext.init(
+                        header,
+                        options.window_size_max,
+                        options.verify_checksum,
+                    );
 
                     const literal_fse_buffer = try self.allocator.alloc(
                         types.compressed_block.Table.Fse,
@@ -201,7 +199,7 @@ pub fn DecompressStream(
                 if (block_header.last_block) {
                     self.state = .LastBlock;
                     if (self.frame_context.has_checksum) {
-                        const checksum = source_reader.readIntLittle(u32) catch
+                        const checksum = source_reader.readInt(u32, .little) catch
                             return error.MalformedFrame;
                         if (comptime options.verify_checksum) {
                             if (self.frame_context.hasher_opt) |*hasher| {
@@ -219,8 +217,8 @@ pub fn DecompressStream(
             }
 
             const size = @min(self.buffer.len(), buffer.len);
-            for (0..size) |i| {
-                buffer[i] = self.buffer.read().?;
+            if (size > 0) {
+                self.buffer.readFirstAssumeLength(buffer, size);
             }
             if (self.state == .LastBlock and self.buffer.len() == 0) {
                 self.state = .NewFrame;
@@ -270,7 +268,7 @@ test "zstandard decompression" {
     const compressed3 = @embedFile("testdata/rfc8478.txt.zst.3");
     const compressed19 = @embedFile("testdata/rfc8478.txt.zst.19");
 
-    var buffer = try std.testing.allocator.alloc(u8, uncompressed.len);
+    const buffer = try std.testing.allocator.alloc(u8, uncompressed.len);
     defer std.testing.allocator.free(buffer);
 
     const res3 = try decompress.decode(buffer, compressed3, true);
@@ -283,4 +281,49 @@ test "zstandard decompression" {
 
     try testReader(compressed3, uncompressed);
     try testReader(compressed19, uncompressed);
+}
+
+fn expectEqualDecoded(expected: []const u8, input: []const u8) !void {
+    const allocator = std.testing.allocator;
+
+    {
+        const result = try decompress.decodeAlloc(allocator, input, false, 1 << 23);
+        defer allocator.free(result);
+        try std.testing.expectEqualStrings(expected, result);
+    }
+
+    {
+        var buffer = try allocator.alloc(u8, 2 * expected.len);
+        defer allocator.free(buffer);
+
+        const size = try decompress.decode(buffer, input, false);
+        try std.testing.expectEqualStrings(expected, buffer[0..size]);
+    }
+
+    {
+        var in_stream = std.io.fixedBufferStream(input);
+        var stream = decompressStream(allocator, in_stream.reader());
+        defer stream.deinit();
+
+        const result = try stream.reader().readAllAlloc(allocator, std.math.maxInt(usize));
+        defer allocator.free(result);
+
+        try std.testing.expectEqualStrings(expected, result);
+    }
+}
+
+test "zero sized block" {
+    const input_raw =
+        "\x28\xb5\x2f\xfd" ++ // zstandard frame magic number
+        "\x20\x00" ++ // frame header: only single_segment_flag set, frame_content_size zero
+        "\x01\x00\x00"; // block header with: last_block set, block_type raw, block_size zero
+
+    const input_rle =
+        "\x28\xb5\x2f\xfd" ++ // zstandard frame magic number
+        "\x20\x00" ++ // frame header: only single_segment_flag set, frame_content_size zero
+        "\x03\x00\x00" ++ // block header with: last_block set, block_type rle, block_size zero
+        "\xaa"; // block_content
+
+    try expectEqualDecoded("", input_raw);
+    try expectEqualDecoded("", input_rle);
 }

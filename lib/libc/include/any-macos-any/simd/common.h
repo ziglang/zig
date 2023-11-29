@@ -4032,7 +4032,11 @@ static inline SIMD_CFUNC char simd_reduce_min(simd_char8 x) {
 }
 
 static inline SIMD_CFUNC char simd_reduce_min(simd_char16 x) {
+#if defined __arm64__
+  return vminvq_s8(x);
+#else
   return simd_reduce_min(simd_min(x.lo, x.hi));
+#endif
 }
 
 static inline SIMD_CFUNC char simd_reduce_min(simd_char32 x) {
@@ -4061,7 +4065,11 @@ static inline SIMD_CFUNC unsigned char simd_reduce_min(simd_uchar8 x) {
 }
 
 static inline SIMD_CFUNC unsigned char simd_reduce_min(simd_uchar16 x) {
+#if defined __arm64__
+  return vminvq_u8(x);
+#else
   return simd_reduce_min(simd_min(x.lo, x.hi));
+#endif
 }
 
 static inline SIMD_CFUNC unsigned char simd_reduce_min(simd_uchar32 x) {
@@ -4086,7 +4094,11 @@ static inline SIMD_CFUNC short simd_reduce_min(simd_short4 x) {
 }
 
 static inline SIMD_CFUNC short simd_reduce_min(simd_short8 x) {
+#if defined __arm64__
+  return vminvq_s16(x);
+#else
   return simd_reduce_min(simd_min(x.lo, x.hi));
+#endif
 }
 
 static inline SIMD_CFUNC short simd_reduce_min(simd_short16 x) {
@@ -4111,7 +4123,11 @@ static inline SIMD_CFUNC unsigned short simd_reduce_min(simd_ushort4 x) {
 }
 
 static inline SIMD_CFUNC unsigned short simd_reduce_min(simd_ushort8 x) {
+#if defined __arm64__
+  return vminvq_u16(x);
+#else
   return simd_reduce_min(simd_min(x.lo, x.hi));
+#endif
 }
 
 static inline SIMD_CFUNC unsigned short simd_reduce_min(simd_ushort16 x) {
@@ -4132,7 +4148,11 @@ static inline SIMD_CFUNC int simd_reduce_min(simd_int3 x) {
 }
 
 static inline SIMD_CFUNC int simd_reduce_min(simd_int4 x) {
+#if defined __arm64__
+  return vminvq_s32(x);
+#else
   return simd_reduce_min(simd_min(x.lo, x.hi));
+#endif
 }
 
 static inline SIMD_CFUNC int simd_reduce_min(simd_int8 x) {
@@ -4153,7 +4173,11 @@ static inline SIMD_CFUNC unsigned int simd_reduce_min(simd_uint3 x) {
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_min(simd_uint4 x) {
+#if defined __arm64__
+  return vminvq_u32(x);
+#else
   return simd_reduce_min(simd_min(x.lo, x.hi));
+#endif
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_min(simd_uint8 x) {
@@ -4161,26 +4185,6 @@ static inline SIMD_CFUNC unsigned int simd_reduce_min(simd_uint8 x) {
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_min(simd_uint16 x) {
-  return simd_reduce_min(simd_min(x.lo, x.hi));
-}
-
-static inline SIMD_CFUNC float simd_reduce_min(simd_float2 x) {
-  return fmin(x.x, x.y);
-}
-
-static inline SIMD_CFUNC float simd_reduce_min(simd_float3 x) {
-  return fmin(fmin(x.x, x.z), x.y);
-}
-
-static inline SIMD_CFUNC float simd_reduce_min(simd_float4 x) {
-  return simd_reduce_min(simd_min(x.lo, x.hi));
-}
-
-static inline SIMD_CFUNC float simd_reduce_min(simd_float8 x) {
-  return simd_reduce_min(simd_min(x.lo, x.hi));
-}
-
-static inline SIMD_CFUNC float simd_reduce_min(simd_float16 x) {
   return simd_reduce_min(simd_min(x.lo, x.hi));
 }
 
@@ -4218,8 +4222,36 @@ static inline SIMD_CFUNC simd_ulong1 simd_reduce_min(simd_ulong8 x) {
   return simd_reduce_min(simd_min(x.lo, x.hi));
 }
 
-static inline SIMD_CFUNC double simd_reduce_min(simd_double2 x) {
+static inline SIMD_CFUNC float simd_reduce_min(simd_float2 x) {
   return fmin(x.x, x.y);
+}
+
+static inline SIMD_CFUNC float simd_reduce_min(simd_float3 x) {
+  return fmin(fmin(x.x, x.z), x.y);
+}
+
+static inline SIMD_CFUNC float simd_reduce_min(simd_float4 x) {
+#if defined __arm64__
+  return vminvq_f32(x);
+#else
+  return simd_reduce_min(simd_min(x.lo, x.hi));
+#endif
+}
+
+static inline SIMD_CFUNC float simd_reduce_min(simd_float8 x) {
+  return simd_reduce_min(simd_min(x.lo, x.hi));
+}
+
+static inline SIMD_CFUNC float simd_reduce_min(simd_float16 x) {
+  return simd_reduce_min(simd_min(x.lo, x.hi));
+}
+
+static inline SIMD_CFUNC double simd_reduce_min(simd_double2 x) {
+#if defined __arm64__
+  return vminvq_f64(x);
+#else
+  return fmin(x.x, x.y);
+#endif
 }
 
 static inline SIMD_CFUNC double simd_reduce_min(simd_double3 x) {
@@ -4252,7 +4284,11 @@ static inline SIMD_CFUNC char simd_reduce_max(simd_char8 x) {
 }
 
 static inline SIMD_CFUNC char simd_reduce_max(simd_char16 x) {
+#if defined __arm64__
+  return vmaxvq_s8(x);
+#else
   return simd_reduce_max(simd_max(x.lo, x.hi));
+#endif
 }
 
 static inline SIMD_CFUNC char simd_reduce_max(simd_char32 x) {
@@ -4281,7 +4317,11 @@ static inline SIMD_CFUNC unsigned char simd_reduce_max(simd_uchar8 x) {
 }
 
 static inline SIMD_CFUNC unsigned char simd_reduce_max(simd_uchar16 x) {
+#if defined __arm64__
+  return vmaxvq_u8(x);
+#else
   return simd_reduce_max(simd_max(x.lo, x.hi));
+#endif
 }
 
 static inline SIMD_CFUNC unsigned char simd_reduce_max(simd_uchar32 x) {
@@ -4306,7 +4346,11 @@ static inline SIMD_CFUNC short simd_reduce_max(simd_short4 x) {
 }
 
 static inline SIMD_CFUNC short simd_reduce_max(simd_short8 x) {
+#if defined __arm64__
+  return vmaxvq_s16(x);
+#else
   return simd_reduce_max(simd_max(x.lo, x.hi));
+#endif
 }
 
 static inline SIMD_CFUNC short simd_reduce_max(simd_short16 x) {
@@ -4331,7 +4375,11 @@ static inline SIMD_CFUNC unsigned short simd_reduce_max(simd_ushort4 x) {
 }
 
 static inline SIMD_CFUNC unsigned short simd_reduce_max(simd_ushort8 x) {
+#if defined __arm64__
+  return vmaxvq_u16(x);
+#else
   return simd_reduce_max(simd_max(x.lo, x.hi));
+#endif
 }
 
 static inline SIMD_CFUNC unsigned short simd_reduce_max(simd_ushort16 x) {
@@ -4352,7 +4400,11 @@ static inline SIMD_CFUNC int simd_reduce_max(simd_int3 x) {
 }
 
 static inline SIMD_CFUNC int simd_reduce_max(simd_int4 x) {
+#if defined __arm64__
+  return vmaxvq_s32(x);
+#else
   return simd_reduce_max(simd_max(x.lo, x.hi));
+#endif
 }
 
 static inline SIMD_CFUNC int simd_reduce_max(simd_int8 x) {
@@ -4373,7 +4425,11 @@ static inline SIMD_CFUNC unsigned int simd_reduce_max(simd_uint3 x) {
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_max(simd_uint4 x) {
+#if defined __arm64__
+  return vmaxvq_u32(x);
+#else
   return simd_reduce_max(simd_max(x.lo, x.hi));
+#endif
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_max(simd_uint8 x) {
@@ -4381,26 +4437,6 @@ static inline SIMD_CFUNC unsigned int simd_reduce_max(simd_uint8 x) {
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_max(simd_uint16 x) {
-  return simd_reduce_max(simd_max(x.lo, x.hi));
-}
-
-static inline SIMD_CFUNC float simd_reduce_max(simd_float2 x) {
-  return fmax(x.x, x.y);
-}
-
-static inline SIMD_CFUNC float simd_reduce_max(simd_float3 x) {
-  return fmax(fmax(x.x, x.z), x.y);
-}
-
-static inline SIMD_CFUNC float simd_reduce_max(simd_float4 x) {
-  return simd_reduce_max(simd_max(x.lo, x.hi));
-}
-
-static inline SIMD_CFUNC float simd_reduce_max(simd_float8 x) {
-  return simd_reduce_max(simd_max(x.lo, x.hi));
-}
-
-static inline SIMD_CFUNC float simd_reduce_max(simd_float16 x) {
   return simd_reduce_max(simd_max(x.lo, x.hi));
 }
 
@@ -4438,8 +4474,36 @@ static inline SIMD_CFUNC simd_ulong1 simd_reduce_max(simd_ulong8 x) {
   return simd_reduce_max(simd_max(x.lo, x.hi));
 }
 
-static inline SIMD_CFUNC double simd_reduce_max(simd_double2 x) {
+static inline SIMD_CFUNC float simd_reduce_max(simd_float2 x) {
   return fmax(x.x, x.y);
+}
+
+static inline SIMD_CFUNC float simd_reduce_max(simd_float3 x) {
+  return fmax(fmax(x.x, x.z), x.y);
+}
+
+static inline SIMD_CFUNC float simd_reduce_max(simd_float4 x) {
+#if defined __arm64__
+  return vmaxvq_f32(x);
+#else
+  return simd_reduce_max(simd_max(x.lo, x.hi));
+#endif
+}
+
+static inline SIMD_CFUNC float simd_reduce_max(simd_float8 x) {
+  return simd_reduce_max(simd_max(x.lo, x.hi));
+}
+
+static inline SIMD_CFUNC float simd_reduce_max(simd_float16 x) {
+  return simd_reduce_max(simd_max(x.lo, x.hi));
+}
+
+static inline SIMD_CFUNC double simd_reduce_max(simd_double2 x) {
+#if defined __arm64__
+  return vmaxvq_f64(x);
+#else
+  return fmax(x.x, x.y);
+#endif
 }
 
 static inline SIMD_CFUNC double simd_reduce_max(simd_double3 x) {

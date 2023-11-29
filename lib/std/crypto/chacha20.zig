@@ -87,10 +87,10 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
             switch (degree) {
                 1 => {
                     const constant_le = Lane{
-                        mem.readIntLittle(u32, c[0..4]),
-                        mem.readIntLittle(u32, c[4..8]),
-                        mem.readIntLittle(u32, c[8..12]),
-                        mem.readIntLittle(u32, c[12..16]),
+                        mem.readInt(u32, c[0..4], .little),
+                        mem.readInt(u32, c[4..8], .little),
+                        mem.readInt(u32, c[8..12], .little),
+                        mem.readInt(u32, c[12..16], .little),
                     };
                     return BlockVec{
                         constant_le,
@@ -101,14 +101,14 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
                 },
                 2 => {
                     const constant_le = Lane{
-                        mem.readIntLittle(u32, c[0..4]),
-                        mem.readIntLittle(u32, c[4..8]),
-                        mem.readIntLittle(u32, c[8..12]),
-                        mem.readIntLittle(u32, c[12..16]),
-                        mem.readIntLittle(u32, c[0..4]),
-                        mem.readIntLittle(u32, c[4..8]),
-                        mem.readIntLittle(u32, c[8..12]),
-                        mem.readIntLittle(u32, c[12..16]),
+                        mem.readInt(u32, c[0..4], .little),
+                        mem.readInt(u32, c[4..8], .little),
+                        mem.readInt(u32, c[8..12], .little),
+                        mem.readInt(u32, c[12..16], .little),
+                        mem.readInt(u32, c[0..4], .little),
+                        mem.readInt(u32, c[4..8], .little),
+                        mem.readInt(u32, c[8..12], .little),
+                        mem.readInt(u32, c[12..16], .little),
                     };
                     const n1 = @addWithOverflow(d[0], 1);
                     return BlockVec{
@@ -123,22 +123,22 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
                     const n2 = @addWithOverflow(d[0], 2);
                     const n3 = @addWithOverflow(d[0], 3);
                     const constant_le = Lane{
-                        mem.readIntLittle(u32, c[0..4]),
-                        mem.readIntLittle(u32, c[4..8]),
-                        mem.readIntLittle(u32, c[8..12]),
-                        mem.readIntLittle(u32, c[12..16]),
-                        mem.readIntLittle(u32, c[0..4]),
-                        mem.readIntLittle(u32, c[4..8]),
-                        mem.readIntLittle(u32, c[8..12]),
-                        mem.readIntLittle(u32, c[12..16]),
-                        mem.readIntLittle(u32, c[0..4]),
-                        mem.readIntLittle(u32, c[4..8]),
-                        mem.readIntLittle(u32, c[8..12]),
-                        mem.readIntLittle(u32, c[12..16]),
-                        mem.readIntLittle(u32, c[0..4]),
-                        mem.readIntLittle(u32, c[4..8]),
-                        mem.readIntLittle(u32, c[8..12]),
-                        mem.readIntLittle(u32, c[12..16]),
+                        mem.readInt(u32, c[0..4], .little),
+                        mem.readInt(u32, c[4..8], .little),
+                        mem.readInt(u32, c[8..12], .little),
+                        mem.readInt(u32, c[12..16], .little),
+                        mem.readInt(u32, c[0..4], .little),
+                        mem.readInt(u32, c[4..8], .little),
+                        mem.readInt(u32, c[8..12], .little),
+                        mem.readInt(u32, c[12..16], .little),
+                        mem.readInt(u32, c[0..4], .little),
+                        mem.readInt(u32, c[4..8], .little),
+                        mem.readInt(u32, c[8..12], .little),
+                        mem.readInt(u32, c[12..16], .little),
+                        mem.readInt(u32, c[0..4], .little),
+                        mem.readInt(u32, c[4..8], .little),
+                        mem.readInt(u32, c[8..12], .little),
+                        mem.readInt(u32, c[12..16], .little),
                     };
                     return BlockVec{
                         constant_le,
@@ -218,10 +218,10 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
         inline fn hashToBytes(comptime dm: usize, out: *[64 * dm]u8, x: BlockVec) void {
             for (0..dm) |d| {
                 for (0..4) |i| {
-                    mem.writeIntLittle(u32, out[64 * d + 16 * i + 0 ..][0..4], x[i][0 + 4 * d]);
-                    mem.writeIntLittle(u32, out[64 * d + 16 * i + 4 ..][0..4], x[i][1 + 4 * d]);
-                    mem.writeIntLittle(u32, out[64 * d + 16 * i + 8 ..][0..4], x[i][2 + 4 * d]);
-                    mem.writeIntLittle(u32, out[64 * d + 16 * i + 12 ..][0..4], x[i][3 + 4 * d]);
+                    mem.writeInt(u32, out[64 * d + 16 * i + 0 ..][0..4], x[i][0 + 4 * d], .little);
+                    mem.writeInt(u32, out[64 * d + 16 * i + 4 ..][0..4], x[i][1 + 4 * d], .little);
+                    mem.writeInt(u32, out[64 * d + 16 * i + 8 ..][0..4], x[i][2 + 4 * d], .little);
+                    mem.writeInt(u32, out[64 * d + 16 * i + 12 ..][0..4], x[i][3 + 4 * d], .little);
                 }
             }
         }
@@ -309,20 +309,20 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
         fn hchacha20(input: [16]u8, key: [32]u8) [32]u8 {
             var c: [4]u32 = undefined;
             for (c, 0..) |_, i| {
-                c[i] = mem.readIntLittle(u32, input[4 * i ..][0..4]);
+                c[i] = mem.readInt(u32, input[4 * i ..][0..4], .little);
             }
             const ctx = initContext(keyToWords(key), c);
             var x: BlockVec = undefined;
             chacha20Core(x[0..], ctx);
             var out: [32]u8 = undefined;
-            mem.writeIntLittle(u32, out[0..4], x[0][0]);
-            mem.writeIntLittle(u32, out[4..8], x[0][1]);
-            mem.writeIntLittle(u32, out[8..12], x[0][2]);
-            mem.writeIntLittle(u32, out[12..16], x[0][3]);
-            mem.writeIntLittle(u32, out[16..20], x[3][0]);
-            mem.writeIntLittle(u32, out[20..24], x[3][1]);
-            mem.writeIntLittle(u32, out[24..28], x[3][2]);
-            mem.writeIntLittle(u32, out[28..32], x[3][3]);
+            mem.writeInt(u32, out[0..4], x[0][0], .little);
+            mem.writeInt(u32, out[4..8], x[0][1], .little);
+            mem.writeInt(u32, out[8..12], x[0][2], .little);
+            mem.writeInt(u32, out[12..16], x[0][3], .little);
+            mem.writeInt(u32, out[16..20], x[3][0], .little);
+            mem.writeInt(u32, out[20..24], x[3][1], .little);
+            mem.writeInt(u32, out[24..28], x[3][2], .little);
+            mem.writeInt(u32, out[28..32], x[3][3], .little);
             return out;
         }
     };
@@ -336,10 +336,10 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
         fn initContext(key: [8]u32, d: [4]u32) BlockVec {
             const c = "expand 32-byte k";
             const constant_le = comptime [4]u32{
-                mem.readIntLittle(u32, c[0..4]),
-                mem.readIntLittle(u32, c[4..8]),
-                mem.readIntLittle(u32, c[8..12]),
-                mem.readIntLittle(u32, c[12..16]),
+                mem.readInt(u32, c[0..4], .little),
+                mem.readInt(u32, c[4..8], .little),
+                mem.readInt(u32, c[8..12], .little),
+                mem.readInt(u32, c[12..16], .little),
             };
             return BlockVec{
                 constant_le[0], constant_le[1], constant_le[2], constant_le[3],
@@ -396,10 +396,10 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
 
         inline fn hashToBytes(out: *[64]u8, x: BlockVec) void {
             for (0..4) |i| {
-                mem.writeIntLittle(u32, out[16 * i + 0 ..][0..4], x[i * 4 + 0]);
-                mem.writeIntLittle(u32, out[16 * i + 4 ..][0..4], x[i * 4 + 1]);
-                mem.writeIntLittle(u32, out[16 * i + 8 ..][0..4], x[i * 4 + 2]);
-                mem.writeIntLittle(u32, out[16 * i + 12 ..][0..4], x[i * 4 + 3]);
+                mem.writeInt(u32, out[16 * i + 0 ..][0..4], x[i * 4 + 0], .little);
+                mem.writeInt(u32, out[16 * i + 4 ..][0..4], x[i * 4 + 1], .little);
+                mem.writeInt(u32, out[16 * i + 8 ..][0..4], x[i * 4 + 2], .little);
+                mem.writeInt(u32, out[16 * i + 12 ..][0..4], x[i * 4 + 3], .little);
             }
         }
 
@@ -477,20 +477,20 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
         fn hchacha20(input: [16]u8, key: [32]u8) [32]u8 {
             var c: [4]u32 = undefined;
             for (c, 0..) |_, i| {
-                c[i] = mem.readIntLittle(u32, input[4 * i ..][0..4]);
+                c[i] = mem.readInt(u32, input[4 * i ..][0..4], .little);
             }
             const ctx = initContext(keyToWords(key), c);
             var x: BlockVec = undefined;
             chacha20Core(x[0..], ctx);
             var out: [32]u8 = undefined;
-            mem.writeIntLittle(u32, out[0..4], x[0]);
-            mem.writeIntLittle(u32, out[4..8], x[1]);
-            mem.writeIntLittle(u32, out[8..12], x[2]);
-            mem.writeIntLittle(u32, out[12..16], x[3]);
-            mem.writeIntLittle(u32, out[16..20], x[12]);
-            mem.writeIntLittle(u32, out[20..24], x[13]);
-            mem.writeIntLittle(u32, out[24..28], x[14]);
-            mem.writeIntLittle(u32, out[28..32], x[15]);
+            mem.writeInt(u32, out[0..4], x[0], .little);
+            mem.writeInt(u32, out[4..8], x[1], .little);
+            mem.writeInt(u32, out[8..12], x[2], .little);
+            mem.writeInt(u32, out[12..16], x[3], .little);
+            mem.writeInt(u32, out[16..20], x[12], .little);
+            mem.writeInt(u32, out[20..24], x[13], .little);
+            mem.writeInt(u32, out[24..28], x[14], .little);
+            mem.writeInt(u32, out[28..32], x[15], .little);
             return out;
         }
     };
@@ -499,6 +499,8 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
 fn ChaChaImpl(comptime rounds_nb: usize) type {
     switch (builtin.cpu.arch) {
         .x86_64 => {
+            if (builtin.zig_backend == .stage2_x86_64) return ChaChaNonVecImpl(rounds_nb);
+
             const has_avx2 = std.Target.x86.featureSetHas(builtin.cpu.features, .avx2);
             const has_avx512f = std.Target.x86.featureSetHas(builtin.cpu.features, .avx512f);
             if (has_avx512f) return ChaChaVecImpl(rounds_nb, 4);
@@ -517,7 +519,7 @@ fn ChaChaImpl(comptime rounds_nb: usize) type {
 fn keyToWords(key: [32]u8) [8]u32 {
     var k: [8]u32 = undefined;
     for (0..8) |i| {
-        k[i] = mem.readIntLittle(u32, key[i * 4 ..][0..4]);
+        k[i] = mem.readInt(u32, key[i * 4 ..][0..4], .little);
     }
     return k;
 }
@@ -550,9 +552,9 @@ fn ChaChaIETF(comptime rounds_nb: usize) type {
 
             var d: [4]u32 = undefined;
             d[0] = counter;
-            d[1] = mem.readIntLittle(u32, nonce[0..4]);
-            d[2] = mem.readIntLittle(u32, nonce[4..8]);
-            d[3] = mem.readIntLittle(u32, nonce[8..12]);
+            d[1] = mem.readInt(u32, nonce[0..4], .little);
+            d[2] = mem.readInt(u32, nonce[4..8], .little);
+            d[3] = mem.readInt(u32, nonce[8..12], .little);
             ChaChaImpl(rounds_nb).chacha20Xor(out, in, keyToWords(key), d, false);
         }
 
@@ -562,9 +564,9 @@ fn ChaChaIETF(comptime rounds_nb: usize) type {
 
             var d: [4]u32 = undefined;
             d[0] = counter;
-            d[1] = mem.readIntLittle(u32, nonce[0..4]);
-            d[2] = mem.readIntLittle(u32, nonce[4..8]);
-            d[3] = mem.readIntLittle(u32, nonce[8..12]);
+            d[1] = mem.readInt(u32, nonce[0..4], .little);
+            d[2] = mem.readInt(u32, nonce[4..8], .little);
+            d[3] = mem.readInt(u32, nonce[8..12], .little);
             ChaChaImpl(rounds_nb).chacha20Stream(out, keyToWords(key), d, false);
         }
     };
@@ -590,8 +592,8 @@ fn ChaChaWith64BitNonce(comptime rounds_nb: usize) type {
             var c: [4]u32 = undefined;
             c[0] = @as(u32, @truncate(counter));
             c[1] = @as(u32, @truncate(counter >> 32));
-            c[2] = mem.readIntLittle(u32, nonce[0..4]);
-            c[3] = mem.readIntLittle(u32, nonce[4..8]);
+            c[2] = mem.readInt(u32, nonce[0..4], .little);
+            c[3] = mem.readInt(u32, nonce[4..8], .little);
             ChaChaImpl(rounds_nb).chacha20Xor(out, in, k, c, true);
         }
 
@@ -603,8 +605,8 @@ fn ChaChaWith64BitNonce(comptime rounds_nb: usize) type {
             var c: [4]u32 = undefined;
             c[0] = @as(u32, @truncate(counter));
             c[1] = @as(u32, @truncate(counter >> 32));
-            c[2] = mem.readIntLittle(u32, nonce[0..4]);
-            c[3] = mem.readIntLittle(u32, nonce[4..8]);
+            c[2] = mem.readInt(u32, nonce[0..4], .little);
+            c[3] = mem.readInt(u32, nonce[4..8], .little);
             ChaChaImpl(rounds_nb).chacha20Stream(out, k, c, true);
         }
     };
@@ -670,8 +672,8 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
                 mac.update(zeros[0..padding]);
             }
             var lens: [16]u8 = undefined;
-            mem.writeIntLittle(u64, lens[0..8], ad.len);
-            mem.writeIntLittle(u64, lens[8..16], m.len);
+            mem.writeInt(u64, lens[0..8], ad.len, .little);
+            mem.writeInt(u64, lens[8..16], m.len, .little);
             mac.update(lens[0..]);
             mac.final(tag);
         }
@@ -706,8 +708,8 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
                 mac.update(zeros[0..padding]);
             }
             var lens: [16]u8 = undefined;
-            mem.writeIntLittle(u64, lens[0..8], ad.len);
-            mem.writeIntLittle(u64, lens[8..16], c.len);
+            mem.writeInt(u64, lens[0..8], ad.len, .little);
+            mem.writeInt(u64, lens[8..16], c.len, .little);
             mac.update(lens[0..]);
             var computed_tag: [16]u8 = undefined;
             mac.final(computed_tag[0..]);

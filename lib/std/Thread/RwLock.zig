@@ -307,7 +307,7 @@ test "RwLock - concurrent access" {
 
         rwl: RwLock = .{},
         writes: usize = 0,
-        reads: std.atomic.Atomic(usize) = std.atomic.Atomic(usize).init(0),
+        reads: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 
         term1: usize = 0,
         term2: usize = 0,

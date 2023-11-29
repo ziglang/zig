@@ -188,7 +188,6 @@ const Writer = struct {
             .log,
             .log2,
             .log10,
-            .fabs,
             .floor,
             .ceil,
             .round,
@@ -253,6 +252,7 @@ const Writer = struct {
             .popcount,
             .byte_swap,
             .bit_reverse,
+            .abs,
             .error_set_has_value,
             .addrspace_cast,
             .c_va_arg,
@@ -940,10 +940,10 @@ const Writer = struct {
             return s.print("@{}", .{operand});
         } else if (Air.refToInterned(operand)) |ip_index| {
             const mod = w.module;
-            const ty = mod.intern_pool.indexToKey(ip_index).typeOf().toType();
+            const ty = Type.fromInterned(mod.intern_pool.indexToKey(ip_index).typeOf());
             try s.print("<{}, {}>", .{
                 ty.fmt(mod),
-                ip_index.toValue().fmtValue(ty, mod),
+                Value.fromInterned(ip_index).fmtValue(ty, mod),
             });
         } else {
             return w.writeInstIndex(s, Air.refToIndex(operand).?, dies);

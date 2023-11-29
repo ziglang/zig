@@ -35,7 +35,7 @@ pub fn main() !void {
 
     // As of 5.17.1, the largest table is 23467 bytes.
     // 32k should be enough for now.
-    var buf = try allocator.alloc(u8, 1 << 15);
+    const buf = try allocator.alloc(u8, 1 << 15);
     const linux_dir = try std.fs.openDirAbsolute(linux_path, .{});
 
     try writer.writeAll(
@@ -257,12 +257,11 @@ pub fn main() !void {
             "arch/arm64/include/uapi/asm/unistd.h",
         };
 
-        const child_result = try std.ChildProcess.exec(.{
+        const child_result = try std.ChildProcess.run(.{
             .allocator = allocator,
             .argv = &child_args,
             .cwd = linux_path,
             .cwd_dir = linux_dir,
-            .max_output_bytes = 20 * 1024,
         });
         if (child_result.stderr.len > 0) std.debug.print("{s}\n", .{child_result.stderr});
 
@@ -319,12 +318,11 @@ pub fn main() !void {
             "arch/riscv/include/uapi/asm/unistd.h",
         };
 
-        const child_result = try std.ChildProcess.exec(.{
+        const child_result = try std.ChildProcess.run(.{
             .allocator = allocator,
             .argv = &child_args,
             .cwd = linux_path,
             .cwd_dir = linux_dir,
-            .max_output_bytes = 20 * 1024,
         });
         if (child_result.stderr.len > 0) std.debug.print("{s}\n", .{child_result.stderr});
 

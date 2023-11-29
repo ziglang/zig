@@ -2,7 +2,6 @@ const std = @import("../std.zig");
 const io = std.io;
 const assert = std.debug.assert;
 const testing = std.testing;
-const trait = std.meta.trait;
 const meta = std.meta;
 const math = std.math;
 
@@ -43,8 +42,6 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime ReaderType: type)
         ///  containing them in the least significant end. The number of bits successfully
         ///  read is placed in `out_bits`, as reaching the end of the stream is not an error.
         pub fn readBits(self: *Self, comptime U: type, bits: usize, out_bits: *usize) Error!U {
-            comptime assert(trait.isUnsignedInt(U));
-
             //by extending the buffer to a minimum of u8 we can cover a number of edge cases
             // related to shifting and casting.
             const u_bit_count = @bitSizeOf(U);
@@ -63,14 +60,14 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime ReaderType: type)
                 const n = if (self.bit_count >= bits) @as(u3, @intCast(bits)) else self.bit_count;
                 const shift = u7_bit_count - n;
                 switch (endian) {
-                    .Big => {
+                    .big => {
                         out_buffer = @as(Buf, self.bit_buffer >> shift);
                         if (n >= u7_bit_count)
                             self.bit_buffer = 0
                         else
                             self.bit_buffer <<= n;
                     },
-                    .Little => {
+                    .little => {
                         const value = (self.bit_buffer << shift) >> shift;
                         out_buffer = @as(Buf, value);
                         if (n >= u7_bit_count)
@@ -93,7 +90,7 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime ReaderType: type)
                 };
 
                 switch (endian) {
-                    .Big => {
+                    .big => {
                         if (n >= u8_bit_count) {
                             out_buffer <<= @as(u3, @intCast(u8_bit_count - 1));
                             out_buffer <<= 1;
@@ -109,7 +106,7 @@ pub fn BitReader(comptime endian: std.builtin.Endian, comptime ReaderType: type)
                         self.bit_buffer = @as(u7, @truncate(next_byte << @as(u3, @intCast(n - 1))));
                         self.bit_count = shift;
                     },
-                    .Little => {
+                    .little => {
                         if (n >= u8_bit_count) {
                             out_buffer |= @as(Buf, next_byte) << @as(BufShift, @intCast(out_bits.*));
                             out_bits.* += u8_bit_count;
@@ -168,7 +165,7 @@ test "api coverage" {
     const mem_le = [_]u8{ 0b00011101, 0b10010101 };
 
     var mem_in_be = io.fixedBufferStream(&mem_be);
-    var bit_stream_be = bitReader(.Big, mem_in_be.reader());
+    var bit_stream_be = bitReader(.big, mem_in_be.reader());
 
     var out_bits: usize = undefined;
 
@@ -205,7 +202,7 @@ test "api coverage" {
     try expectError(error.EndOfStream, bit_stream_be.readBitsNoEof(u1, 1));
 
     var mem_in_le = io.fixedBufferStream(&mem_le);
-    var bit_stream_le = bitReader(.Little, mem_in_le.reader());
+    var bit_stream_le = bitReader(.little, mem_in_le.reader());
 
     try expect(1 == try bit_stream_le.readBits(u2, 1, &out_bits));
     try expect(out_bits == 1);

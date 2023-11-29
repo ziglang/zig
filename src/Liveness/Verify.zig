@@ -110,6 +110,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .addrspace_cast,
             .c_va_arg,
             .c_va_copy,
+            .abs,
             => {
                 const ty_op = data[inst].ty_op;
                 try self.verifyInstOperands(inst, .{ ty_op.operand, .none, .none });
@@ -136,7 +137,6 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .log,
             .log2,
             .log10,
-            .fabs,
             .floor,
             .ceil,
             .round,

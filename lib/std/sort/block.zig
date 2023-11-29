@@ -95,7 +95,7 @@ const Pull = struct {
 /// O(1) memory (no allocator required).
 /// Sorts in ascending order with respect to the given `lessThan` function.
 ///
-/// NOTE: the algorithm only work when the comparison is less-than or greater-than
+/// NOTE: The algorithm only works when the comparison is less-than or greater-than.
 ///       (See https://github.com/ziglang/zig/issues/8289)
 pub fn block(
     comptime T: type,
@@ -302,8 +302,8 @@ pub fn block(
             } else {
                 iterator.begin();
                 while (!iterator.finished()) {
-                    var A = iterator.nextRange();
-                    var B = iterator.nextRange();
+                    const A = iterator.nextRange();
+                    const B = iterator.nextRange();
 
                     if (lessThan(context, items[B.end - 1], items[A.start])) {
                         // the two ranges are in reverse order, so a simple rotation should fix it

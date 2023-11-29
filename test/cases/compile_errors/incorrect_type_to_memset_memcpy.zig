@@ -1,17 +1,17 @@
 pub export fn entry() void {
     var buf: [5]u8 = .{ 1, 2, 3, 4, 5 };
-    var slice: []u8 = &buf;
+    const slice: []u8 = &buf;
     const a: u32 = 1234;
     @memcpy(slice.ptr, @as([*]const u8, @ptrCast(&a)));
 }
 pub export fn entry1() void {
     var buf: [5]u8 = .{ 1, 2, 3, 4, 5 };
-    var ptr: *u8 = &buf[0];
+    const ptr: *u8 = &buf[0];
     @memcpy(ptr, 0);
 }
 pub export fn entry2() void {
     var buf: [5]u8 = .{ 1, 2, 3, 4, 5 };
-    var ptr: *u8 = &buf[0];
+    const ptr: *u8 = &buf[0];
     @memset(ptr, 0);
 }
 pub export fn non_matching_lengths() void {
@@ -29,7 +29,7 @@ pub export fn memcpy_const_dest_ptr() void {
     @memcpy(&buf1, &buf2);
 }
 pub export fn memset_array() void {
-    var buf: [5]u8 = .{ 1, 2, 3, 4, 5 };
+    const buf: [5]u8 = .{ 1, 2, 3, 4, 5 };
     @memcpy(buf, 1);
 }
 

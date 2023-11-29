@@ -1,5 +1,5 @@
 comptime {
-    var tile = Tile.Empty;
+    const tile = Tile.Empty;
     switch (tile.*) {
         Tile.Empty => {},
         Tile.Filled => {},

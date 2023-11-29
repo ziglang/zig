@@ -4,8 +4,6 @@ const assert = std.debug.assert;
 const autoHash = std.hash.autoHash;
 const math = std.math;
 const mem = std.mem;
-const meta = std.meta;
-const trait = meta.trait;
 const Allocator = mem.Allocator;
 const Wyhash = std.hash.Wyhash;
 
@@ -24,7 +22,7 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
     return struct {
         fn hash(ctx: Context, key: K) u64 {
             _ = ctx;
-            if (comptime trait.hasUniqueRepresentation(K)) {
+            if (std.meta.hasUniqueRepresentation(K)) {
                 return Wyhash.hash(0, std.mem.asBytes(&key));
             } else {
                 var hasher = Wyhash.init(0);
@@ -39,7 +37,7 @@ pub fn getAutoEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K
     return struct {
         fn eql(ctx: Context, a: K, b: K) bool {
             _ = ctx;
-            return meta.eql(a, b);
+            return std.meta.eql(a, b);
         }
     }.eql;
 }
@@ -92,7 +90,7 @@ pub fn hashString(s: []const u8) u64 {
 }
 
 pub const StringIndexContext = struct {
-    bytes: *std.ArrayListUnmanaged(u8),
+    bytes: *const std.ArrayListUnmanaged(u8),
 
     pub fn eql(self: @This(), a: u32, b: u32) bool {
         _ = self;
@@ -106,7 +104,7 @@ pub const StringIndexContext = struct {
 };
 
 pub const StringIndexAdapter = struct {
-    bytes: *std.ArrayListUnmanaged(u8),
+    bytes: *const std.ArrayListUnmanaged(u8),
 
     pub fn eql(self: @This(), a_slice: []const u8, b: u32) bool {
         const b_slice = mem.sliceTo(@as([*:0]const u8, @ptrCast(self.bytes.items.ptr)) + b, 0);
@@ -126,6 +124,7 @@ pub const default_max_load_percentage = 80;
 /// member functions:
 ///   - hash(self, PseudoKey) Hash
 ///   - eql(self, PseudoKey, Key) bool
+///
 /// If you are passing a context to a *Adapted function, PseudoKey is the type
 /// of the key parameter.  Otherwise, when creating a HashMap or HashMapUnmanaged
 /// type, PseudoKey = Key = K.
@@ -469,7 +468,7 @@ pub fn HashMap(
         }
 
         /// If key exists this function cannot fail.
-        /// If there is an existing item with `key`, then the result
+        /// If there is an existing item with `key`, then the result's
         /// `Entry` pointers point to it, and found_existing is true.
         /// Otherwise, puts a new item with undefined value, and
         /// the `Entry` pointers point to it. Caller should then initialize
@@ -479,7 +478,7 @@ pub fn HashMap(
         }
 
         /// If key exists this function cannot fail.
-        /// If there is an existing item with `key`, then the result
+        /// If there is an existing item with `key`, then the result's
         /// `Entry` pointers point to it, and found_existing is true.
         /// Otherwise, puts a new item with undefined key and value, and
         /// the `Entry` pointers point to it. Caller must then initialize
@@ -488,7 +487,7 @@ pub fn HashMap(
             return self.unmanaged.getOrPutContextAdapted(self.allocator, key, ctx, self.ctx);
         }
 
-        /// If there is an existing item with `key`, then the result
+        /// If there is an existing item with `key`, then the result's
         /// `Entry` pointers point to it, and found_existing is true.
         /// Otherwise, puts a new item with undefined value, and
         /// the `Entry` pointers point to it. Caller should then initialize
@@ -499,7 +498,7 @@ pub fn HashMap(
             return self.unmanaged.getOrPutAssumeCapacityContext(key, self.ctx);
         }
 
-        /// If there is an existing item with `key`, then the result
+        /// If there is an existing item with `key`, then the result's
         /// `Entry` pointers point to it, and found_existing is true.
         /// Otherwise, puts a new item with undefined value, and
         /// the `Entry` pointers point to it. Caller must then initialize
@@ -565,7 +564,7 @@ pub fn HashMap(
         }
 
         /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
-        /// If insertion happuns, asserts there is enough capacity without allocating.
+        /// If insertion happens, asserts there is enough capacity without allocating.
         pub fn fetchPutAssumeCapacity(self: *Self, key: K, value: V) ?KV {
             return self.unmanaged.fetchPutAssumeCapacityContext(key, value, self.ctx);
         }
@@ -684,7 +683,7 @@ pub fn HashMap(
 }
 
 /// A HashMap based on open addressing and linear probing.
-/// A lookup or modification typically occurs only 2 cache misses.
+/// A lookup or modification typically incurs only 2 cache misses.
 /// No order is guaranteed and any modification invalidates live iterators.
 /// It achieves good performance with quite high load factors (by default,
 /// grow is triggered at 80% full) and only one byte of overhead per element.
@@ -1483,8 +1482,8 @@ pub fn HashMapUnmanaged(
 
             var i: Size = 0;
             var metadata = self.metadata.?;
-            var keys_ptr = self.keys();
-            var values_ptr = self.values();
+            const keys_ptr = self.keys();
+            const values_ptr = self.values();
             while (i < self.capacity()) : (i += 1) {
                 if (metadata[i].isUsed()) {
                     other.putAssumeCapacityNoClobberContext(keys_ptr[i], values_ptr[i], new_ctx);
@@ -1520,8 +1519,8 @@ pub fn HashMapUnmanaged(
                 const old_capacity = self.capacity();
                 var i: Size = 0;
                 var metadata = self.metadata.?;
-                var keys_ptr = self.keys();
-                var values_ptr = self.values();
+                const keys_ptr = self.keys();
+                const values_ptr = self.values();
                 while (i < old_capacity) : (i += 1) {
                     if (metadata[i].isUsed()) {
                         map.putAssumeCapacityNoClobberContext(keys_ptr[i], values_ptr[i], ctx);

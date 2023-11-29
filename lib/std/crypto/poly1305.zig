@@ -22,12 +22,12 @@ pub const Poly1305 = struct {
     pub fn init(key: *const [key_length]u8) Poly1305 {
         return Poly1305{
             .r = [_]u64{
-                mem.readIntLittle(u64, key[0..8]) & 0x0ffffffc0fffffff,
-                mem.readIntLittle(u64, key[8..16]) & 0x0ffffffc0ffffffc,
+                mem.readInt(u64, key[0..8], .little) & 0x0ffffffc0fffffff,
+                mem.readInt(u64, key[8..16], .little) & 0x0ffffffc0ffffffc,
             },
             .pad = [_]u64{
-                mem.readIntLittle(u64, key[16..24]),
-                mem.readIntLittle(u64, key[24..32]),
+                mem.readInt(u64, key[16..24], .little),
+                mem.readInt(u64, key[24..32], .little),
             },
         };
     }
@@ -56,8 +56,8 @@ pub const Poly1305 = struct {
         var i: usize = 0;
 
         while (i + block_length <= m.len) : (i += block_length) {
-            const in0 = mem.readIntLittle(u64, m[i..][0..8]);
-            const in1 = mem.readIntLittle(u64, m[i + 8 ..][0..8]);
+            const in0 = mem.readInt(u64, m[i..][0..8], .little);
+            const in1 = mem.readInt(u64, m[i + 8 ..][0..8], .little);
 
             // Add the input message to H
             var v = @addWithOverflow(h0, in0);
@@ -90,8 +90,8 @@ pub const Poly1305 = struct {
             h2 = t2 & 3;
 
             // Add c*(4+1)
-            var cclo = t2 & ~@as(u64, 3);
-            var cchi = t3;
+            const cclo = t2 & ~@as(u64, 3);
+            const cchi = t3;
             v = @addWithOverflow(h0, cclo);
             h0 = v[0];
             v = add(h1, cchi, v[1]);
@@ -163,7 +163,7 @@ pub const Poly1305 = struct {
 
         var h0 = st.h[0];
         var h1 = st.h[1];
-        var h2 = st.h[2];
+        const h2 = st.h[2];
 
         // H - (2^130 - 5)
         var v = @subWithOverflow(h0, 0xfffffffffffffffb);
@@ -182,8 +182,8 @@ pub const Poly1305 = struct {
         const c = ((h0 & st.pad[0]) | ((h0 | st.pad[0]) & ~st.h[0])) >> 63;
         st.h[1] = h1 +% st.pad[1] +% c;
 
-        mem.writeIntLittle(u64, out[0..8], st.h[0]);
-        mem.writeIntLittle(u64, out[8..16], st.h[1]);
+        mem.writeInt(u64, out[0..8], st.h[0], .little);
+        mem.writeInt(u64, out[8..16], st.h[1], .little);
 
         utils.secureZero(u8, @as([*]u8, @ptrCast(st))[0..@sizeOf(Poly1305)]);
     }

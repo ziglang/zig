@@ -10,6 +10,8 @@
 
 #ifndef _LIBCPP_HAS_NO_THREADS
 
+#include <__thread/poll_with_backoff.h>
+#include <__thread/timed_backoff_policy.h>
 #include <exception>
 #include <future>
 #include <limits>

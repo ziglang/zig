@@ -87,26 +87,7 @@ fn parseSystemVersion(buf: []const u8) !std.SemanticVersion {
     const ver = try svt.expectContent();
     try svt.skipUntilTag(.end, "string");
 
-    const parseVersionComponent = struct {
-        fn parseVersionComponent(component: []const u8) !usize {
-            return std.fmt.parseUnsigned(usize, component, 10) catch |err| {
-                switch (err) {
-                    error.InvalidCharacter => return error.InvalidVersion,
-                    error.Overflow => return error.Overflow,
-                }
-            };
-        }
-    }.parseVersionComponent;
-    var version_components = mem.split(u8, ver, ".");
-    const major = version_components.first();
-    const minor = version_components.next() orelse return error.InvalidVersion;
-    const patch = version_components.next() orelse "0";
-    if (version_components.next() != null) return error.InvalidVersion;
-    return .{
-        .major = try parseVersionComponent(major),
-        .minor = try parseVersionComponent(minor),
-        .patch = try parseVersionComponent(patch),
-    };
+    return try std.zig.CrossTarget.parseVersion(ver);
 }
 
 const SystemVersionTokenizer = struct {
@@ -428,6 +409,8 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
     switch (current_arch) {
         .aarch64, .aarch64_be, .aarch64_32 => {
             const model = switch (cpu_family) {
+                .ARM_EVEREST_SAWTOOTH => &Target.aarch64.cpu.apple_a16,
+                .ARM_BLIZZARD_AVALANCHE => &Target.aarch64.cpu.apple_a15,
                 .ARM_FIRESTORM_ICESTORM => &Target.aarch64.cpu.apple_a14,
                 .ARM_LIGHTNING_THUNDER => &Target.aarch64.cpu.apple_a13,
                 .ARM_VORTEX_TEMPEST => &Target.aarch64.cpu.apple_a12,

@@ -1,5 +1,5 @@
 /* Generic asm macros used on many machines.
-   Copyright (C) 1991-2021 Free Software Foundation, Inc.
+   Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -35,7 +35,7 @@
 # endif
 #endif
 
-/* Makros to generate eh_frame unwind information.  */
+/* Macros to generate eh_frame unwind information.  */
 #ifdef __ASSEMBLER__
 # define cfi_startproc			.cfi_startproc
 # define cfi_endproc			.cfi_endproc

@@ -356,9 +356,10 @@ pub const Inst = struct {
         /// Base 10 logarithm of a floating point number.
         /// Uses the `un_op` field.
         log10,
-        /// Aboslute value of a floating point number.
-        /// Uses the `un_op` field.
-        fabs,
+        /// Aboslute value of an integer, floating point number or vector.
+        /// Result type is always unsigned if the operand is an integer.
+        /// Uses the `ty_op` field.
+        abs,
         /// Floor: rounds a floating pointer number down to the nearest integer.
         /// Uses the `un_op` field.
         floor,
@@ -1042,7 +1043,7 @@ pub const Inst = struct {
         inferred_alloc: InferredAlloc,
 
         pub const InferredAllocComptime = struct {
-            decl_index: Module.Decl.Index,
+            decl_index: InternPool.DeclIndex,
             alignment: InternPool.Alignment,
             is_const: bool,
         };
@@ -1220,7 +1221,7 @@ pub fn getMainBody(air: Air) []const Air.Inst.Index {
 
 pub fn typeOf(air: *const Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
     if (refToInterned(inst)) |ip_index| {
-        return ip.typeOf(ip_index).toType();
+        return Type.fromInterned(ip.typeOf(ip_index));
     } else {
         return air.typeOfIndex(refToIndex(inst).?, ip);
     }
@@ -1279,7 +1280,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .log,
         .log2,
         .log10,
-        .fabs,
         .floor,
         .ceil,
         .round,
@@ -1384,6 +1384,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .addrspace_cast,
         .c_va_arg,
         .c_va_copy,
+        .abs,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,
@@ -1437,7 +1438,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand, ip);
-            return ip.funcTypeReturnType(callee_ty.toIntern()).toType();
+            return Type.fromInterned(ip.funcTypeReturnType(callee_ty.toIntern()));
         },
 
         .slice_elem_val, .ptr_elem_val, .array_elem_val => {
@@ -1455,7 +1456,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .reduce, .reduce_optimized => {
             const operand_ty = air.typeOf(datas[inst].reduce.operand, ip);
-            return ip.indexToKey(operand_ty.ip_index).vector_type.child.toType();
+            return Type.fromInterned(ip.indexToKey(operand_ty.ip_index).vector_type.child);
         },
 
         .mul_add => return air.typeOf(datas[inst].pl_op.operand, ip),
@@ -1466,7 +1467,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .@"try" => {
             const err_union_ty = air.typeOf(datas[inst].pl_op.operand, ip);
-            return ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type.toType();
+            return Type.fromInterned(ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type);
         },
 
         .work_item_id,
@@ -1481,7 +1482,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
 pub fn getRefType(air: Air, ref: Air.Inst.Ref) Type {
     _ = air; // TODO: remove this parameter
-    return refToInterned(ref).?.toType();
+    return Type.fromInterned(refToInterned(ref).?);
 }
 
 /// Returns the requested data, as well as the new index which is at the start of the
@@ -1560,7 +1561,7 @@ pub fn indexToRef(inst: Inst.Index) Inst.Ref {
 /// Returns `null` if runtime-known.
 pub fn value(air: Air, inst: Inst.Ref, mod: *Module) !?Value {
     if (refToInterned(inst)) |ip_index| {
-        return ip_index.toValue();
+        return Value.fromInterned(ip_index);
     }
     const index = refToIndex(inst).?;
     return air.typeOfIndex(index, &mod.intern_pool).onePossibleValue(mod);
@@ -1697,7 +1698,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .log,
         .log2,
         .log10,
-        .fabs,
+        .abs,
         .floor,
         .ceil,
         .round,
@@ -1786,7 +1787,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         => false,
 
         .assembly => {
-            var extra = air.extraData(Air.Asm, data.ty_pl.payload);
+            const extra = air.extraData(Air.Asm, data.ty_pl.payload);
             const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
             return is_volatile or if (extra.data.outputs_len == 1)
                 @as(Air.Inst.Ref, @enumFromInt(air.extra[extra.end])) != .none

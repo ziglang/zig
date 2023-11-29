@@ -7,6 +7,7 @@ const Target = std.Target;
 
 const Alignment = @import("../../InternPool.zig").Alignment;
 const Module = @import("../../Module.zig");
+const InternPool = @import("../../InternPool.zig");
 const Type = @import("../../type.zig").Type;
 
 pub const CType = extern union {
@@ -238,7 +239,7 @@ pub const CType = extern union {
 
         pub const FwdDecl = struct {
             base: Payload,
-            data: Module.Decl.Index,
+            data: InternPool.DeclIndex,
         };
 
         pub const Fields = struct {
@@ -257,7 +258,7 @@ pub const CType = extern union {
             base: Payload,
             data: struct {
                 fields: Fields.Data,
-                owner_decl: Module.Decl.Index,
+                owner_decl: InternPool.DeclIndex,
                 id: u32,
             },
         };
@@ -283,13 +284,19 @@ pub const CType = extern union {
         @"align": Alignment,
         abi: Alignment,
 
-        pub fn init(alignment: u64, abi_alignment: u32) AlignAs {
-            const @"align" = Alignment.fromByteUnits(alignment);
-            const abi_align = Alignment.fromNonzeroByteUnits(abi_alignment);
+        pub fn init(@"align": Alignment, abi_align: Alignment) AlignAs {
+            assert(abi_align != .none);
             return .{
                 .@"align" = if (@"align" != .none) @"align" else abi_align,
                 .abi = abi_align,
             };
+        }
+
+        pub fn initByteUnits(alignment: u64, abi_alignment: u32) AlignAs {
+            return init(
+                Alignment.fromByteUnits(alignment),
+                Alignment.fromNonzeroByteUnits(abi_alignment),
+            );
         }
         pub fn abiAlign(ty: Type, mod: *Module) AlignAs {
             const abi_align = ty.abiAlignment(mod);
@@ -1360,6 +1367,7 @@ pub const CType = extern union {
 
         pub fn initType(self: *@This(), ty: Type, kind: Kind, lookup: Lookup) !void {
             const mod = lookup.getModule();
+            const ip = &mod.intern_pool;
 
             self.* = undefined;
             if (!ty.isFnOrHasRuntimeBitsIgnoreComptime(mod))
@@ -1382,12 +1390,12 @@ pub const CType = extern union {
                     .array => switch (kind) {
                         .forward, .complete, .global => {
                             const abi_size = ty.abiSize(mod);
-                            const abi_align = ty.abiAlignment(mod);
+                            const abi_align = ty.abiAlignment(mod).toByteUnits(0);
                             self.storage = .{ .seq = .{ .base = .{ .tag = .array }, .data = .{
                                 .len = @divExact(abi_size, abi_align),
                                 .elem_type = tagFromIntInfo(.{
                                     .signedness = .unsigned,
-                                    .bits = @as(u16, @intCast(abi_align * 8)),
+                                    .bits = @intCast(abi_align * 8),
                                 }).toIndex(),
                             } } };
                             self.value = .{ .cty = initPayload(&self.storage.seq) };
@@ -1474,7 +1482,7 @@ pub const CType = extern union {
                                 info.flags.vector_index == .none)
                                 try mod.intType(.unsigned, info.packed_offset.host_size * 8)
                             else
-                                info.child.toType();
+                                Type.fromInterned(info.child);
 
                             if (try lookup.typeToIndex(pointee_ty, .forward)) |child_idx| {
                                 self.storage = .{ .child = .{
@@ -1488,10 +1496,10 @@ pub const CType = extern union {
                 },
 
                 .Struct, .Union => |zig_ty_tag| if (ty.containerLayout(mod) == .Packed) {
-                    if (mod.typeToStruct(ty)) |struct_obj| {
-                        try self.initType(struct_obj.backing_int_ty, kind, lookup);
+                    if (mod.typeToPackedStruct(ty)) |packed_struct| {
+                        try self.initType(Type.fromInterned(packed_struct.backingIntType(ip).*), kind, lookup);
                     } else {
-                        const bits = @as(u16, @intCast(ty.bitSize(mod)));
+                        const bits: u16 = @intCast(ty.bitSize(mod));
                         const int_ty = try mod.intType(.unsigned, bits);
                         try self.initType(int_ty, kind, lookup);
                     }
@@ -1722,7 +1730,6 @@ pub const CType = extern union {
 
                 .Fn => {
                     const info = mod.typeToFunc(ty).?;
-                    const ip = &mod.intern_pool;
                     if (!info.is_generic) {
                         if (lookup.isMutable()) {
                             const param_kind: Kind = switch (kind) {
@@ -1730,10 +1737,10 @@ pub const CType = extern union {
                                 .complete, .parameter, .global => .parameter,
                                 .payload => unreachable,
                             };
-                            _ = try lookup.typeToIndex(info.return_type.toType(), param_kind);
+                            _ = try lookup.typeToIndex(Type.fromInterned(info.return_type), param_kind);
                             for (info.param_types.get(ip)) |param_type| {
-                                if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
-                                _ = try lookup.typeToIndex(param_type.toType(), param_kind);
+                                if (!Type.fromInterned(param_type).hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                _ = try lookup.typeToIndex(Type.fromInterned(param_type), param_kind);
                             }
                         }
                         self.init(if (info.is_var_args) .varargs_function else .function);
@@ -1947,7 +1954,8 @@ pub const CType = extern union {
 
                     const fields_pl = try arena.alloc(Payload.Fields.Field, c_fields_len);
                     var c_field_i: usize = 0;
-                    for (0..fields_len) |field_i| {
+                    for (0..fields_len) |field_i_usize| {
+                        const field_i: u32 = @intCast(field_i_usize);
                         const field_ty = ty.structFieldType(field_i, mod);
                         if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i, mod)) or
                             !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
@@ -1958,7 +1966,7 @@ pub const CType = extern union {
                                 std.fmt.allocPrintZ(arena, "f{}", .{field_i})
                             else
                                 arena.dupeZ(u8, ip.stringToSlice(switch (zig_ty_tag) {
-                                    .Struct => ty.structFieldName(field_i, mod),
+                                    .Struct => ty.legacyStructFieldName(field_i, mod),
                                     .Union => mod.typeToUnion(ty).?.field_names.get(ip)[field_i],
                                     else => unreachable,
                                 })),
@@ -2026,21 +2034,21 @@ pub const CType = extern union {
 
                     var c_params_len: usize = 0;
                     for (info.param_types.get(ip)) |param_type| {
-                        if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
+                        if (!Type.fromInterned(param_type).hasRuntimeBitsIgnoreComptime(mod)) continue;
                         c_params_len += 1;
                     }
 
                     const params_pl = try arena.alloc(Index, c_params_len);
                     var c_param_i: usize = 0;
                     for (info.param_types.get(ip)) |param_type| {
-                        if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
-                        params_pl[c_param_i] = store.set.typeToIndex(param_type.toType(), mod, param_kind).?;
+                        if (!Type.fromInterned(param_type).hasRuntimeBitsIgnoreComptime(mod)) continue;
+                        params_pl[c_param_i] = store.set.typeToIndex(Type.fromInterned(param_type), mod, param_kind).?;
                         c_param_i += 1;
                     }
 
                     const fn_pl = try arena.create(Payload.Function);
                     fn_pl.* = .{ .base = .{ .tag = t }, .data = .{
-                        .return_type = store.set.typeToIndex(info.return_type.toType(), mod, param_kind).?,
+                        .return_type = store.set.typeToIndex(Type.fromInterned(info.return_type), mod, param_kind).?,
                         .param_types = params_pl,
                     } };
                     return initPayload(fn_pl);
@@ -2091,7 +2099,8 @@ pub const CType = extern union {
                                 .Struct => ty.structFieldCount(mod),
                                 .Union => mod.typeToUnion(ty).?.field_names.len,
                                 else => unreachable,
-                            }) |field_i| {
+                            }) |field_i_usize| {
+                                const field_i: u32 = @intCast(field_i_usize);
                                 const field_ty = ty.structFieldType(field_i, mod);
                                 if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i, mod)) or
                                     !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
@@ -2110,7 +2119,7 @@ pub const CType = extern union {
                                         std.fmt.bufPrintZ(&name_buf, "f{}", .{field_i}) catch unreachable
                                     else
                                         ip.stringToSlice(switch (zig_ty_tag) {
-                                            .Struct => ty.structFieldName(field_i, mod),
+                                            .Struct => ty.legacyStructFieldName(field_i, mod),
                                             .Union => mod.typeToUnion(ty).?.field_names.get(ip)[field_i],
                                             else => unreachable,
                                         }),
@@ -2159,18 +2168,18 @@ pub const CType = extern union {
                                 .payload => unreachable,
                             };
 
-                            if (!self.eqlRecurse(info.return_type.toType(), data.return_type, param_kind))
+                            if (!self.eqlRecurse(Type.fromInterned(info.return_type), data.return_type, param_kind))
                                 return false;
 
                             var c_param_i: usize = 0;
                             for (info.param_types.get(ip)) |param_type| {
-                                if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                if (!Type.fromInterned(param_type).hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 if (c_param_i >= data.param_types.len) return false;
                                 const param_cty = data.param_types[c_param_i];
                                 c_param_i += 1;
 
-                                if (!self.eqlRecurse(param_type.toType(), param_cty, param_kind))
+                                if (!self.eqlRecurse(Type.fromInterned(param_type), param_cty, param_kind))
                                     return false;
                             }
                             return c_param_i == data.param_types.len;
@@ -2219,7 +2228,8 @@ pub const CType = extern union {
                                 .Struct => ty.structFieldCount(mod),
                                 .Union => mod.typeToUnion(ty).?.field_names.len,
                                 else => unreachable,
-                            }) |field_i| {
+                            }) |field_i_usize| {
+                                const field_i: u32 = @intCast(field_i_usize);
                                 const field_ty = ty.structFieldType(field_i, mod);
                                 if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i, mod)) or
                                     !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
@@ -2234,7 +2244,7 @@ pub const CType = extern union {
                                     std.fmt.bufPrint(&name_buf, "f{}", .{field_i}) catch unreachable
                                 else
                                     mod.intern_pool.stringToSlice(switch (zig_ty_tag) {
-                                        .Struct => ty.structFieldName(field_i, mod),
+                                        .Struct => ty.legacyStructFieldName(field_i, mod),
                                         .Union => mod.typeToUnion(ty).?.field_names.get(ip)[field_i],
                                         else => unreachable,
                                     }));
@@ -2273,10 +2283,10 @@ pub const CType = extern union {
                                 .payload => unreachable,
                             };
 
-                            self.updateHasherRecurse(hasher, info.return_type.toType(), param_kind);
+                            self.updateHasherRecurse(hasher, Type.fromInterned(info.return_type), param_kind);
                             for (info.param_types.get(ip)) |param_type| {
-                                if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
-                                self.updateHasherRecurse(hasher, param_type.toType(), param_kind);
+                                if (!Type.fromInterned(param_type).hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                self.updateHasherRecurse(hasher, Type.fromInterned(param_type), param_kind);
                             }
                         },
 

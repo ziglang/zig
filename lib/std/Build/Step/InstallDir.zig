@@ -21,6 +21,10 @@ pub const Options = struct {
     /// File paths which end in any of these suffixes will be excluded
     /// from being installed.
     exclude_extensions: []const []const u8 = &.{},
+    /// Only file paths which end in any of these suffixes will be included
+    /// in installation. `null` means all suffixes are valid for this option.
+    /// `exclude_extensions` take precedence over `include_extensions`
+    include_extensions: ?[]const []const u8 = null,
     /// File paths which end in any of these suffixes will result in
     /// empty files being installed. This is mainly intended for large
     /// test.zig files in order to prevent needless installation bloat.
@@ -34,6 +38,7 @@ pub const Options = struct {
             .install_dir = self.install_dir.dupe(b),
             .install_subdir = b.dupe(self.install_subdir),
             .exclude_extensions = b.dupeStrings(self.exclude_extensions),
+            .include_extensions = if (self.include_extensions) |incs| b.dupeStrings(incs) else null,
             .blank_extensions = b.dupeStrings(self.blank_extensions),
         };
     }
@@ -64,7 +69,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const dest_prefix = dest_builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
     const src_builder = self.step.owner;
     const src_dir_path = self.options.source_dir.getPath2(src_builder, step);
-    var src_dir = src_builder.build_root.handle.openIterableDir(src_dir_path, .{}) catch |err| {
+    var src_dir = src_builder.build_root.handle.openDir(src_dir_path, .{ .iterate = true }) catch |err| {
         return step.fail("unable to open source directory '{}{s}': {s}", .{
             src_builder.build_root, src_dir_path, @errorName(err),
         });
@@ -77,6 +82,16 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             if (mem.endsWith(u8, entry.path, ext)) {
                 continue :next_entry;
             }
+        }
+        if (self.options.include_extensions) |incs| {
+            var found = false;
+            for (incs) |inc| {
+                if (mem.endsWith(u8, entry.path, inc)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) continue :next_entry;
         }
 
         // relative to src build root

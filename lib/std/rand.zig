@@ -3,8 +3,6 @@
 //! use `std.crypto.random`.
 //! Be sure to use a CSPRNG when required, otherwise using a normal PRNG will
 //! be faster and use substantially less stack space.
-//!
-//! TODO(tiehuis): Benchmark these against other reference implementations.
 
 const std = @import("std.zig");
 const builtin = @import("builtin");
@@ -104,31 +102,26 @@ pub const Random = struct {
     pub fn int(r: Random, comptime T: type) T {
         const bits = @typeInfo(T).Int.bits;
         const UnsignedT = std.meta.Int(.unsigned, bits);
-        const ByteAlignedT = std.meta.Int(.unsigned, @divTrunc(bits + 7, 8) * 8);
+        const ceil_bytes = comptime std.math.divCeil(u16, bits, 8) catch unreachable;
+        const ByteAlignedT = std.meta.Int(.unsigned, ceil_bytes * 8);
 
-        var rand_bytes: [@sizeOf(ByteAlignedT)]u8 = undefined;
-        r.bytes(rand_bytes[0..]);
+        var rand_bytes: [ceil_bytes]u8 = undefined;
+        r.bytes(&rand_bytes);
 
         // use LE instead of native endian for better portability maybe?
         // TODO: endian portability is pointless if the underlying prng isn't endian portable.
         // TODO: document the endian portability of this library.
-        const byte_aligned_result = mem.readIntSliceLittle(ByteAlignedT, &rand_bytes);
-        const unsigned_result = @as(UnsignedT, @truncate(byte_aligned_result));
-        return @as(T, @bitCast(unsigned_result));
+        const byte_aligned_result = mem.readInt(ByteAlignedT, &rand_bytes, .little);
+        const unsigned_result: UnsignedT = @truncate(byte_aligned_result);
+        return @bitCast(unsigned_result);
     }
 
     /// Constant-time implementation off `uintLessThan`.
     /// The results of this function may be biased.
     pub fn uintLessThanBiased(r: Random, comptime T: type, less_than: T) T {
         comptime assert(@typeInfo(T).Int.signedness == .unsigned);
-        const bits = @typeInfo(T).Int.bits;
-        comptime assert(bits <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
         assert(0 < less_than);
-        if (bits <= 32) {
-            return @as(T, @intCast(limitRangeBiased(u32, r.int(u32), less_than)));
-        } else {
-            return @as(T, @intCast(limitRangeBiased(u64, r.int(u64), less_than)));
-        }
+        return limitRangeBiased(T, r.int(T), less_than);
     }
 
     /// Returns an evenly distributed random unsigned integer `0 <= i < less_than`.
@@ -142,22 +135,16 @@ pub const Random = struct {
     pub fn uintLessThan(r: Random, comptime T: type, less_than: T) T {
         comptime assert(@typeInfo(T).Int.signedness == .unsigned);
         const bits = @typeInfo(T).Int.bits;
-        comptime assert(bits <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
         assert(0 < less_than);
-        // Small is typically u32
-        const small_bits = @divTrunc(bits + 31, 32) * 32;
-        const Small = std.meta.Int(.unsigned, small_bits);
-        // Large is typically u64
-        const Large = std.meta.Int(.unsigned, small_bits * 2);
 
         // adapted from:
         //   http://www.pcg-random.org/posts/bounded-rands.html
         //   "Lemire's (with an extra tweak from me)"
-        var x: Small = r.int(Small);
-        var m: Large = @as(Large, x) * @as(Large, less_than);
-        var l: Small = @as(Small, @truncate(m));
+        var x = r.int(T);
+        var m = math.mulWide(T, x, less_than);
+        var l: T = @truncate(m);
         if (l < less_than) {
-            var t: Small = -%less_than;
+            var t = -%less_than;
 
             if (t >= less_than) {
                 t -= less_than;
@@ -166,12 +153,12 @@ pub const Random = struct {
                 }
             }
             while (l < t) {
-                x = r.int(Small);
-                m = @as(Large, x) * @as(Large, less_than);
-                l = @as(Small, @truncate(m));
+                x = r.int(T);
+                m = math.mulWide(T, x, less_than);
+                l = @truncate(m);
             }
         }
-        return @as(T, @intCast(m >> small_bits));
+        return @intCast(m >> bits);
     }
 
     /// Constant-time implementation off `uintAtMost`.
@@ -205,10 +192,10 @@ pub const Random = struct {
         if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = std.meta.Int(.unsigned, info.bits);
-            const lo = @as(UnsignedT, @bitCast(at_least));
-            const hi = @as(UnsignedT, @bitCast(less_than));
+            const lo: UnsignedT = @bitCast(at_least);
+            const hi: UnsignedT = @bitCast(less_than);
             const result = lo +% r.uintLessThanBiased(UnsignedT, hi -% lo);
-            return @as(T, @bitCast(result));
+            return @bitCast(result);
         } else {
             // The signed implementation would work fine, but we can use stricter arithmetic operators here.
             return at_least + r.uintLessThanBiased(T, less_than - at_least);
@@ -224,10 +211,10 @@ pub const Random = struct {
         if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = std.meta.Int(.unsigned, info.bits);
-            const lo = @as(UnsignedT, @bitCast(at_least));
-            const hi = @as(UnsignedT, @bitCast(less_than));
+            const lo: UnsignedT = @bitCast(at_least);
+            const hi: UnsignedT = @bitCast(less_than);
             const result = lo +% r.uintLessThan(UnsignedT, hi -% lo);
-            return @as(T, @bitCast(result));
+            return @bitCast(result);
         } else {
             // The signed implementation would work fine, but we can use stricter arithmetic operators here.
             return at_least + r.uintLessThan(T, less_than - at_least);
@@ -242,10 +229,10 @@ pub const Random = struct {
         if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = std.meta.Int(.unsigned, info.bits);
-            const lo = @as(UnsignedT, @bitCast(at_least));
-            const hi = @as(UnsignedT, @bitCast(at_most));
+            const lo: UnsignedT = @bitCast(at_least);
+            const hi: UnsignedT = @bitCast(at_most);
             const result = lo +% r.uintAtMostBiased(UnsignedT, hi -% lo);
-            return @as(T, @bitCast(result));
+            return @bitCast(result);
         } else {
             // The signed implementation would work fine, but we can use stricter arithmetic operators here.
             return at_least + r.uintAtMostBiased(T, at_most - at_least);
@@ -261,10 +248,10 @@ pub const Random = struct {
         if (info.signedness == .signed) {
             // Two's complement makes this math pretty easy.
             const UnsignedT = std.meta.Int(.unsigned, info.bits);
-            const lo = @as(UnsignedT, @bitCast(at_least));
-            const hi = @as(UnsignedT, @bitCast(at_most));
+            const lo: UnsignedT = @bitCast(at_least);
+            const hi: UnsignedT = @bitCast(at_most);
             const result = lo +% r.uintAtMost(UnsignedT, hi -% lo);
-            return @as(T, @bitCast(result));
+            return @bitCast(result);
         } else {
             // The signed implementation would work fine, but we can use stricter arithmetic operators here.
             return at_least + r.uintAtMost(T, at_most - at_least);
@@ -293,9 +280,9 @@ pub const Random = struct {
                         rand_lz += @clz(r.int(u32) | 0x7FF);
                     }
                 }
-                const mantissa = @as(u23, @truncate(rand));
+                const mantissa: u23 = @truncate(rand);
                 const exponent = @as(u32, 126 - rand_lz) << 23;
-                return @as(f32, @bitCast(exponent | mantissa));
+                return @bitCast(exponent | mantissa);
             },
             f64 => {
                 // Use 52 random bits for the mantissa, and the rest for the exponent.
@@ -320,7 +307,7 @@ pub const Random = struct {
                 }
                 const mantissa = rand & 0xFFFFFFFFFFFFF;
                 const exponent = (1022 - rand_lz) << 52;
-                return @as(f64, @bitCast(exponent | mantissa));
+                return @bitCast(exponent | mantissa);
             },
             else => @compileError("unknown floating point type"),
         }
@@ -332,7 +319,7 @@ pub const Random = struct {
     pub fn floatNorm(r: Random, comptime T: type) T {
         const value = ziggurat.next_f64(r, ziggurat.NormDist);
         switch (T) {
-            f32 => return @as(f32, @floatCast(value)),
+            f32 => return @floatCast(value),
             f64 => return value,
             else => @compileError("unknown floating point type"),
         }
@@ -344,7 +331,7 @@ pub const Random = struct {
     pub fn floatExp(r: Random, comptime T: type) T {
         const value = ziggurat.next_f64(r, ziggurat.ExpDist);
         switch (T) {
-            f32 => return @as(f32, @floatCast(value)),
+            f32 => return @floatCast(value),
             f64 => return value,
             else => @compileError("unknown floating point type"),
         }
@@ -378,10 +365,10 @@ pub const Random = struct {
         }
 
         // `i <= j < max <= maxInt(MinInt)`
-        const max = @as(MinInt, @intCast(buf.len));
+        const max: MinInt = @intCast(buf.len);
         var i: MinInt = 0;
         while (i < max - 1) : (i += 1) {
-            const j = @as(MinInt, @intCast(r.intRangeLessThan(Index, i, max)));
+            const j: MinInt = @intCast(r.intRangeLessThan(Index, i, max));
             mem.swap(T, &buf[i], &buf[j]);
         }
     }
@@ -394,34 +381,34 @@ pub const Random = struct {
     /// This is useful for selecting an item from a slice where weights are not equal.
     /// `T` must be a numeric type capable of holding the sum of `proportions`.
     pub fn weightedIndex(r: std.rand.Random, comptime T: type, proportions: []const T) usize {
-        // This implementation works by summing the proportions and picking a random
-        //  point in [0, sum).  We then loop over the proportions, accumulating
-        //  until our accumulator is greater than the random point.
+        // This implementation works by summing the proportions and picking a
+        // random point in [0, sum).  We then loop over the proportions,
+        // accumulating until our accumulator is greater than the random point.
 
-        var sum: T = 0;
-        for (proportions) |v| {
-            sum += v;
-        }
+        const sum = s: {
+            var sum: T = 0;
+            for (proportions) |v| sum += v;
+            break :s sum;
+        };
 
-        const point = if (comptime std.meta.trait.isSignedInt(T))
-            r.intRangeLessThan(T, 0, sum)
-        else if (comptime std.meta.trait.isUnsignedInt(T))
-            r.uintLessThan(T, sum)
-        else if (comptime std.meta.trait.isFloat(T))
+        const point = switch (@typeInfo(T)) {
+            .Int => |int_info| switch (int_info.signedness) {
+                .signed => r.intRangeLessThan(T, 0, sum),
+                .unsigned => r.uintLessThan(T, sum),
+            },
             // take care that imprecision doesn't lead to a value slightly greater than sum
-            @min(r.float(T) * sum, sum - std.math.floatEps(T))
-        else
-            @compileError("weightedIndex does not support proportions of type " ++ @typeName(T));
+            .Float => @min(r.float(T) * sum, sum - std.math.floatEps(T)),
+            else => @compileError("weightedIndex does not support proportions of type " ++
+                @typeName(T)),
+        };
 
-        std.debug.assert(point < sum);
+        assert(point < sum);
 
         var accumulator: T = 0;
         for (proportions, 0..) |p, index| {
             accumulator += p;
             if (point < accumulator) return index;
-        }
-
-        unreachable;
+        } else unreachable;
     }
 
     /// Returns the smallest of `Index` and `usize`.
@@ -438,13 +425,12 @@ pub const Random = struct {
 pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
     comptime assert(@typeInfo(T).Int.signedness == .unsigned);
     const bits = @typeInfo(T).Int.bits;
-    const T2 = std.meta.Int(.unsigned, bits * 2);
 
     // adapted from:
     //   http://www.pcg-random.org/posts/bounded-rands.html
     //   "Integer Multiplication (Biased)"
-    var m: T2 = @as(T2, random_int) * @as(T2, less_than);
-    return @as(T, @intCast(m >> bits));
+    const m = math.mulWide(T, random_int, less_than);
+    return @intCast(m >> bits);
 }
 
 // Generator to extend 64-bit seed values into longer sequences.

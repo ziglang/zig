@@ -12,7 +12,6 @@
 #include <__config>
 #include <cmath>
 #include <limits>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -44,8 +43,8 @@ template <class _IntT, class _RealT>
 _LIBCPP_INLINE_VISIBILITY
 _IntT __clamp_to_integral(_RealT __r) _NOEXCEPT {
   using _Lim = numeric_limits<_IntT>;
-  const _IntT _MaxVal = __max_representable_int_for_float<_IntT, _RealT>();
-  if (__r >= ::nextafter(static_cast<_RealT>(_MaxVal), INFINITY)) {
+  const _IntT __max_val = __max_representable_int_for_float<_IntT, _RealT>();
+  if (__r >= ::nextafter(static_cast<_RealT>(__max_val), INFINITY)) {
     return _Lim::max();
   } else if (__r <= _Lim::lowest()) {
     return _Lim::min();

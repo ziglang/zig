@@ -8,6 +8,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 const common = @import("common.zig");
 
@@ -27,7 +28,7 @@ comptime {
 
 pub fn __exp2h(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(exp2f(x)));
+    return @floatCast(exp2f(x));
 }
 
 pub fn exp2f(x: f32) callconv(.C) f32 {
@@ -38,7 +39,7 @@ pub fn exp2f(x: f32) callconv(.C) f32 {
     const P3: f32 = 0x1.c6b348p-5;
     const P4: f32 = 0x1.3b2c9cp-7;
 
-    var u: u32 = @bitCast(x);
+    const u: u32 = @bitCast(x);
     const ix = u & 0x7FFFFFFF;
 
     // |x| > 126
@@ -54,7 +55,7 @@ pub fn exp2f(x: f32) callconv(.C) f32 {
         // x < -126
         if (u >= 0x80000000) {
             if (u >= 0xC3160000 or u & 0x000FFFF != 0) {
-                math.doNotOptimizeAway(-0x1.0p-149 / x);
+                mem.doNotOptimizeAway(-0x1.0p-149 / x);
             }
             // x <= -150
             if (u >= 0x3160000) {
@@ -81,7 +82,7 @@ pub fn exp2f(x: f32) callconv(.C) f32 {
     uf -= redux;
 
     const z: f64 = x - uf;
-    var r: f64 = exp2ft[@as(usize, @intCast(i_0))];
+    var r: f64 = exp2ft[@intCast(i_0)];
     const t: f64 = r * z;
     r = r + t * (P1 + z * P2) + t * (z * z) * (P3 + z * P4);
     return @floatCast(r * uk);
@@ -119,7 +120,7 @@ pub fn exp2(x: f64) callconv(.C) f64 {
         if (ux >> 63 != 0) {
             // underflow
             if (x <= -1075 or x - 0x1.0p52 + 0x1.0p52 != x) {
-                math.doNotOptimizeAway(@as(f32, @floatCast(-0x1.0p-149 / x)));
+                mem.doNotOptimizeAway(@as(f32, @floatCast(-0x1.0p-149 / x)));
             }
             if (x <= -1075) {
                 return 0;
@@ -149,8 +150,8 @@ pub fn exp2(x: f64) callconv(.C) f64 {
 
     // r = exp2(y) = exp2t[i_0] * p(z - eps[i])
     var z: f64 = x - uf;
-    const t: f64 = exp2dt[@as(usize, @intCast(2 * i_0))];
-    z -= exp2dt[@as(usize, @intCast(2 * i_0 + 1))];
+    const t: f64 = exp2dt[@intCast(2 * i_0)];
+    z -= exp2dt[@intCast(2 * i_0 + 1)];
     const r: f64 = t + t * z * (P1 + z * (P2 + z * (P3 + z * (P4 + z * P5))));
 
     return math.scalbn(r, ik);

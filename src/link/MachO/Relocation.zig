@@ -99,7 +99,7 @@ pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, cod
         else => @as(i64, @intCast(target_base_addr)) + self.addend,
     };
 
-    log.debug("  ({x}: [() => 0x{x} ({s})) ({s})", .{
+    relocs_log.debug("  ({x}: [() => 0x{x} ({s})) ({s})", .{
         source_addr,
         target_addr,
         macho_file.getSymbolName(self.target),
@@ -128,7 +128,7 @@ fn resolveAarch64(self: Relocation, source_addr: u64, target_addr: i64, code: []
                 ), buffer[0..4]),
             };
             inst.unconditional_branch_immediate.imm26 = @as(u26, @truncate(@as(u28, @bitCast(displacement >> 2))));
-            mem.writeIntLittle(u32, buffer[0..4], inst.toU32());
+            mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
         },
         .page, .got_page => {
             const source_page = @as(i32, @intCast(source_addr >> 12));
@@ -142,7 +142,7 @@ fn resolveAarch64(self: Relocation, source_addr: u64, target_addr: i64, code: []
             };
             inst.pc_relative_address.immhi = @as(u19, @truncate(pages >> 2));
             inst.pc_relative_address.immlo = @as(u2, @truncate(pages));
-            mem.writeIntLittle(u32, buffer[0..4], inst.toU32());
+            mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
         },
         .pageoff, .got_pageoff => {
             const narrowed = @as(u12, @truncate(@as(u64, @intCast(target_addr))));
@@ -154,7 +154,7 @@ fn resolveAarch64(self: Relocation, source_addr: u64, target_addr: i64, code: []
                     ), buffer[0..4]),
                 };
                 inst.add_subtract_immediate.imm12 = narrowed;
-                mem.writeIntLittle(u32, buffer[0..4], inst.toU32());
+                mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
             } else {
                 var inst = aarch64.Instruction{
                     .load_store_register = mem.bytesToValue(meta.TagPayload(
@@ -176,12 +176,12 @@ fn resolveAarch64(self: Relocation, source_addr: u64, target_addr: i64, code: []
                     }
                 };
                 inst.load_store_register.offset = offset;
-                mem.writeIntLittle(u32, buffer[0..4], inst.toU32());
+                mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
             }
         },
         .tlv_initializer, .unsigned => switch (self.length) {
-            2 => mem.writeIntLittle(u32, buffer[0..4], @as(u32, @truncate(@as(u64, @bitCast(target_addr))))),
-            3 => mem.writeIntLittle(u64, buffer[0..8], @as(u64, @bitCast(target_addr))),
+            2 => mem.writeInt(u32, buffer[0..4], @as(u32, @truncate(@as(u64, @bitCast(target_addr)))), .little),
+            3 => mem.writeInt(u64, buffer[0..8], @as(u64, @bitCast(target_addr)), .little),
             else => unreachable,
         },
         .got, .signed, .tlv => unreachable, // Invalid target architecture.
@@ -192,15 +192,15 @@ fn resolveX8664(self: Relocation, source_addr: u64, target_addr: i64, code: []u8
     switch (self.type) {
         .branch, .got, .tlv, .signed => {
             const displacement = @as(i32, @intCast(@as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr)) - 4));
-            mem.writeIntLittle(u32, code[self.offset..][0..4], @as(u32, @bitCast(displacement)));
+            mem.writeInt(u32, code[self.offset..][0..4], @as(u32, @bitCast(displacement)), .little);
         },
         .tlv_initializer, .unsigned => {
             switch (self.length) {
                 2 => {
-                    mem.writeIntLittle(u32, code[self.offset..][0..4], @as(u32, @truncate(@as(u64, @bitCast(target_addr)))));
+                    mem.writeInt(u32, code[self.offset..][0..4], @as(u32, @truncate(@as(u64, @bitCast(target_addr)))), .little);
                 },
                 3 => {
-                    mem.writeIntLittle(u64, code[self.offset..][0..8], @as(u64, @bitCast(target_addr)));
+                    mem.writeInt(u64, code[self.offset..][0..8], @as(u64, @bitCast(target_addr)), .little);
                 },
                 else => unreachable,
             }
@@ -256,7 +256,7 @@ const Relocation = @This();
 const std = @import("std");
 const aarch64 = @import("../../arch/aarch64/bits.zig");
 const assert = std.debug.assert;
-const log = std.log.scoped(.link);
+const relocs_log = std.log.scoped(.link_relocs);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;

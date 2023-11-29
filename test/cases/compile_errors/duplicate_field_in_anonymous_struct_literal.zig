@@ -14,5 +14,5 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :7:16: error: duplicate field
-// :4:16: note: other field here
+// :4:14: error: duplicate field
+// :7:14: note: other field here

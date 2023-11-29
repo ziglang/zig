@@ -14,7 +14,6 @@
 #include <__random/is_valid.h>
 #include <iosfwd>
 #include <limits>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -65,7 +64,7 @@ public:
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     uniform_real_distribution() : uniform_real_distribution(0) {}
-    explicit uniform_real_distribution(result_type __a, result_type __b = 1)
+    _LIBCPP_HIDE_FROM_ABI explicit uniform_real_distribution(result_type __a, result_type __b = 1)
         : __p_(param_type(__a, __b)) {}
 #else
     _LIBCPP_INLINE_VISIBILITY

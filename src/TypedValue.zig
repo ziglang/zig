@@ -84,18 +84,28 @@ pub fn print(
                 if (level == 0) {
                     return writer.writeAll(".{ ... }");
                 }
-                const union_val = val.castTag(.@"union").?.data;
+                const payload = val.castTag(.@"union").?.data;
                 try writer.writeAll(".{ ");
 
-                try print(.{
-                    .ty = ip.indexToKey(ty.toIntern()).union_type.enum_tag_ty.toType(),
-                    .val = union_val.tag,
-                }, writer, level - 1, mod);
-                try writer.writeAll(" = ");
-                try print(.{
-                    .ty = ty.unionFieldType(union_val.tag, mod),
-                    .val = union_val.val,
-                }, writer, level - 1, mod);
+                if (payload.tag) |tag| {
+                    try print(.{
+                        .ty = Type.fromInterned(ip.indexToKey(ty.toIntern()).union_type.enum_tag_ty),
+                        .val = tag,
+                    }, writer, level - 1, mod);
+                    try writer.writeAll(" = ");
+                    const field_ty = ty.unionFieldType(tag, mod).?;
+                    try print(.{
+                        .ty = field_ty,
+                        .val = payload.val,
+                    }, writer, level - 1, mod);
+                } else {
+                    try writer.writeAll("(unknown tag) = ");
+                    const backing_ty = try ty.unionBackingType(mod);
+                    try print(.{
+                        .ty = backing_ty,
+                        .val = payload.val,
+                    }, writer, level - 1, mod);
+                }
 
                 return writer.writeAll(" }");
             },
@@ -135,9 +145,10 @@ pub fn print(
 
                     var i: u32 = 0;
                     while (i < max_len) : (i += 1) {
-                        const elem_val = payload.ptr.elemValue(mod, i) catch |err| switch (err) {
+                        const maybe_elem_val = payload.ptr.maybeElemValue(mod, i) catch |err| switch (err) {
                             error.OutOfMemory => @panic("OOM"), // TODO: eliminate this panic
                         };
+                        const elem_val = maybe_elem_val orelse return writer.writeAll(".{ (reinterpreted data) }");
                         if (elem_val.isUndef(mod)) break :str;
                         buf[i] = std.math.cast(u8, elem_val.toUnsignedInt(mod)) orelse break :str;
                     }
@@ -153,9 +164,10 @@ pub fn print(
                 var i: u32 = 0;
                 while (i < max_len) : (i += 1) {
                     if (i != 0) try writer.writeAll(", ");
-                    const elem_val = payload.ptr.elemValue(mod, i) catch |err| switch (err) {
+                    const maybe_elem_val = payload.ptr.maybeElemValue(mod, i) catch |err| switch (err) {
                         error.OutOfMemory => @panic("OOM"), // TODO: eliminate this panic
                     };
+                    const elem_val = maybe_elem_val orelse return writer.writeAll("(reinterpreted data) }");
                     try print(.{
                         .ty = elem_ty,
                         .val = elem_val,
@@ -194,7 +206,6 @@ pub fn print(
             .inferred_error_set_type,
             => return Type.print(val.toType(), writer, mod),
             .undef => return writer.writeAll("undefined"),
-            .runtime_value => return writer.writeAll("(runtime value)"),
             .simple_value => |simple_value| switch (simple_value) {
                 .void => return writer.writeAll("{}"),
                 .empty_struct => return printAggregate(ty, val, writer, level, mod),
@@ -211,10 +222,10 @@ pub fn print(
             .int => |int| switch (int.storage) {
                 inline .u64, .i64, .big_int => |x| return writer.print("{}", .{x}),
                 .lazy_align => |lazy_ty| return writer.print("{d}", .{
-                    lazy_ty.toType().abiAlignment(mod),
+                    Type.fromInterned(lazy_ty).abiAlignment(mod),
                 }),
                 .lazy_size => |lazy_ty| return writer.print("{d}", .{
-                    lazy_ty.toType().abiSize(mod),
+                    Type.fromInterned(lazy_ty).abiSize(mod),
                 }),
             },
             .err => |err| return writer.print("error.{}", .{
@@ -225,7 +236,7 @@ pub fn print(
                     err_name.fmt(ip),
                 }),
                 .payload => |payload| {
-                    val = payload.toValue();
+                    val = Value.fromInterned(payload);
                     ty = ty.errorUnionPayload(mod);
                 },
             },
@@ -243,8 +254,8 @@ pub fn print(
                 }
                 try writer.writeAll("@enumFromInt(");
                 try print(.{
-                    .ty = ip.typeOf(enum_tag.int).toType(),
-                    .val = enum_tag.int.toValue(),
+                    .ty = Type.fromInterned(ip.typeOf(enum_tag.int)),
+                    .val = Value.fromInterned(enum_tag.int),
                 }, writer, level - 1, mod);
                 try writer.writeAll(")");
                 return;
@@ -255,9 +266,12 @@ pub fn print(
             },
             .ptr => |ptr| {
                 if (ptr.addr == .int) {
-                    const i = ip.indexToKey(ptr.addr.int).int;
-                    switch (i.storage) {
-                        inline else => |addr| return writer.print("{x:0>8}", .{addr}),
+                    switch (ip.indexToKey(ptr.addr.int)) {
+                        .int => |i| switch (i.storage) {
+                            inline else => |addr| return writer.print("{x:0>8}", .{addr}),
+                        },
+                        .undef => return writer.writeAll("undefined"),
+                        else => unreachable,
                     }
                 }
 
@@ -266,13 +280,14 @@ pub fn print(
                     if (level == 0) {
                         return writer.writeAll(".{ ... }");
                     }
-                    const elem_ty = ptr_ty.child.toType();
-                    const len = ptr.len.toValue().toUnsignedInt(mod);
+                    const elem_ty = Type.fromInterned(ptr_ty.child);
+                    const len = Value.fromInterned(ptr.len).toUnsignedInt(mod);
                     if (elem_ty.eql(Type.u8, mod)) str: {
                         const max_len = @min(len, max_string_len);
                         var buf: [max_string_len]u8 = undefined;
                         for (buf[0..max_len], 0..) |*c, i| {
-                            const elem = try val.elemValue(mod, i);
+                            const maybe_elem = try val.maybeElemValue(mod, i);
+                            const elem = maybe_elem orelse return writer.writeAll(".{ (reinterpreted data) }");
                             if (elem.isUndef(mod)) break :str;
                             c.* = @as(u8, @intCast(elem.toUnsignedInt(mod)));
                         }
@@ -283,9 +298,11 @@ pub fn print(
                     const max_len = @min(len, max_aggregate_items);
                     for (0..max_len) |i| {
                         if (i != 0) try writer.writeAll(", ");
+                        const maybe_elem = try val.maybeElemValue(mod, i);
+                        const elem = maybe_elem orelse return writer.writeAll("(reinterpreted data) }");
                         try print(.{
                             .ty = elem_ty,
-                            .val = try val.elemValue(mod, i),
+                            .val = elem,
                         }, writer, level - 1, mod);
                     }
                     if (len > max_aggregate_items) {
@@ -303,6 +320,16 @@ pub fn print(
                             .val = decl.val,
                         }, writer, level - 1, mod);
                     },
+                    .anon_decl => |anon_decl| {
+                        const decl_val = anon_decl.val;
+                        if (level == 0) return writer.print("(anon decl '{d}')", .{
+                            @intFromEnum(decl_val),
+                        });
+                        return print(.{
+                            .ty = Type.fromInterned(ip.typeOf(decl_val)),
+                            .val = Value.fromInterned(decl_val),
+                        }, writer, level - 1, mod);
+                    },
                     .mut_decl => |mut_decl| {
                         const decl = mod.declPtr(mut_decl.decl);
                         if (level == 0) return writer.print("(mut decl '{}')", .{decl.name.fmt(ip)});
@@ -313,48 +340,48 @@ pub fn print(
                     },
                     .comptime_field => |field_val_ip| {
                         return print(.{
-                            .ty = ip.typeOf(field_val_ip).toType(),
-                            .val = field_val_ip.toValue(),
+                            .ty = Type.fromInterned(ip.typeOf(field_val_ip)),
+                            .val = Value.fromInterned(field_val_ip),
                         }, writer, level - 1, mod);
                     },
                     .int => unreachable,
                     .eu_payload => |eu_ip| {
                         try writer.writeAll("(payload of ");
                         try print(.{
-                            .ty = ip.typeOf(eu_ip).toType(),
-                            .val = eu_ip.toValue(),
+                            .ty = Type.fromInterned(ip.typeOf(eu_ip)),
+                            .val = Value.fromInterned(eu_ip),
                         }, writer, level - 1, mod);
                         try writer.writeAll(")");
                     },
                     .opt_payload => |opt_ip| {
                         try print(.{
-                            .ty = ip.typeOf(opt_ip).toType(),
-                            .val = opt_ip.toValue(),
+                            .ty = Type.fromInterned(ip.typeOf(opt_ip)),
+                            .val = Value.fromInterned(opt_ip),
                         }, writer, level - 1, mod);
                         try writer.writeAll(".?");
                     },
                     .elem => |elem| {
                         try print(.{
-                            .ty = ip.typeOf(elem.base).toType(),
-                            .val = elem.base.toValue(),
+                            .ty = Type.fromInterned(ip.typeOf(elem.base)),
+                            .val = Value.fromInterned(elem.base),
                         }, writer, level - 1, mod);
                         try writer.print("[{}]", .{elem.index});
                     },
                     .field => |field| {
-                        const ptr_container_ty = ip.typeOf(field.base).toType();
+                        const ptr_container_ty = Type.fromInterned(ip.typeOf(field.base));
                         try print(.{
                             .ty = ptr_container_ty,
-                            .val = field.base.toValue(),
+                            .val = Value.fromInterned(field.base),
                         }, writer, level - 1, mod);
 
                         const container_ty = ptr_container_ty.childType(mod);
                         switch (container_ty.zigTypeTag(mod)) {
                             .Struct => {
-                                if (container_ty.isTuple(mod)) {
+                                if (container_ty.structFieldName(@intCast(field.index), mod).unwrap()) |field_name| {
+                                    try writer.print(".{i}", .{field_name.fmt(ip)});
+                                } else {
                                     try writer.print("[{d}]", .{field.index});
                                 }
-                                const field_name = container_ty.structFieldName(@as(usize, @intCast(field.index)), mod);
-                                try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Union => {
                                 const field_name = mod.typeToUnion(container_ty).?.field_names.get(ip)[@intCast(field.index)];
@@ -377,7 +404,7 @@ pub fn print(
             .opt => |opt| switch (opt.val) {
                 .none => return writer.writeAll("null"),
                 else => |payload| {
-                    val = payload.toValue();
+                    val = Value.fromInterned(payload);
                     ty = ty.optionalChild(mod);
                 },
             },
@@ -396,15 +423,25 @@ pub fn print(
             .un => |un| {
                 try writer.writeAll(".{ ");
                 if (level > 0) {
-                    try print(.{
-                        .ty = ty.unionTagTypeHypothetical(mod),
-                        .val = un.tag.toValue(),
-                    }, writer, level - 1, mod);
-                    try writer.writeAll(" = ");
-                    try print(.{
-                        .ty = ty.unionFieldType(un.tag.toValue(), mod),
-                        .val = un.val.toValue(),
-                    }, writer, level - 1, mod);
+                    if (un.tag != .none) {
+                        try print(.{
+                            .ty = ty.unionTagTypeHypothetical(mod),
+                            .val = Value.fromInterned(un.tag),
+                        }, writer, level - 1, mod);
+                        try writer.writeAll(" = ");
+                        const field_ty = ty.unionFieldType(Value.fromInterned(un.tag), mod).?;
+                        try print(.{
+                            .ty = field_ty,
+                            .val = Value.fromInterned(un.val),
+                        }, writer, level - 1, mod);
+                    } else {
+                        try writer.writeAll("(unknown tag) = ");
+                        const backing_ty = try ty.unionBackingType(mod);
+                        try print(.{
+                            .ty = backing_ty,
+                            .val = Value.fromInterned(un.val),
+                        }, writer, level - 1, mod);
+                    }
                 } else try writer.writeAll("...");
                 return writer.writeAll(" }");
             },
@@ -423,6 +460,7 @@ fn printAggregate(
     if (level == 0) {
         return writer.writeAll(".{ ... }");
     }
+    const ip = &mod.intern_pool;
     if (ty.zigTypeTag(mod) == .Struct) {
         try writer.writeAll(".{");
         const max_len = @min(ty.structFieldCount(mod), max_aggregate_items);
@@ -430,13 +468,13 @@ fn printAggregate(
         for (0..max_len) |i| {
             if (i != 0) try writer.writeAll(", ");
 
-            const field_name = switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-                .struct_type => |x| mod.structPtrUnwrap(x.index).?.fields.keys()[i].toOptional(),
-                .anon_struct_type => |x| if (x.isTuple()) .none else x.names[i].toOptional(),
+            const field_name = switch (ip.indexToKey(ty.toIntern())) {
+                .struct_type => |x| x.fieldName(ip, i),
+                .anon_struct_type => |x| if (x.isTuple()) .none else x.names.get(ip)[i].toOptional(),
                 else => unreachable,
             };
 
-            if (field_name.unwrap()) |name| try writer.print(".{} = ", .{name.fmt(&mod.intern_pool)});
+            if (field_name.unwrap()) |name| try writer.print(".{} = ", .{name.fmt(ip)});
             try print(.{
                 .ty = ty.structFieldType(i, mod),
                 .val = try val.fieldValue(mod, i),

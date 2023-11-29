@@ -9,6 +9,7 @@
 //! The low-level `writeStream` emits syntax-conformant JSON tokens to a `std.io.Writer`.
 //! The high-level `stringify` serializes a Zig or `Value` type into JSON.
 
+const builtin = @import("builtin");
 const testing = @import("std").testing;
 const ArrayList = @import("std").ArrayList;
 
@@ -109,6 +110,9 @@ pub const writeStreamArbitraryDepth = @import("json/stringify.zig").writeStreamA
 pub const WriteStream = @import("json/stringify.zig").WriteStream;
 pub const encodeJsonString = @import("json/stringify.zig").encodeJsonString;
 pub const encodeJsonStringChars = @import("json/stringify.zig").encodeJsonStringChars;
+
+pub const Formatter = @import("json/fmt.zig").Formatter;
+pub const fmt = @import("json/fmt.zig").fmt;
 
 // Deprecations
 pub const parse = @compileError("Deprecated; use parseFromSlice() or parseFromTokenSource() instead.");

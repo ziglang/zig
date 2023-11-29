@@ -6,7 +6,7 @@ const Foo = struct {
     }
 };
 export fn entry() void {
-    var rule_set = try Foo.init();
+    const rule_set = try Foo.init();
     _ = rule_set;
 }
 

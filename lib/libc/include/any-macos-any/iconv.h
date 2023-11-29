@@ -1,193 +1,156 @@
-/* Copyright (C) 1999-2003, 2005-2006 Free Software Foundation, Inc.
-   This file is part of the GNU LIBICONV Library.
+/*	$FreeBSD$	*/
+/*	$NetBSD: iconv.h,v 1.6 2005/02/03 04:39:32 perry Exp $	*/
 
-   The GNU LIBICONV Library is free software; you can redistribute it
-   and/or modify it under the terms of the GNU Library General Public
-   License as published by the Free Software Foundation; either version 2
-   of the License, or (at your option) any later version.
+/*-
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
+ * Copyright (c) 2003 Citrus Project,
+ * Copyright (c) 2009, 2010 Gabor Kovesdan <gabor@FreeBSD.org>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ *
+ */
 
-   The GNU LIBICONV Library is distributed in the hope that it will be
-   useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-   Library General Public License for more details.
-
-   You should have received a copy of the GNU Library General Public
-   License along with the GNU LIBICONV Library; see the file COPYING.LIB.
-   If not, write to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301, USA.  */
-
-/* When installed, this file is called "iconv.h". */
-
-#ifndef _LIBICONV_H
-#define _LIBICONV_H
+#ifndef _ICONV_H_
+#define _ICONV_H_
 
 #include <sys/cdefs.h>
-#include <_types.h>
-#include <sys/_types/_size_t.h>
+#include <sys/types.h>
 
-#define _LIBICONV_VERSION 0x010B    /* version number: (major<<8) + minor */
-
-#if BUILDING_LIBICONV
-#define __LIBICONV_DLL_EXPORTED __attribute__((__visibility__("default")))
-#else
-#define __LIBICONV_DLL_EXPORTED
-#endif
-extern __LIBICONV_DLL_EXPORTED  int _libiconv_version; /* Likewise */
-
-/* We would like to #include any system header file which could define
-   iconv_t, 1. in order to eliminate the risk that the user gets compilation
-   errors because some other system header file includes /usr/include/iconv.h
-   which defines iconv_t or declares iconv after this file, 2. when compiling
-   for LIBICONV_PLUG, we need the proper iconv_t type in order to produce
-   binary compatible code.
-   But gcc's #include_next is not portable. Thus, once libiconv's iconv.h
-   has been installed in /usr/local/include, there is no way any more to
-   include the original /usr/include/iconv.h. We simply have to get away
-   without it.
-   Ad 1. The risk that a system header file does
-   #include "iconv.h"  or  #include_next "iconv.h"
-   is small. They all do #include <iconv.h>.
-   Ad 2. The iconv_t type is a pointer type in all cases I have seen. (It
-   has to be a scalar type because (iconv_t)(-1) is a possible return value
-   from iconv_open().) */
-
-/* Define iconv_t ourselves. */
-#ifndef _ICONV_T
-#define _ICONV_T
-typedef void* iconv_t;
+#if defined(__APPLE__) && \
+    (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))
+#include <wchar.h>
 #endif
 
+#ifndef __APPLE__
+#include <sys/cdefs.h>
+#include <sys/types.h>
+#endif
 
 #ifdef __cplusplus
-extern "C" {
+typedef	bool	__iconv_bool;
+#elif __STDC_VERSION__ >= 199901L
+typedef	_Bool	__iconv_bool;
+#else
+typedef	int	__iconv_bool;
 #endif
 
+struct __tag_iconv_t;
+typedef	struct __tag_iconv_t	*iconv_t;
 
-/* Allocates descriptor for code conversion from encoding `fromcode' to
-   encoding `tocode'. */
-extern __LIBICONV_DLL_EXPORTED iconv_t iconv_open (const char* __tocode, const char* __fromcode);
+#ifdef __APPLE__
+#define _LIBICONV_VERSION	0x010B	/* Compatible */
+#endif
 
-/* Converts, using conversion descriptor `cd', at most `*inbytesleft' bytes
-   starting at `*inbuf', writing at most `*outbytesleft' bytes starting at
-   `*outbuf'.
-   Decrements `*inbytesleft' and increments `*inbuf' by the same amount.
-   Decrements `*outbytesleft' and increments `*outbuf' by the same amount. */
-extern __LIBICONV_DLL_EXPORTED size_t iconv (iconv_t __cd, char* * __restrict __inbuf, size_t * __restrict __inbytesleft, char* * __restrict __outbuf, size_t * __restrict __outbytesleft);
+__BEGIN_DECLS
+#ifdef __APPLE__
+extern int _libiconv_version;
+#endif
 
-/* Frees resources allocated for conversion descriptor `cd'. */
-extern __LIBICONV_DLL_EXPORTED int iconv_close (iconv_t _cd);
+iconv_t	iconv_open(const char *, const char *);
+size_t	iconv(iconv_t, char ** __restrict,
+	      size_t * __restrict, char ** __restrict,
+	      size_t * __restrict);
+int	iconv_close(iconv_t);
 
-#if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
+#if defined(__APPLE__) && \
+    (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))
+/*
+ * non-portable interfaces for iconv
+ */
+int	__iconv_get_list(char ***, size_t *, __iconv_bool);
+void	__iconv_free_list(char **, size_t);
+size_t	__iconv(iconv_t, char **, size_t *, char **,
+		     size_t *, __uint32_t, size_t *);
+#define __ICONV_F_HIDE_INVALID	0x0001
 
-/* Nonstandard extensions. */
+/*
+ * GNU interfaces for iconv
+ */
+typedef struct {
+	void	*spaceholder[64];
+} iconv_allocation_t;
 
-#include <sys/_types/_wchar_t.h>
+int	 iconv_open_into(const char *, const char *, iconv_allocation_t *);
+#ifdef __APPLE__
+void	 libiconv_set_relocation_prefix(const char *, const char *);
+#else
+void	 iconv_set_relocation_prefix(const char *, const char *);
+#endif
 
-/* Control of attributes. */
-extern __LIBICONV_DLL_EXPORTED int iconvctl (iconv_t cd, int request, void* argument);
+/*
+ * iconvctl() request macros
+ */
+#define ICONV_TRIVIALP		0
+#define	ICONV_GET_TRANSLITERATE	1
+#define	ICONV_SET_TRANSLITERATE	2
+#define ICONV_GET_DISCARD_ILSEQ	3
+#define ICONV_SET_DISCARD_ILSEQ	4
+#define ICONV_SET_HOOKS		5
+#define ICONV_SET_FALLBACKS	6
+#define ICONV_GET_ILSEQ_INVALID	128
+#define ICONV_SET_ILSEQ_INVALID	129
 
-/* Hook performed after every successful conversion of a Unicode character. */
-typedef void (*iconv_unicode_char_hook) (unsigned int uc, void* data);
-/* Hook performed after every successful conversion of a wide character. */
-typedef void (*iconv_wide_char_hook) (wchar_t wc, void* data);
-/* Set of hooks. */
+typedef void (*iconv_unicode_char_hook) (unsigned int mbr, void *data);
+typedef void (*iconv_wide_char_hook) (wchar_t wc, void *data);
+
 struct iconv_hooks {
-  iconv_unicode_char_hook uc_hook;
-  iconv_wide_char_hook wc_hook;
-  void* data;
+	iconv_unicode_char_hook		 uc_hook;
+	iconv_wide_char_hook		 wc_hook;
+	void				*data;
 };
 
-/* Fallback function.  Invoked when a small number of bytes could not be
-   converted to a Unicode character.  This function should process all
-   bytes from inbuf and may produce replacement Unicode characters by calling
-   the write_replacement callback repeatedly.  */
-typedef void (*iconv_unicode_mb_to_uc_fallback)
-             (const char* inbuf, size_t inbufsize,
-              void (*write_replacement) (const unsigned int *buf, size_t buflen,
-                                         void* callback_arg),
-              void* callback_arg,
-              void* data);
-/* Fallback function.  Invoked when a Unicode character could not be converted
-   to the target encoding.  This function should process the character and
-   may produce replacement bytes (in the target encoding) by calling the
-   write_replacement callback repeatedly.  */
-typedef void (*iconv_unicode_uc_to_mb_fallback)
-             (unsigned int code,
-              void (*write_replacement) (const char *buf, size_t buflen,
-                                         void* callback_arg),
-              void* callback_arg,
-              void* data);
-#if 1
-/* Fallback function.  Invoked when a number of bytes could not be converted to
-   a wide character.  This function should process all bytes from inbuf and may
-   produce replacement wide characters by calling the write_replacement
-   callback repeatedly.  */
-typedef void (*iconv_wchar_mb_to_wc_fallback)
-             (const char* inbuf, size_t inbufsize,
-              void (*write_replacement) (const wchar_t *buf, size_t buflen,
-                                         void* callback_arg),
-              void* callback_arg,
-              void* data);
-/* Fallback function.  Invoked when a wide character could not be converted to
-   the target encoding.  This function should process the character and may
-   produce replacement bytes (in the target encoding) by calling the
-   write_replacement callback repeatedly.  */
-typedef void (*iconv_wchar_wc_to_mb_fallback)
-             (wchar_t code,
-              void (*write_replacement) (const char *buf, size_t buflen,
-                                         void* callback_arg),
-              void* callback_arg,
-              void* data);
-#else
-/* If the wchar_t type does not exist, these two fallback functions are never
-   invoked.  Their argument list therefore does not matter.  */
-typedef void (*iconv_wchar_mb_to_wc_fallback) ();
-typedef void (*iconv_wchar_wc_to_mb_fallback) ();
-#endif
-/* Set of fallbacks. */
+/*
+ * Fallbacks aren't supported but type definitions are provided for
+ * source compatibility.
+ */
+typedef void (*iconv_unicode_mb_to_uc_fallback) (const char*,
+		size_t, void (*write_replacement) (const unsigned int *,
+		size_t, void*),	void*, void*);
+typedef void (*iconv_unicode_uc_to_mb_fallback) (unsigned int,
+		void (*write_replacement) (const char *, size_t, void*),
+		void*, void*);
+typedef void (*iconv_wchar_mb_to_wc_fallback) (const char*, size_t,
+		void (*write_replacement) (const wchar_t *, size_t, void*),
+		void*, void*);
+typedef void (*iconv_wchar_wc_to_mb_fallback) (wchar_t,
+		void (*write_replacement) (const char *, size_t, void*),
+		void*, void*);
+
 struct iconv_fallbacks {
-  iconv_unicode_mb_to_uc_fallback mb_to_uc_fallback;
-  iconv_unicode_uc_to_mb_fallback uc_to_mb_fallback;
-  iconv_wchar_mb_to_wc_fallback mb_to_wc_fallback;
-  iconv_wchar_wc_to_mb_fallback wc_to_mb_fallback;
-  void* data;
+	iconv_unicode_mb_to_uc_fallback	 mb_to_uc_fallback;
+	iconv_unicode_uc_to_mb_fallback  uc_to_mb_fallback;
+	iconv_wchar_mb_to_wc_fallback	 mb_to_wc_fallback;
+	iconv_wchar_wc_to_mb_fallback	 wc_to_mb_fallback;
+	void				*data;
 };
 
-/* Requests for iconvctl. */
-#define ICONV_TRIVIALP            0  /* int *argument */
-#define ICONV_GET_TRANSLITERATE   1  /* int *argument */
-#define ICONV_SET_TRANSLITERATE   2  /* const int *argument */
-#define ICONV_GET_DISCARD_ILSEQ   3  /* int *argument */
-#define ICONV_SET_DISCARD_ILSEQ   4  /* const int *argument */
-#define ICONV_SET_HOOKS           5  /* const struct iconv_hooks *argument */
-#define ICONV_SET_FALLBACKS       6  /* const struct iconv_fallbacks *argument */
 
-/* Listing of locale independent encodings. */
-extern __LIBICONV_DLL_EXPORTED void iconvlist (int (*do_one) (unsigned int namescount,
-                                      const char * const * names,
-                                      void* data),
-                       void* data);
+void		 iconvlist(int (*do_one) (unsigned int, const char * const *,
+		    void *), void *);
+const char	*iconv_canonicalize(const char *);
+int		 iconvctl(iconv_t, int, void *);
+#endif	/* __APPLE__ && (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
+__END_DECLS
 
-/* Canonicalize an encoding name.
-   The result is either a canonical encoding name, or name itself. */
-extern __LIBICONV_DLL_EXPORTED const char * iconv_canonicalize (const char * name);
-
-/* Support for relocatable packages.  */
-
-/* Sets the original and the current installation prefix of the package.
-   Relocation simply replaces a pathname starting with the original prefix
-   by the corresponding pathname with the current prefix instead.  Both
-   prefixes should be directory names without trailing slash (i.e. use ""
-   instead of "/").  */
-extern __LIBICONV_DLL_EXPORTED void libiconv_set_relocation_prefix (const char *orig_prefix,
-					    const char *curr_prefix);
-
-#endif /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
-
-
-#ifdef __cplusplus
-}
-#endif
-
-
-#endif /* _LIBICONV_H */
+#endif /* !_ICONV_H_ */

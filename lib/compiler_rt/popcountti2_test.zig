@@ -29,7 +29,7 @@ test "popcountti2" {
     var rnd = RndGen.init(42);
     var i: u32 = 0;
     while (i < 10_000) : (i += 1) {
-        var rand_num = rnd.random().int(i128);
+        const rand_num = rnd.random().int(i128);
         try test__popcountti2(rand_num);
     }
 }

@@ -18,26 +18,28 @@ test "@sizeOf on compile-time types" {
 }
 
 test "@TypeOf() with multiple arguments" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     {
         var var_1: u32 = undefined;
         var var_2: u8 = undefined;
         var var_3: u64 = undefined;
+        _ = .{ &var_1, &var_2, &var_3 };
         try comptime expect(@TypeOf(var_1, var_2, var_3) == u64);
     }
     {
         var var_1: f16 = undefined;
         var var_2: f32 = undefined;
         var var_3: f64 = undefined;
+        _ = .{ &var_1, &var_2, &var_3 };
         try comptime expect(@TypeOf(var_1, var_2, var_3) == f64);
     }
     {
         var var_1: u16 = undefined;
+        _ = &var_1;
         try comptime expect(@TypeOf(var_1, 0xffff) == u16);
     }
     {
         var var_1: f32 = undefined;
+        _ = &var_1;
         try comptime expect(@TypeOf(var_1, 3.1415) == f32);
     }
 }
@@ -268,10 +270,10 @@ test "runtime instructions inside typeof in comptime only scope" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
         var y: i8 = 2;
+        _ = &y;
         const i: [2]i8 = [_]i8{ 1, y };
         const T = struct {
             a: @TypeOf(i) = undefined, // causes crash
@@ -282,6 +284,7 @@ test "runtime instructions inside typeof in comptime only scope" {
     }
     {
         var y: i8 = 2;
+        _ = &y;
         const i = .{ 1, y };
         const T = struct {
             b: @TypeOf(i[1]) = undefined,
@@ -302,4 +305,12 @@ test "@offsetOf zero-bit field" {
         c: u32,
     };
     try expect(@offsetOf(S, "b") == @offsetOf(S, "c"));
+}
+
+test "@bitSizeOf on array of structs" {
+    const S = struct {
+        foo: u64,
+    };
+
+    try expectEqual(128, @bitSizeOf([2]S));
 }

@@ -169,13 +169,14 @@ const glibc_targets = [_]LibCTarget{
         .arch = MultiArch{ .specific = Arch.s390x },
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
+    // It's unclear which zig target this glibc sparcv9 target maps to.
+    //LibCTarget{
+    //    .name = "sparcv9-linux-gnu",
+    //    .arch = MultiArch{ .specific = Arch.sparc },
+    //    .abi = MultiAbi{ .specific = Abi.gnu },
+    //},
     LibCTarget{
-        .name = "sparc-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.sparc },
-        .abi = MultiAbi{ .specific = Abi.gnu },
-    },
-    LibCTarget{
-        .name = "sparcv9-linux-gnu",
+        .name = "sparc64-linux-gnu",
         .arch = MultiArch{ .specific = Arch.sparc64 },
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
@@ -381,14 +382,14 @@ pub fn main() !void {
             try dir_stack.append(target_include_dir);
 
             while (dir_stack.popOrNull()) |full_dir_name| {
-                var iterable_dir = std.fs.cwd().openIterableDir(full_dir_name, .{}) catch |err| switch (err) {
+                var dir = std.fs.cwd().openDir(full_dir_name, .{ .iterate = true }) catch |err| switch (err) {
                     error.FileNotFound => continue :search,
                     error.AccessDenied => continue :search,
                     else => return err,
                 };
-                defer iterable_dir.close();
+                defer dir.close();
 
-                var dir_it = iterable_dir.iterate();
+                var dir_it = dir.iterate();
 
                 while (try dir_it.next()) |entry| {
                     const full_path = try std.fs.path.join(allocator, &[_][]const u8{ full_dir_name, entry.name });

@@ -11,7 +11,7 @@ pub export fn entry2() void {
 // backend=stage2
 // target=native
 //
-// :3:9: error: cannot call optional type '?fn() void'
+// :3:9: error: cannot call optional type '?fn () void'
 // :3:9: note: consider using '.?', 'orelse' or 'if'
-// :7:9: error: cannot call optional type '?*const fn() void'
+// :7:9: error: cannot call optional type '?*const fn () void'
 // :7:9: note: consider using '.?', 'orelse' or 'if'

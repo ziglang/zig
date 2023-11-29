@@ -221,7 +221,18 @@ pub const ChildProcess = struct {
             return term;
         }
 
-        try windows.TerminateProcess(self.id, exit_code);
+        windows.TerminateProcess(self.id, exit_code) catch |err| switch (err) {
+            error.PermissionDenied => {
+                // Usually when TerminateProcess triggers a ACCESS_DENIED error, it
+                // indicates that the process has already exited, but there may be
+                // some rare edge cases where our process handle no longer has the
+                // PROCESS_TERMINATE access right, so let's do another check to make
+                // sure the process is really no longer running:
+                windows.WaitForSingleObjectEx(self.id, 0, false) catch return err;
+                return error.AlreadyTerminated;
+            },
+            else => return err,
+        };
         try self.waitUnwrappedWindows();
         return self.term.?;
     }
@@ -231,7 +242,10 @@ pub const ChildProcess = struct {
             self.cleanupStreams();
             return term;
         }
-        try os.kill(self.id, os.SIG.TERM);
+        os.kill(self.id, os.SIG.TERM) catch |err| switch (err) {
+            error.ProcessNotFound => return error.AlreadyTerminated,
+            else => return err,
+        };
         try self.waitUnwrapped();
         return self.term.?;
     }
@@ -248,7 +262,7 @@ pub const ChildProcess = struct {
         return term;
     }
 
-    pub const ExecResult = struct {
+    pub const RunResult = struct {
         term: Term,
         stdout: []u8,
         stderr: []u8,
@@ -303,14 +317,14 @@ pub const ChildProcess = struct {
         stderr.* = fifoToOwnedArrayList(poller.fifo(.stderr));
     }
 
-    pub const ExecError = os.GetCwdError || os.ReadError || SpawnError || os.PollError || error{
+    pub const RunError = os.GetCwdError || os.ReadError || SpawnError || os.PollError || error{
         StdoutStreamTooLong,
         StderrStreamTooLong,
     };
 
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
-    pub fn exec(args: struct {
+    pub fn run(args: struct {
         allocator: mem.Allocator,
         argv: []const []const u8,
         cwd: ?[]const u8 = null,
@@ -318,7 +332,7 @@ pub const ChildProcess = struct {
         env_map: ?*const EnvMap = null,
         max_output_bytes: usize = 50 * 1024,
         expand_arg0: Arg0Expand = .no_expand,
-    }) ExecError!ExecResult {
+    }) RunError!RunResult {
         var child = ChildProcess.init(args.argv, args.allocator);
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
@@ -338,7 +352,7 @@ pub const ChildProcess = struct {
         try child.spawn();
         try child.collectOutput(&stdout, &stderr, args.max_output_bytes);
 
-        return ExecResult{
+        return RunResult{
             .term = try child.wait(),
             .stdout = try stdout.toOwnedSlice(),
             .stderr = try stderr.toOwnedSlice(),
@@ -446,7 +460,7 @@ pub const ChildProcess = struct {
                 // has a value greater than 0
                 if ((fd[0].revents & std.os.POLL.IN) != 0) {
                     const err_int = try readIntFd(err_pipe[0]);
-                    return @as(SpawnError, @errSetCast(@errorFromInt(err_int)));
+                    return @as(SpawnError, @errorCast(@errorFromInt(err_int)));
                 }
             } else {
                 // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
@@ -459,7 +473,7 @@ pub const ChildProcess = struct {
                 // Here we potentially return the fork child's error from the parent
                 // pid.
                 if (err_int != maxInt(ErrInt)) {
-                    return @as(SpawnError, @errSetCast(@errorFromInt(err_int)));
+                    return @as(SpawnError, @errorCast(@errorFromInt(err_int)));
                 }
             }
         }
@@ -807,7 +821,7 @@ pub const ChildProcess = struct {
         const cmd_line_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, cmd_line);
         defer self.allocator.free(cmd_line_w);
 
-        exec: {
+        run: {
             const PATH: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
             const PATHEXT: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
 
@@ -833,7 +847,7 @@ pub const ChildProcess = struct {
             }
 
             windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
-                var original_err = switch (no_path_err) {
+                const original_err = switch (no_path_err) {
                     error.FileNotFound, error.InvalidExe, error.AccessDenied => |e| e,
                     error.UnrecoverableInvalidExe => return error.InvalidExe,
                     else => |e| return e,
@@ -859,7 +873,7 @@ pub const ChildProcess = struct {
                     dir_buf.shrinkRetainingCapacity(normalized_len);
 
                     if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) {
-                        break :exec;
+                        break :run;
                     } else |err| switch (err) {
                         error.FileNotFound, error.AccessDenied, error.InvalidExe => continue,
                         error.UnrecoverableInvalidExe => return error.InvalidExe,
@@ -962,7 +976,8 @@ fn windowsCreateProcessPathExt(
         defer dir_buf.shrinkRetainingCapacity(dir_path_len);
         const dir_path_z = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
         const prefixed_path = try windows.wToPrefixedFileW(null, dir_path_z);
-        break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{}, true) catch return error.FileNotFound;
+        break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{ .iterate = true }) catch
+            return error.FileNotFound;
     };
     defer dir.close();
 
@@ -1271,7 +1286,7 @@ fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const w
     wr.* = wr_h;
 }
 
-var pipe_name_counter = std.atomic.Atomic(u32).init(1);
+var pipe_name_counter = std.atomic.Value(u32).init(1);
 
 fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
     var tmp_bufw: [128]u16 = undefined;
@@ -1362,7 +1377,7 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
         .capable_io_mode = .blocking,
         .intended_io_mode = .blocking,
     };
-    file.writer().writeIntNative(u64, @as(u64, @intCast(value))) catch return error.SystemResources;
+    file.writer().writeInt(u64, @intCast(value), .little) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
@@ -1371,7 +1386,7 @@ fn readIntFd(fd: i32) !ErrInt {
         .capable_io_mode = .blocking,
         .intended_io_mode = .blocking,
     };
-    return @as(ErrInt, @intCast(file.reader().readIntNative(u64) catch return error.SystemResources));
+    return @as(ErrInt, @intCast(file.reader().readInt(u64, .little) catch return error.SystemResources));
 }
 
 /// Caller must free result.

@@ -29,6 +29,7 @@
 __BEGIN_DECLS
 
 OS_WORKGROUP_ASSUME_NONNULL_BEGIN
+OS_WORKGROUP_ASSUME_ABI_SINGLE_BEGIN
 
 /*!
  * @typedef os_workgroup_interval_t
@@ -98,7 +99,7 @@ os_workgroup_interval_start(os_workgroup_interval_t wg, uint64_t start, uint64_t
  * @function os_workgroup_interval_update
  *
  * @abstract
- * Updates an already started interval workgroup to have the new
+ * Updates an already started workgroup interval to have the new
  * deadline specified. This function is real time safe.
  *
  * This function will return an error in the following cases:
@@ -140,7 +141,6 @@ os_workgroup_interval_update(os_workgroup_interval_t wg, uint64_t deadline,
  *
  * @param data
  * This field is currently unused and should be NULL
- *
  */
 API_AVAILABLE(macos(11.0), ios(14.0), tvos(14.0), watchos(7.0))
 OS_REFINED_FOR_SWIFT OS_WORKGROUP_EXPORT OS_WORKGROUP_WARN_RESULT
@@ -148,6 +148,7 @@ int
 os_workgroup_interval_finish(os_workgroup_interval_t wg,
 		os_workgroup_interval_data_t _Nullable data);
 
+OS_WORKGROUP_ASSUME_ABI_SINGLE_END
 OS_WORKGROUP_ASSUME_NONNULL_END
 
 __END_DECLS

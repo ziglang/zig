@@ -2,17 +2,14 @@ const std = @import("std");
 const tests = @import("tests.zig");
 const nl = if (@import("builtin").os.tag == .windows) "\r\n" else "\n";
 
-pub fn addCases(cases: *tests.RunTranslatedCContext) void {
-    cases.add("dereference address of",
-        \\#include <stdlib.h>
-        \\int main(void) {
-        \\    int i = 0;
-        \\    *&i = 42;
-        \\    if (i != 42) abort();
-        \\	  return 0;
-        \\}
-    , "");
+// *********************************************************
+// *                                                       *
+// *               DO NOT ADD NEW CASES HERE               *
+// *   instead add a file to test/cases/run_translated_c   *
+// *                                                       *
+// *********************************************************
 
+pub fn addCases(cases: *tests.RunTranslatedCContext) void {
     cases.add("division of floating literals",
         \\#define _NO_CRT_STDIO_INLINE 1
         \\#include <stdio.h>
@@ -1892,6 +1889,40 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\#if defined(__UINTPTR_MAX__) && __has_include(<unistd.h>)
         \\    uintptr_t x = (uintptr_t)main;
         \\#endif
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("Closure over local in typeof",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\    int x = 123;
+        \\    union { typeof(x) val; } u = { x };
+        \\    if (u.val != 123) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("struct without global declaration does not conflict with local variable name",
+        \\#include <stdlib.h>
+        \\static void foo(struct foobar *unused) {}
+        \\int main(void) {
+        \\    int struct_foobar = 123;
+        \\    if (struct_foobar != 123) abort();
+        \\    int foobar = 456;
+        \\    if (foobar != 456) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("struct without global declaration does not conflict with global variable name",
+        \\#include <stdlib.h>
+        \\static void foo(struct foobar *unused) {}
+        \\static int struct_foobar = 123;
+        \\static int foobar = 456;
+        \\int main(void) {
+        \\    if (struct_foobar != 123) abort();
+        \\    if (foobar != 456) abort();
         \\    return 0;
         \\}
     , "");

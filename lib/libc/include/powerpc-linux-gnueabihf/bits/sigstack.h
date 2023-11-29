@@ -1,5 +1,5 @@
 /* sigstack, sigaltstack definitions.
-   Copyright (C) 1998-2021 Free Software Foundation, Inc.
+   Copyright (C) 1998-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -23,10 +23,15 @@
 # error "Never include this file directly.  Use <signal.h> instead"
 #endif
 
+#ifdef __powerpc64__
+#define MINSIGSTKSZ	8192
+#define SIGSTKSZ	32768
+#else
 /* Minimum stack size for a signal handler.  */
 #define MINSIGSTKSZ	4096
 
 /* System default stack size.  */
 #define SIGSTKSZ	16384
+#endif
 
 #endif /* bits/sigstack.h */

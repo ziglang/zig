@@ -8,7 +8,6 @@ const math = std.math;
 const os = std.os;
 const assert = std.debug.assert;
 const target = builtin.target;
-const Atomic = std.atomic.Atomic;
 
 pub const Futex = @import("Thread/Futex.zig");
 pub const ResetEvent = @import("Thread/ResetEvent.zig");
@@ -43,7 +42,7 @@ pub const max_name_len = switch (target.os.tag) {
     .freebsd => 15,
     .openbsd => 23,
     .dragonfly => 1023,
-    .solaris => 31,
+    .solaris, .illumos => 31,
     else => 0,
 };
 
@@ -123,7 +122,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
                 else => |e| return os.unexpectedErrno(e),
             }
         },
-        .netbsd, .solaris => if (use_pthreads) {
+        .netbsd, .solaris, .illumos => if (use_pthreads) {
             const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr, null);
             switch (err) {
                 .SUCCESS => return,
@@ -229,7 +228,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                 else => |e| return os.unexpectedErrno(e),
             }
         },
-        .netbsd, .solaris => if (use_pthreads) {
+        .netbsd, .solaris, .illumos => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
             switch (err) {
                 .SUCCESS => return std.mem.sliceTo(buffer, 0),
@@ -388,7 +387,7 @@ pub fn yield() YieldError!void {
 }
 
 /// State to synchronize detachment of spawner thread to spawned thread
-const Completion = Atomic(enum(u8) {
+const Completion = std.atomic.Value(enum(u8) {
     running,
     detached,
     completed,
@@ -552,7 +551,7 @@ const WindowsThreadImpl = struct {
             null,
             stack_size,
             Instance.entryFn,
-            @as(*anyopaque, @ptrCast(instance)),
+            instance,
             0,
             null,
         ) orelse {
@@ -636,7 +635,7 @@ const PosixThreadImpl = struct {
                 };
                 return @as(usize, @intCast(count));
             },
-            .solaris => {
+            .solaris, .illumos => {
                 // The "proper" way to get the cpu count would be to query
                 // /dev/kstat via ioctls, and traverse a linked list for each
                 // cpu.
@@ -746,7 +745,7 @@ const WasiThreadImpl = struct {
 
     const WasiThread = struct {
         /// Thread ID
-        tid: Atomic(i32) = Atomic(i32).init(0),
+        tid: std.atomic.Value(i32) = std.atomic.Value(i32).init(0),
         /// Contains all memory which was allocated to bootstrap this thread, including:
         /// - Guard page
         /// - Stack
@@ -784,7 +783,7 @@ const WasiThreadImpl = struct {
         original_stack_pointer: [*]u8,
     };
 
-    const State = Atomic(enum(u8) { running, completed, detached });
+    const State = std.atomic.Value(enum(u8) { running, completed, detached });
 
     fn getCurrentId() Id {
         return tls_thread_id;
@@ -1048,7 +1047,7 @@ const LinuxThreadImpl = struct {
 
     const ThreadCompletion = struct {
         completion: Completion = Completion.init(.running),
-        child_tid: Atomic(i32) = Atomic(i32).init(1),
+        child_tid: std.atomic.Value(i32) = std.atomic.Value(i32).init(1),
         parent_tid: i32 = undefined,
         mapped: []align(std.mem.page_size) u8,
 
@@ -1304,7 +1303,7 @@ const LinuxThreadImpl = struct {
             @intFromPtr(instance),
             &instance.thread.parent_tid,
             tls_ptr,
-            &instance.thread.child_tid.value,
+            &instance.thread.child_tid.raw,
         ))) {
             .SUCCESS => return Impl{ .thread = &instance.thread },
             .AGAIN => return error.ThreadQuotaExceeded,
@@ -1346,7 +1345,7 @@ const LinuxThreadImpl = struct {
             }
 
             switch (linux.getErrno(linux.futex_wait(
-                &self.thread.child_tid.value,
+                &self.thread.child_tid.raw,
                 linux.FUTEX.WAIT,
                 tid,
                 null,
@@ -1387,7 +1386,7 @@ test "setName, getName" {
         test_done_event: ResetEvent = .{},
         thread_done_event: ResetEvent = .{},
 
-        done: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(false),
+        done: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
         thread: Thread = undefined,
 
         pub fn run(ctx: *@This()) !void {

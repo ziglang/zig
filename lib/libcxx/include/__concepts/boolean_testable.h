@@ -19,19 +19,19 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 // [concepts.booleantestable]
 
-template<class _Tp>
+template <class _Tp>
 concept __boolean_testable_impl = convertible_to<_Tp, bool>;
 
-template<class _Tp>
+template <class _Tp>
 concept __boolean_testable = __boolean_testable_impl<_Tp> && requires(_Tp&& __t) {
   { !_VSTD::forward<_Tp>(__t) } -> __boolean_testable_impl;
 };
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

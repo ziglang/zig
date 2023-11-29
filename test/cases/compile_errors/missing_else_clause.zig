@@ -14,7 +14,7 @@ fn h() void {
     // https://github.com/ziglang/zig/issues/12743
     const T = struct { oh_no: *u32 };
     var x: T = if (false) {};
-    _ = x;
+    _ = &x;
 }
 fn k(b: bool) void {
     // block_ptr case
@@ -22,7 +22,7 @@ fn k(b: bool) void {
     var x = if (b) blk: {
         break :blk if (false) T{ .oh_no = 2 };
     } else T{ .oh_no = 1 };
-    _ = x;
+    _ = &x;
 }
 export fn entry() void {
     f(true);
@@ -39,4 +39,6 @@ export fn entry() void {
 // :8:25: note: type 'i32' here
 // :16:16: error: expected type 'tmp.h.T', found 'void'
 // :15:15: note: struct declared here
-// :22:9: error: incompatible types: 'void' and 'tmp.k.T'
+// :22:13: error: incompatible types: 'void' and 'tmp.k.T'
+// :22:25: note: type 'void' here
+// :24:13: note: type 'tmp.k.T' here

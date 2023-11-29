@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Documentation - The Zig Programming Language</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg==">
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNTMgMTQwIj48ZyBmaWxsPSIjRjdBNDFEIj48Zz48cG9seWdvbiBwb2ludHM9IjQ2LDIyIDI4LDQ0IDE5LDMwIi8+PHBvbHlnb24gcG9pbnRzPSI0NiwyMiAzMywzMyAyOCw0NCAyMiw0NCAyMiw5NSAzMSw5NSAyMCwxMDAgMTIsMTE3IDAsMTE3IDAsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMzEsOTUgMTIsMTE3IDQsMTA2Ii8+PC9nPjxnPjxwb2x5Z29uIHBvaW50cz0iNTYsMjIgNjIsMzYgMzcsNDQiLz48cG9seWdvbiBwb2ludHM9IjU2LDIyIDExMSwyMiAxMTEsNDQgMzcsNDQgNTYsMzIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTE2LDk1IDk3LDExNyA5MCwxMDQiLz48cG9seWdvbiBwb2ludHM9IjExNiw5NSAxMDAsMTA0IDk3LDExNyA0MiwxMTcgNDIsOTUiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTUwLDAgNTIsMTE3IDMsMTQwIDEwMSwyMiIvPjwvZz48Zz48cG9seWdvbiBwb2ludHM9IjE0MSwyMiAxNDAsNDAgMTIyLDQ1Ii8+PHBvbHlnb24gcG9pbnRzPSIxNTMsMjIgMTUzLDExNyAxMDYsMTE3IDEyMCwxMDUgMTI1LDk1IDEzMSw5NSAxMzEsNDUgMTIyLDQ1IDEzMiwzNiAxNDEsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTI1LDk1IDEzMCwxMTAgMTA2LDExNyIvPjwvZz48L2c+PC9zdmc+">
     <style>
       :root{
          --nav-width: 24em;
@@ -898,8 +899,17 @@ pub fn main() void {
       The type of string literals encodes both the length, and the fact that they are null-terminated,
       and thus they can be {#link|coerced|Type Coercion#} to both {#link|Slices#} and
       {#link|Null-Terminated Pointers|Sentinel-Terminated Pointers#}.
-      Dereferencing string literals converts them to {#link|Arrays#}.
       </p>
+      <p>
+      Dereferencing string literals converts them to {#link|Arrays#}, allowing you to initialize a buffer with the contents of a string literal.
+      </p>
+      {#code_begin|syntax|mutable_string_buffer#}
+test {
+    var buffer = [_]u8{0}**256;
+    const home_dir = "C:/Users/root";
+    buffer[0..home_dir.len].* = home_dir.*;
+}
+      {#code_end#}
       <p>
       The encoding of a string in Zig is de-facto assumed to be UTF-8.
       Because Zig source code is {#link|UTF-8 encoded|Source Encoding#}, any non-ASCII bytes appearing within a string literal
@@ -2523,14 +2533,23 @@ test "multidimensional arrays" {
       {#header_open|Sentinel-Terminated Arrays#}
       <p>
       The syntax {#syntax#}[N:x]T{#endsyntax#} describes an array which has a sentinel element of value {#syntax#}x{#endsyntax#} at the
-      index corresponding to {#syntax#}len{#endsyntax#}.
+      index corresponding to the length {#syntax#}N{#endsyntax#}.
       </p>
       {#code_begin|test|test_null_terminated_array#}
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "null terminated array" {
+test "0-terminated sentinel array" {
     const array = [_:0]u8 {1, 2, 3, 4};
+
+    try expect(@TypeOf(array) == [4:0]u8);
+    try expect(array.len == 4);
+    try expect(array[4] == 0);
+}
+
+test "extra 0s in 0-terminated sentinel array" {
+    // The sentinel value may appear earlier, but does not influence the compile-time 'len'.
+    const array = [_:0]u8 {1, 0, 0, 4};
 
     try expect(@TypeOf(array) == [4:0]u8);
     try expect(array.len == 4);
@@ -2599,16 +2618,17 @@ test "Basic vector usage" {
 
 test "Conversion between vectors, arrays, and slices" {
     // Vectors and fixed-length arrays can be automatically assigned back and forth
-    var arr1: [4]f32 = [_]f32{ 1.1, 3.2, 4.5, 5.6 };
-    var vec: @Vector(4, f32) = arr1;
-    var arr2: [4]f32 = vec;
+    const arr1: [4]f32 = [_]f32{ 1.1, 3.2, 4.5, 5.6 };
+    const vec: @Vector(4, f32) = arr1;
+    const arr2: [4]f32 = vec;
     try expectEqual(arr1, arr2);
 
     // You can also assign from a slice with comptime-known length to a vector using .*
     const vec2: @Vector(2, f32) = arr1[1..3].*;
 
-    var slice: []const f32 = &arr1;
-    var offset: u32 = 1;
+    const slice: []const f32 = &arr1;
+    var offset: u32 = 1; // var to make it runtime-known
+    _ = &offset; // suppress 'var is never mutated' error
     // To extract a comptime-known length from a runtime-known offset,
     // first extract a new slice from the starting offset, then an array of
     // comptime-known length
@@ -2639,7 +2659,7 @@ test "Conversion between vectors, arrays, and slices" {
           <li>{#syntax#}[*]T{#endsyntax#} - many-item pointer to unknown number of items.
             <ul>
               <li>Supports index syntax: {#syntax#}ptr[i]{#endsyntax#}</li>
-              <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
+              <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#} and {#syntax#}ptr[start..]{#endsyntax#}</li>
               <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
               <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
               {#syntax#}anyopaque{#endsyntax#} or any other {#link|opaque type|opaque#}.</li>
@@ -2714,11 +2734,16 @@ test "pointer arithmetic with many-item pointer" {
     try expect(ptr[0] == 1);
     ptr += 1;
     try expect(ptr[0] == 2);
+
+    // slicing a many-item pointer without an end is equivalent to
+    // pointer arithmetic: `ptr[start..] == ptr + start`
+    try expect(ptr[1..] == ptr + 1);
 }
 
 test "pointer arithmetic with slices" {
     var array = [_]i32{ 1, 2, 3, 4 };
-    var length: usize = 0;
+    var length: usize = 0; // var to make it runtime-known
+    _ = &length; // suppress 'var is never mutated' error
     var slice = array[length..array.len];
 
     try expect(slice[0] == 1);
@@ -2745,7 +2770,8 @@ const expect = @import("std").testing.expect;
 
 test "pointer slicing" {
     var array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
-    var start: usize = 2;
+    var start: usize = 2; // var to make it runtime-known
+    _ = &start; // suppress 'var is never mutated' error
     const slice = array[start..4];
     try expect(slice.len == 2);
 
@@ -2947,8 +2973,9 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "allowzero" {
-    var zero: usize = 0;
-    var ptr: *allowzero i32 = @ptrFromInt(zero);
+    var zero: usize = 0; // var to make to runtime-known
+    _ = &zero; // suppress 'var is never mutated' error
+    const ptr: *allowzero i32 = @ptrFromInt(zero);
     try expect(@intFromPtr(ptr) == 0);
 }
       {#code_end#}
@@ -2980,16 +3007,19 @@ pub fn main() anyerror!void {
       {#header_close#}
 
       {#header_open|Slices#}
+      <p>
+      A slice is a pointer and a length. The difference between an array and
+      a slice is that the array's length is part of the type and known at
+      compile-time, whereas the slice's length is known at runtime.
+      Both can be accessed with the `len` field.
+      </p>
       {#code_begin|test_safety|test_basic_slices|index out of bounds#}
 const expect = @import("std").testing.expect;
 
 test "basic slices" {
     var array = [_]i32{ 1, 2, 3, 4 };
-    // A slice is a pointer and a length. The difference between an array and
-    // a slice is that the array's length is part of the type and known at
-    // compile-time, whereas the slice's length is known at runtime.
-    // Both can be accessed with the `len` field.
     var known_at_runtime_zero: usize = 0;
+    _ = &known_at_runtime_zero;
     const slice = array[known_at_runtime_zero..array.len];
     try expect(@TypeOf(slice) == []i32);
     try expect(&slice[0] == &array[0]);
@@ -3004,6 +3034,7 @@ test "basic slices" {
     // to perform some optimisations like recognising a comptime-known length when
     // the start position is only known at runtime.
     var runtime_start: usize = 1;
+    _ = &runtime_start;
     const length = 2;
     const array_ptr_len = array[runtime_start..][0..length];
     try expect(@TypeOf(array_ptr_len) == *[length]i32);
@@ -3040,7 +3071,8 @@ test "using slices for strings" {
     var all_together: [100]u8 = undefined;
     // You can use slice syntax with at least one runtime-known index on an
     // array to convert an array into a slice.
-    var start : usize = 0;
+    var start: usize = 0;
+    _ = &start;
     const all_together_slice = all_together[start..];
     // String concatenation example.
     const hello_world = try fmt.bufPrint(all_together_slice, "{s} {s}", .{ hello, world });
@@ -3052,8 +3084,6 @@ test "using slices for strings" {
 }
 
 test "slice pointer" {
-    var a: []u8 = undefined;
-    try expect(@TypeOf(a) == []u8);
     var array: [10]u8 = undefined;
     const ptr = &array;
     try expect(@TypeOf(ptr) == *[10]u8);
@@ -3061,11 +3091,12 @@ test "slice pointer" {
     // A pointer to an array can be sliced just like an array:
     var start: usize = 0;
     var end: usize = 5;
+    _ = .{ &start, &end };
     const slice = ptr[start..end];
-    slice[2] = 3;
-    try expect(slice[2] == 3);
     // The slice is mutable because we sliced a mutable pointer.
     try expect(@TypeOf(slice) == []u8);
+    slice[2] = 3;
+    try expect(array[2] == 3);
 
     // Again, slicing with comptime-known indexes will produce another pointer
     // to an array:
@@ -3088,7 +3119,7 @@ test "slice pointer" {
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "null terminated slice" {
+test "0-terminated slice" {
     const slice: [:0]const u8 = "hello";
 
     try expect(slice.len == 5);
@@ -3104,9 +3135,10 @@ test "null terminated slice" {
 const std = @import("std");
 const expect = std.testing.expect;
 
-test "null terminated slicing" {
+test "0-terminated slicing" {
     var array = [_]u8{ 3, 2, 1, 0, 3, 2, 1, 0 };
     var runtime_length: usize = 3;
+    _ = &runtime_length;
     const slice = array[0..runtime_length :0];
 
     try expect(@TypeOf(slice) == [:0]u8);
@@ -3129,6 +3161,7 @@ test "sentinel mismatch" {
     // This does not match the indicated sentinel value of `0` and will lead
     // to a runtime panic.
     var runtime_length: usize = 2;
+    _ = &runtime_length;
     const slice = array[0..runtime_length :0];
 
     _ = slice;
@@ -3252,7 +3285,7 @@ test "linked list" {
     // do this:
     try expect(LinkedList(i32) == LinkedList(i32));
 
-    var list = LinkedList(i32) {
+    const list = LinkedList(i32){
         .first = null,
         .last = null,
         .len = 0,
@@ -3264,12 +3297,12 @@ test "linked list" {
     const ListOfInts = LinkedList(i32);
     try expect(ListOfInts == LinkedList(i32));
 
-    var node = ListOfInts.Node {
+    var node = ListOfInts.Node{
         .prev = null,
         .next = null,
         .data = 1234,
     };
-    var list2 = LinkedList(i32) {
+    const list2 = LinkedList(i32){
         .first = &node,
         .last = &node,
         .len = 1,
@@ -3306,10 +3339,12 @@ test "default struct initialization fields" {
       {#header_close#}
 
       {#header_open|extern struct#}
-      <p>An {#syntax#}extern struct{#endsyntax#} has in-memory layout guaranteed to match the
-      C ABI for the target.</p>
-      <p>This kind of struct should only be used for compatibility with the C ABI. Every other
-      use case should be solved with {#link|packed struct#} or normal {#link|struct#}.</p>
+      <p>An {#syntax#}extern struct{#endsyntax#} has in-memory layout matching
+      the C ABI for the target.</p>
+      <p>If well-defined in-memory layout is not required, {#link|struct#} is a better choice
+      because it places fewer restrictions on the compiler.</p>
+      <p>See {#link|packed struct#} for a struct that has the ABI of its backing integer,
+      which can be useful for modeling flags.</p>
       {#see_also|extern union|extern enum#}
       {#header_close#}
 
@@ -3328,9 +3363,6 @@ test "default struct initialization fields" {
         <li>An {#link|enum#} field uses exactly the bit width of its integer tag type.</li>
         <li>A {#link|packed union#} field uses exactly the bit width of the union field with
         the largest bit width.</li>
-        <li>Non-ABI-aligned fields are packed into the smallest possible
-        ABI-aligned integers in accordance with the target endianness.
-        </li>
       </ul>
       <p>
       This means that a {#syntax#}packed struct{#endsyntax#} can participate
@@ -3359,19 +3391,19 @@ test "@bitCast between packed structs" {
 fn doTheTest() !void {
     try expect(@sizeOf(Full) == 2);
     try expect(@sizeOf(Divided) == 2);
-    var full = Full{ .number = 0x1234 };
-    var divided: Divided = @bitCast(full);
+    const full = Full{ .number = 0x1234 };
+    const divided: Divided = @bitCast(full);
     try expect(divided.half1 == 0x34);
     try expect(divided.quarter3 == 0x2);
     try expect(divided.quarter4 == 0x1);
 
-    var ordered: [2]u8 = @bitCast(full);
+    const ordered: [2]u8 = @bitCast(full);
     switch (native_endian) {
-        .Big => {
+        .big => {
             try expect(ordered[0] == 0x12);
             try expect(ordered[1] == 0x34);
         },
-        .Little => {
+        .little => {
             try expect(ordered[0] == 0x34);
             try expect(ordered[1] == 0x12);
         },
@@ -3573,7 +3605,7 @@ const expect = std.testing.expect;
 const Point = struct {x: i32, y: i32};
 
 test "anonymous struct literal" {
-    var pt: Point = .{
+    const pt: Point = .{
         .x = 13,
         .y = 67,
     };
@@ -3590,7 +3622,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "fully anonymous struct" {
-    try dump(.{
+    try check(.{
         .int = @as(u32, 1234),
         .float = @as(f64, 12.34),
         .b = true,
@@ -3598,7 +3630,7 @@ test "fully anonymous struct" {
     });
 }
 
-fn dump(args: anytype) !void {
+fn check(args: anytype) !void {
     try expect(args.int == 1234);
     try expect(args.float == 12.34);
     try expect(args.b);
@@ -3813,8 +3845,8 @@ test "switch using enum literals" {
 
       {#header_open|Non-exhaustive enum#}
       <p>
-      A Non-exhaustive enum can be created by adding a trailing '_' field.
-      It  must specify a tag type and cannot consume every enumeration value.
+      A non-exhaustive enum can be created by adding a trailing {#syntax#}_{#endsyntax#} field.
+      The enum must specify a tag type and cannot consume every enumeration value.
       </p>
       <p>
       {#link|@enumFromInt#} on a non-exhaustive enum involves the safety semantics
@@ -3822,8 +3854,8 @@ test "switch using enum literals" {
       a well-defined enum value.
       </p>
       <p>
-      A switch on a non-exhaustive enum can include a '_' prong as an alternative to an {#syntax#}else{#endsyntax#} prong
-      with the difference being that it makes it a compile error if all the known tag names are not handled by the switch.
+      A switch on a non-exhaustive enum can include a {#syntax#}_{#endsyntax#} prong as an alternative to an {#syntax#}else{#endsyntax#} prong.
+      With a {#syntax#}_{#endsyntax#} prong the compiler errors if all the known tag names are not handled by the switch.
       </p>
       {#code_begin|test|test_switch_non-exhaustive#}
 const std = @import("std");
@@ -4038,14 +4070,14 @@ const Number = union {
 };
 
 test "anonymous union literal syntax" {
-    var i: Number = .{.int = 42};
-    var f = makeNumber();
+    const i: Number = .{ .int = 42 };
+    const f = makeNumber();
     try expect(i.int == 42);
     try expect(f.float == 12.34);
 }
 
 fn makeNumber() Number {
-    return .{.float = 12.34};
+    return .{ .float = 12.34 };
 }
       {#code_end#}
       {#header_close#}
@@ -4085,7 +4117,7 @@ test "call foo" {
 test "access variable after block scope" {
     {
         var x: i32 = 1;
-        _ = x;
+        _ = &x;
     }
     x += 1;
 }
@@ -4136,7 +4168,7 @@ test "separate scopes" {
     }
     {
         var pi: bool = true;
-        _ = pi;
+        _ = &pi;
     }
 }
       {#code_end#}
@@ -4410,7 +4442,7 @@ fn withSwitch(any: AnySlice) usize {
 }
 
 test "inline for and inline else similarity" {
-    var any = AnySlice{ .c = "hello" };
+    const any = AnySlice{ .c = "hello" };
     try expect(withFor(any) == 5);
     try expect(withSwitch(any) == 5);
 }
@@ -4442,7 +4474,7 @@ fn getNum(u: U) u32 {
 }
 
 test "test" {
-    var u = U{ .b = 42 };
+    const u = U{ .b = 42 };
     try expect(getNum(u) == 42);
 }
       {#code_end#}
@@ -4749,7 +4781,7 @@ test "multi object for" {
 }
 
 test "for reference" {
-    var items = [_]i32 { 3, 4, 2 };
+    var items = [_]i32{ 3, 4, 2 };
 
     // Iterate over the slice by reference by
     // specifying that the capture value is a pointer.
@@ -4764,7 +4796,7 @@ test "for reference" {
 
 test "for else" {
     // For allows an else attached to it, the same as a while loop.
-    var items = [_]?i32 { 3, 4, null, 5 };
+    const items = [_]?i32{ 3, 4, null, 5 };
 
     // For loops can also be used as expressions.
     // Similar to while loops, when you break from a for loop, the else branch is not evaluated.
@@ -5268,14 +5300,14 @@ fn shiftLeftOne(a: u32) callconv(.Inline) u32 {
 pub fn sub2(a: i8, b: i8) i8 { return a - b; }
 
 // Function pointers are prefixed with `*const `.
-const call2_op = *const fn (a: i8, b: i8) i8;
-fn do_op(fn_call: call2_op, op1: i8, op2: i8) i8 {
-    return fn_call(op1, op2);
+const Call2Op = *const fn (a: i8, b: i8) i8;
+fn doOp(fnCall: Call2Op, op1: i8, op2: i8) i8 {
+    return fnCall(op1, op2);
 }
 
 test "function" {
-    try expect(do_op(add, 5, 6) == 11);
-    try expect(do_op(sub2, 5, 6) == -1);
+    try expect(doOp(add, 5, 6) == 11);
+    try expect(doOp(sub2, 5, 6) == -1);
 }
       {#code_end#}
       <p>There is a difference between a function <em>body</em> and a function <em>pointer</em>.
@@ -5334,7 +5366,7 @@ fn addFortyTwo(x: anytype) @TypeOf(x) {
 test "fn type inference" {
     try expect(addFortyTwo(1) == 43);
     try expect(@TypeOf(addFortyTwo(1)) == comptime_int);
-    var y: i64 = 2;
+    const y: i64 = 2;
     try expect(addFortyTwo(y) == 44);
     try expect(@TypeOf(addFortyTwo(y)) == i64);
 }
@@ -5365,8 +5397,9 @@ test "fn reflection" {
       gets assigned the same integer value.
       </p>
       <p>
-      The number of unique error values across the entire compilation should determine the size of the error set type.
-      However right now it is hard coded to be a {#syntax#}u16{#endsyntax#}. See <a href="https://github.com/ziglang/zig/issues/786">#786</a>.
+      The error set type defaults to a {#syntax#}u16{#endsyntax#}, though if the maximum number of distinct
+      error values is provided via the <kbd>--error-limit [num]</kbd> command line parameter an integer type
+      with the minimum number of bits required to represent all of the error values will be used.
       </p>
       <p>
       You can {#link|coerce|Type Coercion#} an error from a subset to a superset:
@@ -5781,7 +5814,7 @@ fn getData() !u32 {
 }
 
 fn genFoos(allocator: Allocator, num: usize) ![]Foo {
-    var foos = try allocator.alloc(Foo, num);
+    const foos = try allocator.alloc(Foo, num);
     errdefer allocator.free(foos);
 
     for (foos, 0..) |*foo, i| {
@@ -5819,7 +5852,7 @@ fn getData() !u32 {
 }
 
 fn genFoos(allocator: Allocator, num: usize) ![]Foo {
-    var foos = try allocator.alloc(Foo, num);
+    const foos = try allocator.alloc(Foo, num);
     errdefer allocator.free(foos);
 
     // Used to track how many foos have been initialized
@@ -6191,7 +6224,7 @@ struct Foo *do_a_thing(void) {
       <p>Zig code</p>
       {#syntax_block|zig|call_malloc_from_zig.zig#}
 // malloc prototype included for reference
-extern fn malloc(size: usize) ?*u8;
+extern fn malloc(size: usize) ?[*]u8;
 
 fn doAThing() ?*Foo {
     const ptr = malloc(1234) orelse return null;
@@ -6200,7 +6233,7 @@ fn doAThing() ?*Foo {
       {#end_syntax_block#}
       <p>
         Here, Zig is at least as convenient, if not more, than C. And, the type of "ptr"
-        is {#syntax#}*u8{#endsyntax#} <em>not</em> {#syntax#}?*u8{#endsyntax#}. The {#syntax#}orelse{#endsyntax#} keyword
+        is {#syntax#}[*]u8{#endsyntax#} <em>not</em> {#syntax#}?[*]u8{#endsyntax#}. The {#syntax#}orelse{#endsyntax#} keyword
                     unwrapped the optional type and therefore {#syntax#}ptr{#endsyntax#} is guaranteed to be non-null everywhere
         it is used in the function.
       </p>
@@ -6311,13 +6344,13 @@ test "optional pointers" {
       </p>
       {#code_begin|test|test_type_coercion#}
 test "type coercion - variable declaration" {
-    var a: u8 = 1;
-    var b: u16 = a;
+    const a: u8 = 1;
+    const b: u16 = a;
     _ = b;
 }
 
 test "type coercion - function call" {
-    var a: u8 = 1;
+    const a: u8 = 1;
     foo(a);
 }
 
@@ -6326,8 +6359,8 @@ fn foo(b: u16) void {
 }
 
 test "type coercion - @as builtin" {
-    var a: u8 = 1;
-    var b = @as(u16, a);
+    const a: u8 = 1;
+    const b = @as(u16, a);
     _ = b;
 }
       {#code_end#}
@@ -6352,7 +6385,7 @@ test "type coercion - @as builtin" {
       {#code_begin|test|test_no_op_casts#}
 test "type coercion - const qualification" {
     var a: i32 = 1;
-    var b: *i32 = &a;
+    const b: *i32 = &a;
     foo(b);
 }
 
@@ -6385,26 +6418,26 @@ const expect = std.testing.expect;
 const mem = std.mem;
 
 test "integer widening" {
-    var a: u8 = 250;
-    var b: u16 = a;
-    var c: u32 = b;
-    var d: u64 = c;
-    var e: u64 = d;
-    var f: u128 = e;
+    const a: u8 = 250;
+    const b: u16 = a;
+    const c: u32 = b;
+    const d: u64 = c;
+    const e: u64 = d;
+    const f: u128 = e;
     try expect(f == a);
 }
 
 test "implicit unsigned integer to signed integer" {
-    var a: u8 = 250;
-    var b: i16 = a;
+    const a: u8 = 250;
+    const b: i16 = a;
     try expect(b == 250);
 }
 
 test "float widening" {
-    var a: f16 = 12.34;
-    var b: f32 = a;
-    var c: f64 = b;
-    var d: f128 = c;
+    const a: f16 = 12.34;
+    const b: f32 = a;
+    const c: f64 = b;
+    const d: f128 = c;
     try expect(d == a);
 }
       {#code_end#}
@@ -6421,7 +6454,7 @@ test "float widening" {
       {#code_begin|test_err|test_ambiguous_coercion#}
 // Compile time coercion of float to int
 test "implicit cast to comptime_int" {
-    var f: f32 = 54.0 / 5;
+    const f: f32 = 54.0 / 5;
     _ = f;
 }
       {#code_end#}
@@ -6435,31 +6468,31 @@ const expect = std.testing.expect;
 // const modifier on the element type. Useful in particular for
 // String literals.
 test "*const [N]T to []const T" {
-    var x1: []const u8 = "hello";
-    var x2: []const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
+    const x1: []const u8 = "hello";
+    const x2: []const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     try expect(std.mem.eql(u8, x1, x2));
 
-    var y: []const f32 = &[2]f32{ 1.2, 3.4 };
+    const y: []const f32 = &[2]f32{ 1.2, 3.4 };
     try expect(y[0] == 1.2);
 }
 
 // Likewise, it works when the destination type is an error union.
 test "*const [N]T to E![]const T" {
-    var x1: anyerror![]const u8 = "hello";
-    var x2: anyerror![]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
+    const x1: anyerror![]const u8 = "hello";
+    const x2: anyerror![]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     try expect(std.mem.eql(u8, try x1, try x2));
 
-    var y: anyerror![]const f32 = &[2]f32{ 1.2, 3.4 };
+    const y: anyerror![]const f32 = &[2]f32{ 1.2, 3.4 };
     try expect((try y)[0] == 1.2);
 }
 
 // Likewise, it works when the destination type is an optional.
 test "*const [N]T to ?[]const T" {
-    var x1: ?[]const u8 = "hello";
-    var x2: ?[]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
+    const x1: ?[]const u8 = "hello";
+    const x2: ?[]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     try expect(std.mem.eql(u8, x1.?, x2.?));
 
-    var y: ?[]const f32 = &[2]f32{ 1.2, 3.4 };
+    const y: ?[]const f32 = &[2]f32{ 1.2, 3.4 };
     try expect(y.?[0] == 1.2);
 }
 
@@ -6515,7 +6548,7 @@ test "coerce to optionals" {
     try expect(y == null);
 }
       {#code_end#}
-      <p>It works nested inside the {#link|Error Union Type#}, too:</p>
+      <p>Optionals work nested inside the {#link|Error Union Type#}, too:</p>
       {#code_begin|test|test_coerce_optional_wrapped_error_union#}
 const std = @import("std");
 const expect = std.testing.expect;
@@ -6595,18 +6628,18 @@ const U2 = union(enum) {
 };
 
 test "coercion between unions and enums" {
-    var u = U{ .two = 12.34 };
-    var e: E = u; // coerce union to enum
+    const u = U{ .two = 12.34 };
+    const e: E = u; // coerce union to enum
     try expect(e == E.two);
 
     const three = E.three;
-    var u_2: U = three; // coerce enum to union
+    const u_2: U = three; // coerce enum to union
     try expect(u_2 == E.three);
 
-    var u_3: U = .three; // coerce enum literal to union
+    const u_3: U = .three; // coerce enum literal to union
     try expect(u_3 == E.three);
 
-    var u_4: U2 = .a; // coerce enum literal to union with inferred enum tag type.
+    const u_4: U2 = .a; // coerce enum literal to union with inferred enum tag type.
     try expect(u_4.tag() == 1);
 
     // The following example is invalid.
@@ -6649,7 +6682,7 @@ test "coercion from homogenous tuple to array" {
           <li>{#link|@alignCast#} - make a pointer have more alignment</li>
           <li>{#link|@enumFromInt#} - obtain an enum value based on its integer tag value</li>
           <li>{#link|@errorFromInt#} - obtain an error code based on its integer value</li>
-          <li>{#link|@errSetCast#} - convert to a smaller error set</li>
+          <li>{#link|@errorCast#} - convert to a smaller error set</li>
           <li>{#link|@floatCast#} - convert a larger float to a smaller float</li>
           <li>{#link|@floatFromInt#} - convert an integer to a float value</li>
           <li>{#link|@intCast#} - convert between integer types</li>
@@ -6684,9 +6717,9 @@ const expect = std.testing.expect;
 const mem = std.mem;
 
 test "peer resolve int widening" {
-    var a: i8 = 12;
-    var b: i16 = 34;
-    var c = a + b;
+    const a: i8 = 12;
+    const b: i16 = 34;
+    const c = a + b;
     try expect(c == 46);
     try expect(@TypeOf(c) == i16);
 }
@@ -6795,6 +6828,7 @@ export fn entry() void {
     var x: void = {};
     var y: void = {};
     x = y;
+    y = x;
 }
       {#code_end#}
       <p>When this turns into machine code, there is no code generated in the
@@ -6841,7 +6875,8 @@ test "turn HashMap into a set with void" {
       {#syntax#}void{#endsyntax#} has a known size of 0 bytes, and {#syntax#}anyopaque{#endsyntax#} has an unknown, but non-zero, size.
       </p>
       <p>
-      Expressions of type {#syntax#}void{#endsyntax#} are the only ones whose value can be ignored. For example:
+      Expressions of type {#syntax#}void{#endsyntax#} are the only ones whose value can be ignored. For example, ignoring
+      a non-{#syntax#}void{#endsyntax#} expression is a compile error:
       </p>
       {#code_begin|test_err|test_expression_ignored|ignored#}
 test "ignoring expression value" {
@@ -6852,7 +6887,7 @@ fn foo() i32 {
     return 1234;
 }
       {#code_end#}
-      <p>However, if the expression has type {#syntax#}void{#endsyntax#}, there will be no error. Function return values can also be explicitly ignored by assigning them to {#syntax#}_{#endsyntax#}. </p>
+      <p>However, if the expression has type {#syntax#}void{#endsyntax#}, there will be no error. Expression results can be explicitly ignored by assigning them to {#syntax#}_{#endsyntax#}. </p>
       {#code_begin|test|test_void_ignored#}
 test "void is ignored" {
     returnsVoid();
@@ -7015,7 +7050,9 @@ test "try to compare bools" {
       </p>
       {#code_begin|syntax|compiler_generated_function#}
 fn max(a: bool, b: bool) bool {
-    return a or b;
+    {
+        return a or b;
+    }
 }
       {#code_end#}
       <p>
@@ -7104,16 +7141,15 @@ fn performFn(start_value: i32) i32 {
 // expect(performFn('w', 99) == 99);
 fn performFn(start_value: i32) i32 {
     var result: i32 = start_value;
+    _ = &result;
     return result;
 }
       {#end_syntax_block#}
       <p>
-      Note that this happens even in a debug build; in a release build these generated functions still
-      pass through rigorous LLVM optimizations. The important thing to note, however, is not that this
-      is a way to write more optimized code, but that it is a way to make sure that what <em>should</em> happen
-      at compile-time, <em>does</em> happen at compile-time. This catches more errors and as demonstrated
-      later in this article, allows expressiveness that in other languages requires using macros,
-      generated code, or a preprocessor to accomplish.
+      Note that this happens even in a debug build.
+      This is not a way to write more optimized code, but it is a way to make sure that what <em>should</em> happen
+      at compile-time, <em>does</em> happen at compile-time. This catches more errors and allows expressiveness
+      that in other languages requires using macros, generated code, or a preprocessor to accomplish.
       </p>
       {#header_close#}
       {#header_open|Compile-Time Expressions#}
@@ -7295,9 +7331,8 @@ test "variable values" {
       {#header_close#}
       {#header_open|Generic Data Structures#}
       <p>
-      Zig uses these capabilities to implement generic data structures without introducing any
-      special-case syntax. If you followed along so far, you may already know how to create a
-      generic data structure.
+      Zig uses comptime capabilities to implement generic data structures without introducing any
+      special-case syntax.
       </p>
       <p>
 			Here is an example of a generic {#syntax#}List{#endsyntax#} data structure.
@@ -7319,7 +7354,6 @@ var list = List(i32){
       {#code_end#}
       <p>
       That's it. It's a function that returns an anonymous {#syntax#}struct{#endsyntax#}.
-      To keep the language small and uniform, all aggregate types in Zig are anonymous.
       For the purposes of error messages and debugging, Zig infers the name
       {#syntax#}"List(i32)"{#endsyntax#} from the function name and parameters invoked when creating
       the anonymous struct.
@@ -7752,6 +7786,9 @@ test "global assembly" {
       <p>TODO: @fence()</p>
       <p>TODO: @atomic rmw</p>
       <p>TODO: builtin atomic memory ordering enum</p>
+
+      {#see_also|@atomicLoad|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
+
       {#header_close#}
 
       {#header_open|Async Functions#}
@@ -7822,7 +7859,7 @@ comptime {
       {#header_open|@atomicLoad#}
       <pre>{#syntax#}@atomicLoad(comptime T: type, ptr: *const T, comptime ordering: builtin.AtomicOrder) T{#endsyntax#}</pre>
       <p>
-      This builtin function atomically dereferences a pointer and returns the value.
+      This builtin function atomically dereferences a pointer to a {#syntax#}T{#endsyntax#} and returns the value.
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
@@ -7834,14 +7871,15 @@ comptime {
       {#header_open|@atomicRmw#}
       <pre>{#syntax#}@atomicRmw(comptime T: type, ptr: *T, comptime op: builtin.AtomicRmwOp, operand: T, comptime ordering: builtin.AtomicOrder) T{#endsyntax#}</pre>
       <p>
-      This builtin function atomically modifies memory and then returns the previous value.
+      This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and atomically
+      modifies the value and returns the previous value.
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
       <p>
-      Supported operations:
+      Supported values for the {#syntax#}op{#endsyntax#} parameter:
       </p>
       <ul>
         <li>{#syntax#}.Xchg{#endsyntax#} - stores the operand unmodified. Supports enums, integers and floats.</li>
@@ -7862,7 +7900,7 @@ comptime {
       {#header_open|@atomicStore#}
       <pre>{#syntax#}@atomicStore(comptime T: type, ptr: *T, value: T, comptime ordering: builtin.AtomicOrder) void{#endsyntax#}</pre>
       <p>
-      This builtin function atomically stores a value.
+      This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and atomically stores the given value.
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
@@ -8120,7 +8158,8 @@ pub const CallModifier = enum {
       {#header_open|@cmpxchgStrong#}
       <pre>{#syntax#}@cmpxchgStrong(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
-      This function performs a strong atomic compare exchange operation. It's the equivalent of this code,
+      This function performs a strong atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
+      if the current value is not the given expected value. It's the equivalent of this code,
       except atomic:
       </p>
       {#code_begin|syntax|not_atomic_cmpxchgStrong#}
@@ -8135,7 +8174,7 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
 }
       {#code_end#}
       <p>
-      If you are using cmpxchg in a loop, {#link|@cmpxchgWeak#} is the better choice, because it can be implemented
+      If you are using cmpxchg in a retry loop, {#link|@cmpxchgWeak#} is the better choice, because it can be implemented
       more efficiently in machine instructions.
       </p>
       <p>
@@ -8149,7 +8188,8 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       {#header_open|@cmpxchgWeak#}
       <pre>{#syntax#}@cmpxchgWeak(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
-      This function performs a weak atomic compare exchange operation. It's the equivalent of this code,
+      This function performs a weak atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
+      if the current value is not the given expected value. It's the equivalent of this code,
       except atomic:
       </p>
       {#syntax_block|zig|cmpxchgWeakButNotAtomic#}
@@ -8164,7 +8204,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
 }
       {#end_syntax_block#}
       <p>
-      If you are using cmpxchg in a loop, the sporadic failure will be no problem, and {#syntax#}cmpxchgWeak{#endsyntax#}
+      If you are using cmpxchg in a retry loop, the sporadic failure will be no problem, and {#syntax#}cmpxchgWeak{#endsyntax#}
       is the better choice, because it can be implemented more efficiently in machine instructions.
       However if you need a stronger guarantee, use {#link|@cmpxchgStrong#}.
       </p>
@@ -8217,24 +8257,6 @@ const num1 = blk: {
 test "main" {
     @compileLog("comptime in main");
 
-    print("Runtime in main, num1 = {}.\n", .{num1});
-}
-      {#code_end#}
-      <p>
-      If all {#syntax#}@compileLog{#endsyntax#} calls are removed or
-      not encountered by analysis, the
-      program compiles successfully and the generated executable prints:
-      </p>
-      {#code_begin|test|test_without_compileLog_builtin#}
-const print = @import("std").debug.print;
-
-const num1 = blk: {
-    var val1: i32 = 99;
-    val1 = val1 + 1;
-    break :blk val1;
-};
-
-test "main" {
     print("Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
@@ -8378,7 +8400,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorFromInt#}
-      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
+      <pre>{#syntax#}@errorFromInt(value: std.meta.Int(.unsigned, @bitSizeOf(anyerror))) anyerror{#endsyntax#}</pre>
       <p>
       Converts from the integer representation of an error into {#link|The Global Error Set#} type.
       </p>
@@ -8415,10 +8437,10 @@ test "main" {
       </p>
       {#header_close#}
 
-      {#header_open|@errSetCast#}
-      <pre>{#syntax#}@errSetCast(value: anytype) anytype{#endsyntax#}</pre>
+      {#header_open|@errorCast#}
+      <pre>{#syntax#}@errorCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Converts an error value from one error set to another error set. The return type is the
+      Converts an error set or error union value from one error set to another error set. The return type is the
 			inferred result type. Attempting to convert an error which is not in the destination error
 			set results in safety-protected {#link|Undefined Behavior#}.
       </p>
@@ -8663,8 +8685,9 @@ test "@hasDecl" {
       </p>
       {#code_begin|test_err|test_intCast_builtin|cast truncated bits#}
 test "integer cast panic" {
-    var a: u16 = 0xabcd;
-    var b: u8 = @intCast(a);
+    var a: u16 = 0xabcd; // runtime-known
+    _ = &a;
+    const b: u8 = @intCast(a);
     _ = b;
 }
       {#code_end#}
@@ -8699,7 +8722,7 @@ test "integer cast panic" {
       {#header_close#}
 
       {#header_open|@intFromError#}
-      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
+      <pre>{#syntax#}@intFromError(err: anytype) std.meta.Int(.unsigned, @bitSizeOf(anyerror)){#endsyntax#}</pre>
       <p>
       Supports the following types:
       </p>
@@ -8824,7 +8847,7 @@ const expect = std.testing.expect;
 test "@wasmMemoryGrow" {
     if (native_arch != .wasm32) return error.SkipZigTest;
 
-    var prev = @wasmMemorySize(0);
+    const prev = @wasmMemorySize(0);
     try expect(prev == @wasmMemoryGrow(0, 1));
     try expect(prev + 1 == @wasmMemorySize(0));
 }
@@ -9018,14 +9041,16 @@ pub const PrefetchOptions = struct {
       {#header_open|@setCold#}
       <pre>{#syntax#}@setCold(comptime is_cold: bool) void{#endsyntax#}</pre>
       <p>
-      Tells the optimizer that a function is rarely called.
+      Tells the optimizer that the current function is (or is not) rarely called.
+
+      This function is only valid within function scope.
       </p>
       {#header_close#}
 
       {#header_open|@setEvalBranchQuota#}
       <pre>{#syntax#}@setEvalBranchQuota(comptime new_quota: u32) void{#endsyntax#}</pre>
       <p>
-      Changes the maximum number of backwards branches that compile-time code
+      Increase the maximum number of backwards branches that compile-time code
       execution can use before giving up and making a compile error.
       </p>
       <p>
@@ -9230,7 +9255,7 @@ test "vector @shuffle" {
       The result is a target-specific compile time constant.
       </p>
       <p>
-      This size may contain padding bytes. If there were two consecutive T in memory, this would be the offset
+      This size may contain padding bytes. If there were two consecutive T in memory, the padding would be the offset
       in bytes between element at index 0 and the element at index 1. For {#link|integer|Integers#},
       consider whether you want to use {#syntax#}@sizeOf(T){#endsyntax#} or
       {#syntax#}@typeInfo(T).Int.bits{#endsyntax#}.
@@ -9245,7 +9270,7 @@ test "vector @shuffle" {
       {#header_open|@splat#}
       <pre>{#syntax#}@splat(scalar: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Produces a vector where each element is the value {#syntax#}scalar{#endsyntax#}. 
+      Produces a vector where each element is the value {#syntax#}scalar{#endsyntax#}.
       The return type and thus the length of the vector is inferred.
       </p>
       {#code_begin|test|test_splat_builtin#}
@@ -9424,14 +9449,17 @@ fn doTheTest() !void {
       Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
-      {#header_open|@fabs#}
-      <pre>{#syntax#}@fabs(value: anytype) @TypeOf(value){#endsyntax#}</pre>
+      {#header_open|@abs#}
+      <pre>{#syntax#}@abs(value: anytype) anytype{#endsyntax#}</pre>
       <p>
-      Returns the absolute value of a floating point number. Uses a dedicated hardware instruction
+      Returns the absolute value of an integer or a floating point number. Uses a dedicated hardware instruction
       when available.
+
+      The return type is always an unsigned integer of the same bit width as the operand if the operand is an integer.
+      Unsigned integer operands are supported. The builtin cannot overflow for signed integer operands.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats.
+      Supports {#link|Floats#}, {#link|Integers#} and {#link|Vectors#} of floats or integers.
       </p>
       {#header_close#}
       {#header_open|@floor#}
@@ -9554,8 +9582,8 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "integer truncation" {
-    var a: u16 = 0xabcd;
-    var b: u8 = @truncate(a);
+    const a: u16 = 0xabcd;
+    const b: u8 = @truncate(a);
     try expect(b == 0xcd);
 }
       {#code_end#}
@@ -9839,7 +9867,7 @@ comptime {
       <p>At runtime:</p>
       {#code_begin|exe_err|runtime_index_out_of_bounds#}
 pub fn main() void {
-    var x = foo("hello");
+    const x = foo("hello");
     _ = x;
 }
 
@@ -9852,7 +9880,7 @@ fn foo(x: []const u8) u8 {
       <p>At compile-time:</p>
       {#code_begin|test_err|test_comptime_invalid_cast|type 'u32' cannot represent integer value '-1'#}
 comptime {
-    var value: i32 = -1;
+    const value: i32 = -1;
     const unsigned: u32 = @intCast(value);
     _ = unsigned;
 }
@@ -9862,8 +9890,9 @@ comptime {
 const std = @import("std");
 
 pub fn main() void {
-    var value: i32 = -1;
-    var unsigned: u32 = @intCast(value);
+    var value: i32 = -1; // runtime-known
+    _ = &value;
+    const unsigned: u32 = @intCast(value);
     std.debug.print("value: {}\n", .{unsigned});
 }
       {#code_end#}
@@ -9885,7 +9914,8 @@ comptime {
 const std = @import("std");
 
 pub fn main() void {
-    var spartan_count: u16 = 300;
+    var spartan_count: u16 = 300; // runtime-known
+    _ = &spartan_count;
     const byte: u8 = @intCast(spartan_count);
     std.debug.print("value: {}\n", .{byte});
 }
@@ -9969,7 +9999,7 @@ pub fn main() !void {
       {#code_begin|exe|addWithOverflow_builtin#}
 const print = @import("std").debug.print;
 pub fn main() void {
-    var byte: u8 = 255;
+    const byte: u8 = 255;
 
     const ov = @addWithOverflow(byte, 10);
     if (ov[1] != 0) {
@@ -10019,8 +10049,9 @@ comptime {
 const std = @import("std");
 
 pub fn main() void {
-    var x: u8 = 0b01010101;
-    var y = @shlExact(x, 2);
+    var x: u8 = 0b01010101; // runtime-known
+    _ = &x;
+    const y = @shlExact(x, 2);
     std.debug.print("value: {}\n", .{y});
 }
       {#code_end#}
@@ -10038,8 +10069,9 @@ comptime {
 const std = @import("std");
 
 pub fn main() void {
-    var x: u8 = 0b10101010;
-    var y = @shrExact(x, 2);
+    var x: u8 = 0b10101010; // runtime-known
+    _ = &x;
+    const y = @shrExact(x, 2);
     std.debug.print("value: {}\n", .{y});
 }
       {#code_end#}
@@ -10061,7 +10093,8 @@ const std = @import("std");
 pub fn main() void {
     var a: u32 = 1;
     var b: u32 = 0;
-    var c = a / b;
+    _ = .{ &a, &b };
+    const c = a / b;
     std.debug.print("value: {}\n", .{c});
 }
       {#code_end#}
@@ -10083,7 +10116,8 @@ const std = @import("std");
 pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 0;
-    var c = a % b;
+    _ = .{ &a, &b };
+    const c = a % b;
     std.debug.print("value: {}\n", .{c});
 }
       {#code_end#}
@@ -10105,7 +10139,8 @@ const std = @import("std");
 pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 3;
-    var c = @divExact(a, b);
+    _ = .{ &a, &b };
+    const c = @divExact(a, b);
     std.debug.print("value: {}\n", .{c});
 }
       {#code_end#}
@@ -10125,7 +10160,8 @@ const std = @import("std");
 
 pub fn main() void {
     var optional_number: ?i32 = null;
-    var number = optional_number.?;
+    _ = &optional_number;
+    const number = optional_number.?;
     std.debug.print("value: {}\n", .{number});
 }
       {#code_end#}
@@ -10206,9 +10242,10 @@ comptime {
 const std = @import("std");
 
 pub fn main() void {
-    var err = error.AnError;
+    const err = error.AnError;
     var number = @intFromError(err) + 500;
-    var invalid_err = @errorFromInt(number);
+    _ = &number;
+    const invalid_err = @errorFromInt(number);
     std.debug.print("value: {}\n", .{invalid_err});
 }
       {#code_end#}
@@ -10239,7 +10276,8 @@ const Foo = enum {
 
 pub fn main() void {
     var a: u2 = 3;
-    var b: Foo = @enumFromInt(a);
+    _ = &a;
+    const b: Foo = @enumFromInt(a);
     std.debug.print("value: {s}\n", .{@tagName(b)});
 }
       {#code_end#}
@@ -10257,7 +10295,7 @@ const Set2 = error{
     C,
 };
 comptime {
-    _ = @as(Set2, @errSetCast(Set1.B));
+    _ = @as(Set2, @errorCast(Set1.B));
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -10276,7 +10314,7 @@ pub fn main() void {
     foo(Set1.B);
 }
 fn foo(set1: Set1) void {
-    const x: Set2 = @errSetCast(set1);
+    const x: Set2 = @errorCast(set1);
     std.debug.print("value: {}\n", .{x});
 }
       {#code_end#}
@@ -10396,17 +10434,18 @@ fn bar(f: *Foo) void {
       <p>At compile-time:</p>
       {#code_begin|test_err|test_comptime_out_of_bounds_float_to_integer_cast|float value '4294967296' cannot be stored in integer type 'i32'#}
 comptime {
-	const float: f32 = 4294967296;
-	const int: i32 = @intFromFloat(float);
-	_ = int;
+    const float: f32 = 4294967296;
+    const int: i32 = @intFromFloat(float);
+    _ = int;
 }
       {#code_end#}
       <p>At runtime:</p>
       {#code_begin|exe_err|runtime_out_of_bounds_float_to_integer_cast#}
 pub fn main() void {
-	var float: f32 = 4294967296;
-	var int: i32 = @intFromFloat(float);
-	_ = int;
+    var float: f32 = 4294967296; // runtime-known
+    _ = &float;
+    const int: i32 = @intFromFloat(float);
+    _ = int;
 }
       {#code_end#}
       {#header_close#}
@@ -10429,7 +10468,8 @@ comptime {
       {#code_begin|exe_err|runtime_invalid_null_pointer_cast#}
 pub fn main() void {
     var opt_ptr: ?*i32 = null;
-    var ptr: *i32 = @ptrCast(opt_ptr);
+    _ = &opt_ptr;
+    const ptr: *i32 = @ptrCast(opt_ptr);
     _ = ptr;
 }
       {#code_end#}
@@ -10759,6 +10799,9 @@ const separator = if (builtin.os.tag == .windows) '\\' else '/';
       {#code_begin|syntax|build_executable#}
 const std = @import("std");
 
+// Although this function looks imperative, note that its job is to
+// declaratively construct a build graph that will be executed by an external
+// runner.
 pub fn build(b: *std.Build) void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
@@ -10773,20 +10816,56 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "example",
+        // In this case the main source file is merely a path, however, in more
+        // complicated build scripts, this could be a generated file.
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
     });
-    exe.install();
 
-    const run_cmd = exe.run();
+    // This declares intent for the executable to be installed into the
+    // standard location when the user invokes the "install" step (the default
+    // step when running `zig build`).
+    b.installArtifact(exe);
+
+    // This *creates* a Run step in the build graph, to be executed when another
+    // step is evaluated that depends on it. The next line below will establish
+    // such a dependency.
+    const run_cmd = b.addRunArtifact(exe);
+
+    // By making the run step depend on the install step, it will be run from the
+    // installation directory rather than directly from within the cache directory.
+    // This is not necessary, however, if the application depends on other installed
+    // files, this ensures they will be present and in the expected location.
     run_cmd.step.dependOn(b.getInstallStep());
+
+    // This allows the user to pass arguments to the application in the build
+    // command itself, like this: `zig build run -- arg1 arg2 etc`
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
 
+    // This creates a build step. It will be visible in the `zig build --help` menu,
+    // and can be selected like this: `zig build run`
+    // This will evaluate the `run` step rather than the default, which is "install".
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+
+    // Creates a step for unit testing. This only builds the test executable
+    // but does not run it.
+    const unit_tests = b.addTest(.{
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const run_unit_tests = b.addRunArtifact(unit_tests);
+
+    // Similar to creating the run step earlier, this exposes a `test` step to
+    // the `zig build --help` menu, providing a way for the user to request
+    // running the unit tests.
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_unit_tests.step);
 }
       {#code_end#}
       {#header_close#}
@@ -10797,22 +10876,50 @@ pub fn build(b: *std.Build) void {
       {#code_begin|syntax|build_library#}
 const std = @import("std");
 
+// Although this function looks imperative, note that its job is to
+// declaratively construct a build graph that will be executed by an external
+// runner.
 pub fn build(b: *std.Build) void {
+    // Standard target options allows the person running `zig build` to choose
+    // what target to build for. Here we do not override the defaults, which
+    // means any target is allowed, and the default is native. Other options
+    // for restricting supported target set are available.
+    const target = b.standardTargetOptions(.{});
+
+    // Standard optimization options allow the person running `zig build` to select
+    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
+    // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
+
     const lib = b.addStaticLibrary(.{
         .name = "example",
+        // In this case the main source file is merely a path, however, in more
+        // complicated build scripts, this could be a generated file.
         .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
         .optimize = optimize,
     });
-    lib.install();
 
+    // This declares intent for the library to be installed into the standard
+    // location when the user invokes the "install" step (the default step when
+    // running `zig build`).
+    b.installArtifact(lib);
+
+    // Creates a step for unit testing. This only builds the test executable
+    // but does not run it.
     const main_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
         .optimize = optimize,
     });
 
+    const run_main_tests = b.addRunArtifact(main_tests);
+
+    // This creates a build step. It will be visible in the `zig build --help` menu,
+    // and can be selected like this: `zig build test`
+    // This will evaluate the `test` step rather than the default, which is "install".
     const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&main_tests.step);
+    test_step.dependOn(&run_main_tests.step);
 }
       {#code_end#}
       {#header_close#}
@@ -11047,7 +11154,9 @@ int foo(void) {
       {#code_begin|syntax|macro#}
 pub export fn foo() c_int {
     var a: c_int = 1;
+    _ = &a;
     var b: c_int = 2;
+    _ = &b;
     return a + b;
 }
 pub const MAKELOCAL = @compileError("unable to translate C expr: unexpected token .Equal"); // macro.c:1:9
@@ -11131,9 +11240,14 @@ fn add(count: c_int, ...) callconv(.C) c_int {
 }
 
 test "defining a variadic function" {
-    // Variadic functions are currently disabled on some targets due to miscompilations.
-    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .windows and builtin.os.tag != .macos) return error.SkipZigTest;
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest;
+    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos) {
+        // https://github.com/ziglang/zig/issues/14096
+        return error.SkipZigTest;
+    }
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) {
+        // https://github.com/ziglang/zig/issues/16961
+        return error.SkipZigTest;
+    }
 
     try std.testing.expectEqual(@as(c_int, 0), add(0));
     try std.testing.expectEqual(@as(c_int, 1), add(1, @as(c_int, 1)));
@@ -11262,12 +11376,12 @@ all your base are belong to us{#end_shell_samp#}
       {#header_open|WebAssembly#}
       <p>Zig supports building for WebAssembly out of the box.</p>
       {#header_open|Freestanding#}
-      <p>For host environments like the web browser and nodejs, build as a dynamic library using the freestanding
+      <p>For host environments like the web browser and nodejs, build as an executable using the freestanding
       OS target. Here's an example of running Zig code compiled to WebAssembly with nodejs.</p>
-      {#code_begin|lib|math#}
+      {#code_begin|exe|math#}
       {#target_wasm#}
-      {#link_mode_dynamic#}
-      {#additonal_option|-rdynamic#}
+      {#additonal_option|-fno-entry#}
+      {#additonal_option|--export=add#}
 extern fn print(i32) void;
 
 export fn add(a: i32, b: i32) void {
@@ -11494,7 +11608,7 @@ fn readU32Be() u32 {}
       </p>
       <p>
       Each LF may be immediately preceded by a single CR (byte value 0x0d, code point U+000d, {#syntax#}'\r'{#endsyntax#})
-      to form a Windows style line ending, but this is discouraged. Note that in mulitline strings, CRLF sequences will
+      to form a Windows style line ending, but this is discouraged. Note that in multiline strings, CRLF sequences will
       be encoded as LF when compiled into a zig program.
       A CR in any other context is not allowed.
       </p>
@@ -11644,6 +11758,17 @@ fn readU32Be() u32 {}
             It can also be used to exit a loop before iteration completes naturally.
             <ul>
               <li>See also {#link|Blocks#}, {#link|while#}, {#link|for#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">
+            <pre>{#syntax#}callconv{#endsyntax#}</pre>
+          </th>
+          <td>
+            {#syntax#}callconv{#endsyntax#} can be used to specify the calling convention in a function type.
+            <ul>
+              <li>See also {#link|Functions#}</li>
             </ul>
           </td>
         </tr>
@@ -11828,10 +11953,7 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}linksection{#endsyntax#}</pre>
           </th>
           <td>
-            The {#syntax#}linksection{#endsyntax#} keyword.
-            <ul>
-              <li>TODO add documentation for linksection</li>
-            </ul>
+            The {#syntax#}linksection{#endsyntax#} keyword can be used to specify what section the function or global variable will be put into (e.g. <code>.text</code>).
           </td>
         </tr>
         <tr>
@@ -11871,6 +11993,17 @@ fn readU32Be() u32 {}
             Code inside a {#syntax#}nosuspend{#endsyntax#} scope does not cause the enclosing function to become an {#link|async function|Async Functions#}.
             <ul>
               <li>See also {#link|Async Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">
+            <pre>{#syntax#}opaque{#endsyntax#}</pre>
+          </th>
+          <td>
+            {#syntax#}opaque{#endsyntax#} defines an opaque type.
+            <ul>
+              <li>See also {#link|opaque#}</li>
             </ul>
           </td>
         </tr>
@@ -12103,35 +12236,32 @@ fn readU32Be() u32 {}
 Root <- skip container_doc_comment? ContainerMembers eof
 
 # *** Top level ***
-ContainerMembers <- ContainerDeclarations (ContainerField COMMA)* (ContainerField / ContainerDeclarations)
+ContainerMembers <- ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
 
-ContainerDeclarations
-    <- TestDecl ContainerDeclarations
-     / ComptimeDecl ContainerDeclarations
-     / doc_comment? KEYWORD_pub? Decl ContainerDeclarations
-     /
+ContainerDeclaration <- TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl
 
 TestDecl <- KEYWORD_test (STRINGLITERALSINGLE / IDENTIFIER)? Block
 
 ComptimeDecl <- KEYWORD_comptime Block
 
 Decl
-    <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
-     / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
+    <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
+     / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? GlobalVarDecl
      / KEYWORD_usingnamespace Expr SEMICOLON
 
 FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? AddrSpace? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
 
-VarDecl <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? AddrSpace? LinkSection? (EQUAL Expr)? SEMICOLON
+VarDeclProto <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteAlign? AddrSpace? LinkSection?
+
+GlobalVarDecl <- VarDeclProto (EQUAL Expr)? SEMICOLON
 
 ContainerField
-     <- doc_comment? KEYWORD_comptime? IDENTIFIER (COLON TypeExpr)? ByteAlign? (EQUAL Expr)?
-      / doc_comment? KEYWORD_comptime? (IDENTIFIER COLON)? !KEYWORD_fn TypeExpr ByteAlign? (EQUAL Expr)?
+    <- doc_comment? KEYWORD_comptime? IDENTIFIER (COLON TypeExpr)? ByteAlign? (EQUAL Expr)?
+     / doc_comment? KEYWORD_comptime? (IDENTIFIER COLON)? !KEYWORD_fn TypeExpr ByteAlign? (EQUAL Expr)?
 
 # *** Block Level ***
 Statement
-    <- KEYWORD_comptime? VarDecl
-     / KEYWORD_comptime BlockExprStatement
+    <- KEYWORD_comptime ComptimeStatement
      / KEYWORD_nosuspend BlockExprStatement
      / KEYWORD_suspend BlockExprStatement
      / KEYWORD_defer BlockExprStatement
@@ -12139,7 +12269,11 @@ Statement
      / IfStatement
      / LabeledStatement
      / SwitchExpr
-     / AssignExpr SEMICOLON
+     / VarDeclExprStatement
+
+ComptimeStatement
+    <- BlockExpr
+     / VarDeclExprStatement
 
 IfStatement
     <- IfPrefix BlockExpr ( KEYWORD_else Payload? Statement )?
@@ -12163,8 +12297,17 @@ BlockExprStatement
 
 BlockExpr <- BlockLabel? Block
 
+# An expression, assignment, or any destructure, as a statement.
+VarDeclExprStatement
+    <- VarDeclProto (COMMA (VarDeclProto / Expr))* EQUAL Expr SEMICOLON
+     / Expr (AssignOp Expr / (COMMA (VarDeclProto / Expr))+ EQUAL Expr)? SEMICOLON
+
 # *** Expression Level ***
-AssignExpr <- Expr (AssignOp Expr)?
+
+# An assignment or a destructure whose LHS are all lvalue expressions.
+AssignExpr <- Expr (AssignOp Expr / (COMMA Expr)+ EQUAL Expr)?
+
+SingleAssignExpr <- Expr (AssignOp Expr)?
 
 Expr <- BoolOrExpr
 
@@ -12305,7 +12448,7 @@ IfPrefix <- KEYWORD_if LPAREN Expr RPAREN PtrPayload?
 
 WhilePrefix <- KEYWORD_while LPAREN Expr RPAREN PtrPayload? WhileContinueExpr?
 
-ForPrefix <- KEYWORD_for LPAREN Expr RPAREN PtrIndexPayload
+ForPrefix <- KEYWORD_for LPAREN ForArgumentsList RPAREN PtrListPayload
 
 # Payloads
 Payload <- PIPE IDENTIFIER PIPE
@@ -12314,15 +12457,21 @@ PtrPayload <- PIPE ASTERISK? IDENTIFIER PIPE
 
 PtrIndexPayload <- PIPE ASTERISK? IDENTIFIER (COMMA IDENTIFIER)? PIPE
 
+PtrListPayload <- PIPE ASTERISK? IDENTIFIER (COMMA ASTERISK? IDENTIFIER)* COMMA? PIPE
 
 # Switch specific
-SwitchProng <- KEYWORD_inline? SwitchCase EQUALRARROW PtrIndexPayload? AssignExpr
+SwitchProng <- KEYWORD_inline? SwitchCase EQUALRARROW PtrIndexPayload? SingleAssignExpr
 
 SwitchCase
     <- SwitchItem (COMMA SwitchItem)* COMMA?
      / KEYWORD_else
 
 SwitchItem <- Expr (DOT3 Expr)?
+
+# For specific
+ForArgumentsList <- ForItem (COMMA ForItem)* COMMA?
+
+ForItem <- Expr (DOT2 Expr?)?
 
 # Operators
 AssignOp
@@ -12534,7 +12683,7 @@ STRINGLITERAL
      / (line_string                 skip)+
 IDENTIFIER
     <- !keyword [A-Za-z_] [A-Za-z0-9_]* skip
-     / "@\"" string_char* "\""                            skip
+     / "@" STRINGLITERALSINGLE
 BUILTINIDENTIFIER <- "@"[A-Za-z_][A-Za-z0-9_]* skip
 
 

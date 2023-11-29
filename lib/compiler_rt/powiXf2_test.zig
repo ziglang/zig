@@ -3,31 +3,33 @@
 // powihf2 adapted from powisf2 tests
 
 const powiXf2 = @import("powiXf2.zig");
-const testing = @import("std").testing;
-const math = @import("std").math;
+const std = @import("std");
+const builtin = @import("builtin");
+const testing = std.testing;
+const math = std.math;
 
 fn test__powihf2(a: f16, b: i32, expected: f16) !void {
-    var result = powiXf2.__powihf2(a, b);
+    const result = powiXf2.__powihf2(a, b);
     try testing.expectEqual(expected, result);
 }
 
 fn test__powisf2(a: f32, b: i32, expected: f32) !void {
-    var result = powiXf2.__powisf2(a, b);
+    const result = powiXf2.__powisf2(a, b);
     try testing.expectEqual(expected, result);
 }
 
 fn test__powidf2(a: f64, b: i32, expected: f64) !void {
-    var result = powiXf2.__powidf2(a, b);
+    const result = powiXf2.__powidf2(a, b);
     try testing.expectEqual(expected, result);
 }
 
 fn test__powitf2(a: f128, b: i32, expected: f128) !void {
-    var result = powiXf2.__powitf2(a, b);
+    const result = powiXf2.__powitf2(a, b);
     try testing.expectEqual(expected, result);
 }
 
 fn test__powixf2(a: f80, b: i32, expected: f80) !void {
-    var result = powiXf2.__powixf2(a, b);
+    const result = powiXf2.__powixf2(a, b);
     try testing.expectEqual(expected, result);
 }
 

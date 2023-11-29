@@ -1,4 +1,4 @@
-//! This API non-allocating, non-fallible, and thread-safe.
+//! This API is non-allocating, non-fallible, and thread-safe.
 //! The tradeoff is that users of this API must provide the storage
 //! for each `Progress.Node`.
 //!
@@ -397,6 +397,7 @@ fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: any
 
 test "basic functionality" {
     var disable = true;
+    _ = &disable;
     if (disable) {
         // This test is disabled because it uses time.sleep() and is therefore slow. It also
         // prints bogus progress data to stderr.

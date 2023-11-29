@@ -20,7 +20,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 namespace __comp_detail {
 
@@ -65,14 +65,14 @@ _LIBCPP_HIDE_FROM_ABI
 constexpr auto __get_comp_type() {
   using _CCC = _ClassifyCompCategory;
   constexpr _CCC __type_kinds[] = {_StrongOrd, __type_to_enum<_Ts>()...};
-  constexpr _CCC _Cat = __comp_detail::__compute_comp_type(__type_kinds);
-  if constexpr (_Cat == _None)
+  constexpr _CCC __cat = __comp_detail::__compute_comp_type(__type_kinds);
+  if constexpr (__cat == _None)
     return void();
-  else if constexpr (_Cat == _PartialOrd)
+  else if constexpr (__cat == _PartialOrd)
     return partial_ordering::equivalent;
-  else if constexpr (_Cat == _WeakOrd)
+  else if constexpr (__cat == _WeakOrd)
     return weak_ordering::equivalent;
-  else if constexpr (_Cat == _StrongOrd)
+  else if constexpr (__cat == _StrongOrd)
     return strong_ordering::equivalent;
   else
     static_assert(_False, "unhandled case");
@@ -88,7 +88,7 @@ struct _LIBCPP_TEMPLATE_VIS common_comparison_category {
 template<class... _Ts>
 using common_comparison_category_t = typename common_comparison_category<_Ts...>::type;
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

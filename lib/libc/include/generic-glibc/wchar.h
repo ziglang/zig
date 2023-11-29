@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1995-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -36,6 +36,17 @@
 
 #define __need___va_list
 #include <stdarg.h>
+
+#if defined __USE_XOPEN2K || defined __USE_XOPEN2K8
+# ifdef __GNUC__
+#  ifndef _VA_LIST_DEFINED
+typedef __gnuc_va_list va_list;
+#   define _VA_LIST_DEFINED
+#  endif
+# else
+#  include <stdarg.h>
+# endif
+#endif
 
 #include <bits/wchar.h>
 #include <bits/types/wint_t.h>
@@ -92,6 +103,19 @@ extern wchar_t *wcscpy (wchar_t *__restrict __dest,
 extern wchar_t *wcsncpy (wchar_t *__restrict __dest,
 			 const wchar_t *__restrict __src, size_t __n)
      __THROW __nonnull ((1, 2));
+
+#ifdef __USE_MISC
+/* Copy at most N - 1 characters from SRC to DEST.  */
+extern size_t wcslcpy (wchar_t *__restrict __dest,
+		       const wchar_t *__restrict __src, size_t __n)
+  __THROW __nonnull ((1, 2)) __attr_access ((__write_only__, 1, 3));
+
+/* Append SRC to DEST, possibly with truncation to keep the total size
+   below N.  */
+extern size_t wcslcat (wchar_t *__restrict __dest,
+		       const wchar_t *__restrict __src, size_t __n)
+  __THROW __nonnull ((1, 2))  __attr_access ((__read_write__, 1, 3));
+#endif
 
 /* Append SRC onto DEST.  */
 extern wchar_t *wcscat (wchar_t *__restrict __dest,
@@ -386,42 +410,44 @@ extern long double wcstold (const wchar_t *__restrict __nptr,
 			    wchar_t **__restrict __endptr) __THROW;
 #endif /* C99 */
 
+#if __GLIBC_USE (IEC_60559_TYPES_EXT) && __GLIBC_USE (ISOC2X)
 /* Likewise for `_FloatN' and `_FloatNx' when support is enabled.  */
 
-#if __HAVE_FLOAT16 && defined __USE_GNU
+# if __HAVE_FLOAT16
 extern _Float16 wcstof16 (const wchar_t *__restrict __nptr,
 			  wchar_t **__restrict __endptr) __THROW;
-#endif
+# endif
 
-#if __HAVE_FLOAT32 && defined __USE_GNU
+# if __HAVE_FLOAT32
 extern _Float32 wcstof32 (const wchar_t *__restrict __nptr,
 			  wchar_t **__restrict __endptr) __THROW;
-#endif
+# endif
 
-#if __HAVE_FLOAT64 && defined __USE_GNU
+# if __HAVE_FLOAT64
 extern _Float64 wcstof64 (const wchar_t *__restrict __nptr,
 			  wchar_t **__restrict __endptr) __THROW;
-#endif
+# endif
 
-#if __HAVE_FLOAT128 && defined __USE_GNU
+# if __HAVE_FLOAT128
 extern _Float128 wcstof128 (const wchar_t *__restrict __nptr,
 			    wchar_t **__restrict __endptr) __THROW;
-#endif
+# endif
 
-#if __HAVE_FLOAT32X && defined __USE_GNU
+# if __HAVE_FLOAT32X
 extern _Float32x wcstof32x (const wchar_t *__restrict __nptr,
 			    wchar_t **__restrict __endptr) __THROW;
-#endif
+# endif
 
-#if __HAVE_FLOAT64X && defined __USE_GNU
+# if __HAVE_FLOAT64X
 extern _Float64x wcstof64x (const wchar_t *__restrict __nptr,
 			    wchar_t **__restrict __endptr) __THROW;
-#endif
+# endif
 
-#if __HAVE_FLOAT128X && defined __USE_GNU
+# if __HAVE_FLOAT128X
 extern _Float128x wcstof128x (const wchar_t *__restrict __nptr,
 			      wchar_t **__restrict __endptr) __THROW;
-#endif
+# endif
+#endif /* __GLIBC_USE (IEC_60559_TYPES_EXT) && __GLIBC_USE (ISOC2X) */
 
 
 /* Convert initial portion of wide string NPTR to `long int'
@@ -467,6 +493,67 @@ extern unsigned long long int wcstouq (const wchar_t *__restrict __nptr,
 				       int __base) __THROW;
 #endif /* Use GNU.  */
 
+/* Versions of the above functions that handle '0b' and '0B' prefixes
+   in base 0 or 2.  */
+#if __GLIBC_USE (C2X_STRTOL)
+# ifdef __REDIRECT
+extern long int __REDIRECT_NTH (wcstol, (const wchar_t *__restrict __nptr,
+					 wchar_t **__restrict __endptr,
+					 int __base), __isoc23_wcstol);
+extern unsigned long int __REDIRECT_NTH (wcstoul,
+					 (const wchar_t *__restrict __nptr,
+					  wchar_t **__restrict __endptr,
+					  int __base), __isoc23_wcstoul);
+__extension__
+extern long long int __REDIRECT_NTH (wcstoll,
+				     (const wchar_t *__restrict __nptr,
+				      wchar_t **__restrict __endptr,
+				      int __base), __isoc23_wcstoll);
+__extension__
+extern unsigned long long int __REDIRECT_NTH (wcstoull,
+					      (const wchar_t *__restrict __nptr,
+					       wchar_t **__restrict __endptr,
+					       int __base), __isoc23_wcstoull);
+#  ifdef __USE_GNU
+__extension__
+extern long long int __REDIRECT_NTH (wcstoq, (const wchar_t *__restrict __nptr,
+					      wchar_t **__restrict __endptr,
+					      int __base), __isoc23_wcstoll);
+__extension__
+extern unsigned long long int __REDIRECT_NTH (wcstouq,
+					      (const wchar_t *__restrict __nptr,
+					       wchar_t **__restrict __endptr,
+					       int __base), __isoc23_wcstoull);
+#  endif
+# else
+extern long int __isoc23_wcstol (const wchar_t *__restrict __nptr,
+				 wchar_t **__restrict __endptr, int __base)
+     __THROW;
+extern unsigned long int __isoc23_wcstoul (const wchar_t *__restrict __nptr,
+					   wchar_t **__restrict __endptr,
+					   int __base)
+     __THROW;
+__extension__
+extern long long int __isoc23_wcstoll (const wchar_t *__restrict __nptr,
+				       wchar_t **__restrict __endptr,
+				       int __base)
+     __THROW;
+__extension__
+extern unsigned long long int __isoc23_wcstoull (const wchar_t *__restrict __nptr,
+						 wchar_t **__restrict __endptr,
+						 int __base)
+     __THROW;
+#  define wcstol __isoc23_wcstol
+#  define wcstoul __isoc23_wcstoul
+#  define wcstoll __isoc23_wcstoll
+#  define wcstoull __isoc23_wcstoull
+#  ifdef __USE_GNU
+#   define wcstoq __isoc23_wcstoll
+#   define wcstouq __isoc23_wcstoull
+#  endif
+# endif
+#endif
+
 #ifdef __USE_GNU
 /* Parallel versions of the functions above which take the locale to
    use as an additional parameter.  These are GNU extensions inspired
@@ -489,6 +576,56 @@ extern unsigned long long int wcstoull_l (const wchar_t *__restrict __nptr,
 					  wchar_t **__restrict __endptr,
 					  int __base, locale_t __loc)
      __THROW;
+
+/* Versions of the above functions that handle '0b' and '0B' prefixes
+   in base 0 or 2.  */
+# if __GLIBC_USE (C2X_STRTOL)
+#  ifdef __REDIRECT
+extern long int __REDIRECT_NTH (wcstol_l, (const wchar_t *__restrict __nptr,
+					   wchar_t **__restrict __endptr,
+					   int __base, locale_t __loc),
+				__isoc23_wcstol_l);
+extern unsigned long int __REDIRECT_NTH (wcstoul_l,
+					 (const wchar_t *__restrict __nptr,
+					  wchar_t **__restrict __endptr,
+					  int __base, locale_t __loc),
+					 __isoc23_wcstoul_l);
+__extension__
+extern long long int __REDIRECT_NTH (wcstoll_l,
+				     (const wchar_t *__restrict __nptr,
+				      wchar_t **__restrict __endptr,
+				      int __base, locale_t __loc),
+				     __isoc23_wcstoll_l);
+__extension__
+extern unsigned long long int __REDIRECT_NTH (wcstoull_l,
+					      (const wchar_t *__restrict __nptr,
+					       wchar_t **__restrict __endptr,
+					       int __base, locale_t __loc),
+					      __isoc23_wcstoull_l);
+#  else
+extern long int __isoc23_wcstol_l (const wchar_t *__restrict __nptr,
+				   wchar_t **__restrict __endptr, int __base,
+				   locale_t __loc) __THROW;
+extern unsigned long int __isoc23_wcstoul_l (const wchar_t *__restrict __nptr,
+					     wchar_t **__restrict __endptr,
+					     int __base, locale_t __loc)
+     __THROW;
+__extension__
+extern long long int __isoc23_wcstoll_l (const wchar_t *__restrict __nptr,
+					 wchar_t **__restrict __endptr,
+					 int __base, locale_t __loc)
+     __THROW;
+__extension__
+extern unsigned long long int __isoc23_wcstoull_l (const wchar_t *__restrict __nptr,
+						   wchar_t **__restrict __endptr,
+						   int __base, locale_t __loc)
+     __THROW;
+#   define wcstol_l __isoc23_wcstol_l
+#   define wcstoul_l __isoc23_wcstoul_l
+#   define wcstoll_l __isoc23_wcstoll_l
+#   define wcstoull_l __isoc23_wcstoull_l
+#  endif
+# endif
 
 extern double wcstod_l (const wchar_t *__restrict __nptr,
 			wchar_t **__restrict __endptr, locale_t __loc)
@@ -651,9 +788,34 @@ extern int swscanf (const wchar_t *__restrict __s,
    functions are at alternative names.  When __LDBL_COMPAT or
    __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI are in effect, this is handled in
    bits/wchar-ldbl.h.  */
-#if !__GLIBC_USE (DEPRECATED_SCANF) && !defined __LDBL_COMPAT \
+# if !__GLIBC_USE (DEPRECATED_SCANF) && !defined __LDBL_COMPAT \
      && __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 0
-#  ifdef __REDIRECT
+#  if __GLIBC_USE (C2X_STRTOL)
+#   ifdef __REDIRECT
+extern int __REDIRECT (fwscanf, (__FILE *__restrict __stream,
+				 const wchar_t *__restrict __format, ...),
+		       __isoc23_fwscanf)
+     /* __attribute__ ((__format__ (__wscanf__, 2, 3))) */;
+extern int __REDIRECT (wscanf, (const wchar_t *__restrict __format, ...),
+		       __isoc23_wscanf)
+     /* __attribute__ ((__format__ (__wscanf__, 1, 2))) */;
+extern int __REDIRECT_NTH (swscanf, (const wchar_t *__restrict __s,
+				     const wchar_t *__restrict __format,
+				     ...), __isoc23_swscanf)
+     /* __attribute__ ((__format__ (__wscanf__, 2, 3))) */;
+#   else
+extern int __isoc23_fwscanf (__FILE *__restrict __stream,
+			     const wchar_t *__restrict __format, ...);
+extern int __isoc23_wscanf (const wchar_t *__restrict __format, ...);
+extern int __isoc23_swscanf (const wchar_t *__restrict __s,
+			     const wchar_t *__restrict __format, ...)
+     __THROW;
+#    define fwscanf __isoc23_fwscanf
+#    define wscanf __isoc23_wscanf
+#    define swscanf __isoc23_swscanf
+#   endif
+#  else
+#   ifdef __REDIRECT
 extern int __REDIRECT (fwscanf, (__FILE *__restrict __stream,
 				 const wchar_t *__restrict __format, ...),
 		       __isoc99_fwscanf)
@@ -665,16 +827,17 @@ extern int __REDIRECT_NTH (swscanf, (const wchar_t *__restrict __s,
 				     const wchar_t *__restrict __format,
 				     ...), __isoc99_swscanf)
      /* __attribute__ ((__format__ (__wscanf__, 2, 3))) */;
-#  else
+#   else
 extern int __isoc99_fwscanf (__FILE *__restrict __stream,
 			     const wchar_t *__restrict __format, ...);
 extern int __isoc99_wscanf (const wchar_t *__restrict __format, ...);
 extern int __isoc99_swscanf (const wchar_t *__restrict __s,
 			     const wchar_t *__restrict __format, ...)
      __THROW;
-#   define fwscanf __isoc99_fwscanf
-#   define wscanf __isoc99_wscanf
-#   define swscanf __isoc99_swscanf
+#    define fwscanf __isoc99_fwscanf
+#    define wscanf __isoc99_wscanf
+#    define swscanf __isoc99_swscanf
+#   endif
 #  endif
 # endif
 
@@ -707,7 +870,34 @@ extern int vswscanf (const wchar_t *__restrict __s,
      && (!defined __LDBL_COMPAT || !defined __REDIRECT) \
      && (defined __STRICT_ANSI__ || defined __USE_XOPEN2K) \
      && __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 0
-#  ifdef __REDIRECT
+#  if __GLIBC_USE (C2X_STRTOL)
+#   ifdef __REDIRECT
+extern int __REDIRECT (vfwscanf, (__FILE *__restrict __s,
+				  const wchar_t *__restrict __format,
+				  __gnuc_va_list __arg), __isoc23_vfwscanf)
+     /* __attribute__ ((__format__ (__wscanf__, 2, 0))) */;
+extern int __REDIRECT (vwscanf, (const wchar_t *__restrict __format,
+				 __gnuc_va_list __arg), __isoc23_vwscanf)
+     /* __attribute__ ((__format__ (__wscanf__, 1, 0))) */;
+extern int __REDIRECT_NTH (vswscanf, (const wchar_t *__restrict __s,
+				      const wchar_t *__restrict __format,
+				      __gnuc_va_list __arg), __isoc23_vswscanf)
+     /* __attribute__ ((__format__ (__wscanf__, 2, 0))) */;
+#   else
+extern int __isoc23_vfwscanf (__FILE *__restrict __s,
+			      const wchar_t *__restrict __format,
+			      __gnuc_va_list __arg);
+extern int __isoc23_vwscanf (const wchar_t *__restrict __format,
+			     __gnuc_va_list __arg);
+extern int __isoc23_vswscanf (const wchar_t *__restrict __s,
+			      const wchar_t *__restrict __format,
+			      __gnuc_va_list __arg) __THROW;
+#    define vfwscanf __isoc23_vfwscanf
+#    define vwscanf __isoc23_vwscanf
+#    define vswscanf __isoc23_vswscanf
+#   endif
+#  else
+#   ifdef __REDIRECT
 extern int __REDIRECT (vfwscanf, (__FILE *__restrict __s,
 				  const wchar_t *__restrict __format,
 				  __gnuc_va_list __arg), __isoc99_vfwscanf)
@@ -719,7 +909,7 @@ extern int __REDIRECT_NTH (vswscanf, (const wchar_t *__restrict __s,
 				      const wchar_t *__restrict __format,
 				      __gnuc_va_list __arg), __isoc99_vswscanf)
      /* __attribute__ ((__format__ (__wscanf__, 2, 0))) */;
-#  else
+#   else
 extern int __isoc99_vfwscanf (__FILE *__restrict __s,
 			      const wchar_t *__restrict __format,
 			      __gnuc_va_list __arg);
@@ -728,9 +918,10 @@ extern int __isoc99_vwscanf (const wchar_t *__restrict __format,
 extern int __isoc99_vswscanf (const wchar_t *__restrict __s,
 			      const wchar_t *__restrict __format,
 			      __gnuc_va_list __arg) __THROW;
-#   define vfwscanf __isoc99_vfwscanf
-#   define vwscanf __isoc99_vwscanf
-#   define vswscanf __isoc99_vswscanf
+#    define vfwscanf __isoc99_vfwscanf
+#    define vwscanf __isoc99_vwscanf
+#    define vswscanf __isoc99_vswscanf
+#   endif
 #  endif
 # endif
 
@@ -864,12 +1055,19 @@ extern size_t wcsftime_l (wchar_t *__restrict __s, size_t __maxsize,
 
 /* Define some macros helping to catch buffer overflows.  */
 #if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
-# include <bits/wchar2.h>
+/* Declare all functions from bits/wchar2-decl.h first.  */
+# include <bits/wchar2-decl.h>
 #endif
 
-#include <bits/floatn.h>
+/* The following headers provide asm redirections.  These redirections must
+   appear before the first usage of these functions, e.g. in bits/wchar.h.  */
 #if defined __LDBL_COMPAT || __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
 # include <bits/wchar-ldbl.h>
+#endif
+
+#if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
+/* Now include the function definitions and redirects too.  */
+# include <bits/wchar2.h>
 #endif
 
 __END_DECLS

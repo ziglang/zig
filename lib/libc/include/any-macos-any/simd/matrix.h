@@ -451,25 +451,25 @@ namespace simd {
   static SIMD_CPPFUNC float4x3 operator-(const float4x3 x, const float4x3 y) { return float4x3(::simd_linear_combination(1, x, -1, y)); }
   static SIMD_CPPFUNC float4x4 operator-(const float4x4 x, const float4x4 y) { return float4x4(::simd_linear_combination(1, x, -1, y)); }
   
-  static SIMD_CPPFUNC float2x2& operator+=(float2x2& x, const float2x2 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC float2x3& operator+=(float2x3& x, const float2x3 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC float2x4& operator+=(float2x4& x, const float2x4 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC float3x2& operator+=(float3x2& x, const float3x2 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC float3x3& operator+=(float3x3& x, const float3x3 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC float3x4& operator+=(float3x4& x, const float3x4 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC float4x2& operator+=(float4x2& x, const float4x2 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC float4x3& operator+=(float4x3& x, const float4x3 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC float4x4& operator+=(float4x4& x, const float4x4 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float2x2& operator+=(float2x2& x, const float2x2 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float2x3& operator+=(float2x3& x, const float2x3 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float2x4& operator+=(float2x4& x, const float2x4 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float3x2& operator+=(float3x2& x, const float3x2 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float3x3& operator+=(float3x3& x, const float3x3 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float3x4& operator+=(float3x4& x, const float3x4 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float4x2& operator+=(float4x2& x, const float4x2 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float4x3& operator+=(float4x3& x, const float4x3 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float4x4& operator+=(float4x4& x, const float4x4 y) { x = x + y; return x; }
   
-  static SIMD_CPPFUNC float2x2& operator-=(float2x2& x, const float2x2 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC float2x3& operator-=(float2x3& x, const float2x3 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC float2x4& operator-=(float2x4& x, const float2x4 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC float3x2& operator-=(float3x2& x, const float3x2 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC float3x3& operator-=(float3x3& x, const float3x3 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC float3x4& operator-=(float3x4& x, const float3x4 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC float4x2& operator-=(float4x2& x, const float4x2 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC float4x3& operator-=(float4x3& x, const float4x3 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC float4x4& operator-=(float4x4& x, const float4x4 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float2x2& operator-=(float2x2& x, const float2x2 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float2x3& operator-=(float2x3& x, const float2x3 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float2x4& operator-=(float2x4& x, const float2x4 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float3x2& operator-=(float3x2& x, const float3x2 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float3x3& operator-=(float3x3& x, const float3x3 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float3x4& operator-=(float3x4& x, const float3x4 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float4x2& operator-=(float4x2& x, const float4x2 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float4x3& operator-=(float4x3& x, const float4x3 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG float4x4& operator-=(float4x4& x, const float4x4 y) { x = x - y; return x; }
   
   static SIMD_CPPFUNC float2x2 transpose(const float2x2 x) { return ::simd_transpose(x); }
   static SIMD_CPPFUNC float2x3 transpose(const float3x2 x) { return ::simd_transpose(x); }
@@ -514,15 +514,15 @@ namespace simd {
   static SIMD_CPPFUNC float4x2 operator*(const float4x2 x, const float a) { return ::simd_mul(a, x); }
   static SIMD_CPPFUNC float4x3 operator*(const float4x3 x, const float a) { return ::simd_mul(a, x); }
   static SIMD_CPPFUNC float4x4 operator*(const float4x4 x, const float a) { return ::simd_mul(a, x); }
-  static SIMD_CPPFUNC float2x2& operator*=(float2x2& x, const float a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC float2x3& operator*=(float2x3& x, const float a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC float2x4& operator*=(float2x4& x, const float a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC float3x2& operator*=(float3x2& x, const float a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC float3x3& operator*=(float3x3& x, const float a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC float3x4& operator*=(float3x4& x, const float a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC float4x2& operator*=(float4x2& x, const float a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC float4x3& operator*=(float4x3& x, const float a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC float4x4& operator*=(float4x4& x, const float a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float2x2& operator*=(float2x2& x, const float a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float2x3& operator*=(float2x3& x, const float a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float2x4& operator*=(float2x4& x, const float a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float3x2& operator*=(float3x2& x, const float a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float3x3& operator*=(float3x3& x, const float a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float3x4& operator*=(float3x4& x, const float a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float4x2& operator*=(float4x2& x, const float a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float4x3& operator*=(float4x3& x, const float a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float4x4& operator*=(float4x4& x, const float a) { x = ::simd_mul(a, x); return x; }
   
   static SIMD_CPPFUNC float2 operator*(const float2 x, const float2x2 y) { return ::simd_mul(x, y); }
   static SIMD_CPPFUNC float3 operator*(const float2 x, const float3x2 y) { return ::simd_mul(x, y); }
@@ -542,9 +542,9 @@ namespace simd {
   static SIMD_CPPFUNC float4 operator*(const float2x4 x, const float2 y) { return ::simd_mul(x, y); }
   static SIMD_CPPFUNC float4 operator*(const float3x4 x, const float3 y) { return ::simd_mul(x, y); }
   static SIMD_CPPFUNC float4 operator*(const float4x4 x, const float4 y) { return ::simd_mul(x, y); }
-  static SIMD_CPPFUNC float2& operator*=(float2& x, const float2x2 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC float3& operator*=(float3& x, const float3x3 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC float4& operator*=(float4& x, const float4x4 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float2& operator*=(float2& x, const float2x2 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float3& operator*=(float3& x, const float3x3 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float4& operator*=(float4& x, const float4x4 y) { x = ::simd_mul(x, y); return x; }
   
   static SIMD_CPPFUNC float2x2 operator*(const float2x2 x, const float2x2 y) { return ::simd_mul(x, y); }
   static SIMD_CPPFUNC float3x2 operator*(const float2x2 x, const float3x2 y) { return ::simd_mul(x, y); }
@@ -573,15 +573,15 @@ namespace simd {
   static SIMD_CPPFUNC float2x4 operator*(const float4x4 x, const float2x4 y) { return ::simd_mul(x, y); }
   static SIMD_CPPFUNC float3x4 operator*(const float4x4 x, const float3x4 y) { return ::simd_mul(x, y); }
   static SIMD_CPPFUNC float4x4 operator*(const float4x4 x, const float4x4 y) { return ::simd_mul(x, y); }
-  static SIMD_CPPFUNC float2x2& operator*=(float2x2& x, const float2x2 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC float2x3& operator*=(float2x3& x, const float2x2 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC float2x4& operator*=(float2x4& x, const float2x2 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC float3x2& operator*=(float3x2& x, const float3x3 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC float3x3& operator*=(float3x3& x, const float3x3 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC float3x4& operator*=(float3x4& x, const float3x3 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC float4x2& operator*=(float4x2& x, const float4x4 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC float4x3& operator*=(float4x3& x, const float4x4 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC float4x4& operator*=(float4x4& x, const float4x4 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float2x2& operator*=(float2x2& x, const float2x2 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float2x3& operator*=(float2x3& x, const float2x2 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float2x4& operator*=(float2x4& x, const float2x2 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float3x2& operator*=(float3x2& x, const float3x3 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float3x3& operator*=(float3x3& x, const float3x3 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float3x4& operator*=(float3x4& x, const float3x3 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float4x2& operator*=(float4x2& x, const float4x4 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float4x3& operator*=(float4x3& x, const float4x4 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG float4x4& operator*=(float4x4& x, const float4x4 y) { x = ::simd_mul(x, y); return x; }
   
   static SIMD_CPPFUNC bool operator==(const float2x2& x, const float2x2& y) { return ::simd_equal(x, y); }
   static SIMD_CPPFUNC bool operator==(const float2x3& x, const float2x3& y) { return ::simd_equal(x, y); }
@@ -643,25 +643,25 @@ namespace simd {
   static SIMD_CPPFUNC double4x3 operator-(const double4x3 x, const double4x3 y) { return double4x3(::simd_linear_combination(1, x, -1, y)); }
   static SIMD_CPPFUNC double4x4 operator-(const double4x4 x, const double4x4 y) { return double4x4(::simd_linear_combination(1, x, -1, y)); }
   
-  static SIMD_CPPFUNC double2x2& operator+=(double2x2& x, const double2x2 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC double2x3& operator+=(double2x3& x, const double2x3 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC double2x4& operator+=(double2x4& x, const double2x4 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC double3x2& operator+=(double3x2& x, const double3x2 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC double3x3& operator+=(double3x3& x, const double3x3 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC double3x4& operator+=(double3x4& x, const double3x4 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC double4x2& operator+=(double4x2& x, const double4x2 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC double4x3& operator+=(double4x3& x, const double4x3 y) { x = x + y; return x; }
-  static SIMD_CPPFUNC double4x4& operator+=(double4x4& x, const double4x4 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double2x2& operator+=(double2x2& x, const double2x2 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double2x3& operator+=(double2x3& x, const double2x3 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double2x4& operator+=(double2x4& x, const double2x4 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double3x2& operator+=(double3x2& x, const double3x2 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double3x3& operator+=(double3x3& x, const double3x3 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double3x4& operator+=(double3x4& x, const double3x4 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double4x2& operator+=(double4x2& x, const double4x2 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double4x3& operator+=(double4x3& x, const double4x3 y) { x = x + y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double4x4& operator+=(double4x4& x, const double4x4 y) { x = x + y; return x; }
   
-  static SIMD_CPPFUNC double2x2& operator-=(double2x2& x, const double2x2 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC double2x3& operator-=(double2x3& x, const double2x3 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC double2x4& operator-=(double2x4& x, const double2x4 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC double3x2& operator-=(double3x2& x, const double3x2 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC double3x3& operator-=(double3x3& x, const double3x3 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC double3x4& operator-=(double3x4& x, const double3x4 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC double4x2& operator-=(double4x2& x, const double4x2 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC double4x3& operator-=(double4x3& x, const double4x3 y) { x = x - y; return x; }
-  static SIMD_CPPFUNC double4x4& operator-=(double4x4& x, const double4x4 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double2x2& operator-=(double2x2& x, const double2x2 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double2x3& operator-=(double2x3& x, const double2x3 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double2x4& operator-=(double2x4& x, const double2x4 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double3x2& operator-=(double3x2& x, const double3x2 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double3x3& operator-=(double3x3& x, const double3x3 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double3x4& operator-=(double3x4& x, const double3x4 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double4x2& operator-=(double4x2& x, const double4x2 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double4x3& operator-=(double4x3& x, const double4x3 y) { x = x - y; return x; }
+  static SIMD_INLINE SIMD_NODEBUG double4x4& operator-=(double4x4& x, const double4x4 y) { x = x - y; return x; }
   
   static SIMD_CPPFUNC double2x2 transpose(const double2x2 x) { return ::simd_transpose(x); }
   static SIMD_CPPFUNC double2x3 transpose(const double3x2 x) { return ::simd_transpose(x); }
@@ -706,15 +706,15 @@ namespace simd {
   static SIMD_CPPFUNC double4x2 operator*(const double4x2 x, const double a) { return ::simd_mul(a, x); }
   static SIMD_CPPFUNC double4x3 operator*(const double4x3 x, const double a) { return ::simd_mul(a, x); }
   static SIMD_CPPFUNC double4x4 operator*(const double4x4 x, const double a) { return ::simd_mul(a, x); }
-  static SIMD_CPPFUNC double2x2& operator*=(double2x2& x, const double a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC double2x3& operator*=(double2x3& x, const double a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC double2x4& operator*=(double2x4& x, const double a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC double3x2& operator*=(double3x2& x, const double a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC double3x3& operator*=(double3x3& x, const double a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC double3x4& operator*=(double3x4& x, const double a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC double4x2& operator*=(double4x2& x, const double a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC double4x3& operator*=(double4x3& x, const double a) { x = ::simd_mul(a, x); return x; }
-  static SIMD_CPPFUNC double4x4& operator*=(double4x4& x, const double a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double2x2& operator*=(double2x2& x, const double a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double2x3& operator*=(double2x3& x, const double a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double2x4& operator*=(double2x4& x, const double a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double3x2& operator*=(double3x2& x, const double a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double3x3& operator*=(double3x3& x, const double a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double3x4& operator*=(double3x4& x, const double a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double4x2& operator*=(double4x2& x, const double a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double4x3& operator*=(double4x3& x, const double a) { x = ::simd_mul(a, x); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double4x4& operator*=(double4x4& x, const double a) { x = ::simd_mul(a, x); return x; }
   
   static SIMD_CPPFUNC double2 operator*(const double2 x, const double2x2 y) { return ::simd_mul(x, y); }
   static SIMD_CPPFUNC double3 operator*(const double2 x, const double3x2 y) { return ::simd_mul(x, y); }
@@ -734,9 +734,9 @@ namespace simd {
   static SIMD_CPPFUNC double4 operator*(const double2x4 x, const double2 y) { return ::simd_mul(x, y); }
   static SIMD_CPPFUNC double4 operator*(const double3x4 x, const double3 y) { return ::simd_mul(x, y); }
   static SIMD_CPPFUNC double4 operator*(const double4x4 x, const double4 y) { return ::simd_mul(x, y); }
-  static SIMD_CPPFUNC double2& operator*=(double2& x, const double2x2 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC double3& operator*=(double3& x, const double3x3 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC double4& operator*=(double4& x, const double4x4 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double2& operator*=(double2& x, const double2x2 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double3& operator*=(double3& x, const double3x3 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double4& operator*=(double4& x, const double4x4 y) { x = ::simd_mul(x, y); return x; }
   
   static SIMD_CPPFUNC double2x2 operator*(const double2x2 x, const double2x2 y) { return ::simd_mul(x, y); }
   static SIMD_CPPFUNC double3x2 operator*(const double2x2 x, const double3x2 y) { return ::simd_mul(x, y); }
@@ -765,15 +765,15 @@ namespace simd {
   static SIMD_CPPFUNC double2x4 operator*(const double4x4 x, const double2x4 y) { return ::simd_mul(x, y); }
   static SIMD_CPPFUNC double3x4 operator*(const double4x4 x, const double3x4 y) { return ::simd_mul(x, y); }
   static SIMD_CPPFUNC double4x4 operator*(const double4x4 x, const double4x4 y) { return ::simd_mul(x, y); }
-  static SIMD_CPPFUNC double2x2& operator*=(double2x2& x, const double2x2 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC double2x3& operator*=(double2x3& x, const double2x2 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC double2x4& operator*=(double2x4& x, const double2x2 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC double3x2& operator*=(double3x2& x, const double3x3 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC double3x3& operator*=(double3x3& x, const double3x3 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC double3x4& operator*=(double3x4& x, const double3x3 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC double4x2& operator*=(double4x2& x, const double4x4 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC double4x3& operator*=(double4x3& x, const double4x4 y) { x = ::simd_mul(x, y); return x; }
-  static SIMD_CPPFUNC double4x4& operator*=(double4x4& x, const double4x4 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double2x2& operator*=(double2x2& x, const double2x2 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double2x3& operator*=(double2x3& x, const double2x2 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double2x4& operator*=(double2x4& x, const double2x2 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double3x2& operator*=(double3x2& x, const double3x3 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double3x3& operator*=(double3x3& x, const double3x3 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double3x4& operator*=(double3x4& x, const double3x3 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double4x2& operator*=(double4x2& x, const double4x4 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double4x3& operator*=(double4x3& x, const double4x4 y) { x = ::simd_mul(x, y); return x; }
+  static SIMD_INLINE SIMD_NODEBUG double4x4& operator*=(double4x4& x, const double4x4 y) { x = ::simd_mul(x, y); return x; }
   
   static SIMD_CPPFUNC bool operator==(const double2x2& x, const double2x2& y) { return ::simd_equal(x, y); }
   static SIMD_CPPFUNC bool operator==(const double2x3& x, const double2x3& y) { return ::simd_equal(x, y); }
@@ -874,15 +874,15 @@ static  simd_float3x3 SIMD_NOINLINE simd_matrix3x3(simd_quatf q) {
 static  simd_float4x4 SIMD_NOINLINE simd_matrix4x4(simd_quatf q) {
   simd_float4 v = q.vector;
   simd_float4x4 r = {
-    .columns[0] = { 1 - 2*(v.y*v.y + v.z*v.z),
+    .columns[0] = { v.x*v.x - v.y*v.y - v.z*v.z + v.w*v.w,
                         2*(v.x*v.y + v.z*v.w),
                         2*(v.x*v.z - v.y*v.w), 0 },
     .columns[1] = {     2*(v.x*v.y - v.z*v.w),
-                    1 - 2*(v.z*v.z + v.x*v.x),
+                    v.y*v.y - v.z*v.z + v.w*v.w - v.x*v.x,
                         2*(v.y*v.z + v.x*v.w), 0 },
     .columns[2] = {     2*(v.z*v.x + v.y*v.w),
                         2*(v.y*v.z - v.x*v.w),
-                    1 - 2*(v.y*v.y + v.x*v.x), 0 },
+                    v.z*v.z + v.w*v.w - v.x*v.x - v.y*v.y, 0 },
     .columns[3] = { 0, 0, 0, 1 }
   };
   return r;
@@ -896,15 +896,15 @@ static simd_double3x3 SIMD_NOINLINE simd_matrix3x3(simd_quatd q) {
 static simd_double4x4 SIMD_NOINLINE simd_matrix4x4(simd_quatd q) {
   simd_double4 v = q.vector;
   simd_double4x4 r = {
-    .columns[0] = { 1 - 2*(v.y*v.y + v.z*v.z),
+    .columns[0] = { v.x*v.x - v.y*v.y - v.z*v.z + v.w*v.w,
                         2*(v.x*v.y + v.z*v.w),
                         2*(v.x*v.z - v.y*v.w), 0 },
     .columns[1] = {     2*(v.x*v.y - v.z*v.w),
-                    1 - 2*(v.z*v.z + v.x*v.x),
+                    v.y*v.y - v.z*v.z + v.w*v.w - v.x*v.x,
                         2*(v.y*v.z + v.x*v.w), 0 },
     .columns[2] = {     2*(v.z*v.x + v.y*v.w),
                         2*(v.y*v.z - v.x*v.w),
-                    1 - 2*(v.y*v.y + v.x*v.x), 0 },
+                    v.z*v.z + v.w*v.w - v.x*v.x - v.y*v.y, 0 },
     .columns[3] = { 0, 0, 0, 1 }
   };
   return r;
@@ -1096,79 +1096,98 @@ static simd_double3x4 SIMD_CFUNC simd_sub(simd_double3x4 __x, simd_double3x4 __y
 static simd_double4x4 SIMD_CFUNC simd_sub(simd_double4x4 __x, simd_double4x4 __y) { return simd_linear_combination(1, __x, -1, __y); }
 
 static simd_float2x2 SIMD_CFUNC simd_transpose(simd_float2x2 __x) {
-#if defined __SSE__
     simd_float4 __x0, __x1;
     __x0.xy = __x.columns[0];
     __x1.xy = __x.columns[1];
+#if defined __SSE__
     simd_float4 __r01 = _mm_unpacklo_ps(__x0, __x1);
-    return simd_matrix(__r01.lo, __r01.hi);
+#elif defined __ARM_NEON__
+    simd_float4 __r01 = vzip1q_f32(__x0, __x1);
 #else
-    return simd_matrix((simd_float2){__x.columns[0][0], __x.columns[1][0]},
-                               (simd_float2){__x.columns[0][1], __x.columns[1][1]});
+    simd_float4 __r01 = { __x0[0], __x1[0], __x0[1], __x1[1] };
 #endif
+    return simd_matrix(__r01.lo, __r01.hi);
 }
     
 static simd_float3x2 SIMD_CFUNC simd_transpose(simd_float2x3 __x) {
-#if defined __SSE__
     simd_float4 __x0, __x1;
     __x0.xyz = __x.columns[0];
     __x1.xyz = __x.columns[1];
+#if defined __SSE__
     simd_float4 __r01 = _mm_unpacklo_ps(__x0, __x1);
     simd_float4 __r2x = _mm_unpackhi_ps(__x0, __x1);
-    return simd_matrix(__r01.lo, __r01.hi, __r2x.lo);
+#elif defined __ARM_NEON__
+    simd_float4 __r01 = vzip1q_f32(__x0, __x1);
+    simd_float4 __r2x = vzip2q_f32(__x0, __x1);
 #else
-    return simd_matrix((simd_float2){__x.columns[0][0], __x.columns[1][0]},
-                               (simd_float2){__x.columns[0][1], __x.columns[1][1]},
-                               (simd_float2){__x.columns[0][2], __x.columns[1][2]});
+    simd_float4 __r01 = { __x0[0], __x1[0], __x0[1], __x1[1] };
+    simd_float4 __r2x = { __x0[2], __x1[2] };
 #endif
+    return simd_matrix(__r01.lo, __r01.hi, __r2x.lo);
 }
     
 static simd_float4x2 SIMD_CFUNC simd_transpose(simd_float2x4 __x) {
 #if defined __SSE__
     simd_float4 __r01 = _mm_unpacklo_ps(__x.columns[0], __x.columns[1]);
     simd_float4 __r23 = _mm_unpackhi_ps(__x.columns[0], __x.columns[1]);
-    return simd_matrix(__r01.lo, __r01.hi, __r23.lo, __r23.hi);
+#elif defined __ARM_NEON__
+    simd_float4 __r01 = vzip1q_f32(__x.columns[0], __x.columns[1]);
+    simd_float4 __r23 = vzip2q_f32(__x.columns[0], __x.columns[1]);
 #else
-    return simd_matrix((simd_float2){__x.columns[0][0], __x.columns[1][0]},
-                               (simd_float2){__x.columns[0][1], __x.columns[1][1]},
-                               (simd_float2){__x.columns[0][2], __x.columns[1][2]},
-                               (simd_float2){__x.columns[0][3], __x.columns[1][3]});
+    simd_float4 __r01 = { __x.columns[0][0], __x.columns[1][0], __x.columns[0][1], __x.columns[1][1] };
+    simd_float4 __r23 = { __x.columns[0][2], __x.columns[1][2], __x.columns[0][3], __x.columns[1][3] };
 #endif
+    return simd_matrix(__r01.lo, __r01.hi, __r23.lo, __r23.hi);
 }
     
 static simd_float2x3 SIMD_CFUNC simd_transpose(simd_float3x2 __x) {
-#if defined __SSE__
     simd_float4 __x0, __x1, __x2;
     __x0.xy = __x.columns[0];
     __x1.xy = __x.columns[1];
     __x2.xy = __x.columns[2];
+#if defined __SSE__
     simd_float4 __t = _mm_unpacklo_ps(__x0, __x1);
     simd_float4 __r0 = _mm_shuffle_ps(__t,__x2,0xc4);
     simd_float4 __r1 = _mm_shuffle_ps(__t,__x2,0xde);
-    return simd_matrix(__r0.xyz, __r1.xyz);
+#elif defined __ARM_NEON__
+    simd_float4 padding = { 0 };
+    simd_float4 __t0 = vzip1q_f32(__x0,__x2);
+    simd_float4 __t1 = vzip1q_f32(__x1,padding);
+    simd_float4 __r0 = vzip1q_f32(__t0,__t1);
+    simd_float4 __r1 = vzip2q_f32(__t0,__t1);
 #else
-    return simd_matrix((simd_float3){__x.columns[0][0], __x.columns[1][0], __x.columns[2][0]},
-                               (simd_float3){__x.columns[0][1], __x.columns[1][1], __x.columns[2][1]});
+    simd_float4 __r0 = { __x0[0], __x1[0], __x2[0] };
+    simd_float4 __r1 = { __x0[1], __x1[1], __x2[1] };
 #endif
+    return simd_matrix(__r0.xyz, __r1.xyz);
 }
     
 static simd_float3x3 SIMD_CFUNC simd_transpose(simd_float3x3 __x) {
-#if defined __SSE__
     simd_float4 __x0, __x1, __x2;
     __x0.xyz = __x.columns[0];
     __x1.xyz = __x.columns[1];
     __x2.xyz = __x.columns[2];
+#if defined __SSE__
     simd_float4 __t0 = _mm_unpacklo_ps(__x0, __x1);
     simd_float4 __t1 = _mm_unpackhi_ps(__x0, __x1);
     simd_float4 __r0 = __t0; __r0.hi = __x2.lo;
     simd_float4 __r1 = _mm_shuffle_ps(__t0, __x2, 0xde);
     simd_float4 __r2 = __x2; __r2.lo = __t1.lo;
-    return simd_matrix(__r0.xyz, __r1.xyz, __r2.xyz);
+#elif defined __ARM_NEON__
+    simd_float4 padding = { 0 };
+    simd_float4 __t0 = vzip1q_f32(__x0,__x2);
+    simd_float4 __t1 = vzip2q_f32(__x0,__x2);
+    simd_float4 __t2 = vzip1q_f32(__x1,padding);
+    simd_float4 __t3 = vzip2q_f32(__x1,padding);
+    simd_float4 __r0 = vzip1q_f32(__t0,__t2);
+    simd_float4 __r1 = vzip2q_f32(__t0,__t2);
+    simd_float4 __r2 = vzip1q_f32(__t1,__t3);
 #else
-    return simd_matrix((simd_float3){__x.columns[0][0], __x.columns[1][0], __x.columns[2][0]},
-                               (simd_float3){__x.columns[0][1], __x.columns[1][1], __x.columns[2][1]},
-                               (simd_float3){__x.columns[0][2], __x.columns[1][2], __x.columns[2][2]});
+    simd_float4 __r0 = {__x0[0], __x1[0], __x2[0]};
+    simd_float4 __r1 = {__x0[1], __x1[1], __x2[1]};
+    simd_float4 __r2 = {__x0[2], __x1[2], __x2[2]};
 #endif
+    return simd_matrix(__r0.xyz, __r1.xyz, __r2.xyz);
 }
     
 static simd_float4x3 SIMD_CFUNC simd_transpose(simd_float3x4 __x) {
@@ -1179,40 +1198,55 @@ static simd_float4x3 SIMD_CFUNC simd_transpose(simd_float3x4 __x) {
     simd_float4 __r1 = _mm_shuffle_ps(__t0, __x.columns[2], 0xde);
     simd_float4 __r2 = __x.columns[2]; __r2.lo = __t1.lo;
     simd_float4 __r3 = _mm_shuffle_ps(__t1, __x.columns[2], 0xfe);
-    return simd_matrix(__r0.xyz, __r1.xyz, __r2.xyz, __r3.xyz);
+#elif defined __ARM_NEON__
+    simd_float4 padding = { 0 };
+    simd_float4 __t0 = vzip1q_f32(__x.columns[0],__x.columns[2]);
+    simd_float4 __t1 = vzip2q_f32(__x.columns[0],__x.columns[2]);
+    simd_float4 __t2 = vzip1q_f32(__x.columns[1],padding);
+    simd_float4 __t3 = vzip2q_f32(__x.columns[1],padding);
+    simd_float4 __r0 = vzip1q_f32(__t0,__t2);
+    simd_float4 __r1 = vzip2q_f32(__t0,__t2);
+    simd_float4 __r2 = vzip1q_f32(__t1,__t3);
+    simd_float4 __r3 = vzip2q_f32(__t1,__t3);
 #else
-    return simd_matrix((simd_float3){__x.columns[0][0], __x.columns[1][0], __x.columns[2][0]},
-                               (simd_float3){__x.columns[0][1], __x.columns[1][1], __x.columns[2][1]},
-                               (simd_float3){__x.columns[0][2], __x.columns[1][2], __x.columns[2][2]},
-                               (simd_float3){__x.columns[0][3], __x.columns[1][3], __x.columns[2][3]});
+    simd_float4 __r0 = {__x.columns[0][0], __x.columns[1][0], __x.columns[2][0]};
+    simd_float4 __r1 = {__x.columns[0][1], __x.columns[1][1], __x.columns[2][1]};
+    simd_float4 __r2 = {__x.columns[0][2], __x.columns[1][2], __x.columns[2][2]};
+    simd_float4 __r3 = {__x.columns[0][3], __x.columns[1][3], __x.columns[2][3]};
 #endif
+    return simd_matrix(__r0.xyz, __r1.xyz, __r2.xyz, __r3.xyz);
 }
 
 static simd_float2x4 SIMD_CFUNC simd_transpose(simd_float4x2 __x) {
-#if defined __SSE__
     simd_float4 __x0, __x1, __x2, __x3;
     __x0.xy = __x.columns[0];
     __x1.xy = __x.columns[1];
     __x2.xy = __x.columns[2];
     __x3.xy = __x.columns[3];
+#if defined __SSE__
     simd_float4 __t0 = _mm_unpacklo_ps(__x0,__x2);
     simd_float4 __t1 = _mm_unpacklo_ps(__x1,__x3);
     simd_float4 __r0 = _mm_unpacklo_ps(__t0,__t1);
     simd_float4 __r1 = _mm_unpackhi_ps(__t0,__t1);
-    return simd_matrix(__r0,__r1);
+#elif defined __ARM_NEON__
+    simd_float4 __t0 = vzip1q_f32(__x0,__x2);
+    simd_float4 __t1 = vzip1q_f32(__x1,__x3);
+    simd_float4 __r0 = vzip1q_f32(__t0,__t1);
+    simd_float4 __r1 = vzip2q_f32(__t0,__t1);
 #else
-    return simd_matrix((simd_float4){__x.columns[0][0], __x.columns[1][0], __x.columns[2][0], __x.columns[3][0]},
-                               (simd_float4){__x.columns[0][1], __x.columns[1][1], __x.columns[2][1], __x.columns[3][1]});
+    simd_float4 __r0 = {__x.columns[0][0], __x.columns[1][0], __x.columns[2][0], __x.columns[3][0]};
+    simd_float4 __r1 = {__x.columns[0][1], __x.columns[1][1], __x.columns[2][1], __x.columns[3][1]};
 #endif
+    return simd_matrix(__r0,__r1);
 }
 
 static simd_float3x4 SIMD_CFUNC simd_transpose(simd_float4x3 __x) {
-#if defined __SSE__
     simd_float4 __x0, __x1, __x2, __x3;
     __x0.xyz = __x.columns[0];
     __x1.xyz = __x.columns[1];
     __x2.xyz = __x.columns[2];
     __x3.xyz = __x.columns[3];
+#if defined __SSE__
     simd_float4 __t0 = _mm_unpacklo_ps(__x0,__x2);
     simd_float4 __t1 = _mm_unpackhi_ps(__x0,__x2);
     simd_float4 __t2 = _mm_unpacklo_ps(__x1,__x3);
@@ -1220,12 +1254,20 @@ static simd_float3x4 SIMD_CFUNC simd_transpose(simd_float4x3 __x) {
     simd_float4 __r0 = _mm_unpacklo_ps(__t0,__t2);
     simd_float4 __r1 = _mm_unpackhi_ps(__t0,__t2);
     simd_float4 __r2 = _mm_unpacklo_ps(__t1,__t3);
-    return simd_matrix(__r0,__r1,__r2);
+#elif defined __ARM_NEON__
+    simd_float4 __t0 = vzip1q_f32(__x0,__x2);
+    simd_float4 __t1 = vzip2q_f32(__x0,__x2);
+    simd_float4 __t2 = vzip1q_f32(__x1,__x3);
+    simd_float4 __t3 = vzip2q_f32(__x1,__x3);
+    simd_float4 __r0 = vzip1q_f32(__t0,__t2);
+    simd_float4 __r1 = vzip2q_f32(__t0,__t2);
+    simd_float4 __r2 = vzip1q_f32(__t1,__t3);
 #else
-    return simd_matrix((simd_float4){__x.columns[0][0], __x.columns[1][0], __x.columns[2][0], __x.columns[3][0]},
-                               (simd_float4){__x.columns[0][1], __x.columns[1][1], __x.columns[2][1], __x.columns[3][1]},
-                               (simd_float4){__x.columns[0][2], __x.columns[1][2], __x.columns[2][2], __x.columns[3][2]});
+    simd_float4 __r0 = {__x.columns[0][0], __x.columns[1][0], __x.columns[2][0], __x.columns[3][0]};
+    simd_float4 __r1 = {__x.columns[0][1], __x.columns[1][1], __x.columns[2][1], __x.columns[3][1]};
+    simd_float4 __r2 = {__x.columns[0][2], __x.columns[1][2], __x.columns[2][2], __x.columns[3][2]};
 #endif
+    return simd_matrix(__r0,__r1,__r2);
 }
 
 static simd_float4x4 SIMD_CFUNC simd_transpose(simd_float4x4 __x) {
@@ -1238,67 +1280,202 @@ static simd_float4x4 SIMD_CFUNC simd_transpose(simd_float4x4 __x) {
     simd_float4 __r1 = _mm_unpackhi_ps(__t0,__t2);
     simd_float4 __r2 = _mm_unpacklo_ps(__t1,__t3);
     simd_float4 __r3 = _mm_unpackhi_ps(__t1,__t3);
-    return simd_matrix(__r0,__r1,__r2,__r3);
+#elif defined __ARM_NEON__
+    simd_float4 __t0 = vzip1q_f32(__x.columns[0],__x.columns[2]);
+    simd_float4 __t1 = vzip2q_f32(__x.columns[0],__x.columns[2]);
+    simd_float4 __t2 = vzip1q_f32(__x.columns[1],__x.columns[3]);
+    simd_float4 __t3 = vzip2q_f32(__x.columns[1],__x.columns[3]);
+    simd_float4 __r0 = vzip1q_f32(__t0,__t2);
+    simd_float4 __r1 = vzip2q_f32(__t0,__t2);
+    simd_float4 __r2 = vzip1q_f32(__t1,__t3);
+    simd_float4 __r3 = vzip2q_f32(__t1,__t3);
 #else
-    return simd_matrix((simd_float4){__x.columns[0][0], __x.columns[1][0], __x.columns[2][0], __x.columns[3][0]},
-                               (simd_float4){__x.columns[0][1], __x.columns[1][1], __x.columns[2][1], __x.columns[3][1]},
-                               (simd_float4){__x.columns[0][2], __x.columns[1][2], __x.columns[2][2], __x.columns[3][2]},
-                               (simd_float4){__x.columns[0][3], __x.columns[1][3], __x.columns[2][3], __x.columns[3][3]});
+    simd_float4 __r0 = {__x.columns[0][0], __x.columns[1][0], __x.columns[2][0], __x.columns[3][0]};
+    simd_float4 __r1 = {__x.columns[0][1], __x.columns[1][1], __x.columns[2][1], __x.columns[3][1]};
+    simd_float4 __r2 = {__x.columns[0][2], __x.columns[1][2], __x.columns[2][2], __x.columns[3][2]};
+    simd_float4 __r3 = {__x.columns[0][3], __x.columns[1][3], __x.columns[2][3], __x.columns[3][3]};
 #endif
+    return simd_matrix(__r0,__r1,__r2,__r3);
 }
 
 static simd_double2x2 SIMD_CFUNC simd_transpose(simd_double2x2 __x) {
-    return simd_matrix((simd_double2){__x.columns[0][0], __x.columns[1][0]},
-                               (simd_double2){__x.columns[0][1], __x.columns[1][1]});
+    simd_double2 __x0, __x1;
+    __x0 = __x.columns[0];
+    __x1 = __x.columns[1];
+#if defined __ARM_NEON__
+    simd_double2 __r0 = vzip1q_f64(__x0, __x1);
+    simd_double2 __r1 = vzip2q_f64(__x0, __x1);
+#else
+    simd_double2 __r0 = { __x0[0], __x1[0] };
+    simd_double2 __r1 = { __x0[1], __x1[1] };
+#endif
+    return simd_matrix(__r0, __r1);
 }
 
 static simd_double3x2 SIMD_CFUNC simd_transpose(simd_double2x3 __x) {
-    return simd_matrix((simd_double2){__x.columns[0][0], __x.columns[1][0]},
-                               (simd_double2){__x.columns[0][1], __x.columns[1][1]},
-                               (simd_double2){__x.columns[0][2], __x.columns[1][2]});
+    simd_double4 __x0, __x1;
+    __x0.xyz = __x.columns[0];
+    __x1.xyz = __x.columns[1];
+#if defined __ARM_NEON__
+    simd_double2 __r0 = vzip1q_f64(__x0.lo,__x1.lo);
+    simd_double2 __r1 = vzip2q_f64(__x0.lo,__x1.lo);
+    simd_double2 __r2 = vzip1q_f64(__x0.hi,__x1.hi);
+#else
+    simd_double2 __r0 = {__x0[0], __x1[0]};
+    simd_double2 __r1 = {__x0[1], __x1[1]};
+    simd_double2 __r2 = {__x0[2], __x1[2]};
+#endif
+    return simd_matrix(__r0,__r1,__r2);
 }
 
 static simd_double4x2 SIMD_CFUNC simd_transpose(simd_double2x4 __x) {
-    return simd_matrix((simd_double2){__x.columns[0][0], __x.columns[1][0]},
-                               (simd_double2){__x.columns[0][1], __x.columns[1][1]},
-                               (simd_double2){__x.columns[0][2], __x.columns[1][2]},
-                               (simd_double2){__x.columns[0][3], __x.columns[1][3]});
+    simd_double4 __x0, __x1;
+    __x0 = __x.columns[0];
+    __x1 = __x.columns[1];
+#if defined __ARM_NEON__
+    simd_double2 __r0 = vzip1q_f64(__x0.lo,__x1.lo);
+    simd_double2 __r1 = vzip2q_f64(__x0.lo,__x1.lo);
+    simd_double2 __r2 = vzip1q_f64(__x0.hi,__x1.hi);
+    simd_double2 __r3 = vzip2q_f64(__x0.hi,__x1.hi);
+#else
+    simd_double2 __r0 = {__x0[0], __x1[0]};
+    simd_double2 __r1 = {__x0[1], __x1[1]};
+    simd_double2 __r2 = {__x0[2], __x1[2]};
+    simd_double2 __r3 = {__x0[3], __x1[3]};
+#endif
+    return simd_matrix(__r0,__r1,__r2,__r3);
 }
 
 static simd_double2x3 SIMD_CFUNC simd_transpose(simd_double3x2 __x) {
-    return simd_matrix((simd_double3){__x.columns[0][0], __x.columns[1][0], __x.columns[2][0]},
-                               (simd_double3){__x.columns[0][1], __x.columns[1][1], __x.columns[2][1]});
+    simd_double2 __x0, __x1, __x2;
+    __x0 = __x.columns[0];
+    __x1 = __x.columns[1];
+    __x2 = __x.columns[2];
+#if defined __ARM_NEON__
+    simd_double2 padding = { 0 };
+    simd_double4 __r0,__r1;
+    __r0.lo = vzip1q_f64(__x0,__x1);
+    __r1.lo = vzip2q_f64(__x0,__x1);
+    __r0.hi = vzip1q_f64(__x2,padding);
+    __r1.hi = vzip2q_f64(__x2,padding);
+#else
+    simd_double4 __r0 = {__x0[0], __x1[0], __x2[0]};
+    simd_double4 __r1 = {__x0[1], __x1[1], __x2[1]};
+#endif
+    return simd_matrix(__r0.xyz,__r1.xyz);
 }
 
 static simd_double3x3 SIMD_CFUNC simd_transpose(simd_double3x3 __x) {
-    return simd_matrix((simd_double3){__x.columns[0][0], __x.columns[1][0], __x.columns[2][0]},
-                               (simd_double3){__x.columns[0][1], __x.columns[1][1], __x.columns[2][1]},
-                               (simd_double3){__x.columns[0][2], __x.columns[1][2], __x.columns[2][2]});
+    simd_double4 __x0, __x1, __x2;
+    __x0.xyz = __x.columns[0];
+    __x1.xyz = __x.columns[1];
+    __x2.xyz = __x.columns[2];
+#if defined __ARM_NEON__
+    simd_double2 padding = { 0 };
+    simd_double4 __r0,__r1,__r2;
+    __r0.lo = vzip1q_f64(__x0.lo,__x1.lo);
+    __r1.lo = vzip2q_f64(__x0.lo,__x1.lo);
+    __r2.lo = vzip1q_f64(__x0.hi,__x1.hi);
+    __r0.hi = vzip1q_f64(__x2.lo,padding);
+    __r1.hi = vzip2q_f64(__x2.lo,padding);
+    __r2.hi = vzip1q_f64(__x2.hi,padding);
+#else
+    simd_double4 __r0 = {__x0[0], __x1[0], __x2[0]};
+    simd_double4 __r1 = {__x0[1], __x1[1], __x2[1]};
+    simd_double4 __r2 = {__x0[2], __x1[2], __x2[2]};
+#endif
+    return simd_matrix(__r0.xyz,__r1.xyz,__r2.xyz);
 }
 
 static simd_double4x3 SIMD_CFUNC simd_transpose(simd_double3x4 __x) {
-    return simd_matrix((simd_double3){__x.columns[0][0], __x.columns[1][0], __x.columns[2][0]},
-                               (simd_double3){__x.columns[0][1], __x.columns[1][1], __x.columns[2][1]},
-                               (simd_double3){__x.columns[0][2], __x.columns[1][2], __x.columns[2][2]},
-                               (simd_double3){__x.columns[0][3], __x.columns[1][3], __x.columns[2][3]});
+    simd_double4 __x0, __x1, __x2;
+    __x0 = __x.columns[0];
+    __x1 = __x.columns[1];
+    __x2 = __x.columns[2];
+#if defined __ARM_NEON__
+    simd_double2 padding = { 0 };
+    simd_double4 __r0,__r1,__r2,__r3;
+    __r0.lo = vzip1q_f64(__x0.lo,__x1.lo);
+    __r1.lo = vzip2q_f64(__x0.lo,__x1.lo);
+    __r2.lo = vzip1q_f64(__x0.hi,__x1.hi);
+    __r3.lo = vzip2q_f64(__x0.hi,__x1.hi);
+    __r0.hi = vzip1q_f64(__x2.lo,padding);
+    __r1.hi = vzip2q_f64(__x2.lo,padding);
+    __r2.hi = vzip1q_f64(__x2.hi,padding);
+    __r3.hi = vzip2q_f64(__x2.hi,padding);
+#else
+    simd_double4 __r0 = {__x0[0], __x1[0], __x2[0]};
+    simd_double4 __r1 = {__x0[1], __x1[1], __x2[1]};
+    simd_double4 __r2 = {__x0[2], __x1[2], __x2[2]};
+    simd_double4 __r3 = {__x0[3], __x1[3], __x2[3]};
+#endif
+    return simd_matrix(__r0.xyz,__r1.xyz,__r2.xyz,__r3.xyz);
 }
 
 static simd_double2x4 SIMD_CFUNC simd_transpose(simd_double4x2 __x) {
-    return simd_matrix((simd_double4){__x.columns[0][0], __x.columns[1][0], __x.columns[2][0], __x.columns[3][0]},
-                               (simd_double4){__x.columns[0][1], __x.columns[1][1], __x.columns[2][1], __x.columns[3][1]});
+    simd_double2 __x0, __x1, __x2, __x3;
+    __x0 = __x.columns[0];
+    __x1 = __x.columns[1];
+    __x2 = __x.columns[2];
+    __x3 = __x.columns[3];
+#if defined __ARM_NEON__
+    simd_double4 __r0,__r1;
+    __r0.lo = vzip1q_f64(__x0,__x1);
+    __r1.lo = vzip2q_f64(__x0,__x1);
+    __r0.hi = vzip1q_f64(__x2,__x3);
+    __r1.hi = vzip2q_f64(__x2,__x3);
+#else
+    simd_double4 __r0 = {__x0[0], __x1[0], __x2[0], __x3[0]};
+    simd_double4 __r1 = {__x0[1], __x1[1], __x2[1], __x3[1]};
+#endif
+    return simd_matrix(__r0,__r1);
 }
 
 static simd_double3x4 SIMD_CFUNC simd_transpose(simd_double4x3 __x) {
-    return simd_matrix((simd_double4){__x.columns[0][0], __x.columns[1][0], __x.columns[2][0], __x.columns[3][0]},
-                               (simd_double4){__x.columns[0][1], __x.columns[1][1], __x.columns[2][1], __x.columns[3][1]},
-                               (simd_double4){__x.columns[0][2], __x.columns[1][2], __x.columns[2][2], __x.columns[3][2]});
+    simd_double4 __x0, __x1, __x2, __x3;
+    __x0.xyz = __x.columns[0];
+    __x1.xyz = __x.columns[1];
+    __x2.xyz = __x.columns[2];
+    __x3.xyz = __x.columns[3];
+#if defined __ARM_NEON__
+    simd_double4 __r0,__r1,__r2;
+    __r0.lo = vzip1q_f64(__x0.lo,__x1.lo);
+    __r1.lo = vzip2q_f64(__x0.lo,__x1.lo);
+    __r2.lo = vzip1q_f64(__x0.hi,__x1.hi);
+    __r0.hi = vzip1q_f64(__x2.lo,__x3.lo);
+    __r1.hi = vzip2q_f64(__x2.lo,__x3.lo);
+    __r2.hi = vzip1q_f64(__x2.hi,__x3.hi);
+#else
+    simd_double4 __r0 = {__x0[0], __x1[0], __x2[0], __x3[0]};
+    simd_double4 __r1 = {__x0[1], __x1[1], __x2[1], __x3[1]};
+    simd_double4 __r2 = {__x0[2], __x1[2], __x2[2], __x3[2]};
+#endif
+    return simd_matrix(__r0,__r1,__r2);
 }
 
 static simd_double4x4 SIMD_CFUNC simd_transpose(simd_double4x4 __x) {
-    return simd_matrix((simd_double4){__x.columns[0][0], __x.columns[1][0], __x.columns[2][0], __x.columns[3][0]},
-                               (simd_double4){__x.columns[0][1], __x.columns[1][1], __x.columns[2][1], __x.columns[3][1]},
-                               (simd_double4){__x.columns[0][2], __x.columns[1][2], __x.columns[2][2], __x.columns[3][2]},
-                               (simd_double4){__x.columns[0][3], __x.columns[1][3], __x.columns[2][3], __x.columns[3][3]});
+    simd_double4 __x0, __x1, __x2, __x3;
+    __x0 = __x.columns[0];
+    __x1 = __x.columns[1];
+    __x2 = __x.columns[2];
+    __x3 = __x.columns[3];
+#if defined __ARM_NEON__
+    simd_double4 __r0,__r1,__r2,__r3;
+    __r0.lo = vzip1q_f64(__x0.lo,__x1.lo);
+    __r1.lo = vzip2q_f64(__x0.lo,__x1.lo);
+    __r2.lo = vzip1q_f64(__x0.hi,__x1.hi);
+    __r3.lo = vzip2q_f64(__x0.hi,__x1.hi);
+    __r0.hi = vzip1q_f64(__x2.lo,__x3.lo);
+    __r1.hi = vzip2q_f64(__x2.lo,__x3.lo);
+    __r2.hi = vzip1q_f64(__x2.hi,__x3.hi);
+    __r3.hi = vzip2q_f64(__x2.hi,__x3.hi);
+#else
+    simd_double4 __r0 = {__x0[0], __x1[0], __x2[0], __x3[0]};
+    simd_double4 __r1 = {__x0[1], __x1[1], __x2[1], __x3[1]};
+    simd_double4 __r2 = {__x0[2], __x1[2], __x2[2], __x3[2]};
+    simd_double4 __r3 = {__x0[3], __x1[3], __x2[3], __x3[3]};
+#endif
+    return simd_matrix(__r0,__r1,__r2,__r3);
 }
 
 static  simd_float3 SIMD_CFUNC __rotate1( simd_float3 __x) { return __builtin_shufflevector(__x,__x,1,2,0); }

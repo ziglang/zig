@@ -20,6 +20,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
+
 #ifndef __MATH_H__
 #define __MATH_H__
 
@@ -40,13 +41,13 @@ __BEGIN_DECLS
     taking advantage of GCC's __FLT_EVAL_METHOD__ (which a compiler may
     define anytime and GCC does) that shadows FLT_EVAL_METHOD (which a
     compiler must define only in float.h).                                    */
-#if __FLT_EVAL_METHOD__ == 0
+#if __FLT_EVAL_METHOD__ == 0 || __FLT_EVAL_METHOD__ == -1
     typedef float float_t;
     typedef double double_t;
 #elif __FLT_EVAL_METHOD__ == 1
     typedef double float_t;
     typedef double double_t;
-#elif __FLT_EVAL_METHOD__ == 2 || __FLT_EVAL_METHOD__ == -1
+#elif __FLT_EVAL_METHOD__ == 2
     typedef long double float_t;
     typedef long double double_t;
 #else /* __FLT_EVAL_METHOD__ */
@@ -773,3 +774,4 @@ struct exception {
 
 __END_DECLS
 #endif /* __MATH_H__ */
+

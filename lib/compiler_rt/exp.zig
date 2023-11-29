@@ -8,6 +8,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 const common = @import("common.zig");
 
@@ -27,7 +28,7 @@ comptime {
 
 pub fn __exph(a: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
-    return @as(f16, @floatCast(expf(a)));
+    return @floatCast(expf(a));
 }
 
 pub fn expf(x_: f32) callconv(.C) f32 {
@@ -58,7 +59,7 @@ pub fn expf(x_: f32) callconv(.C) f32 {
             return x * 0x1.0p127;
         }
         if (sign != 0) {
-            math.doNotOptimizeAway(-0x1.0p-149 / x); // overflow
+            mem.doNotOptimizeAway(-0x1.0p-149 / x); // overflow
             // x <= -103.972084
             if (hx >= 0x42CFF1B5) {
                 return 0;
@@ -74,7 +75,7 @@ pub fn expf(x_: f32) callconv(.C) f32 {
     if (hx > 0x3EB17218) {
         // |x| > 1.5 * ln2
         if (hx > 0x3F851592) {
-            k = @intFromFloat(invln2 * x + half[@as(usize, @intCast(sign))]);
+            k = @intFromFloat(invln2 * x + half[@intCast(sign)]);
         } else {
             k = 1 - sign - sign;
         }
@@ -90,7 +91,7 @@ pub fn expf(x_: f32) callconv(.C) f32 {
         hi = x;
         lo = 0;
     } else {
-        math.doNotOptimizeAway(0x1.0p127 + x); // inexact
+        mem.doNotOptimizeAway(0x1.0p127 + x); // inexact
         return 1 + x;
     }
 
@@ -117,7 +118,7 @@ pub fn exp(x_: f64) callconv(.C) f64 {
     const P5: f64 = 4.13813679705723846039e-08;
 
     var x = x_;
-    var ux: u64 = @bitCast(x);
+    const ux: u64 = @bitCast(x);
     var hx = ux >> 32;
     const sign: i32 = @intCast(hx >> 31);
     hx &= 0x7FFFFFFF;
@@ -141,7 +142,7 @@ pub fn exp(x_: f64) callconv(.C) f64 {
         }
         if (x < -708.39641853226410622) {
             // underflow if x != -inf
-            // math.doNotOptimizeAway(@as(f32, -0x1.0p-149 / x));
+            // mem.doNotOptimizeAway(@as(f32, -0x1.0p-149 / x));
             if (x < -745.13321910194110842) {
                 return 0;
             }
@@ -157,7 +158,7 @@ pub fn exp(x_: f64) callconv(.C) f64 {
     if (hx > 0x3FD62E42) {
         // |x| >= 1.5 * ln2
         if (hx > 0x3FF0A2B2) {
-            k = @intFromFloat(invln2 * x + half[@as(usize, @intCast(sign))]);
+            k = @intFromFloat(invln2 * x + half[@intCast(sign)]);
         } else {
             k = 1 - sign - sign;
         }
@@ -174,7 +175,7 @@ pub fn exp(x_: f64) callconv(.C) f64 {
         lo = 0;
     } else {
         // inexact if x != 0
-        // math.doNotOptimizeAway(0x1.0p1023 + x);
+        // mem.doNotOptimizeAway(0x1.0p1023 + x);
         return 1 + x;
     }
 

@@ -1,5 +1,5 @@
 /* System-specific socket constants and types.  Linux version.
-   Copyright (C) 1991-2021 Free Software Foundation, Inc.
+   Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -86,7 +86,8 @@ typedef __socklen_t socklen_t;
 #define PF_QIPCRTR	42	/* Qualcomm IPC Router.  */
 #define PF_SMC		43	/* SMC sockets.  */
 #define PF_XDP		44	/* XDP sockets.  */
-#define PF_MAX		45	/* For now..  */
+#define PF_MCTP		45	/* Management component transport protocol.  */
+#define PF_MAX		46	/* For now..  */
 
 /* Address families.  */
 #define AF_UNSPEC	PF_UNSPEC
@@ -137,6 +138,7 @@ typedef __socklen_t socklen_t;
 #define AF_QIPCRTR	PF_QIPCRTR
 #define AF_SMC		PF_SMC
 #define AF_XDP		PF_XDP
+#define AF_MCTP		PF_MCTP
 #define AF_MAX		PF_MAX
 
 /* Socket level values.  Others are defined in the appropriate headers.
@@ -167,6 +169,9 @@ typedef __socklen_t socklen_t;
 #define SOL_KCM		281
 #define SOL_TLS		282
 #define SOL_XDP		283
+#define SOL_MPTCP	284
+#define SOL_MCTP	285
+#define SOL_SMC		286
 
 /* Maximum queue length specifiable by listen.  */
 #define SOMAXCONN	4096
@@ -302,6 +307,12 @@ struct cmsghdr
 			 + CMSG_ALIGN (sizeof (struct cmsghdr)))
 #define CMSG_LEN(len)   (CMSG_ALIGN (sizeof (struct cmsghdr)) + (len))
 
+/* Given a length, return the additional padding necessary such that
+   len + __CMSG_PADDING(len) == CMSG_ALIGN (len).  */
+#define __CMSG_PADDING(len) ((sizeof (size_t) \
+                              - ((len) & (sizeof (size_t) - 1))) \
+                             & (sizeof (size_t) - 1))
+
 extern struct cmsghdr *__cmsg_nxthdr (struct msghdr *__mhdr,
 				      struct cmsghdr *__cmsg) __THROW;
 #ifdef __USE_EXTERN_INLINES
@@ -311,18 +322,38 @@ extern struct cmsghdr *__cmsg_nxthdr (struct msghdr *__mhdr,
 _EXTERN_INLINE struct cmsghdr *
 __NTH (__cmsg_nxthdr (struct msghdr *__mhdr, struct cmsghdr *__cmsg))
 {
+  /* We may safely assume that __cmsg lies between __mhdr->msg_control and
+     __mhdr->msg_controllen because the user is required to obtain the first
+     cmsg via CMSG_FIRSTHDR, set its length, then obtain subsequent cmsgs
+     via CMSG_NXTHDR, setting lengths along the way.  However, we don't yet
+     trust the value of __cmsg->cmsg_len and therefore do not use it in any
+     pointer arithmetic until we check its value.  */
+
+  unsigned char * __msg_control_ptr = (unsigned char *) __mhdr->msg_control;
+  unsigned char * __cmsg_ptr = (unsigned char *) __cmsg;
+
+  size_t __size_needed = sizeof (struct cmsghdr)
+                         + __CMSG_PADDING (__cmsg->cmsg_len);
+
+  /* The current header is malformed, too small to be a full header.  */
   if ((size_t) __cmsg->cmsg_len < sizeof (struct cmsghdr))
-    /* The kernel header does this so there may be a reason.  */
     return (struct cmsghdr *) 0;
 
+  /* There isn't enough space between __cmsg and the end of the buffer to
+  hold the current cmsg *and* the next one.  */
+  if (((size_t)
+         (__msg_control_ptr + __mhdr->msg_controllen - __cmsg_ptr)
+       < __size_needed)
+      || ((size_t)
+            (__msg_control_ptr + __mhdr->msg_controllen - __cmsg_ptr
+             - __size_needed)
+          < __cmsg->cmsg_len))
+
+    return (struct cmsghdr *) 0;
+
+  /* Now, we trust cmsg_len and can use it to find the next header.  */
   __cmsg = (struct cmsghdr *) ((unsigned char *) __cmsg
 			       + CMSG_ALIGN (__cmsg->cmsg_len));
-  if ((unsigned char *) (__cmsg + 1) > ((unsigned char *) __mhdr->msg_control
-					+ __mhdr->msg_controllen)
-      || ((unsigned char *) __cmsg + CMSG_ALIGN (__cmsg->cmsg_len)
-	  > ((unsigned char *) __mhdr->msg_control + __mhdr->msg_controllen)))
-    /* No more entries.  */
-    return (struct cmsghdr *) 0;
   return __cmsg;
 }
 #endif	/* Use `extern inline'.  */

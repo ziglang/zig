@@ -111,6 +111,7 @@ fn updateOsVersionRange(self: *CrossTarget, os: Target.Os) void {
         .kfreebsd,
         .lv2,
         .solaris,
+        .illumos,
         .zos,
         .haiku,
         .minix,
@@ -132,6 +133,7 @@ fn updateOsVersionRange(self: *CrossTarget, os: Target.Os) void {
         .emscripten,
         .driverkit,
         .shadermodel,
+        .liteos,
         .uefi,
         .opencl,
         .glsl450,
@@ -352,29 +354,35 @@ pub fn parseCpuArch(args: ParseOptions) ?Target.Cpu.Arch {
     }
 }
 
-/// Parses a version with an omitted patch component, such as "1.0",
-/// which SemanticVersion.parse is not capable of.
-fn parseVersion(ver: []const u8) !SemanticVersion {
-    const parseVersionComponent = struct {
-        fn parseVersionComponent(component: []const u8) !usize {
-            return std.fmt.parseUnsigned(usize, component, 10) catch |err| {
-                switch (err) {
-                    error.InvalidCharacter => return error.InvalidVersion,
-                    error.Overflow => return error.Overflow,
-                }
+/// Similar to `SemanticVersion.parse`, but with following changes:
+/// * Leading zeroes are allowed.
+/// * Supports only 2 or 3 version components (major, minor, [patch]). If 3-rd component is omitted, it will be 0.
+pub fn parseVersion(ver: []const u8) error{ InvalidVersion, Overflow }!SemanticVersion {
+    const parseVersionComponentFn = (struct {
+        fn parseVersionComponentInner(component: []const u8) error{ InvalidVersion, Overflow }!usize {
+            return std.fmt.parseUnsigned(usize, component, 10) catch |err| switch (err) {
+                error.InvalidCharacter => return error.InvalidVersion,
+                error.Overflow => return error.Overflow,
             };
         }
-    }.parseVersionComponent;
-    var version_components = mem.split(u8, ver, ".");
+    }).parseVersionComponentInner;
+    var version_components = mem.splitScalar(u8, ver, '.');
     const major = version_components.first();
     const minor = version_components.next() orelse return error.InvalidVersion;
     const patch = version_components.next() orelse "0";
     if (version_components.next() != null) return error.InvalidVersion;
     return .{
-        .major = try parseVersionComponent(major),
-        .minor = try parseVersionComponent(minor),
-        .patch = try parseVersionComponent(patch),
+        .major = try parseVersionComponentFn(major),
+        .minor = try parseVersionComponentFn(minor),
+        .patch = try parseVersionComponentFn(patch),
     };
+}
+
+test parseVersion {
+    try std.testing.expectError(error.InvalidVersion, parseVersion("1"));
+    try std.testing.expectEqual(SemanticVersion{ .major = 1, .minor = 2, .patch = 0 }, try parseVersion("1.2"));
+    try std.testing.expectEqual(SemanticVersion{ .major = 1, .minor = 2, .patch = 3 }, try parseVersion("1.2.3"));
+    try std.testing.expectError(error.InvalidVersion, parseVersion("1.2.3.4"));
 }
 
 /// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
@@ -708,6 +716,7 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
         .kfreebsd,
         .lv2,
         .solaris,
+        .illumos,
         .zos,
         .haiku,
         .minix,
@@ -734,6 +743,7 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
         .plan9,
         .driverkit,
         .shadermodel,
+        .liteos,
         .other,
         => return error.InvalidOperatingSystemVersion,
 

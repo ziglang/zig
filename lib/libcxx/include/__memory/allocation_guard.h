@@ -11,6 +11,7 @@
 #define _LIBCPP___MEMORY_ALLOCATION_GUARD_H
 
 #include <__config>
+#include <__memory/addressof.h>
 #include <__memory/allocator_traits.h>
 #include <__utility/move.h>
 #include <cstddef>
@@ -18,6 +19,9 @@
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
+
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -55,9 +59,29 @@ struct __allocation_guard {
 
     _LIBCPP_HIDE_FROM_ABI
     ~__allocation_guard() _NOEXCEPT {
-        if (__ptr_ != nullptr) {
-            allocator_traits<_Alloc>::deallocate(__alloc_, __ptr_, __n_);
+        __destroy();
+    }
+
+    _LIBCPP_HIDE_FROM_ABI __allocation_guard(const __allocation_guard&) = delete;
+    _LIBCPP_HIDE_FROM_ABI __allocation_guard(__allocation_guard&& __other) _NOEXCEPT
+        : __alloc_(std::move(__other.__alloc_))
+        , __n_(__other.__n_)
+        , __ptr_(__other.__ptr_) {
+      __other.__ptr_ = nullptr;
+    }
+
+    _LIBCPP_HIDE_FROM_ABI __allocation_guard& operator=(const __allocation_guard& __other) = delete;
+    _LIBCPP_HIDE_FROM_ABI __allocation_guard& operator=(__allocation_guard&& __other) _NOEXCEPT {
+        if (std::addressof(__other) != this) {
+            __destroy();
+
+            __alloc_ = std::move(__other.__alloc_);
+            __n_ = __other.__n_;
+            __ptr_ = __other.__ptr_;
+            __other.__ptr_ = nullptr;
         }
+
+        return *this;
     }
 
     _LIBCPP_HIDE_FROM_ABI
@@ -73,11 +97,20 @@ struct __allocation_guard {
     }
 
 private:
+    _LIBCPP_HIDE_FROM_ABI
+    void __destroy() _NOEXCEPT {
+        if (__ptr_ != nullptr) {
+            allocator_traits<_Alloc>::deallocate(__alloc_, __ptr_, __n_);
+        }
+    }
+
     _Alloc __alloc_;
     _Size __n_;
     _Pointer __ptr_;
 };
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___MEMORY_ALLOCATION_GUARD_H

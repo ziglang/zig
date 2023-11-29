@@ -576,6 +576,7 @@ pub const Payload = struct {
             name: []const u8,
             type: Node,
             alignment: ?c_uint,
+            default_value: ?Node,
         };
     };
 
@@ -793,6 +794,7 @@ pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
         .nodes = ctx.nodes.toOwnedSlice(),
         .extra_data = try ctx.extra_data.toOwnedSlice(gpa),
         .errors = &.{},
+        .mode = .zig,
     };
 }
 
@@ -1623,13 +1625,18 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             });
             const main_token = try c.addToken(.equal, "=");
             if (payload.value.tag() == .identifier) {
-                // Render as `_ = @TypeOf(foo);` to avoid tripping "pointless discard" error.
+                // Render as `_ = &foo;` to avoid tripping "pointless discard" and "local variable never mutated" errors.
+                var addr_of_pl: Payload.UnOp = .{
+                    .base = .{ .tag = .address_of },
+                    .data = payload.value,
+                };
+                const addr_of: Node = .{ .ptr_otherwise = &addr_of_pl.base };
                 return c.addNode(.{
                     .tag = .assign,
                     .main_token = main_token,
                     .data = .{
                         .lhs = lhs,
-                        .rhs = try renderBuiltinCall(c, "@TypeOf", &.{payload.value}),
+                        .rhs = try renderNode(c, addr_of),
                     },
                 });
             } else {
@@ -2041,29 +2048,38 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             }
             _ = try c.addToken(.r_brace, "}");
 
-            if (payload.inits.len < 2) {
-                return c.addNode(.{
+            return switch (payload.inits.len) {
+                0 => c.addNode(.{
+                    .tag = .struct_init_one,
+                    .main_token = l_brace,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = 0,
+                    },
+                }),
+                1 => c.addNode(.{
                     .tag = .struct_init_one_comma,
                     .main_token = l_brace,
                     .data = .{
                         .lhs = lhs,
                         .rhs = inits[0],
                     },
-                });
-            } else {
-                const span = try c.listToSpan(inits);
-                return c.addNode(.{
-                    .tag = .struct_init_comma,
-                    .main_token = l_brace,
-                    .data = .{
-                        .lhs = lhs,
-                        .rhs = try c.addExtra(NodeSubRange{
-                            .start = span.start,
-                            .end = span.end,
-                        }),
-                    },
-                });
-            }
+                }),
+                else => blk: {
+                    const span = try c.listToSpan(inits);
+                    break :blk c.addNode(.{
+                        .tag = .struct_init_comma,
+                        .main_token = l_brace,
+                        .data = .{
+                            .lhs = lhs,
+                            .rhs = try c.addExtra(NodeSubRange{
+                                .start = span.start,
+                                .end = span.end,
+                            }),
+                        },
+                    });
+                },
+            };
         },
         .@"anytype" => unreachable, // Handled in renderParams
     }
@@ -2095,33 +2111,46 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.colon, ":");
         const type_expr = try renderNode(c, field.type);
 
-        const alignment = field.alignment orelse {
-            members[i] = try c.addNode(.{
-                .tag = .container_field_init,
-                .main_token = name_tok,
-                .data = .{
-                    .lhs = type_expr,
-                    .rhs = 0,
-                },
+        const align_expr = if (field.alignment) |alignment| blk: {
+            _ = try c.addToken(.keyword_align, "align");
+            _ = try c.addToken(.l_paren, "(");
+            const align_expr = try c.addNode(.{
+                .tag = .number_literal,
+                .main_token = try c.addTokenFmt(.number_literal, "{d}", .{alignment}),
+                .data = undefined,
             });
-            _ = try c.addToken(.comma, ",");
-            continue;
-        };
-        _ = try c.addToken(.keyword_align, "align");
-        _ = try c.addToken(.l_paren, "(");
-        const align_expr = try c.addNode(.{
-            .tag = .number_literal,
-            .main_token = try c.addTokenFmt(.number_literal, "{d}", .{alignment}),
-            .data = undefined,
-        });
-        _ = try c.addToken(.r_paren, ")");
+            _ = try c.addToken(.r_paren, ")");
+            break :blk align_expr;
+        } else 0;
 
-        members[i] = try c.addNode(.{
+        const value_expr = if (field.default_value) |value| blk: {
+            _ = try c.addToken(.equal, "=");
+            break :blk try renderNode(c, value);
+        } else 0;
+
+        members[i] = try c.addNode(if (align_expr == 0) .{
+            .tag = .container_field_init,
+            .main_token = name_tok,
+            .data = .{
+                .lhs = type_expr,
+                .rhs = value_expr,
+            },
+        } else if (value_expr == 0) .{
             .tag = .container_field_align,
             .main_token = name_tok,
             .data = .{
                 .lhs = type_expr,
                 .rhs = align_expr,
+            },
+        } else .{
+            .tag = .container_field,
+            .main_token = name_tok,
+            .data = .{
+                .lhs = type_expr,
+                .rhs = try c.addExtra(std.zig.Ast.Node.ContainerField{
+                    .align_expr = align_expr,
+                    .value_expr = value_expr,
+                }),
             },
         });
         _ = try c.addToken(.comma, ",");

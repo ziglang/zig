@@ -32,8 +32,8 @@ pub fn renderAsTextToFile(
     var raw_stream = std.io.bufferedWriter(fs_file.writer());
     const stream = raw_stream.writer();
 
-    const main_struct_inst = Zir.main_struct_inst;
-    try stream.print("%{d} ", .{main_struct_inst});
+    const main_struct_inst: Zir.Inst.Index = .main_struct_inst;
+    try stream.print("%{d} ", .{@intFromEnum(main_struct_inst)});
     try writer.writeInstToStream(stream, main_struct_inst);
     try stream.writeAll("\n");
     const imports_index = scope_file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
@@ -41,10 +41,9 @@ pub fn renderAsTextToFile(
         try stream.writeAll("Imports:\n");
 
         const extra = scope_file.zir.extraData(Zir.Inst.Imports, imports_index);
-        var import_i: u32 = 0;
         var extra_index = extra.end;
 
-        while (import_i < extra.data.imports_len) : (import_i += 1) {
+        for (0..extra.data.imports_len) |_| {
             const item = scope_file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
@@ -86,7 +85,7 @@ pub fn renderInstructionContext(
 
     try writer.writeBody(stream, block[0..block_index]);
     try stream.writeByteNTimes(' ', writer.indent - 2);
-    try stream.print("> %{d} ", .{block[block_index]});
+    try stream.print("> %{d} ", .{@intFromEnum(block[block_index])});
     try writer.writeInstToStream(stream, block[block_index]);
     try stream.writeByte('\n');
     if (block_index + 1 < block.len) {
@@ -116,7 +115,7 @@ pub fn renderSingleInstruction(
         .recurse_blocks = false,
     };
 
-    try stream.print("%{d} ", .{inst});
+    try stream.print("%{d} ", .{@intFromEnum(inst)});
     try writer.writeInstToStream(stream, inst);
 }
 
@@ -130,6 +129,63 @@ const Writer = struct {
     recurse_decls: bool,
     recurse_blocks: bool,
 
+    /// Using `std.zig.findLineColumn` whenever we need to resolve a source location makes ZIR
+    /// printing O(N^2), which can have drastic effects - taking a ZIR dump from a few seconds to
+    /// many minutes. Since we're usually resolving source locations close to one another,
+    /// preserving state across source location resolutions speeds things up a lot.
+    line_col_cursor: struct {
+        line: usize = 0,
+        column: usize = 0,
+        line_start: usize = 0,
+        off: usize = 0,
+
+        fn find(cur: *@This(), source: []const u8, want_offset: usize) std.zig.Loc {
+            if (want_offset < cur.off) {
+                // Go back to the start of this line
+                cur.off = cur.line_start;
+                cur.column = 0;
+
+                while (want_offset < cur.off) {
+                    // Go back to the newline
+                    cur.off -= 1;
+
+                    // Seek to the start of the previous line
+                    while (cur.off > 0 and source[cur.off - 1] != '\n') {
+                        cur.off -= 1;
+                    }
+                    cur.line_start = cur.off;
+                    cur.line -= 1;
+                }
+            }
+
+            // The cursor is now positioned before `want_offset`.
+            // Seek forward as in `std.zig.findLineColumn`.
+
+            while (cur.off < want_offset) : (cur.off += 1) {
+                switch (source[cur.off]) {
+                    '\n' => {
+                        cur.line += 1;
+                        cur.column = 0;
+                        cur.line_start = cur.off + 1;
+                    },
+                    else => {
+                        cur.column += 1;
+                    },
+                }
+            }
+
+            while (cur.off < source.len and source[cur.off] != '\n') {
+                cur.off += 1;
+            }
+
+            return .{
+                .line = cur.line,
+                .column = cur.column,
+                .source_line = source[cur.line_start..cur.off],
+            };
+        }
+    } = .{},
+
     fn relativeToNodeIndex(self: *Writer, offset: i32) Ast.Node.Index {
         return @as(Ast.Node.Index, @bitCast(offset + @as(i32, @bitCast(self.parent_decl_node))));
     }
@@ -140,15 +196,13 @@ const Writer = struct {
         inst: Zir.Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const tags = self.code.instructions.items(.tag);
-        const tag = tags[inst];
-        try stream.print("= {s}(", .{@tagName(tags[inst])});
+        const tag = tags[@intFromEnum(inst)];
+        try stream.print("= {s}(", .{@tagName(tags[@intFromEnum(inst)])});
         switch (tag) {
             .as,
             .store,
             .store_to_inferred_ptr,
             => try self.writeBin(stream, inst),
-
-            .elem_type_index => try self.writeElemTypeIndex(stream, inst),
 
             .alloc,
             .alloc_mut,
@@ -184,7 +238,6 @@ const Writer = struct {
             .is_non_err_ptr,
             .ret_is_non_err,
             .typeof,
-            .struct_init_empty,
             .type_info,
             .size_of,
             .bit_size_of,
@@ -208,7 +261,7 @@ const Writer = struct {
             .log,
             .log2,
             .log10,
-            .fabs,
+            .abs,
             .floor,
             .ceil,
             .trunc,
@@ -224,25 +277,23 @@ const Writer = struct {
             .bit_reverse,
             .@"resume",
             .@"await",
-            .array_base_ptr,
-            .field_base_ptr,
-            .validate_struct_init_ty,
             .make_ptr_const,
             .validate_deref,
             .check_comptime_control_flow,
-            .opt_eu_base_ty,
+            .opt_eu_base_ptr_init,
             => try self.writeUnNode(stream, inst),
 
             .ref,
             .ret_implicit,
             .closure_capture,
+            .validate_ref_ty,
             => try self.writeUnTok(stream, inst),
 
             .bool_br_and,
             .bool_br_or,
             => try self.writeBoolBr(stream, inst),
 
-            .validate_array_init_ty => try self.writeValidateArrayInitTy(stream, inst),
+            .validate_destructure => try self.writeValidateDestructure(stream, inst),
             .array_type_sentinel => try self.writeArrayTypeSentinel(stream, inst),
             .ptr_type => try self.writePtrType(stream, inst),
             .int => try self.writeInt(stream, inst),
@@ -258,12 +309,6 @@ const Writer = struct {
             .@"break",
             .break_inline,
             => try self.writeBreak(stream, inst),
-            .array_init,
-            .array_init_ref,
-            => try self.writeArrayInit(stream, inst),
-            .array_init_anon,
-            .array_init_anon_ref,
-            => try self.writeArrayInitAnon(stream, inst),
 
             .slice_start => try self.writeSliceStart(stream, inst),
             .slice_end => try self.writeSliceEnd(stream, inst),
@@ -272,9 +317,43 @@ const Writer = struct {
 
             .union_init => try self.writeUnionInit(stream, inst),
 
+            // Struct inits
+
+            .struct_init_empty,
+            .struct_init_empty_result,
+            .struct_init_empty_ref_result,
+            => try self.writeUnNode(stream, inst),
+
+            .struct_init_anon => try self.writeStructInitAnon(stream, inst),
+
             .struct_init,
             .struct_init_ref,
             => try self.writeStructInit(stream, inst),
+
+            .validate_struct_init_ty,
+            .validate_struct_init_result_ty,
+            => try self.writeUnNode(stream, inst),
+
+            .validate_ptr_struct_init => try self.writeBlock(stream, inst),
+            .struct_init_field_type => try self.writeStructInitFieldType(stream, inst),
+            .struct_init_field_ptr => try self.writePlNodeField(stream, inst),
+
+            // Array inits
+
+            .array_init_anon => try self.writeArrayInitAnon(stream, inst),
+
+            .array_init,
+            .array_init_ref,
+            => try self.writeArrayInit(stream, inst),
+
+            .validate_array_init_ty,
+            .validate_array_init_result_ty,
+            => try self.writeValidateArrayInitTy(stream, inst),
+
+            .validate_array_init_ref_ty => try self.writeValidateArrayInitRefTy(stream, inst),
+            .validate_ptr_array_init => try self.writeBlock(stream, inst),
+            .array_init_elem_type => try self.writeArrayInitElemType(stream, inst),
+            .array_init_elem_ptr => try self.writeArrayInitElemPtr(stream, inst),
 
             .atomic_load => try self.writeAtomicLoad(stream, inst),
             .atomic_store => try self.writeAtomicStore(stream, inst),
@@ -284,11 +363,6 @@ const Writer = struct {
             .field_parent_ptr => try self.writeFieldParentPtr(stream, inst),
             .builtin_call => try self.writeBuiltinCall(stream, inst),
 
-            .struct_init_anon,
-            .struct_init_anon_ref,
-            => try self.writeStructInitAnon(stream, inst),
-
-            .field_type => try self.writeFieldType(stream, inst),
             .field_type_ref => try self.writeFieldTypeRef(stream, inst),
 
             .add,
@@ -296,7 +370,6 @@ const Writer = struct {
             .add_sat,
             .add_unsafe,
             .array_cat,
-            .array_mul,
             .mul,
             .mulwrap,
             .mul_sat,
@@ -351,13 +424,15 @@ const Writer = struct {
             .elem_val_node,
             .elem_ptr,
             .elem_val,
-            .coerce_result_ptr,
             .array_type,
+            .coerce_ptr_elem_ty,
             => try self.writePlNodeBin(stream, inst),
 
             .for_len => try self.writePlNodeMultiOp(stream, inst),
 
-            .elem_ptr_imm => try self.writeElemPtrImm(stream, inst),
+            .array_mul => try self.writeArrayMul(stream, inst),
+
+            .elem_val_imm => try self.writeElemValImm(stream, inst),
 
             .@"export" => try self.writePlNodeExport(stream, inst),
             .export_value => try self.writePlNodeExportValue(stream, inst),
@@ -370,8 +445,6 @@ const Writer = struct {
             .block_inline,
             .suspend_block,
             .loop,
-            .validate_struct_init,
-            .validate_array_init,
             .c_import,
             .typeof_builtin,
             => try self.writeBlock(stream, inst),
@@ -392,9 +465,8 @@ const Writer = struct {
             .switch_block_ref,
             => try self.writeSwitchBlock(stream, inst),
 
-            .field_ptr,
-            .field_ptr_init,
             .field_val,
+            .field_ptr,
             => try self.writePlNodeField(stream, inst),
 
             .field_ptr_named,
@@ -453,7 +525,7 @@ const Writer = struct {
     }
 
     fn writeExtended(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const extended = self.code.instructions.items(.data)[inst].extended;
+        const extended = self.code.instructions.items(.data)[@intFromEnum(inst)].extended;
         try stream.print("{s}(", .{@tagName(extended.opcode)});
         switch (extended.opcode) {
             .this,
@@ -522,7 +594,7 @@ const Writer = struct {
 
             .builtin_extern,
             .c_define,
-            .err_set_cast,
+            .error_cast,
             .wasm_memory_grow,
             .prefetch,
             .c_va_arg,
@@ -550,15 +622,15 @@ const Writer = struct {
     }
 
     fn writeBin(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].bin;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].bin;
         try self.writeInstRef(stream, inst_data.lhs);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, inst_data.rhs);
         try stream.writeByte(')');
     }
 
-    fn writeElemTypeIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].bin;
+    fn writeArrayInitElemType(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].bin;
         try self.writeInstRef(stream, inst_data.lhs);
         try stream.print(", {d})", .{@intFromEnum(inst_data.rhs)});
     }
@@ -568,7 +640,7 @@ const Writer = struct {
         stream: anytype,
         inst: Zir.Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].un_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
         try self.writeInstRef(stream, inst_data.operand);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
@@ -579,8 +651,22 @@ const Writer = struct {
         stream: anytype,
         inst: Zir.Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].un_tok;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].un_tok;
         try self.writeInstRef(stream, inst_data.operand);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeValidateDestructure(
+        self: *Writer,
+        stream: anytype,
+        inst: Zir.Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const extra = self.code.extraData(Zir.Inst.ValidateDestructure, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.operand);
+        try stream.print(", {d}) (destructure=", .{extra.expect_len});
+        try self.writeSrc(stream, LazySrcLoc.nodeOffset(extra.destructure_node));
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
@@ -590,7 +676,7 @@ const Writer = struct {
         stream: anytype,
         inst: Zir.Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.ArrayInit, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.ty);
         try stream.print(", {d}) ", .{extra.init_count});
@@ -602,7 +688,7 @@ const Writer = struct {
         stream: anytype,
         inst: Zir.Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.ArrayTypeSentinel, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.len);
         try stream.writeAll(", ");
@@ -618,7 +704,7 @@ const Writer = struct {
         stream: anytype,
         inst: Zir.Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].ptr_type;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].ptr_type;
         const str_allowzero = if (inst_data.flags.is_allowzero) "allowzero, " else "";
         const str_const = if (!inst_data.flags.is_mutable) "const, " else "";
         const str_volatile = if (inst_data.flags.is_volatile) "volatile, " else "";
@@ -659,12 +745,12 @@ const Writer = struct {
     }
 
     fn writeInt(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].int;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].int;
         try stream.print("{d})", .{inst_data});
     }
 
     fn writeIntBig(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].str;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str;
         const byte_count = inst_data.len * @sizeOf(std.math.big.Limb);
         const limb_bytes = self.code.string_bytes[inst_data.start..][0..byte_count];
         // limb_bytes is not aligned properly; we must allocate and copy the bytes
@@ -683,12 +769,12 @@ const Writer = struct {
     }
 
     fn writeFloat(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const number = self.code.instructions.items(.data)[inst].float;
+        const number = self.code.instructions.items(.data)[@intFromEnum(inst)].float;
         try stream.print("{d})", .{number});
     }
 
     fn writeFloat128(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Float128, inst_data.payload_index).data;
         const src = inst_data.src();
         const number = extra.get();
@@ -702,13 +788,13 @@ const Writer = struct {
         stream: anytype,
         inst: Zir.Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].str;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str;
         const str = inst_data.get(self.code);
         try stream.print("\"{}\")", .{std.zig.fmtEscapes(str)});
     }
 
     fn writeSliceStart(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.SliceStart, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.lhs);
         try stream.writeAll(", ");
@@ -718,7 +804,7 @@ const Writer = struct {
     }
 
     fn writeSliceEnd(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.SliceEnd, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.lhs);
         try stream.writeAll(", ");
@@ -730,7 +816,7 @@ const Writer = struct {
     }
 
     fn writeSliceSentinel(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.SliceSentinel, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.lhs);
         try stream.writeAll(", ");
@@ -744,7 +830,7 @@ const Writer = struct {
     }
 
     fn writeSliceLength(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.SliceLength, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.lhs);
         try stream.writeAll(", ");
@@ -760,7 +846,7 @@ const Writer = struct {
     }
 
     fn writeUnionInit(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.UnionInit, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.union_type);
         try stream.writeAll(", ");
@@ -772,7 +858,7 @@ const Writer = struct {
     }
 
     fn writeShuffle(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Shuffle, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.elem_type);
         try stream.writeAll(", ");
@@ -799,7 +885,7 @@ const Writer = struct {
     }
 
     fn writeMulAdd(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.MulAdd, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.mulend1);
         try stream.writeAll(", ");
@@ -811,7 +897,7 @@ const Writer = struct {
     }
 
     fn writeBuiltinCall(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.BuiltinCall, inst_data.payload_index).data;
 
         try self.writeFlag(stream, "nodiscard ", extra.flags.ensure_result_used);
@@ -827,7 +913,7 @@ const Writer = struct {
     }
 
     fn writeFieldParentPtr(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.FieldParentPtr, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.parent_type);
         try stream.writeAll(", ");
@@ -852,9 +938,9 @@ const Writer = struct {
     }
 
     fn writeParam(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_tok;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_tok;
         const extra = self.code.extraData(Zir.Inst.Param, inst_data.payload_index);
-        const body = self.code.extra[extra.end..][0..extra.data.body_len];
+        const body = self.code.bodySlice(extra.end, extra.data.body_len);
         try stream.print("\"{}\", ", .{
             std.zig.fmtEscapes(self.code.nullTerminatedString(extra.data.name)),
         });
@@ -870,7 +956,7 @@ const Writer = struct {
     }
 
     fn writePlNodeBin(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.lhs);
         try stream.writeAll(", ");
@@ -880,7 +966,7 @@ const Writer = struct {
     }
 
     fn writePlNodeMultiOp(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
         const args = self.code.refSlice(extra.end, extra.data.operands_len);
         try stream.writeAll("{");
@@ -892,8 +978,26 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeElemPtrImm(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+    fn writeArrayMul(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const extra = self.code.extraData(Zir.Inst.ArrayMul, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.res_ty);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.rhs);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeElemValImm(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].elem_val_imm;
+        try self.writeInstRef(stream, inst_data.operand);
+        try stream.print(", {d})", .{inst_data.idx});
+    }
+
+    fn writeArrayInitElemPtr(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.ElemPtrImm, inst_data.payload_index).data;
 
         try self.writeInstRef(stream, extra.ptr);
@@ -902,7 +1006,7 @@ const Writer = struct {
     }
 
     fn writePlNodeExport(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Export, inst_data.payload_index).data;
         const decl_name = self.code.nullTerminatedString(extra.decl_name);
 
@@ -914,7 +1018,7 @@ const Writer = struct {
     }
 
     fn writePlNodeExportValue(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.ExportValue, inst_data.payload_index).data;
 
         try self.writeInstRef(stream, extra.operand);
@@ -924,8 +1028,18 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
+    fn writeValidateArrayInitRefTy(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const extra = self.code.extraData(Zir.Inst.ArrayInitRefTy, inst_data.payload_index).data;
+
+        try self.writeInstRef(stream, extra.ptr_ty);
+        try stream.writeAll(", ");
+        try stream.print(", {}) ", .{extra.elem_count});
+        try self.writeSrc(stream, inst_data.src());
+    }
+
     fn writeStructInit(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.StructInit, inst_data.payload_index);
         var field_i: u32 = 0;
         var extra_index = extra.end;
@@ -993,7 +1107,7 @@ const Writer = struct {
     }
 
     fn writeAtomicLoad(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.AtomicLoad, inst_data.payload_index).data;
 
         try self.writeInstRef(stream, extra.elem_type);
@@ -1006,7 +1120,7 @@ const Writer = struct {
     }
 
     fn writeAtomicStore(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.AtomicStore, inst_data.payload_index).data;
 
         try self.writeInstRef(stream, extra.ptr);
@@ -1019,7 +1133,7 @@ const Writer = struct {
     }
 
     fn writeAtomicRmw(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.AtomicRmw, inst_data.payload_index).data;
 
         try self.writeInstRef(stream, extra.ptr);
@@ -1034,7 +1148,7 @@ const Writer = struct {
     }
 
     fn writeStructInitAnon(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.StructInitAnon, inst_data.payload_index);
         var field_i: u32 = 0;
         var extra_index = extra.end;
@@ -1054,8 +1168,8 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeFieldType(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+    fn writeStructInitFieldType(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.FieldType, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.container_type);
         const field_name = self.code.nullTerminatedString(extra.name_start);
@@ -1064,7 +1178,7 @@ const Writer = struct {
     }
 
     fn writeFieldTypeRef(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.FieldTypeRef, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.container_type);
         try stream.writeAll(", ");
@@ -1091,7 +1205,7 @@ const Writer = struct {
         stream: anytype,
         inst: Zir.Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].inst_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].inst_node;
         try self.writeInstIndex(stream, inst_data.inst);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
@@ -1195,7 +1309,7 @@ const Writer = struct {
         inst: Zir.Inst.Index,
         comptime kind: enum { direct, field },
     ) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const ExtraType = switch (kind) {
             .direct => Zir.Inst.Call,
             .field => Zir.Inst.FieldCall,
@@ -1229,7 +1343,7 @@ const Writer = struct {
             const arg_end = self.code.extra[extra.end + i];
             defer arg_start = arg_end;
             const arg_body = body[arg_start..arg_end];
-            try self.writeBracedBody(stream, arg_body);
+            try self.writeBracedBody(stream, @ptrCast(arg_body));
 
             try stream.writeAll(",\n");
         }
@@ -1243,24 +1357,24 @@ const Writer = struct {
     }
 
     fn writeBlock(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         try self.writePlNodeBlockWithoutSrc(stream, inst);
         try self.writeSrc(stream, inst_data.src());
     }
 
     fn writePlNodeBlockWithoutSrc(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Block, inst_data.payload_index);
-        const body = self.code.extra[extra.end..][0..extra.data.body_len];
+        const body = self.code.bodySlice(extra.end, extra.data.body_len);
         try self.writeBracedBody(stream, body);
         try stream.writeAll(") ");
     }
 
     fn writeCondBr(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.CondBr, inst_data.payload_index);
-        const then_body = self.code.extra[extra.end..][0..extra.data.then_body_len];
-        const else_body = self.code.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+        const then_body = self.code.bodySlice(extra.end, extra.data.then_body_len);
+        const else_body = self.code.bodySlice(extra.end + then_body.len, extra.data.else_body_len);
         try self.writeInstRef(stream, extra.data.condition);
         try stream.writeAll(", ");
         try self.writeBracedBody(stream, then_body);
@@ -1271,9 +1385,9 @@ const Writer = struct {
     }
 
     fn writeTry(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Try, inst_data.payload_index);
-        const body = self.code.extra[extra.end..][0..extra.data.body_len];
+        const body = self.code.bodySlice(extra.end, extra.data.body_len);
         try self.writeInstRef(stream, extra.data.operand);
         try stream.writeAll(", ");
         try self.writeBracedBody(stream, body);
@@ -1319,7 +1433,7 @@ const Writer = struct {
                 extra_index += 1;
                 try self.writeInstRef(stream, backing_int_ref);
             } else {
-                const body = self.code.extra[extra_index..][0..backing_int_body_len];
+                const body = self.code.bodySlice(extra_index, backing_int_body_len);
                 extra_index += backing_int_body_len;
                 self.indent += 2;
                 try self.writeBracedDecl(stream, body);
@@ -1433,7 +1547,7 @@ const Writer = struct {
                 }
 
                 if (field.type_len > 0) {
-                    const body = self.code.extra[extra_index..][0..field.type_len];
+                    const body = self.code.bodySlice(extra_index, field.type_len);
                     extra_index += body.len;
                     self.indent += 2;
                     try self.writeBracedDecl(stream, body);
@@ -1441,7 +1555,7 @@ const Writer = struct {
                 }
 
                 if (field.align_len > 0) {
-                    const body = self.code.extra[extra_index..][0..field.align_len];
+                    const body = self.code.bodySlice(extra_index, field.align_len);
                     extra_index += body.len;
                     self.indent += 2;
                     try stream.writeAll(" align(");
@@ -1451,7 +1565,7 @@ const Writer = struct {
                 }
 
                 if (field.init_len > 0) {
-                    const body = self.code.extra[extra_index..][0..field.init_len];
+                    const body = self.code.bodySlice(extra_index, field.init_len);
                     extra_index += body.len;
                     self.indent += 2;
                     try stream.writeAll(" = ");
@@ -1537,7 +1651,7 @@ const Writer = struct {
         }
         try stream.writeAll(", ");
 
-        const body = self.code.extra[extra_index..][0..body_len];
+        const body = self.code.bodySlice(extra_index, body_len);
         extra_index += body.len;
 
         const prev_parent_decl_node = self.parent_decl_node;
@@ -1640,7 +1754,7 @@ const Writer = struct {
             extra_index += 1;
             const decl_name_index = self.code.extra[extra_index];
             extra_index += 1;
-            const decl_index = self.code.extra[extra_index];
+            const decl_index: Zir.Inst.Index = @enumFromInt(self.code.extra[extra_index]);
             extra_index += 1;
             const doc_comment_index = self.code.extra[extra_index];
             extra_index += 1;
@@ -1662,7 +1776,7 @@ const Writer = struct {
             };
 
             const pub_str = if (is_pub) "pub " else "";
-            const hash_bytes = @as([16]u8, @bitCast(hash_u32s.*));
+            const hash_bytes: [16]u8 = @bitCast(hash_u32s.*);
             if (decl_name_index == 0) {
                 try stream.writeByteNTimes(' ', self.indent);
                 const name = if (is_exported) "usingnamespace" else "comptime";
@@ -1708,12 +1822,12 @@ const Writer = struct {
             }
 
             if (self.recurse_decls) {
-                const tag = self.code.instructions.items(.tag)[decl_index];
+                const tag = self.code.instructions.items(.tag)[@intFromEnum(decl_index)];
                 try stream.print(" line({d}) hash({}): %{d} = {s}(", .{
-                    line, std.fmt.fmtSliceHexLower(&hash_bytes), decl_index, @tagName(tag),
+                    line, std.fmt.fmtSliceHexLower(&hash_bytes), @intFromEnum(decl_index), @tagName(tag),
                 });
 
-                const decl_block_inst_data = self.code.instructions.items(.data)[decl_index].pl_node;
+                const decl_block_inst_data = self.code.instructions.items(.data)[@intFromEnum(decl_index)].pl_node;
                 const sub_decl_node_off = decl_block_inst_data.src_node;
                 self.parent_decl_node = self.relativeToNodeIndex(sub_decl_node_off);
                 try self.writePlNodeBlockWithoutSrc(stream, decl_index);
@@ -1722,7 +1836,7 @@ const Writer = struct {
                 try stream.writeAll("\n");
             } else {
                 try stream.print(" line({d}) hash({}): %{d} = ...\n", .{
-                    line, std.fmt.fmtSliceHexLower(&hash_bytes), decl_index,
+                    line, std.fmt.fmtSliceHexLower(&hash_bytes), @intFromEnum(decl_index),
                 });
             }
         }
@@ -1786,7 +1900,7 @@ const Writer = struct {
             try stream.writeAll(", ");
         }
 
-        const body = self.code.extra[extra_index..][0..body_len];
+        const body = self.code.bodySlice(extra_index, body_len);
         extra_index += body.len;
 
         const prev_parent_decl_node = self.parent_decl_node;
@@ -1886,7 +2000,7 @@ const Writer = struct {
         inst: Zir.Inst.Index,
         name_strategy: Zir.Inst.NameStrategy,
     ) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.ErrorSetDecl, inst_data.payload_index);
 
         try stream.print("{s}, ", .{@tagName(name_strategy)});
@@ -1913,7 +2027,7 @@ const Writer = struct {
     }
 
     fn writeSwitchBlock(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.SwitchBlock, inst_data.payload_index);
 
         var extra_index: usize = extra.end;
@@ -1927,7 +2041,7 @@ const Writer = struct {
         const tag_capture_inst: Zir.Inst.Index = if (extra.data.bits.any_has_tag_capture) blk: {
             const tag_capture_inst = self.code.extra[extra_index];
             extra_index += 1;
-            break :blk tag_capture_inst;
+            break :blk @enumFromInt(tag_capture_inst);
         } else undefined;
 
         try self.writeInstRef(stream, extra.data.operand);
@@ -1955,7 +2069,7 @@ const Writer = struct {
             };
             const inline_text = if (info.is_inline) "inline " else "";
             extra_index += 1;
-            const body = self.code.extra[extra_index..][0..info.body_len];
+            const body = self.code.bodySlice(extra_index, info.body_len);
             extra_index += body.len;
 
             try stream.writeAll(",\n");
@@ -1972,7 +2086,7 @@ const Writer = struct {
                 extra_index += 1;
                 const info = @as(Zir.Inst.SwitchBlock.ProngInfo, @bitCast(self.code.extra[extra_index]));
                 extra_index += 1;
-                const body = self.code.extra[extra_index..][0..info.body_len];
+                const body = self.code.bodySlice(extra_index, info.body_len);
                 extra_index += info.body_len;
 
                 try stream.writeAll(",\n");
@@ -2029,7 +2143,7 @@ const Writer = struct {
                     try self.writeInstRef(stream, item_last);
                 }
 
-                const body = self.code.extra[extra_index..][0..info.body_len];
+                const body = self.code.bodySlice(extra_index, info.body_len);
                 extra_index += info.body_len;
                 try stream.writeAll(" => ");
                 try self.writeBracedBody(stream, body);
@@ -2043,7 +2157,7 @@ const Writer = struct {
     }
 
     fn writePlNodeField(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Field, inst_data.payload_index).data;
         const name = self.code.nullTerminatedString(extra.field_name_start);
         try self.writeInstRef(stream, extra.lhs);
@@ -2052,7 +2166,7 @@ const Writer = struct {
     }
 
     fn writePlNodeFieldNamed(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.FieldNamed, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.lhs);
         try stream.writeAll(", ");
@@ -2062,7 +2176,7 @@ const Writer = struct {
     }
 
     fn writeAs(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.As, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.dest_type);
         try stream.writeAll(", ");
@@ -2076,7 +2190,7 @@ const Writer = struct {
         stream: anytype,
         inst: Zir.Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const src_node = self.code.instructions.items(.data)[inst].node;
+        const src_node = self.code.instructions.items(.data)[@intFromEnum(inst)].node;
         const src = LazySrcLoc.nodeOffset(src_node);
         try stream.writeAll(") ");
         try self.writeSrc(stream, src);
@@ -2087,14 +2201,14 @@ const Writer = struct {
         stream: anytype,
         inst: Zir.Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].str_tok;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str_tok;
         const str = inst_data.get(self.code);
         try stream.print("\"{}\") ", .{std.zig.fmtEscapes(str)});
         try self.writeSrc(stream, inst_data.src());
     }
 
     fn writeStrOp(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].str_op;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str_op;
         const str = inst_data.getStr(self.code);
         try self.writeInstRef(stream, inst_data.operand);
         try stream.print(", \"{}\")", .{std.zig.fmtEscapes(str)});
@@ -2106,7 +2220,7 @@ const Writer = struct {
         inst: Zir.Inst.Index,
         inferred_error_set: bool,
     ) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const src = inst_data.src();
         const extra = self.code.extraData(Zir.Inst.Func, inst_data.payload_index);
 
@@ -2123,12 +2237,12 @@ const Writer = struct {
                 extra_index += 1;
             },
             else => {
-                ret_ty_body = self.code.extra[extra_index..][0..extra.data.ret_body_len];
+                ret_ty_body = self.code.bodySlice(extra_index, extra.data.ret_body_len);
                 extra_index += ret_ty_body.len;
             },
         }
 
-        const body = self.code.extra[extra_index..][0..extra.data.body_len];
+        const body = self.code.bodySlice(extra_index, extra.data.body_len);
         extra_index += body.len;
 
         var src_locs: Zir.Inst.Func.SrcLocs = undefined;
@@ -2161,7 +2275,7 @@ const Writer = struct {
     }
 
     fn writeFuncFancy(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.FuncFancy, inst_data.payload_index);
         const src = inst_data.src();
 
@@ -2187,7 +2301,7 @@ const Writer = struct {
         if (extra.data.bits.has_align_body) {
             const body_len = self.code.extra[extra_index];
             extra_index += 1;
-            align_body = self.code.extra[extra_index..][0..body_len];
+            align_body = self.code.bodySlice(extra_index, body_len);
             extra_index += align_body.len;
         } else if (extra.data.bits.has_align_ref) {
             align_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
@@ -2196,7 +2310,7 @@ const Writer = struct {
         if (extra.data.bits.has_addrspace_body) {
             const body_len = self.code.extra[extra_index];
             extra_index += 1;
-            addrspace_body = self.code.extra[extra_index..][0..body_len];
+            addrspace_body = self.code.bodySlice(extra_index, body_len);
             extra_index += addrspace_body.len;
         } else if (extra.data.bits.has_addrspace_ref) {
             addrspace_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
@@ -2205,7 +2319,7 @@ const Writer = struct {
         if (extra.data.bits.has_section_body) {
             const body_len = self.code.extra[extra_index];
             extra_index += 1;
-            section_body = self.code.extra[extra_index..][0..body_len];
+            section_body = self.code.bodySlice(extra_index, body_len);
             extra_index += section_body.len;
         } else if (extra.data.bits.has_section_ref) {
             section_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
@@ -2214,7 +2328,7 @@ const Writer = struct {
         if (extra.data.bits.has_cc_body) {
             const body_len = self.code.extra[extra_index];
             extra_index += 1;
-            cc_body = self.code.extra[extra_index..][0..body_len];
+            cc_body = self.code.bodySlice(extra_index, body_len);
             extra_index += cc_body.len;
         } else if (extra.data.bits.has_cc_ref) {
             cc_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
@@ -2223,7 +2337,7 @@ const Writer = struct {
         if (extra.data.bits.has_ret_ty_body) {
             const body_len = self.code.extra[extra_index];
             extra_index += 1;
-            ret_ty_body = self.code.extra[extra_index..][0..body_len];
+            ret_ty_body = self.code.bodySlice(extra_index, body_len);
             extra_index += ret_ty_body.len;
         } else if (extra.data.bits.has_ret_ty_ref) {
             ret_ty_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
@@ -2236,7 +2350,7 @@ const Writer = struct {
             break :blk x;
         } else 0;
 
-        const body = self.code.extra[extra_index..][0..extra.data.body_len];
+        const body = self.code.bodySlice(extra_index, extra.data.body_len);
         extra_index += body.len;
 
         var src_locs: Zir.Inst.Func.SrcLocs = undefined;
@@ -2321,7 +2435,7 @@ const Writer = struct {
 
     fn writeTypeofPeer(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const extra = self.code.extraData(Zir.Inst.TypeOfPeer, extended.operand);
-        const body = self.code.extra[extra.data.body_index..][0..extra.data.body_len];
+        const body = self.code.bodySlice(extra.data.body_index, extra.data.body_len);
         try self.writeBracedBody(stream, body);
         try stream.writeAll(",[");
         const args = self.code.refSlice(extra.end, extended.small);
@@ -2333,16 +2447,16 @@ const Writer = struct {
     }
 
     fn writeBoolBr(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].bool_br;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].bool_br;
         const extra = self.code.extraData(Zir.Inst.Block, inst_data.payload_index);
-        const body = self.code.extra[extra.end..][0..extra.data.body_len];
+        const body = self.code.bodySlice(extra.end, extra.data.body_len);
         try self.writeInstRef(stream, inst_data.lhs);
         try stream.writeAll(", ");
         try self.writeBracedBody(stream, body);
     }
 
     fn writeIntType(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const int_type = self.code.instructions.items(.data)[inst].int_type;
+        const int_type = self.code.instructions.items(.data)[@intFromEnum(inst)].int_type;
         const prefix: u8 = switch (int_type.signedness) {
             .signed => 'i',
             .unsigned => 'u',
@@ -2352,23 +2466,24 @@ const Writer = struct {
     }
 
     fn writeSaveErrRetIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].save_err_ret_index;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].save_err_ret_index;
 
         try self.writeInstRef(stream, inst_data.operand);
+
         try stream.writeAll(")");
     }
 
     fn writeRestoreErrRetIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].restore_err_ret_index;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].restore_err_ret_index;
 
         try self.writeInstRef(stream, inst_data.block);
-        try stream.writeAll(", ");
         try self.writeInstRef(stream, inst_data.operand);
+
         try stream.writeAll(")");
     }
 
     fn writeBreak(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].@"break";
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].@"break";
         const extra = self.code.extraData(Zir.Inst.Break, inst_data.payload_index).data;
 
         try self.writeInstIndex(stream, extra.block_inst);
@@ -2378,7 +2493,7 @@ const Writer = struct {
     }
 
     fn writeArrayInit(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
 
         const extra = self.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
         const args = self.code.refSlice(extra.end, extra.data.operands_len);
@@ -2394,7 +2509,7 @@ const Writer = struct {
     }
 
     fn writeArrayInitAnon(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
 
         const extra = self.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
         const args = self.code.refSlice(extra.end, extra.data.operands_len);
@@ -2409,7 +2524,7 @@ const Writer = struct {
     }
 
     fn writeArrayInitSent(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
 
         const extra = self.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
         const args = self.code.refSlice(extra.end, extra.data.operands_len);
@@ -2429,7 +2544,7 @@ const Writer = struct {
     }
 
     fn writeUnreachable(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].@"unreachable";
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].@"unreachable";
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
@@ -2483,39 +2598,44 @@ const Writer = struct {
     }
 
     fn writeDbgStmt(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].dbg_stmt;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
         try stream.print("{d}, {d})", .{ inst_data.line + 1, inst_data.column + 1 });
     }
 
     fn writeDefer(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].@"defer";
-        const body = self.code.extra[inst_data.index..][0..inst_data.len];
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].@"defer";
+        const body = self.code.bodySlice(inst_data.index, inst_data.len);
         try self.writeBracedBody(stream, body);
         try stream.writeByte(')');
     }
 
     fn writeDeferErrCode(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].defer_err_code;
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].defer_err_code;
         const extra = self.code.extraData(Zir.Inst.DeferErrCode, inst_data.payload_index).data;
 
-        try self.writeInstRef(stream, Zir.indexToRef(extra.remapped_err_code));
+        try self.writeInstRef(stream, extra.remapped_err_code.toRef());
         try stream.writeAll(" = ");
         try self.writeInstRef(stream, inst_data.err_code);
         try stream.writeAll(", ");
-        const body = self.code.extra[extra.index..][0..extra.len];
+        const body = self.code.bodySlice(extra.index, extra.len);
         try self.writeBracedBody(stream, body);
         try stream.writeByte(')');
     }
 
     fn writeInstRef(self: *Writer, stream: anytype, ref: Zir.Inst.Ref) !void {
-        const i = @intFromEnum(ref);
-        if (i < InternPool.static_len) return stream.print("@{}", .{@as(InternPool.Index, @enumFromInt(i))});
-        return self.writeInstIndex(stream, i - InternPool.static_len);
+        if (ref == .none) {
+            return stream.writeAll(".none");
+        } else if (ref.toIndex()) |i| {
+            return self.writeInstIndex(stream, i);
+        } else {
+            const val: InternPool.Index = @enumFromInt(@intFromEnum(ref));
+            return stream.print("@{s}", .{@tagName(val)});
+        }
     }
 
     fn writeInstIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         _ = self;
-        return stream.print("%{d}", .{inst});
+        return stream.print("%{d}", .{@intFromEnum(inst)});
     }
 
     fn writeOptionalInstRef(
@@ -2567,8 +2687,8 @@ const Writer = struct {
                 .lazy = src,
             };
             const src_span = src_loc.span(self.gpa) catch unreachable;
-            const start = std.zig.findLineColumn(tree.source, src_span.start);
-            const end = std.zig.findLineColumn(tree.source, src_span.end);
+            const start = self.line_col_cursor.find(tree.source, src_span.start);
+            const end = self.line_col_cursor.find(tree.source, src_span.end);
             try stream.print("{s}:{d}:{d} to :{d}:{d}", .{
                 @tagName(src), start.line + 1, start.column + 1,
                 end.line + 1,  end.column + 1,
@@ -2634,7 +2754,7 @@ const Writer = struct {
     fn writeBody(self: *Writer, stream: anytype, body: []const Zir.Inst.Index) !void {
         for (body) |inst| {
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.print("%{d} ", .{inst});
+            try stream.print("%{d} ", .{@intFromEnum(inst)});
             try self.writeInstToStream(stream, inst);
             try stream.writeByte('\n');
         }

@@ -14,18 +14,22 @@ pub var allocator_instance = b: {
 };
 
 pub const failing_allocator = failing_allocator_instance.allocator();
-pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), 0);
+pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), .{ .fail_index = 0 });
 
 pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
 
-fn print(comptime fmt: []const u8, args: anytype) void {
-    // Disable printing in tests for simple backends.
-    if (builtin.zig_backend == .stage2_spirv64) return;
+// Disable printing in tests for simple backends.
+pub const backend_can_print = builtin.zig_backend != .stage2_spirv64;
 
-    std.debug.print(fmt, args);
+fn print(comptime fmt: []const u8, args: anytype) void {
+    if (@inComptime()) {
+        @compileError(std.fmt.comptimePrint(fmt, args));
+    } else if (backend_can_print) {
+        std.debug.print(fmt, args);
+    }
 }
 
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
@@ -300,6 +304,10 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
         break :diff_index if (expected.len == actual.len) return else shortest;
     };
 
+    if (!backend_can_print) {
+        return error.TestExpectedEqual;
+    }
+
     print("slices differ. first difference occurs at index {d} (0x{X})\n", .{ diff_index, diff_index });
 
     // TODO: Should this be configurable by the caller?
@@ -391,7 +399,7 @@ fn SliceDiffer(comptime T: type) type {
 
         pub fn write(self: Self, writer: anytype) !void {
             for (self.expected, 0..) |value, i| {
-                var full_index = self.start_index + i;
+                const full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
                 if (diff) try self.ttyconf.setColor(writer, .red);
                 if (@typeInfo(T) == .Pointer) {
@@ -416,7 +424,7 @@ const BytesDiffer = struct {
             // to avoid having to calculate diffs twice per chunk
             var diffs: std.bit_set.IntegerBitSet(16) = .{ .mask = 0 };
             for (chunk, 0..) |byte, i| {
-                var absolute_byte_index = (expected_iterator.index - chunk.len) + i;
+                const absolute_byte_index = (expected_iterator.index - chunk.len) + i;
                 const diff = if (absolute_byte_index < self.actual.len) self.actual[absolute_byte_index] != byte else true;
                 if (diff) diffs.set(i);
                 try self.writeByteDiff(writer, "{X:0>2} ", byte, diff);
@@ -535,61 +543,23 @@ pub const TmpDir = struct {
     }
 };
 
-pub const TmpIterableDir = struct {
-    iterable_dir: std.fs.IterableDir,
-    parent_dir: std.fs.Dir,
-    sub_path: [sub_path_len]u8,
-
-    const random_bytes_count = 12;
-    const sub_path_len = std.fs.base64_encoder.calcSize(random_bytes_count);
-
-    pub fn cleanup(self: *TmpIterableDir) void {
-        self.iterable_dir.close();
-        self.parent_dir.deleteTree(&self.sub_path) catch {};
-        self.parent_dir.close();
-        self.* = undefined;
-    }
-};
-
 pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
     var random_bytes: [TmpDir.random_bytes_count]u8 = undefined;
     std.crypto.random.bytes(&random_bytes);
     var sub_path: [TmpDir.sub_path_len]u8 = undefined;
     _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
 
-    var cwd = std.fs.cwd();
+    const cwd = std.fs.cwd();
     var cache_dir = cwd.makeOpenPath("zig-cache", .{}) catch
         @panic("unable to make tmp dir for testing: unable to make and open zig-cache dir");
     defer cache_dir.close();
-    var parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
+    const parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
         @panic("unable to make tmp dir for testing: unable to make and open zig-cache/tmp dir");
-    var dir = parent_dir.makeOpenPath(&sub_path, opts) catch
+    const dir = parent_dir.makeOpenPath(&sub_path, opts) catch
         @panic("unable to make tmp dir for testing: unable to make and open the tmp dir");
 
     return .{
         .dir = dir,
-        .parent_dir = parent_dir,
-        .sub_path = sub_path,
-    };
-}
-
-pub fn tmpIterableDir(opts: std.fs.Dir.OpenDirOptions) TmpIterableDir {
-    var random_bytes: [TmpIterableDir.random_bytes_count]u8 = undefined;
-    std.crypto.random.bytes(&random_bytes);
-    var sub_path: [TmpIterableDir.sub_path_len]u8 = undefined;
-    _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
-
-    var cwd = std.fs.cwd();
-    var cache_dir = cwd.makeOpenPath("zig-cache", .{}) catch
-        @panic("unable to make tmp dir for testing: unable to make and open zig-cache dir");
-    defer cache_dir.close();
-    var parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
-        @panic("unable to make tmp dir for testing: unable to make and open zig-cache/tmp dir");
-    var dir = parent_dir.makeOpenPathIterable(&sub_path, opts) catch
-        @panic("unable to make tmp dir for testing: unable to make and open the tmp dir");
-
-    return .{
-        .iterable_dir = dir,
         .parent_dir = parent_dir,
         .sub_path = sub_path,
     };
@@ -610,8 +580,8 @@ test "expectEqual nested array" {
 }
 
 test "expectEqual vector" {
-    var a: @Vector(4, u32) = @splat(4);
-    var b: @Vector(4, u32) = @splat(4);
+    const a: @Vector(4, u32) = @splat(4);
+    const b: @Vector(4, u32) = @splat(4);
 
     try expectEqual(a, b);
 }
@@ -691,8 +661,9 @@ pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) 
 /// Container types(like Array/Slice/Vector) deeply equal when their corresponding elements are deeply equal.
 /// Pointer values are deeply equal if values they point to are deeply equal.
 ///
-/// Note: Self-referential structs are not supported (e.g. things like std.SinglyLinkedList)
-pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
+/// Note: Self-referential structs are supported (e.g. things like std.SinglyLinkedList)
+/// but may cause infinite recursion or stack overflow when a container has a pointer to itself.
+pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) error{TestExpectedEqual}!void {
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
         .Opaque,
@@ -1081,16 +1052,16 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
 
     // Try it once with unlimited memory, make sure it works
     const needed_alloc_count = x: {
-        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, std.math.maxInt(usize));
+        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, .{});
         args.@"0" = failing_allocator_inst.allocator();
 
         try @call(.auto, test_fn, args);
-        break :x failing_allocator_inst.index;
+        break :x failing_allocator_inst.alloc_index;
     };
 
     var fail_index: usize = 0;
     while (fail_index < needed_alloc_count) : (fail_index += 1) {
-        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, fail_index);
+        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, .{ .fail_index = fail_index });
         args.@"0" = failing_allocator_inst.allocator();
 
         if (@call(.auto, test_fn, args)) |_| {

@@ -3,6 +3,8 @@ const assert = std.debug.assert;
 const Order = std.math.Order;
 
 const InternPool = @import("InternPool.zig");
+const Type = @import("type.zig").Type;
+const Value = @import("value.zig").Value;
 const Module = @import("Module.zig");
 const RangeSet = @This();
 const SwitchProngSrc = @import("Module.zig").SwitchProngSrc;
@@ -43,8 +45,8 @@ pub fn add(
         assert(ty == ip.typeOf(range.first));
         assert(ty == ip.typeOf(range.last));
 
-        if (last.toValue().compareScalar(.gte, range.first.toValue(), ty.toType(), mod) and
-            first.toValue().compareScalar(.lte, range.last.toValue(), ty.toType(), mod))
+        if (Value.fromInterned(last).compareScalar(.gte, Value.fromInterned(range.first), Type.fromInterned(ty), mod) and
+            Value.fromInterned(first).compareScalar(.lte, Value.fromInterned(range.last), Type.fromInterned(ty), mod))
         {
             return range.src; // They overlap.
         }
@@ -60,8 +62,8 @@ pub fn add(
 
 /// Assumes a and b do not overlap
 fn lessThan(mod: *Module, a: Range, b: Range) bool {
-    const ty = mod.intern_pool.typeOf(a.first).toType();
-    return a.first.toValue().compareScalar(.lt, b.first.toValue(), ty, mod);
+    const ty = Type.fromInterned(mod.intern_pool.typeOf(a.first));
+    return Value.fromInterned(a.first).compareScalar(.lt, Value.fromInterned(b.first), ty, mod);
 }
 
 pub fn spans(self: *RangeSet, first: InternPool.Index, last: InternPool.Index) !bool {
@@ -91,10 +93,10 @@ pub fn spans(self: *RangeSet, first: InternPool.Index, last: InternPool.Index) !
         const prev = self.ranges.items[i];
 
         // prev.last + 1 == cur.first
-        try counter.copy(prev.last.toValue().toBigInt(&space, mod));
+        try counter.copy(Value.fromInterned(prev.last).toBigInt(&space, mod));
         try counter.addScalar(&counter, 1);
 
-        const cur_start_int = cur.first.toValue().toBigInt(&space, mod);
+        const cur_start_int = Value.fromInterned(cur.first).toBigInt(&space, mod);
         if (!cur_start_int.eql(counter.toConst())) {
             return false;
         }

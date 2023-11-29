@@ -8,6 +8,7 @@ const io = std.io;
 const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
+const GenerateDef = @import("deps/aro/build/GenerateDef.zig");
 
 const zig_version = std.SemanticVersion{ .major = 0, .minor = 12, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
@@ -33,6 +34,7 @@ pub fn build(b: *std.Build) !void {
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
     const skip_install_autodocs = b.option(bool, "no-autodocs", "skip copying of standard library autodocs to the installation prefix") orelse skip_install_lib_files;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
+    const only_reduce = b.option(bool, "only-reduce", "only build zig reduce") orelse false;
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
@@ -88,7 +90,7 @@ pub fn build(b: *std.Build) !void {
         .name = "check-case",
         .root_source_file = .{ .path = "test/src/Cases.zig" },
         .optimize = optimize,
-        .main_pkg_path = .{ .path = "." },
+        .main_mod_path = .{ .path = "." },
     });
     check_case_exe.stack_size = stack_size;
     check_case_exe.single_threaded = single_threaded;
@@ -204,7 +206,9 @@ pub fn build(b: *std.Build) !void {
         "Request creation of '.note.gnu.build-id' section",
     );
 
-    if (!no_bin) {
+    if (no_bin) {
+        b.getInstallStep().dependOn(&exe.step);
+    } else {
         const install_exe = b.addInstallArtifact(exe, .{
             .dest_dir = if (flat) .{ .override = .prefix } else .default,
         });
@@ -221,6 +225,10 @@ pub fn build(b: *std.Build) !void {
         check_case_exe.want_lto = false;
     }
 
+    const use_llvm = b.option(bool, "use-llvm", "Use the llvm backend");
+    exe.use_llvm = use_llvm;
+    exe.use_lld = use_llvm;
+
     const exe_options = b.addOptions();
     exe.addOptions("build_options", exe_options);
 
@@ -234,6 +242,7 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
     exe_options.addOption(bool, "only_core_functionality", only_c);
+    exe_options.addOption(bool, "only_reduce", only_reduce);
 
     if (link_libc) {
         exe.linkLibC();
@@ -253,7 +262,7 @@ pub fn build(b: *std.Build) !void {
         const version_string = b.fmt("{d}.{d}.{d}", .{ zig_version.major, zig_version.minor, zig_version.patch });
 
         var code: u8 = undefined;
-        const git_describe_untrimmed = b.execAllowFail(&[_][]const u8{
+        const git_describe_untrimmed = b.runAllowFail(&[_][]const u8{
             "git", "-C", b.build_root.path orelse ".", "describe", "--match", "*.*.*", "--tags",
         }, &code, .Ignore) catch {
             break :v version_string;
@@ -389,6 +398,7 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "force_gpa", force_gpa);
     test_cases_options.addOption(bool, "only_c", only_c);
     test_cases_options.addOption(bool, "only_core_functionality", true);
+    test_cases_options.addOption(bool, "only_reduce", false);
     test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
     test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
     test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
@@ -547,6 +557,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "enable_tracy_allocation", false);
     exe_options.addOption(bool, "value_tracing", false);
     exe_options.addOption(bool, "only_core_functionality", true);
+    exe_options.addOption(bool, "only_reduce", false);
 
     const run_opt = b.addSystemCommand(&.{
         "wasm-opt",
@@ -576,8 +587,38 @@ fn addCompilerStep(
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
+        .max_rss = 7_000_000_000,
     });
     exe.stack_size = stack_size;
+
+    const aro_options = b.addOptions();
+    aro_options.addOption([]const u8, "version_str", "aro-zig");
+    const aro_options_module = aro_options.createModule();
+    const aro_backend = b.createModule(.{
+        .source_file = .{ .path = "deps/aro/backend.zig" },
+        .dependencies = &.{.{
+            .name = "build_options",
+            .module = aro_options_module,
+        }},
+    });
+    const aro_module = b.createModule(.{
+        .source_file = .{ .path = "deps/aro/aro.zig" },
+        .dependencies = &.{
+            .{
+                .name = "build_options",
+                .module = aro_options_module,
+            },
+            .{
+                .name = "backend",
+                .module = aro_backend,
+            },
+            GenerateDef.create(b, .{ .name = "Builtins/Builtin.def", .src_prefix = "deps/aro/aro" }),
+            GenerateDef.create(b, .{ .name = "Attribute/names.def", .src_prefix = "deps/aro/aro" }),
+            GenerateDef.create(b, .{ .name = "Diagnostics/messages.def", .src_prefix = "deps/aro/aro", .kind = .named }),
+        },
+    });
+
+    exe.addModule("aro", aro_module);
     return exe;
 }
 
@@ -632,16 +673,14 @@ fn addCmakeCfgOptionsToExe(
         const lib_suffix = if (static) exe.target.staticLibSuffix()[1..] else exe.target.dynamicLibSuffix()[1..];
         switch (exe.target.getOsTag()) {
             .linux => {
-                // First we try to link against system libstdc++ or libc++.
-                // If that doesn't work, we fall to -lc++ and cross our fingers.
-                const found = for ([_][]const u8{ "stdc++", "c++" }) |name| {
-                    addCxxKnownPath(b, cfg, exe, b.fmt("lib{s}.{s}", .{ name, lib_suffix }), "", need_cpp_includes) catch |err| switch (err) {
-                        error.RequiredLibraryNotFound => continue,
-                        else => |e| return e,
-                    };
-                    break true;
-                } else false;
-                if (!found) exe.linkLibCpp();
+                // First we try to link against the detected libcxx name. If that doesn't work, we fall
+                // back to -lc++ and cross our fingers.
+                addCxxKnownPath(b, cfg, exe, b.fmt("lib{s}.{s}", .{ cfg.system_libcxx, lib_suffix }), "", need_cpp_includes) catch |err| switch (err) {
+                    error.RequiredLibraryNotFound => {
+                        exe.linkLibCpp();
+                    },
+                    else => |e| return e,
+                };
                 exe.linkSystemLibrary("unwind");
             },
             .ios, .macos, .watchos, .tvos => {
@@ -670,6 +709,10 @@ fn addCmakeCfgOptionsToExe(
                     try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
                 }
             },
+            .solaris, .illumos => {
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
+            },
             else => {},
         }
     }
@@ -686,7 +729,10 @@ fn addStaticLlvmOptionsToExe(exe: *std.Build.Step.Compile) !void {
     // in a dependency on llvm::cfg::Update<llvm::BasicBlock*>::dump() which is
     // unavailable when LLVM is compiled in Release mode.
     const zig_cpp_cflags = exe_cflags ++ [_][]const u8{"-DNDEBUG=1"};
-    exe.addCSourceFiles(&zig_cpp_sources, &zig_cpp_cflags);
+    exe.addCSourceFiles(.{
+        .files = &zig_cpp_sources,
+        .flags = &zig_cpp_cflags,
+    });
 
     for (clang_libs) |lib_name| {
         exe.linkSystemLibrary(lib_name);
@@ -725,7 +771,11 @@ fn addCxxKnownPath(
 ) !void {
     if (!std.process.can_spawn)
         return error.RequiredLibraryNotFound;
-    const path_padded = b.exec(&.{ ctx.cxx_compiler, b.fmt("-print-file-name={s}", .{objname}) });
+
+    const path_padded = if (ctx.cxx_compiler_arg1.len > 0)
+        b.run(&.{ ctx.cxx_compiler, ctx.cxx_compiler_arg1, b.fmt("-print-file-name={s}", .{objname}) })
+    else
+        b.run(&.{ ctx.cxx_compiler, b.fmt("-print-file-name={s}", .{objname}) });
     var tokenizer = mem.tokenizeAny(u8, path_padded, "\r\n");
     const path_unpadded = tokenizer.next().?;
     if (mem.eql(u8, path_unpadded, objname)) {
@@ -768,6 +818,7 @@ const CMakeConfig = struct {
     cmake_static_library_prefix: []const u8,
     cmake_static_library_suffix: []const u8,
     cxx_compiler: []const u8,
+    cxx_compiler_arg1: []const u8,
     lld_include_dir: []const u8,
     lld_libraries: []const u8,
     clang_libraries: []const u8,
@@ -775,6 +826,7 @@ const CMakeConfig = struct {
     llvm_include_dir: []const u8,
     llvm_libraries: []const u8,
     dia_guids_lib: []const u8,
+    system_libcxx: []const u8,
 };
 
 const max_config_h_bytes = 1 * 1024 * 1024;
@@ -822,7 +874,7 @@ fn findConfigH(b: *std.Build, config_h_path_option: ?[]const u8) ?[]const u8 {
             return null;
         }
         check_dir = new_check_dir.?;
-    } else unreachable; // TODO should not need `else unreachable`.
+    }
 }
 
 fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
@@ -833,6 +885,7 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
         .cmake_static_library_prefix = undefined,
         .cmake_static_library_suffix = undefined,
         .cxx_compiler = undefined,
+        .cxx_compiler_arg1 = "",
         .lld_include_dir = undefined,
         .lld_libraries = undefined,
         .clang_libraries = undefined,
@@ -840,6 +893,7 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
         .llvm_include_dir = undefined,
         .llvm_libraries = undefined,
         .dia_guids_lib = undefined,
+        .system_libcxx = undefined,
     };
 
     const mappings = [_]struct { prefix: []const u8, field: []const u8 }{
@@ -862,6 +916,10 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
         .{
             .prefix = "#define ZIG_CXX_COMPILER ",
             .field = "cxx_compiler",
+        },
+        .{
+            .prefix = "#define ZIG_CXX_COMPILER_ARG1 ",
+            .field = "cxx_compiler_arg1",
         },
         .{
             .prefix = "#define ZIG_LLD_INCLUDE_PATH ",
@@ -891,6 +949,10 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
             .prefix = "#define ZIG_LLVM_LIB_PATH ",
             .field = "llvm_lib_dir",
         },
+        .{
+            .prefix = "#define ZIG_SYSTEM_LIBCXX",
+            .field = "system_libcxx",
+        },
         // .prefix = ZIG_LLVM_LINK_MODE parsed manually below
     };
 
@@ -901,7 +963,8 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
                 var it = mem.splitScalar(u8, line, '"');
                 _ = it.first(); // skip the stuff before the quote
                 const quoted = it.next().?; // the stuff inside the quote
-                @field(ctx, mapping.field) = toNativePathSep(b, quoted);
+                const trimmed = mem.trim(u8, quoted, " ");
+                @field(ctx, mapping.field) = toNativePathSep(b, trimmed);
             }
         }
         if (mem.startsWith(u8, line, "#define ZIG_LLVM_LINK_MODE ")) {
@@ -992,8 +1055,8 @@ const llvm_libs = [_][]const u8{
     "LLVMWebAssemblyDisassembler",
     "LLVMWebAssemblyAsmParser",
     "LLVMWebAssemblyCodeGen",
-    "LLVMWebAssemblyDesc",
     "LLVMWebAssemblyUtils",
+    "LLVMWebAssemblyDesc",
     "LLVMWebAssemblyInfo",
     "LLVMVEDisassembler",
     "LLVMVEAsmParser",
@@ -1114,12 +1177,13 @@ const llvm_libs = [_][]const u8{
     "LLVMAsmPrinter",
     "LLVMSelectionDAG",
     "LLVMCodeGen",
+    "LLVMTarget",
     "LLVMObjCARCOpts",
+    "LLVMCodeGenTypes",
     "LLVMIRPrinter",
     "LLVMInterfaceStub",
     "LLVMFileCheck",
     "LLVMFuzzMutate",
-    "LLVMTarget",
     "LLVMScalarOpts",
     "LLVMInstCombine",
     "LLVMAggressiveInstCombine",
@@ -1128,6 +1192,7 @@ const llvm_libs = [_][]const u8{
     "LLVMAnalysis",
     "LLVMProfileData",
     "LLVMSymbolize",
+    "LLVMDebugInfoBTF",
     "LLVMDebugInfoPDB",
     "LLVMDebugInfoMSF",
     "LLVMDebugInfoDWARF",

@@ -351,9 +351,20 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
   addi  4, 3, PPC64_OFFS_FP
 
 // store VS register
+#ifdef __LITTLE_ENDIAN__
+// For little-endian targets, we need a swap since stxvd2x will store the
+// register in the incorrect doubleword order.
+// FIXME: when supporting targets older than Power9 on LE is no longer required
+//        this can be changed to simply `stxv n, 16 * n(4)`.
+#define PPC64_STVS(n)      \
+  xxswapd n, n            ;\
+  stxvd2x n, 0, 4         ;\
+  addi    4, 4, 16
+#else
 #define PPC64_STVS(n)      \
   stxvd2x n, 0, 4         ;\
   addi    4, 4, 16
+#endif
 
   PPC64_STVS(0)
   PPC64_STVS(1)

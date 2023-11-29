@@ -461,8 +461,7 @@ test "parse into tagged union errors" {
     try testing.expectError(error.UnexpectedToken, parseFromSliceLeaky(T, arena.allocator(), "{\"nothing\":{\"no\":0}}", .{}));
 
     // Allocator failure
-    var fail_alloc = testing.FailingAllocator.init(testing.allocator, 0);
-    try testing.expectError(error.OutOfMemory, parseFromSlice(T, fail_alloc.allocator(), "{\"string\"\"foo\"}", .{}));
+    try testing.expectError(error.OutOfMemory, parseFromSlice(T, testing.failing_allocator, "{\"string\"\"foo\"}", .{}));
 }
 
 test "parse into struct with no fields" {
@@ -534,7 +533,7 @@ test "parse into struct with misc fields" {
             string: []const u8,
         };
     };
-    var document_str =
+    const document_str =
         \\{
         \\  "int": 420,
         \\  "float": 3.14,
@@ -589,7 +588,7 @@ test "parse into struct with strings and arrays with sentinels" {
         data: [:99]const i32,
         simple_data: []const i32,
     };
-    var document_str =
+    const document_str =
         \\{
         \\  "language": "zig",
         \\  "language_without_sentinel": "zig again!",
@@ -635,7 +634,7 @@ test "parse into struct ignoring unknown fields" {
         language: []const u8,
     };
 
-    var str =
+    const str =
         \\{
         \\  "int": 420,
         \\  "float": 3.14,
@@ -686,7 +685,7 @@ test "parse into tuple" {
         std.meta.Tuple(&.{ u8, []const u8, u8 }),
         Union,
     });
-    var str =
+    const str =
         \\[
         \\  420,
         \\  3.14,
@@ -790,7 +789,7 @@ test "parse into vector" {
         vec_i32: @Vector(4, i32),
         vec_f32: @Vector(2, f32),
     };
-    var s =
+    const s =
         \\{
         \\  "vec_f32": [1.5, 2.5],
         \\  "vec_i32": [4, 5, 6, 7]
@@ -822,7 +821,7 @@ test "json parse partial" {
         num: u32,
         yes: bool,
     };
-    var str =
+    const str =
         \\{
         \\  "outer": {
         \\    "key1": {
@@ -836,7 +835,7 @@ test "json parse partial" {
         \\  }
         \\}
     ;
-    var allocator = testing.allocator;
+    const allocator = testing.allocator;
     var scanner = JsonScanner.initCompleteInput(allocator, str);
     defer scanner.deinit();
 
@@ -877,13 +876,13 @@ test "json parse allocate when streaming" {
         not_const: []u8,
         is_const: []const u8,
     };
-    var str =
+    const str =
         \\{
         \\  "not_const": "non const string",
         \\  "is_const": "const string"
         \\}
     ;
-    var allocator = testing.allocator;
+    const allocator = testing.allocator;
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
 

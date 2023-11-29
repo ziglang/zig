@@ -28,7 +28,7 @@
 #ifndef _OBJC_OBJC_H_
 #define _OBJC_OBJC_H_
 
-#include <sys/types.h>      // for __DARWIN_NULL
+#include <stdlib.h>
 #include <Availability.h>
 #include <objc/objc-api.h>
 #include <stdbool.h>
@@ -127,6 +127,8 @@ typedef id _Nullable (*IMP)(id _Nonnull, SEL _Nonnull, ...);
 # endif
 #endif
 
+/// Forward declaration for zone support
+typedef struct _malloc_zone_t *objc_zone_t;
 
 /** 
  * Returns the name of the method specified by a given selector.
@@ -230,30 +232,5 @@ OBJC_EXPORT objc_objectptr_t _Nullable objc_unretainedPointer(id _Nullable obj)
     OBJC_UNAVAILABLE("use a __bridge cast instead")
 #endif
     ;
-
-
-#if !__OBJC2__
-
-// The following declarations are provided here for source compatibility.
-
-#if defined(__LP64__)
-    typedef long arith_t;
-    typedef unsigned long uarith_t;
-#   define ARITH_SHIFT 32
-#else
-    typedef int arith_t;
-    typedef unsigned uarith_t;
-#   define ARITH_SHIFT 16
-#endif
-
-typedef char *STR;
-
-#define ISSELECTOR(sel) sel_isMapped(sel)
-#define SELNAME(sel)	sel_getName(sel)
-#define SELUID(str)	sel_getUid(str)
-#define NAMEOF(obj)     object_getClassName(obj)
-#define IV(obj)         object_getIndexedIvars(obj)
-
-#endif
 
 #endif  /* _OBJC_OBJC_H_ */

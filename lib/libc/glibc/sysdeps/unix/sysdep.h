@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -56,6 +56,26 @@
    expected argument number as second parameter.  */
 #define INTERNAL_SYSCALL_CALL(...) \
   __INTERNAL_SYSCALL_DISP (__INTERNAL_SYSCALL, __VA_ARGS__)
+
+#define __INTERNAL_SYSCALL_NCS0(name) \
+  INTERNAL_SYSCALL_NCS (name, 0)
+#define __INTERNAL_SYSCALL_NCS1(name, a1) \
+  INTERNAL_SYSCALL_NCS (name, 1, a1)
+#define __INTERNAL_SYSCALL_NCS2(name, a1, a2) \
+  INTERNAL_SYSCALL_NCS (name, 2, a1, a2)
+#define __INTERNAL_SYSCALL_NCS3(name, a1, a2, a3) \
+  INTERNAL_SYSCALL_NCS (name, 3, a1, a2, a3)
+#define __INTERNAL_SYSCALL_NCS4(name, a1, a2, a3, a4) \
+  INTERNAL_SYSCALL_NCS (name, 4, a1, a2, a3, a4)
+#define __INTERNAL_SYSCALL_NCS5(name, a1, a2, a3, a4, a5) \
+  INTERNAL_SYSCALL_NCS (name, 5, a1, a2, a3, a4, a5)
+#define __INTERNAL_SYSCALL_NCS6(name, a1, a2, a3, a4, a5, a6) \
+  INTERNAL_SYSCALL_NCS (name, 6, a1, a2, a3, a4, a5, a6)
+#define __INTERNAL_SYSCALL_NCS7(name, a1, a2, a3, a4, a5, a6, a7) \
+  INTERNAL_SYSCALL_NCS (name, 7, a1, a2, a3, a4, a5, a6, a7)
+
+#define INTERNAL_SYSCALL_NCS_CALL(...) \
+  __INTERNAL_SYSCALL_DISP (__INTERNAL_SYSCALL_NCS, __VA_ARGS__)
 
 #define __INLINE_SYSCALL0(name) \
   INLINE_SYSCALL (name, 0)

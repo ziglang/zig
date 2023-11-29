@@ -17,5 +17,5 @@ export fn f() void {
 // backend=stage2
 // target=native
 //
-// :11:10: error: duplicate field
-// :8:10: note: other field here
+// :8:10: error: duplicate field
+// :11:10: note: other field here

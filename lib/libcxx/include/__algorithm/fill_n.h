@@ -12,7 +12,6 @@
 #include <__config>
 #include <__iterator/iterator_traits.h>
 #include <__utility/convert_to_integral.h>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

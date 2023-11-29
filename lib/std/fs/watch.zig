@@ -116,7 +116,7 @@ pub fn Watch(comptime V: type) type {
                         },
                     };
 
-                    var buf = try allocator.alloc(Event.Error!Event, event_buf_count);
+                    const buf = try allocator.alloc(Event.Error!Event, event_buf_count);
                     self.channel.init(buf);
                     self.os_data.putter_frame = async self.linuxEventPutter();
                     return self;
@@ -132,7 +132,7 @@ pub fn Watch(comptime V: type) type {
                         },
                     };
 
-                    var buf = try allocator.alloc(Event.Error!Event, event_buf_count);
+                    const buf = try allocator.alloc(Event.Error!Event, event_buf_count);
                     self.channel.init(buf);
                     return self;
                 },
@@ -147,7 +147,7 @@ pub fn Watch(comptime V: type) type {
                         },
                     };
 
-                    var buf = try allocator.alloc(Event.Error!Event, event_buf_count);
+                    const buf = try allocator.alloc(Event.Error!Event, event_buf_count);
                     self.channel.init(buf);
                     return self;
                 },

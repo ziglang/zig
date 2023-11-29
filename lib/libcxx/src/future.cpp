@@ -197,12 +197,12 @@ promise<void>::~promise()
 {
     if (__state_)
     {
-#ifndef _LIBCPP_NO_EXCEPTIONS
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
         if (!__state_->__has_value() && __state_->use_count() > 1)
             __state_->set_exception(make_exception_ptr(
                       future_error(make_error_code(future_errc::broken_promise))
                                                       ));
-#endif // _LIBCPP_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_NO_EXCEPTIONS
         __state_->__release_shared();
     }
 }

@@ -162,10 +162,10 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
     // Two cases: quotient is in [0.5, 1.0) or quotient is in [1.0, 2.0).
     // Right shift the quotient if it falls in the [1,2) range and adjust the
     // exponent accordingly.
-    var quotient: u64 = if (quotient128 < (integerBit << 1)) b: {
+    const quotient: u64 = if (quotient128 < (integerBit << 1)) b: {
         quotientExponent -= 1;
-        break :b @as(u64, @intCast(quotient128));
-    } else @as(u64, @intCast(quotient128 >> 1));
+        break :b @intCast(quotient128);
+    } else @intCast(quotient128 >> 1);
 
     // We are going to compute a residual of the form
     //
@@ -177,23 +177,23 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
     //
     // If r is greater than 1/2 ulp(q)*b, then q rounds up.  Otherwise, we
     // already have the correct result.  The exact halfway case cannot occur.
-    var residual: u64 = -%(quotient *% q63b);
+    const residual: u64 = -%(quotient *% q63b);
 
     const writtenExponent = quotientExponent + exponentBias;
     if (writtenExponent >= maxExponent) {
         // If we have overflowed the exponent, return infinity.
-        return @as(T, @bitCast(infRep | quotientSign));
+        return @bitCast(infRep | quotientSign);
     } else if (writtenExponent < 1) {
         if (writtenExponent == 0) {
             // Check whether the rounded result is normal.
             if (residual > (bSignificand >> 1)) { // round
                 if (quotient == (integerBit - 1)) // If the rounded result is normal, return it
-                    return @as(T, @bitCast(@as(Z, @bitCast(std.math.floatMin(T))) | quotientSign));
+                    return @bitCast(@as(Z, @bitCast(std.math.floatMin(T))) | quotientSign);
             }
         }
         // Flush denormals to zero.  In the future, it would be nice to add
         // code to round them correctly.
-        return @as(T, @bitCast(quotientSign));
+        return @bitCast(quotientSign);
     } else {
         const round = @intFromBool(residual > (bSignificand >> 1));
         // Insert the exponent
@@ -201,7 +201,7 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
         // Round
         absResult +%= round;
         // Insert the sign and return
-        return @as(T, @bitCast(absResult | quotientSign | integerBit));
+        return @bitCast(absResult | quotientSign | integerBit);
     }
 }
 

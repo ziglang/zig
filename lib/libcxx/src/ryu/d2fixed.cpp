@@ -43,7 +43,6 @@
 #include <__config>
 #include <charconv>
 #include <cstring>
-#include <system_error>
 
 #include "include/ryu/common.h"
 #include "include/ryu/d2fixed.h"
@@ -103,8 +102,8 @@ inline constexpr int __POW10_ADDITIONAL_BITS = 120;
   const uint64_t __s1low = __low2 + __high1 + __c1; // 128
   const uint32_t __c2 = __s1low < __low2; // __high1 + __c1 can't overflow, so compare against __low2
   const uint64_t __s1high = __high2 + __c2;         // 192
-  _LIBCPP_ASSERT(__j >= 128, "");
-  _LIBCPP_ASSERT(__j <= 180, "");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__j >= 128, "");
+  _LIBCPP_ASSERT_UNCATEGORIZED(__j <= 180, "");
 #ifdef _LIBCPP_INTRINSIC128
   const uint32_t __dist = static_cast<uint32_t>(__j - 128); // __dist: [0, 52]
   const uint64_t __shiftedhigh = __s1high >> __dist;
@@ -135,19 +134,19 @@ void __append_n_digits(const uint32_t __olength, uint32_t __digits, char* const 
     __digits /= 10000;
     const uint32_t __c0 = (__c % 100) << 1;
     const uint32_t __c1 = (__c / 100) << 1;
-    _VSTD::memcpy(__result + __olength - __i - 2, __DIGIT_TABLE + __c0, 2);
-    _VSTD::memcpy(__result + __olength - __i - 4, __DIGIT_TABLE + __c1, 2);
+    std::memcpy(__result + __olength - __i - 2, __DIGIT_TABLE + __c0, 2);
+    std::memcpy(__result + __olength - __i - 4, __DIGIT_TABLE + __c1, 2);
     __i += 4;
   }
   if (__digits >= 100) {
     const uint32_t __c = (__digits % 100) << 1;
     __digits /= 100;
-    _VSTD::memcpy(__result + __olength - __i - 2, __DIGIT_TABLE + __c, 2);
+    std::memcpy(__result + __olength - __i - 2, __DIGIT_TABLE + __c, 2);
     __i += 2;
   }
   if (__digits >= 10) {
     const uint32_t __c = __digits << 1;
-    _VSTD::memcpy(__result + __olength - __i - 2, __DIGIT_TABLE + __c, 2);
+    std::memcpy(__result + __olength - __i - 2, __DIGIT_TABLE + __c, 2);
   } else {
     __result[0] = static_cast<char>('0' + __digits);
   }
@@ -164,14 +163,14 @@ _LIBCPP_HIDE_FROM_ABI inline void __append_d_digits(const uint32_t __olength, ui
     __digits /= 10000;
     const uint32_t __c0 = (__c % 100) << 1;
     const uint32_t __c1 = (__c / 100) << 1;
-    _VSTD::memcpy(__result + __olength + 1 - __i - 2, __DIGIT_TABLE + __c0, 2);
-    _VSTD::memcpy(__result + __olength + 1 - __i - 4, __DIGIT_TABLE + __c1, 2);
+    std::memcpy(__result + __olength + 1 - __i - 2, __DIGIT_TABLE + __c0, 2);
+    std::memcpy(__result + __olength + 1 - __i - 4, __DIGIT_TABLE + __c1, 2);
     __i += 4;
   }
   if (__digits >= 100) {
     const uint32_t __c = (__digits % 100) << 1;
     __digits /= 100;
-    _VSTD::memcpy(__result + __olength + 1 - __i - 2, __DIGIT_TABLE + __c, 2);
+    std::memcpy(__result + __olength + 1 - __i - 2, __DIGIT_TABLE + __c, 2);
     __i += 2;
   }
   if (__digits >= 10) {
@@ -190,7 +189,7 @@ _LIBCPP_HIDE_FROM_ABI inline void __append_c_digits(const uint32_t __count, uint
   for (; __i < __count - 1; __i += 2) {
     const uint32_t __c = (__digits % 100) << 1;
     __digits /= 100;
-    _VSTD::memcpy(__result + __count - __i - 2, __DIGIT_TABLE + __c, 2);
+    std::memcpy(__result + __count - __i - 2, __DIGIT_TABLE + __c, 2);
   }
   if (__i < __count) {
     const char __c = static_cast<char>('0' + (__digits % 10));
@@ -200,7 +199,7 @@ _LIBCPP_HIDE_FROM_ABI inline void __append_c_digits(const uint32_t __count, uint
 
 void __append_nine_digits(uint32_t __digits, char* const __result) {
   if (__digits == 0) {
-    _VSTD::memset(__result, '0', 9);
+    std::memset(__result, '0', 9);
     return;
   }
 
@@ -213,8 +212,8 @@ void __append_nine_digits(uint32_t __digits, char* const __result) {
     __digits /= 10000;
     const uint32_t __c0 = (__c % 100) << 1;
     const uint32_t __c1 = (__c / 100) << 1;
-    _VSTD::memcpy(__result + 7 - __i, __DIGIT_TABLE + __c0, 2);
-    _VSTD::memcpy(__result + 5 - __i, __DIGIT_TABLE + __c1, 2);
+    std::memcpy(__result + 7 - __i, __DIGIT_TABLE + __c0, 2);
+    std::memcpy(__result + 5 - __i, __DIGIT_TABLE + __c1, 2);
   }
   __result[0] = static_cast<char>('0' + __digits);
 }
@@ -251,7 +250,7 @@ void __append_nine_digits(uint32_t __digits, char* const __result) {
     *_First++ = '0';
     if (__precision > 0) {
       *_First++ = '.';
-      _VSTD::memset(_First, '0', __precision);
+      std::memset(_First, '0', __precision);
       _First += __precision;
     }
     return { _First, errc{} };
@@ -322,14 +321,14 @@ void __append_nine_digits(uint32_t __digits, char* const __result) {
       if (_Last - _First < static_cast<ptrdiff_t>(__precision)) {
         return { _Last, errc::value_too_large };
       }
-      _VSTD::memset(_First, '0', __precision);
+      std::memset(_First, '0', __precision);
       _First += __precision;
     } else if (__i < __MIN_BLOCK_2[__idx]) {
       __i = __MIN_BLOCK_2[__idx];
       if (_Last - _First < static_cast<ptrdiff_t>(9 * __i)) {
         return { _Last, errc::value_too_large };
       }
-      _VSTD::memset(_First, '0', 9 * __i);
+      std::memset(_First, '0', 9 * __i);
       _First += 9 * __i;
     }
     for (; __i < __blocks; ++__i) {
@@ -342,7 +341,7 @@ void __append_nine_digits(uint32_t __digits, char* const __result) {
         if (_Last - _First < static_cast<ptrdiff_t>(__fill)) {
           return { _Last, errc::value_too_large };
         }
-        _VSTD::memset(_First, '0', __fill);
+        std::memset(_First, '0', __fill);
         _First += __fill;
         break;
       }
@@ -416,7 +415,7 @@ void __append_nine_digits(uint32_t __digits, char* const __result) {
     if (_Last - _First < static_cast<ptrdiff_t>(__precision)) {
       return { _Last, errc::value_too_large };
     }
-    _VSTD::memset(_First, '0', __precision);
+    std::memset(_First, '0', __precision);
     _First += __precision;
   }
   return { _First, errc{} };
@@ -440,10 +439,10 @@ void __append_nine_digits(uint32_t __digits, char* const __result) {
     *_First++ = '0';
     if (__precision > 0) {
       *_First++ = '.';
-      _VSTD::memset(_First, '0', __precision);
+      std::memset(_First, '0', __precision);
       _First += __precision;
     }
-    _VSTD::memcpy(_First, "e+00", 4);
+    std::memcpy(_First, "e+00", 4);
     _First += 4;
     return { _First, errc{} };
   }
@@ -589,7 +588,7 @@ void __append_nine_digits(uint32_t __digits, char* const __result) {
       return { _Last, errc::value_too_large };
     }
     if (__digits == 0) {
-      _VSTD::memset(_First, '0', __maximum);
+      std::memset(_First, '0', __maximum);
     } else {
       __append_c_digits(__maximum, __digits, _First);
     }
@@ -654,11 +653,11 @@ void __append_nine_digits(uint32_t __digits, char* const __result) {
 
   if (__exp >= 100) {
     const int32_t __c = __exp % 10;
-    _VSTD::memcpy(_First, __DIGIT_TABLE + 2 * (__exp / 10), 2);
+    std::memcpy(_First, __DIGIT_TABLE + 2 * (__exp / 10), 2);
     _First[2] = static_cast<char>('0' + __c);
     _First += 3;
   } else {
-    _VSTD::memcpy(_First, __DIGIT_TABLE + 2 * __exp, 2);
+    std::memcpy(_First, __DIGIT_TABLE + 2 * __exp, 2);
     _First += 2;
   }
 

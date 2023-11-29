@@ -8,6 +8,7 @@
 
 const std = @import("../std.zig");
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 
 /// Returns e raised to the power of x, minus 1 (e^x - 1). This is more accurate than exp(e, x) - 1
@@ -100,7 +101,7 @@ fn expm1_32(x_: f32) f32 {
     // |x| < 2^(-25)
     else if (hx < 0x33000000) {
         if (hx < 0x00800000) {
-            math.doNotOptimizeAway(x * x);
+            mem.doNotOptimizeAway(x * x);
         }
         return x;
     } else {
@@ -231,7 +232,7 @@ fn expm1_64(x_: f64) f64 {
     // |x| < 2^(-54)
     else if (hx < 0x3C900000) {
         if (hx < 0x00100000) {
-            math.doNotOptimizeAway(@as(f32, @floatCast(x)));
+            mem.doNotOptimizeAway(@as(f32, @floatCast(x)));
         }
         return x;
     } else {
@@ -293,7 +294,7 @@ test "math.exp1m" {
 test "math.expm1_32" {
     const epsilon = 0.000001;
 
-    try expect(expm1_32(0.0) == 0.0);
+    try expect(math.isPositiveZero(expm1_32(0.0)));
     try expect(math.approxEqAbs(f32, expm1_32(0.0), 0.0, epsilon));
     try expect(math.approxEqAbs(f32, expm1_32(0.2), 0.221403, epsilon));
     try expect(math.approxEqAbs(f32, expm1_32(0.8923), 1.440737, epsilon));
@@ -303,7 +304,7 @@ test "math.expm1_32" {
 test "math.expm1_64" {
     const epsilon = 0.000001;
 
-    try expect(expm1_64(0.0) == 0.0);
+    try expect(math.isPositiveZero(expm1_64(0.0)));
     try expect(math.approxEqAbs(f64, expm1_64(0.0), 0.0, epsilon));
     try expect(math.approxEqAbs(f64, expm1_64(0.2), 0.221403, epsilon));
     try expect(math.approxEqAbs(f64, expm1_64(0.8923), 1.440737, epsilon));

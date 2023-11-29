@@ -1,5 +1,5 @@
 comptime {
-    var a: *u8 = undefined;
+    const a: *u8 = undefined;
     _ = a.*;
 }
 

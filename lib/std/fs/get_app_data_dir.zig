@@ -15,27 +15,12 @@ pub const GetAppDataDirError = error{
 pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDirError![]u8 {
     switch (builtin.os.tag) {
         .windows => {
-            var dir_path_ptr: [*:0]u16 = undefined;
-            switch (os.windows.shell32.SHGetKnownFolderPath(
-                &os.windows.FOLDERID_LocalAppData,
-                os.windows.KF_FLAG_CREATE,
-                null,
-                &dir_path_ptr,
-            )) {
-                os.windows.S_OK => {
-                    defer os.windows.ole32.CoTaskMemFree(@as(*anyopaque, @ptrCast(dir_path_ptr)));
-                    const global_dir = unicode.utf16leToUtf8Alloc(allocator, mem.sliceTo(dir_path_ptr, 0)) catch |err| switch (err) {
-                        error.UnexpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,
-                        error.ExpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,
-                        error.DanglingSurrogateHalf => return error.AppDataDirUnavailable,
-                        error.OutOfMemory => return error.OutOfMemory,
-                    };
-                    defer allocator.free(global_dir);
-                    return fs.path.join(allocator, &[_][]const u8{ global_dir, appname });
-                },
-                os.windows.E_OUTOFMEMORY => return error.OutOfMemory,
+            const local_app_data_dir = std.process.getEnvVarOwned(allocator, "LOCALAPPDATA") catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
                 else => return error.AppDataDirUnavailable,
-            }
+            };
+            defer allocator.free(local_app_data_dir);
+            return fs.path.join(allocator, &[_][]const u8{ local_app_data_dir, appname });
         },
         .macos => {
             const home_dir = os.getenv("HOME") orelse {
@@ -44,7 +29,7 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
             };
             return fs.path.join(allocator, &[_][]const u8{ home_dir, "Library", "Application Support", appname });
         },
-        .linux, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris => {
+        .linux, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => {
             if (os.getenv("XDG_DATA_HOME")) |xdg| {
                 return fs.path.join(allocator, &[_][]const u8{ xdg, appname });
             }
@@ -57,6 +42,10 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
         },
         .haiku => {
             var dir_path_ptr: [*:0]u8 = undefined;
+            if (true) {
+                _ = &dir_path_ptr;
+                @compileError("TODO: init dir_path_ptr");
+            }
             // TODO look into directory_which
             const be_user_settings = 0xbbe;
             const rc = os.system.find_directory(be_user_settings, -1, true, dir_path_ptr, 1);

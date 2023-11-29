@@ -51,7 +51,7 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
                     error.InvalidVersion => {},
                 }
             },
-            .solaris => {
+            .solaris, .illumos => {
                 const uts = std.os.uname();
                 const release = mem.sliceTo(&uts.release, 0);
                 if (std.SemanticVersion.parse(release)) |ver| {
@@ -189,7 +189,7 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
     // native CPU architecture as being different than the current target), we use this:
     const cpu_arch = cross_target.getCpuArch();
 
-    var cpu = switch (cross_target.cpu_model) {
+    const cpu = switch (cross_target.cpu_model) {
         .native => detectNativeCpuAndFeatures(cpu_arch, os, cross_target),
         .baseline => Target.Cpu.baseline(cpu_arch),
         .determined_by_cpu_arch => if (cross_target.cpu_arch == null)
@@ -257,10 +257,12 @@ fn detectAbiAndDynamicLinker(
 ) DetectError!NativeTargetInfo {
     const native_target_has_ld = comptime builtin.target.hasDynamicLinker();
     const is_linux = builtin.target.os.tag == .linux;
+    const is_solarish = builtin.target.os.tag.isSolarish();
     const have_all_info = cross_target.dynamic_linker.get() != null and
         cross_target.abi != null and (!is_linux or cross_target.abi.?.isGnu());
     const os_is_non_native = cross_target.os_tag != null;
-    if (!native_target_has_ld or have_all_info or os_is_non_native) {
+    // The Solaris/illumos environment is always the same.
+    if (!native_target_has_ld or have_all_info or os_is_non_native or is_solarish) {
         return defaultAbiAndDynamicLinker(cpu, os, cross_target);
     }
     if (cross_target.abi) |abi| {
@@ -486,8 +488,8 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     const hdr64 = @as(*elf.Elf64_Ehdr, @ptrCast(&hdr_buf));
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
     const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
-        elf.ELFDATA2LSB => .Little,
-        elf.ELFDATA2MSB => .Big,
+        elf.ELFDATA2LSB => .little,
+        elf.ELFDATA2MSB => .big,
         else => return error.InvalidElfEndian,
     };
     const need_bswap = elf_endian != native_endian;
@@ -555,7 +557,7 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     var buf: [80000]u8 = undefined;
     if (buf.len < dynstr.size) return error.InvalidGnuLibCVersion;
 
-    const dynstr_size = @as(usize, @intCast(dynstr.size));
+    const dynstr_size: usize = @intCast(dynstr.size);
     const dynstr_bytes = buf[0..dynstr_size];
     _ = try preadMin(file, dynstr_bytes, dynstr.offset, dynstr_bytes.len);
     var it = mem.splitScalar(u8, dynstr_bytes, 0);
@@ -563,7 +565,7 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     while (it.next()) |s| {
         if (mem.startsWith(u8, s, "GLIBC_2.")) {
             const chopped = s["GLIBC_".len..];
-            const ver = std.SemanticVersion.parse(chopped) catch |err| switch (err) {
+            const ver = CrossTarget.parseVersion(chopped) catch |err| switch (err) {
                 error.Overflow => return error.InvalidGnuLibCVersion,
                 error.InvalidVersion => return error.InvalidGnuLibCVersion,
             };
@@ -576,7 +578,7 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     return max_ver;
 }
 
-fn glibcVerFromLinkName(link_name: []const u8, prefix: []const u8) !std.SemanticVersion {
+fn glibcVerFromLinkName(link_name: []const u8, prefix: []const u8) error{ UnrecognizedGnuLibCFileName, InvalidGnuLibCVersion }!std.SemanticVersion {
     // example: "libc-2.3.4.so"
     // example: "libc-2.27.so"
     // example: "ld-2.33.so"
@@ -586,10 +588,21 @@ fn glibcVerFromLinkName(link_name: []const u8, prefix: []const u8) !std.Semantic
     }
     // chop off "libc-" and ".so"
     const link_name_chopped = link_name[prefix.len .. link_name.len - suffix.len];
-    return std.SemanticVersion.parse(link_name_chopped) catch |err| switch (err) {
+    return CrossTarget.parseVersion(link_name_chopped) catch |err| switch (err) {
         error.Overflow => return error.InvalidGnuLibCVersion,
         error.InvalidVersion => return error.InvalidGnuLibCVersion,
     };
+}
+
+test glibcVerFromLinkName {
+    try std.testing.expectError(error.UnrecognizedGnuLibCFileName, glibcVerFromLinkName("ld-2.37.so", "this-prefix-does-not-exist"));
+    try std.testing.expectError(error.UnrecognizedGnuLibCFileName, glibcVerFromLinkName("libc-2.37.so-is-not-end", "libc-"));
+
+    try std.testing.expectError(error.InvalidGnuLibCVersion, glibcVerFromLinkName("ld-2.so", "ld-"));
+    try std.testing.expectEqual(std.SemanticVersion{ .major = 2, .minor = 37, .patch = 0 }, try glibcVerFromLinkName("ld-2.37.so", "ld-"));
+    try std.testing.expectEqual(std.SemanticVersion{ .major = 2, .minor = 37, .patch = 0 }, try glibcVerFromLinkName("ld-2.37.0.so", "ld-"));
+    try std.testing.expectEqual(std.SemanticVersion{ .major = 2, .minor = 37, .patch = 1 }, try glibcVerFromLinkName("ld-2.37.1.so", "ld-"));
+    try std.testing.expectError(error.InvalidGnuLibCVersion, glibcVerFromLinkName("ld-2.37.4.5.so", "ld-"));
 }
 
 pub const AbiAndDynamicLinkerFromFileError = error{
@@ -622,8 +635,8 @@ pub fn abiAndDynamicLinkerFromFile(
     const hdr64 = @as(*elf.Elf64_Ehdr, @ptrCast(&hdr_buf));
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
     const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
-        elf.ELFDATA2LSB => .Little,
-        elf.ELFDATA2MSB => .Big,
+        elf.ELFDATA2LSB => .little,
+        elf.ELFDATA2MSB => .big,
         else => return error.InvalidElfEndian,
     };
     const need_bswap = elf_endian != native_endian;
@@ -788,11 +801,9 @@ pub fn abiAndDynamicLinkerFromFile(
 
         if (dynstr) |ds| {
             if (rpath_offset) |rpoff| {
-                // TODO this pointer cast should not be necessary
-                const rpoff_usize = std.math.cast(usize, rpoff) orelse return error.InvalidElfFile;
-                if (rpoff_usize > ds.size) return error.InvalidElfFile;
-                const rpoff_file = ds.offset + rpoff_usize;
-                const rp_max_size = ds.size - rpoff_usize;
+                if (rpoff > ds.size) return error.InvalidElfFile;
+                const rpoff_file = ds.offset + rpoff;
+                const rp_max_size = ds.size - rpoff;
 
                 const strtab_len = @min(rp_max_size, strtab_buf.len);
                 const strtab_read_len = try preadMin(file, &strtab_buf, rpoff_file, strtab_len);
@@ -904,6 +915,7 @@ fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
             error.Unseekable => return error.UnableToReadElfFile,
             error.ConnectionResetByPeer => return error.UnableToReadElfFile,
             error.ConnectionTimedOut => return error.UnableToReadElfFile,
+            error.SocketNotConnected => return error.UnableToReadElfFile,
             error.NetNameDeleted => return error.UnableToReadElfFile,
             error.Unexpected => return error.Unexpected,
             error.InputOutput => return error.FileSystem,
@@ -1000,7 +1012,7 @@ pub const GetExternalExecutorOptions = struct {
 /// of the other target.
 pub fn getExternalExecutor(
     host: NativeTargetInfo,
-    candidate: NativeTargetInfo,
+    candidate: *const NativeTargetInfo,
     options: GetExternalExecutorOptions,
 ) Executor {
     const os_match = host.target.os.tag == candidate.target.os.tag;

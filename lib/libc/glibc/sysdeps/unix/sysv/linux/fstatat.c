@@ -1,5 +1,5 @@
 /* Get file status.  Linux version.
-   Copyright (C) 2020-2021 Free Software Foundation, Inc.
+   Copyright (C) 2020-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -23,7 +23,6 @@
 #include <string.h>
 
 #if !XSTAT_IS_XSTAT64
-# include <kstat_cp.h>
 
 static inline bool
 in_time_t_range (__time64_t t)

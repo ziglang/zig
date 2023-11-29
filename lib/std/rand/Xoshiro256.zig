@@ -91,6 +91,7 @@ pub fn fill(self: *Xoshiro256, buf: []u8) void {
 
 test "xoroshiro sequence" {
     if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var r = Xoshiro256.init(0);
 
@@ -138,7 +139,7 @@ test "xoroshiro fill" {
     for (seq) |s| {
         var buf0: [8]u8 = undefined;
         var buf1: [7]u8 = undefined;
-        std.mem.writeIntLittle(u64, &buf0, s);
+        std.mem.writeInt(u64, &buf0, s, .little);
         r.fill(&buf1);
         try std.testing.expect(std.mem.eql(u8, buf0[0..7], buf1[0..]));
     }

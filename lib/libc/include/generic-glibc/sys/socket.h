@@ -1,5 +1,5 @@
 /* Declarations of socket constants, types, and functions.
-   Copyright (C) 1991-2021 Free Software Foundation, Inc.
+   Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -154,7 +154,7 @@ extern ssize_t sendto (int __fd, const void *__buf, size_t __n,
 		       socklen_t __addr_len);
 
 /* Read N bytes into BUF through socket FD.
-   If ADDR is not NULL, fill in *ADDR_LEN bytes of it with tha address of
+   If ADDR is not NULL, fill in *ADDR_LEN bytes of it with the address of
    the sender, and store the actual size of the address in *ADDR_LEN.
    Returns the number of bytes read or -1 for errors.
 
@@ -181,7 +181,7 @@ extern ssize_t __REDIRECT (sendmsg, (int __fd, const struct msghdr *__message,
 # else
 extern ssize_t __sendmsg64 (int __fd, const struct msghdr *__message,
 			    int __flags);
-#  defien sendmsg __sendmsg64
+#  define sendmsg __sendmsg64
 # endif
 #endif
 

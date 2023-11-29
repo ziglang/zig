@@ -78,15 +78,14 @@ fn genExpression(expr: Expression) !ExpressionResult {
 }
 
 test {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var param: ParamType = .{
         .one_of = .{ .name = "name" },
     };
+    _ = &param;
     var arg: CallArg = .{
         .value = .{
             .literal_enum_value = .{
@@ -94,6 +93,7 @@ test {
             },
         },
     };
+    _ = &arg;
 
     const result = try genExpression(arg.value);
     switch (result) {

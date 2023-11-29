@@ -13,7 +13,7 @@ const Precomp = u128;
 /// It is not a general purpose hash function - The key must be secret, unpredictable and never reused.
 ///
 /// GHASH is typically used to compute the authentication tag in the AES-GCM construction.
-pub const Ghash = Hash(.Big, true);
+pub const Ghash = Hash(.big, true);
 
 /// POLYVAL is a universal hash function that uses multiplication by a fixed
 /// parameter within a Galois field.
@@ -21,7 +21,7 @@ pub const Ghash = Hash(.Big, true);
 /// It is not a general purpose hash function - The key must be secret, unpredictable and never reused.
 ///
 /// POLYVAL is typically used to compute the authentication tag in the AES-GCM-SIV construction.
-pub const Polyval = Hash(.Little, false);
+pub const Polyval = Hash(.little, false);
 
 fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
     return struct {

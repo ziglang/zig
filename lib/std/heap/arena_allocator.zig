@@ -89,7 +89,7 @@ pub const ArenaAllocator = struct {
     /// functional in that case, all memory is released. Future allocations just might
     /// be slower.
     ///
-    /// NOTE: If `mode` is `free_mode`, the function will always return `true`.
+    /// NOTE: If `mode` is `free_all`, the function will always return `true`.
     pub fn reset(self: *ArenaAllocator, mode: ResetMode) bool {
         // Some words on the implementation:
         // The reset function can be implemented with two basic approaches:
@@ -257,7 +257,7 @@ test "ArenaAllocator (reset with preheating)" {
         rounds -= 1;
         _ = arena_allocator.reset(.retain_capacity);
         var alloced_bytes: usize = 0;
-        var total_size: usize = random.intRangeAtMost(usize, 256, 16384);
+        const total_size: usize = random.intRangeAtMost(usize, 256, 16384);
         while (alloced_bytes < total_size) {
             const size = random.intRangeAtMost(usize, 16, 256);
             const alignment = 32;

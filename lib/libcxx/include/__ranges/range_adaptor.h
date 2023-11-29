@@ -18,17 +18,22 @@
 #include <__functional/compose.h>
 #include <__functional/invoke.h>
 #include <__ranges/concepts.h>
+#include <__type_traits/decay.h>
+#include <__type_traits/is_nothrow_constructible.h>
+#include <__type_traits/remove_cvref.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17
+#if _LIBCPP_STD_VER >= 20
 
 // CRTP base that one can derive from in order to be considered a range adaptor closure
 // by the library. When deriving from this class, a pipe operator will be provided to
@@ -42,7 +47,7 @@ struct __range_adaptor_closure;
 // i.e. something that can be called via the `x | f` notation.
 template <class _Fn>
 struct __range_adaptor_closure_t : _Fn, __range_adaptor_closure<__range_adaptor_closure_t<_Fn>> {
-    constexpr explicit __range_adaptor_closure_t(_Fn&& __f) : _Fn(std::move(__f)) { }
+    _LIBCPP_HIDE_FROM_ABI constexpr explicit __range_adaptor_closure_t(_Fn&& __f) : _Fn(std::move(__f)) { }
 };
 _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(__range_adaptor_closure_t);
 
@@ -70,8 +75,10 @@ struct __range_adaptor_closure {
     { return __range_adaptor_closure_t(std::__compose(std::forward<_OtherClosure>(__c2), std::forward<_Closure>(__c1))); }
 };
 
-#endif // _LIBCPP_STD_VER > 17
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___RANGES_RANGE_ADAPTOR_H

@@ -26,6 +26,9 @@
  * @APPLE_OSREFERENCE_LICENSE_HEADER_END@
  */
 
+#ifndef _SEEK_SET_H_
+#define _SEEK_SET_H_
+
 #include <sys/cdefs.h>
 
 /* whence values for lseek(2) */
@@ -44,3 +47,5 @@
 #define SEEK_DATA       4       /* set file offset to the start of the next non-hole file region greater than or equal to the supplied offset */
 #endif
 #endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
+
+#endif /* _SEEK_SET_H_ */

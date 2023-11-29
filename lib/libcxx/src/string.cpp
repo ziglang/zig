@@ -12,7 +12,6 @@
 #include <cstdlib>
 #include <limits>
 #include <stdexcept>
-#include <stdio.h>
 #include <string>
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
@@ -61,22 +60,12 @@ template string operator+<char, char_traits<char>, allocator<char>>(char const*,
 namespace
 {
 
-template<typename T>
-inline void throw_helper(const string& msg) {
-#ifndef _LIBCPP_NO_EXCEPTIONS
-    throw T(msg);
-#else
-    fprintf(stderr, "%s\n", msg.c_str());
-    _VSTD::abort();
-#endif
-}
-
 inline void throw_from_string_out_of_range(const string& func) {
-    throw_helper<out_of_range>(func + ": out of range");
+    std::__throw_out_of_range((func + ": out of range").c_str());
 }
 
 inline void throw_from_string_invalid_arg(const string& func) {
-    throw_helper<invalid_argument>(func + ": no conversion");
+    std::__throw_invalid_argument((func + ": no conversion").c_str());
 }
 
 // as_integer
@@ -357,7 +346,7 @@ S i_to_string(V v) {
     constexpr size_t bufsize = numeric_limits<V>::digits10 + 2;  // +1 for minus, +1 for digits10
     char buf[bufsize];
     const auto res = to_chars(buf, buf + bufsize, v);
-    _LIBCPP_ASSERT(res.ec == errc(), "bufsize must be large enough to accomodate the value");
+    _LIBCPP_ASSERT_INTERNAL(res.ec == errc(), "bufsize must be large enough to accomodate the value");
     return S(buf, res.ptr);
 }
 

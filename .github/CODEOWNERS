@@ -1,4 +1,4 @@
-# Autodoc 
+# Autodoc
 /src/Autodoc.zig  @kristoff-it
 /src/autodoc/*    @kristoff-it
 /lib/docs/*       @kristoff-it
@@ -8,3 +8,9 @@
 
 # std.Thread
 /lib/std/Thread* @kprotty
+
+# resinator
+/src/resinator/* @squeek502
+
+# SPIR-V selfhosted backend
+/src/codegen/spirv* @Snektron

@@ -137,11 +137,13 @@ test "@frameSize" {
         fn doTheTest() !void {
             {
                 var ptr = @as(fn (i32) callconv(.Async) void, @ptrCast(other));
+                _ = &ptr;
                 const size = @frameSize(ptr);
                 try expect(size == @sizeOf(@Frame(other)));
             }
             {
                 var ptr = @as(fn () callconv(.Async) void, @ptrCast(first));
+                _ = &ptr;
                 const size = @frameSize(ptr);
                 try expect(size == @sizeOf(@Frame(first)));
             }
@@ -153,7 +155,7 @@ test "@frameSize" {
         fn other(param: i32) void {
             _ = param;
             var local: i32 = undefined;
-            _ = local;
+            _ = &local;
             suspend {}
         }
     };
@@ -239,7 +241,7 @@ test "coroutine await" {
 
     await_seq('a');
     var p = async await_amain();
-    _ = p;
+    _ = &p;
     await_seq('f');
     resume await_a_promise;
     await_seq('i');
@@ -279,7 +281,7 @@ test "coroutine await early return" {
 
     early_seq('a');
     var p = async early_amain();
-    _ = p;
+    _ = &p;
     early_seq('f');
     try expect(early_final_result == 1234);
     try expect(std.mem.eql(u8, &early_points, "abcdef"));
@@ -329,6 +331,7 @@ test "async fn pointer in a struct field" {
         bar: fn (*i32) callconv(.Async) void,
     };
     var foo = Foo{ .bar = simpleAsyncFn2 };
+    _ = &foo;
     var bytes: [64]u8 align(16) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
     try comptime expect(@TypeOf(f) == anyframe->void);
@@ -367,6 +370,7 @@ test "@asyncCall with return type" {
         }
     };
     var foo = Foo{ .bar = Foo.middle };
+    _ = &foo;
     var bytes: [150]u8 align(16) = undefined;
     var aresult: i32 = 0;
     _ = @asyncCall(&bytes, &aresult, foo.bar, .{});
@@ -385,6 +389,7 @@ test "async fn with inferred error set" {
         fn doTheTest() !void {
             var frame: [1]@Frame(middle) = undefined;
             var fn_ptr = middle;
+            _ = &fn_ptr;
             var result: @typeInfo(@typeInfo(@TypeOf(fn_ptr)).Fn.return_type.?).ErrorUnion.error_set!void = undefined;
             _ = @asyncCall(std.mem.sliceAsBytes(frame[0..]), &result, fn_ptr, .{});
             resume global_frame;
@@ -827,7 +832,7 @@ test "alignment of local variables in async functions" {
     const S = struct {
         fn doTheTest() !void {
             var y: u8 = 123;
-            _ = y;
+            _ = &y;
             var x: u8 align(128) = 1;
             try expect(@intFromPtr(&x) % 128 == 0);
         }
@@ -843,7 +848,7 @@ test "no reason to resolve frame still works" {
 }
 fn simpleNothing() void {
     var x: i32 = 1234;
-    _ = x;
+    _ = &x;
 }
 
 test "async call a generic function" {
@@ -913,13 +918,14 @@ test "struct parameter to async function is copied to the frame" {
             if (x == 0) return;
             clobberStack(x - 1);
             var y: i32 = x;
-            _ = y;
+            _ = &y;
         }
 
         fn bar(f: *@Frame(foo)) void {
             var pt = Point{ .x = 1, .y = 2 };
+            _ = &pt;
             f.* = async foo(pt);
-            var result = await f;
+            const result = await f;
             expect(result == 1) catch @panic("test failure");
         }
 
@@ -1141,6 +1147,7 @@ test "@asyncCall using the result location inside the frame" {
         bar: fn (*i32) callconv(.Async) i32,
     };
     var foo = Foo{ .bar = S.simple2 };
+    _ = &foo;
     var bytes: [64]u8 align(16) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
     try comptime expect(@TypeOf(f) == anyframe->i32);
@@ -1465,7 +1472,7 @@ test "spill target expr in a for loop, with a var decl in the loop body" {
                 // the for loop spills still happen even though there is a VarDecl in scope
                 // before the suspend.
                 var anything = true;
-                _ = anything;
+                _ = &anything;
                 suspend {
                     global_frame = @frame();
                 }
@@ -1538,6 +1545,7 @@ test "async function passed align(16) arg after align(8) arg" {
 
         fn foo() void {
             var a: u128 = 99;
+            _ = &a;
             bar(10, .{a}) catch unreachable;
         }
 
@@ -1590,6 +1598,7 @@ test "async function call resolves target fn frame, runtime func" {
             const stack_size = 1000;
             var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
             var func: fn () callconv(.Async) anyerror!void = bar;
+            _ = &func;
             return await @asyncCall(&stack_frame, {}, func, .{});
         }
 
@@ -1614,6 +1623,7 @@ test "properly spill optional payload capture value" {
 
         fn foo() void {
             var opt: ?usize = 1234;
+            _ = &opt;
             if (opt) |x| {
                 bar();
                 global_int += x;
@@ -1863,6 +1873,7 @@ test "@asyncCall with pass-by-value arguments" {
     var buffer: [1024]u8 align(@alignOf(@Frame(S.f))) = undefined;
     // The function pointer must not be comptime-known.
     var t = S.f;
+    _ = &t;
     var frame_ptr = @asyncCall(&buffer, {}, t, .{
         F0,
         .{ .f0 = 1, .f1 = 2 },
@@ -1870,7 +1881,7 @@ test "@asyncCall with pass-by-value arguments" {
         [_]u8{ 1, 2, 3, 4, 5 },
         F2,
     });
-    _ = frame_ptr;
+    _ = &frame_ptr;
 }
 
 test "@asyncCall with arguments having non-standard alignment" {
@@ -1893,6 +1904,7 @@ test "@asyncCall with arguments having non-standard alignment" {
     var buffer: [1024]u8 align(@alignOf(@Frame(S.f))) = undefined;
     // The function pointer must not be comptime-known.
     var t = S.f;
+    _ = &t;
     var frame_ptr = @asyncCall(&buffer, {}, t, .{ F0, undefined, F1 });
-    _ = frame_ptr;
+    _ = &frame_ptr;
 }

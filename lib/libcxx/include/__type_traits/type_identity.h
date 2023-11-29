@@ -18,14 +18,20 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-struct __type_identity { typedef _Tp type; };
+struct __type_identity {
+  typedef _Tp type;
+};
 
 template <class _Tp>
 using __type_identity_t _LIBCPP_NODEBUG = typename __type_identity<_Tp>::type;
 
-#if _LIBCPP_STD_VER > 17
-template<class _Tp> struct type_identity { typedef _Tp type; };
-template<class _Tp> using type_identity_t = typename type_identity<_Tp>::type;
+#if _LIBCPP_STD_VER >= 20
+template <class _Tp>
+struct type_identity {
+  typedef _Tp type;
+};
+template <class _Tp>
+using type_identity_t = typename type_identity<_Tp>::type;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

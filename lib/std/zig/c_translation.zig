@@ -129,6 +129,7 @@ test "cast" {
     try testing.expectEqual(@as(?*anyopaque, @ptrFromInt(2)), cast(?*anyopaque, @as(*u8, @ptrFromInt(2))));
 
     var foo: c_int = -1;
+    _ = &foo;
     try testing.expect(cast(*anyopaque, -1) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
     try testing.expect(cast(*anyopaque, foo) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
     try testing.expect(cast(?*anyopaque, -1) == @as(?*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
@@ -251,7 +252,7 @@ test "sizeof" {
     try testing.expect(sizeof(anyopaque) == 1);
 }
 
-pub const CIntLiteralBase = enum { decimal, octal, hexadecimal };
+pub const CIntLiteralBase = enum { decimal, octal, hex };
 
 /// Deprecated: use `CIntLiteralBase`
 pub const CIntLiteralRadix = CIntLiteralBase;
@@ -288,13 +289,13 @@ pub fn promoteIntLiteral(
 }
 
 test "promoteIntLiteral" {
-    const signed_hex = promoteIntLiteral(c_int, math.maxInt(c_int) + 1, .hexadecimal);
+    const signed_hex = promoteIntLiteral(c_int, math.maxInt(c_int) + 1, .hex);
     try testing.expectEqual(c_uint, @TypeOf(signed_hex));
 
     if (math.maxInt(c_longlong) == math.maxInt(c_int)) return;
 
     const signed_decimal = promoteIntLiteral(c_int, math.maxInt(c_int) + 1, .decimal);
-    const unsigned = promoteIntLiteral(c_uint, math.maxInt(c_uint) + 1, .hexadecimal);
+    const unsigned = promoteIntLiteral(c_uint, math.maxInt(c_uint) + 1, .hex);
 
     if (math.maxInt(c_long) > math.maxInt(c_int)) {
         try testing.expectEqual(c_long, @TypeOf(signed_decimal));
@@ -384,16 +385,16 @@ pub const Macros = struct {
     }
 
     fn L_SUFFIX_ReturnType(comptime number: anytype) type {
-        switch (@TypeOf(number)) {
-            comptime_int => return @TypeOf(promoteIntLiteral(c_long, number, .decimal)),
-            comptime_float => return c_longdouble,
+        switch (@typeInfo(@TypeOf(number))) {
+            .Int, .ComptimeInt => return @TypeOf(promoteIntLiteral(c_long, number, .decimal)),
+            .Float, .ComptimeFloat => return c_longdouble,
             else => @compileError("Invalid value for L suffix"),
         }
     }
     pub fn L_SUFFIX(comptime number: anytype) L_SUFFIX_ReturnType(number) {
-        switch (@TypeOf(number)) {
-            comptime_int => return promoteIntLiteral(c_long, number, .decimal),
-            comptime_float => @compileError("TODO: c_longdouble initialization from comptime_float not supported"),
+        switch (@typeInfo(@TypeOf(number))) {
+            .Int, .ComptimeInt => return promoteIntLiteral(c_long, number, .decimal),
+            .Float, .ComptimeFloat => @compileError("TODO: c_longdouble initialization from comptime_float not supported"),
             else => @compileError("Invalid value for L suffix"),
         }
     }
@@ -601,22 +602,22 @@ test "WL_CONTAINER_OF" {
         a: u32 = 0,
         b: u32 = 0,
     };
-    var x = S{};
-    var y = S{};
-    var ptr = Macros.WL_CONTAINER_OF(&x.b, &y, "b");
+    const x = S{};
+    const y = S{};
+    const ptr = Macros.WL_CONTAINER_OF(&x.b, &y, "b");
     try testing.expectEqual(&x, ptr);
 }
 
 test "CAST_OR_CALL casting" {
-    var arg = @as(c_int, 1000);
-    var casted = Macros.CAST_OR_CALL(u8, arg);
+    const arg: c_int = 1000;
+    const casted = Macros.CAST_OR_CALL(u8, arg);
     try testing.expectEqual(cast(u8, arg), casted);
 
     const S = struct {
         x: u32 = 0,
     };
-    var s = S{};
-    var casted_ptr = Macros.CAST_OR_CALL(*u8, &s);
+    var s: S = .{};
+    const casted_ptr = Macros.CAST_OR_CALL(*u8, &s);
     try testing.expectEqual(cast(*u8, &s), casted_ptr);
 }
 
@@ -643,4 +644,31 @@ test "CAST_OR_CALL calling" {
     try testing.expectEqual(Helper.returnsBool(-1), Macros.CAST_OR_CALL(Helper.returnsBool, @as(f32, -1)));
 
     try testing.expectEqual(Helper.identity(@as(c_uint, 100)), Macros.CAST_OR_CALL(Helper.identity, @as(c_uint, 100)));
+}
+
+test "Extended C ABI casting" {
+    if (math.maxInt(c_long) > math.maxInt(c_char)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_char, math.maxInt(c_char) - 1))) == c_long); // c_char
+    }
+    if (math.maxInt(c_long) > math.maxInt(c_short)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_short, math.maxInt(c_short) - 1))) == c_long); // c_short
+    }
+
+    if (math.maxInt(c_long) > math.maxInt(c_ushort)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_ushort, math.maxInt(c_ushort) - 1))) == c_long); //c_ushort
+    }
+
+    if (math.maxInt(c_long) > math.maxInt(c_int)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_int, math.maxInt(c_int) - 1))) == c_long); // c_int
+    }
+
+    if (math.maxInt(c_long) > math.maxInt(c_uint)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_uint, math.maxInt(c_uint) - 1))) == c_long); // c_uint
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_uint) + 1)) == c_long); // comptime_int -> c_long
+    }
+
+    if (math.maxInt(c_longlong) > math.maxInt(c_long)) {
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(@as(c_long, math.maxInt(c_long) - 1))) == c_long); // c_long
+        try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_long) + 1)) == c_longlong); // comptime_int -> c_longlong
+    }
 }

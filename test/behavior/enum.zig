@@ -579,6 +579,7 @@ test "enum literal cast to enum" {
 
     var color1: Color = .Auto;
     var color2 = Color.Auto;
+    _ = .{ &color1, &color2 };
     try expect(color1 == color2);
 }
 
@@ -617,7 +618,6 @@ test "enum with specified tag values" {
 test "non-exhaustive enum" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const E = enum(u8) { a, b, _ };
@@ -660,13 +660,12 @@ test "non-exhaustive enum" {
 }
 
 test "empty non-exhaustive enum" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         const E = enum(u8) { _ };
 
         fn doTheTest(y: u8) !void {
-            var e = @as(E, @enumFromInt(y));
+            var e: E = @enumFromInt(y);
+            _ = &e;
             try expect(switch (e) {
                 _ => true,
             });
@@ -683,7 +682,6 @@ test "empty non-exhaustive enum" {
 test "single field non-exhaustive enum" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const E = enum(u8) { a, _ };
@@ -856,14 +854,13 @@ fn doALoopThing(id: EnumWithOneMember) void {
 }
 
 test "comparison operator on enum with one member is comptime-known" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     doALoopThing(EnumWithOneMember.Eof);
 }
 
 const State = enum { Start };
 test "switch on enum with one member is comptime-known" {
     var state = State.Start;
+    _ = &state;
     switch (state) {
         State.Start => return,
     }
@@ -923,7 +920,8 @@ test "enum literal casting to tagged union" {
 
     var t = true;
     var x: Arch = .x86_64;
-    var y = if (t) x else .x86_64;
+    _ = .{ &t, &x };
+    const y = if (t) x else .x86_64;
     switch (y) {
         .x86_64 => {},
         else => @panic("fail"),
@@ -935,7 +933,6 @@ const Bar = enum { A, B, C, D };
 test "enum literal casting to error union with payload enum" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var bar: error{B}!Bar = undefined;
     bar = .B; // should never cast to the error set
@@ -947,7 +944,6 @@ test "constant enum initialization with differing sizes" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try test3_1(test3_foo);
     try test3_2(test3_bar);
@@ -1039,6 +1035,7 @@ test "tag name with assigned enum values" {
         B = 0,
     };
     var b = LocalFoo.B;
+    _ = &b;
     try expect(mem.eql(u8, @tagName(b), "B"));
 }
 
@@ -1050,11 +1047,27 @@ test "@tagName on enum literals" {
     try comptime expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
 }
 
-test "enum literal casting to optional" {
+test "tag name with signed enum values" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const LocalFoo = enum(isize) {
+        alfa = 62,
+        bravo = 63,
+        charlie = 64,
+        delta = 65,
+    };
+    var b = LocalFoo.bravo;
+    _ = &b;
+    try expect(mem.eql(u8, @tagName(b), "bravo"));
+}
+
+test "enum literal casting to optional" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var bar: ?Bar = undefined;
     bar = .B;
@@ -1128,20 +1141,19 @@ test "tag name functions are unique" {
         const E = enum { a, b };
         var b = E.a;
         var a = @tagName(b);
-        _ = a;
+        _ = .{ &a, &b };
     }
     {
         const E = enum { a, b, c, d, e, f };
         var b = E.a;
         var a = @tagName(b);
-        _ = a;
+        _ = .{ &a, &b };
     }
 }
 
 test "size of enum with only one tag which has explicit integer tag type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const E = enum(u8) { nope = 10 };
     const S0 = struct { e: E };
@@ -1183,6 +1195,7 @@ test "Non-exhaustive enum with nonstandard int size behaves correctly" {
 test "runtime int to enum with one possible value" {
     const E = enum { one };
     var runtime: usize = 0;
+    _ = &runtime;
     if (@as(E, @enumFromInt(runtime)) != .one) {
         @compileError("test failed");
     }
@@ -1199,8 +1212,6 @@ test "enum tag from a local variable" {
 }
 
 test "auto-numbered enum with signed tag type" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const E = enum(i32) { a, b };
 
     try std.testing.expectEqual(@as(i32, 0), @intFromEnum(E.a));
@@ -1213,4 +1224,14 @@ test "auto-numbered enum with signed tag type" {
     try std.testing.expectEqual(E.b, @as(E, @enumFromInt(@as(u32, 1))));
     try std.testing.expectEqualStrings("a", @tagName(E.a));
     try std.testing.expectEqualStrings("b", @tagName(E.b));
+}
+
+test "lazy initialized field" {
+    try std.testing.expectEqual(@as(u8, @alignOf(struct {})), getLazyInitialized(.a));
+}
+
+fn getLazyInitialized(param: enum(u8) {
+    a = @bitCast(packed struct(u8) { a: u8 }{ .a = @alignOf(struct {}) }),
+}) u8 {
+    return @intFromEnum(param);
 }

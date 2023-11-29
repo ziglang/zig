@@ -1,7 +1,5 @@
-/* Copyright (C) 1999-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1999-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
-   Written by Jes Sorensen, <Jes.Sorensen@cern.ch>, April 1999.
-   Based on code originally written by David Mosberger-Tang
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -46,12 +44,15 @@
 #undef SYS_ify
 #define SYS_ify(syscall_name)	__NR_##syscall_name
 
-#if defined USE_DL_SYSINFO \
-	&& (IS_IN (libc) \
-	    || IS_IN (libpthread) || IS_IN (librt))
-# define IA64_USE_NEW_STUB
-#else
-# undef IA64_USE_NEW_STUB
+#ifndef IA64_USE_NEW_STUB
+# if defined USE_DL_SYSINFO && IS_IN (libc)
+#  define IA64_USE_NEW_STUB 1
+# else
+#  define IA64_USE_NEW_STUB 0
+# endif
+#endif
+#if IA64_USE_NEW_STUB && !USE_DL_SYSINFO
+# error IA64_USE_NEW_STUB needs USE_DL_SYSINFO
 #endif
 
 #ifdef __ASSEMBLER__
@@ -85,7 +86,7 @@
    a large offset.  Therefore we must not anymore test for < 0, but test
    for a real error by making sure the value in %d0 is a real error
    number.  Linus said he will make sure the no syscall returns a value
-   in -1 .. -4095 as a valid result so we can savely test with -4095.  */
+   in -1 .. -4095 as a valid result so we can safely test with -4095.  */
 
 /* We don't want the label for the error handler to be visible in the symbol
    table when we define it here.  */
@@ -103,7 +104,7 @@
 	mov r15=num;				\
 	break __IA64_BREAK_SYSCALL
 
-#ifdef IA64_USE_NEW_STUB
+#if IA64_USE_NEW_STUB
 # ifdef SHARED
 #  define DO_CALL(num)				\
 	.prologue;				\
@@ -187,7 +188,7 @@
    (non-negative) errno on error or the return value on success.
  */
 
-#ifdef IA64_USE_NEW_STUB
+#if IA64_USE_NEW_STUB
 
 # define INTERNAL_SYSCALL_NCS(name, nr, args...)			      \
 ({									      \
@@ -279,7 +280,7 @@
 #define ASM_OUTARGS_5	ASM_OUTARGS_4, "=r" (_out4)
 #define ASM_OUTARGS_6	ASM_OUTARGS_5, "=r" (_out5)
 
-#ifdef IA64_USE_NEW_STUB
+#if IA64_USE_NEW_STUB
 #define ASM_ARGS_0
 #define ASM_ARGS_1	ASM_ARGS_0, "4" (_out0)
 #define ASM_ARGS_2	ASM_ARGS_1, "5" (_out1)
@@ -315,32 +316,12 @@
   /* Branch registers.  */						\
   "b6"
 
-#ifdef IA64_USE_NEW_STUB
+#if IA64_USE_NEW_STUB
 # define ASM_CLOBBERS_6	ASM_CLOBBERS_6_COMMON
 #else
 # define ASM_CLOBBERS_6	ASM_CLOBBERS_6_COMMON , "b7"
 #endif
 
 #endif /* not __ASSEMBLER__ */
-
-/* Pointer mangling support.  */
-#if IS_IN (rtld)
-/* We cannot use the thread descriptor because in ld.so we use setjmp
-   earlier than the descriptor is initialized.  */
-#else
-# ifdef __ASSEMBLER__
-#  define PTR_MANGLE(reg, tmpreg) \
-        add	tmpreg=-16,r13		\
-        ;;				\
-        ld8	tmpreg=[tmpreg]		\
-        ;;				\
-        xor	reg=reg, tmpreg
-#  define PTR_DEMANGLE(reg, tmpreg) PTR_MANGLE (reg, tmpreg)
-# else
-#  define PTR_MANGLE(var) \
-  (var) = (void *) ((uintptr_t) (var) ^ THREAD_GET_POINTER_GUARD ())
-#  define PTR_DEMANGLE(var)	PTR_MANGLE (var)
-# endif
-#endif
 
 #endif /* linux/ia64/sysdep.h */

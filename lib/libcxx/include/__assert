@@ -17,39 +17,21 @@
 #  pragma GCC system_header
 #endif
 
-// TODO: Remove in LLVM 17.
-#if defined(_LIBCPP_DEBUG)
-#   error "Defining _LIBCPP_DEBUG is not supported anymore. Please use _LIBCPP_ENABLE_DEBUG_MODE instead."
-#endif
+#define _LIBCPP_ASSERT(expression, message)                                                                            \
+  (__builtin_expect(static_cast<bool>(expression), 1)                                                                  \
+       ? (void)0                                                                                                       \
+       : _LIBCPP_VERBOSE_ABORT(                                                                                        \
+             "%s:%d: assertion %s failed: %s\n", __builtin_FILE(), __builtin_LINE(), #expression, message))
 
-// Automatically enable assertions when the debug mode is enabled.
-#if defined(_LIBCPP_ENABLE_DEBUG_MODE)
-# ifndef _LIBCPP_ENABLE_ASSERTIONS
-#   define _LIBCPP_ENABLE_ASSERTIONS 1
-# endif
-#endif
-
-#ifndef _LIBCPP_ENABLE_ASSERTIONS
-# define _LIBCPP_ENABLE_ASSERTIONS _LIBCPP_ENABLE_ASSERTIONS_DEFAULT
-#endif
-
-#if _LIBCPP_ENABLE_ASSERTIONS != 0 && _LIBCPP_ENABLE_ASSERTIONS != 1
-# error "_LIBCPP_ENABLE_ASSERTIONS must be set to 0 or 1"
-#endif
-
-#if _LIBCPP_ENABLE_ASSERTIONS
-# define _LIBCPP_ASSERT(expression, message)                                        \
-    (__builtin_expect(static_cast<bool>(expression), 1) ?                           \
-      (void)0 :                                                                     \
-      _LIBCPP_VERBOSE_ABORT("%s:%d: assertion %s failed: %s", __FILE__, __LINE__, #expression, message))
-#elif !defined(_LIBCPP_ASSERTIONS_DISABLE_ASSUME) && __has_builtin(__builtin_assume)
-# define _LIBCPP_ASSERT(expression, message)                                        \
-    (_LIBCPP_DIAGNOSTIC_PUSH                                                        \
-    _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wassume")                                    \
-    __builtin_assume(static_cast<bool>(expression))                                 \
-    _LIBCPP_DIAGNOSTIC_POP)
+// TODO: __builtin_assume can currently inhibit optimizations. Until this has been fixed and we can add
+//       assumptions without a clear optimization intent, disable that to avoid worsening the code generation.
+//       See https://discourse.llvm.org/t/llvm-assume-blocks-optimization/71609 for a discussion.
+#if 0 && __has_builtin(__builtin_assume)
+#  define _LIBCPP_ASSUME(expression)                                                                                   \
+    (_LIBCPP_DIAGNOSTIC_PUSH _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wassume")                                              \
+         __builtin_assume(static_cast<bool>(expression)) _LIBCPP_DIAGNOSTIC_POP)
 #else
-# define _LIBCPP_ASSERT(expression, message) ((void)0)
+#  define _LIBCPP_ASSUME(expression) ((void)0)
 #endif
 
 #endif // _LIBCPP___ASSERT

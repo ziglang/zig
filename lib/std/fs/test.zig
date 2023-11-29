@@ -8,10 +8,8 @@ const wasi = std.os.wasi;
 
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Dir = std.fs.Dir;
-const IterableDir = std.fs.IterableDir;
 const File = std.fs.File;
 const tmpDir = testing.tmpDir;
-const tmpIterableDir = testing.tmpIterableDir;
 
 const PathType = enum {
     relative,
@@ -74,19 +72,17 @@ const PathType = enum {
 const TestContext = struct {
     path_type: PathType,
     arena: ArenaAllocator,
-    tmp: testing.TmpIterableDir,
+    tmp: testing.TmpDir,
     dir: std.fs.Dir,
-    iterable_dir: std.fs.IterableDir,
     transform_fn: *const PathType.TransformFn,
 
     pub fn init(path_type: PathType, allocator: mem.Allocator, transform_fn: *const PathType.TransformFn) TestContext {
-        var tmp = tmpIterableDir(.{});
+        const tmp = tmpDir(.{ .iterate = true });
         return .{
             .path_type = path_type,
             .arena = ArenaAllocator.init(allocator),
             .tmp = tmp,
-            .dir = tmp.iterable_dir.dir,
-            .iterable_dir = tmp.iterable_dir,
+            .dir = tmp.dir,
             .transform_fn = transform_fn,
         };
     }
@@ -160,15 +156,32 @@ fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !vo
     try testing.expectEqualStrings(target_path, given);
 }
 
+test "relative symlink to parent directory" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    var subdir = try tmp.dir.makeOpenPath("subdir", .{});
+    defer subdir.close();
+
+    const expected_link_name = ".." ++ std.fs.path.sep_str ++ "b.txt";
+
+    try subdir.symLink(expected_link_name, "a.txt", .{});
+
+    var buf: [1000]u8 = undefined;
+    const link_name = try subdir.readLink("a.txt", &buf);
+
+    try testing.expectEqualStrings(expected_link_name, link_name);
+}
+
 test "openDir" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const subdir_path = try ctx.transformPath("subdir");
             try ctx.dir.makeDir(subdir_path);
 
             for ([_][]const u8{ "", ".", ".." }) |sub_path| {
-                const dir_path = try fs.path.join(testing.allocator, &[_][]const u8{ subdir_path, sub_path });
-                defer testing.allocator.free(dir_path);
+                const dir_path = try fs.path.join(allocator, &.{ subdir_path, sub_path });
                 var dir = try ctx.dir.openDir(dir_path, .{});
                 defer dir.close();
             }
@@ -187,7 +200,7 @@ test "accessAbsolute" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -206,7 +219,7 @@ test "openDirAbsolute" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..], "subdir" });
+        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp.sub_path[0..], "subdir" });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -216,8 +229,7 @@ test "openDirAbsolute" {
     }
 
     for ([_][]const u8{ ".", ".." }) |sub_path| {
-        const dir_path = try fs.path.join(allocator, &[_][]const u8{ base_path, sub_path });
-        defer allocator.free(dir_path);
+        const dir_path = try fs.path.join(allocator, &.{ base_path, sub_path });
         var dir = try fs.openDirAbsolute(dir_path, .{});
         defer dir.close();
     }
@@ -270,13 +282,13 @@ test "readLinkAbsolute" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
     {
-        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "file.txt" });
-        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink1" });
+        const target_path = try fs.path.join(allocator, &.{ base_path, "file.txt" });
+        const symlink_path = try fs.path.join(allocator, &.{ base_path, "symlink1" });
 
         // Create symbolic link by path
         fs.symLinkAbsolute(target_path, symlink_path, .{}) catch |err| switch (err) {
@@ -287,8 +299,8 @@ test "readLinkAbsolute" {
         try testReadLinkAbsolute(target_path, symlink_path);
     }
     {
-        const target_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "subdir" });
-        const symlink_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "symlink2" });
+        const target_path = try fs.path.join(allocator, &.{ base_path, "subdir" });
+        const symlink_path = try fs.path.join(allocator, &.{ base_path, "symlink2" });
 
         // Create symbolic link by path
         fs.symLinkAbsolute(target_path, symlink_path, .{ .is_directory = true }) catch |err| switch (err) {
@@ -307,28 +319,28 @@ fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void
 }
 
 test "Dir.Iterator" {
-    var tmp_dir = tmpIterableDir(.{});
+    var tmp_dir = tmpDir(.{ .iterate = true });
     defer tmp_dir.cleanup();
 
     // First, create a couple of entries to iterate over.
-    const file = try tmp_dir.iterable_dir.dir.createFile("some_file", .{});
+    const file = try tmp_dir.dir.createFile("some_file", .{});
     file.close();
 
-    try tmp_dir.iterable_dir.dir.makeDir("some_dir");
+    try tmp_dir.dir.makeDir("some_dir");
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(IterableDir.Entry).init(allocator);
+    var entries = std.ArrayList(Dir.Entry).init(allocator);
 
     // Create iterator.
-    var iter = tmp_dir.iterable_dir.iterate();
+    var iter = tmp_dir.dir.iterate();
     while (try iter.next()) |entry| {
         // We cannot just store `entry` as on Windows, we're re-using the name buffer
         // which means we'll actually share the `name` pointer between entries!
         const name = try allocator.dupe(u8, entry.name);
-        try entries.append(.{ .name = name, .kind = entry.kind });
+        try entries.append(Dir.Entry{ .name = name, .kind = entry.kind });
     }
 
     try testing.expectEqual(@as(usize, 2), entries.items.len); // note that the Iterator skips '.' and '..'
@@ -337,7 +349,7 @@ test "Dir.Iterator" {
 }
 
 test "Dir.Iterator many entries" {
-    var tmp_dir = tmpIterableDir(.{});
+    var tmp_dir = tmpDir(.{ .iterate = true });
     defer tmp_dir.cleanup();
 
     const num = 1024;
@@ -345,7 +357,7 @@ test "Dir.Iterator many entries" {
     var buf: [4]u8 = undefined; // Enough to store "1024".
     while (i < num) : (i += 1) {
         const name = try std.fmt.bufPrint(&buf, "{}", .{i});
-        const file = try tmp_dir.iterable_dir.dir.createFile(name, .{});
+        const file = try tmp_dir.dir.createFile(name, .{});
         file.close();
     }
 
@@ -353,10 +365,10 @@ test "Dir.Iterator many entries" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(IterableDir.Entry).init(allocator);
+    var entries = std.ArrayList(Dir.Entry).init(allocator);
 
     // Create iterator.
-    var iter = tmp_dir.iterable_dir.iterate();
+    var iter = tmp_dir.dir.iterate();
     while (try iter.next()) |entry| {
         // We cannot just store `entry` as on Windows, we're re-using the name buffer
         // which means we'll actually share the `name` pointer between entries!
@@ -372,14 +384,14 @@ test "Dir.Iterator many entries" {
 }
 
 test "Dir.Iterator twice" {
-    var tmp_dir = tmpIterableDir(.{});
+    var tmp_dir = tmpDir(.{ .iterate = true });
     defer tmp_dir.cleanup();
 
     // First, create a couple of entries to iterate over.
-    const file = try tmp_dir.iterable_dir.dir.createFile("some_file", .{});
+    const file = try tmp_dir.dir.createFile("some_file", .{});
     file.close();
 
-    try tmp_dir.iterable_dir.dir.makeDir("some_dir");
+    try tmp_dir.dir.makeDir("some_dir");
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -387,15 +399,15 @@ test "Dir.Iterator twice" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(IterableDir.Entry).init(allocator);
+        var entries = std.ArrayList(Dir.Entry).init(allocator);
 
         // Create iterator.
-        var iter = tmp_dir.iterable_dir.iterate();
+        var iter = tmp_dir.dir.iterate();
         while (try iter.next()) |entry| {
             // We cannot just store `entry` as on Windows, we're re-using the name buffer
             // which means we'll actually share the `name` pointer between entries!
             const name = try allocator.dupe(u8, entry.name);
-            try entries.append(.{ .name = name, .kind = entry.kind });
+            try entries.append(Dir.Entry{ .name = name, .kind = entry.kind });
         }
 
         try testing.expectEqual(@as(usize, 2), entries.items.len); // note that the Iterator skips '.' and '..'
@@ -405,25 +417,25 @@ test "Dir.Iterator twice" {
 }
 
 test "Dir.Iterator reset" {
-    var tmp_dir = tmpIterableDir(.{});
+    var tmp_dir = tmpDir(.{ .iterate = true });
     defer tmp_dir.cleanup();
 
     // First, create a couple of entries to iterate over.
-    const file = try tmp_dir.iterable_dir.dir.createFile("some_file", .{});
+    const file = try tmp_dir.dir.createFile("some_file", .{});
     file.close();
 
-    try tmp_dir.iterable_dir.dir.makeDir("some_dir");
+    try tmp_dir.dir.makeDir("some_dir");
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
     // Create iterator.
-    var iter = tmp_dir.iterable_dir.iterate();
+    var iter = tmp_dir.dir.iterate();
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(IterableDir.Entry).init(allocator);
+        var entries = std.ArrayList(Dir.Entry).init(allocator);
 
         while (try iter.next()) |entry| {
             // We cannot just store `entry` as on Windows, we're re-using the name buffer
@@ -445,10 +457,10 @@ test "Dir.Iterator but dir is deleted during iteration" {
     defer tmp.cleanup();
 
     // Create directory and setup an iterator for it
-    var iterable_subdir = try tmp.dir.makeOpenPathIterable("subdir", .{});
-    defer iterable_subdir.close();
+    var subdir = try tmp.dir.makeOpenPath("subdir", .{ .iterate = true });
+    defer subdir.close();
 
-    var iterator = iterable_subdir.iterate();
+    var iterator = subdir.iterate();
 
     // Create something to iterate over within the subdir
     try tmp.dir.makePath("subdir/b");
@@ -469,11 +481,11 @@ test "Dir.Iterator but dir is deleted during iteration" {
     }
 }
 
-fn entryEql(lhs: IterableDir.Entry, rhs: IterableDir.Entry) bool {
+fn entryEql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
     return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
 }
 
-fn contains(entries: *const std.ArrayList(IterableDir.Entry), el: IterableDir.Entry) bool {
+fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
     for (entries.items) |entry| {
         if (entryEql(entry, el)) return true;
     }
@@ -485,14 +497,15 @@ test "Dir.realpath smoke test" {
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const test_file_path = try ctx.transformPath("test_file");
             const test_dir_path = try ctx.transformPath("test_dir");
             var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
 
             // FileNotFound if the path doesn't exist
-            try testing.expectError(error.FileNotFound, ctx.dir.realpathAlloc(testing.allocator, test_file_path));
+            try testing.expectError(error.FileNotFound, ctx.dir.realpathAlloc(allocator, test_file_path));
             try testing.expectError(error.FileNotFound, ctx.dir.realpath(test_file_path, &buf));
-            try testing.expectError(error.FileNotFound, ctx.dir.realpathAlloc(testing.allocator, test_dir_path));
+            try testing.expectError(error.FileNotFound, ctx.dir.realpathAlloc(allocator, test_dir_path));
             try testing.expectError(error.FileNotFound, ctx.dir.realpath(test_dir_path, &buf));
 
             // Now create the file and dir
@@ -500,18 +513,15 @@ test "Dir.realpath smoke test" {
             try ctx.dir.makeDir(test_dir_path);
 
             const base_path = try ctx.transformPath(".");
-            const base_realpath = try ctx.dir.realpathAlloc(testing.allocator, base_path);
-            defer testing.allocator.free(base_realpath);
+            const base_realpath = try ctx.dir.realpathAlloc(allocator, base_path);
             const expected_file_path = try fs.path.join(
-                testing.allocator,
-                &[_][]const u8{ base_realpath, "test_file" },
+                allocator,
+                &.{ base_realpath, "test_file" },
             );
-            defer testing.allocator.free(expected_file_path);
             const expected_dir_path = try fs.path.join(
-                testing.allocator,
-                &[_][]const u8{ base_realpath, "test_dir" },
+                allocator,
+                &.{ base_realpath, "test_dir" },
             );
-            defer testing.allocator.free(expected_dir_path);
 
             // First, test non-alloc version
             {
@@ -524,12 +534,10 @@ test "Dir.realpath smoke test" {
 
             // Next, test alloc version
             {
-                const file_path = try ctx.dir.realpathAlloc(testing.allocator, test_file_path);
-                defer testing.allocator.free(file_path);
+                const file_path = try ctx.dir.realpathAlloc(allocator, test_file_path);
                 try testing.expectEqualStrings(expected_file_path, file_path);
 
-                const dir_path = try ctx.dir.realpathAlloc(testing.allocator, test_dir_path);
-                defer testing.allocator.free(dir_path);
+                const dir_path = try ctx.dir.realpathAlloc(allocator, test_dir_path);
                 try testing.expectEqualStrings(expected_dir_path, dir_path);
             }
         }
@@ -651,6 +659,18 @@ test "file operations on directories" {
     }.impl);
 }
 
+test "makeOpenPath parent dirs do not exist" {
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    var dir = try tmp_dir.dir.makeOpenPath("root_dir/parent_dir/some_dir", .{});
+    dir.close();
+
+    // double check that the full directory structure was created
+    var dir_verification = try tmp_dir.dir.openDir("root_dir/parent_dir/some_dir", .{});
+    dir_verification.close();
+}
+
 test "deleteDir" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -675,6 +695,12 @@ test "deleteDir" {
 test "Dir.rename files" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            // Rename on Windows can hit intermittent AccessDenied errors
+            // when certain conditions are true about the host system.
+            // For now, skip this test when the path type is UNC to avoid them.
+            // See https://github.com/ziglang/zig/issues/17134
+            if (ctx.path_type == .unc) return;
+
             const missing_file_path = try ctx.transformPath("missing_file_name");
             const something_else_path = try ctx.transformPath("something_else");
 
@@ -711,6 +737,12 @@ test "Dir.rename files" {
 test "Dir.rename directories" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            // Rename on Windows can hit intermittent AccessDenied errors
+            // when certain conditions are true about the host system.
+            // For now, skip this test when the path type is UNC to avoid them.
+            // See https://github.com/ziglang/zig/issues/17134
+            if (ctx.path_type == .unc) return;
+
             const test_dir_path = try ctx.transformPath("test_dir");
             const test_dir_renamed_path = try ctx.transformPath("test_dir_renamed");
 
@@ -837,13 +869,13 @@ test "renameAbsolute" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp_dir.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp_dir.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
     try testing.expectError(error.FileNotFound, fs.renameAbsolute(
-        try fs.path.join(allocator, &[_][]const u8{ base_path, "missing_file_name" }),
-        try fs.path.join(allocator, &[_][]const u8{ base_path, "something_else" }),
+        try fs.path.join(allocator, &.{ base_path, "missing_file_name" }),
+        try fs.path.join(allocator, &.{ base_path, "something_else" }),
     ));
 
     // Renaming files
@@ -852,8 +884,8 @@ test "renameAbsolute" {
     var file = try tmp_dir.dir.createFile(test_file_name, .{ .read = true });
     file.close();
     try fs.renameAbsolute(
-        try fs.path.join(allocator, &[_][]const u8{ base_path, test_file_name }),
-        try fs.path.join(allocator, &[_][]const u8{ base_path, renamed_test_file_name }),
+        try fs.path.join(allocator, &.{ base_path, test_file_name }),
+        try fs.path.join(allocator, &.{ base_path, renamed_test_file_name }),
     );
 
     // ensure the file was renamed
@@ -868,8 +900,8 @@ test "renameAbsolute" {
     const renamed_test_dir_name = "test_dir_renamed";
     try tmp_dir.dir.makeDir(test_dir_name);
     try fs.renameAbsolute(
-        try fs.path.join(allocator, &[_][]const u8{ base_path, test_dir_name }),
-        try fs.path.join(allocator, &[_][]const u8{ base_path, renamed_test_dir_name }),
+        try fs.path.join(allocator, &.{ base_path, test_dir_name }),
+        try fs.path.join(allocator, &.{ base_path, renamed_test_dir_name }),
     );
 
     // ensure the directory was renamed
@@ -888,11 +920,12 @@ test "openSelfExe" {
 test "makePath, put some files in it, deleteTree" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const dir_path = try ctx.transformPath("os_test_tmp");
 
-            try ctx.dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
-            try ctx.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
-            try ctx.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
+            try ctx.dir.makePath(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c" }));
+            try ctx.dir.writeFile(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c", "file.txt" }), "nonsense");
+            try ctx.dir.writeFile(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "file2.txt" }), "blah");
 
             try ctx.dir.deleteTree(dir_path);
             try testing.expectError(error.FileNotFound, ctx.dir.openDir(dir_path, .{}));
@@ -903,11 +936,12 @@ test "makePath, put some files in it, deleteTree" {
 test "makePath, put some files in it, deleteTreeMinStackSize" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const dir_path = try ctx.transformPath("os_test_tmp");
 
-            try ctx.dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
-            try ctx.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
-            try ctx.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
+            try ctx.dir.makePath(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c" }));
+            try ctx.dir.writeFile(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c", "file.txt" }), "nonsense");
+            try ctx.dir.writeFile(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "file2.txt" }), "blah");
 
             try ctx.dir.deleteTreeMinStackSize(dir_path);
             try testing.expectError(error.FileNotFound, ctx.dir.openDir(dir_path, .{}));
@@ -925,10 +959,10 @@ test "makePath in a directory that no longer exists" {
     try testing.expectError(error.FileNotFound, tmp.dir.makePath("sub-path"));
 }
 
-fn testFilenameLimits(iterable_dir: IterableDir, maxed_filename: []const u8) !void {
+fn testFilenameLimits(iterable_dir: Dir, maxed_filename: []const u8) !void {
     // setup, create a dir and a nested file both with maxed filenames, and walk the dir
     {
-        var maxed_dir = try iterable_dir.dir.makeOpenPath(maxed_filename, .{});
+        var maxed_dir = try iterable_dir.makeOpenPath(maxed_filename, .{});
         defer maxed_dir.close();
 
         try maxed_dir.writeFile(maxed_filename, "");
@@ -945,27 +979,27 @@ fn testFilenameLimits(iterable_dir: IterableDir, maxed_filename: []const u8) !vo
     }
 
     // ensure that we can delete the tree
-    try iterable_dir.dir.deleteTree(maxed_filename);
+    try iterable_dir.deleteTree(maxed_filename);
 }
 
 test "max file name component lengths" {
-    var tmp = tmpIterableDir(.{});
+    var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
     if (builtin.os.tag == .windows) {
         // U+FFFF is the character with the largest code point that is encoded as a single
         // UTF-16 code unit, so Windows allows for NAME_MAX of them.
         const maxed_windows_filename = ("\u{FFFF}".*) ** std.os.windows.NAME_MAX;
-        try testFilenameLimits(tmp.iterable_dir, &maxed_windows_filename);
+        try testFilenameLimits(tmp.dir, &maxed_windows_filename);
     } else if (builtin.os.tag == .wasi) {
         // On WASI, the maxed filename depends on the host OS, so in order for this test to
         // work on any host, we need to use a length that will work for all platforms
         // (i.e. the minimum MAX_NAME_BYTES of all supported platforms).
         const maxed_wasi_filename = [_]u8{'1'} ** 255;
-        try testFilenameLimits(tmp.iterable_dir, &maxed_wasi_filename);
+        try testFilenameLimits(tmp.dir, &maxed_wasi_filename);
     } else {
         const maxed_ascii_filename = [_]u8{'1'} ** std.fs.MAX_NAME_BYTES;
-        try testFilenameLimits(tmp.iterable_dir, &maxed_ascii_filename);
+        try testFilenameLimits(tmp.dir, &maxed_ascii_filename);
     }
 }
 
@@ -1192,6 +1226,7 @@ fn expectFileContents(dir: Dir, file_path: []const u8, data: []const u8) !void {
 test "AtomicFile" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
+            const allocator = ctx.arena.allocator();
             const test_out_file = try ctx.transformPath("tmp_atomic_file_test_dest.txt");
             const test_content =
                 \\ hello!
@@ -1204,8 +1239,7 @@ test "AtomicFile" {
                 try af.file.writeAll(test_content);
                 try af.finish();
             }
-            const content = try ctx.dir.readFileAlloc(testing.allocator, test_out_file, 9999);
-            defer testing.allocator.free(content);
+            const content = try ctx.dir.readFileAlloc(allocator, test_out_file, 9999);
             try testing.expectEqualStrings(test_content, content);
 
             try ctx.dir.deleteFile(test_out_file);
@@ -1325,7 +1359,7 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
     const cwd = try std.process.getCwdAlloc(gpa);
     defer gpa.free(cwd);
 
-    const filename = try fs.path.resolve(gpa, &[_][]const u8{ cwd, sub_path });
+    const filename = try fs.path.resolve(gpa, &.{ cwd, sub_path });
     defer gpa.free(filename);
 
     const file1 = try fs.createFileAbsolute(filename, .{
@@ -1346,7 +1380,7 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 test "walker" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
 
-    var tmp = tmpIterableDir(.{});
+    var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
     // iteration order of walker is undefined, so need lookup maps to check against
@@ -1372,10 +1406,10 @@ test "walker" {
     });
 
     for (expected_paths.kvs) |kv| {
-        try tmp.iterable_dir.dir.makePath(kv.key);
+        try tmp.dir.makePath(kv.key);
     }
 
-    var walker = try tmp.iterable_dir.walk(testing.allocator);
+    var walker = try tmp.dir.walk(testing.allocator);
     defer walker.deinit();
 
     var num_walked: usize = 0;
@@ -1399,17 +1433,17 @@ test "walker" {
 test "walker without fully iterating" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
 
-    var tmp = tmpIterableDir(.{});
+    var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    var walker = try tmp.iterable_dir.walk(testing.allocator);
+    var walker = try tmp.dir.walk(testing.allocator);
     defer walker.deinit();
 
     // Create 2 directories inside the tmp directory, but then only iterate once before breaking.
     // This ensures that walker doesn't try to close the initial directory when not fully iterating.
 
-    try tmp.iterable_dir.dir.makePath("a");
-    try tmp.iterable_dir.dir.makePath("b");
+    try tmp.dir.makePath("a");
+    try tmp.dir.makePath("b");
 
     var num_walked: usize = 0;
     while (try walker.next()) |_| {
@@ -1421,6 +1455,11 @@ test "walker without fully iterating" {
 
 test ". and .. in fs.Dir functions" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+
+    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) {
+        // https://github.com/ziglang/zig/issues/17134
+        return error.SkipZigTest;
+    }
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -1447,7 +1486,7 @@ test ". and .. in fs.Dir functions" {
 
             try ctx.dir.writeFile(update_path, "something");
             const prev_status = try ctx.dir.updateFile(file_path, ctx.dir, update_path, .{});
-            try testing.expectEqual(fs.PrevStatus.stale, prev_status);
+            try testing.expectEqual(fs.Dir.PrevStatus.stale, prev_status);
 
             try ctx.dir.deleteDir(subdir_path);
         }
@@ -1465,35 +1504,35 @@ test ". and .. in absolute functions" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
-    const subdir_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "./subdir" });
+    const subdir_path = try fs.path.join(allocator, &.{ base_path, "./subdir" });
     try fs.makeDirAbsolute(subdir_path);
     try fs.accessAbsolute(subdir_path, .{});
     var created_subdir = try fs.openDirAbsolute(subdir_path, .{});
     created_subdir.close();
 
-    const created_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../file" });
+    const created_file_path = try fs.path.join(allocator, &.{ subdir_path, "../file" });
     const created_file = try fs.createFileAbsolute(created_file_path, .{});
     created_file.close();
     try fs.accessAbsolute(created_file_path, .{});
 
-    const copied_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../copy" });
+    const copied_file_path = try fs.path.join(allocator, &.{ subdir_path, "../copy" });
     try fs.copyFileAbsolute(created_file_path, copied_file_path, .{});
-    const renamed_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../rename" });
+    const renamed_file_path = try fs.path.join(allocator, &.{ subdir_path, "../rename" });
     try fs.renameAbsolute(copied_file_path, renamed_file_path);
     const renamed_file = try fs.openFileAbsolute(renamed_file_path, .{});
     renamed_file.close();
     try fs.deleteFileAbsolute(renamed_file_path);
 
-    const update_file_path = try fs.path.join(allocator, &[_][]const u8{ subdir_path, "../update" });
+    const update_file_path = try fs.path.join(allocator, &.{ subdir_path, "../update" });
     const update_file = try fs.createFileAbsolute(update_file_path, .{});
     try update_file.writeAll("something");
     update_file.close();
     const prev_status = try fs.updateFileAbsolute(created_file_path, update_file_path, .{});
-    try testing.expectEqual(fs.PrevStatus.stale, prev_status);
+    try testing.expectEqual(fs.Dir.PrevStatus.stale, prev_status);
 
     try fs.deleteDirAbsolute(subdir_path);
 }
@@ -1513,11 +1552,11 @@ test "chmod" {
     try testing.expectEqual(@as(File.Mode, 0o644), (try file.stat()).mode & 0o7777);
 
     try tmp.dir.makeDir("test_dir");
-    var iterable_dir = try tmp.dir.openIterableDir("test_dir", .{});
-    defer iterable_dir.close();
+    var dir = try tmp.dir.openDir("test_dir", .{ .iterate = true });
+    defer dir.close();
 
-    try iterable_dir.chmod(0o700);
-    try testing.expectEqual(@as(File.Mode, 0o700), (try iterable_dir.dir.stat()).mode & 0o7777);
+    try dir.chmod(0o700);
+    try testing.expectEqual(@as(File.Mode, 0o700), (try dir.stat()).mode & 0o7777);
 }
 
 test "chown" {
@@ -1533,9 +1572,9 @@ test "chown" {
 
     try tmp.dir.makeDir("test_dir");
 
-    var iterable_dir = try tmp.dir.openIterableDir("test_dir", .{});
-    defer iterable_dir.close();
-    try iterable_dir.chown(null, null);
+    var dir = try tmp.dir.openDir("test_dir", .{ .iterate = true });
+    defer dir.close();
+    try dir.chown(null, null);
 }
 
 test "File.Metadata" {

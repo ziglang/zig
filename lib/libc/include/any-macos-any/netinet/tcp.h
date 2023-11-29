@@ -64,9 +64,12 @@
 #ifndef _NETINET_TCP_H_
 #define _NETINET_TCP_H_
 #include <sys/appleapiopts.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 
 #include <machine/endian.h>
 #include <machine/types.h> /* __uint32_t */
+#include <netinet/in.h>
 
 #include <sys/types.h>
 
@@ -103,8 +106,11 @@ struct tcphdr {
 #define TH_URG  0x20
 #define TH_ECE  0x40
 #define TH_CWR  0x80
+#define TH_AE   0x100                   /* maps into th_x2 */
 #define TH_FLAGS        (TH_FIN|TH_SYN|TH_RST|TH_ACK|TH_URG|TH_ECE|TH_CWR)
+#define TH_FLAGS_ALL    (TH_FLAGS|TH_PUSH)
 #define TH_ACCEPT       (TH_FIN|TH_SYN|TH_RST|TH_ACK)
+#define TH_ACE          (TH_AE|TH_CWR|TH_ECE)
 
 	unsigned short  th_win;         /* window */
 	unsigned short  th_sum;         /* checksum */
@@ -144,6 +150,11 @@ struct tcphdr {
 
 #define TCPOPT_FASTOPEN                 34
 #define TCPOLEN_FASTOPEN_REQ            2
+
+#define TCPOPT_ACCECN0                  0xAC /* AccECN Order 0 */
+#define TCPOPT_ACCECN1                  0XAE /* AccECN Order 1 */
+#define TCPOLEN_ACCECN_EMPTY            2    /* Empty option contains kind and length */
+#define TCPOLEN_ACCECN_COUNTER          3    /* Length of each AccECN counter */
 
 /* Option definitions */
 #define TCPOPT_SACK_PERMIT_HDR  \
@@ -231,7 +242,6 @@ struct tcphdr {
 
 #define TCP_NOTSENT_LOWAT       0x201   /* Low water mark for TCP unsent data */
 
-
 struct tcp_connection_info {
 	u_int8_t        tcpi_state;     /* connection state */
 	u_int8_t        tcpi_snd_wscale; /* Window scale for send window */
@@ -281,5 +291,6 @@ struct tcp_connection_info {
 	u_int64_t       tcpi_txretransmitpackets __attribute__((aligned(8)));
 };
 #endif /* (_POSIX_C_SOURCE && !_DARWIN_C_SOURCE) */
+
 
 #endif

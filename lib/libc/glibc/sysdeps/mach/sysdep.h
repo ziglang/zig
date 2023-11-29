@@ -1,4 +1,4 @@
-/* Copyright (C) 1994-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1994-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -30,6 +30,7 @@
 /* For ELF we need to add the `.type' directive to make shared libraries
    work right.  */
 #undef ENTRY
+#undef ENTRY2
 #define ENTRY(name) \
   .globl name; \
   .align ALIGN; \
@@ -44,7 +45,7 @@
 
 #ifndef __ASSEMBLER__
 #define FATAL_PREPARE_INCLUDE <mach/mig_support.h>
-#define FATAL_PREPARE __mig_dealloc_reply_port (MACH_PORT_NULL)
+#define FATAL_PREPARE __mig_dealloc_reply_port (__mig_get_reply_port ())
 #endif
 
 /* sysdeps/mach/MACHINE/sysdep.h should define the following macros.  */

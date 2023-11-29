@@ -1,5 +1,5 @@
 /* Defines for bits in AT_HWCAP.  AArch64 Linux version.
-   Copyright (C) 2016-2021 Free Software Foundation, Inc.
+   Copyright (C) 2016-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -74,3 +74,27 @@
 #define HWCAP2_RNG		(1 << 16)
 #define HWCAP2_BTI		(1 << 17)
 #define HWCAP2_MTE		(1 << 18)
+#define HWCAP2_ECV		(1 << 19)
+#define HWCAP2_AFP		(1 << 20)
+#define HWCAP2_RPRES		(1 << 21)
+#define HWCAP2_MTE3		(1 << 22)
+#define HWCAP2_SME		(1 << 23)
+#define HWCAP2_SME_I16I64	(1 << 24)
+#define HWCAP2_SME_F64F64	(1 << 25)
+#define HWCAP2_SME_I8I32	(1 << 26)
+#define HWCAP2_SME_F16F32	(1 << 27)
+#define HWCAP2_SME_B16F32	(1 << 28)
+#define HWCAP2_SME_F32F32	(1 << 29)
+#define HWCAP2_SME_FA64		(1 << 30)
+#define HWCAP2_WFXT		(1UL << 31)
+#define HWCAP2_EBF16		(1UL << 32)
+#define HWCAP2_SVE_EBF16	(1UL << 33)
+#define HWCAP2_CSSC		(1UL << 34)
+#define HWCAP2_RPRFM		(1UL << 35)
+#define HWCAP2_SVE2P1		(1UL << 36)
+#define HWCAP2_SME2		(1UL << 37)
+#define HWCAP2_SME2P1		(1UL << 38)
+#define HWCAP2_SME_I16I32	(1UL << 39)
+#define HWCAP2_SME_BI32I32	(1UL << 40)
+#define HWCAP2_SME_B16B16	(1UL << 41)
+#define HWCAP2_SME_F16F16	(1UL << 42)

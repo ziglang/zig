@@ -13,8 +13,6 @@ const readers = @import("../readers.zig");
 
 const decodeFseTable = @import("fse.zig").decodeFseTable;
 
-const readInt = std.mem.readIntLittle;
-
 pub const Error = error{
     BlockSizeOverMaximum,
     MalformedBlockSize,
@@ -311,8 +309,8 @@ pub const DecodeState = struct {
         try self.decodeLiteralsRingBuffer(dest, sequence.literal_length);
         const copy_start = dest.write_index + dest.data.len - sequence.offset;
         const copy_slice = dest.sliceAt(copy_start, sequence.match_length);
-        for (copy_slice.first) |b| dest.writeAssumeCapacity(b);
-        for (copy_slice.second) |b| dest.writeAssumeCapacity(b);
+        dest.writeSliceForwardsAssumeCapacity(copy_slice.first);
+        dest.writeSliceForwardsAssumeCapacity(copy_slice.second);
         self.written_count += sequence.match_length;
     }
 
@@ -715,10 +713,14 @@ pub fn decodeBlockRingBuffer(
     switch (block_header.block_type) {
         .raw => {
             if (src.len < block_size) return error.MalformedBlockSize;
-            const data = src[0..block_size];
-            dest.writeSliceAssumeCapacity(data);
-            consumed_count.* += block_size;
-            decode_state.written_count += block_size;
+            // dest may have length zero if block_size == 0, causing division by zero in
+            // writeSliceAssumeCapacity()
+            if (block_size > 0) {
+                const data = src[0..block_size];
+                dest.writeSliceAssumeCapacity(data);
+                consumed_count.* += block_size;
+                decode_state.written_count += block_size;
+            }
             return block_size;
         },
         .rle => {
@@ -936,7 +938,7 @@ pub fn decodeLiteralsSectionSlice(
     switch (header.block_type) {
         .raw => {
             if (src.len < bytes_read + header.regenerated_size) return error.MalformedLiteralsSection;
-            const stream = src[bytes_read .. bytes_read + header.regenerated_size];
+            const stream = src[bytes_read..][0..header.regenerated_size];
             consumed_count.* += header.regenerated_size + bytes_read;
             return LiteralsSection{
                 .header = header,
@@ -946,7 +948,7 @@ pub fn decodeLiteralsSectionSlice(
         },
         .rle => {
             if (src.len < bytes_read + 1) return error.MalformedLiteralsSection;
-            const stream = src[bytes_read .. bytes_read + 1];
+            const stream = src[bytes_read..][0..1];
             consumed_count.* += 1 + bytes_read;
             return LiteralsSection{
                 .header = header,
@@ -1033,9 +1035,9 @@ fn decodeStreams(size_format: u2, stream_data: []const u8) !LiteralsSection.Stre
 
     if (stream_data.len < 6) return error.MalformedLiteralsSection;
 
-    const stream_1_length = @as(usize, readInt(u16, stream_data[0..2]));
-    const stream_2_length = @as(usize, readInt(u16, stream_data[2..4]));
-    const stream_3_length = @as(usize, readInt(u16, stream_data[4..6]));
+    const stream_1_length: usize = std.mem.readInt(u16, stream_data[0..2], .little);
+    const stream_2_length: usize = std.mem.readInt(u16, stream_data[2..4], .little);
+    const stream_3_length: usize = std.mem.readInt(u16, stream_data[4..6], .little);
 
     const stream_1_start = 6;
     const stream_2_start = stream_1_start + stream_1_length;

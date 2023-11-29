@@ -1,6 +1,6 @@
 pub export fn entry() void {
     var byte: u8 = 1;
-    switch (byte) {
+    switch ((&byte).*) {
         byte => {},
         else => {},
     }

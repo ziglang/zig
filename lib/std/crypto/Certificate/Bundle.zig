@@ -63,6 +63,7 @@ pub fn rescan(cb: *Bundle, gpa: Allocator) RescanError!void {
         .freebsd, .openbsd => return rescanBSD(cb, gpa, "/etc/ssl/cert.pem"),
         .netbsd => return rescanBSD(cb, gpa, "/etc/openssl/certs/ca-certificates.crt"),
         .dragonfly => return rescanBSD(cb, gpa, "/usr/local/etc/ssl/cert.pem"),
+        .solaris, .illumos => return rescanBSD(cb, gpa, "/etc/ssl/cacert.pem"),
         .windows => return rescanWindows(cb, gpa),
         else => {},
     }
@@ -159,7 +160,7 @@ pub fn addCertsFromDirPath(
     dir: fs.Dir,
     sub_dir_path: []const u8,
 ) AddCertsFromDirPathError!void {
-    var iterable_dir = try dir.openIterableDir(sub_dir_path, .{});
+    var iterable_dir = try dir.openDir(sub_dir_path, .{ .iterate = true });
     defer iterable_dir.close();
     return addCertsFromDir(cb, gpa, iterable_dir);
 }
@@ -170,14 +171,14 @@ pub fn addCertsFromDirPathAbsolute(
     abs_dir_path: []const u8,
 ) AddCertsFromDirPathError!void {
     assert(fs.path.isAbsolute(abs_dir_path));
-    var iterable_dir = try fs.openIterableDirAbsolute(abs_dir_path, .{});
+    var iterable_dir = try fs.openDirAbsolute(abs_dir_path, .{ .iterate = true });
     defer iterable_dir.close();
     return addCertsFromDir(cb, gpa, iterable_dir);
 }
 
 pub const AddCertsFromDirError = AddCertsFromFilePathError;
 
-pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.IterableDir) AddCertsFromDirError!void {
+pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.Dir) AddCertsFromDirError!void {
     var it = iterable_dir.iterate();
     while (try it.next()) |entry| {
         switch (entry.kind) {
@@ -185,7 +186,7 @@ pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.IterableDir
             else => continue,
         }
 
-        try addCertsFromFilePath(cb, gpa, iterable_dir.dir, entry.name);
+        try addCertsFromFilePath(cb, gpa, iterable_dir, entry.name);
     }
 }
 
@@ -213,7 +214,12 @@ pub fn addCertsFromFilePath(
     return addCertsFromFile(cb, gpa, file);
 }
 
-pub const AddCertsFromFileError = Allocator.Error || fs.File.GetSeekPosError || fs.File.ReadError || ParseCertError || std.base64.Error || error{ CertificateAuthorityBundleTooBig, MissingEndCertificateMarker };
+pub const AddCertsFromFileError = Allocator.Error ||
+    fs.File.GetSeekPosError ||
+    fs.File.ReadError ||
+    ParseCertError ||
+    std.base64.Error ||
+    error{ CertificateAuthorityBundleTooBig, MissingEndCertificateMarker };
 
 pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFromFileError!void {
     const size = try file.getEndPos();
@@ -225,7 +231,7 @@ pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFrom
     const needed_capacity = std.math.cast(u32, decoded_size_upper_bound + size) orelse
         return error.CertificateAuthorityBundleTooBig;
     try cb.bytes.ensureUnusedCapacity(gpa, needed_capacity);
-    const end_reserved = @as(u32, @intCast(cb.bytes.items.len + decoded_size_upper_bound));
+    const end_reserved: u32 = @intCast(cb.bytes.items.len + decoded_size_upper_bound);
     const buffer = cb.bytes.allocatedSlice()[end_reserved..];
     const end_index = try file.readAll(buffer);
     const encoded_bytes = buffer[0..end_index];
@@ -242,7 +248,7 @@ pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFrom
             return error.MissingEndCertificateMarker;
         start_index = cert_end + end_marker.len;
         const encoded_cert = mem.trim(u8, encoded_bytes[cert_start..cert_end], " \t\r\n");
-        const decoded_start = @as(u32, @intCast(cb.bytes.items.len));
+        const decoded_start: u32 = @intCast(cb.bytes.items.len);
         const dest_buf = cb.bytes.allocatedSlice()[decoded_start..];
         cb.bytes.items.len += try base64.decode(dest_buf, encoded_cert);
         try cb.parseCert(gpa, decoded_start, now_sec);

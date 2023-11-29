@@ -42,6 +42,7 @@ output_file: std.Build.GeneratedFile,
 style: Style,
 max_bytes: usize,
 include_path: []const u8,
+include_guard_override: ?[]const u8,
 
 pub const base_id: Step.Id = .config_header;
 
@@ -50,6 +51,7 @@ pub const Options = struct {
     max_bytes: usize = 2 * 1024 * 1024,
     include_path: ?[]const u8 = null,
     first_ret_addr: ?usize = null,
+    include_guard_override: ?[]const u8 = null,
 };
 
 pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
@@ -57,15 +59,18 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
 
     var include_path: []const u8 = "config.h";
 
-    if (options.style.getPath()) |s| switch (s) {
-        .path => |p| {
-            const basename = std.fs.path.basename(p);
-            if (std.mem.endsWith(u8, basename, ".h.in")) {
-                include_path = basename[0 .. basename.len - 3];
-            }
-        },
-        else => {},
-    };
+    if (options.style.getPath()) |s| default_include_path: {
+        const sub_path = switch (s) {
+            .path => |path| path,
+            .generated => break :default_include_path,
+            .cwd_relative => |sub_path| sub_path,
+            .dependency => |dependency| dependency.sub_path,
+        };
+        const basename = std.fs.path.basename(sub_path);
+        if (std.mem.endsWith(u8, basename, ".h.in")) {
+            include_path = basename[0 .. basename.len - 3];
+        }
+    }
 
     if (options.include_path) |p| {
         include_path = p;
@@ -91,6 +96,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
 
         .max_bytes = options.max_bytes,
         .include_path = include_path,
+        .include_guard_override = options.include_guard_override,
         .output_file = .{ .step = &self.step },
     };
 
@@ -178,6 +184,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // random bytes when ConfigHeader implementation is modified in a
     // non-backwards-compatible way.
     man.hash.add(@as(u32, 0xdef08d23));
+    man.hash.addBytes(self.include_path);
+    man.hash.addOptionalBytes(self.include_guard_override);
 
     var output = std.ArrayList(u8).init(gpa);
     defer output.deinit();
@@ -201,7 +209,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         },
         .blank => {
             try output.appendSlice(c_generated_line);
-            try render_blank(&output, self.values, self.include_path);
+            try render_blank(&output, self.values, self.include_path, self.include_guard_override);
         },
         .nasm => {
             try output.appendSlice(asm_generated_line);
@@ -299,8 +307,8 @@ fn render_cmake(
     values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
-    var build = step.owner;
-    var allocator = build.allocator;
+    const build = step.owner;
+    const allocator = build.allocator;
 
     var values_copy = try values.clone();
     defer values_copy.deinit();
@@ -415,15 +423,19 @@ fn render_blank(
     output: *std.ArrayList(u8),
     defines: std.StringArrayHashMap(Value),
     include_path: []const u8,
+    include_guard_override: ?[]const u8,
 ) !void {
-    const include_guard_name = try output.allocator.dupe(u8, include_path);
-    for (include_guard_name) |*byte| {
-        switch (byte.*) {
-            'a'...'z' => byte.* = byte.* - 'a' + 'A',
-            'A'...'Z', '0'...'9' => continue,
-            else => byte.* = '_',
+    const include_guard_name = include_guard_override orelse blk: {
+        const name = try output.allocator.dupe(u8, include_path);
+        for (name) |*byte| {
+            switch (byte.*) {
+                'a'...'z' => byte.* = byte.* - 'a' + 'A',
+                'A'...'Z', '0'...'9' => continue,
+                else => byte.* = '_',
+            }
         }
-    }
+        break :blk name;
+    };
 
     try output.appendSlice("#ifndef ");
     try output.appendSlice(include_guard_name);
@@ -539,7 +551,7 @@ fn replace_variables(
                 .int => |i| {
                     const buf = try std.fmt.allocPrint(allocator, "{s}{}{s}", .{ beginline, i, endline });
                     const isNegative = i < 0;
-                    const digits = (if (0 < i) std.math.log10(std.math.absCast(i)) else 0) + 1;
+                    const digits = (if (0 < i) std.math.log10(@abs(i)) else 0) + 1;
                     last_index = start_index + @intFromBool(isNegative) + digits + 1;
 
                     allocator.free(content_buf);

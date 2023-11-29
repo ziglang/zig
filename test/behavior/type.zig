@@ -199,11 +199,9 @@ test "Type.ErrorUnion" {
 }
 
 test "Type.Opaque" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Opaque = @Type(.{
         .Opaque = .{
@@ -261,7 +259,6 @@ test "Type.Struct" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const A = @Type(@typeInfo(struct { x: u8, y: u32 }));
     const infoA = @typeInfo(A).Struct;
@@ -349,7 +346,6 @@ test "Type.Struct" {
 test "Type.Enum" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Foo = @Type(.{
         .Enum = .{
@@ -383,7 +379,6 @@ test "Type.Enum" {
 }
 
 test "Type.Union" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
@@ -415,7 +410,8 @@ test "Type.Union" {
             .decls = &.{},
         },
     });
-    var packed_untagged = PackedUntagged{ .signed = -1 };
+    var packed_untagged: PackedUntagged = .{ .signed = -1 };
+    _ = &packed_untagged;
     try testing.expectEqual(@as(i32, -1), packed_untagged.signed);
     try testing.expectEqual(~@as(u32, 0), packed_untagged.unsigned);
 
@@ -534,7 +530,7 @@ test "reified struct field name from optional payload" {
                 .decls = &.{},
                 .is_tuple = false,
             } });
-            var t: T = .{ .a = 123 };
+            const t: T = .{ .a = 123 };
             try std.testing.expect(t.a == 123);
         }
     }

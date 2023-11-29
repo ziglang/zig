@@ -35,7 +35,7 @@ int __libcpp_popcount(unsigned long long __x) _NOEXCEPT { return __builtin_popco
 #if _LIBCPP_STD_VER >= 20
 
 template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr int popcount(_Tp __t) noexcept {
+_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr int popcount(_Tp __t) noexcept {
   if (sizeof(_Tp) <= sizeof(unsigned int))
     return std::__libcpp_popcount(static_cast<unsigned int>(__t));
   else if (sizeof(_Tp) <= sizeof(unsigned long))

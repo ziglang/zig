@@ -28,7 +28,6 @@ test "@memcpy with both operands single-ptr-to-array, one is null-terminated" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testMemcpyBothSinglePtrArrayOneIsNullTerminated();
     try comptime testMemcpyBothSinglePtrArrayOneIsNullTerminated();
@@ -49,7 +48,6 @@ test "@memcpy dest many pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testMemcpyDestManyPtr();
     try comptime testMemcpyDestManyPtr();
@@ -59,6 +57,7 @@ fn testMemcpyDestManyPtr() !void {
     var str = "hello".*;
     var buf: [5]u8 = undefined;
     var len: usize = 5;
+    _ = &len;
     @memcpy(@as([*]u8, @ptrCast(&buf)), @as([*]const u8, @ptrCast(&str))[0..len]);
     try expect(buf[0] == 'h');
     try expect(buf[1] == 'e');
@@ -68,16 +67,14 @@ fn testMemcpyDestManyPtr() !void {
 }
 
 comptime {
-    if (builtin.zig_backend != .stage2_spirv64) {
-        const S = struct {
-            buffer: [8]u8 = undefined,
-            fn set(self: *@This(), items: []const u8) void {
-                @memcpy(self.buffer[0..items.len], items);
-            }
-        };
+    const S = struct {
+        buffer: [8]u8 = undefined,
+        fn set(self: *@This(), items: []const u8) void {
+            @memcpy(self.buffer[0..items.len], items);
+        }
+    };
 
-        var s = S{};
-        s.set("hello");
-        if (!std.mem.eql(u8, s.buffer[0..5], "hello")) @compileError("bad");
-    }
+    var s = S{};
+    s.set("hello");
+    if (!std.mem.eql(u8, s.buffer[0..5], "hello")) @compileError("bad");
 }

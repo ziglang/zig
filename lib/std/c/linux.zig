@@ -226,6 +226,19 @@ pub const EAI = enum(c_int) {
     _,
 };
 
+pub const passwd = extern struct {
+    pw_name: ?[*:0]const u8, // username
+    pw_passwd: ?[*:0]const u8, // user password
+    pw_uid: uid_t, // user ID
+    pw_gid: gid_t, // group ID
+    pw_gecos: ?[*:0]const u8, // user information
+    pw_dir: ?[*:0]const u8, // home directory
+    pw_shell: ?[*:0]const u8, // shell program
+};
+
+pub extern "c" fn getpwnam(name: [*:0]const u8) ?*passwd;
+pub extern "c" fn getpwuid(uid: uid_t) ?*passwd;
+
 pub extern "c" fn fallocate64(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
 pub extern "c" fn fopen64(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;
 pub extern "c" fn fstat64(fd: fd_t, buf: *Stat) c_int;
