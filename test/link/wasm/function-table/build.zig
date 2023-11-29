@@ -23,6 +23,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     import_table.use_llvm = false;
     import_table.use_lld = false;
     import_table.import_table = true;
+    import_table.link_gc_sections = false;
 
     const export_table = b.addExecutable(.{
         .name = "export_table",
@@ -34,6 +35,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     export_table.use_llvm = false;
     export_table.use_lld = false;
     export_table.export_table = true;
+    export_table.link_gc_sections = false;
 
     const regular_table = b.addExecutable(.{
         .name = "regular_table",
@@ -44,6 +46,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     regular_table.entry = .disabled;
     regular_table.use_llvm = false;
     regular_table.use_lld = false;
+    regular_table.link_gc_sections = false; // Ensure function table is not empty
 
     const check_import = import_table.checkObject();
     const check_export = export_table.checkObject();
