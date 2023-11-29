@@ -62,10 +62,10 @@ pub const Options = struct {
     };
 };
 
-const block_size = 512;
+const BLOCK_SIZE = 512;
 
 pub const Header = struct {
-    bytes: *const [block_size]u8,
+    bytes: *const [BLOCK_SIZE]u8,
 
     pub const FileType = enum(u8) {
         normal_alias = 0,
@@ -84,6 +84,19 @@ pub const Header = struct {
 
     pub fn fileSize(header: Header) !u64 {
         const raw = header.bytes[124..][0..12];
+        //  If the leading byte is 0xff (255), all the bytes of the field
+        //  (including the leading byte) are concatenated in big-endian order,
+        //  with the result being a negative number expressed in two’s
+        //  complement form.
+        if (raw[0] == 0xff) return error.SizeNegative;
+        // If the leading byte is 0x80 (128), the non-leading bytes of the
+        // field are concatenated in big-endian order.
+        if (raw[0] == 0x80) {
+            if (raw[1] + raw[2] + raw[3] != 0) return error.SizeTooBig;
+            return std.mem.readInt(u64, raw[4..12], .big);
+        }
+        // Zero-filled octal number in ASCII. Each numeric field of width w
+        // contains w minus 1 digits, and a null
         const ltrimmed = std.mem.trimLeft(u8, raw, "0 ");
         const rtrimmed = std.mem.trimRight(u8, ltrimmed, " \x00");
         if (rtrimmed.len == 0) return 0;
@@ -148,7 +161,7 @@ pub const Header = struct {
 fn BufferedReader(comptime ReaderType: type) type {
     return struct {
         unbuffered_reader: ReaderType,
-        buffer: [block_size * 8]u8 = undefined,
+        buffer: [BLOCK_SIZE * 8]u8 = undefined,
         start: usize = 0,
         end: usize = 0,
 
@@ -164,14 +177,14 @@ fn BufferedReader(comptime ReaderType: type) type {
         }
 
         pub fn readBlock(self: *Self) !?[]const u8 {
-            const block_bytes = try self.readChunk(block_size * 2);
+            const block_bytes = try self.readChunk(BLOCK_SIZE * 2);
             switch (block_bytes.len) {
                 0 => return null,
-                1...(block_size - 1) => return error.UnexpectedEndOfStream,
+                1...(BLOCK_SIZE - 1) => return error.UnexpectedEndOfStream,
                 else => {},
             }
-            self.advance(block_size);
-            return block_bytes[0..block_size];
+            self.advance(BLOCK_SIZE);
+            return block_bytes[0..BLOCK_SIZE];
         }
 
         pub fn advance(self: *Self, count: usize) void {
@@ -258,7 +271,7 @@ fn BufferedReader(comptime ReaderType: type) type {
         pub fn sliceReader(self: *Self, size: usize, auto_advance: bool) Self.SliceReader {
             return .{
                 .size = size,
-                .chunk_size = roundedFileSize(size) + block_size,
+                .chunk_size = roundedFileSize(size) + BLOCK_SIZE,
                 .offset = 0,
                 .reader = self,
                 .auto_advance = auto_advance,
@@ -267,12 +280,12 @@ fn BufferedReader(comptime ReaderType: type) type {
     };
 }
 
-// file_size rouneded to te block boundary
+// File size rounded to te block boundary.
 inline fn roundedFileSize(file_size: usize) usize {
-    return std.mem.alignForward(usize, file_size, block_size);
+    return std.mem.alignForward(usize, file_size, BLOCK_SIZE);
 }
 
-// number of padding bytes at the last file block
+// Number of padding bytes in the last file block.
 inline fn filePadding(file_size: usize) usize {
     return roundedFileSize(file_size) - file_size;
 }
@@ -341,17 +354,18 @@ fn Iterator(comptime ReaderType: type) type {
             }
         };
 
-        // Externally, Next iterates through the tar archive as if it is a series of
-        // files. Internally, the tar format often uses fake "files" to add meta
-        // data that describes the next file. These meta data "files" should not
-        // normally be visible to the outside. As such, this loop iterates through
-        // one or more "header files" until it finds a "normal file".
+        // Externally, `next` iterates through the tar archive as if it is a
+        // series of files. Internally, the tar format often uses fake "files"
+        // to add meta data that describes the next file. These meta data
+        // "files" should not normally be visible to the outside. As such, this
+        // loop iterates through one or more "header files" until it finds a
+        // "normal file".
         pub fn next(self: *Self) !?File {
             var file: File = .{ .reader = &self.reader };
             self.attrs.free();
 
             while (try self.reader.readBlock()) |block_bytes| {
-                const block: Header = .{ .bytes = block_bytes[0..block_size] };
+                const block: Header = .{ .bytes = block_bytes[0..BLOCK_SIZE] };
                 if (block.isZero()) return null;
                 const file_type = block.fileType();
                 const file_size = try block.fileSize();
@@ -572,6 +586,7 @@ const TestCase = struct {
         size: usize = 0,
         link_name: []const u8 = empty_string,
         file_type: Header.FileType = .normal,
+        truncated: bool = false, // when there is no file body, just header, usefull for huge files
     };
 
     path: []const u8,
@@ -794,10 +809,32 @@ test "Go test cases" {
                 },
             },
         },
+        .{
+            // Has size in gnu extended format. To represent size bigger than 8 GB.
+            .path = "writer-big.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "tmp/16gig.txt",
+                    .size = 16 * 1024 * 1024 * 1024,
+                    .truncated = true,
+                },
+            },
+        },
+        .{
+            // Size in gnu extended format, and name in pax attribute.
+            .path = "writer-big-long.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "longname/" ** 15 ++ "16gig.txt",
+                    .size = 16 * 1024 * 1024 * 1024,
+                    .truncated = true,
+                },
+            },
+        },
     };
 
     for (cases) |case| {
-        // if (!std.mem.eql(u8, case.path, "pax.tar")) continue;
+        //if (!std.mem.eql(u8, case.path, "pax-pos-size-file.tar")) continue;
 
         var fs_file = try test_dir.openFile(case.path, .{});
         defer fs_file.close();
@@ -825,7 +862,7 @@ test "Go test cases" {
                 // std.debug.print("actual chksum: {s}\n", .{std.fmt.fmtSliceHexLower(&actual_chksum)});
                 try std.testing.expectEqualStrings(expected_chksum, &actual_chksum);
             } else {
-                try actual.skip(); // skip file content
+                if (!expected.truncated) try actual.skip(); // skip file content
             }
             i += 1;
         }
