@@ -29,36 +29,7 @@ pub const Builder = Build;
 pub const InstallDirectoryOptions = Step.InstallDir.Options;
 
 pub const Step = @import("Build/Step.zig");
-/// deprecated: use `Step.CheckFile`.
-pub const CheckFileStep = @import("Build/Step/CheckFile.zig");
-/// deprecated: use `Step.CheckObject`.
-pub const CheckObjectStep = @import("Build/Step/CheckObject.zig");
-/// deprecated: use `Step.ConfigHeader`.
-pub const ConfigHeaderStep = @import("Build/Step/ConfigHeader.zig");
-/// deprecated: use `Step.Fmt`.
-pub const FmtStep = @import("Build/Step/Fmt.zig");
-/// deprecated: use `Step.InstallArtifact`.
-pub const InstallArtifactStep = @import("Build/Step/InstallArtifact.zig");
-/// deprecated: use `Step.InstallDir`.
-pub const InstallDirStep = @import("Build/Step/InstallDir.zig");
-/// deprecated: use `Step.InstallFile`.
-pub const InstallFileStep = @import("Build/Step/InstallFile.zig");
-/// deprecated: use `Step.ObjCopy`.
-pub const ObjCopyStep = @import("Build/Step/ObjCopy.zig");
-/// deprecated: use `Step.Compile`.
-pub const CompileStep = @import("Build/Step/Compile.zig");
-/// deprecated: use `Step.Options`.
-pub const OptionsStep = @import("Build/Step/Options.zig");
-/// deprecated: use `Step.RemoveDir`.
-pub const RemoveDirStep = @import("Build/Step/RemoveDir.zig");
-/// deprecated: use `Step.Run`.
-pub const RunStep = @import("Build/Step/Run.zig");
-/// deprecated: use `Step.TranslateC`.
-pub const TranslateCStep = @import("Build/Step/TranslateC.zig");
-/// deprecated: use `Step.WriteFile`.
-pub const WriteFileStep = @import("Build/Step/WriteFile.zig");
-/// deprecated: use `LazyPath`.
-pub const FileSource = LazyPath;
+pub const Module = @import("Build/Module.zig");
 
 install_tls: TopLevelStep,
 uninstall_tls: TopLevelStep,
@@ -634,34 +605,31 @@ pub const ExecutableOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
-    main_mod_path: ?LazyPath = null,
     /// Embed a `.manifest` file in the compilation if the object format supports it.
     /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
     /// Manifest files must have the extension `.manifest`.
     /// Can be set regardless of target. The `.manifest` file will be ignored
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
-
-    /// Deprecated; use `main_mod_path`.
-    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
-        .root_source_file = options.root_source_file,
+        .root_module = .{
+            .root_source_file = options.root_source_file,
+            .target = options.target,
+            .optimize = options.optimize,
+            .link_libc = options.link_libc,
+            .single_threaded = options.single_threaded,
+        },
         .version = options.version,
-        .target = options.target,
-        .optimize = options.optimize,
         .kind = .exe,
         .linkage = options.linkage,
         .max_rss = options.max_rss,
-        .link_libc = options.link_libc,
-        .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
         .win32_manifest = options.win32_manifest,
     });
 }
@@ -677,26 +645,23 @@ pub const ObjectOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
-    main_mod_path: ?LazyPath = null,
-
-    /// Deprecated; use `main_mod_path`.
-    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
-        .root_source_file = options.root_source_file,
-        .target = options.target,
-        .optimize = options.optimize,
+        .root_module = .{
+            .root_source_file = options.root_source_file,
+            .target = options.target,
+            .optimize = options.optimize,
+            .link_libc = options.link_libc,
+            .single_threaded = options.single_threaded,
+        },
         .kind = .obj,
         .max_rss = options.max_rss,
-        .link_libc = options.link_libc,
-        .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -712,34 +677,31 @@ pub const SharedLibraryOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
-    main_mod_path: ?LazyPath = null,
     /// Embed a `.manifest` file in the compilation if the object format supports it.
     /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
     /// Manifest files must have the extension `.manifest`.
     /// Can be set regardless of target. The `.manifest` file will be ignored
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
-
-    /// Deprecated; use `main_mod_path`.
-    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
-        .root_source_file = options.root_source_file,
+        .root_module = .{
+            .target = options.target,
+            .optimize = options.optimize,
+            .root_source_file = options.root_source_file,
+            .link_libc = options.link_libc,
+            .single_threaded = options.single_threaded,
+        },
         .kind = .lib,
         .linkage = .dynamic,
         .version = options.version,
-        .target = options.target,
-        .optimize = options.optimize,
         .max_rss = options.max_rss,
-        .link_libc = options.link_libc,
-        .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
         .win32_manifest = options.win32_manifest,
     });
 }
@@ -756,28 +718,25 @@ pub const StaticLibraryOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
-    main_mod_path: ?LazyPath = null,
-
-    /// Deprecated; use `main_mod_path`.
-    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
-        .root_source_file = options.root_source_file,
+        .root_module = .{
+            .target = options.target,
+            .optimize = options.optimize,
+            .root_source_file = options.root_source_file,
+            .link_libc = options.link_libc,
+            .single_threaded = options.single_threaded,
+        },
         .kind = .lib,
         .linkage = .static,
         .version = options.version,
-        .target = options.target,
-        .optimize = options.optimize,
         .max_rss = options.max_rss,
-        .link_libc = options.link_libc,
-        .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -795,28 +754,25 @@ pub const TestOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
-    main_mod_path: ?LazyPath = null,
-
-    /// Deprecated; use `main_mod_path`.
-    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
         .kind = .@"test",
-        .root_source_file = options.root_source_file,
-        .target = options.target,
-        .optimize = options.optimize,
+        .root_module = .{
+            .root_source_file = options.root_source_file,
+            .target = options.target,
+            .optimize = options.optimize,
+            .link_libc = options.link_libc,
+            .single_threaded = options.single_threaded,
+        },
         .max_rss = options.max_rss,
         .filter = options.filter,
         .test_runner = options.test_runner,
-        .link_libc = options.link_libc,
-        .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
@@ -833,9 +789,10 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
     const obj_step = Step.Compile.create(b, .{
         .name = options.name,
         .kind = .obj,
-        .root_source_file = null,
-        .target = options.target,
-        .optimize = options.optimize,
+        .root_module = .{
+            .target = options.target,
+            .optimize = options.optimize,
+        },
         .max_rss = options.max_rss,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
     });
@@ -846,41 +803,17 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
 /// This function creates a module and adds it to the package's module set, making
 /// it available to other packages which depend on this one.
 /// `createModule` can be used instead to create a private module.
-pub fn addModule(b: *Build, name: []const u8, options: CreateModuleOptions) *Module {
-    const module = b.createModule(options);
+pub fn addModule(b: *Build, name: []const u8, options: Module.CreateOptions) *Module {
+    const module = Module.create(b, options);
     b.modules.put(b.dupe(name), module) catch @panic("OOM");
     return module;
 }
 
-pub const ModuleDependency = struct {
-    name: []const u8,
-    module: *Module,
-};
-
-pub const CreateModuleOptions = struct {
-    source_file: LazyPath,
-    dependencies: []const ModuleDependency = &.{},
-};
-
 /// This function creates a private module, to be used by the current package,
 /// but not exposed to other packages depending on this one.
 /// `addModule` can be used instead to create a public module.
-pub fn createModule(b: *Build, options: CreateModuleOptions) *Module {
-    const module = b.allocator.create(Module) catch @panic("OOM");
-    module.* = .{
-        .builder = b,
-        .source_file = options.source_file.dupe(b),
-        .dependencies = moduleDependenciesToArrayHashMap(b.allocator, options.dependencies),
-    };
-    return module;
-}
-
-fn moduleDependenciesToArrayHashMap(arena: Allocator, deps: []const ModuleDependency) std.StringArrayHashMap(*Module) {
-    var result = std.StringArrayHashMap(*Module).init(arena);
-    for (deps) |dep| {
-        result.put(dep.name, dep.module) catch @panic("OOM");
-    }
-    return result;
+pub fn createModule(b: *Build, options: Module.CreateOptions) *Module {
+    return Module.create(b, options);
 }
 
 /// Initializes a `Step.Run` with argv, which must at least have the path to the
@@ -1884,15 +1817,6 @@ pub fn runBuild(b: *Build, build_zig: anytype) anyerror!void {
         else => @compileError("expected return type of build to be 'void' or '!void'"),
     }
 }
-
-pub const Module = struct {
-    builder: *Build,
-    /// This could either be a generated file, in which case the module
-    /// contains exactly one file, or it could be a path to the root source
-    /// file of directory of files which constitute the module.
-    source_file: LazyPath,
-    dependencies: std.StringArrayHashMap(*Module),
-};
 
 /// A file that is generated by a build step.
 /// This struct is an interface that is meant to be used with `@fieldParentPtr` to implement the actual path logic.

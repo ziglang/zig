@@ -488,7 +488,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 man.hash.addBytes(file_path);
             },
             .artifact => |artifact| {
-                if (artifact.target.isWindows()) {
+                if (artifact.root_module.target_info.target.os.tag == .windows) {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                     self.addPathForDynLibs(artifact);
                 }
@@ -682,8 +682,9 @@ fn runCommand(
                 else => break :interpret,
             }
 
-            const need_cross_glibc = exe.target.isGnuLibC() and exe.is_linking_libc;
-            switch (b.host.getExternalExecutor(&exe.target_info, .{
+            const need_cross_glibc = exe.root_module.target_info.target.isGnuLibC() and
+                exe.is_linking_libc;
+            switch (b.host.getExternalExecutor(&exe.root_module.target_info, .{
                 .qemu_fixes_dl = need_cross_glibc and b.glibc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {
@@ -714,9 +715,9 @@ fn runCommand(
                             // needs the directory to be called "i686" rather than
                             // "x86" which is why we do it manually here.
                             const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
-                            const cpu_arch = exe.target.getCpuArch();
-                            const os_tag = exe.target.getOsTag();
-                            const abi = exe.target.getAbi();
+                            const cpu_arch = exe.root_module.target_info.target.cpu.arch;
+                            const os_tag = exe.root_module.target_info.target.os.tag;
+                            const abi = exe.root_module.target_info.target.abi;
                             const cpu_arch_name: []const u8 = if (cpu_arch == .x86)
                                 "i686"
                             else
@@ -769,7 +770,7 @@ fn runCommand(
                     if (allow_skip) return error.MakeSkipped;
 
                     const host_name = try b.host.target.zigTriple(b.allocator);
-                    const foreign_name = try exe.target.zigTriple(b.allocator);
+                    const foreign_name = try exe.root_module.target_info.target.zigTriple(b.allocator);
 
                     return step.fail("the host system ({s}) is unable to execute binaries from the target ({s})", .{
                         host_name, foreign_name,
@@ -777,7 +778,7 @@ fn runCommand(
                 },
             }
 
-            if (exe.target.isWindows()) {
+            if (exe.root_module.target_info.target.os.tag == .windows) {
                 // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                 self.addPathForDynLibs(exe);
             }
@@ -1295,15 +1296,14 @@ fn evalGeneric(self: *Run, child: *std.process.Child) !StdIoResult {
 
 fn addPathForDynLibs(self: *Run, artifact: *Step.Compile) void {
     const b = self.step.owner;
-    for (artifact.link_objects.items) |link_object| {
-        switch (link_object) {
-            .other_step => |other| {
-                if (other.target.isWindows() and other.isDynamicLibrary()) {
-                    addPathDir(self, fs.path.dirname(other.getEmittedBin().getPath(b)).?);
-                    addPathForDynLibs(self, other);
-                }
-            },
-            else => {},
+    var it = artifact.root_module.iterateDependencies(artifact);
+    while (it.next()) |item| {
+        const other = item.compile.?;
+        if (item.module == &other.root_module) {
+            if (item.module.target_info.target.os.tag == .windows and other.isDynamicLibrary()) {
+                addPathDir(self, fs.path.dirname(other.getEmittedBin().getPath(b)).?);
+                addPathForDynLibs(self, other);
+            }
         }
     }
 }
@@ -1321,7 +1321,7 @@ fn failForeign(
 
             const b = self.step.owner;
             const host_name = try b.host.target.zigTriple(b.allocator);
-            const foreign_name = try exe.target.zigTriple(b.allocator);
+            const foreign_name = try exe.root_module.target_info.target.zigTriple(b.allocator);
 
             return self.step.fail(
                 \\unable to spawn foreign binary '{s}' ({s}) on host system ({s})
