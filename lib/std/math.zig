@@ -418,7 +418,29 @@ pub const ln = @compileError("deprecated; use @log instead");
 /// ```
 /// Limit x to the half-open interval [-r, r).
 pub fn wrap(x: anytype, r: anytype) @TypeOf(x) {
-    return @mod(x + r, 2 * r) - r;
+    const info_x = @typeInfo(@TypeOf(x));
+    const info_r = @typeInfo(@TypeOf(r));
+    if (info_x == .Int and info_x.Int.signedness != .signed) {
+        @compileError("x must be floating point, comptime integer, or signed integer.");
+    }
+    switch (info_r) {
+        .Int => {
+            // in the rare usecase of r not being comptime_int or float,
+            // take the penalty of having an intermediary type conversion,
+            // otherwise the alternative is to unwind iteratively to avoid overflow
+            const R = comptime do: {
+                var info = info_r;
+                info.Int.bits += 1;
+                info.Int.signedness = .signed;
+                break :do @Type(info);
+            };
+            const radius: if (info_r.Int.signedness == .signed) @TypeOf(r) else R = r;
+            return @intCast(@mod(x - radius, 2 * @as(R, r)) - r); // provably impossible to overflow
+        },
+        else => {
+            return @mod(x - r, 2 * r) - r;
+        },
+    }
 }
 test "wrap" {
     // Within range
