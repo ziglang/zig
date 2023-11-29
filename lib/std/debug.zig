@@ -1843,7 +1843,7 @@ pub const DebugInfo = struct {
                 if (coff_obj.strtabRequired()) {
                     var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
                     // openFileAbsoluteW requires the prefix to be present
-                    mem.copy(u16, name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
+                    @memcpy(name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
 
                     const process_handle = windows.kernel32.GetCurrentProcess();
                     const len = windows.kernel32.K32GetModuleFileNameExW(
