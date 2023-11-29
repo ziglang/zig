@@ -16,6 +16,10 @@ const c_stdlib = @cImport(
     @cInclude("stdlib.h"), // for atexit
 );
 
+const c_string = @cImport(
+    @cInclude("string.h"), // for strlcpy
+);
+
 // Version of glibc this test is being built to run against
 const glibc_ver = builtin.target.os.version_range.linux.glibc;
 
@@ -73,6 +77,23 @@ fn checkGetAuxVal_v2_16() !void {
     assert(pgsz != 0);
 }
 
+// strlcpy introduced in v2.38, which is newer than many installed glibcs
+fn checkStrlcpy() !void {
+    if (comptime glibc_ver.order(.{ .major = 2, .minor = 38, .patch = 0 }) == .lt) {
+        if (@hasDecl(c_string, "strlcpy")) {
+            @compileError("Before v2.38 glibc does not define 'strlcpy'");
+        }
+    } else {
+        try checkStrlcpy_v2_38();
+    }
+}
+
+fn checkStrlcpy_v2_38() !void {
+    var buf: [99]u8 = undefined;
+    const used = c_string.strlcpy(&buf, "strlcpy works!", buf.len);
+    assert(used == 15);
+}
+
 // atexit is part of libc_nonshared, so ensure its linked in correctly
 fn forceExit0Callback() callconv(.C) void {
     std.c.exit(0); // Override the main() exit code
@@ -86,6 +107,7 @@ fn checkAtExit() !void {
 pub fn main() !u8 {
     try checkStat();
     try checkReallocarray();
+    try checkStrlcpy();
 
     try checkGetAuxVal();
     try checkAtExit();

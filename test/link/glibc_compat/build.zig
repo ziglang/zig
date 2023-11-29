@@ -90,9 +90,15 @@ pub fn build(b: *std.Build) void {
         } else {
             check.checkInDynamicSymtab();
             check.checkExact("0 0 UND FUNC GLOBAL DEFAULT reallocarray");
+        }
+
+        // before v2.38 strlcpy is not supported
+        if (glibc_ver.order(.{ .major = 2, .minor = 38, .patch = 0 }) == .lt) {
+            check.checkInDynamicSymtab();
+            check.checkNotPresent("strlcpy");
         } else {
             check.checkInDynamicSymtab();
-            check.checkNotPresent("reallocarray");
+            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT strlcpy");
         }
 
         // v2.16 introduced getauxval(), so always present
