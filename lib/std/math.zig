@@ -437,6 +437,15 @@ test "wrap" {
     _ = &i;
     try testing.expect(std.math.wrap(i, 10) == 1);
 }
+test wrap {
+    const limit: i32 = 180;
+    // Within range
+    try testing.expect(wrap(@as(i32, -75), limit) == -75);
+    // Below
+    try testing.expect(wrap(@as(i32, -225), limit) == 135);
+    // Above
+    try testing.expect(wrap(@as(i32, 361), limit) == 1);
+}
 
 /// Odd ramp function
 /// ```
