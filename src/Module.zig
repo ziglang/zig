@@ -1608,6 +1608,33 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 return nodeToSpan(tree, node_datas[node].rhs);
             },
+            .array_cat_lhs, .array_cat_rhs => |cat| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(cat.array_cat_offset);
+                const node_datas = tree.nodes.items(.data);
+                const arr_node = if (src_loc.lazy == .array_cat_lhs)
+                    node_datas[node].lhs
+                else
+                    node_datas[node].rhs;
+
+                const node_tags = tree.nodes.items(.tag);
+                var buf: [2]Ast.Node.Index = undefined;
+                switch (node_tags[arr_node]) {
+                    .array_init_one,
+                    .array_init_one_comma,
+                    .array_init_dot_two,
+                    .array_init_dot_two_comma,
+                    .array_init_dot,
+                    .array_init_dot_comma,
+                    .array_init,
+                    .array_init_comma,
+                    => {
+                        const full = tree.fullArrayInit(&buf, arr_node).?.ast.elements;
+                        return nodeToSpan(tree, full[cat.elem_index]);
+                    },
+                    else => return nodeToSpan(tree, arr_node),
+                }
+            },
 
             .node_offset_switch_operand => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -2297,6 +2324,15 @@ pub const LazySrcLoc = union(enum) {
         /// The index of the parameter the source location points to.
         param_index: u32,
     },
+    array_cat_lhs: ArrayCat,
+    array_cat_rhs: ArrayCat,
+
+    const ArrayCat = struct {
+        /// Points to the array concat AST node.
+        array_cat_offset: i32,
+        /// The index of the element the source location points to.
+        elem_index: u32,
+    };
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
 
@@ -2387,6 +2423,8 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_store_operand,
             .for_input,
             .for_capture_from_input,
+            .array_cat_lhs,
+            .array_cat_rhs,
             => .{
                 .file_scope = decl.getFileScope(mod),
                 .parent_decl_node = decl.src_node,

@@ -13565,8 +13565,6 @@ fn analyzeTupleCat(
     const lhs_ty = sema.typeOf(lhs);
     const rhs_ty = sema.typeOf(rhs);
     const src = LazySrcLoc.nodeOffset(src_node);
-    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = src_node };
-    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = src_node };
 
     const lhs_len = lhs_ty.structFieldCount(mod);
     const rhs_len = rhs_ty.structFieldCount(mod);
@@ -13581,7 +13579,7 @@ fn analyzeTupleCat(
     if (rhs_len == 0) {
         return lhs;
     }
-    const final_len = try sema.usizeCast(block, rhs_src, dest_fields);
+    const final_len = try sema.usizeCast(block, src, dest_fields);
 
     const types = try sema.arena.alloc(InternPool.Index, final_len);
     const values = try sema.arena.alloc(InternPool.Index, final_len);
@@ -13593,7 +13591,10 @@ fn analyzeTupleCat(
             types[i] = lhs_ty.structFieldType(i, mod).toIntern();
             const default_val = lhs_ty.structFieldDefaultValue(i, mod);
             values[i] = default_val.toIntern();
-            const operand_src = lhs_src; // TODO better source location
+            const operand_src: LazySrcLoc = .{ .array_cat_lhs = .{
+                .array_cat_offset = src_node,
+                .elem_index = i,
+            } };
             if (default_val.toIntern() == .unreachable_value) {
                 runtime_src = operand_src;
                 values[i] = .none;
@@ -13604,7 +13605,10 @@ fn analyzeTupleCat(
             types[i + lhs_len] = rhs_ty.structFieldType(i, mod).toIntern();
             const default_val = rhs_ty.structFieldDefaultValue(i, mod);
             values[i + lhs_len] = default_val.toIntern();
-            const operand_src = rhs_src; // TODO better source location
+            const operand_src: LazySrcLoc = .{ .array_cat_rhs = .{
+                .array_cat_offset = src_node,
+                .elem_index = i,
+            } };
             if (default_val.toIntern() == .unreachable_value) {
                 runtime_src = operand_src;
                 values[i + lhs_len] = .none;
@@ -13632,12 +13636,18 @@ fn analyzeTupleCat(
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, final_len);
     var i: u32 = 0;
     while (i < lhs_len) : (i += 1) {
-        const operand_src = lhs_src; // TODO better source location
+        const operand_src: LazySrcLoc = .{ .array_cat_lhs = .{
+            .array_cat_offset = src_node,
+            .elem_index = i,
+        } };
         element_refs[i] = try sema.tupleFieldValByIndex(block, operand_src, lhs, i, lhs_ty);
     }
     i = 0;
     while (i < rhs_len) : (i += 1) {
-        const operand_src = rhs_src; // TODO better source location
+        const operand_src: LazySrcLoc = .{ .array_cat_rhs = .{
+            .array_cat_offset = src_node,
+            .elem_index = i,
+        } };
         element_refs[i + lhs_len] =
             try sema.tupleFieldValByIndex(block, operand_src, rhs, i, rhs_ty);
     }
@@ -13700,12 +13710,8 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const rhs_sent = Air.internedToRef(rhs_sent_val.toIntern());
                 const lhs_sent_casted = try sema.coerce(block, resolved_elem_ty, lhs_sent, lhs_src);
                 const rhs_sent_casted = try sema.coerce(block, resolved_elem_ty, rhs_sent, rhs_src);
-                const lhs_sent_casted_val = try sema.resolveConstDefinedValue(block, lhs_src, lhs_sent_casted, .{
-                    .needed_comptime_reason = "array sentinel value must be comptime-known",
-                });
-                const rhs_sent_casted_val = try sema.resolveConstDefinedValue(block, rhs_src, rhs_sent_casted, .{
-                    .needed_comptime_reason = "array sentinel value must be comptime-known",
-                });
+                const lhs_sent_casted_val = (try sema.resolveDefinedValue(block, lhs_src, lhs_sent_casted)).?;
+                const rhs_sent_casted_val = (try sema.resolveDefinedValue(block, rhs_src, rhs_sent_casted)).?;
                 if (try sema.valuesEqual(lhs_sent_casted_val, rhs_sent_casted_val, resolved_elem_ty)) {
                     break :s lhs_sent_casted_val;
                 } else {
@@ -13713,18 +13719,14 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 }
             } else {
                 const lhs_sent_casted = try sema.coerce(block, resolved_elem_ty, lhs_sent, lhs_src);
-                const lhs_sent_casted_val = try sema.resolveConstDefinedValue(block, lhs_src, lhs_sent_casted, .{
-                    .needed_comptime_reason = "array sentinel value must be comptime-known",
-                });
+                const lhs_sent_casted_val = (try sema.resolveDefinedValue(block, lhs_src, lhs_sent_casted)).?;
                 break :s lhs_sent_casted_val;
             }
         } else {
             if (rhs_info.sentinel) |rhs_sent_val| {
                 const rhs_sent = Air.internedToRef(rhs_sent_val.toIntern());
                 const rhs_sent_casted = try sema.coerce(block, resolved_elem_ty, rhs_sent, rhs_src);
-                const rhs_sent_casted_val = try sema.resolveConstDefinedValue(block, rhs_src, rhs_sent_casted, .{
-                    .needed_comptime_reason = "array sentinel value must be comptime-known",
-                });
+                const rhs_sent_casted_val = (try sema.resolveDefinedValue(block, rhs_src, rhs_sent_casted)).?;
                 break :s rhs_sent_casted_val;
             } else {
                 break :s null;
@@ -13733,7 +13735,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     };
 
     const lhs_len = try sema.usizeCast(block, lhs_src, lhs_info.len);
-    const rhs_len = try sema.usizeCast(block, lhs_src, rhs_info.len);
+    const rhs_len = try sema.usizeCast(block, rhs_src, rhs_info.len);
     const result_len = std.math.add(usize, lhs_len, rhs_len) catch |err| switch (err) {
         error.Overflow => return sema.fail(
             block,
@@ -13775,14 +13777,18 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 rhs_val;
 
             const element_vals = try sema.arena.alloc(InternPool.Index, result_len);
-            var elem_i: usize = 0;
+            var elem_i: u32 = 0;
             while (elem_i < lhs_len) : (elem_i += 1) {
                 const lhs_elem_i = elem_i;
                 const elem_default_val = if (lhs_is_tuple) lhs_ty.structFieldDefaultValue(lhs_elem_i, mod) else Value.@"unreachable";
                 const elem_val = if (elem_default_val.toIntern() == .unreachable_value) try lhs_sub_val.elemValue(mod, lhs_elem_i) else elem_default_val;
                 const elem_val_inst = Air.internedToRef(elem_val.toIntern());
-                const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
-                const coerced_elem_val = try sema.resolveConstValue(block, .unneeded, coerced_elem_val_inst, undefined);
+                const operand_src: LazySrcLoc = .{ .array_cat_lhs = .{
+                    .array_cat_offset = inst_data.src_node,
+                    .elem_index = elem_i,
+                } };
+                const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, operand_src);
+                const coerced_elem_val = try sema.resolveConstValue(block, operand_src, coerced_elem_val_inst, undefined);
                 element_vals[elem_i] = try coerced_elem_val.intern(resolved_elem_ty, mod);
             }
             while (elem_i < result_len) : (elem_i += 1) {
@@ -13790,8 +13796,12 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const elem_default_val = if (rhs_is_tuple) rhs_ty.structFieldDefaultValue(rhs_elem_i, mod) else Value.@"unreachable";
                 const elem_val = if (elem_default_val.toIntern() == .unreachable_value) try rhs_sub_val.elemValue(mod, rhs_elem_i) else elem_default_val;
                 const elem_val_inst = Air.internedToRef(elem_val.toIntern());
-                const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
-                const coerced_elem_val = try sema.resolveConstValue(block, .unneeded, coerced_elem_val_inst, undefined);
+                const operand_src: LazySrcLoc = .{ .array_cat_rhs = .{
+                    .array_cat_offset = inst_data.src_node,
+                    .elem_index = @intCast(rhs_elem_i),
+                } };
+                const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, operand_src);
+                const coerced_elem_val = try sema.resolveConstValue(block, operand_src, coerced_elem_val_inst, undefined);
                 element_vals[elem_i] = try coerced_elem_val.intern(resolved_elem_ty, mod);
             }
             return sema.addConstantMaybeRef(try mod.intern(.{ .aggregate = .{
@@ -13814,19 +13824,28 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             .flags = .{ .address_space = ptr_as },
         });
 
-        var elem_i: usize = 0;
+        var elem_i: u32 = 0;
         while (elem_i < lhs_len) : (elem_i += 1) {
             const elem_index = try mod.intRef(Type.usize, elem_i);
             const elem_ptr = try block.addPtrElemPtr(alloc, elem_index, elem_ptr_ty);
-            const init = try sema.elemVal(block, lhs_src, lhs, elem_index, src, true);
-            try sema.storePtr2(block, src, elem_ptr, src, init, lhs_src, .store);
+            const operand_src: LazySrcLoc = .{ .array_cat_lhs = .{
+                .array_cat_offset = inst_data.src_node,
+                .elem_index = elem_i,
+            } };
+            const init = try sema.elemVal(block, operand_src, lhs, elem_index, src, true);
+            try sema.storePtr2(block, src, elem_ptr, src, init, operand_src, .store);
         }
         while (elem_i < result_len) : (elem_i += 1) {
+            const rhs_elem_i = elem_i - lhs_len;
             const elem_index = try mod.intRef(Type.usize, elem_i);
-            const rhs_index = try mod.intRef(Type.usize, elem_i - lhs_len);
+            const rhs_index = try mod.intRef(Type.usize, rhs_elem_i);
             const elem_ptr = try block.addPtrElemPtr(alloc, elem_index, elem_ptr_ty);
-            const init = try sema.elemVal(block, rhs_src, rhs, rhs_index, src, true);
-            try sema.storePtr2(block, src, elem_ptr, src, init, rhs_src, .store);
+            const operand_src: LazySrcLoc = .{ .array_cat_rhs = .{
+                .array_cat_offset = inst_data.src_node,
+                .elem_index = @intCast(rhs_elem_i),
+            } };
+            const init = try sema.elemVal(block, operand_src, rhs, rhs_index, src, true);
+            try sema.storePtr2(block, src, elem_ptr, src, init, operand_src, .store);
         }
         if (res_sent_val) |sent_val| {
             const elem_index = try mod.intRef(Type.usize, result_len);
@@ -13840,16 +13859,25 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, result_len);
     {
-        var elem_i: usize = 0;
+        var elem_i: u32 = 0;
         while (elem_i < lhs_len) : (elem_i += 1) {
             const index = try mod.intRef(Type.usize, elem_i);
-            const init = try sema.elemVal(block, lhs_src, lhs, index, src, true);
-            element_refs[elem_i] = try sema.coerce(block, resolved_elem_ty, init, lhs_src);
+            const operand_src: LazySrcLoc = .{ .array_cat_lhs = .{
+                .array_cat_offset = inst_data.src_node,
+                .elem_index = elem_i,
+            } };
+            const init = try sema.elemVal(block, operand_src, lhs, index, src, true);
+            element_refs[elem_i] = try sema.coerce(block, resolved_elem_ty, init, operand_src);
         }
         while (elem_i < result_len) : (elem_i += 1) {
-            const index = try mod.intRef(Type.usize, elem_i - lhs_len);
-            const init = try sema.elemVal(block, rhs_src, rhs, index, src, true);
-            element_refs[elem_i] = try sema.coerce(block, resolved_elem_ty, init, rhs_src);
+            const rhs_elem_i = elem_i - lhs_len;
+            const index = try mod.intRef(Type.usize, rhs_elem_i);
+            const operand_src: LazySrcLoc = .{ .array_cat_rhs = .{
+                .array_cat_offset = inst_data.src_node,
+                .elem_index = @intCast(rhs_elem_i),
+            } };
+            const init = try sema.elemVal(block, operand_src, rhs, index, src, true);
+            element_refs[elem_i] = try sema.coerce(block, resolved_elem_ty, init, operand_src);
         }
     }
 
@@ -13913,12 +13941,11 @@ fn analyzeTupleMul(
     const mod = sema.mod;
     const operand_ty = sema.typeOf(operand);
     const src = LazySrcLoc.nodeOffset(src_node);
-    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = src_node };
-    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = src_node };
+    const len_src: LazySrcLoc = .{ .node_offset_bin_rhs = src_node };
 
     const tuple_len = operand_ty.structFieldCount(mod);
     const final_len = std.math.mul(usize, tuple_len, factor) catch
-        return sema.fail(block, rhs_src, "operation results in overflow", .{});
+        return sema.fail(block, len_src, "operation results in overflow", .{});
 
     if (final_len == 0) {
         return Air.internedToRef(Value.empty_struct.toIntern());
@@ -13931,7 +13958,10 @@ fn analyzeTupleMul(
         for (0..tuple_len) |i| {
             types[i] = operand_ty.structFieldType(i, mod).toIntern();
             values[i] = operand_ty.structFieldDefaultValue(i, mod).toIntern();
-            const operand_src = lhs_src; // TODO better source location
+            const operand_src: LazySrcLoc = .{ .array_cat_lhs = .{
+                .array_cat_offset = src_node,
+                .elem_index = @intCast(i),
+            } };
             if (values[i] == .unreachable_value) {
                 runtime_src = operand_src;
                 values[i] = .none; // TODO don't treat unreachable_value as special
@@ -13963,7 +13993,10 @@ fn analyzeTupleMul(
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, final_len);
     var i: u32 = 0;
     while (i < tuple_len) : (i += 1) {
-        const operand_src = lhs_src; // TODO better source location
+        const operand_src: LazySrcLoc = .{ .array_cat_lhs = .{
+            .array_cat_offset = src_node,
+            .elem_index = i,
+        } };
         element_refs[i] = try sema.tupleFieldValByIndex(block, operand_src, operand, @intCast(i), operand_ty);
     }
     i = 1;
