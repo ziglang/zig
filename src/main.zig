@@ -2778,11 +2778,11 @@ fn buildOutputType(
     }
 
     for (system_libs.keys(), system_libs.values()) |lib_name, info| {
-        if (target_util.is_libc_lib_name(target_info.target, lib_name)) {
+        if (target_info.target.is_libc_lib_name(lib_name)) {
             link_libc = true;
             continue;
         }
-        if (target_util.is_libcpp_lib_name(target_info.target, lib_name)) {
+        if (target_info.target.is_libcpp_lib_name(lib_name)) {
             link_libcpp = true;
             continue;
         }

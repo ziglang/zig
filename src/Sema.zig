@@ -9075,7 +9075,7 @@ fn handleExternLibName(
         const comp = mod.comp;
         const target = mod.getTarget();
         log.debug("extern fn symbol expected in lib '{s}'", .{lib_name});
-        if (target_util.is_libc_lib_name(target, lib_name)) {
+        if (target.is_libc_lib_name(lib_name)) {
             if (!comp.bin_file.options.link_libc) {
                 return sema.fail(
                     block,
@@ -9086,7 +9086,7 @@ fn handleExternLibName(
             }
             break :blk;
         }
-        if (target_util.is_libcpp_lib_name(target, lib_name)) {
+        if (target.is_libcpp_lib_name(lib_name)) {
             if (!comp.bin_file.options.link_libcpp) {
                 return sema.fail(
                     block,
