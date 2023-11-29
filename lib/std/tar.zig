@@ -85,31 +85,6 @@ pub const Header = struct {
         _,
     };
 
-    pub fn fileSize(header: Header) !u64 {
-        const raw = header.bytes[124..][0..12];
-        //  If the leading byte is 0xff (255), all the bytes of the field
-        //  (including the leading byte) are concatenated in big-endian order,
-        //  with the result being a negative number expressed in two’s
-        //  complement form.
-        if (raw[0] == 0xff) return error.SizeNegative;
-        // If the leading byte is 0x80 (128), the non-leading bytes of the
-        // field are concatenated in big-endian order.
-        if (raw[0] == 0x80) {
-            if (raw[1] + raw[2] + raw[3] != 0) return error.SizeTooBig;
-            return std.mem.readInt(u64, raw[4..12], .big);
-        }
-        // Zero-filled octal number in ASCII. Each numeric field of width w
-        // contains w minus 1 digits, and a null
-        const ltrimmed = std.mem.trimLeft(u8, raw, "0 ");
-        const rtrimmed = std.mem.trimRight(u8, ltrimmed, " \x00");
-        if (rtrimmed.len == 0) return 0;
-        return std.fmt.parseInt(u64, rtrimmed, 8);
-    }
-
-    pub fn is_ustar(header: Header) bool {
-        return std.mem.eql(u8, header.bytes[257..][0..6], "ustar\x00");
-    }
-
     /// Includes prefix concatenated, if any.
     /// Return value may point into Header buffer, or might point into the
     /// argument buffer.
@@ -128,15 +103,27 @@ pub const Header = struct {
     }
 
     pub fn name(header: Header) []const u8 {
-        return str(header, 0, 0 + 100);
+        return header.str(0, 100);
+    }
+
+    pub fn fileSize(header: Header) !u64 {
+        return header.numeric(124, 12);
+    }
+
+    pub fn chksum(header: Header) !u64 {
+        return header.octal(148, 8);
     }
 
     pub fn linkName(header: Header) []const u8 {
-        return str(header, 157, 157 + 100);
+        return header.str(157, 100);
+    }
+
+    pub fn is_ustar(header: Header) bool {
+        return std.mem.eql(u8, header.bytes[257..][0..6], "ustar\x00");
     }
 
     pub fn prefix(header: Header) []const u8 {
-        return str(header, 345, 345 + 155);
+        return header.str(345, 155);
     }
 
     pub fn fileType(header: Header) FileType {
@@ -145,7 +132,8 @@ pub const Header = struct {
         return result;
     }
 
-    fn str(header: Header, start: usize, end: usize) []const u8 {
+    fn str(header: Header, start: usize, len: usize) []const u8 {
+        const end = start + len;
         var i: usize = start;
         while (i < end) : (i += 1) {
             if (header.bytes[i] == 0) break;
@@ -153,11 +141,52 @@ pub const Header = struct {
         return header.bytes[start..i];
     }
 
-    pub fn isZero(header: Header) bool {
-        for (header.bytes) |b| {
-            if (b != 0) return false;
+    fn numeric(header: Header, start: usize, len: usize) !u64 {
+        const raw = header.bytes[start..][0..len];
+        //  If the leading byte is 0xff (255), all the bytes of the field
+        //  (including the leading byte) are concatenated in big-endian order,
+        //  with the result being a negative number expressed in two’s
+        //  complement form.
+        if (raw[0] == 0xff) return error.TarNumericValueNegative;
+        // If the leading byte is 0x80 (128), the non-leading bytes of the
+        // field are concatenated in big-endian order.
+        if (raw[0] == 0x80) {
+            if (raw[1] + raw[2] + raw[3] != 0) return error.TarNumericValueTooBig;
+            return std.mem.readInt(u64, raw[4..12], .big);
         }
-        return true;
+        return try header.octal(start, len);
+    }
+
+    fn octal(header: Header, start: usize, len: usize) !u64 {
+        const raw = header.bytes[start..][0..len];
+        // Zero-filled octal number in ASCII. Each numeric field of width w
+        // contains w minus 1 digits, and a null
+        const ltrimmed = std.mem.trimLeft(u8, raw, "0 ");
+        const rtrimmed = std.mem.trimRight(u8, ltrimmed, " \x00");
+        if (rtrimmed.len == 0) return 0;
+        return std.fmt.parseInt(u64, rtrimmed, 8);
+    }
+
+    // Sum of all bytes in the header block. The chksum field is treated as if
+    // it were filled with spaces (ASCII 32).
+    fn computeChksum(header: Header) u64 {
+        var sum: u64 = 0;
+        for (header.bytes, 0..) |b, i| {
+            if (148 <= i and i < 156) continue; // skip chksum field bytes
+            sum += b;
+        }
+        // Treating chksum bytes as spaces. 256 = 8 * 32, 8 spaces.
+        return if (sum > 0) sum + 256 else 0;
+    }
+
+    // Checks calculated chksum with value of chksum field.
+    // Returns error or chksum value.
+    // Zero value indicates empty block.
+    pub fn checkChksum(header: Header) !u64 {
+        const field = try header.chksum();
+        const computed = header.computeChksum();
+        if (field != computed) return error.TarHeaderChksum;
+        return field;
     }
 };
 
@@ -368,8 +397,8 @@ fn Iterator(comptime ReaderType: type) type {
             self.attrs.free();
 
             while (try self.reader.readBlock()) |block_bytes| {
-                const block: Header = .{ .bytes = block_bytes[0..BLOCK_SIZE] };
-                if (block.isZero()) return null;
+                const block = Header{ .bytes = block_bytes[0..BLOCK_SIZE] };
+                if (try block.checkChksum() == 0) return null; // zero block found
                 const file_type = block.fileType();
                 const file_size = try block.fileSize();
 
@@ -577,9 +606,6 @@ test parsePaxAttribute {
     try expectError(error.InvalidPaxAttribute, parsePaxAttribute(header, 1010));
     try expectError(error.InvalidPaxAttribute, parsePaxAttribute("", 0));
 }
-
-const std = @import("std");
-const assert = std.debug.assert;
 
 const TestCase = struct {
     const File = struct {
