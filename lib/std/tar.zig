@@ -1,3 +1,6 @@
+const std = @import("std.zig");
+const assert = std.debug.assert;
+
 pub const Options = struct {
     /// Number of directory levels to skip when extracting files.
     strip_components: u32 = 0,
