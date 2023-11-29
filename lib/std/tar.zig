@@ -82,6 +82,10 @@ pub const Header = struct {
         contiguous = '7',
         global_extended_header = 'g',
         extended_header = 'x',
+        // Types 'L' and 'K' are used by the GNU format for a meta file
+        // used to store the path or link name for the next file.
+        gnu_long_name = 'L',
+        gnu_long_link = 'K',
         _,
     };
 
@@ -119,7 +123,8 @@ pub const Header = struct {
     }
 
     pub fn is_ustar(header: Header) bool {
-        return std.mem.eql(u8, header.bytes[257..][0..6], "ustar\x00");
+        const magic = header.bytes[257..][0..6];
+        return std.mem.eql(u8, magic[0..5], "ustar") and (magic[5] == 0 or magic[5] == ' ');
     }
 
     pub fn prefix(header: Header) []const u8 {
@@ -133,12 +138,7 @@ pub const Header = struct {
     }
 
     fn str(header: Header, start: usize, len: usize) []const u8 {
-        const end = start + len;
-        var i: usize = start;
-        while (i < end) : (i += 1) {
-            if (header.bytes[i] == 0) break;
-        }
-        return header.bytes[start..i];
+        return nullStr(header.bytes[start .. start + len]);
     }
 
     fn numeric(header: Header, start: usize, len: usize) !u64 {
@@ -189,6 +189,14 @@ pub const Header = struct {
         return field;
     }
 };
+
+// break string on first null char
+fn nullStr(str: []const u8) []const u8 {
+    for (str, 0..) |c, i| {
+        if (c == 0) return str[0..i];
+    }
+    return str;
+}
 
 fn BufferedReader(comptime ReaderType: type) type {
     return struct {
@@ -274,7 +282,7 @@ fn BufferedReader(comptime ReaderType: type) type {
             reader: *Self,
             auto_advance: bool,
 
-            fn next(self: *@This()) !?[]const u8 {
+            pub fn next(self: *@This()) !?[]const u8 {
                 if (self.offset >= self.size) return null;
 
                 const temp = try self.reader.readChunk(self.chunk_size - self.offset);
@@ -284,22 +292,22 @@ fn BufferedReader(comptime ReaderType: type) type {
                 return slice;
             }
 
-            fn advance(self: *@This(), len: usize) !void {
+            pub fn advance(self: *@This(), len: usize) !void {
                 self.offset += len;
                 try self.reader.skip(len);
             }
 
-            fn byte(self: *@This()) u8 {
+            pub fn byte(self: *@This()) u8 {
                 return self.reader.buffer[self.reader.start];
             }
 
-            fn copy(self: *@This(), dst: []u8) ![]const u8 {
+            pub fn copy(self: *@This(), dst: []u8) ![]const u8 {
                 _ = try self.reader.copy(dst);
                 self.offset += dst.len;
                 return dst;
             }
 
-            fn remainingSize(self: *@This()) usize {
+            pub fn remainingSize(self: *@This()) usize {
                 return self.size - self.offset;
             }
         };
@@ -441,6 +449,14 @@ fn Iterator(comptime ReaderType: type) type {
                             if (rdr.byte() != '\n') return error.InvalidPaxAttribute;
                             try rdr.advance(1);
                         }
+                        try self.reader.skipPadding(file_size);
+                    },
+                    .gnu_long_name => {
+                        file.name = nullStr(try self.reader.copy(try self.attrs.alloc(file_size)));
+                        try self.reader.skipPadding(file_size);
+                    },
+                    .gnu_long_link => {
+                        file.link_name = nullStr(try self.reader.copy(try self.attrs.alloc(file_size)));
                         try self.reader.skipPadding(file_size);
                     },
                     .hard_link => return error.TarUnsupportedFileType,
@@ -624,22 +640,20 @@ test "parsePaxAttribute" {
 
 const TestCase = struct {
     const File = struct {
-        const empty_string = &[0]u8{};
-
         name: []const u8,
         size: usize = 0,
-        link_name: []const u8 = empty_string,
+        link_name: []const u8 = &[0]u8{},
         file_type: Header.FileType = .normal,
         truncated: bool = false, // when there is no file body, just header, usefull for huge files
     };
 
-    path: []const u8,
-    files: []const File = &[_]TestCase.File{},
-    chksums: []const []const u8 = &[_][]const u8{},
-    err: ?anyerror = null,
+    path: []const u8, // path to the tar archive file on dis
+    files: []const File = &[_]TestCase.File{}, // expected files to found in archive
+    chksums: []const []const u8 = &[_][]const u8{}, // chksums of files content
+    err: ?anyerror = null, // parsing should fail with this error
 };
 
-test "Go test cases" {
+test "tar: Go test cases" {
     const test_dir = try std.fs.openDirAbsolute("/usr/local/go/src/archive/tar/testdata", .{});
     const cases = [_]TestCase{
         .{
@@ -718,12 +732,6 @@ test "Go test cases" {
         .{
             // pax attribute don't end with \n
             .path = "pax-bad-hdr-file.tar",
-            // .files = &[_]TestCase.File{
-            //     .{
-            //         .name = "PAX1/PAX1/long-path-name",
-            //         .size = 684,
-            //     },
-            // },
             .err = error.InvalidPaxAttribute,
         },
         //
@@ -808,9 +816,16 @@ test "Go test cases" {
         },
         .{
             .path = "gnu-multi-hdrs.tar",
-            .err = error.TarUnsupportedFileType,
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "GNU2/GNU2/long-path-name",
+                    .link_name = "GNU4/GNU4/long-linkpath-name",
+                    .file_type = .symbolic_link,
+                },
+            },
         },
         .{
+            // has gnu type D (directory) and S (sparse) blocks
             .path = "gnu-incremental.tar",
             .err = error.TarUnsupportedFileType,
         },
@@ -825,23 +840,22 @@ test "Go test cases" {
                 },
             },
         },
-        // .{
-        //     .path = "gnu-long-nul.tar",
-        //     .files = &[_]TestCase.File{
-        //         .{
-        //             .name = "012233456789",
-        //         },
-        //     },
-        // },
-        // .{
-        //     .path = "gnu-utf8.tar",
-        //     .files = &[_]TestCase.File{
-        //         .{
-        //             .name = "012233456789",
-        //         },
-        //     },
-        // },
-        //
+        .{
+            .path = "gnu-long-nul.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "0123456789",
+                },
+            },
+        },
+        .{
+            .path = "gnu-utf8.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹",
+                },
+            },
+        },
         .{
             .path = "gnu-not-utf8.tar",
             .files = &[_]TestCase.File{
@@ -851,19 +865,47 @@ test "Go test cases" {
             },
         },
         .{
-            .path = "neg-size.tar",
-            .err = error.TarHeader,
+            // null in pax key
+            .path = "pax-nul-xattrs.tar",
+            .err = error.InvalidPaxAttribute,
         },
         .{
             .path = "pax-nul-path.tar",
             .err = error.InvalidPaxAttribute,
         },
         .{
-            .path = "pax-nul-xattrs.tar",
-            .err = error.InvalidPaxAttribute,
+            .path = "neg-size.tar",
+            .err = error.TarHeader,
         },
-        // TODO some files with errors:
-        // issue10968.tar, issue11169.tar, issue12435.tar
+        .{
+            .path = "issue10968.tar",
+            .err = error.TarHeader,
+        },
+        .{
+            .path = "issue11169.tar",
+            .err = error.TarHeader,
+        },
+        .{
+            .path = "issue12435.tar",
+            .err = error.TarHeaderChksum,
+        },
+        .{
+            // has magic with space at end instead of null
+            .path = "invalid-go17.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/foo",
+                },
+            },
+        },
+        .{
+            .path = "ustar-file-devs.tar",
+            .files = &[_]TestCase.File{
+                .{
+                    .name = "file",
+                },
+            },
+        },
         .{
             .path = "trailing-slash.tar",
             .files = &[_]TestCase.File{
