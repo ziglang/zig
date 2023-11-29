@@ -6335,13 +6335,16 @@ pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const
     return full_path;
 }
 
-fn wantBuildLibCFromSource(comp: Compilation) bool {
-    const is_exe_or_dyn_lib = switch (comp.bin_file.options.output_mode) {
+fn isExeOrDynlib(comp: Compilation) bool {
+    return switch (comp.bin_file.options.output_mode) {
         .Obj => false,
         .Lib => comp.bin_file.options.link_mode == .Dynamic,
         .Exe => true,
     };
-    return comp.bin_file.options.link_libc and is_exe_or_dyn_lib and
+}
+
+fn wantBuildLibCFromSource(comp: Compilation) bool {
+    return comp.bin_file.options.link_libc and comp.isExeOrDynlib() and
         comp.bin_file.options.libc_installation == null and
         comp.bin_file.options.target.ofmt != .c;
 }
@@ -6351,8 +6354,17 @@ fn wantBuildGLibCFromSource(comp: Compilation) bool {
 }
 
 fn wantBuildMuslFromSource(comp: Compilation) bool {
-    return comp.wantBuildLibCFromSource() and comp.getTarget().isMusl() and
-        !comp.getTarget().isWasm();
+    if (!comp.getTarget().isMusl() or comp.getTarget().isWasm())
+        return false;
+
+    if (comp.isExeOrDynlib() and !comp.bin_file.options.link_libc and
+        comp.bin_file.options.target.ofmt != .c)
+    {
+        // If exe/dynlib is't link libc but the target abi is musl, return true
+        return true;
+    }
+
+    return comp.wantBuildLibCFromSource();
 }
 
 fn wantBuildWasiLibcFromSource(comp: Compilation) bool {
@@ -6365,12 +6377,7 @@ fn wantBuildMinGWFromSource(comp: Compilation) bool {
 }
 
 fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
-    const is_exe_or_dyn_lib = switch (comp.bin_file.options.output_mode) {
-        .Obj => false,
-        .Lib => comp.bin_file.options.link_mode == .Dynamic,
-        .Exe => true,
-    };
-    return is_exe_or_dyn_lib and comp.bin_file.options.link_libunwind and
+    return comp.isExeOrDynlib() and comp.bin_file.options.link_libunwind and
         comp.bin_file.options.target.ofmt != .c;
 }
 
