@@ -317,8 +317,6 @@ const sanitizer_common_sources = [_][]const u8{
     "sanitizer_mac.cpp",
     "sanitizer_mutex.cpp",
     "sanitizer_netbsd.cpp",
-    "sanitizer_openbsd.cpp",
-    "sanitizer_persistent_allocator.cpp",
     "sanitizer_platform_limits_freebsd.cpp",
     "sanitizer_platform_limits_linux.cpp",
     "sanitizer_platform_limits_netbsd.cpp",
