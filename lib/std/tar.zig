@@ -198,6 +198,16 @@ fn nullStr(str: []const u8) []const u8 {
     return str;
 }
 
+// File size rounded to te block boundary.
+inline fn roundedFileSize(file_size: usize) usize {
+    return std.mem.alignForward(usize, file_size, BLOCK_SIZE);
+}
+
+// Number of padding bytes in the last file block.
+inline fn filePadding(file_size: usize) usize {
+    return roundedFileSize(file_size) - file_size;
+}
+
 fn BufferedReader(comptime ReaderType: type) type {
     return struct {
         unbuffered_reader: ReaderType,
@@ -207,16 +217,32 @@ fn BufferedReader(comptime ReaderType: type) type {
 
         const Self = @This();
 
-        pub fn readChunk(self: *Self, count: usize) ![]const u8 {
-            self.ensureCapacity(1024);
-
+        fn readChunk(self: *Self, count: usize) ![]const u8 {
+            self.ensureCapacity(BLOCK_SIZE * 2);
             const ask = @min(self.buffer.len - self.end, count -| (self.end - self.start));
             self.end += try self.unbuffered_reader.readAtLeast(self.buffer[self.end..], ask);
-
             return self.buffer[self.start..self.end];
         }
 
-        pub fn readBlock(self: *Self) !?[]const u8 {
+        // Returns slice of size count or part of it.
+        pub fn readSlice(self: *Self, count: usize) ![]const u8 {
+            if (count <= self.end - self.start) {
+                // fastpath, we have enough bytes in buffer
+                return self.buffer[self.start .. self.start + count];
+            }
+
+            const chunk_size = roundedFileSize(count) + BLOCK_SIZE;
+            const temp = try self.readChunk(chunk_size);
+            if (temp.len == 0) return error.UnexpectedEndOfStream;
+            return temp[0..@min(count, temp.len)];
+        }
+
+        // Returns tar header block, 512 bytes. Before reading advances buffer
+        // for padding of the previous block, to position reader at the start of
+        // new block. After reading advances for block size, to position reader
+        // at the start of the file body.
+        pub fn readBlock(self: *Self, padding: usize) !?[]const u8 {
+            try self.skip(padding);
             const block_bytes = try self.readChunk(BLOCK_SIZE * 2);
             switch (block_bytes.len) {
                 0 => return null,
@@ -227,11 +253,19 @@ fn BufferedReader(comptime ReaderType: type) type {
             return block_bytes[0..BLOCK_SIZE];
         }
 
+        // Retruns byte at current position in buffer.
+        pub fn readByte(self: *@This()) u8 {
+            return self.buffer[self.start];
+        }
+
+        // Advances reader for count bytes, assumes that we have that number of
+        // bytes in buffer.
         pub fn advance(self: *Self, count: usize) void {
             self.start += count;
             assert(self.start <= self.end);
         }
 
+        // Advances reader without assuming that count bytes are in the buffer.
         pub fn skip(self: *Self, count: usize) !void {
             if (self.start + count > self.end) {
                 try self.unbuffered_reader.skipBytes(self.start + count - self.end, .{});
@@ -239,14 +273,6 @@ fn BufferedReader(comptime ReaderType: type) type {
             } else {
                 self.advance(count);
             }
-        }
-
-        pub fn skipPadding(self: *Self, file_size: usize) !void {
-            return self.skip(filePadding(file_size));
-        }
-
-        pub fn skipFile(self: *Self, file_size: usize) !void {
-            return self.skip(roundedFileSize(file_size));
         }
 
         inline fn ensureCapacity(self: *Self, count: usize) void {
@@ -258,16 +284,26 @@ fn BufferedReader(comptime ReaderType: type) type {
             }
         }
 
-        pub fn write(self: *Self, writer: anytype, size: usize) !void {
-            var rdr = self.sliceReader(size, true);
+        // Write count bytes to the writer.
+        pub fn write(self: *Self, writer: anytype, count: usize) !void {
+            if (self.read(count)) |buf| {
+                try writer.writeAll(buf);
+                return;
+            }
+            var rdr = self.sliceReader(count);
             while (try rdr.next()) |slice| {
                 try writer.writeAll(slice);
             }
         }
 
-        // copy dst.len bytes into dst
+        // Copy dst.len bytes into dst buffer.
         pub fn copy(self: *Self, dst: []u8) ![]const u8 {
-            var rdr = self.sliceReader(dst.len, true);
+            if (self.read(dst.len)) |buf| {
+                // fastpath we already have enough bytes in buffer
+                @memcpy(dst, buf);
+                return dst;
+            }
+            var rdr = self.sliceReader(dst.len);
             var pos: usize = 0;
             while (try rdr.next()) |slice| : (pos += slice.len) {
                 @memcpy(dst[pos .. pos + slice.len], slice);
@@ -275,91 +311,151 @@ fn BufferedReader(comptime ReaderType: type) type {
             return dst;
         }
 
+        // Retruns count bytes from buffer and advances for that number of
+        // bytes. If we don't have that much bytes buffered returns null.
+        fn read(self: *Self, count: usize) ?[]const u8 {
+            if (count <= self.end - self.start) {
+                const buf = self.buffer[self.start .. self.start + count];
+                self.advance(count);
+                return buf;
+            }
+            return null;
+        }
+
         const SliceReader = struct {
             size: usize,
-            chunk_size: usize,
             offset: usize,
             reader: *Self,
-            auto_advance: bool,
 
-            pub fn next(self: *@This()) !?[]const u8 {
-                if (self.offset >= self.size) return null;
-
-                const temp = try self.reader.readChunk(self.chunk_size - self.offset);
-                if (temp.len == 0) return error.UnexpectedEndOfStream;
-                const slice = temp[0..@min(self.remainingSize(), temp.len)];
-                if (self.auto_advance) try self.advance(slice.len);
+            pub fn next(self: *SliceReader) !?[]const u8 {
+                const remaining_size = self.size - self.offset;
+                if (remaining_size == 0) return null;
+                const slice = try self.reader.readSlice(remaining_size);
+                self.advance(slice.len);
                 return slice;
             }
 
-            pub fn advance(self: *@This(), len: usize) !void {
+            fn advance(self: *SliceReader, len: usize) void {
                 self.offset += len;
-                try self.reader.skip(len);
-            }
-
-            pub fn byte(self: *@This()) u8 {
-                return self.reader.buffer[self.reader.start];
-            }
-
-            pub fn copy(self: *@This(), dst: []u8) ![]const u8 {
-                _ = try self.reader.copy(dst);
-                self.offset += dst.len;
-                return dst;
-            }
-
-            pub fn remainingSize(self: *@This()) usize {
-                return self.size - self.offset;
+                self.reader.advance(len);
             }
         };
 
-        pub fn sliceReader(self: *Self, size: usize, auto_advance: bool) Self.SliceReader {
+        pub fn sliceReader(self: *Self, size: usize) SliceReader {
             return .{
                 .size = size,
-                .chunk_size = roundedFileSize(size) + BLOCK_SIZE,
-                .offset = 0,
                 .reader = self,
-                .auto_advance = auto_advance,
+                .offset = 0,
             };
         }
+
+        pub fn paxFileReader(self: *Self, size: usize) PaxFileReader {
+            return .{
+                .size = size,
+                .reader = self,
+                .offset = 0,
+            };
+        }
+
+        const PaxFileReader = struct {
+            size: usize,
+            offset: usize = 0,
+            reader: *Self,
+
+            const PaxKey = enum {
+                path,
+                linkpath,
+                size,
+            };
+
+            const PaxAttribute = struct {
+                key: PaxKey,
+                value_len: usize,
+                parent: *PaxFileReader,
+
+                // Copies pax attribute value into destination buffer.
+                // Must be called with destination buffer of size at least value_len.
+                pub fn value(self: PaxAttribute, dst: []u8) ![]u8 {
+                    assert(dst.len >= self.value_len);
+                    const buf = dst[0..self.value_len];
+                    _ = try self.parent.reader.copy(buf);
+                    self.parent.offset += buf.len;
+                    try self.parent.checkAttributeEnding();
+                    return buf;
+                }
+            };
+
+            // Caller of the next has to call value in PaxAttribute, to advance
+            // reader across value.
+            pub fn next(self: *PaxFileReader) !?PaxAttribute {
+                const rdr = self.reader;
+                _ = rdr;
+
+                while (true) {
+                    const remaining_size = self.size - self.offset;
+                    if (remaining_size == 0) return null;
+
+                    const inf = try parsePaxAttribute(
+                        try self.reader.readSlice(remaining_size),
+                        remaining_size,
+                    );
+                    const key: PaxKey = if (inf.is("path"))
+                        .path
+                    else if (inf.is("linkpath"))
+                        .linkpath
+                    else if (inf.is("size"))
+                        .size
+                    else {
+                        try self.advance(inf.value_off + inf.value_len);
+                        try self.checkAttributeEnding();
+                        continue;
+                    };
+                    try self.advance(inf.value_off); // position reader at the start of the value
+                    return PaxAttribute{ .key = key, .value_len = inf.value_len, .parent = self };
+                }
+            }
+
+            fn checkAttributeEnding(self: *PaxFileReader) !void {
+                if (self.reader.readByte() != '\n') return error.InvalidPaxAttribute;
+                try self.advance(1);
+            }
+
+            fn advance(self: *PaxFileReader, len: usize) !void {
+                self.offset += len;
+                try self.reader.skip(len);
+            }
+        };
     };
-}
-
-// File size rounded to te block boundary.
-inline fn roundedFileSize(file_size: usize) usize {
-    return std.mem.alignForward(usize, file_size, BLOCK_SIZE);
-}
-
-// Number of padding bytes in the last file block.
-inline fn filePadding(file_size: usize) usize {
-    return roundedFileSize(file_size) - file_size;
 }
 
 fn Iterator(comptime ReaderType: type) type {
     const BufferedReaderType = BufferedReader(ReaderType);
     return struct {
-        attrs: struct {
-            buffer: [std.fs.MAX_PATH_BYTES * 2]u8 = undefined,
+        // scratch buffer for file attributes
+        scratch: struct {
+            // size: two paths (name and link_name) and size (24 in pax attribute)
+            buffer: [std.fs.MAX_PATH_BYTES * 2 + 24]u8 = undefined,
             tail: usize = 0,
 
+            // Allocate size of the buffer for some attribute.
             fn alloc(self: *@This(), size: usize) ![]u8 {
-                if (size > self.len()) return error.NameTooLong;
+                const free_size = self.buffer.len - self.tail;
+                if (size > free_size) return error.TarScratchBufferOverflow;
                 const head = self.tail;
                 self.tail += size;
                 assert(self.tail <= self.buffer.len);
                 return self.buffer[head..self.tail];
             }
 
+            // Free whole buffer.
             fn free(self: *@This()) void {
                 self.tail = 0;
-            }
-
-            fn len(self: *@This()) usize {
-                return self.buffer.len - self.tail;
             }
         } = .{},
 
         reader: BufferedReaderType,
         diagnostics: ?*Options.Diagnostics,
+        padding: usize = 0, // bytes of file padding
 
         const Self = @This();
 
@@ -372,28 +468,22 @@ fn Iterator(comptime ReaderType: type) type {
 
             pub fn write(self: File, writer: anytype) !void {
                 try self.reader.write(writer, self.size);
-                try self.skipPadding();
             }
 
             pub fn skip(self: File) !void {
-                try self.reader.skip(roundedFileSize(self.size));
-            }
-
-            fn skipPadding(self: File) !void {
-                try self.reader.skip(filePadding(self.size));
+                try self.reader.skip(self.size);
             }
 
             fn chksum(self: File) ![16]u8 {
                 var sum = [_]u8{0} ** 16;
                 if (self.size == 0) return sum;
 
-                var rdr = self.reader.sliceReader(self.size, true);
+                var rdr = self.reader.sliceReader(self.size);
                 var h = std.crypto.hash.Md5.init(.{});
                 while (try rdr.next()) |slice| {
                     h.update(slice);
                 }
                 h.final(&sum);
-                try self.skipPadding();
                 return sum;
             }
         };
@@ -406,64 +496,65 @@ fn Iterator(comptime ReaderType: type) type {
         // "normal file".
         pub fn next(self: *Self) !?File {
             var file: File = .{ .reader = &self.reader };
-            self.attrs.free();
+            self.scratch.free();
 
-            while (try self.reader.readBlock()) |block_bytes| {
-                const block = Header{ .bytes = block_bytes[0..BLOCK_SIZE] };
-                if (try block.checkChksum() == 0) return null; // zero block found
-                const file_type = block.fileType();
-                const file_size = try block.fileSize();
+            while (try self.reader.readBlock(self.padding)) |block_bytes| {
+                const header = Header{ .bytes = block_bytes[0..BLOCK_SIZE] };
+                if (try header.checkChksum() == 0) return null; // zero block found
+
+                const file_type = header.fileType();
+                const file_size = try header.fileSize();
+                self.padding = filePadding(file_size);
 
                 switch (file_type) {
+                    // file types to retrun from next
                     .directory, .normal, .symbolic_link => {
                         if (file.size == 0) file.size = file_size;
+                        self.padding = filePadding(file.size);
+
                         if (file.name.len == 0)
-                            file.name = try block.fullFileName((try self.attrs.alloc(std.fs.MAX_PATH_BYTES))[0..std.fs.MAX_PATH_BYTES]);
-                        if (file.link_name.len == 0) file.link_name = block.linkName();
+                            file.name = try header.fullFileName((try self.scratch.alloc(std.fs.MAX_PATH_BYTES))[0..std.fs.MAX_PATH_BYTES]);
+                        if (file.link_name.len == 0) file.link_name = header.linkName();
                         file.file_type = file_type;
                         return file;
                     },
-                    .global_extended_header => {
-                        self.reader.skipFile(file_size) catch return error.TarHeadersTooBig;
+                    // prefix header types
+                    .gnu_long_name => {
+                        file.name = nullStr(try self.reader.copy(try self.scratch.alloc(file_size)));
+                    },
+                    .gnu_long_link => {
+                        file.link_name = nullStr(try self.reader.copy(try self.scratch.alloc(file_size)));
                     },
                     .extended_header => {
                         if (file_size == 0) continue;
-                        // TODO: ovo resetiranje je nezgodno
-                        self.attrs.free();
+                        // use just last extended header data
+                        self.scratch.free();
                         file = File{ .reader = &self.reader };
 
-                        var rdr = self.reader.sliceReader(file_size, false);
-                        while (try rdr.next()) |slice| {
-                            const attr = try parsePaxAttribute(slice, rdr.remainingSize());
-                            try rdr.advance(attr.value_off);
-                            if (attr.is("path")) {
-                                file.name = try noNull(try rdr.copy(try self.attrs.alloc(attr.value_len)));
-                            } else if (attr.is("linkpath")) {
-                                file.link_name = try noNull(try rdr.copy(try self.attrs.alloc(attr.value_len)));
-                            } else if (attr.is("size")) {
-                                var buf = [_]u8{'0'} ** 32;
-                                file.size = try std.fmt.parseInt(usize, try rdr.copy(buf[0..attr.value_len]), 10);
-                            } else {
-                                try rdr.advance(attr.value_len);
+                        var rdr = self.reader.paxFileReader(file_size);
+                        while (try rdr.next()) |attr| {
+                            switch (attr.key) {
+                                .path => {
+                                    file.name = try noNull(try attr.value(try self.scratch.alloc(attr.value_len)));
+                                },
+                                .linkpath => {
+                                    file.link_name = try noNull(try attr.value(try self.scratch.alloc(attr.value_len)));
+                                },
+                                .size => {
+                                    file.size = try std.fmt.parseInt(usize, try attr.value(try self.scratch.alloc(attr.value_len)), 10);
+                                },
                             }
-                            if (rdr.byte() != '\n') return error.InvalidPaxAttribute;
-                            try rdr.advance(1);
                         }
-                        try self.reader.skipPadding(file_size);
                     },
-                    .gnu_long_name => {
-                        file.name = nullStr(try self.reader.copy(try self.attrs.alloc(file_size)));
-                        try self.reader.skipPadding(file_size);
+                    // ignored header types
+                    .global_extended_header => {
+                        self.reader.skip(file_size) catch return error.TarHeadersTooBig;
                     },
-                    .gnu_long_link => {
-                        file.link_name = nullStr(try self.reader.copy(try self.attrs.alloc(file_size)));
-                        try self.reader.skipPadding(file_size);
-                    },
-                    .hard_link => return error.TarUnsupportedFileType,
+                    // unsupported header types
                     else => {
                         const d = self.diagnostics orelse return error.TarUnsupportedFileType;
                         try d.errors.append(d.allocator, .{ .unsupported_file_type = .{
-                            .file_name = try d.allocator.dupe(u8, block.name()),
+                            .file_name = try d.allocator.dupe(u8, header.name()),
                             .file_type = file_type,
                         } });
                     },
