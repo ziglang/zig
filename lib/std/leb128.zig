@@ -1,4 +1,5 @@
 const std = @import("std");
+const math = std.math;
 const testing = std.testing;
 
 /// Read a single unsigned LEB128 value from the given reader as type T,
@@ -15,10 +16,8 @@ pub fn readULEB128(comptime T: type, reader: anytype) !T {
     while (group < max_group) : (group += 1) {
         const byte = try reader.readByte();
 
-        const ov = @shlWithOverflow(@as(U, byte & 0x7f), group * 7);
-        if (ov[1] != 0) return error.Overflow;
-
-        value |= ov[0];
+        const mask = try math.shlExact(U, byte & 0x7f, group * 7);
+        value |= mask;
         if (byte & 0x80 == 0) break;
     } else {
         return error.Overflow;
