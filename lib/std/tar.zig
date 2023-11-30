@@ -536,14 +536,15 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
     while (try iter.next()) |file| {
         switch (file.kind) {
             .directory => {
-                const file_name = try stripComponents(file.name, options.strip_components);
+                const file_name = stripComponents(file.name, options.strip_components);
                 if (file_name.len != 0 and !options.exclude_empty_directories) {
                     try dir.makePath(file_name);
                 }
             },
             .normal => {
                 if (file.size == 0 and file.name.len == 0) return;
-                const file_name = try stripComponents(file.name, options.strip_components);
+                const file_name = stripComponents(file.name, options.strip_components);
+                if (file_name.len == 0) return error.BadFileName;
 
                 const fs_file = dir.createFile(file_name, .{}) catch |err| switch (err) {
                     error.FileNotFound => again: {
@@ -575,7 +576,8 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
             },
             .symbolic_link => {
                 // The file system path of the symbolic link.
-                const file_name = try stripComponents(file.name, options.strip_components);
+                const file_name = stripComponents(file.name, options.strip_components);
+                if (file_name.len == 0) return error.BadFileName;
                 // The data inside the symbolic link.
                 const link_name = file.link_name;
 
@@ -604,14 +606,15 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
     }
 }
 
-fn stripComponents(path: []const u8, count: u32) ![]const u8 {
+fn stripComponents(path: []const u8, count: u32) []const u8 {
     var i: usize = 0;
     var c = count;
     while (c > 0) : (c -= 1) {
         if (std.mem.indexOfScalarPos(u8, path, i, '/')) |pos| {
             i = pos + 1;
         } else {
-            return error.TarComponentsOutsideStrippedPrefix;
+            i = path.len;
+            break;
         }
     }
     return path[i..];
@@ -619,9 +622,11 @@ fn stripComponents(path: []const u8, count: u32) ![]const u8 {
 
 test "tar stripComponents" {
     const expectEqualStrings = std.testing.expectEqualStrings;
-    try expectEqualStrings("a/b/c", try stripComponents("a/b/c", 0));
-    try expectEqualStrings("b/c", try stripComponents("a/b/c", 1));
-    try expectEqualStrings("c", try stripComponents("a/b/c", 2));
+    try expectEqualStrings("a/b/c", stripComponents("a/b/c", 0));
+    try expectEqualStrings("b/c", stripComponents("a/b/c", 1));
+    try expectEqualStrings("c", stripComponents("a/b/c", 2));
+    try expectEqualStrings("", stripComponents("a/b/c", 3));
+    try expectEqualStrings("", stripComponents("a/b/c", 4));
 }
 
 test "tar PaxIterator" {
