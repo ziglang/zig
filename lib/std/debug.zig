@@ -2657,6 +2657,8 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
 }
 
 test "manage resources correctly" {
+    if (builtin.strip_debug_info) return error.SkipZigTest;
+
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     if (builtin.os.tag == .windows) {
