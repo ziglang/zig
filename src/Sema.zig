@@ -27865,6 +27865,7 @@ fn coerceExtra(
             return sema.coerceInMemory(val, dest_ty);
         }
         try sema.requireRuntimeBlock(block, inst_src, null);
+        try sema.queueFullTypeResolution(dest_ty);
         const new_val = try block.addBitCast(dest_ty, inst);
         try sema.checkKnownAllocPtr(inst, new_val);
         return new_val;
