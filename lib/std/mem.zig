@@ -3786,13 +3786,12 @@ pub fn alignPointerOffset(ptr: anytype, align_to: usize) ?usize {
 
     // Calculate the aligned base address with an eye out for overflow.
     const addr = @intFromPtr(ptr);
-    var ov = @addWithOverflow(addr, align_to - 1);
-    if (ov[1] != 0) return null;
-    ov[0] &= ~@as(usize, align_to - 1);
+    var aligned_addr = math.add(usize, addr, align_to - 1) catch return null;
+    aligned_addr &= ~@as(usize, align_to - 1);
 
     // The delta is expressed in terms of bytes, turn it into a number of child
     // type elements.
-    const delta = ov[0] - addr;
+    const delta = aligned_addr - addr;
     const pointee_size = @sizeOf(info.Pointer.child);
     if (delta % pointee_size != 0) return null;
     return delta / pointee_size;

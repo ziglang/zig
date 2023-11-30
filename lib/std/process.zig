@@ -1531,16 +1531,8 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
                             '0'...'9' => byte - '0',
                             else => return error.CorruptPasswordFile,
                         };
-                        {
-                            const ov = @mulWithOverflow(uid, 10);
-                            if (ov[1] != 0) return error.CorruptPasswordFile;
-                            uid = ov[0];
-                        }
-                        {
-                            const ov = @addWithOverflow(uid, digit);
-                            if (ov[1] != 0) return error.CorruptPasswordFile;
-                            uid = ov[0];
-                        }
+                        uid = std.math.mul(posix.uid_t, uid, 10) catch return error.CorruptPasswordFile;
+                        uid = std.math.add(posix.uid_t, uid, digit) catch return error.CorruptPasswordFile;
                     },
                 },
                 .ReadGroupId => switch (byte) {
@@ -1555,16 +1547,8 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
                             '0'...'9' => byte - '0',
                             else => return error.CorruptPasswordFile,
                         };
-                        {
-                            const ov = @mulWithOverflow(gid, 10);
-                            if (ov[1] != 0) return error.CorruptPasswordFile;
-                            gid = ov[0];
-                        }
-                        {
-                            const ov = @addWithOverflow(gid, digit);
-                            if (ov[1] != 0) return error.CorruptPasswordFile;
-                            gid = ov[0];
-                        }
+                        gid = std.math.mul(posix.gid_t, gid, 10) catch return error.CorruptPasswordFile;
+                        gid = std.math.add(posix.gid_t, gid, digit) catch return error.CorruptPasswordFile;
                     },
                 },
             }
