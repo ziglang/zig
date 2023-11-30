@@ -982,7 +982,9 @@ fn unpackResource(
             if (ascii.eqlIgnoreCase(mime_type, "application/zstd"))
                 break :ft .@"tar.zst";
 
-            if (!ascii.eqlIgnoreCase(mime_type, "application/octet-stream")) {
+            if (!ascii.eqlIgnoreCase(mime_type, "application/octet-stream") and
+                !ascii.eqlIgnoreCase(mime_type, "application/x-compressed"))
+            {
                 return f.fail(f.location_tok, try eb.printString(
                     "unrecognized 'Content-Type' header: '{s}'",
                     .{content_type},
