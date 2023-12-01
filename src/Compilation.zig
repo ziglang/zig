@@ -1289,7 +1289,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const sysroot = options.sysroot orelse libc_dirs.sysroot;
 
         const pie: bool = pie: {
-            if (is_dyn_lib) {
+            if (link_mode == .Static or is_dyn_lib) {
                 if (options.want_pie == true) return error.OutputModeForbidsPie;
                 break :pie false;
             }
