@@ -1058,15 +1058,9 @@ fn addModuleTableToCacheHash(
 }
 
 pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
-    const is_dyn_lib = switch (options.output_mode) {
-        .Obj, .Exe => false,
-        .Lib => (options.link_mode orelse .Static) == .Dynamic,
-    };
-    const is_exe_or_dyn_lib = switch (options.output_mode) {
-        .Obj => false,
-        .Lib => is_dyn_lib,
-        .Exe => true,
-    };
+    const is_lib = options.output_mode == .Lib;
+    const is_dyn_lib = is_lib and (options.link_mode orelse .Static) == .Dynamic;
+    const is_exe_or_dyn_lib = options.output_mode == .Exe or is_dyn_lib;
 
     // WASI-only. Resolve the optional exec-model option, defaults to command.
     const wasi_exec_model = if (options.target.os.tag != .wasi) undefined else options.wasi_exec_model orelse .command;
@@ -1289,7 +1283,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const sysroot = options.sysroot orelse libc_dirs.sysroot;
 
         const pie: bool = pie: {
-            if (link_mode == .Static or is_dyn_lib) {
+            if (is_lib) {
                 if (options.want_pie == true) return error.OutputModeForbidsPie;
                 break :pie false;
             }
