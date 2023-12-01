@@ -11237,30 +11237,6 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     const operand_ty = sema.typeOf(raw_operand_val);
     const operand_err_set_ty = operand_ty.errorUnionSet(mod);
 
-    const else_error_ty: ?Type = try validateErrSetSwitch(
-        sema,
-        block,
-        &seen_errors,
-        &case_vals,
-        operand_err_set_ty,
-        inst_data,
-        scalar_cases_len,
-        multi_cases_len,
-        .{ .body = else_case.body, .end = else_case.end, .src = else_prong_src },
-        extra.data.bits.has_else,
-    );
-
-    var spa: SwitchProngAnalysis = .{
-        .sema = sema,
-        .parent_block = block,
-        .operand = undefined, // must be set to the unwrapped error code before use
-        .operand_ptr = .none,
-        .cond = raw_operand_val,
-        .else_error_ty = else_error_ty,
-        .switch_block_inst = inst,
-        .tag_capture_inst = undefined,
-    };
-
     const block_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
     try sema.air_instructions.append(gpa, .{
         .tag = .block,
@@ -11297,6 +11273,35 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     const merges = &child_block.label.?.merges;
     defer child_block.instructions.deinit(gpa);
     defer merges.deinit(gpa);
+
+    const resolved_err_set = try sema.resolveInferredErrorSetTy(block, src, operand_err_set_ty.toIntern());
+    if (Type.fromInterned(resolved_err_set).errorSetIsEmpty(mod)) {
+        return sema.resolveBlockBody(block, operand_src, &child_block, non_error_case.body, inst, merges);
+    }
+
+    const else_error_ty: ?Type = try validateErrSetSwitch(
+        sema,
+        block,
+        &seen_errors,
+        &case_vals,
+        operand_err_set_ty,
+        inst_data,
+        scalar_cases_len,
+        multi_cases_len,
+        .{ .body = else_case.body, .end = else_case.end, .src = else_prong_src },
+        extra.data.bits.has_else,
+    );
+
+    var spa: SwitchProngAnalysis = .{
+        .sema = sema,
+        .parent_block = block,
+        .operand = undefined, // must be set to the unwrapped error code before use
+        .operand_ptr = .none,
+        .cond = raw_operand_val,
+        .else_error_ty = else_error_ty,
+        .switch_block_inst = inst,
+        .tag_capture_inst = undefined,
+    };
 
     if (try sema.resolveDefinedValue(&child_block, src, raw_operand_val)) |operand_val| {
         if (operand_val.errorUnionIsPayload(mod)) {
