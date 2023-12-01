@@ -569,7 +569,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                             try hsd.ensure(sig_len);
                             const encoded_sig = hsd.slice(sig_len);
                             const max_digest_len = 64;
-                            var verify_buffer =
+                            var verify_buffer: [64 + 34 + max_digest_len]u8 =
                                 ([1]u8{0x20} ** 64) ++
                                 "TLS 1.3, server CertificateVerify\x00".* ++
                                 @as([max_digest_len]u8, undefined);
