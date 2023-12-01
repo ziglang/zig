@@ -355,7 +355,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                     inline .AES_128_GCM_SHA256,
                     .AES_256_GCM_SHA384,
                     .CHACHA20_POLY1305_SHA256,
-                    .AEGIS_256_SHA384,
+                    .AEGIS_256_SHA512,
                     .AEGIS_128L_SHA256,
                     => |tag| {
                         const P = std.meta.TagPayloadByName(tls.HandshakeCipher, @tagName(tag));
@@ -1406,7 +1406,7 @@ fn limitVecs(iovecs: []std.os.iovec, len: usize) []std.os.iovec {
 const cipher_suites = if (crypto.core.aes.has_hardware_support)
     enum_array(tls.CipherSuite, &.{
         .AEGIS_128L_SHA256,
-        .AEGIS_256_SHA384,
+        .AEGIS_256_SHA512,
         .AES_128_GCM_SHA256,
         .AES_256_GCM_SHA384,
         .CHACHA20_POLY1305_SHA256,
@@ -1415,7 +1415,7 @@ else
     enum_array(tls.CipherSuite, &.{
         .CHACHA20_POLY1305_SHA256,
         .AEGIS_128L_SHA256,
-        .AEGIS_256_SHA384,
+        .AEGIS_256_SHA512,
         .AES_128_GCM_SHA256,
         .AES_256_GCM_SHA384,
     });
