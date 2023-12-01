@@ -628,7 +628,7 @@ fn stripComponents(path: []const u8, count: u32) ![]const u8 {
     return path[i..];
 }
 
-test stripComponents {
+test "tar stripComponents" {
     const expectEqualStrings = std.testing.expectEqualStrings;
     try expectEqualStrings("a/b/c", try stripComponents("a/b/c", 0));
     try expectEqualStrings("b/c", try stripComponents("a/b/c", 1));
@@ -667,7 +667,7 @@ fn noNull(str: []const u8) ![]const u8 {
     return str;
 }
 
-test "parsePaxAttribute" {
+test "tar parsePaxAttribute" {
     const expectEqual = std.testing.expectEqual;
     const expectEqualStrings = std.testing.expectEqualStrings;
     const expectError = std.testing.expectError;
@@ -700,7 +700,7 @@ const TestCase = struct {
     err: ?anyerror = null, // parsing should fail with this error
 };
 
-test "tar: Go test cases" {
+test "tar run Go test cases" {
     const test_dir = if (std.os.getenv("GO_TAR_TESTDATA_PATH")) |path|
         try std.fs.openDirAbsolute(path, .{})
     else
@@ -1031,4 +1031,3 @@ const Md5Writer = struct {
         return std.fmt.bytesToHex(s, .lower);
     }
 };
-
