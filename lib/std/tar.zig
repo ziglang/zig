@@ -701,7 +701,11 @@ const TestCase = struct {
 };
 
 test "tar: Go test cases" {
-    const test_dir = try std.fs.openDirAbsolute("/usr/local/go/src/archive/tar/testdata", .{});
+    const test_dir = if (std.os.getenv("GO_TAR_TESTDATA_PATH")) |path|
+        try std.fs.openDirAbsolute(path, .{})
+    else
+        return error.SkipZigTest;
+
     const cases = [_]TestCase{
         .{
             .path = "gnu.tar",
@@ -781,12 +785,6 @@ test "tar: Go test cases" {
             .path = "pax-bad-hdr-file.tar",
             .err = error.InvalidPaxAttribute,
         },
-        //
-        // .{
-        //     .path = "pax-bad-mtime-file.tar",
-        //     .err = error.TarBadHeader,
-        // },
-        //
         .{
             // size is in pax attribute
             .path = "pax-pos-size-file.tar",
@@ -987,8 +985,6 @@ test "tar: Go test cases" {
     };
 
     for (cases) |case| {
-        //if (!std.mem.eql(u8, case.path, "pax-pos-size-file.tar")) continue;
-
         var fs_file = try test_dir.openFile(case.path, .{});
         defer fs_file.close();
 
@@ -1001,7 +997,7 @@ test "tar: Go test cases" {
             } else {
                 return err;
             }
-        }) |actual| {
+        }) |actual| : (i += 1) {
             const expected = case.files[i];
             try std.testing.expectEqualStrings(expected.name, actual.name);
             try std.testing.expectEqual(expected.size, actual.size);
@@ -1012,7 +1008,6 @@ test "tar: Go test cases" {
                 var md5writer = Md5Writer{};
                 try actual.write(&md5writer);
                 const chksum = md5writer.chksum();
-                // std.debug.print("actual chksum: {s}\n", .{chksum});
                 try std.testing.expectEqualStrings(case.chksums[i], &chksum);
             } else {
                 if (!expected.truncated) try actual.skip(); // skip file content
