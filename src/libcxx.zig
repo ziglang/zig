@@ -411,7 +411,8 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
             try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
         } else if (target.abi.isGnu()) {
-            try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
+            if (target.os.tag != .linux or !(target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 18, .patch = 0 }) == .lt))
+                try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
         }
 
         try cflags.append("-D_LIBCPP_DISABLE_EXTERN_TEMPLATE");
