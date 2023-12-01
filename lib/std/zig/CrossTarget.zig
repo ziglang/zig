@@ -636,43 +636,6 @@ pub fn wantSharedLibSymLinks(self: CrossTarget) bool {
     return self.getOsTag() != .windows;
 }
 
-pub const VcpkgLinkage = std.builtin.LinkMode;
-
-/// Returned slice must be freed by the caller.
-pub fn vcpkgTriplet(self: CrossTarget, allocator: mem.Allocator, linkage: VcpkgLinkage) ![]u8 {
-    const arch = switch (self.getCpuArch()) {
-        .x86 => "x86",
-        .x86_64 => "x64",
-
-        .arm,
-        .armeb,
-        .thumb,
-        .thumbeb,
-        .aarch64_32,
-        => "arm",
-
-        .aarch64,
-        .aarch64_be,
-        => "arm64",
-
-        else => return error.UnsupportedVcpkgArchitecture,
-    };
-
-    const os = switch (self.getOsTag()) {
-        .windows => "windows",
-        .linux => "linux",
-        .macos => "macos",
-        else => return error.UnsupportedVcpkgOperatingSystem,
-    };
-
-    const static_suffix = switch (linkage) {
-        .Static => "-static",
-        .Dynamic => "",
-    };
-
-    return std.fmt.allocPrint(allocator, "{s}-{s}{s}", .{ arch, os, static_suffix });
-}
-
 pub fn isGnuLibC(self: CrossTarget) bool {
     return Target.isGnuLibC_os_tag_abi(self.getOsTag(), self.getAbi());
 }

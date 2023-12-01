@@ -16,7 +16,6 @@ const PkgConfigPkg = std.Build.PkgConfigPkg;
 const PkgConfigError = std.Build.PkgConfigError;
 const RunError = std.Build.RunError;
 const Module = std.Build.Module;
-const VcpkgRoot = std.Build.VcpkgRoot;
 const InstallDir = std.Build.InstallDir;
 const GeneratedFile = std.Build.GeneratedFile;
 const Compile = @This();
@@ -63,7 +62,6 @@ test_server_mode: bool,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
 installed_headers: ArrayList(*Step),
-vcpkg_bin_path: ?[]const u8 = null,
 
 // keep in sync with src/Compilation.zig:RcIncludes
 /// Behavior of automatic detection of include directories when compiling .rc files.
@@ -936,44 +934,6 @@ pub fn addFrameworkPath(self: *Compile, directory_source: LazyPath) void {
     directory_source.addStepDependencies(&self.step);
 }
 
-/// If Vcpkg was found on the system, it will be added to include and lib
-/// paths for the specified target.
-pub fn addVcpkgPaths(self: *Compile, linkage: Compile.Linkage) !void {
-    const b = self.step.owner;
-    // Ideally in the Unattempted case we would call the function recursively
-    // after findVcpkgRoot and have only one switch statement, but the compiler
-    // cannot resolve the error set.
-    switch (b.vcpkg_root) {
-        .unattempted => {
-            b.vcpkg_root = if (try findVcpkgRoot(b.allocator)) |root|
-                VcpkgRoot{ .found = root }
-            else
-                .not_found;
-        },
-        .not_found => return error.VcpkgNotFound,
-        .found => {},
-    }
-
-    switch (b.vcpkg_root) {
-        .unattempted => unreachable,
-        .not_found => return error.VcpkgNotFound,
-        .found => |root| {
-            const allocator = b.allocator;
-            const triplet = try self.target.vcpkgTriplet(allocator, if (linkage == .static) .Static else .Dynamic);
-            defer b.allocator.free(triplet);
-
-            const include_path = b.pathJoin(&.{ root, "installed", triplet, "include" });
-            errdefer allocator.free(include_path);
-            try self.include_dirs.append(.{ .path = .{ .path = include_path } });
-
-            const lib_path = b.pathJoin(&.{ root, "installed", triplet, "lib" });
-            try self.lib_paths.append(.{ .path = lib_path });
-
-            self.vcpkg_bin_path = b.pathJoin(&.{ root, "installed", triplet, "bin" });
-        },
-    }
-}
-
 pub fn setExecCmd(self: *Compile, args: []const ?[]const u8) void {
     const b = self.step.owner;
     assert(self.kind == .@"test");
@@ -1812,25 +1772,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             self.name_only_filename.?,
         );
     }
-}
-
-/// Returned slice must be freed by the caller.
-fn findVcpkgRoot(allocator: Allocator) !?[]const u8 {
-    const appdata_path = try fs.getAppDataDir(allocator, "vcpkg");
-    defer allocator.free(appdata_path);
-
-    const path_file = try fs.path.join(allocator, &[_][]const u8{ appdata_path, "vcpkg.path.txt" });
-    defer allocator.free(path_file);
-
-    const file = fs.cwd().openFile(path_file, .{}) catch return null;
-    defer file.close();
-
-    const size = @as(usize, @intCast(try file.getEndPos()));
-    const vcpkg_path = try allocator.alloc(u8, size);
-    const size_read = try file.read(vcpkg_path);
-    std.debug.assert(size == size_read);
-
-    return vcpkg_path;
 }
 
 pub fn doAtomicSymLinks(

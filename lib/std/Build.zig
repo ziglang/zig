@@ -67,7 +67,6 @@ cache_root: Cache.Directory,
 global_cache_root: Cache.Directory,
 cache: *Cache,
 zig_lib_dir: ?LazyPath,
-vcpkg_root: VcpkgRoot = .unattempted,
 pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 args: ?[][]const u8 = null,
 debug_log_scopes: []const []const u8 = &.{},
@@ -839,10 +838,6 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
 
     if (exe.kind == .@"test" and exe.test_server_mode) {
         run_step.enableTestRunnerMode();
-    }
-
-    if (exe.vcpkg_bin_path) |path| {
-        run_step.addPathDir(path);
     }
 
     return run_step;
@@ -1977,18 +1972,6 @@ pub fn constructCMacro(allocator: Allocator, name: []const u8, value: ?[]const u
     }
     return macro;
 }
-
-pub const VcpkgRoot = union(VcpkgRootStatus) {
-    unattempted: void,
-    not_found: void,
-    found: []const u8,
-};
-
-pub const VcpkgRootStatus = enum {
-    unattempted,
-    not_found,
-    found,
-};
 
 pub const InstallDir = union(enum) {
     prefix: void,
