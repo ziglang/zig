@@ -109,6 +109,10 @@ pub const Header = struct {
         return header.str(0, 100);
     }
 
+    pub fn mode(header: Header) !u32 {
+        return @intCast(try header.numeric(100, 8));
+    }
+
     pub fn fileSize(header: Header) !u64 {
         return header.numeric(124, 12);
     }
@@ -429,6 +433,7 @@ fn Iterator(comptime ReaderType: type) type {
             name: []const u8, // name of file, symlink or directory
             link_name: []const u8, // target name of symlink
             size: usize, // size of the file in bytes
+            mode: u32,
             file_type: Header.FileType,
 
             reader: *BufferedReaderType,
@@ -471,6 +476,7 @@ fn Iterator(comptime ReaderType: type) type {
                             .link_name = self.scratch.link_name,
                             .size = self.scratch.size,
                             .reader = &self.reader,
+                            .mode = try header.mode(),
                         };
                         self.padding = blockPadding(file.size);
                         return file;
@@ -689,6 +695,7 @@ const TestCase = struct {
     const File = struct {
         name: []const u8,
         size: usize = 0,
+        mode: u32 = 0,
         link_name: []const u8 = &[0]u8{},
         file_type: Header.FileType = .normal,
         truncated: bool = false, // when there is no file body, just header, usefull for huge files
@@ -713,10 +720,12 @@ test "tar run Go test cases" {
                 .{
                     .name = "small.txt",
                     .size = 5,
+                    .mode = 0o640,
                 },
                 .{
                     .name = "small2.txt",
                     .size = 11,
+                    .mode = 0o640,
                 },
             },
             .chksums = &[_][]const u8{
@@ -734,10 +743,12 @@ test "tar run Go test cases" {
                 .{
                     .name = "small.txt",
                     .size = 5,
+                    .mode = 0o640,
                 },
                 .{
                     .name = "small2.txt",
                     .size = 11,
+                    .mode = 0o640,
                 },
             },
             .chksums = &[_][]const u8{
@@ -751,10 +762,12 @@ test "tar run Go test cases" {
                 .{
                     .name = "small.txt",
                     .size = 5,
+                    .mode = 0o444,
                 },
                 .{
                     .name = "small2.txt",
                     .size = 11,
+                    .mode = 0o444,
                 },
             },
             .chksums = &[_][]const u8{
@@ -768,11 +781,13 @@ test "tar run Go test cases" {
                 .{
                     .name = "a/123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100",
                     .size = 7,
+                    .mode = 0o664,
                 },
                 .{
                     .name = "a/b",
                     .size = 0,
                     .file_type = .symbolic_link,
+                    .mode = 0o777,
                     .link_name = "123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100",
                 },
             },
@@ -793,6 +808,7 @@ test "tar run Go test cases" {
                     .name = "foo",
                     .size = 999,
                     .file_type = .normal,
+                    .mode = 0o640,
                 },
             },
             .chksums = &[_][]const u8{
@@ -833,6 +849,7 @@ test "tar run Go test cases" {
                     .name = "P1050238.JPG.log",
                     .size = 14,
                     .file_type = .normal,
+                    .mode = 0o664,
                 },
             },
             .chksums = &[_][]const u8{
@@ -847,11 +864,13 @@ test "tar run Go test cases" {
                     .name = "small.txt",
                     .size = 5,
                     .file_type = .normal,
+                    .mode = 0o644,
                 },
                 .{
                     .name = "small2.txt",
                     .size = 11,
                     .file_type = .normal,
+                    .mode = 0o644,
                 },
             },
             .chksums = &[_][]const u8{
@@ -890,6 +909,7 @@ test "tar run Go test cases" {
             .files = &[_]TestCase.File{
                 .{
                     .name = "0123456789",
+                    .mode = 0o644,
                 },
             },
         },
@@ -898,6 +918,7 @@ test "tar run Go test cases" {
             .files = &[_]TestCase.File{
                 .{
                     .name = "☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹",
+                    .mode = 0o644,
                 },
             },
         },
@@ -906,6 +927,7 @@ test "tar run Go test cases" {
             .files = &[_]TestCase.File{
                 .{
                     .name = "hi\x80\x81\x82\x83bye",
+                    .mode = 0o644,
                 },
             },
         },
@@ -948,6 +970,7 @@ test "tar run Go test cases" {
             .files = &[_]TestCase.File{
                 .{
                     .name = "file",
+                    .mode = 0o644,
                 },
             },
         },
@@ -968,6 +991,7 @@ test "tar run Go test cases" {
                     .name = "tmp/16gig.txt",
                     .size = 16 * 1024 * 1024 * 1024,
                     .truncated = true,
+                    .mode = 0o640,
                 },
             },
         },
@@ -978,6 +1002,7 @@ test "tar run Go test cases" {
                 .{
                     .name = "longname/" ** 15 ++ "16gig.txt",
                     .size = 16 * 1024 * 1024 * 1024,
+                    .mode = 0o644,
                     .truncated = true,
                 },
             },
@@ -1002,6 +1027,7 @@ test "tar run Go test cases" {
             try std.testing.expectEqualStrings(expected.name, actual.name);
             try std.testing.expectEqual(expected.size, actual.size);
             try std.testing.expectEqual(expected.file_type, actual.file_type);
+            try std.testing.expectEqual(expected.mode, actual.mode);
             try std.testing.expectEqualStrings(expected.link_name, actual.link_name);
 
             if (case.chksums.len > i) {
