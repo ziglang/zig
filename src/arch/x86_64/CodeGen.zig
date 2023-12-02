@@ -3104,18 +3104,17 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
 
     const slice_ty = self.typeOfIndex(inst);
-    const ptr = try self.resolveInst(bin_op.lhs);
-    const ptr_ty = self.typeOf(bin_op.lhs);
-    const len = try self.resolveInst(bin_op.rhs);
-    const len_ty = self.typeOf(bin_op.rhs);
-
     const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(slice_ty, mod));
-    try self.genSetMem(.{ .frame = frame_index }, 0, ptr_ty, ptr);
+
+    const ptr_ty = self.typeOf(bin_op.lhs);
+    try self.genSetMem(.{ .frame = frame_index }, 0, ptr_ty, .{ .air_ref = bin_op.lhs });
+
+    const len_ty = self.typeOf(bin_op.rhs);
     try self.genSetMem(
         .{ .frame = frame_index },
         @intCast(ptr_ty.abiSize(mod)),
         len_ty,
-        len,
+        .{ .air_ref = bin_op.rhs },
     );
 
     const result = MCValue{ .load_frame = .{ .index = frame_index } };
@@ -7099,28 +7098,26 @@ fn store(self: *Self, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue) InnerErr
 
 fn airStore(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     const mod = self.bin_file.options.module.?;
-    if (safety) {
-        // TODO if the value is undef, write 0xaa bytes to dest
-    } else {
-        // TODO if the value is undef, don't lower this instruction
-    }
-
-    try self.spillRegisters(&.{ .rdi, .rsi, .rcx });
-    const reg_locks = self.register_manager.lockRegsAssumeUnused(3, .{ .rdi, .rsi, .rcx });
-    defer for (reg_locks) |lock| self.register_manager.unlockReg(lock);
-
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const ptr_mcv = try self.resolveInst(bin_op.lhs);
-    const ptr_ty = self.typeOf(bin_op.lhs);
-    const src_mcv = try self.resolveInst(bin_op.rhs);
 
-    const ptr_info = ptr_ty.ptrInfo(mod);
-    if (ptr_info.flags.vector_index != .none or ptr_info.packed_offset.host_size > 0) {
-        try self.packedStore(ptr_ty, ptr_mcv, src_mcv);
-    } else {
-        try self.store(ptr_ty, ptr_mcv, src_mcv);
+    result: {
+        if (!safety and (try self.resolveInst(bin_op.rhs)) == .undef) break :result;
+
+        try self.spillRegisters(&.{ .rdi, .rsi, .rcx });
+        const reg_locks = self.register_manager.lockRegsAssumeUnused(3, .{ .rdi, .rsi, .rcx });
+        defer for (reg_locks) |lock| self.register_manager.unlockReg(lock);
+
+        const src_mcv = try self.resolveInst(bin_op.rhs);
+        const ptr_mcv = try self.resolveInst(bin_op.lhs);
+        const ptr_ty = self.typeOf(bin_op.lhs);
+
+        const ptr_info = ptr_ty.ptrInfo(mod);
+        if (ptr_info.flags.vector_index != .none or ptr_info.packed_offset.host_size > 0) {
+            try self.packedStore(ptr_ty, ptr_mcv, src_mcv);
+        } else {
+            try self.store(ptr_ty, ptr_mcv, src_mcv);
+        }
     }
-
     return self.finishAir(inst, .none, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -11549,7 +11546,6 @@ fn genCondBrMir(self: *Self, ty: Type, mcv: MCValue) !Mir.Inst.Index {
         },
         else => return self.fail("TODO implement condbr when condition is {s}", .{@tagName(mcv)}),
     }
-    return 0; // TODO
 }
 
 fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
@@ -12336,7 +12332,18 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             // for the string, we still use the next u32 for the null terminator.
             extra_i += clobber.len / 4 + 1;
 
-            // TODO honor these
+            if (std.mem.eql(u8, clobber, "") or std.mem.eql(u8, clobber, "memory")) {
+                // ok, sure
+            } else if (std.mem.eql(u8, clobber, "cc") or
+                std.mem.eql(u8, clobber, "flags") or
+                std.mem.eql(u8, clobber, "eflags") or
+                std.mem.eql(u8, clobber, "rflags"))
+            {
+                try self.spillEflagsIfOccupied();
+            } else {
+                try self.register_manager.getReg(parseRegName(clobber) orelse
+                    return self.fail("invalid clobber: '{s}'", .{clobber}), null);
+            }
         }
     }
 
@@ -13517,7 +13524,11 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
     };
     switch (src_mcv) {
         .none, .unreach, .dead, .reserved_frame => unreachable,
-        .undef => {},
+        .undef => try self.genInlineMemset(
+            dst_ptr_mcv,
+            .{ .immediate = 0xaa },
+            .{ .immediate = abi_size },
+        ),
         .immediate => |imm| switch (abi_size) {
             1, 2, 4 => {
                 const immediate = switch (if (ty.isAbiInt(mod))
@@ -14596,128 +14607,129 @@ fn airAtomicStore(self: *Self, inst: Air.Inst.Index, order: std.builtin.AtomicOr
 
 fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     const mod = self.bin_file.options.module.?;
-    if (safety) {
-        // TODO if the value is undef, write 0xaa bytes to dest
-    } else {
-        // TODO if the value is undef, don't lower this instruction
-    }
-
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
-    try self.spillRegisters(&.{ .rdi, .rsi, .rcx });
-    const reg_locks = self.register_manager.lockRegsAssumeUnused(3, .{ .rdi, .rsi, .rcx });
-    defer for (reg_locks) |lock| self.register_manager.unlockReg(lock);
+    result: {
+        if (!safety and (try self.resolveInst(bin_op.rhs)) == .undef) break :result;
 
-    const dst_ptr = try self.resolveInst(bin_op.lhs);
-    const dst_ptr_ty = self.typeOf(bin_op.lhs);
-    const dst_ptr_lock: ?RegisterLock = switch (dst_ptr) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-        else => null,
-    };
-    defer if (dst_ptr_lock) |lock| self.register_manager.unlockReg(lock);
+        try self.spillRegisters(&.{ .rax, .rdi, .rsi, .rcx });
+        const reg_locks = self.register_manager.lockRegsAssumeUnused(4, .{ .rax, .rdi, .rsi, .rcx });
+        defer for (reg_locks) |lock| self.register_manager.unlockReg(lock);
 
-    const src_val = try self.resolveInst(bin_op.rhs);
-    const elem_ty = self.typeOf(bin_op.rhs);
-    const src_val_lock: ?RegisterLock = switch (src_val) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-        else => null,
-    };
-    defer if (src_val_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const elem_abi_size: u31 = @intCast(elem_ty.abiSize(mod));
-
-    if (elem_abi_size == 1) {
-        const ptr: MCValue = switch (dst_ptr_ty.ptrSize(mod)) {
-            // TODO: this only handles slices stored in the stack
-            .Slice => dst_ptr,
-            .One => dst_ptr,
-            .C, .Many => unreachable,
-        };
-        const len: MCValue = switch (dst_ptr_ty.ptrSize(mod)) {
-            // TODO: this only handles slices stored in the stack
-            .Slice => dst_ptr.address().offset(8).deref(),
-            .One => .{ .immediate = dst_ptr_ty.childType(mod).arrayLen(mod) },
-            .C, .Many => unreachable,
-        };
-        const len_lock: ?RegisterLock = switch (len) {
+        const dst_ptr = try self.resolveInst(bin_op.lhs);
+        const dst_ptr_ty = self.typeOf(bin_op.lhs);
+        const dst_ptr_lock: ?RegisterLock = switch (dst_ptr) {
             .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
             else => null,
         };
-        defer if (len_lock) |lock| self.register_manager.unlockReg(lock);
+        defer if (dst_ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
-        try self.genInlineMemset(ptr, src_val, len);
-        return self.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
+        const src_val = try self.resolveInst(bin_op.rhs);
+        const elem_ty = self.typeOf(bin_op.rhs);
+        const src_val_lock: ?RegisterLock = switch (src_val) {
+            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (src_val_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const elem_abi_size: u31 = @intCast(elem_ty.abiSize(mod));
+
+        if (elem_abi_size == 1) {
+            const ptr: MCValue = switch (dst_ptr_ty.ptrSize(mod)) {
+                // TODO: this only handles slices stored in the stack
+                .Slice => dst_ptr,
+                .One => dst_ptr,
+                .C, .Many => unreachable,
+            };
+            const len: MCValue = switch (dst_ptr_ty.ptrSize(mod)) {
+                // TODO: this only handles slices stored in the stack
+                .Slice => dst_ptr.address().offset(8).deref(),
+                .One => .{ .immediate = dst_ptr_ty.childType(mod).arrayLen(mod) },
+                .C, .Many => unreachable,
+            };
+            const len_lock: ?RegisterLock = switch (len) {
+                .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+                else => null,
+            };
+            defer if (len_lock) |lock| self.register_manager.unlockReg(lock);
+
+            try self.genInlineMemset(ptr, src_val, len);
+            break :result;
+        }
+
+        // Store the first element, and then rely on memcpy copying forwards.
+        // Length zero requires a runtime check - so we handle arrays specially
+        // here to elide it.
+        switch (dst_ptr_ty.ptrSize(mod)) {
+            .Slice => {
+                const slice_ptr_ty = dst_ptr_ty.slicePtrFieldType(mod);
+
+                // TODO: this only handles slices stored in the stack
+                const ptr = dst_ptr;
+                const len = dst_ptr.address().offset(8).deref();
+
+                // Used to store the number of elements for comparison.
+                // After comparison, updated to store number of bytes needed to copy.
+                const len_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
+                const len_mcv: MCValue = .{ .register = len_reg };
+                const len_lock = self.register_manager.lockRegAssumeUnused(len_reg);
+                defer self.register_manager.unlockReg(len_lock);
+
+                try self.genSetReg(len_reg, Type.usize, len);
+                try self.asmRegisterRegister(.{ ._, .@"test" }, len_reg, len_reg);
+
+                const skip_reloc = try self.asmJccReloc(.z, undefined);
+                try self.store(slice_ptr_ty, ptr, src_val);
+
+                const second_elem_ptr_reg =
+                    try self.register_manager.allocReg(null, abi.RegisterClass.gp);
+                const second_elem_ptr_mcv: MCValue = .{ .register = second_elem_ptr_reg };
+                const second_elem_ptr_lock =
+                    self.register_manager.lockRegAssumeUnused(second_elem_ptr_reg);
+                defer self.register_manager.unlockReg(second_elem_ptr_lock);
+
+                try self.genSetReg(second_elem_ptr_reg, Type.usize, .{ .register_offset = .{
+                    .reg = try self.copyToTmpRegister(Type.usize, ptr),
+                    .off = elem_abi_size,
+                } });
+
+                try self.genBinOpMir(.{ ._, .sub }, Type.usize, len_mcv, .{ .immediate = 1 });
+                try self.asmRegisterRegisterImmediate(
+                    .{ .i_, .mul },
+                    len_reg,
+                    len_reg,
+                    Immediate.s(elem_abi_size),
+                );
+                try self.genInlineMemcpy(second_elem_ptr_mcv, ptr, len_mcv);
+
+                try self.performReloc(skip_reloc);
+            },
+            .One => {
+                const elem_ptr_ty = try mod.singleMutPtrType(elem_ty);
+
+                const len = dst_ptr_ty.childType(mod).arrayLen(mod);
+
+                assert(len != 0); // prevented by Sema
+                try self.store(elem_ptr_ty, dst_ptr, src_val);
+
+                const second_elem_ptr_reg =
+                    try self.register_manager.allocReg(null, abi.RegisterClass.gp);
+                const second_elem_ptr_mcv: MCValue = .{ .register = second_elem_ptr_reg };
+                const second_elem_ptr_lock =
+                    self.register_manager.lockRegAssumeUnused(second_elem_ptr_reg);
+                defer self.register_manager.unlockReg(second_elem_ptr_lock);
+
+                try self.genSetReg(second_elem_ptr_reg, Type.usize, .{ .register_offset = .{
+                    .reg = try self.copyToTmpRegister(Type.usize, dst_ptr),
+                    .off = elem_abi_size,
+                } });
+
+                const bytes_to_copy: MCValue = .{ .immediate = elem_abi_size * (len - 1) };
+                try self.genInlineMemcpy(second_elem_ptr_mcv, dst_ptr, bytes_to_copy);
+            },
+            .C, .Many => unreachable,
+        }
     }
-
-    // Store the first element, and then rely on memcpy copying forwards.
-    // Length zero requires a runtime check - so we handle arrays specially
-    // here to elide it.
-    switch (dst_ptr_ty.ptrSize(mod)) {
-        .Slice => {
-            const slice_ptr_ty = dst_ptr_ty.slicePtrFieldType(mod);
-
-            // TODO: this only handles slices stored in the stack
-            const ptr = dst_ptr;
-            const len = dst_ptr.address().offset(8).deref();
-
-            // Used to store the number of elements for comparison.
-            // After comparison, updated to store number of bytes needed to copy.
-            const len_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
-            const len_mcv: MCValue = .{ .register = len_reg };
-            const len_lock = self.register_manager.lockRegAssumeUnused(len_reg);
-            defer self.register_manager.unlockReg(len_lock);
-
-            try self.genSetReg(len_reg, Type.usize, len);
-            try self.asmRegisterRegister(.{ ._, .@"test" }, len_reg, len_reg);
-
-            const skip_reloc = try self.asmJccReloc(.z, undefined);
-            try self.store(slice_ptr_ty, ptr, src_val);
-
-            const second_elem_ptr_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
-            const second_elem_ptr_mcv: MCValue = .{ .register = second_elem_ptr_reg };
-            const second_elem_ptr_lock = self.register_manager.lockRegAssumeUnused(second_elem_ptr_reg);
-            defer self.register_manager.unlockReg(second_elem_ptr_lock);
-
-            try self.genSetReg(second_elem_ptr_reg, Type.usize, .{ .register_offset = .{
-                .reg = try self.copyToTmpRegister(Type.usize, ptr),
-                .off = elem_abi_size,
-            } });
-
-            try self.genBinOpMir(.{ ._, .sub }, Type.usize, len_mcv, .{ .immediate = 1 });
-            try self.asmRegisterRegisterImmediate(
-                .{ .i_, .mul },
-                len_reg,
-                len_reg,
-                Immediate.s(elem_abi_size),
-            );
-            try self.genInlineMemcpy(second_elem_ptr_mcv, ptr, len_mcv);
-
-            try self.performReloc(skip_reloc);
-        },
-        .One => {
-            const elem_ptr_ty = try mod.singleMutPtrType(elem_ty);
-
-            const len = dst_ptr_ty.childType(mod).arrayLen(mod);
-
-            assert(len != 0); // prevented by Sema
-            try self.store(elem_ptr_ty, dst_ptr, src_val);
-
-            const second_elem_ptr_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
-            const second_elem_ptr_mcv: MCValue = .{ .register = second_elem_ptr_reg };
-            const second_elem_ptr_lock = self.register_manager.lockRegAssumeUnused(second_elem_ptr_reg);
-            defer self.register_manager.unlockReg(second_elem_ptr_lock);
-
-            try self.genSetReg(second_elem_ptr_reg, Type.usize, .{ .register_offset = .{
-                .reg = try self.copyToTmpRegister(Type.usize, dst_ptr),
-                .off = elem_abi_size,
-            } });
-
-            const bytes_to_copy: MCValue = .{ .immediate = elem_abi_size * (len - 1) };
-            try self.genInlineMemcpy(second_elem_ptr_mcv, dst_ptr, bytes_to_copy);
-        },
-        .C, .Many => unreachable,
-    }
-
     return self.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
