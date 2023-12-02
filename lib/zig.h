@@ -3433,7 +3433,7 @@ zig_float_negate_builtin(128, zig_make_u128, (UINT64_C(1) << 63, UINT64_C(0)))
     } \
 \
     static inline zig_f##w zig_div_ceil_f##w(zig_f##w lhs, zig_f##w rhs) { \
-        return zig_libc_name_f##w(ceil)(zig_div_f##w(lhs, rhs)); \
+        return zig_float_fn_f##w##_ceil(zig_div_f##w(lhs, rhs)); \
     } \
 \
     static inline zig_f##w zig_mod_f##w(zig_f##w lhs, zig_f##w rhs) { \

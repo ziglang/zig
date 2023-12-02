@@ -3439,6 +3439,7 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
                     else => call_mcv,
                 } else call_mcv;
             },
+            .div_ceil => return self.fail("TODO: implement `@divCeil` on {} and {} for {}", .{ dst_ty.fmt(mod), src_ty.fmt(mod), self.target.cpu.arch }),
         };
 
         try self.spillEflagsIfOccupied();
@@ -8291,7 +8292,7 @@ fn genMulDivBinOp(
             }
         },
 
-        .div_ceil => return self.fail("TODO: implement `@divCeil` for {}", .{self.target.cpu.arch}),
+        .div_ceil => return self.fail("TODO: implement `@divCeil` on {} and {} for {}", .{ dst_ty.fmt(mod), src_ty.fmt(mod), self.target.cpu.arch }),
 
         else => unreachable,
     }
@@ -8329,6 +8330,7 @@ fn genBinOp(
             .div_float,
             .div_trunc,
             .div_floor,
+            .div_ceil,
             => std.fmt.bufPrint(&callee_buf, "__{s}{c}f3", .{
                 @tagName(air_tag)[0..3],
                 floatCompilerRtAbiName(float_bits),
@@ -8466,10 +8468,11 @@ fn genBinOp(
                     .callee = callee,
                 } }, &.{ lhs_ty, rhs_ty }, &.{ adjusted, .{ .air_ref = rhs_air } });
             },
-            .div_trunc, .div_floor => try self.genRoundLibcall(lhs_ty, result, .{
+            .div_trunc, .div_floor, .div_ceil => try self.genRoundLibcall(lhs_ty, result, .{
                 .mode = switch (air_tag) {
                     .div_trunc => .zero,
                     .div_floor => .down,
+                    .div_ceil => .up,
                     else => unreachable,
                 },
                 .precision = .inexact,
@@ -8908,7 +8911,7 @@ fn genBinOp(
                     tmp_reg,
                 );
                 switch (air_tag) {
-                    .div_trunc, .div_floor => try self.asmRegisterRegisterRegisterImmediate(
+                    .div_trunc, .div_floor, .div_ceil => try self.asmRegisterRegisterRegisterImmediate(
                         .{ .v_ss, .round },
                         dst_reg,
                         dst_reg,
@@ -8917,6 +8920,7 @@ fn genBinOp(
                             .mode = switch (air_tag) {
                                 .div_trunc => .zero,
                                 .div_floor => .down,
+                                .div_ceil => .up,
                                 else => unreachable,
                             },
                             .precision = .inexact,
@@ -9722,15 +9726,15 @@ fn genBinOp(
 
     switch (air_tag) {
         .add, .add_wrap, .sub, .sub_wrap, .mul, .mul_wrap, .div_float, .div_exact => {},
-        .div_trunc, .div_floor => try self.genRound(lhs_ty, dst_reg, .{ .register = dst_reg }, .{
+        .div_trunc, .div_floor, .div_ceil => try self.genRound(lhs_ty, dst_reg, .{ .register = dst_reg }, .{
             .mode = switch (air_tag) {
                 .div_trunc => .zero,
                 .div_floor => .down,
+                .div_ceil => .up,
                 else => unreachable,
             },
             .precision = .inexact,
         }),
-        .div_ceil => return self.fail("TODO: implement `@divCeil` for {}", .{self.target.cpu.arch}),
         .bit_and, .bit_or, .xor => {},
         .max, .min => if (maybe_mask_reg) |mask_reg| if (self.hasFeature(.avx)) {
             const rhs_copy_reg = registerAlias(src_mcv.getReg().?, abi_size);

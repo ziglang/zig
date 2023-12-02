@@ -6813,9 +6813,9 @@ fn airDivFloor(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airDivCeil(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const bin_op = func.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
-    const mod = func.bin_file.base.options.module.?;
+    const mod = func.bin_file.base.comp.module.?;
     const ty = func.typeOfIndex(inst);
     const lhs = try func.resolveInst(bin_op.lhs);
     const rhs = try func.resolveInst(bin_op.rhs);

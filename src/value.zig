@@ -2614,10 +2614,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try intDivCeilScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return intDivCeilScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -3393,10 +3393,10 @@ pub const Value = struct {
                 const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try (try floatDivCeilScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return (try mod.intern(.{ .aggregate = .{
+            return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = float_type.toIntern(),
                 .storage = .{ .elems = result_data },
-            } })).toValue();
+            } })));
         }
         return floatDivCeilScalar(lhs, rhs, float_type, mod);
     }
@@ -3417,10 +3417,10 @@ pub const Value = struct {
             128 => .{ .f128 = @ceil(lhs.toFloat(f128, mod) / rhs.toFloat(f128, mod)) },
             else => unreachable,
         };
-        return (try mod.intern(.{ .float = .{
+        return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = float_type.toIntern(),
             .storage = storage,
-        } })).toValue();
+        } })));
     }
 
     pub fn floatDivTrunc(
