@@ -657,14 +657,15 @@ fn lowerParentPtr(
                 Type.fromInterned(mod.intern_pool.typeOf(elem.base)).elemType2(mod).abiSize(mod)))),
         ),
         .field => |field| {
-            const base_type = mod.intern_pool.indexToKey(mod.intern_pool.typeOf(field.base)).ptr_type.child;
+            const base_ptr_ty = mod.intern_pool.typeOf(field.base);
+            const base_ty = mod.intern_pool.indexToKey(base_ptr_ty).ptr_type.child;
             return lowerParentPtr(
                 bin_file,
                 src_loc,
                 field.base,
                 code,
                 debug_output,
-                reloc_info.offset(switch (mod.intern_pool.indexToKey(base_type)) {
+                reloc_info.offset(switch (mod.intern_pool.indexToKey(base_ty)) {
                     .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                         .One, .Many, .C => unreachable,
                         .Slice => switch (field.index) {
@@ -676,19 +677,20 @@ fn lowerParentPtr(
                     .struct_type,
                     .anon_struct_type,
                     .union_type,
-                    => switch (Type.fromInterned(base_type).containerLayout(mod)) {
-                        .Auto, .Extern => @intCast(Type.fromInterned(base_type).structFieldOffset(
+                    => switch (Type.fromInterned(base_ty).containerLayout(mod)) {
+                        .Auto, .Extern => @intCast(Type.fromInterned(base_ty).structFieldOffset(
                             @intCast(field.index),
                             mod,
                         )),
-                        .Packed => if (mod.typeToStruct(Type.fromInterned(base_type))) |struct_type|
-                            math.divExact(u16, mod.structPackedFieldBitOffset(
-                                struct_type,
-                                @intCast(field.index),
-                            ), 8) catch |err| switch (err) {
-                                error.UnexpectedRemainder => 0,
-                                error.DivisionByZero => unreachable,
-                            }
+                        .Packed => if (mod.typeToStruct(Type.fromInterned(base_ty))) |struct_obj|
+                            if (Type.fromInterned(ptr.ty).ptrInfo(mod).packed_offset.host_size == 0)
+                                @divExact(Type.fromInterned(base_ptr_ty).ptrInfo(mod)
+                                    .packed_offset.bit_offset + mod.structPackedFieldBitOffset(
+                                    struct_obj,
+                                    @intCast(field.index),
+                                ), 8)
+                            else
+                                0
                         else
                             0,
                     },

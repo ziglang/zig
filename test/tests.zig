@@ -29,6 +29,7 @@ const TestTarget = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     force_pic: ?bool = null,
+    strip: ?bool = null,
 };
 
 const test_targets = blk: {
@@ -115,6 +116,7 @@ const test_targets = blk: {
             },
             .use_llvm = false,
             .use_lld = false,
+            .strip = true,
         },
         // Doesn't support new liveness
         //.{
@@ -497,6 +499,7 @@ const CAbiTarget = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     force_pic: ?bool = null,
+    strip: ?bool = null,
     c_defines: []const []const u8 = &.{},
 };
 
@@ -528,6 +531,7 @@ const c_abi_targets = [_]CAbiTarget{
         },
         .use_llvm = false,
         .use_lld = false,
+        .strip = true,
         .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
     },
     .{
@@ -1111,6 +1115,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .zig_lib_dir = .{ .path = "lib" },
         });
         these_tests.force_pic = test_target.force_pic;
+        these_tests.strip = test_target.strip;
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
             "-llvm"
@@ -1253,6 +1258,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 .use_lld = c_abi_target.use_lld,
             });
             test_step.force_pic = c_abi_target.force_pic;
+            test_step.strip = c_abi_target.strip;
             if (c_abi_target.target.abi != null and c_abi_target.target.abi.?.isMusl()) {
                 // TODO NativeTargetInfo insists on dynamically linking musl
                 // for some reason?

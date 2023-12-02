@@ -39,8 +39,8 @@ pub fn main() !void {
         const truncated_source = source[expected_header.len..];
 
         const new_source = try arena.alloc(u8, truncated_source.len + new_header.len);
-        std.mem.copy(u8, new_source, new_header);
-        std.mem.copy(u8, new_source[new_header.len..], truncated_source);
+        @memcpy(new_source[0..new_source.len], new_header);
+        @memcpy(new_source[new_header.len .. new_header.len + truncated_source.len], truncated_source);
 
         try dir.writeFile(entry.path, new_source);
     }

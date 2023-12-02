@@ -156,7 +156,7 @@ test "for loop with pointer elem var" {
 
     const source = "abcdefg";
     var target: [source.len]u8 = undefined;
-    mem.copy(u8, target[0..], source);
+    @memcpy(target[0..], source);
     mangleString(target[0..]);
     try expect(mem.eql(u8, &target, "bcdefgh"));
 
