@@ -3621,7 +3621,7 @@ pub const inotify_event = extern struct {
     // returns `null` if the directory/file is the one being watched
     pub fn getName(self: *const inotify_event) ?[:0]const u8 {
         if (self.len == 0) return null;
-        return std.mem.sliceTo(@as([*:0]const u8, @ptrCast(self)) + @sizeOf(inotify_event), 0);
+        return std.mem.span(@as([*:0]const u8, @ptrCast(self)) + @sizeOf(inotify_event));
     }
 };
 
