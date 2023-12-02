@@ -15,7 +15,7 @@ pub fn sleep(nanoseconds: u64) void {
         return std.event.Loop.instance.?.sleep(nanoseconds);
     }
 
-    return sleepSync(nanoseconds);
+    return nosuspend sleepSync(nanoseconds);
 }
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
