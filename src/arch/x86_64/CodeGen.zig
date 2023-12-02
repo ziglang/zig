@@ -14162,9 +14162,8 @@ fn atomicOp(
     };
     defer if (mem_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const method: enum { lock, loop, libcall } = if (val_ty.isRuntimeFloat())
-        .loop
-    else switch (rmw_op orelse .Xchg) {
+    const use_sse = rmw_op orelse .Xchg != .Xchg and val_ty.isRuntimeFloat();
+    const strat: enum { lock, loop, libcall } = if (use_sse) .loop else switch (rmw_op orelse .Xchg) {
         .Xchg,
         .Add,
         .Sub,
@@ -14178,7 +14177,7 @@ fn atomicOp(
         .Min,
         => if (val_abi_size <= 16) .loop else .libcall,
     };
-    switch (method) {
+    switch (strat) {
         .lock => {
             const tag: Mir.Inst.Tag = if (rmw_op) |op| switch (op) {
                 .Xchg => if (unused) .mov else .xchg,
@@ -14216,6 +14215,14 @@ fn atomicOp(
             return if (unused) .unreach else dst_mcv;
         },
         .loop => _ = if (val_abi_size <= 8) {
+            const sse_reg: Register = if (use_sse)
+                try self.register_manager.allocReg(null, abi.RegisterClass.sse)
+            else
+                undefined;
+            const sse_lock =
+                if (use_sse) self.register_manager.lockRegAssumeUnused(sse_reg) else undefined;
+            defer if (use_sse) self.register_manager.unlockReg(sse_lock);
+
             const tmp_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
             const tmp_mcv = MCValue{ .register = tmp_reg };
             const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
@@ -14223,10 +14230,67 @@ fn atomicOp(
 
             try self.asmRegisterMemory(.{ ._, .mov }, registerAlias(.rax, val_abi_size), ptr_mem);
             const loop: Mir.Inst.Index = @intCast(self.mir_instructions.len);
-            if (rmw_op != std.builtin.AtomicRmwOp.Xchg) {
+            if (!use_sse and rmw_op orelse .Xchg != .Xchg) {
                 try self.genSetReg(tmp_reg, val_ty, .{ .register = .rax });
             }
-            if (rmw_op) |op| switch (op) {
+            if (rmw_op) |op| if (use_sse) {
+                const mir_tag = @as(?Mir.Inst.FixedTag, switch (op) {
+                    .Add => switch (val_ty.floatBits(self.target.*)) {
+                        32 => if (self.hasFeature(.avx)) .{ .v_ss, .add } else .{ ._ss, .add },
+                        64 => if (self.hasFeature(.avx)) .{ .v_sd, .add } else .{ ._sd, .add },
+                        else => null,
+                    },
+                    .Sub => switch (val_ty.floatBits(self.target.*)) {
+                        32 => if (self.hasFeature(.avx)) .{ .v_ss, .sub } else .{ ._ss, .sub },
+                        64 => if (self.hasFeature(.avx)) .{ .v_sd, .sub } else .{ ._sd, .sub },
+                        else => null,
+                    },
+                    .Min => switch (val_ty.floatBits(self.target.*)) {
+                        32 => if (self.hasFeature(.avx)) .{ .v_ss, .min } else .{ ._ss, .min },
+                        64 => if (self.hasFeature(.avx)) .{ .v_sd, .min } else .{ ._sd, .min },
+                        else => null,
+                    },
+                    .Max => switch (val_ty.floatBits(self.target.*)) {
+                        32 => if (self.hasFeature(.avx)) .{ .v_ss, .max } else .{ ._ss, .max },
+                        64 => if (self.hasFeature(.avx)) .{ .v_sd, .max } else .{ ._sd, .max },
+                        else => null,
+                    },
+                    else => unreachable,
+                }) orelse return self.fail("TODO implement atomicOp of {s} for {}", .{
+                    @tagName(op), val_ty.fmt(mod),
+                });
+                try self.genSetReg(sse_reg, val_ty, .{ .register = .rax });
+                switch (mir_tag[0]) {
+                    .v_ss, .v_sd => if (val_mcv.isMemory()) try self.asmRegisterRegisterMemory(
+                        mir_tag,
+                        sse_reg.to128(),
+                        sse_reg.to128(),
+                        try val_mcv.mem(self, self.memSize(val_ty)),
+                    ) else try self.asmRegisterRegisterRegister(
+                        mir_tag,
+                        sse_reg.to128(),
+                        sse_reg.to128(),
+                        (if (val_mcv.isRegister())
+                            val_mcv.getReg().?
+                        else
+                            try self.copyToTmpRegister(val_ty, val_mcv)).to128(),
+                    ),
+                    ._ss, ._sd => if (val_mcv.isMemory()) try self.asmRegisterMemory(
+                        mir_tag,
+                        sse_reg.to128(),
+                        try val_mcv.mem(self, self.memSize(val_ty)),
+                    ) else try self.asmRegisterRegister(
+                        mir_tag,
+                        sse_reg.to128(),
+                        (if (val_mcv.isRegister())
+                            val_mcv.getReg().?
+                        else
+                            try self.copyToTmpRegister(val_ty, val_mcv)).to128(),
+                    ),
+                    else => unreachable,
+                }
+                try self.genSetReg(tmp_reg, val_ty, .{ .register = sse_reg });
+            } else switch (op) {
                 .Xchg => try self.genSetReg(tmp_reg, val_ty, val_mcv),
                 .Add => try self.genBinOpMir(.{ ._, .add }, val_ty, tmp_mcv, val_mcv),
                 .Sub => try self.genBinOpMir(.{ ._, .sub }, val_ty, tmp_mcv, val_mcv),
@@ -14362,9 +14426,32 @@ fn atomicOp(
                     try self.asmRegisterMemory(.{ ._, .xor }, .rbx, val_lo_mem);
                     try self.asmRegisterMemory(.{ ._, .xor }, .rcx, val_hi_mem);
                 },
-                else => return self.fail("TODO implement x86 atomic loop for {} {s}", .{
-                    val_ty.fmt(mod), @tagName(op),
-                }),
+                .Min, .Max => {
+                    const cc: Condition = switch (if (val_ty.isAbiInt(mod))
+                        val_ty.intInfo(mod).signedness
+                    else
+                        .unsigned) {
+                        .unsigned => switch (op) {
+                            .Min => .a,
+                            .Max => .b,
+                            else => unreachable,
+                        },
+                        .signed => switch (op) {
+                            .Min => .g,
+                            .Max => .l,
+                            else => unreachable,
+                        },
+                    };
+
+                    const tmp_reg = try self.copyToTmpRegister(Type.usize, .{ .register = .rcx });
+                    const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                    defer self.register_manager.unlockReg(tmp_lock);
+
+                    try self.asmRegisterMemory(.{ ._, .cmp }, .rbx, val_lo_mem);
+                    try self.asmRegisterMemory(.{ ._, .sbb }, tmp_reg, val_hi_mem);
+                    try self.asmCmovccRegisterMemory(cc, .rbx, val_lo_mem);
+                    try self.asmCmovccRegisterMemory(cc, .rcx, val_hi_mem);
+                },
             };
             try self.asmMemory(.{ .@"lock _16b", .cmpxchg }, ptr_mem);
             _ = try self.asmJccReloc(.ne, loop);
