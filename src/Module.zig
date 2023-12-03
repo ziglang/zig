@@ -4591,8 +4591,8 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
             gop.value_ptr.* = Air.internedToRef(opv.toIntern());
             continue;
         }
-        const arg_index: u32 = @intCast(sema.air_instructions.len);
-        gop.value_ptr.* = Air.indexToRef(arg_index);
+        const arg_index: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
+        gop.value_ptr.* = arg_index.toRef();
         inner_block.instructions.appendAssumeCapacity(arg_index);
         sema.air_instructions.appendAssumeCapacity(.{
             .tag = .arg,
@@ -4626,7 +4626,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         while (it.next()) |ptr_inst| {
             // The lack of a resolve_inferred_alloc means that this instruction
             // is unused so it just has to be a no-op.
-            sema.air_instructions.set(ptr_inst.*, .{
+            sema.air_instructions.set(@intFromEnum(ptr_inst.*), .{
                 .tag = .alloc,
                 .data = .{ .ty = Type.single_const_pointer_to_comptime_int },
             });
@@ -4659,7 +4659,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     const main_block_index = sema.addExtraAssumeCapacity(Air.Block{
         .body_len = @intCast(inner_block.instructions.items.len),
     });
-    sema.air_extra.appendSliceAssumeCapacity(inner_block.instructions.items);
+    sema.air_extra.appendSliceAssumeCapacity(@ptrCast(inner_block.instructions.items));
     sema.air_extra.items[@intFromEnum(Air.ExtraIndex.main_block)] = main_block_index;
 
     // Resolving inferred error sets is done *before* setting the function
