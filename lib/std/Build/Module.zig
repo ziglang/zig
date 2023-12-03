@@ -30,21 +30,11 @@ stack_check: ?bool,
 sanitize_c: ?bool,
 sanitize_thread: ?bool,
 code_model: std.builtin.CodeModel,
-/// Whether to emit machine code that integrates with Valgrind.
 valgrind: ?bool,
-/// Position Independent Code
 pic: ?bool,
 red_zone: ?bool,
-/// Whether to omit the stack frame pointer. Frees up a register and makes it
-/// more more difficiult to obtain stack traces. Has target-dependent effects.
 omit_frame_pointer: ?bool,
-/// `true` requires a compilation that includes this Module to link libc.
-/// `false` causes a build failure if a compilation that includes this Module would link libc.
-/// `null` neither requires nor prevents libc from being linked.
 link_libc: ?bool,
-/// `true` requires a compilation that includes this Module to link libc++.
-/// `false` causes a build failure if a compilation that includes this Module would link libc++.
-/// `null` neither requires nor prevents libc++ from being linked.
 link_libcpp: ?bool,
 
 /// Symbols to be exported when compiling to WebAssembly.
@@ -161,7 +151,13 @@ pub const CreateOptions = struct {
     target: ?std.Build.ResolvedTarget = null,
     optimize: ?std.builtin.OptimizeMode = null,
 
+    /// `true` requires a compilation that includes this Module to link libc.
+    /// `false` causes a build failure if a compilation that includes this Module would link libc.
+    /// `null` neither requires nor prevents libc from being linked.
     link_libc: ?bool = null,
+    /// `true` requires a compilation that includes this Module to link libc++.
+    /// `false` causes a build failure if a compilation that includes this Module would link libc++.
+    /// `null` neither requires nor prevents libc++ from being linked.
     link_libcpp: ?bool = null,
     single_threaded: ?bool = null,
     strip: ?bool = null,
@@ -173,11 +169,13 @@ pub const CreateOptions = struct {
     stack_check: ?bool = null,
     sanitize_c: ?bool = null,
     sanitize_thread: ?bool = null,
+    /// Whether to emit machine code that integrates with Valgrind.
     valgrind: ?bool = null,
+    /// Position Independent Code
     pic: ?bool = null,
     red_zone: ?bool = null,
     /// Whether to omit the stack frame pointer. Frees up a register and makes it
-    /// more more difficiult to obtain stack traces. Has target-dependent effects.
+    /// more difficult to obtain stack traces. Has target-dependent effects.
     omit_frame_pointer: ?bool = null,
 };
 
