@@ -488,11 +488,12 @@ pub fn forceUndefinedSymbol(self: *Compile, symbol_name: []const u8) void {
 }
 
 /// Returns whether the library, executable, or object depends on a particular system library.
+/// Includes transitive dependencies.
 pub fn dependsOnSystemLibrary(self: *const Compile, name: []const u8) bool {
     var is_linking_libc = false;
     var is_linking_libcpp = false;
 
-    var it = self.root_module.iterateDependencies(self);
+    var it = self.root_module.iterateDependencies(self, true);
     while (it.next()) |module| {
         for (module.link_objects.items) |link_object| {
             switch (link_object) {
@@ -841,7 +842,7 @@ fn appendModuleArgs(cs: *Compile, zig_args: *ArrayList([]const u8)) !void {
     var names = std.StringHashMap(void).init(b.allocator);
 
     {
-        var it = cs.root_module.iterateDependencies(null);
+        var it = cs.root_module.iterateDependencies(null, false);
         _ = it.next(); // Skip over the root module.
         while (it.next()) |item| {
             // While we're traversing the root dependencies, let's make sure that no module names
@@ -1000,33 +1001,51 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
         try self.root_module.appendZigProcessFlags(&zig_args, step);
 
-        var it = self.root_module.iterateDependencies(self);
+        {
+            // Fully recursive iteration including dynamic libraries to detect
+            // libc and libc++ linkage.
+            var it = self.root_module.iterateDependencies(self, true);
+            while (it.next()) |key| {
+                if (key.module.link_libc == true) self.is_linking_libc = true;
+                if (key.module.link_libcpp == true) self.is_linking_libcpp = true;
+            }
+        }
+
+        // For this loop, don't chase dynamic libraries because their link
+        // objects are already linked.
+        var it = self.root_module.iterateDependencies(self, false);
+
         while (it.next()) |key| {
             const module = key.module;
             const compile = key.compile.?;
-            const dyn = compile.isDynamicLibrary();
 
-            // Inherit dependency on libc and libc++.
-            if (module.link_libc == true) self.is_linking_libc = true;
-            if (module.link_libcpp == true) self.is_linking_libcpp = true;
+            // While walking transitive dependencies, if a given link object is
+            // already included in a library, it should not redundantly be
+            // placed on the linker line of the dependee.
+            const my_responsibility = compile == self;
+            const already_linked = !my_responsibility and compile.isDynamicLibrary();
 
             // Inherit dependencies on darwin frameworks.
-            if (!dyn) {
+            if (!already_linked) {
                 for (module.frameworks.keys(), module.frameworks.values()) |name, info| {
                     try frameworks.put(b.allocator, name, info);
                 }
             }
 
             // Inherit dependencies on system libraries and static libraries.
-            total_linker_objects += module.link_objects.items.len;
             for (module.link_objects.items) |link_object| {
                 switch (link_object) {
-                    .static_path => |static_path| try zig_args.append(static_path.getPath(b)),
+                    .static_path => |static_path| {
+                        if (my_responsibility) {
+                            try zig_args.append(static_path.getPath(b));
+                            total_linker_objects += 1;
+                        }
+                    },
                     .system_lib => |system_lib| {
                         if ((try seen_system_libs.fetchPut(b.allocator, system_lib.name, {})) != null)
                             continue;
 
-                        if (dyn)
+                        if (already_linked)
                             continue;
 
                         if ((system_lib.search_strategy != prev_search_strategy or
@@ -1088,29 +1107,36 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         }
                     },
                     .other_step => |other| {
-                        const included_in_lib = (compile.kind == .lib and other.kind == .obj);
-                        if (dyn or included_in_lib)
-                            continue;
-
                         switch (other.kind) {
                             .exe => return step.fail("cannot link with an executable build artifact", .{}),
                             .@"test" => return step.fail("cannot link with a test", .{}),
                             .obj => {
-                                try zig_args.append(other.getEmittedBin().getPath(b));
+                                const included_in_lib = !my_responsibility and
+                                    compile.kind == .lib and other.kind == .obj;
+                                if (!already_linked and !included_in_lib) {
+                                    try zig_args.append(other.getEmittedBin().getPath(b));
+                                    total_linker_objects += 1;
+                                }
                             },
                             .lib => l: {
-                                if (self.isStaticLibrary() and other.isStaticLibrary()) {
+                                const other_produces_implib = other.producesImplib();
+                                const other_is_static = other_produces_implib or other.isStaticLibrary();
+
+                                if (self.isStaticLibrary() and other_is_static) {
                                     // Avoid putting a static library inside a static library.
                                     break :l;
                                 }
 
-                                // For DLLs, we gotta link against the implib. For
-                                // everything else, we directly link against the library file.
-                                const full_path_lib = if (other.producesImplib())
+                                // For DLLs, we must link against the implib.
+                                // For everything else, we directly link
+                                // against the library file.
+                                const full_path_lib = if (other_produces_implib)
                                     other.getGeneratedFilePath("generated_implib", &self.step)
                                 else
                                     other.getGeneratedFilePath("generated_bin", &self.step);
+
                                 try zig_args.append(full_path_lib);
+                                total_linker_objects += 1;
 
                                 if (other.linkage == Linkage.dynamic and
                                     self.rootModuleTarget().os.tag != .windows)
@@ -1123,16 +1149,21 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             },
                         }
                     },
-                    .assembly_file => |asm_file| {
+                    .assembly_file => |asm_file| l: {
+                        if (!my_responsibility) break :l;
+
                         if (prev_has_cflags) {
                             try zig_args.append("-cflags");
                             try zig_args.append("--");
                             prev_has_cflags = false;
                         }
                         try zig_args.append(asm_file.getPath(b));
+                        total_linker_objects += 1;
                     },
 
-                    .c_source_file => |c_source_file| {
+                    .c_source_file => |c_source_file| l: {
+                        if (!my_responsibility) break :l;
+
                         if (c_source_file.flags.len == 0) {
                             if (prev_has_cflags) {
                                 try zig_args.append("-cflags");
@@ -1148,9 +1179,12 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             prev_has_cflags = true;
                         }
                         try zig_args.append(c_source_file.file.getPath(b));
+                        total_linker_objects += 1;
                     },
 
-                    .c_source_files => |c_source_files| {
+                    .c_source_files => |c_source_files| l: {
+                        if (!my_responsibility) break :l;
+
                         if (c_source_files.flags.len == 0) {
                             if (prev_has_cflags) {
                                 try zig_args.append("-cflags");
@@ -1165,6 +1199,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("--");
                             prev_has_cflags = true;
                         }
+
                         if (c_source_files.dependency) |dep| {
                             for (c_source_files.files) |file| {
                                 try zig_args.append(dep.builder.pathFromRoot(file));
@@ -1174,9 +1209,12 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                                 try zig_args.append(b.pathFromRoot(file));
                             }
                         }
+                        total_linker_objects += c_source_files.files.len;
                     },
 
-                    .win32_resource_file => |rc_source_file| {
+                    .win32_resource_file => |rc_source_file| l: {
+                        if (!my_responsibility) break :l;
+
                         if (rc_source_file.flags.len == 0) {
                             if (prev_has_rcflags) {
                                 try zig_args.append("-rcflags");
@@ -1192,6 +1230,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             prev_has_rcflags = true;
                         }
                         try zig_args.append(rc_source_file.file.getPath(b));
+                        total_linker_objects += 1;
                     },
                 }
             }

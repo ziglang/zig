@@ -229,7 +229,7 @@ pub fn init(m: *Module, owner: *std.Build, options: CreateOptions, compile: ?*St
     }
 
     // This logic accesses `depending_steps` which was just modified above.
-    var it = m.iterateDependencies(null);
+    var it = m.iterateDependencies(null, false);
     while (it.next()) |item| addShallowDependencies(m, item.module);
 }
 
@@ -244,7 +244,7 @@ pub fn addImport(m: *Module, name: []const u8, module: *Module) void {
     const b = m.owner;
     m.import_table.put(b.allocator, b.dupe(name), module) catch @panic("OOM");
 
-    var it = module.iterateDependencies(null);
+    var it = module.iterateDependencies(null, false);
     while (it.next()) |item| addShallowDependencies(m, item.module);
 }
 
@@ -319,6 +319,7 @@ pub const DependencyIterator = struct {
     allocator: std.mem.Allocator,
     index: usize,
     set: std.AutoArrayHashMapUnmanaged(Key, []const u8),
+    chase_dyn_libs: bool,
 
     pub const Key = struct {
         /// The compilation that contains the `Module`. Note that a `Module` might be
@@ -361,6 +362,8 @@ pub const DependencyIterator = struct {
         if (key.compile != null) {
             for (module.link_objects.items) |link_object| switch (link_object) {
                 .other_step => |compile| {
+                    if (!it.chase_dyn_libs and compile.isDynamicLibrary()) continue;
+
                     it.set.put(it.allocator, .{
                         .module = &compile.root_module,
                         .compile = compile,
@@ -381,11 +384,13 @@ pub const DependencyIterator = struct {
 pub fn iterateDependencies(
     m: *Module,
     chase_steps: ?*Step.Compile,
+    chase_dyn_libs: bool,
 ) DependencyIterator {
     var it: DependencyIterator = .{
         .allocator = m.owner.allocator,
         .index = 0,
         .set = .{},
+        .chase_dyn_libs = chase_dyn_libs,
     };
     it.set.ensureUnusedCapacity(m.owner.allocator, m.import_table.count() + 1) catch @panic("OOM");
     it.set.putAssumeCapacity(.{

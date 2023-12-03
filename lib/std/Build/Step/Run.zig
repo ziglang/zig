@@ -1291,7 +1291,7 @@ fn evalGeneric(self: *Run, child: *std.process.Child) !StdIoResult {
 
 fn addPathForDynLibs(self: *Run, artifact: *Step.Compile) void {
     const b = self.step.owner;
-    var it = artifact.root_module.iterateDependencies(artifact);
+    var it = artifact.root_module.iterateDependencies(artifact, true);
     while (it.next()) |item| {
         const other = item.compile.?;
         if (item.module == &other.root_module) {

@@ -1317,8 +1317,9 @@ fn testIFuncDlopen(b: *Build, opts: Options) *Step {
 fn testIFuncDso(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "ifunc-dso", opts);
 
-    const dso = addSharedLibrary(b, opts, .{ .name = "a" });
-    addCSourceBytes(dso,
+    const dso = addSharedLibrary(b, opts, .{
+        .name = "a",
+        .c_source_bytes =
         \\#include<stdio.h>
         \\__attribute__((ifunc("resolve_foobar")))
         \\void foobar(void);
@@ -1329,16 +1330,19 @@ fn testIFuncDso(b: *Build, opts: Options) *Step {
         \\static Func *resolve_foobar(void) {
         \\  return real_foobar;
         \\}
-    , &.{});
+        ,
+    });
     dso.linkLibC();
 
-    const exe = addExecutable(b, opts, .{ .name = "main" });
-    addCSourceBytes(exe,
+    const exe = addExecutable(b, opts, .{
+        .name = "main",
+        .c_source_bytes =
         \\void foobar(void);
         \\int main() {
         \\  foobar();
         \\}
-    , &.{});
+        ,
+    });
     exe.linkLibrary(dso);
 
     const run = addRunArtifact(exe);
