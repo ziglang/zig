@@ -212,7 +212,7 @@ pub const BuildId = union(enum) {
     hexstring: HexString,
 
     pub fn eql(a: BuildId, b: BuildId) bool {
-        const Tag = @TypeOf(BuildId).Union.tag_type.?;
+        const Tag = @typeInfo(BuildId).Union.tag_type.?;
         const a_tag: Tag = a;
         const b_tag: Tag = b;
         if (a_tag != b_tag) return false;
