@@ -8480,7 +8480,8 @@ fn genBinOp(
         if (maybe_mask_reg) |mask_reg| self.register_manager.lockRegAssumeUnused(mask_reg) else null;
     defer if (mask_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const ordered_air = if (lhs_ty.isVector(mod) and switch (lhs_ty.childType(mod).zigTypeTag(mod)) {
+    const ordered_air: [2]Air.Inst.Ref = if (lhs_ty.isVector(mod) and
+        switch (lhs_ty.childType(mod).zigTypeTag(mod)) {
         .Int => switch (air_tag) {
             .cmp_lt, .cmp_gte => true,
             else => false,
@@ -8490,14 +8491,24 @@ fn genBinOp(
             else => false,
         },
         else => unreachable,
-    }) .{ .lhs = rhs_air, .rhs = lhs_air } else .{ .lhs = lhs_air, .rhs = rhs_air };
+    }) .{ rhs_air, lhs_air } else .{ lhs_air, rhs_air };
 
-    const lhs_mcv = try self.resolveInst(ordered_air.lhs);
-    var rhs_mcv = try self.resolveInst(ordered_air.rhs);
+    if (lhs_ty.isAbiInt(mod)) for (ordered_air) |op_air| {
+        switch (try self.resolveInst(op_air)) {
+            .register => |op_reg| switch (op_reg.class()) {
+                .sse => try self.register_manager.getReg(op_reg, null),
+                else => {},
+            },
+            else => {},
+        }
+    };
+
+    const lhs_mcv = try self.resolveInst(ordered_air[0]);
+    var rhs_mcv = try self.resolveInst(ordered_air[1]);
     switch (lhs_mcv) {
         .immediate => |imm| switch (imm) {
             0 => switch (air_tag) {
-                .sub, .sub_wrap => return self.genUnOp(maybe_inst, .neg, ordered_air.rhs),
+                .sub, .sub_wrap => return self.genUnOp(maybe_inst, .neg, ordered_air[1]),
                 else => {},
             },
             else => {},
@@ -8549,10 +8560,10 @@ fn genBinOp(
         };
         if (maybe_inst) |inst| {
             if ((!sse_op or lhs_mcv.isRegister()) and
-                self.reuseOperandAdvanced(inst, ordered_air.lhs, 0, lhs_mcv, tracked_inst))
+                self.reuseOperandAdvanced(inst, ordered_air[0], 0, lhs_mcv, tracked_inst))
                 break :dst lhs_mcv;
             if (is_commutative and (!sse_op or rhs_mcv.isRegister()) and
-                self.reuseOperandAdvanced(inst, ordered_air.rhs, 1, rhs_mcv, tracked_inst))
+                self.reuseOperandAdvanced(inst, ordered_air[1], 1, rhs_mcv, tracked_inst))
             {
                 flipped = true;
                 break :dst rhs_mcv;
@@ -8563,7 +8574,7 @@ fn genBinOp(
             copied_to_dst = false
         else
             try self.genCopy(lhs_ty, dst_mcv, lhs_mcv);
-        rhs_mcv = try self.resolveInst(ordered_air.rhs);
+        rhs_mcv = try self.resolveInst(ordered_air[1]);
         break :dst dst_mcv;
     };
     const dst_locks: [2]?RegisterLock = switch (dst_mcv) {
@@ -15445,7 +15456,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                 }
                 break :result .{ .load_frame = .{ .index = frame_index } };
             },
-            .Array => {
+            .Array, .Vector => {
                 const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(result_ty, mod));
                 const elem_ty = result_ty.childType(mod);
                 const elem_size: u32 = @intCast(elem_ty.abiSize(mod));
@@ -15467,7 +15478,6 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                 );
                 break :result .{ .load_frame = .{ .index = frame_index } };
             },
-            .Vector => return self.fail("TODO implement aggregate_init for vectors", .{}),
             else => unreachable,
         }
     };
