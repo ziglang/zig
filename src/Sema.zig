@@ -9069,7 +9069,7 @@ fn handleExternLibName(
     block: *Block,
     src_loc: LazySrcLoc,
     lib_name: []const u8,
-) CompileError![:0]u8 {
+) CompileError!void {
     blk: {
         const mod = sema.mod;
         const comp = mod.comp;
@@ -9117,7 +9117,6 @@ fn handleExternLibName(
             });
         };
     }
-    return sema.gpa.dupeZ(u8, lib_name);
 }
 
 /// These are calling conventions that are confirmed to work with variadic functions.
@@ -9422,15 +9421,13 @@ fn funcCommon(
         assert(section != .generic);
         assert(address_space != null);
         assert(!is_generic);
+        if (opt_lib_name) |lib_name| try sema.handleExternLibName(block, .{
+            .node_offset_lib_name = src_node_offset,
+        }, lib_name);
         const func_index = try ip.getExternFunc(gpa, .{
             .ty = func_ty,
             .decl = sema.owner_decl_index,
-            .lib_name = if (opt_lib_name) |lib_name| (try mod.intern_pool.getOrPutString(
-                gpa,
-                try sema.handleExternLibName(block, .{
-                    .node_offset_lib_name = src_node_offset,
-                }, lib_name),
-            )).toOptional() else .none,
+            .lib_name = try mod.intern_pool.getOrPutStringOpt(gpa, opt_lib_name),
         });
         return finishFunc(
             sema,
@@ -24688,10 +24685,11 @@ fn zirVarExtended(
 
     var extra_index: usize = extra.end;
 
-    const lib_name: ?[]const u8 = if (small.has_lib_name) blk: {
+    const lib_name = if (small.has_lib_name) lib_name: {
         const lib_name = sema.code.nullTerminatedString(sema.code.extra[extra_index]);
         extra_index += 1;
-        break :blk lib_name;
+        try sema.handleExternLibName(block, ty_src, lib_name);
+        break :lib_name lib_name;
     } else null;
 
     // ZIR supports encoding this information but it is not used; the information
@@ -24729,10 +24727,7 @@ fn zirVarExtended(
         .ty = var_ty.toIntern(),
         .init = init_val,
         .decl = sema.owner_decl_index,
-        .lib_name = if (lib_name) |lname| (try mod.intern_pool.getOrPutString(
-            sema.gpa,
-            try sema.handleExternLibName(block, ty_src, lname),
-        )).toOptional() else .none,
+        .lib_name = try mod.intern_pool.getOrPutStringOpt(sema.gpa, lib_name),
         .is_extern = small.is_extern,
         .is_threadlocal = small.is_threadlocal,
     } })));
@@ -25177,12 +25172,13 @@ fn resolveExternOptions(
         .needed_comptime_reason = "threadlocality of the extern symbol must be comptime-known",
     });
 
-    const library_name = if (library_name_val.optionalValue(mod)) |payload| blk: {
-        const library_name = try payload.toAllocatedBytes(Type.slice_const_u8, sema.arena, mod);
+    const library_name = if (library_name_val.optionalValue(mod)) |library_name_payload| library_name: {
+        const library_name = try library_name_payload.toAllocatedBytes(Type.slice_const_u8, sema.arena, mod);
         if (library_name.len == 0) {
             return sema.fail(block, library_src, "library name cannot be empty", .{});
         }
-        break :blk try sema.handleExternLibName(block, library_src, library_name);
+        try sema.handleExternLibName(block, library_src, library_name);
+        break :library_name library_name;
     } else null;
 
     if (name.len == 0) {
