@@ -21,6 +21,11 @@ var cpu_extra_features: [3]u32 = [_]u32{0} ** 3;
 fn init() callconv(.C) c_int {
     if (cpu.vendor != .unknown) return 0;
 
+    const vendor, const family, const model = blk: {
+        const v, const fm = x86.detectNativeModel();
+        break :blk .{ v, if (fm) |x| x.family else 0, if (fm) |x| x.model else 0 };
+    };
+
     const features = blk: {
         var detected = Target.Cpu.Feature.Set.empty;
         x86.detectNativeFeatures(&detected, builtin.os.tag);
@@ -58,6 +63,18 @@ fn init() callconv(.C) c_int {
 
         break :blk features;
     };
+
+    cpu.vendor = switch (vendor) {
+        .intel => blk: {
+            cpu.type, cpu.subtype = getIntelTypeAndSubtype(family, model, features);
+            break :blk .intel;
+        },
+        .amd => blk: {
+            cpu.type, cpu.subtype = getAmdTypeAndSubtype(family, model, features);
+            break :blk .amd;
+        },
+        else => .other,
+    };
     cpu.features[0] = features[0];
     cpu_extra_features = features[1..].*;
 
@@ -88,6 +105,8 @@ fn setFeature(set: *FeatureSet, f: Feature) void {
     const f_value = @intFromEnum(f);
     set[f_value / 32] |= (@as(u32, 1) << @as(u5, @intCast(f_value % 32)));
 }
+
+// These values match the values in LLVM.
 
 const Vendor = enum(u32) {
     unknown = 0,
@@ -237,4 +256,173 @@ comptime {
         }
     }
     if (missing) @compileError("missing enum values in std.Target.x86.Feature (see compile log)");
+}
+
+fn getAmdTypeAndSubtype(
+    family: u32,
+    model: u32,
+    features: FeatureSet,
+) struct { Type, Subtype } {
+    _ = features;
+
+    var t: Type = .unknown;
+    var s: Subtype = .unknown;
+
+    switch (family) {
+        16 => {
+            t = .amdfam10h;
+            switch (model) {
+                2 => s = .amdfam10h_barcelona,
+                4 => s = .amdfam10h_shanghai,
+                8 => s = .amdfam10h_istanbul,
+                else => {},
+            }
+        },
+        20 => t = .amd_btver1,
+        21 => {
+            t = .amdfam15h;
+            switch (model) {
+                0x60...0x7f => s = .amdfam15h_bdver4,
+                0x30...0x3f => s = .amdfam15h_bdver3,
+                0x10...0x1f => s = .amdfam15h_bdver2,
+                0x00...0x0f => s = if (model == 0x02) .amdfam15h_bdver2 else .amdfam15h_bdver1,
+                else => {},
+            }
+        },
+        22 => t = .amd_btver2,
+        23 => {
+            t = .amdfam17h;
+            switch (model) {
+                0x30...0x3f, 0x71 => s = .amdfam17h_znver2,
+                0x00...0x0f => s = .amdfam17h_znver1,
+                else => {},
+            }
+        },
+        25 => {
+            t = .amdfam19h;
+            switch (model) {
+                0x00...0x0f, 0x20...0x5f => s = .amdfam19h_znver3,
+                0x10...0x1f, 0x60...0x74, 0x78...0x7b, 0xa0...0xaf => s = .amdfam19h_znver4,
+                else => {},
+            }
+        },
+        else => {},
+    }
+
+    return .{ t, s };
+}
+
+fn getIntelTypeAndSubtype(
+    family: u32,
+    model: u32,
+    features: FeatureSet,
+) struct { Type, Subtype } {
+    var t: Type = .unknown;
+    var s: Subtype = .unknown;
+
+    switch (family) {
+        6 => switch (model) {
+            0x0f, 0x16, 0x17, 0x1d => t = .intel_core2,
+            0x1a, 0x1e, 0x1f, 0x2e => {
+                t = .intel_corei7;
+                s = .intel_corei7_nehalem;
+            },
+            0x25, 0x2c, 0x2f => {
+                t = .intel_corei7;
+                s = .intel_corei7_westmere;
+            },
+            0x2a, 0x2d => {
+                t = .intel_corei7;
+                s = .intel_corei7_sandybridge;
+            },
+            0x3a, 0x3e => {
+                t = .intel_corei7;
+                s = .intel_corei7_ivybridge;
+            },
+            0x3c, 0x3f, 0x45, 0x46 => {
+                t = .intel_corei7;
+                s = .intel_corei7_haswell;
+            },
+            0x3d, 0x47, 0x4f, 0x56 => {
+                t = .intel_corei7;
+                s = .intel_corei7_broadwell;
+            },
+            0x4e, 0x5e, 0x8e, 0x9e, 0xa5, 0xa6 => {
+                t = .intel_corei7;
+                s = .intel_corei7_skylake;
+            },
+            0xa7 => {
+                t = .intel_corei7;
+                s = .intel_corei7_rocketlake;
+            },
+            0x55 => {
+                t = .intel_corei7;
+                s = if (hasFeature(features, .avx512bf16))
+                    .intel_corei7_cooperlake
+                else if (hasFeature(features, .avx512vnni))
+                    .intel_corei7_cascadelake
+                else
+                    .intel_corei7_skylake_avx512;
+            },
+            0x66 => {
+                t = .intel_corei7;
+                s = .intel_corei7_cannonlake;
+            },
+            0x7d, 0x7e => {
+                t = .intel_corei7;
+                s = .intel_corei7_icelake_client;
+            },
+            0x8c, 0x8d => {
+                t = .intel_corei7;
+                s = .intel_corei7_tigerlake;
+            },
+            0x97, 0x9a, 0xb7, 0xba, 0xbf, 0xaa, 0xac, 0xbe => {
+                t = .intel_corei7;
+                s = .intel_corei7_alderlake;
+            },
+            0xc5 => {
+                t = .intel_corei7;
+                s = .intel_corei7_arrowlake;
+            },
+            0xc6, 0xbd => {
+                t = .intel_corei7;
+                s = .intel_corei7_arrowlake_s;
+            },
+            0xcc => {
+                t = .intel_corei7;
+                s = .intel_corei7_pantherlake;
+            },
+            0x6a, 0x6c => {
+                t = .intel_corei7;
+                s = .intel_corei7_icelake_server;
+            },
+            0xcf, 0x8f => {
+                t = .intel_corei7;
+                s = .intel_corei7_sapphirerapids;
+            },
+            0xad => {
+                t = .intel_corei7;
+                s = .intel_corei7_graniterapids;
+            },
+            0xae => {
+                t = .intel_corei7;
+                s = .intel_corei7_graniterapids_d;
+            },
+
+            0x1c, 0x26, 0x27, 0x35, 0x36 => t = .intel_bonnell,
+            0x37, 0x4a, 0x4d, 0x5a, 0x5d, 0x4c => t = .intel_silvermont,
+            0x5c, 0x5f => t = .intel_goldmont,
+            0x7a => t = .intel_goldmont_plus,
+            0x86, 0x8a, 0x96, 0x9c => t = .intel_tremont,
+            0xaf => t = .intel_sierraforest,
+            0xb6 => t = .intel_grandridge,
+            0xdd => t = .intel_clearwaterforest,
+            0x57 => t = .intel_knl,
+            0x85 => t = .intel_knm,
+            else => {},
+        },
+        else => {},
+    }
+
+    return .{ t, s };
 }
