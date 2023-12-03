@@ -11189,6 +11189,16 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         break :blk multi_cases_len;
     } else 0;
 
+    const err_capture_inst: Zir.Inst.Index = if (extra.data.bits.any_uses_err_capture) blk: {
+        const err_capture_inst: Zir.Inst.Index = @enumFromInt(sema.code.extra[header_extra_index]);
+        header_extra_index += 1;
+        // SwitchProngAnalysis wants inst_map to have space for the tag capture.
+        // Note that the normal capture is referred to via the switch block
+        // index, which there is already necessarily space for.
+        try sema.inst_map.ensureSpaceForInstructions(gpa, &.{err_capture_inst});
+        break :blk err_capture_inst;
+    } else undefined;
+
     var case_vals = try std.ArrayListUnmanaged(Air.Inst.Ref).initCapacity(gpa, scalar_cases_len + 2 * multi_cases_len);
     defer case_vals.deinit(gpa);
 
@@ -11314,6 +11324,12 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
                 },
             }));
             spa.operand = try sema.analyzeErrUnionCode(block, operand_src, raw_operand_val);
+
+            if (extra.data.bits.any_uses_err_capture) {
+                sema.inst_map.putAssumeCapacity(err_capture_inst, spa.operand);
+            }
+            defer if (extra.data.bits.any_uses_err_capture) assert(sema.inst_map.remove(err_capture_inst));
+
             return resolveSwitchComptime(
                 sema,
                 spa,
@@ -11364,6 +11380,10 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     defer gpa.free(true_instructions);
 
     spa.operand = try sema.analyzeErrUnionCode(&sub_block, operand_src, raw_operand_val);
+    if (extra.data.bits.any_uses_err_capture) {
+        sema.inst_map.putAssumeCapacity(err_capture_inst, spa.operand);
+    }
+    defer if (extra.data.bits.any_uses_err_capture) assert(sema.inst_map.remove(err_capture_inst));
     _ = try sema.analyzeSwitchRuntimeBlock(
         spa,
         &sub_block,

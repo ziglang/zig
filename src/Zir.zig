@@ -2792,9 +2792,10 @@ pub const Inst = struct {
             has_multi_cases: bool,
             /// If true, there is an else prong. This is mutually exclusive with `has_under`.
             has_else: bool,
+            any_uses_err_capture: bool,
             scalar_cases_len: ScalarCasesLen,
 
-            pub const ScalarCasesLen = u30;
+            pub const ScalarCasesLen = u29;
         };
 
         pub const MultiProng = struct {

@@ -7017,8 +7017,7 @@ fn switchExprErrUnion(
         const case_slice = case_scope.instructionsSlice();
         // Since we use the switch_block_err_union instruction itself to refer
         // to the capture, which will not be added to the child block, we need
-        // to handle ref_table manually, and the same for the inline tag
-        // capture instruction.
+        // to handle ref_table manually.
         const refs_len = refs: {
             var n: usize = 0;
             var check_inst = switch_block;
@@ -7054,9 +7053,24 @@ fn switchExprErrUnion(
         break :blk .{ err_name, error_payload };
     };
 
+    // allocate a shared dummy instruction for the error capture
+    const err_inst = err_inst: {
+        const inst: Zir.Inst.Index = @enumFromInt(astgen.instructions.len);
+        try astgen.instructions.append(astgen.gpa, .{
+            .tag = .extended,
+            .data = .{ .extended = .{
+                .opcode = .value_placeholder,
+                .small = undefined,
+                .operand = undefined,
+            } },
+        });
+        break :err_inst inst;
+    };
+
     // In this pass we generate all the item and prong expressions for error cases.
     var multi_case_index: u32 = 0;
     var scalar_case_index: u32 = 0;
+    var any_uses_err_capture = false;
     for (case_nodes) |case_node| {
         const case = tree.fullSwitchCase(case_node).?;
 
@@ -7066,31 +7080,42 @@ fn switchExprErrUnion(
         var dbg_var_name: ?u32 = null;
         var dbg_var_inst: Zir.Inst.Ref = undefined;
         var err_scope: Scope.LocalVal = undefined;
-        var tag_scope: Scope.LocalVal = undefined;
+        var capture_scope: Scope.LocalVal = undefined;
 
         const sub_scope = blk: {
-            const tag_token = case.payload_token orelse break :blk &case_scope.base;
-            assert(token_tags[tag_token] == .identifier);
+            err_scope = .{
+                .parent = &case_scope.base,
+                .gen_zir = &case_scope,
+                .name = err_name,
+                .inst = err_inst.toRef(),
+                .token_src = error_payload,
+                .id_cat = .capture,
+            };
 
-            const tag_slice = tree.tokenSlice(tag_token);
-            if (mem.eql(u8, tag_slice, "_")) {
-                return astgen.failTok(tag_token, "discard of error capture; omit it instead", .{});
+            const capture_token = case.payload_token orelse break :blk &err_scope.base;
+            assert(token_tags[capture_token] == .identifier);
+
+            const capture_slice = tree.tokenSlice(capture_token);
+            if (mem.eql(u8, capture_slice, "_")) {
+                return astgen.failTok(capture_token, "discard of error capture; omit it instead", .{});
             }
-            const tag_name = try astgen.identAsString(tag_token);
-            try astgen.detectLocalShadowing(&case_scope.base, tag_name, tag_token, tag_slice, .capture);
+            const tag_name = try astgen.identAsString(capture_token);
+            try astgen.detectLocalShadowing(&case_scope.base, tag_name, capture_token, capture_slice, .capture);
 
-            tag_scope = .{
+            capture_scope = .{
                 .parent = &case_scope.base,
                 .gen_zir = &case_scope,
                 .name = tag_name,
                 .inst = switch_block.toRef(),
-                .token_src = tag_token,
+                .token_src = capture_token,
                 .id_cat = .capture,
             };
             dbg_var_name = tag_name;
             dbg_var_inst = switch_block.toRef();
 
-            break :blk &tag_scope.base;
+            err_scope.parent = &capture_scope.base;
+
+            break :blk &err_scope.base;
         };
 
         const header_index: u32 = @intCast(payloads.items.len);
@@ -7144,40 +7169,41 @@ fn switchExprErrUnion(
             case_scope.instructions_top = parent_gz.instructions.items.len;
             defer case_scope.unstack();
 
-            const err_code_inst = try case_scope.addUnNode(.err_union_code, raw_operand, operand_node);
-            err_scope = .{
-                .parent = sub_scope,
-                .gen_zir = &case_scope,
-                .name = err_name,
-                .inst = err_code_inst,
-                .token_src = error_payload,
-                .id_cat = .capture,
-            };
-
             try case_scope.addDbgBlockBegin();
             if (dbg_var_name) |some| {
                 try case_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
             }
             const target_expr_node = case.ast.target_expr;
-            const case_result = try expr(&case_scope, &err_scope.base, block_scope.break_result_info, target_expr_node);
-            // check sub_scope, not err_scope to avoid false positive unused error capture
-            try checkUsed(parent_gz, &case_scope.base, sub_scope);
+            const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_info, target_expr_node);
+            // check capture_scope, not err_scope to avoid false positive unused error capture
+            try checkUsed(parent_gz, &case_scope.base, err_scope.parent);
+            const uses_err = err_scope.used != 0 or err_scope.discarded != 0;
+            if (uses_err) {
+                try case_scope.addDbgVar(.dbg_var_val, err_name, err_inst.toRef());
+                any_uses_err_capture = true;
+            }
             try case_scope.addDbgBlockEnd();
             if (!parent_gz.refIsNoReturn(case_result)) {
                 _ = try case_scope.addBreakWithSrcNode(.@"break", switch_block, case_result, target_expr_node);
             }
 
             const case_slice = case_scope.instructionsSlice();
-            // Since we use the switch_block instruction itself to refer to the
-            // capture, which will not be added to the child block, we need to
-            // handle ref_table manually, and the same for the inline tag
-            // capture instruction.
+            // Since we use the switch_block_err_union instruction itself to refer
+            // to the capture, which will not be added to the child block, we need
+            // to handle ref_table manually.
             const refs_len = refs: {
                 var n: usize = 0;
                 var check_inst = switch_block;
                 while (astgen.ref_table.get(check_inst)) |ref_inst| {
                     n += 1;
                     check_inst = ref_inst;
+                }
+                if (uses_err) {
+                    check_inst = err_inst;
+                    while (astgen.ref_table.get(check_inst)) |ref_inst| {
+                        n += 1;
+                        check_inst = ref_inst;
+                    }
                 }
                 break :refs n;
             };
@@ -7191,6 +7217,11 @@ fn switchExprErrUnion(
             });
             if (astgen.ref_table.fetchRemove(switch_block)) |kv| {
                 appendPossiblyRefdBodyInst(astgen, payloads, kv.value);
+            }
+            if (uses_err) {
+                if (astgen.ref_table.fetchRemove(err_inst)) |kv| {
+                    appendPossiblyRefdBodyInst(astgen, payloads, kv.value);
+                }
             }
             appendBodyWithFixupsArrayList(astgen, payloads, case_slice);
         }
@@ -7209,11 +7240,16 @@ fn switchExprErrUnion(
             .has_multi_cases = multi_cases_len != 0,
             .has_else = has_else,
             .scalar_cases_len = @intCast(scalar_cases_len),
+            .any_uses_err_capture = any_uses_err_capture,
         },
     });
 
     if (multi_cases_len != 0) {
         astgen.extra.appendAssumeCapacity(multi_cases_len);
+    }
+
+    if (any_uses_err_capture) {
+        astgen.extra.appendAssumeCapacity(@intFromEnum(err_inst));
     }
 
     const zir_datas = astgen.instructions.items(.data);

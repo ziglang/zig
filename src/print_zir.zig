@@ -2040,7 +2040,18 @@ const Writer = struct {
             break :blk multi_cases_len;
         } else 0;
 
+        const err_capture_inst: Zir.Inst.Index = if (extra.data.bits.any_uses_err_capture) blk: {
+            const tag_capture_inst = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk @enumFromInt(tag_capture_inst);
+        } else undefined;
+
         try self.writeInstRef(stream, extra.data.operand);
+
+        if (extra.data.bits.any_uses_err_capture) {
+            try stream.writeAll(", err_capture=");
+            try self.writeInstIndex(stream, err_capture_inst);
+        }
 
         self.indent += 2;
 
