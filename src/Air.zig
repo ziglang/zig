@@ -875,7 +875,19 @@ pub const Inst = struct {
     };
 
     /// The position of an AIR instruction within the `Air` instructions array.
-    pub const Index = u32;
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn toRef(i: Index) Inst.Ref {
+            assert(@intFromEnum(i) >> 31 == 0);
+            return @enumFromInt((1 << 31) | @intFromEnum(i));
+        }
+
+        pub fn toTargetIndex(i: Index) u31 {
+            assert(@intFromEnum(i) >> 31 == 1);
+            return @truncate(@intFromEnum(i));
+        }
+    };
 
     /// Either a reference to a value stored in the InternPool, or a reference to an AIR instruction.
     /// The most-significant bit of the value is a tag bit. This bit is 1 if the value represents an
@@ -976,6 +988,41 @@ pub const Inst = struct {
         /// value and may instead be used as a sentinel to indicate null.
         none = @intFromEnum(InternPool.Index.none),
         _,
+
+        pub fn toInterned(ref: Ref) ?InternPool.Index {
+            assert(ref != .none);
+            return ref.toInternedAllowNone();
+        }
+
+        pub fn toInternedAllowNone(ref: Ref) ?InternPool.Index {
+            return switch (ref) {
+                .var_args_param_type => .var_args_param_type,
+                .none => .none,
+                else => if (@intFromEnum(ref) >> 31 == 0)
+                    @enumFromInt(@as(u31, @truncate(@intFromEnum(ref))))
+                else
+                    null,
+            };
+        }
+
+        pub fn toIndex(ref: Ref) ?Index {
+            assert(ref != .none);
+            return ref.toIndexAllowNone();
+        }
+
+        pub fn toIndexAllowNone(ref: Ref) ?Index {
+            return switch (ref) {
+                .var_args_param_type, .none => null,
+                else => if (@intFromEnum(ref) >> 31 != 0)
+                    @enumFromInt(@as(u31, @truncate(@intFromEnum(ref))))
+                else
+                    null,
+            };
+        }
+
+        pub fn toType(ref: Ref) Type {
+            return Type.fromInterned(ref.toInterned().?);
+        }
     };
 
     /// All instructions have an 8-byte payload, which is contained within
@@ -1216,20 +1263,20 @@ pub const UnionInit = struct {
 pub fn getMainBody(air: Air) []const Air.Inst.Index {
     const body_index = air.extra[@intFromEnum(ExtraIndex.main_block)];
     const extra = air.extraData(Block, body_index);
-    return air.extra[extra.end..][0..extra.data.body_len];
+    return @ptrCast(air.extra[extra.end..][0..extra.data.body_len]);
 }
 
 pub fn typeOf(air: *const Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
-    if (refToInterned(inst)) |ip_index| {
+    if (inst.toInterned()) |ip_index| {
         return Type.fromInterned(ip.typeOf(ip_index));
     } else {
-        return air.typeOfIndex(refToIndex(inst).?, ip);
+        return air.typeOfIndex(inst.toIndex().?, ip);
     }
 }
 
 pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool) Type {
     const datas = air.instructions.items(.data);
-    switch (air.instructions.items(.tag)[inst]) {
+    switch (air.instructions.items(.tag)[@intFromEnum(inst)]) {
         .add,
         .add_safe,
         .add_wrap,
@@ -1269,7 +1316,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .div_exact_optimized,
         .rem_optimized,
         .mod_optimized,
-        => return air.typeOf(datas[inst].bin_op.lhs, ip),
+        => return air.typeOf(datas[@intFromEnum(inst)].bin_op.lhs, ip),
 
         .sqrt,
         .sin,
@@ -1286,7 +1333,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .trunc_float,
         .neg,
         .neg_optimized,
-        => return air.typeOf(datas[inst].un_op, ip),
+        => return air.typeOf(datas[@intFromEnum(inst)].un_op, ip),
 
         .cmp_lt,
         .cmp_lte,
@@ -1317,9 +1364,9 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .ret_ptr,
         .err_return_trace,
         .c_va_start,
-        => return datas[inst].ty,
+        => return datas[@intFromEnum(inst)].ty,
 
-        .arg => return air.getRefType(datas[inst].arg.ty),
+        .arg => return datas[@intFromEnum(inst)].arg.ty.toType(),
 
         .assembly,
         .block,
@@ -1343,7 +1390,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .ptr_add,
         .ptr_sub,
         .try_ptr,
-        => return air.getRefType(datas[inst].ty_pl.ty),
+        => return datas[@intFromEnum(inst)].ty_pl.ty.toType(),
 
         .not,
         .bitcast,
@@ -1385,7 +1432,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .c_va_arg,
         .c_va_copy,
         .abs,
-        => return air.getRefType(datas[inst].ty_op.ty),
+        => return datas[@intFromEnum(inst)].ty_op.ty.toType(),
 
         .loop,
         .br,
@@ -1437,36 +1484,36 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .tag_name, .error_name => return Type.slice_const_u8_sentinel_0,
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
-            const callee_ty = air.typeOf(datas[inst].pl_op.operand, ip);
+            const callee_ty = air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip);
             return Type.fromInterned(ip.funcTypeReturnType(callee_ty.toIntern()));
         },
 
         .slice_elem_val, .ptr_elem_val, .array_elem_val => {
-            const ptr_ty = air.typeOf(datas[inst].bin_op.lhs, ip);
+            const ptr_ty = air.typeOf(datas[@intFromEnum(inst)].bin_op.lhs, ip);
             return ptr_ty.childTypeIp(ip);
         },
         .atomic_load => {
-            const ptr_ty = air.typeOf(datas[inst].atomic_load.ptr, ip);
+            const ptr_ty = air.typeOf(datas[@intFromEnum(inst)].atomic_load.ptr, ip);
             return ptr_ty.childTypeIp(ip);
         },
         .atomic_rmw => {
-            const ptr_ty = air.typeOf(datas[inst].pl_op.operand, ip);
+            const ptr_ty = air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip);
             return ptr_ty.childTypeIp(ip);
         },
 
         .reduce, .reduce_optimized => {
-            const operand_ty = air.typeOf(datas[inst].reduce.operand, ip);
+            const operand_ty = air.typeOf(datas[@intFromEnum(inst)].reduce.operand, ip);
             return Type.fromInterned(ip.indexToKey(operand_ty.ip_index).vector_type.child);
         },
 
-        .mul_add => return air.typeOf(datas[inst].pl_op.operand, ip),
+        .mul_add => return air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip),
         .select => {
-            const extra = air.extraData(Air.Bin, datas[inst].pl_op.payload).data;
+            const extra = air.extraData(Air.Bin, datas[@intFromEnum(inst)].pl_op.payload).data;
             return air.typeOf(extra.lhs, ip);
         },
 
         .@"try" => {
-            const err_union_ty = air.typeOf(datas[inst].pl_op.operand, ip);
+            const err_union_ty = air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip);
             return Type.fromInterned(ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type);
         },
 
@@ -1478,11 +1525,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .inferred_alloc => unreachable,
         .inferred_alloc_comptime => unreachable,
     }
-}
-
-pub fn getRefType(air: Air, ref: Air.Inst.Ref) Type {
-    _ = air; // TODO: remove this parameter
-    return Type.fromInterned(refToInterned(ref).?);
 }
 
 /// Returns the requested data, as well as the new index which is at the start of the
@@ -1513,21 +1555,6 @@ pub fn deinit(air: *Air, gpa: std.mem.Allocator) void {
     air.* = undefined;
 }
 
-pub fn refToInternedAllowNone(ref: Inst.Ref) ?InternPool.Index {
-    return switch (ref) {
-        .var_args_param_type => .var_args_param_type,
-        .none => .none,
-        else => if (@intFromEnum(ref) >> 31 == 0) {
-            return @as(InternPool.Index, @enumFromInt(@intFromEnum(ref)));
-        } else null,
-    };
-}
-
-pub fn refToInterned(ref: Inst.Ref) ?InternPool.Index {
-    assert(ref != .none);
-    return refToInternedAllowNone(ref);
-}
-
 pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
     return switch (ip_index) {
         .var_args_param_type => .var_args_param_type,
@@ -1539,31 +1566,12 @@ pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
     };
 }
 
-pub fn refToIndexAllowNone(ref: Inst.Ref) ?Inst.Index {
-    return switch (ref) {
-        .var_args_param_type, .none => null,
-        else => if (@intFromEnum(ref) >> 31 != 0) {
-            return @as(u31, @truncate(@intFromEnum(ref)));
-        } else null,
-    };
-}
-
-pub fn refToIndex(ref: Inst.Ref) ?Inst.Index {
-    assert(ref != .none);
-    return refToIndexAllowNone(ref);
-}
-
-pub fn indexToRef(inst: Inst.Index) Inst.Ref {
-    assert(inst >> 31 == 0);
-    return @enumFromInt((1 << 31) | inst);
-}
-
 /// Returns `null` if runtime-known.
 pub fn value(air: Air, inst: Inst.Ref, mod: *Module) !?Value {
-    if (refToInterned(inst)) |ip_index| {
+    if (inst.toInterned()) |ip_index| {
         return Value.fromInterned(ip_index);
     }
-    const index = refToIndex(inst).?;
+    const index = inst.toIndex().?;
     return air.typeOfIndex(index, &mod.intern_pool).onePossibleValue(mod);
 }
 
@@ -1581,8 +1589,8 @@ pub fn nullTerminatedString(air: Air, index: usize) [:0]const u8 {
 /// lowered, and Liveness determines its result is unused, backends should
 /// avoid lowering it.
 pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
-    const data = air.instructions.items(.data)[inst];
-    return switch (air.instructions.items(.tag)[inst]) {
+    const data = air.instructions.items(.data)[@intFromEnum(inst)];
+    return switch (air.instructions.items(.tag)[@intFromEnum(inst)]) {
         .arg,
         .block,
         .loop,
