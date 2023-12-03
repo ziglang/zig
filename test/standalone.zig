@@ -262,6 +262,10 @@ pub const build_cases = [_]BuildCase{
         .build_root = "test/standalone/depend_on_main_mod",
         .import = @import("standalone/depend_on_main_mod/build.zig"),
     },
+    .{
+        .build_root = "test/standalone/x86_cpu_model",
+        .import = @import("standalone/x86_cpu_model/build.zig"),
+    },
 };
 
 const std = @import("std");
