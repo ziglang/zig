@@ -30,13 +30,52 @@ pub fn detectNativeCpuAndFeatures(arch: Target.Cpu.Arch, os: Target.Os, query: T
         .features = Target.Cpu.Feature.Set.empty,
     };
 
+    const vendor, const opt_fm = detectNativeModel();
+
     // First we detect features, to use as hints when detecting CPU Model.
     detectNativeFeatures(&cpu.features, os.tag);
 
+    // Now we detect the model.
+    if (opt_fm) |fm| {
+        switch (vendor) {
+            .intel => {
+                detectIntelProcessor(&cpu, fm.family, fm.model, fm.brand_id);
+            },
+            .amd => {
+                detectAMDProcessor(&cpu, fm.family, fm.model);
+            },
+            else => {},
+        }
+    }
+
+    // Add the CPU model's feature set into the working set, but then
+    // override with actual detected features again.
+    cpu.features.addFeatureSet(cpu.model.features);
+    detectNativeFeatures(&cpu.features, os.tag);
+
+    cpu.features.populateDependencies(cpu.arch.allFeaturesList());
+
+    return cpu;
+}
+
+const Vendor = enum(u32) {
+    amd = 0x68747541,
+    intel = 0x756e6547,
+    _,
+};
+const FamilyModel = struct {
+    family: u32,
+    model: u32,
+    brand_id: u32,
+};
+
+pub fn detectNativeModel() struct { Vendor, ?FamilyModel } {
     var leaf = cpuid(0, 0);
     const max_leaf = leaf.eax;
-    const vendor = leaf.ebx;
 
+    const vendor: Vendor = @enumFromInt(leaf.ebx);
+
+    var fm: ?FamilyModel = null;
     if (max_leaf > 0) {
         leaf = cpuid(0x1, 0);
 
@@ -52,26 +91,10 @@ pub fn detectNativeCpuAndFeatures(arch: Target.Cpu.Arch, os: Target.Os, query: T
             model += ((leaf.eax >> 16) & 0xf) << 4;
         }
 
-        // Now we detect the model.
-        switch (vendor) {
-            0x756e6547 => {
-                detectIntelProcessor(&cpu, family, model, brand_id);
-            },
-            0x68747541 => {
-                detectAMDProcessor(&cpu, family, model);
-            },
-            else => {},
-        }
+        fm = .{ .family = family, .model = model, .brand_id = brand_id };
     }
 
-    // Add the CPU model's feature set into the working set, but then
-    // override with actual detected features again.
-    cpu.features.addFeatureSet(cpu.model.features);
-    detectNativeFeatures(&cpu.features, os.tag);
-
-    cpu.features.populateDependencies(cpu.arch.allFeaturesList());
-
-    return cpu;
+    return .{ vendor, fm };
 }
 
 fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32) void {
