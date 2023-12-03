@@ -17,7 +17,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .name = "extern",
         .root_source_file = .{ .path = "main.zig" },
         .optimize = optimize,
-        .target = .{ .cpu_arch = .wasm32, .os_tag = .wasi },
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi }),
     });
     exe.addCSourceFile(.{ .file = .{ .path = "foo.c" }, .flags = &.{} });
     exe.use_llvm = false;

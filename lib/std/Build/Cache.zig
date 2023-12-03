@@ -270,7 +270,7 @@ pub const HashHelper = struct {
                     .none => {},
                 }
             },
-            std.Build.Step.Compile.BuildId => switch (x) {
+            std.zig.BuildId => switch (x) {
                 .none, .fast, .uuid, .sha1, .md5 => hh.add(std.meta.activeTag(x)),
                 .hexstring => |hex_string| hh.addBytes(hex_string.toSlice()),
             },

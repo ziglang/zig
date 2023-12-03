@@ -23,7 +23,7 @@ fn add(
     cpp_name: []const u8,
     optimize: std.builtin.OptimizeMode,
 ) void {
-    const target: std.zig.CrossTarget = .{};
+    const target = b.host;
 
     const exe_c = b.addExecutable(.{
         .name = c_name,
@@ -42,7 +42,7 @@ fn add(
     exe_cpp.addCSourceFile(.{ .file = .{ .path = "test.cpp" }, .flags = &[0][]const u8{} });
     exe_cpp.linkLibCpp();
 
-    switch (target.getOsTag()) {
+    switch (target.target.os.tag) {
         .windows => {
             // https://github.com/ziglang/zig/issues/8531
             exe_cpp.want_lto = false;

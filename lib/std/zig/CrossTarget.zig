@@ -632,10 +632,6 @@ pub fn linuxTriple(self: CrossTarget, allocator: mem.Allocator) ![]u8 {
     return Target.linuxTripleSimple(allocator, self.getCpuArch(), self.getOsTag(), self.getAbi());
 }
 
-pub fn wantSharedLibSymLinks(self: CrossTarget) bool {
-    return self.getOsTag() != .windows;
-}
-
 pub fn isGnuLibC(self: CrossTarget) bool {
     return Target.isGnuLibC_os_tag_abi(self.getOsTag(), self.getAbi());
 }

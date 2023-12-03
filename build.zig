@@ -39,10 +39,10 @@ pub fn build(b: *std.Build) !void {
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
         .root_source_file = .{ .path = "tools/docgen.zig" },
-        .target = .{},
+        .target = b.host,
         .optimize = .Debug,
+        .single_threaded = single_threaded,
     });
-    docgen_exe.single_threaded = single_threaded;
 
     const docgen_cmd = b.addRunArtifact(docgen_exe);
     docgen_cmd.addArgs(&.{ "--zig", b.zig_exe });
@@ -89,11 +89,11 @@ pub fn build(b: *std.Build) !void {
     const check_case_exe = b.addExecutable(.{
         .name = "check-case",
         .root_source_file = .{ .path = "test/src/Cases.zig" },
+        .target = b.host,
         .optimize = optimize,
-        .main_mod_path = .{ .path = "." },
+        .single_threaded = single_threaded,
     });
     check_case_exe.stack_size = stack_size;
-    check_case_exe.single_threaded = single_threaded;
 
     const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
@@ -194,14 +194,18 @@ pub fn build(b: *std.Build) !void {
         break :blk 4;
     };
 
-    const exe = addCompilerStep(b, optimize, target);
-    exe.strip = strip;
+    const exe = addCompilerStep(b, .{
+        .optimize = optimize,
+        .target = target,
+        .strip = strip,
+        .sanitize_thread = sanitize_thread,
+        .single_threaded = single_threaded,
+    });
     exe.pie = pie;
-    exe.sanitize_thread = sanitize_thread;
     exe.entitlements = entitlements;
 
     exe.build_id = b.option(
-        std.Build.Step.Compile.BuildId,
+        std.zig.BuildId,
         "build-id",
         "Request creation of '.note.gnu.build-id' section",
     );
@@ -217,9 +221,7 @@ pub fn build(b: *std.Build) !void {
 
     test_step.dependOn(&exe.step);
 
-    exe.single_threaded = single_threaded;
-
-    if (target.isWindows() and target.getAbi() == .gnu) {
+    if (target.target.os.tag == .windows and target.target.abi == .gnu) {
         // LTO is currently broken on mingw, this can be removed when it's fixed.
         exe.want_lto = false;
         check_case_exe.want_lto = false;
@@ -230,7 +232,7 @@ pub fn build(b: *std.Build) !void {
     exe.use_lld = use_llvm;
 
     const exe_options = b.addOptions();
-    exe.addOptions("build_options", exe_options);
+    exe.root_module.addOptions("build_options", exe_options);
 
     exe_options.addOption(u32, "mem_leak_frames", mem_leak_frames);
     exe_options.addOption(bool, "skip_non_native", skip_non_native);
@@ -345,7 +347,7 @@ pub fn build(b: *std.Build) !void {
             try addStaticLlvmOptionsToExe(exe);
             try addStaticLlvmOptionsToExe(check_case_exe);
         }
-        if (target.isWindows()) {
+        if (target.target.os.tag == .windows) {
             inline for (.{ exe, check_case_exe }) |artifact| {
                 artifact.linkSystemLibrary("version");
                 artifact.linkSystemLibrary("uuid");
@@ -369,7 +371,7 @@ pub fn build(b: *std.Build) !void {
         );
 
         // On mingw, we need to opt into windows 7+ to get some features required by tracy.
-        const tracy_c_flags: []const []const u8 = if (target.isWindows() and target.getAbi() == .gnu)
+        const tracy_c_flags: []const []const u8 = if (target.target.os.tag == .windows and target.target.abi == .gnu)
             &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined", "-D_WIN32_WINNT=0x601" }
         else
             &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
@@ -377,11 +379,11 @@ pub fn build(b: *std.Build) !void {
         exe.addIncludePath(.{ .cwd_relative = tracy_path });
         exe.addCSourceFile(.{ .file = .{ .cwd_relative = client_cpp }, .flags = tracy_c_flags });
         if (!enable_llvm) {
-            exe.linkSystemLibraryName("c++");
+            exe.root_module.linkSystemLibrary("c++", .{ .use_pkg_config = .no });
         }
         exe.linkLibC();
 
-        if (target.isWindows()) {
+        if (target.target.os.tag == .windows) {
             exe.linkSystemLibrary("dbghelp");
             exe.linkSystemLibrary("ws2_32");
         }
@@ -390,7 +392,7 @@ pub fn build(b: *std.Build) !void {
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
 
     const test_cases_options = b.addOptions();
-    check_case_exe.addOptions("build_options", test_cases_options);
+    check_case_exe.root_module.addOptions("build_options", test_cases_options);
 
     test_cases_options.addOption(bool, "enable_tracy", false);
     test_cases_options.addOption(bool, "enable_logging", enable_logging);
@@ -540,16 +542,19 @@ pub fn build(b: *std.Build) !void {
 fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     const semver = try std.SemanticVersion.parse(version);
 
-    var target: std.zig.CrossTarget = .{
+    var target_query: std.zig.CrossTarget = .{
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
     };
-    target.cpu_features_add.addFeature(@intFromEnum(std.Target.wasm.Feature.bulk_memory));
+    target_query.cpu_features_add.addFeature(@intFromEnum(std.Target.wasm.Feature.bulk_memory));
 
-    const exe = addCompilerStep(b, .ReleaseSmall, target);
+    const exe = addCompilerStep(b, .{
+        .optimize = .ReleaseSmall,
+        .target = b.resolveTargetQuery(target_query),
+    });
 
     const exe_options = b.addOptions();
-    exe.addOptions("build_options", exe_options);
+    exe.root_module.addOptions("build_options", exe_options);
 
     exe_options.addOption(u32, "mem_leak_frames", 0);
     exe_options.addOption(bool, "have_llvm", false);
@@ -584,17 +589,24 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     update_zig1_step.dependOn(&copy_zig_h.step);
 }
 
-fn addCompilerStep(
-    b: *std.Build,
+const AddCompilerStepOptions = struct {
     optimize: std.builtin.OptimizeMode,
-    target: std.zig.CrossTarget,
-) *std.Build.Step.Compile {
+    target: std.Build.ResolvedTarget,
+    strip: ?bool = null,
+    sanitize_thread: ?bool = null,
+    single_threaded: ?bool = null,
+};
+
+fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "zig",
         .root_source_file = .{ .path = "src/main.zig" },
-        .target = target,
-        .optimize = optimize,
+        .target = options.target,
+        .optimize = options.optimize,
         .max_rss = 7_000_000_000,
+        .strip = options.strip,
+        .sanitize_thread = options.sanitize_thread,
+        .single_threaded = options.single_threaded,
     });
     exe.stack_size = stack_size;
 
@@ -602,15 +614,15 @@ fn addCompilerStep(
     aro_options.addOption([]const u8, "version_str", "aro-zig");
     const aro_options_module = aro_options.createModule();
     const aro_backend = b.createModule(.{
-        .source_file = .{ .path = "deps/aro/backend.zig" },
-        .dependencies = &.{.{
+        .root_source_file = .{ .path = "deps/aro/backend.zig" },
+        .imports = &.{.{
             .name = "build_options",
             .module = aro_options_module,
         }},
     });
     const aro_module = b.createModule(.{
-        .source_file = .{ .path = "deps/aro/aro.zig" },
-        .dependencies = &.{
+        .root_source_file = .{ .path = "deps/aro/aro.zig" },
+        .imports = &.{
             .{
                 .name = "build_options",
                 .module = aro_options_module,
@@ -625,7 +637,7 @@ fn addCompilerStep(
         },
     });
 
-    exe.addModule("aro", aro_module);
+    exe.root_module.addImport("aro", aro_module);
     return exe;
 }
 
@@ -649,7 +661,7 @@ fn addCmakeCfgOptionsToExe(
     exe: *std.Build.Step.Compile,
     use_zig_libcxx: bool,
 ) !void {
-    if (exe.target.isDarwin()) {
+    if (exe.rootModuleTarget().isDarwin()) {
         // useful for package maintainers
         exe.headerpad_max_install_names = true;
     }
@@ -677,8 +689,8 @@ fn addCmakeCfgOptionsToExe(
         // against system-provided LLVM, Clang, LLD.
         const need_cpp_includes = true;
         const static = cfg.llvm_linkage == .static;
-        const lib_suffix = if (static) exe.target.staticLibSuffix()[1..] else exe.target.dynamicLibSuffix()[1..];
-        switch (exe.target.getOsTag()) {
+        const lib_suffix = if (static) exe.rootModuleTarget().staticLibSuffix()[1..] else exe.rootModuleTarget().dynamicLibSuffix()[1..];
+        switch (exe.rootModuleTarget().os.tag) {
             .linux => {
                 // First we try to link against the detected libcxx name. If that doesn't work, we fall
                 // back to -lc++ and cross our fingers.
@@ -694,7 +706,7 @@ fn addCmakeCfgOptionsToExe(
                 exe.linkLibCpp();
             },
             .windows => {
-                if (exe.target.getAbi() != .msvc) exe.linkLibCpp();
+                if (exe.rootModuleTarget().abi != .msvc) exe.linkLibCpp();
             },
             .freebsd => {
                 if (static) {
@@ -756,12 +768,12 @@ fn addStaticLlvmOptionsToExe(exe: *std.Build.Step.Compile) !void {
     exe.linkSystemLibrary("z");
     exe.linkSystemLibrary("zstd");
 
-    if (exe.target.getOs().tag != .windows or exe.target.getAbi() != .msvc) {
+    if (exe.rootModuleTarget().os.tag != .windows or exe.rootModuleTarget().abi != .msvc) {
         // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
         exe.linkSystemLibrary("c++");
     }
 
-    if (exe.target.getOs().tag == .windows) {
+    if (exe.rootModuleTarget().os.tag == .windows) {
         exe.linkSystemLibrary("version");
         exe.linkSystemLibrary("uuid");
         exe.linkSystemLibrary("ole32");
@@ -810,7 +822,9 @@ fn addCMakeLibraryList(exe: *std.Build.Step.Compile, list: []const u8) void {
     while (it.next()) |lib| {
         if (mem.startsWith(u8, lib, "-l")) {
             exe.linkSystemLibrary(lib["-l".len..]);
-        } else if (exe.target.isWindows() and mem.endsWith(u8, lib, ".lib") and !fs.path.isAbsolute(lib)) {
+        } else if (exe.rootModuleTarget().os.tag == .windows and
+            mem.endsWith(u8, lib, ".lib") and !fs.path.isAbsolute(lib))
+        {
             exe.linkSystemLibrary(lib[0 .. lib.len - ".lib".len]);
         } else {
             exe.addObjectFile(.{ .cwd_relative = lib });

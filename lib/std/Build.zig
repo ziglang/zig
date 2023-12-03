@@ -14,20 +14,11 @@ const process = std.process;
 const EnvMap = std.process.EnvMap;
 const fmt_lib = std.fmt;
 const File = std.fs.File;
-const CrossTarget = std.zig.CrossTarget;
-const NativeTargetInfo = std.zig.system.NativeTargetInfo;
+const TargetQuery = std.zig.CrossTarget;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Build = @This();
 
 pub const Cache = @import("Build/Cache.zig");
-
-/// deprecated: use `Step.Compile`.
-pub const LibExeObjStep = Step.Compile;
-/// deprecated: use `Build`.
-pub const Builder = Build;
-/// deprecated: use `Step.InstallDir.Options`
-pub const InstallDirectoryOptions = Step.InstallDir.Options;
-
 pub const Step = @import("Build/Step.zig");
 pub const Module = @import("Build/Module.zig");
 
@@ -94,7 +85,7 @@ enable_wine: bool = false,
 glibc_runtimes_dir: ?[]const u8 = null,
 
 /// Information about the native target. Computed before build() is invoked.
-host: NativeTargetInfo,
+host: ResolvedTarget,
 
 dep_prefix: []const u8 = "",
 
@@ -220,7 +211,7 @@ pub fn create(
     build_root: Cache.Directory,
     cache_root: Cache.Directory,
     global_cache_root: Cache.Directory,
-    host: NativeTargetInfo,
+    host: ResolvedTarget,
     cache: *Cache,
     available_deps: AvailableDeps,
 ) !*Build {
@@ -384,7 +375,7 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
         const v = @field(args, field.name);
         const T = @TypeOf(v);
         switch (T) {
-            CrossTarget => {
+            TargetQuery => {
                 user_input_options.put(field.name, .{
                     .name = field.name,
                     .value = .{ .scalar = v.zigTriple(allocator) catch @panic("OOM") },
@@ -593,14 +584,22 @@ pub fn addOptions(self: *Build) *Step.Options {
 
 pub const ExecutableOptions = struct {
     name: []const u8,
+    /// If you want the executable to run on the same computer as the one
+    /// building the package, pass the `host` field of the package's `Build`
+    /// instance.
+    target: ResolvedTarget,
     root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
-    target: CrossTarget = .{},
     optimize: std.builtin.OptimizeMode = .Debug,
     linkage: ?Step.Compile.Linkage = null,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
+    pic: ?bool = null,
+    strip: ?bool = null,
+    unwind_tables: ?bool = null,
+    omit_frame_pointer: ?bool = null,
+    sanitize_thread: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -621,6 +620,11 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
             .optimize = options.optimize,
             .link_libc = options.link_libc,
             .single_threaded = options.single_threaded,
+            .pic = options.pic,
+            .strip = options.strip,
+            .unwind_tables = options.unwind_tables,
+            .omit_frame_pointer = options.omit_frame_pointer,
+            .sanitize_thread = options.sanitize_thread,
         },
         .version = options.version,
         .kind = .exe,
@@ -636,11 +640,18 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
 pub const ObjectOptions = struct {
     name: []const u8,
     root_source_file: ?LazyPath = null,
-    target: CrossTarget,
+    /// To choose the same computer as the one building the package, pass the
+    /// `host` field of the package's `Build` instance.
+    target: ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
+    pic: ?bool = null,
+    strip: ?bool = null,
+    unwind_tables: ?bool = null,
+    omit_frame_pointer: ?bool = null,
+    sanitize_thread: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -655,6 +666,11 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
             .optimize = options.optimize,
             .link_libc = options.link_libc,
             .single_threaded = options.single_threaded,
+            .pic = options.pic,
+            .strip = options.strip,
+            .unwind_tables = options.unwind_tables,
+            .omit_frame_pointer = options.omit_frame_pointer,
+            .sanitize_thread = options.sanitize_thread,
         },
         .kind = .obj,
         .max_rss = options.max_rss,
@@ -666,13 +682,20 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
 
 pub const SharedLibraryOptions = struct {
     name: []const u8,
+    /// To choose the same computer as the one building the package, pass the
+    /// `host` field of the package's `Build` instance.
+    target: ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
     root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
-    target: CrossTarget,
-    optimize: std.builtin.OptimizeMode,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
+    pic: ?bool = null,
+    strip: ?bool = null,
+    unwind_tables: ?bool = null,
+    omit_frame_pointer: ?bool = null,
+    sanitize_thread: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -693,6 +716,11 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
             .root_source_file = options.root_source_file,
             .link_libc = options.link_libc,
             .single_threaded = options.single_threaded,
+            .pic = options.pic,
+            .strip = options.strip,
+            .unwind_tables = options.unwind_tables,
+            .omit_frame_pointer = options.omit_frame_pointer,
+            .sanitize_thread = options.sanitize_thread,
         },
         .kind = .lib,
         .linkage = .dynamic,
@@ -708,12 +736,19 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
 pub const StaticLibraryOptions = struct {
     name: []const u8,
     root_source_file: ?LazyPath = null,
-    target: CrossTarget,
+    /// To choose the same computer as the one building the package, pass the
+    /// `host` field of the package's `Build` instance.
+    target: ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
+    pic: ?bool = null,
+    strip: ?bool = null,
+    unwind_tables: ?bool = null,
+    omit_frame_pointer: ?bool = null,
+    sanitize_thread: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -728,6 +763,11 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
             .root_source_file = options.root_source_file,
             .link_libc = options.link_libc,
             .single_threaded = options.single_threaded,
+            .pic = options.pic,
+            .strip = options.strip,
+            .unwind_tables = options.unwind_tables,
+            .omit_frame_pointer = options.omit_frame_pointer,
+            .sanitize_thread = options.sanitize_thread,
         },
         .kind = .lib,
         .linkage = .static,
@@ -742,7 +782,7 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
 pub const TestOptions = struct {
     name: []const u8 = "test",
     root_source_file: LazyPath,
-    target: CrossTarget = .{},
+    target: ?ResolvedTarget = null,
     optimize: std.builtin.OptimizeMode = .Debug,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
@@ -750,6 +790,11 @@ pub const TestOptions = struct {
     test_runner: ?[]const u8 = null,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
+    pic: ?bool = null,
+    strip: ?bool = null,
+    unwind_tables: ?bool = null,
+    omit_frame_pointer: ?bool = null,
+    sanitize_thread: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -761,10 +806,15 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
         .kind = .@"test",
         .root_module = .{
             .root_source_file = options.root_source_file,
-            .target = options.target,
+            .target = options.target orelse b.host,
             .optimize = options.optimize,
             .link_libc = options.link_libc,
             .single_threaded = options.single_threaded,
+            .pic = options.pic,
+            .strip = options.strip,
+            .unwind_tables = options.unwind_tables,
+            .omit_frame_pointer = options.omit_frame_pointer,
+            .sanitize_thread = options.sanitize_thread,
         },
         .max_rss = options.max_rss,
         .filter = options.filter,
@@ -778,7 +828,9 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
 pub const AssemblyOptions = struct {
     name: []const u8,
     source_file: LazyPath,
-    target: CrossTarget,
+    /// To choose the same computer as the one building the package, pass the
+    /// `host` field of the package's `Build` instance.
+    target: ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     max_rss: usize = 0,
     zig_lib_dir: ?LazyPath = null,
@@ -1061,7 +1113,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
                 return null;
             },
             .scalar => |s| {
-                if (Step.Compile.BuildId.parse(s)) |build_id| {
+                if (std.zig.BuildId.parse(s)) |build_id| {
                     return build_id;
                 } else |err| {
                     log.err("unable to parse option '-D{s}': {s}", .{ name, @errorName(err) });
@@ -1126,13 +1178,20 @@ pub fn standardOptimizeOption(self: *Build, options: StandardOptimizeOptionOptio
 }
 
 pub const StandardTargetOptionsArgs = struct {
-    whitelist: ?[]const CrossTarget = null,
+    whitelist: ?[]const TargetQuery = null,
 
-    default_target: CrossTarget = CrossTarget{},
+    default_target: TargetQuery = .{},
 };
 
+/// Exposes standard `zig build` options for choosing a target and additionally
+/// resolves the target query.
+pub fn standardTargetOptions(b: *Build, args: StandardTargetOptionsArgs) ResolvedTarget {
+    const query = b.standardTargetOptionsQueryOnly(args);
+    return b.resolveTargetQuery(query);
+}
+
 /// Exposes standard `zig build` options for choosing a target.
-pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) CrossTarget {
+pub fn standardTargetOptionsQueryOnly(self: *Build, args: StandardTargetOptionsArgs) TargetQuery {
     const maybe_triple = self.option(
         []const u8,
         "target",
@@ -1146,8 +1205,8 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
 
     const triple = maybe_triple orelse "native";
 
-    var diags: CrossTarget.ParseOptions.Diagnostics = .{};
-    const selected_target = CrossTarget.parse(.{
+    var diags: TargetQuery.ParseOptions.Diagnostics = .{};
+    const selected_target = TargetQuery.parse(.{
         .arch_os_abi = triple,
         .cpu_features = mcpu,
         .diagnostics = &diags,
@@ -1203,7 +1262,7 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
         // Make sure it's a match of one of the list.
         var mismatch_triple = true;
         var mismatch_cpu_features = true;
-        var whitelist_item = CrossTarget{};
+        var whitelist_item: TargetQuery = .{};
         for (list) |t| {
             mismatch_cpu_features = true;
             mismatch_triple = true;
@@ -1340,7 +1399,7 @@ pub fn addUserInputFlag(self: *Build, name_raw: []const u8) !bool {
 
 fn typeToEnum(comptime T: type) TypeId {
     return switch (T) {
-        Step.Compile.BuildId => .build_id,
+        std.zig.BuildId => .build_id,
         else => return switch (@typeInfo(T)) {
             .Int => .int,
             .Float => .float,
@@ -1408,7 +1467,7 @@ pub fn installFile(self: *Build, src_path: []const u8, dest_rel_path: []const u8
     self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .prefix, dest_rel_path).step);
 }
 
-pub fn installDirectory(self: *Build, options: InstallDirectoryOptions) void {
+pub fn installDirectory(self: *Build, options: Step.InstallDir.Options) void {
     self.getInstallStep().dependOn(&self.addInstallDirectory(options).step);
 }
 
@@ -1454,7 +1513,7 @@ pub fn addInstallFileWithDir(
     return Step.InstallFile.create(self, source.dupe(self), install_dir, dest_rel_path);
 }
 
-pub fn addInstallDirectory(self: *Build, options: InstallDirectoryOptions) *Step.InstallDir {
+pub fn addInstallDirectory(self: *Build, options: Step.InstallDir.Options) *Step.InstallDir {
     return Step.InstallDir.create(self, options);
 }
 
@@ -1511,7 +1570,7 @@ pub fn fmt(self: *Build, comptime format: []const u8, args: anytype) []u8 {
 
 pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []const u8) ![]const u8 {
     // TODO report error for ambiguous situations
-    const exe_extension = @as(CrossTarget, .{}).exeFileExt();
+    const exe_extension = @as(TargetQuery, .{}).exeFileExt();
     for (self.search_prefixes.items) |search_prefix| {
         for (names) |name| {
             if (fs.path.isAbsolute(name)) {
@@ -1957,22 +2016,6 @@ pub fn dumpBadGetPathHelp(
     tty_config.setColor(w, .reset) catch {};
 }
 
-/// Allocates a new string for assigning a value to a named macro.
-/// If the value is omitted, it is set to 1.
-/// `name` and `value` need not live longer than the function call.
-pub fn constructCMacro(allocator: Allocator, name: []const u8, value: ?[]const u8) []const u8 {
-    var macro = allocator.alloc(
-        u8,
-        name.len + if (value) |value_slice| value_slice.len + 1 else 0,
-    ) catch |err| if (err == error.OutOfMemory) @panic("Out of memory") else unreachable;
-    @memcpy(macro[0..name.len], name);
-    if (value) |value_slice| {
-        macro[name.len] = '=';
-        @memcpy(macro[name.len + 1 ..][0..value_slice.len], value_slice);
-    }
-    return macro;
-}
-
 pub const InstallDir = union(enum) {
     prefix: void,
     lib: void,
@@ -2060,6 +2103,44 @@ pub fn hex64(x: u64) [16]u8 {
         result[i * 2 + 1] = hex_charset[byte & 15];
     }
     return result;
+}
+
+/// A pair of target query and fully resolved target.
+/// This type is generally required by build system API that need to be given a
+/// target. The query is kept because the Zig toolchain needs to know which parts
+/// of the target are "native". This can apply to the CPU, the OS, or even the ABI.
+pub const ResolvedTarget = struct {
+    query: TargetQuery,
+    target: std.Target,
+    dynamic_linker: std.Target.DynamicLinker,
+
+    pub fn toNativeTargetInfo(self: ResolvedTarget) std.zig.system.NativeTargetInfo {
+        return .{
+            .target = self.target,
+            .dynamic_linker = self.dynamic_linker,
+        };
+    }
+};
+
+/// Converts a target query into a fully resolved target that can be passed to
+/// various parts of the API.
+pub fn resolveTargetQuery(b: *Build, query: TargetQuery) ResolvedTarget {
+    // This context will likely be required in the future when the target is
+    // resolved via a WASI API or via the build protocol.
+    _ = b;
+
+    const result = std.zig.system.NativeTargetInfo.detect(query) catch
+        @panic("unable to resolve target query");
+
+    return .{
+        .query = query,
+        .target = result.target,
+        .dynamic_linker = result.dynamic_linker,
+    };
+}
+
+pub fn wantSharedLibSymLinks(target: std.Target) bool {
+    return target.os.tag != .windows;
 }
 
 test {

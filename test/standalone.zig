@@ -90,10 +90,6 @@ pub const build_cases = [_]BuildCase{
     //    .import = @import("standalone/issue_13970/build.zig"),
     //},
     .{
-        .build_root = "test/standalone/main_pkg_path",
-        .import = @import("standalone/main_pkg_path/build.zig"),
-    },
-    .{
         .build_root = "test/standalone/shared_library",
         .import = @import("standalone/shared_library/build.zig"),
     },

@@ -7,11 +7,11 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target: std.zig.CrossTarget = .{};
+    const target = b.host;
 
     // The test requires getFdPath in order to to get the path of the
     // File returned by openSelfExe
-    if (!std.os.isGetFdPathSupportedOnTarget(target.getOs())) return;
+    if (!std.os.isGetFdPathSupportedOnTarget(target.target.os)) return;
 
     const main = b.addExecutable(.{
         .name = "main",

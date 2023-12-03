@@ -4,16 +4,16 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    const target = b.standardTargetOptions(.{});
+    const resolved_target = b.standardTargetOptions(.{});
+    const target = resolved_target.target;
     const optimize = b.standardOptimizeOption(.{});
 
-    const abi = target.getAbi();
-    if (target.getObjectFormat() != .elf or !(abi.isMusl() or abi.isGnu())) return;
+    if (target.ofmt != .elf or !(target.abi.isMusl() or target.abi.isGnu())) return;
 
     const exe = b.addExecutable(.{
         .name = "main",
         .optimize = optimize,
-        .target = target,
+        .target = resolved_target,
     });
     exe.linkLibC();
     exe.addCSourceFile(.{

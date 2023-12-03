@@ -21,7 +21,6 @@ const introspect = @import("introspect.zig");
 const EnvVar = introspect.EnvVar;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const wasi_libc = @import("wasi_libc.zig");
-const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
@@ -882,7 +881,7 @@ fn buildOutputType(
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
-    var build_id: ?BuildId = null;
+    var build_id: ?std.zig.BuildId = null;
     var sysroot: ?[]const u8 = null;
     var libc_paths_file: ?[]const u8 = try EnvVar.ZIG_LIBC.get(arena);
     var machine_code_model: std.builtin.CodeModel = .default;
@@ -1551,7 +1550,7 @@ fn buildOutputType(
                         build_id = .fast;
                     } else if (mem.startsWith(u8, arg, "--build-id=")) {
                         const style = arg["--build-id=".len..];
-                        build_id = BuildId.parse(style) catch |err| {
+                        build_id = std.zig.BuildId.parse(style) catch |err| {
                             fatal("unable to parse --build-id style '{s}': {s}", .{
                                 style, @errorName(err),
                             });
@@ -1847,7 +1846,7 @@ fn buildOutputType(
                                     const key = linker_arg[0..equals_pos];
                                     const value = linker_arg[equals_pos + 1 ..];
                                     if (mem.eql(u8, key, "--build-id")) {
-                                        build_id = BuildId.parse(value) catch |err| {
+                                        build_id = std.zig.BuildId.parse(value) catch |err| {
                                             fatal("unable to parse --build-id style '{s}': {s}", .{
                                                 value, @errorName(err),
                                             });

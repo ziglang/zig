@@ -1008,8 +1008,8 @@ pub const GetExternalExecutorOptions = struct {
     link_libc: bool = false,
 };
 
-/// Return whether or not the given host target is capable of executing natively executables
-/// of the other target.
+/// Return whether or not the given host is capable of running executables of
+/// the other target.
 pub fn getExternalExecutor(
     host: NativeTargetInfo,
     candidate: *const NativeTargetInfo,

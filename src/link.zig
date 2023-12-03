@@ -10,7 +10,6 @@ const wasi_libc = @import("wasi_libc.zig");
 
 const Air = @import("Air.zig");
 const Allocator = std.mem.Allocator;
-const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
@@ -185,7 +184,7 @@ pub const Options = struct {
     error_return_tracing: bool,
     skip_linker_dependencies: bool,
     each_lib_rpath: bool,
-    build_id: BuildId,
+    build_id: std.zig.BuildId,
     disable_lld_caching: bool,
     is_test: bool,
     hash_style: HashStyle,

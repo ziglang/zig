@@ -22,10 +22,9 @@ pub fn build(b: *std.Build) void {
             .root_source_file = .{ .path = "unwind.zig" },
             .target = target,
             .optimize = optimize,
+            .unwind_tables = target.target.isDarwin(),
+            .omit_frame_pointer = false,
         });
-
-        if (target.isDarwin()) exe.unwind_tables = true;
-        exe.omit_frame_pointer = false;
 
         const run_cmd = b.addRunArtifact(exe);
         test_step.dependOn(&run_cmd.step);
@@ -46,10 +45,9 @@ pub fn build(b: *std.Build) void {
             .root_source_file = .{ .path = "unwind.zig" },
             .target = target,
             .optimize = optimize,
+            .unwind_tables = true,
+            .omit_frame_pointer = true,
         });
-
-        exe.omit_frame_pointer = true;
-        exe.unwind_tables = true;
 
         const run_cmd = b.addRunArtifact(exe);
         test_step.dependOn(&run_cmd.step);
@@ -69,11 +67,12 @@ pub fn build(b: *std.Build) void {
             .name = "c_shared_lib",
             .target = target,
             .optimize = optimize,
+            .strip = false,
         });
 
-        if (target.isWindows()) c_shared_lib.defineCMacro("LIB_API", "__declspec(dllexport)");
+        if (target.target.os.tag == .windows)
+            c_shared_lib.defineCMacro("LIB_API", "__declspec(dllexport)");
 
-        c_shared_lib.strip = false;
         c_shared_lib.addCSourceFile(.{
             .file = .{ .path = "shared_lib.c" },
             .flags = &.{"-fomit-frame-pointer"},
@@ -85,10 +84,10 @@ pub fn build(b: *std.Build) void {
             .root_source_file = .{ .path = "shared_lib_unwind.zig" },
             .target = target,
             .optimize = optimize,
+            .unwind_tables = target.target.isDarwin(),
+            .omit_frame_pointer = true,
         });
 
-        if (target.isDarwin()) exe.unwind_tables = true;
-        exe.omit_frame_pointer = true;
         exe.linkLibrary(c_shared_lib);
 
         const run_cmd = b.addRunArtifact(exe);

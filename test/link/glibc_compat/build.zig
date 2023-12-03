@@ -8,9 +8,9 @@ pub fn build(b: *std.Build) void {
         const exe = b.addExecutable(.{
             .name = t,
             .root_source_file = .{ .path = "main.c" },
-            .target = std.zig.CrossTarget.parse(
+            .target = b.resolveTargetQuery(std.zig.CrossTarget.parse(
                 .{ .arch_os_abi = t },
-            ) catch unreachable,
+            ) catch unreachable),
         });
         exe.linkLibC();
         // TODO: actually test the output

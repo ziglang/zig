@@ -77,7 +77,7 @@ fn addExpect(
         .name = "test",
         .root_source_file = write_src.files.items[0].getPath(),
         .optimize = optimize_mode,
-        .target = .{},
+        .target = b.host,
     });
 
     const run = b.addRunArtifact(exe);

@@ -88,7 +88,7 @@ each_lib_rpath: ?bool = null,
 /// As an example, the bloaty project refuses to work unless its inputs have
 /// build ids, in order to prevent accidental mismatches.
 /// The default is to not include this section because it slows down linking.
-build_id: ?BuildId = null,
+build_id: ?std.zig.BuildId = null,
 
 /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF
 /// file.
@@ -200,7 +200,7 @@ pub const ExpectedCompileErrors = union(enum) {
     exact: []const []const u8,
 };
 
-const Entry = union(enum) {
+pub const Entry = union(enum) {
     /// Let the compiler decide whether to make an entry point and what to name
     /// it.
     default,
@@ -232,82 +232,6 @@ pub const Options = struct {
     win32_manifest: ?LazyPath = null,
 };
 
-pub const BuildId = union(enum) {
-    none,
-    fast,
-    uuid,
-    sha1,
-    md5,
-    hexstring: HexString,
-
-    pub fn eql(a: BuildId, b: BuildId) bool {
-        const a_tag = std.meta.activeTag(a);
-        const b_tag = std.meta.activeTag(b);
-        if (a_tag != b_tag) return false;
-        return switch (a) {
-            .none, .fast, .uuid, .sha1, .md5 => true,
-            .hexstring => |a_hexstring| mem.eql(u8, a_hexstring.toSlice(), b.hexstring.toSlice()),
-        };
-    }
-
-    pub const HexString = struct {
-        bytes: [32]u8,
-        len: u8,
-
-        /// Result is byte values, *not* hex-encoded.
-        pub fn toSlice(hs: *const HexString) []const u8 {
-            return hs.bytes[0..hs.len];
-        }
-    };
-
-    /// Input is byte values, *not* hex-encoded.
-    /// Asserts `bytes` fits inside `HexString`
-    pub fn initHexString(bytes: []const u8) BuildId {
-        var result: BuildId = .{ .hexstring = .{
-            .bytes = undefined,
-            .len = @as(u8, @intCast(bytes.len)),
-        } };
-        @memcpy(result.hexstring.bytes[0..bytes.len], bytes);
-        return result;
-    }
-
-    /// Converts UTF-8 text to a `BuildId`.
-    pub fn parse(text: []const u8) !BuildId {
-        if (mem.eql(u8, text, "none")) {
-            return .none;
-        } else if (mem.eql(u8, text, "fast")) {
-            return .fast;
-        } else if (mem.eql(u8, text, "uuid")) {
-            return .uuid;
-        } else if (mem.eql(u8, text, "sha1") or mem.eql(u8, text, "tree")) {
-            return .sha1;
-        } else if (mem.eql(u8, text, "md5")) {
-            return .md5;
-        } else if (mem.startsWith(u8, text, "0x")) {
-            var result: BuildId = .{ .hexstring = undefined };
-            const slice = try std.fmt.hexToBytes(&result.hexstring.bytes, text[2..]);
-            result.hexstring.len = @as(u8, @intCast(slice.len));
-            return result;
-        }
-        return error.InvalidBuildIdStyle;
-    }
-
-    test parse {
-        try std.testing.expectEqual(BuildId.md5, try parse("md5"));
-        try std.testing.expectEqual(BuildId.none, try parse("none"));
-        try std.testing.expectEqual(BuildId.fast, try parse("fast"));
-        try std.testing.expectEqual(BuildId.uuid, try parse("uuid"));
-        try std.testing.expectEqual(BuildId.sha1, try parse("sha1"));
-        try std.testing.expectEqual(BuildId.sha1, try parse("tree"));
-
-        try std.testing.expect(BuildId.initHexString("").eql(try parse("0x")));
-        try std.testing.expect(BuildId.initHexString("\x12\x34\x56").eql(try parse("0x123456")));
-        try std.testing.expectError(error.InvalidLength, parse("0x12-34"));
-        try std.testing.expectError(error.InvalidCharacter, parse("0xfoobbb"));
-        try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
-    }
-};
-
 pub const Kind = enum {
     exe,
     lib,
@@ -329,6 +253,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     else
         owner.fmt("{s} ", .{name});
 
+    const target = options.root_module.target.?.target;
+
     const step_name = owner.fmt("{s} {s}{s} {s}", .{
         switch (options.kind) {
             .exe => "zig build-exe",
@@ -337,16 +263,13 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             .@"test" => "zig test",
         },
         name_adjusted,
-        @tagName(options.root_module.optimize),
-        options.root_module.target.zigTriple(owner.allocator) catch @panic("OOM"),
+        @tagName(options.root_module.optimize orelse .Debug),
+        target.zigTriple(owner.allocator) catch @panic("OOM"),
     });
-
-    const target_info = NativeTargetInfo.detect(options.root_module.target) catch
-        @panic("unhandled error");
 
     const out_filename = std.zig.binNameAlloc(owner.allocator, .{
         .root_name = name,
-        .target = target_info.target,
+        .target = target,
         .output_mode = switch (options.kind) {
             .lib => .Lib,
             .obj => .Obj,
@@ -361,7 +284,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
     const self = owner.allocator.create(Compile) catch @panic("OOM");
     self.* = .{
-        .root_module = Module.init(owner, options.root_module, self),
+        .root_module = undefined,
         .verbose_link = false,
         .verbose_cc = false,
         .linkage = options.linkage,
@@ -403,6 +326,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .use_lld = options.use_lld,
     };
 
+    self.root_module.init(owner, options.root_module, self);
+
     if (options.zig_lib_dir) |lp| {
         self.zig_lib_dir = lp.dupe(self.step.owner);
         lp.addStepDependencies(&self.step);
@@ -410,7 +335,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
     // Only the PE/COFF format has a Resource Table which is where the manifest
     // gets embedded, so for any other target the manifest file is just ignored.
-    if (target_info.target.ofmt == .coff) {
+    if (target.ofmt == .coff) {
         if (options.win32_manifest) |lp| {
             self.win32_manifest = lp.dupe(self.step.owner);
             lp.addStepDependencies(&self.step);
@@ -421,14 +346,14 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         if (self.linkage != null and self.linkage.? == .static) {
             self.out_lib_filename = self.out_filename;
         } else if (self.version) |version| {
-            if (target_info.target.isDarwin()) {
+            if (target.isDarwin()) {
                 self.major_only_filename = owner.fmt("lib{s}.{d}.dylib", .{
                     self.name,
                     version.major,
                 });
                 self.name_only_filename = owner.fmt("lib{s}.dylib", .{self.name});
                 self.out_lib_filename = self.out_filename;
-            } else if (target_info.target.os.tag == .windows) {
+            } else if (target.os.tag == .windows) {
                 self.out_lib_filename = owner.fmt("{s}.lib", .{self.name});
             } else {
                 self.major_only_filename = owner.fmt("lib{s}.so.{d}", .{ self.name, version.major });
@@ -436,9 +361,9 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
                 self.out_lib_filename = self.out_filename;
             }
         } else {
-            if (target_info.target.isDarwin()) {
+            if (target.isDarwin()) {
                 self.out_lib_filename = self.out_filename;
-            } else if (target_info.target.os.tag == .windows) {
+            } else if (target.os.tag == .windows) {
                 self.out_lib_filename = owner.fmt("{s}.lib", .{self.name});
             } else {
                 self.out_lib_filename = self.out_filename;
@@ -545,7 +470,7 @@ pub const run = @compileError("deprecated; use std.Build.addRunArtifact");
 pub const install = @compileError("deprecated; use std.Build.installArtifact");
 
 pub fn checkObject(self: *Compile) *Step.CheckObject {
-    return Step.CheckObject.create(self.step.owner, self.getEmittedBin(), self.target_info.target.ofmt);
+    return Step.CheckObject.create(self.step.owner, self.getEmittedBin(), self.rootModuleTarget().ofmt);
 }
 
 /// deprecated: use `setLinkerScript`
@@ -560,25 +485,6 @@ pub fn setLinkerScript(self: *Compile, source: LazyPath) void {
 pub fn forceUndefinedSymbol(self: *Compile, symbol_name: []const u8) void {
     const b = self.step.owner;
     self.force_undefined_symbols.put(b.dupe(symbol_name), {}) catch @panic("OOM");
-}
-
-pub fn linkFramework(self: *Compile, framework_name: []const u8) void {
-    const b = self.step.owner;
-    self.frameworks.put(b.dupe(framework_name), .{}) catch @panic("OOM");
-}
-
-pub fn linkFrameworkNeeded(self: *Compile, framework_name: []const u8) void {
-    const b = self.step.owner;
-    self.frameworks.put(b.dupe(framework_name), .{
-        .needed = true,
-    }) catch @panic("OOM");
-}
-
-pub fn linkFrameworkWeak(self: *Compile, framework_name: []const u8) void {
-    const b = self.step.owner;
-    self.frameworks.put(b.dupe(framework_name), .{
-        .weak = true,
-    }) catch @panic("OOM");
 }
 
 /// Returns whether the library, executable, or object depends on a particular system library.
@@ -598,20 +504,15 @@ pub fn dependsOnSystemLibrary(self: *const Compile, name: []const u8) bool {
         is_linking_libcpp = is_linking_libcpp or module.link_libcpp == true;
     }
 
-    if (self.root_module.target_info.target.is_libc_lib_name(name)) {
+    if (self.rootModuleTarget().is_libc_lib_name(name)) {
         return is_linking_libc;
     }
 
-    if (self.root_module.target_info.target.is_libcpp_lib_name(name)) {
+    if (self.rootModuleTarget().is_libcpp_lib_name(name)) {
         return is_linking_libcpp;
     }
 
     return false;
-}
-
-pub fn linkLibrary(self: *Compile, lib: *Compile) void {
-    assert(lib.kind == .lib);
-    self.linkLibraryOrObject(lib);
 }
 
 pub fn isDynamicLibrary(self: *const Compile) bool {
@@ -623,16 +524,24 @@ pub fn isStaticLibrary(self: *const Compile) bool {
 }
 
 pub fn producesPdbFile(self: *Compile) bool {
+    const target = self.rootModuleTarget();
     // TODO: Is this right? Isn't PDB for *any* PE/COFF file?
     // TODO: just share this logic with the compiler, silly!
-    if (!self.target.isWindows() and !self.target.isUefi()) return false;
-    if (self.target.getObjectFormat() == .c) return false;
-    if (self.strip == true or (self.strip == null and self.optimize == .ReleaseSmall)) return false;
+    switch (target.os.tag) {
+        .windows, .uefi => {},
+        else => return false,
+    }
+    if (target.ofmt == .c) return false;
+    if (self.root_module.strip == true or
+        (self.root_module.strip == null and self.root_module.optimize == .ReleaseSmall))
+    {
+        return false;
+    }
     return self.isDynamicLibrary() or self.kind == .exe or self.kind == .@"test";
 }
 
 pub fn producesImplib(self: *Compile) bool {
-    return self.isDynamicLibrary() and self.root_module.target_info.target.os.tag == .windows;
+    return self.isDynamicLibrary() and self.rootModuleTarget().os.tag == .windows;
 }
 
 pub fn linkLibC(self: *Compile) void {
@@ -643,18 +552,9 @@ pub fn linkLibCpp(self: *Compile) void {
     self.root_module.link_libcpp = true;
 }
 
-/// If the value is omitted, it is set to 1.
-/// `name` and `value` need not live longer than the function call.
-pub fn defineCMacro(self: *Compile, name: []const u8, value: ?[]const u8) void {
-    const b = self.step.owner;
-    const macro = std.Build.constructCMacro(b.allocator, name, value);
-    self.c_macros.append(macro) catch @panic("OOM");
-}
-
-/// name_and_value looks like [name]=[value]. If the value is omitted, it is set to 1.
-pub fn defineCMacroRaw(self: *Compile, name_and_value: []const u8) void {
-    const b = self.step.owner;
-    self.c_macros.append(b.dupe(name_and_value)) catch @panic("OOM");
+/// Deprecated. Use `c.root_module.addCMacro`.
+pub fn defineCMacro(c: *Compile, name: []const u8, value: ?[]const u8) void {
+    c.root_module.addCMacro(name, value orelse "1");
 }
 
 /// Run pkg-config for the given library name and parse the output, returning the arguments
@@ -765,6 +665,20 @@ pub fn linkSystemLibrary2(
     return self.root_module.linkSystemLibrary(name, options);
 }
 
+pub fn linkFramework(c: *Compile, name: []const u8) void {
+    c.root_module.linkFramework(name, .{});
+}
+
+/// Deprecated. Use `c.root_module.linkFramework`.
+pub fn linkFrameworkNeeded(c: *Compile, name: []const u8) void {
+    c.root_module.linkFramework(name, .{ .needed = true });
+}
+
+/// Deprecated. Use `c.root_module.linkFramework`.
+pub fn linkFrameworkWeak(c: *Compile, name: []const u8) void {
+    c.root_module.linkFramework(name, .{ .weak = true });
+}
+
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
 pub fn addCSourceFiles(self: *Compile, options: Module.AddCSourceFilesOptions) void {
     self.root_module.addCSourceFiles(options);
@@ -805,26 +719,17 @@ fn getEmittedFileGeneric(self: *Compile, output_file: *?*GeneratedFile) LazyPath
     return .{ .generated = generated_file };
 }
 
-/// deprecated: use `getEmittedBinDirectory`
-pub const getOutputDirectorySource = getEmittedBinDirectory;
-
 /// Returns the path to the directory that contains the emitted binary file.
 pub fn getEmittedBinDirectory(self: *Compile) LazyPath {
     _ = self.getEmittedBin();
     return self.getEmittedFileGeneric(&self.emit_directory);
 }
 
-/// deprecated: use `getEmittedBin`
-pub const getOutputSource = getEmittedBin;
-
 /// Returns the path to the generated executable, library or object file.
 /// To run an executable built with zig build, use `run`, or create an install step and invoke it.
 pub fn getEmittedBin(self: *Compile) LazyPath {
     return self.getEmittedFileGeneric(&self.generated_bin);
 }
-
-/// deprecated: use `getEmittedImplib`
-pub const getOutputLibSource = getEmittedImplib;
 
 /// Returns the path to the generated import library.
 /// This function can only be called for libraries.
@@ -833,18 +738,12 @@ pub fn getEmittedImplib(self: *Compile) LazyPath {
     return self.getEmittedFileGeneric(&self.generated_implib);
 }
 
-/// deprecated: use `getEmittedH`
-pub const getOutputHSource = getEmittedH;
-
 /// Returns the path to the generated header file.
 /// This function can only be called for libraries or objects.
 pub fn getEmittedH(self: *Compile) LazyPath {
     assert(self.kind != .exe and self.kind != .@"test");
     return self.getEmittedFileGeneric(&self.generated_h);
 }
-
-/// deprecated: use `getEmittedPdb`.
-pub const getOutputPdbSource = getEmittedPdb;
 
 /// Returns the generated PDB file.
 /// If the compilation does not produce a PDB file, this causes a FileNotFound error
@@ -882,56 +781,44 @@ pub fn addObjectFile(self: *Compile, source: LazyPath) void {
     self.root_module.addObjectFile(source);
 }
 
-pub fn addObject(self: *Compile, obj: *Compile) void {
-    assert(obj.kind == .obj);
-    self.linkLibraryOrObject(obj);
+pub fn addObject(self: *Compile, object: *Compile) void {
+    self.root_module.addObject(object);
 }
 
-pub fn addAfterIncludePath(self: *Compile, path: LazyPath) void {
-    const b = self.step.owner;
-    self.include_dirs.append(.{ .path_after = path.dupe(b) }) catch @panic("OOM");
-    path.addStepDependencies(&self.step);
+pub fn linkLibrary(self: *Compile, library: *Compile) void {
+    self.root_module.linkLibrary(library);
 }
 
-pub fn addSystemIncludePath(self: *Compile, path: LazyPath) void {
-    const b = self.step.owner;
-    self.include_dirs.append(.{ .path_system = path.dupe(b) }) catch @panic("OOM");
-    path.addStepDependencies(&self.step);
+pub fn addAfterIncludePath(self: *Compile, lazy_path: LazyPath) void {
+    self.root_module.addAfterIncludePath(lazy_path);
 }
 
-pub fn addIncludePath(self: *Compile, path: LazyPath) void {
-    const b = self.step.owner;
-    self.include_dirs.append(.{ .path = path.dupe(b) }) catch @panic("OOM");
-    path.addStepDependencies(&self.step);
+pub fn addSystemIncludePath(self: *Compile, lazy_path: LazyPath) void {
+    self.root_module.addSystemIncludePath(lazy_path);
+}
+
+pub fn addIncludePath(self: *Compile, lazy_path: LazyPath) void {
+    self.root_module.addIncludePath(lazy_path);
 }
 
 pub fn addConfigHeader(self: *Compile, config_header: *Step.ConfigHeader) void {
-    self.step.dependOn(&config_header.step);
-    self.include_dirs.append(.{ .config_header_step = config_header }) catch @panic("OOM");
+    self.root_module.addConfigHeader(config_header);
 }
 
-pub fn addLibraryPath(self: *Compile, directory_source: LazyPath) void {
-    const b = self.step.owner;
-    self.lib_paths.append(directory_source.dupe(b)) catch @panic("OOM");
-    directory_source.addStepDependencies(&self.step);
+pub fn addLibraryPath(self: *Compile, directory_path: LazyPath) void {
+    self.root_module.addLibraryPath(directory_path);
 }
 
-pub fn addRPath(self: *Compile, directory_source: LazyPath) void {
-    const b = self.step.owner;
-    self.rpaths.append(directory_source.dupe(b)) catch @panic("OOM");
-    directory_source.addStepDependencies(&self.step);
+pub fn addRPath(self: *Compile, directory_path: LazyPath) void {
+    self.root_module.addRPath(directory_path);
 }
 
-pub fn addSystemFrameworkPath(self: *Compile, directory_source: LazyPath) void {
-    const b = self.step.owner;
-    self.include_dirs.append(.{ .framework_path_system = directory_source.dupe(b) }) catch @panic("OOM");
-    directory_source.addStepDependencies(&self.step);
+pub fn addSystemFrameworkPath(self: *Compile, directory_path: LazyPath) void {
+    self.root_module.addSystemFrameworkPath(directory_path);
 }
 
-pub fn addFrameworkPath(self: *Compile, directory_source: LazyPath) void {
-    const b = self.step.owner;
-    self.include_dirs.append(.{ .framework_path = directory_source.dupe(b) }) catch @panic("OOM");
-    directory_source.addStepDependencies(&self.step);
+pub fn addFrameworkPath(self: *Compile, directory_path: LazyPath) void {
+    self.root_module.addFrameworkPath(directory_path);
 }
 
 pub fn setExecCmd(self: *Compile, args: []const ?[]const u8) void {
@@ -942,20 +829,6 @@ pub fn setExecCmd(self: *Compile, args: []const ?[]const u8) void {
         duped_args[i] = if (arg) |a| b.dupe(a) else null;
     }
     self.exec_cmd_args = duped_args;
-}
-
-fn linkLibraryOrObject(self: *Compile, other: *Compile) void {
-    other.getEmittedBin().addStepDependencies(&self.step);
-    if (other.target.isWindows() and other.isDynamicLibrary()) {
-        other.getEmittedImplib().addStepDependencies(&self.step);
-    }
-
-    self.link_objects.append(.{ .other_step = other }) catch @panic("OOM");
-    self.include_dirs.append(.{ .other_step = other }) catch @panic("OOM");
-
-    for (other.installed_headers.items) |install_step| {
-        self.step.dependOn(install_step);
-    }
 }
 
 fn appendModuleArgs(cs: *Compile, zig_args: *ArrayList([]const u8)) !void {
@@ -1014,7 +887,7 @@ fn appendModuleArgs(cs: *Compile, zig_args: *ArrayList([]const u8)) !void {
 fn constructDepString(
     allocator: std.mem.Allocator,
     mod_names: std.AutoArrayHashMapUnmanaged(*Module, []const u8),
-    deps: std.StringArrayHashMap(*Module),
+    deps: std.StringArrayHashMapUnmanaged(*Module),
 ) ![]const u8 {
     var deps_str = std.ArrayList(u8).init(allocator);
     var it = deps.iterator();
@@ -1082,7 +955,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try addFlag(&zig_args, "llvm", self.use_llvm);
     try addFlag(&zig_args, "lld", self.use_lld);
 
-    if (self.root_module.target.ofmt) |ofmt| {
+    if (self.root_module.target.?.query.ofmt) |ofmt| {
         try zig_args.append(try std.fmt.allocPrint(b.allocator, "-ofmt={s}", .{@tagName(ofmt)}));
     }
 
@@ -1110,7 +983,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     {
         var seen_system_libs: std.StringHashMapUnmanaged(void) = .{};
-        var frameworks: std.StringArrayHashMapUnmanaged(Module.FrameworkLinkInfo) = .{};
+        var frameworks: std.StringArrayHashMapUnmanaged(Module.LinkFrameworkOptions) = .{};
 
         var prev_has_cflags = false;
         var prev_has_rcflags = false;
@@ -1240,7 +1113,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                                 try zig_args.append(full_path_lib);
 
                                 if (other.linkage == Linkage.dynamic and
-                                    self.root_module.target_info.target.os.tag != .windows)
+                                    self.rootModuleTarget().os.tag != .windows)
                                 {
                                     if (fs.path.dirname(full_path_lib)) |dirname| {
                                         try zig_args.append("-rpath");
@@ -1471,11 +1344,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             try zig_args.append(b.fmt("{}", .{version}));
         }
 
-        if (self.root_module.target_info.target.isDarwin()) {
+        if (self.rootModuleTarget().isDarwin()) {
             const install_name = self.install_name orelse b.fmt("@rpath/{s}{s}{s}", .{
-                self.root_module.target_info.target.libPrefix(),
+                self.rootModuleTarget().libPrefix(),
                 self.name,
-                self.root_module.target_info.target.dynamicLibSuffix(),
+                self.rootModuleTarget().dynamicLibSuffix(),
             });
             try zig_args.append("-install_name");
             try zig_args.append(install_name);
@@ -1763,7 +1636,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     if (self.kind == .lib and self.linkage != null and self.linkage.? == .dynamic and
-        self.version != null and self.root_module.target.wantSharedLibSymLinks())
+        self.version != null and std.Build.wantSharedLibSymLinks(self.rootModuleTarget()))
     {
         try doAtomicSymLinks(
             step,
@@ -1931,4 +1804,9 @@ fn matchCompileError(actual: []const u8, expected: []const u8) bool {
         if (mem.startsWith(u8, actual_trim, lhs) and mem.endsWith(u8, actual_trim, rhs)) return true;
     }
     return false;
+}
+
+pub fn rootModuleTarget(c: *Compile) std.Target {
+    // The root module is always given a target, so we know this to be non-null.
+    return c.root_module.target.?.target;
 }

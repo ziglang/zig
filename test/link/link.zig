@@ -7,62 +7,160 @@ pub fn build(b: *Build) void {
 }
 
 pub const Options = struct {
-    target: CrossTarget,
+    target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode = .Debug,
     use_llvm: bool = true,
     use_lld: bool = false,
 };
 
-pub fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
-    const target = opts.target.zigTriple(b.allocator) catch @panic("OOM");
+pub fn addTestStep(b: *Build, prefix: []const u8, opts: Options) *Step {
+    const target = opts.target.target.zigTriple(b.allocator) catch @panic("OOM");
     const optimize = @tagName(opts.optimize);
     const use_llvm = if (opts.use_llvm) "llvm" else "no-llvm";
-    const name = std.fmt.allocPrint(b.allocator, "test-" ++ prefix ++ "-{s}-{s}-{s}", .{
-        target,
-        optimize,
-        use_llvm,
+    const name = std.fmt.allocPrint(b.allocator, "test-{s}-{s}-{s}-{s}", .{
+        prefix, target, optimize, use_llvm,
     }) catch @panic("OOM");
     return b.step(name, "");
 }
 
-pub fn addExecutable(b: *Build, name: []const u8, opts: Options) *Compile {
-    return b.addExecutable(.{
-        .name = name,
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = opts.use_lld,
+const OverlayOptions = struct {
+    name: []const u8,
+    asm_source_bytes: ?[]const u8 = null,
+    c_source_bytes: ?[]const u8 = null,
+    c_source_flags: []const []const u8 = &.{},
+    cpp_source_bytes: ?[]const u8 = null,
+    cpp_source_flags: []const []const u8 = &.{},
+    zig_source_bytes: ?[]const u8 = null,
+    pic: ?bool = null,
+    strip: ?bool = null,
+};
+
+pub fn addExecutable(b: *std.Build, base: Options, overlay: OverlayOptions) *Step.Compile {
+    const compile_step = b.addExecutable(.{
+        .name = overlay.name,
+        .root_source_file = rsf: {
+            const bytes = overlay.zig_source_bytes orelse break :rsf null;
+            break :rsf b.addWriteFiles().add("a.zig", bytes);
+        },
+        .target = base.target,
+        .optimize = base.optimize,
+        .use_llvm = base.use_llvm,
+        .use_lld = base.use_lld,
+        .pic = overlay.pic,
+        .strip = overlay.strip,
     });
+    if (overlay.cpp_source_bytes) |bytes| {
+        compile_step.addCSourceFile(.{
+            .file = b.addWriteFiles().add("a.cpp", bytes),
+            .flags = overlay.cpp_source_flags,
+        });
+    }
+    if (overlay.c_source_bytes) |bytes| {
+        compile_step.addCSourceFile(.{
+            .file = b.addWriteFiles().add("a.c", bytes),
+            .flags = overlay.c_source_flags,
+        });
+    }
+    if (overlay.asm_source_bytes) |bytes| {
+        compile_step.addAssemblyFile(b.addWriteFiles().add("a.s", bytes));
+    }
+    return compile_step;
 }
 
-pub fn addObject(b: *Build, name: []const u8, opts: Options) *Compile {
-    return b.addObject(.{
-        .name = name,
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = opts.use_lld,
+pub fn addObject(b: *Build, base: Options, overlay: OverlayOptions) *Step.Compile {
+    const compile_step = b.addObject(.{
+        .name = overlay.name,
+        .root_source_file = rsf: {
+            const bytes = overlay.zig_source_bytes orelse break :rsf null;
+            break :rsf b.addWriteFiles().add("a.zig", bytes);
+        },
+        .target = base.target,
+        .optimize = base.optimize,
+        .use_llvm = base.use_llvm,
+        .use_lld = base.use_lld,
+        .pic = overlay.pic,
+        .strip = overlay.strip,
     });
+    if (overlay.cpp_source_bytes) |bytes| {
+        compile_step.addCSourceFile(.{
+            .file = b.addWriteFiles().add("a.cpp", bytes),
+            .flags = overlay.cpp_source_flags,
+        });
+    }
+    if (overlay.c_source_bytes) |bytes| {
+        compile_step.addCSourceFile(.{
+            .file = b.addWriteFiles().add("a.c", bytes),
+            .flags = overlay.c_source_flags,
+        });
+    }
+    if (overlay.asm_source_bytes) |bytes| {
+        compile_step.addAssemblyFile(b.addWriteFiles().add("a.s", bytes));
+    }
+    return compile_step;
 }
 
-pub fn addStaticLibrary(b: *Build, name: []const u8, opts: Options) *Compile {
-    return b.addStaticLibrary(.{
-        .name = name,
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = opts.use_lld,
+pub fn addStaticLibrary(b: *Build, base: Options, overlay: OverlayOptions) *Compile {
+    const compile_step = b.addStaticLibrary(.{
+        .name = overlay.name,
+        .root_source_file = rsf: {
+            const bytes = overlay.zig_source_bytes orelse break :rsf null;
+            break :rsf b.addWriteFiles().add("a.zig", bytes);
+        },
+        .target = base.target,
+        .optimize = base.optimize,
+        .use_llvm = base.use_llvm,
+        .use_lld = base.use_lld,
+        .pic = overlay.pic,
+        .strip = overlay.strip,
     });
+    if (overlay.cpp_source_bytes) |bytes| {
+        compile_step.addCSourceFile(.{
+            .file = b.addWriteFiles().add("a.cpp", bytes),
+            .flags = overlay.cpp_source_flags,
+        });
+    }
+    if (overlay.c_source_bytes) |bytes| {
+        compile_step.addCSourceFile(.{
+            .file = b.addWriteFiles().add("a.c", bytes),
+            .flags = overlay.c_source_flags,
+        });
+    }
+    if (overlay.asm_source_bytes) |bytes| {
+        compile_step.addAssemblyFile(b.addWriteFiles().add("a.s", bytes));
+    }
+    return compile_step;
 }
 
-pub fn addSharedLibrary(b: *Build, name: []const u8, opts: Options) *Compile {
-    return b.addSharedLibrary(.{
-        .name = name,
-        .target = opts.target,
-        .optimize = opts.optimize,
-        .use_llvm = opts.use_llvm,
-        .use_lld = opts.use_lld,
+pub fn addSharedLibrary(b: *Build, base: Options, overlay: OverlayOptions) *Compile {
+    const compile_step = b.addSharedLibrary(.{
+        .name = overlay.name,
+        .root_source_file = rsf: {
+            const bytes = overlay.zig_source_bytes orelse break :rsf null;
+            break :rsf b.addWriteFiles().add("a.zig", bytes);
+        },
+        .target = base.target,
+        .optimize = base.optimize,
+        .use_llvm = base.use_llvm,
+        .use_lld = base.use_lld,
+        .pic = overlay.pic,
+        .strip = overlay.strip,
     });
+    if (overlay.cpp_source_bytes) |bytes| {
+        compile_step.addCSourceFile(.{
+            .file = b.addWriteFiles().add("a.cpp", bytes),
+            .flags = overlay.cpp_source_flags,
+        });
+    }
+    if (overlay.c_source_bytes) |bytes| {
+        compile_step.addCSourceFile(.{
+            .file = b.addWriteFiles().add("a.c", bytes),
+            .flags = overlay.c_source_flags,
+        });
+    }
+    if (overlay.asm_source_bytes) |bytes| {
+        compile_step.addAssemblyFile(b.addWriteFiles().add("a.s", bytes));
+    }
+    return compile_step;
 }
 
 pub fn addRunArtifact(comp: *Compile) *Run {
@@ -70,13 +168,6 @@ pub fn addRunArtifact(comp: *Compile) *Run {
     const run = b.addRunArtifact(comp);
     run.skip_foreign_checks = true;
     return run;
-}
-
-pub fn addZigSourceBytes(comp: *Compile, bytes: []const u8) void {
-    const b = comp.step.owner;
-    const file = WriteFile.create(b).add("a.zig", bytes);
-    file.addStepDependencies(&comp.step);
-    comp.root_src = file;
 }
 
 pub fn addCSourceBytes(comp: *Compile, bytes: []const u8, flags: []const []const u8) void {

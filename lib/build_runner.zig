@@ -46,7 +46,12 @@ pub fn main() !void {
         return error.InvalidArgs;
     };
 
-    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+    const detected = try std.zig.system.NativeTargetInfo.detect(.{});
+    const host: std.Build.ResolvedTarget = .{
+        .query = .{},
+        .target = detected.target,
+        .dynamic_linker = detected.dynamic_linker,
+    };
 
     const build_root_directory: std.Build.Cache.Directory = .{
         .path = build_root,

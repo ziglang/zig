@@ -197,15 +197,9 @@ pub fn addPrefixedOutputFileArg(
     return .{ .generated = &output.generated_file };
 }
 
-/// deprecated: use `addFileArg`
-pub const addFileSourceArg = addFileArg;
-
 pub fn addFileArg(self: *Run, lp: std.Build.LazyPath) void {
     self.addPrefixedFileArg("", lp);
 }
-
-// deprecated: use `addPrefixedFileArg`
-pub const addPrefixedFileSourceArg = addPrefixedFileArg;
 
 pub fn addPrefixedFileArg(self: *Run, prefix: []const u8, lp: std.Build.LazyPath) void {
     const b = self.step.owner;
@@ -488,7 +482,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 man.hash.addBytes(file_path);
             },
             .artifact => |artifact| {
-                if (artifact.root_module.target_info.target.os.tag == .windows) {
+                if (artifact.rootModuleTarget().os.tag == .windows) {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                     self.addPathForDynLibs(artifact);
                 }
@@ -682,9 +676,10 @@ fn runCommand(
                 else => break :interpret,
             }
 
-            const need_cross_glibc = exe.root_module.target_info.target.isGnuLibC() and
+            const need_cross_glibc = exe.rootModuleTarget().isGnuLibC() and
                 exe.is_linking_libc;
-            switch (b.host.getExternalExecutor(&exe.root_module.target_info, .{
+            const other_target_info = exe.root_module.target.?.toNativeTargetInfo();
+            switch (b.host.toNativeTargetInfo().getExternalExecutor(&other_target_info, .{
                 .qemu_fixes_dl = need_cross_glibc and b.glibc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {
@@ -715,9 +710,9 @@ fn runCommand(
                             // needs the directory to be called "i686" rather than
                             // "x86" which is why we do it manually here.
                             const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
-                            const cpu_arch = exe.root_module.target_info.target.cpu.arch;
-                            const os_tag = exe.root_module.target_info.target.os.tag;
-                            const abi = exe.root_module.target_info.target.abi;
+                            const cpu_arch = exe.rootModuleTarget().cpu.arch;
+                            const os_tag = exe.rootModuleTarget().os.tag;
+                            const abi = exe.rootModuleTarget().abi;
                             const cpu_arch_name: []const u8 = if (cpu_arch == .x86)
                                 "i686"
                             else
@@ -770,7 +765,7 @@ fn runCommand(
                     if (allow_skip) return error.MakeSkipped;
 
                     const host_name = try b.host.target.zigTriple(b.allocator);
-                    const foreign_name = try exe.root_module.target_info.target.zigTriple(b.allocator);
+                    const foreign_name = try exe.rootModuleTarget().zigTriple(b.allocator);
 
                     return step.fail("the host system ({s}) is unable to execute binaries from the target ({s})", .{
                         host_name, foreign_name,
@@ -778,7 +773,7 @@ fn runCommand(
                 },
             }
 
-            if (exe.root_module.target_info.target.os.tag == .windows) {
+            if (exe.rootModuleTarget().os.tag == .windows) {
                 // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                 self.addPathForDynLibs(exe);
             }
@@ -1300,7 +1295,7 @@ fn addPathForDynLibs(self: *Run, artifact: *Step.Compile) void {
     while (it.next()) |item| {
         const other = item.compile.?;
         if (item.module == &other.root_module) {
-            if (item.module.target_info.target.os.tag == .windows and other.isDynamicLibrary()) {
+            if (item.module.target.?.target.os.tag == .windows and other.isDynamicLibrary()) {
                 addPathDir(self, fs.path.dirname(other.getEmittedBin().getPath(b)).?);
                 addPathForDynLibs(self, other);
             }
@@ -1321,7 +1316,7 @@ fn failForeign(
 
             const b = self.step.owner;
             const host_name = try b.host.target.zigTriple(b.allocator);
-            const foreign_name = try exe.root_module.target_info.target.zigTriple(b.allocator);
+            const foreign_name = try exe.rootModuleTarget().zigTriple(b.allocator);
 
             return self.step.fail(
                 \\unable to spawn foreign binary '{s}' ({s}) on host system ({s})

@@ -18,7 +18,7 @@ pub const TranslateCContext = struct {
         sources: ArrayList(SourceFile),
         expected_lines: ArrayList([]const u8),
         allow_warnings: bool,
-        target: CrossTarget = CrossTarget{},
+        target: CrossTarget = .{},
 
         const SourceFile = struct {
             filename: []const u8,
@@ -109,7 +109,7 @@ pub const TranslateCContext = struct {
 
         const translate_c = b.addTranslateC(.{
             .source_file = write_src.files.items[0].getPath(),
-            .target = case.target,
+            .target = b.resolveTargetQuery(case.target),
             .optimize = .Debug,
         });
 

@@ -194,9 +194,6 @@ pub const zig = @import("zig.zig");
 
 pub const start = @import("start.zig");
 
-/// deprecated: use `Build`.
-pub const build = Build;
-
 const root = @import("root");
 const options_override = if (@hasDecl(root, "std_options")) root.std_options else struct {};
 

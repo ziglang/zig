@@ -1,26 +1,29 @@
 //! Here we test our MachO linker for correctness and functionality.
 //! TODO migrate standalone tests from test/link/macho/* to here.
 
-pub fn testAll(b: *Build) *Step {
+pub fn testAll(b: *std.Build) *Step {
     const macho_step = b.step("test-macho", "Run MachO tests");
 
-    const default_target = CrossTarget{ .os_tag = .macos };
-
-    macho_step.dependOn(testResolvingBoundarySymbols(b, .{ .target = default_target }));
+    macho_step.dependOn(testResolvingBoundarySymbols(b, .{
+        .target = b.resolveTargetQuery(.{ .os_tag = .macos }),
+    }));
 
     return macho_step;
 }
 
-fn testResolvingBoundarySymbols(b: *Build, opts: Options) *Step {
+fn testResolvingBoundarySymbols(b: *std.Build, opts: Options) *Step {
     const test_step = addTestStep(b, "macho-resolving-boundary-symbols", opts);
 
-    const obj1 = addObject(b, "obj1", opts);
-    addCppSourceBytes(obj1,
+    const obj1 = addObject(b, opts, .{
+        .name = "obj1",
+        .cpp_source_bytes =
         \\constexpr const char* MESSAGE __attribute__((used, section("__DATA_CONST,__message_ptr"))) = "codebase";
-    , &.{});
+        ,
+    });
 
-    const main_o = addObject(b, "main", opts);
-    addZigSourceBytes(main_o,
+    const main_o = addObject(b, opts, .{
+        .name = "main",
+        .zig_source_bytes =
         \\const std = @import("std");
         \\extern fn interop() [*:0]const u8;
         \\pub fn main() !void {
@@ -28,23 +31,27 @@ fn testResolvingBoundarySymbols(b: *Build, opts: Options) *Step {
         \\        std.mem.span(interop()),
         \\    });
         \\}
-    );
+        ,
+    });
 
     {
-        const obj2 = addObject(b, "obj2", opts);
-        addCppSourceBytes(obj2,
+        const obj2 = addObject(b, opts, .{
+            .name = "obj2",
+            .cpp_source_bytes =
             \\extern const char* message_pointer __asm("section$start$__DATA_CONST$__message_ptr");
             \\extern "C" const char* interop() {
             \\  return message_pointer;
             \\}
-        , &.{});
+            ,
+        });
 
-        const exe = addExecutable(b, "test", opts);
+        const exe = addExecutable(b, opts, .{ .name = "test" });
         exe.addObject(obj1);
         exe.addObject(obj2);
         exe.addObject(main_o);
 
-        const run = addRunArtifact(exe);
+        const run = b.addRunArtifact(exe);
+        run.skip_foreign_checks = true;
         run.expectStdErrEqual("All your codebase are belong to us.\n");
         test_step.dependOn(&run.step);
 
@@ -55,15 +62,17 @@ fn testResolvingBoundarySymbols(b: *Build, opts: Options) *Step {
     }
 
     {
-        const obj3 = addObject(b, "obj3", opts);
-        addCppSourceBytes(obj3,
+        const obj3 = addObject(b, opts, .{
+            .name = "obj3",
+            .cpp_source_bytes =
             \\extern const char* message_pointer __asm("section$start$__DATA$__message_ptr");
             \\extern "C" const char* interop() {
             \\  return message_pointer;
             \\}
-        , &.{});
+            ,
+        });
 
-        const exe = addExecutable(b, "test", opts);
+        const exe = addExecutable(b, opts, .{ .name = "test" });
         exe.addObject(obj1);
         exe.addObject(obj3);
         exe.addObject(main_o);
@@ -77,20 +86,16 @@ fn testResolvingBoundarySymbols(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
-fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
+fn addTestStep(b: *std.Build, comptime prefix: []const u8, opts: Options) *Step {
     return link.addTestStep(b, "macho-" ++ prefix, opts);
 }
 
-const addCppSourceBytes = link.addCppSourceBytes;
-const addExecutable = link.addExecutable;
 const addObject = link.addObject;
-const addRunArtifact = link.addRunArtifact;
-const addZigSourceBytes = link.addZigSourceBytes;
+const addExecutable = link.addExecutable;
 const expectLinkErrors = link.expectLinkErrors;
 const link = @import("link.zig");
 const std = @import("std");
 
-const Build = std.Build;
 const CrossTarget = std.zig.CrossTarget;
 const Options = link.Options;
-const Step = Build.Step;
+const Step = std.Build.Step;

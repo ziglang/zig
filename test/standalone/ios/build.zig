@@ -8,12 +8,12 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target: std.zig.CrossTarget = .{
+    const target = b.resolveTargetQuery(.{
         .cpu_arch = .aarch64,
         .os_tag = .ios,
-    };
-    const target_info = std.zig.system.NativeTargetInfo.detect(target) catch @panic("couldn't detect native target");
-    const sdk = std.zig.system.darwin.getSdk(b.allocator, target_info.target) orelse @panic("no iOS SDK found");
+    });
+    const sdk = std.zig.system.darwin.getSdk(b.allocator, target.target) orelse
+        @panic("no iOS SDK found");
     b.sysroot = sdk;
 
     const exe = b.addExecutable(.{

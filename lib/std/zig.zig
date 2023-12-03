@@ -203,6 +203,83 @@ pub fn binNameAlloc(allocator: std.mem.Allocator, options: BinNameOptions) error
     }
 }
 
+pub const BuildId = union(enum) {
+    none,
+    fast,
+    uuid,
+    sha1,
+    md5,
+    hexstring: HexString,
+
+    pub fn eql(a: BuildId, b: BuildId) bool {
+        const Tag = @TypeOf(BuildId).Union.tag_type.?;
+        const a_tag: Tag = a;
+        const b_tag: Tag = b;
+        if (a_tag != b_tag) return false;
+        return switch (a) {
+            .none, .fast, .uuid, .sha1, .md5 => true,
+            .hexstring => |a_hexstring| std.mem.eql(u8, a_hexstring.toSlice(), b.hexstring.toSlice()),
+        };
+    }
+
+    pub const HexString = struct {
+        bytes: [32]u8,
+        len: u8,
+
+        /// Result is byte values, *not* hex-encoded.
+        pub fn toSlice(hs: *const HexString) []const u8 {
+            return hs.bytes[0..hs.len];
+        }
+    };
+
+    /// Input is byte values, *not* hex-encoded.
+    /// Asserts `bytes` fits inside `HexString`
+    pub fn initHexString(bytes: []const u8) BuildId {
+        var result: BuildId = .{ .hexstring = .{
+            .bytes = undefined,
+            .len = @intCast(bytes.len),
+        } };
+        @memcpy(result.hexstring.bytes[0..bytes.len], bytes);
+        return result;
+    }
+
+    /// Converts UTF-8 text to a `BuildId`.
+    pub fn parse(text: []const u8) !BuildId {
+        if (std.mem.eql(u8, text, "none")) {
+            return .none;
+        } else if (std.mem.eql(u8, text, "fast")) {
+            return .fast;
+        } else if (std.mem.eql(u8, text, "uuid")) {
+            return .uuid;
+        } else if (std.mem.eql(u8, text, "sha1") or std.mem.eql(u8, text, "tree")) {
+            return .sha1;
+        } else if (std.mem.eql(u8, text, "md5")) {
+            return .md5;
+        } else if (std.mem.startsWith(u8, text, "0x")) {
+            var result: BuildId = .{ .hexstring = undefined };
+            const slice = try std.fmt.hexToBytes(&result.hexstring.bytes, text[2..]);
+            result.hexstring.len = @as(u8, @intCast(slice.len));
+            return result;
+        }
+        return error.InvalidBuildIdStyle;
+    }
+
+    test parse {
+        try std.testing.expectEqual(BuildId.md5, try parse("md5"));
+        try std.testing.expectEqual(BuildId.none, try parse("none"));
+        try std.testing.expectEqual(BuildId.fast, try parse("fast"));
+        try std.testing.expectEqual(BuildId.uuid, try parse("uuid"));
+        try std.testing.expectEqual(BuildId.sha1, try parse("sha1"));
+        try std.testing.expectEqual(BuildId.sha1, try parse("tree"));
+
+        try std.testing.expect(BuildId.initHexString("").eql(try parse("0x")));
+        try std.testing.expect(BuildId.initHexString("\x12\x34\x56").eql(try parse("0x123456")));
+        try std.testing.expectError(error.InvalidLength, parse("0x12-34"));
+        try std.testing.expectError(error.InvalidCharacter, parse("0xfoobbb"));
+        try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
+    }
+};
+
 test {
     @import("std").testing.refAllDecls(@This());
 }

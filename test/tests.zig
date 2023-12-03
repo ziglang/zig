@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const CrossTarget = std.zig.CrossTarget;
 const mem = std.mem;
 const OptimizeMode = std.builtin.OptimizeMode;
 const Step = std.Build.Step;
@@ -22,13 +21,13 @@ pub const CompareOutputContext = @import("src/CompareOutput.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
 
 const TestTarget = struct {
-    target: CrossTarget = .{},
+    target: std.zig.CrossTarget = .{},
     optimize_mode: std.builtin.OptimizeMode = .Debug,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
-    force_pic: ?bool = null,
+    pic: ?bool = null,
     strip: ?bool = null,
 };
 
@@ -105,7 +104,7 @@ const test_targets = blk: {
             },
             .use_llvm = false,
             .use_lld = false,
-            .force_pic = true,
+            .pic = true,
         },
         .{
             .target = .{
@@ -146,7 +145,7 @@ const test_targets = blk: {
         //},
         // https://github.com/ziglang/zig/issues/13623
         //.{
-        //    .target = CrossTarget.parse(.{
+        //    .target = std.zig.CrossTarget.parse(.{
         //        .arch_os_abi = "arm-linux-none",
         //        .cpu_features = "generic+v8a",
         //    }) catch unreachable,
@@ -287,13 +286,13 @@ const test_targets = blk: {
         },
 
         .{
-            .target = CrossTarget.parse(.{
+            .target = std.zig.CrossTarget.parse(.{
                 .arch_os_abi = "arm-linux-none",
                 .cpu_features = "generic+v8a",
             }) catch unreachable,
         },
         .{
-            .target = CrossTarget.parse(.{
+            .target = std.zig.CrossTarget.parse(.{
                 .arch_os_abi = "arm-linux-musleabihf",
                 .cpu_features = "generic+v8a",
             }) catch unreachable,
@@ -301,7 +300,7 @@ const test_targets = blk: {
         },
         // https://github.com/ziglang/zig/issues/3287
         //.{
-        //    .target = CrossTarget.parse(.{
+        //    .target = std.zig.CrossTarget.parse(.{
         //        .arch_os_abi = "arm-linux-gnueabihf",
         //        .cpu_features = "generic+v8a",
         //    }) catch unreachable,
@@ -495,10 +494,10 @@ const test_targets = blk: {
 };
 
 const CAbiTarget = struct {
-    target: CrossTarget = .{},
+    target: std.zig.CrossTarget = .{},
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
-    force_pic: ?bool = null,
+    pic: ?bool = null,
     strip: ?bool = null,
     c_defines: []const []const u8 = &.{},
 };
@@ -543,7 +542,7 @@ const c_abi_targets = [_]CAbiTarget{
         },
         .use_llvm = false,
         .use_lld = false,
-        .force_pic = true,
+        .pic = true,
         .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
     },
     .{
@@ -645,7 +644,7 @@ pub fn addStackTraceTests(
     const check_exe = b.addExecutable(.{
         .name = "check-stack-trace",
         .root_source_file = .{ .path = "test/src/check-stack-trace.zig" },
-        .target = .{},
+        .target = b.host,
         .optimize = .Debug,
     });
 
@@ -682,12 +681,14 @@ pub fn addStandaloneTests(
                 if (os_tag != builtin.os.tag) continue;
             }
 
+            const resolved_target = b.resolveTargetQuery(case.target);
+
             if (case.is_exe) {
                 const exe = b.addExecutable(.{
                     .name = std.fs.path.stem(case.src_path),
                     .root_source_file = .{ .path = case.src_path },
                     .optimize = optimize,
-                    .target = case.target,
+                    .target = resolved_target,
                 });
                 if (case.link_libc) exe.linkLibC();
 
@@ -701,7 +702,7 @@ pub fn addStandaloneTests(
                     .name = std.fs.path.stem(case.src_path),
                     .root_source_file = .{ .path = case.src_path },
                     .optimize = optimize,
-                    .target = case.target,
+                    .target = resolved_target,
                 });
                 if (case.link_libc) exe.linkLibC();
 
@@ -1001,7 +1002,7 @@ pub fn addTranslateCTests(b: *std.Build, test_filter: ?[]const u8) *Step {
 pub fn addRunTranslatedCTests(
     b: *std.Build,
     test_filter: ?[]const u8,
-    target: std.zig.CrossTarget,
+    target: std.Build.ResolvedTarget,
 ) *Step {
     const cases = b.allocator.create(RunTranslatedCContext) catch @panic("OOM");
     cases.* = .{
@@ -1105,7 +1106,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         const these_tests = b.addTest(.{
             .root_source_file = .{ .path = options.root_src },
             .optimize = test_target.optimize_mode,
-            .target = test_target.target,
+            .target = b.resolveTargetQuery(test_target.target),
             .max_rss = max_rss,
             .filter = options.test_filter,
             .link_libc = test_target.link_libc,
@@ -1113,9 +1114,9 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .use_llvm = test_target.use_llvm,
             .use_lld = test_target.use_lld,
             .zig_lib_dir = .{ .path = "lib" },
+            .pic = test_target.pic,
+            .strip = test_target.strip,
         });
-        these_tests.force_pic = test_target.force_pic;
-        these_tests.strip = test_target.strip;
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
             "-llvm"
@@ -1126,7 +1127,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         else
             "";
         const use_lld = if (test_target.use_lld == false) "-no-lld" else "";
-        const use_pic = if (test_target.force_pic == true) "-pic" else "";
+        const use_pic = if (test_target.pic == true) "-pic" else "";
 
         these_tests.addIncludePath(.{ .path = "test" });
 
@@ -1154,7 +1155,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             const compile_c = b.addExecutable(.{
                 .name = qualified_name,
                 .link_libc = test_target.link_libc,
-                .target = altered_target,
+                .target = b.resolveTargetQuery(altered_target),
                 .zig_lib_dir = .{ .path = "lib" },
             });
             compile_c.addCSourceFile(.{
@@ -1229,41 +1230,39 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
         for (c_abi_targets) |c_abi_target| {
             if (skip_non_native and !c_abi_target.target.isNative()) continue;
 
-            if (c_abi_target.target.isWindows() and c_abi_target.target.getCpuArch() == .aarch64) {
+            const resolved_target = b.resolveTargetQuery(c_abi_target.target);
+            const target = resolved_target.target;
+
+            if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
                 // https://github.com/ziglang/zig/issues/14908
                 continue;
             }
 
             const test_step = b.addTest(.{
                 .name = b.fmt("test-c-abi-{s}-{s}-{s}{s}{s}{s}", .{
-                    c_abi_target.target.zigTriple(b.allocator) catch @panic("OOM"),
-                    c_abi_target.target.getCpuModel().name,
+                    target.zigTriple(b.allocator) catch @panic("OOM"),
+                    target.cpu.model.name,
                     @tagName(optimize_mode),
                     if (c_abi_target.use_llvm == true)
                         "-llvm"
-                    else if (c_abi_target.target.ofmt == std.Target.ObjectFormat.c)
+                    else if (target.ofmt == .c)
                         "-cbe"
                     else if (c_abi_target.use_llvm == false)
                         "-selfhosted"
                     else
                         "",
                     if (c_abi_target.use_lld == false) "-no-lld" else "",
-                    if (c_abi_target.force_pic == true) "-pic" else "",
+                    if (c_abi_target.pic == true) "-pic" else "",
                 }),
                 .root_source_file = .{ .path = "test/c_abi/main.zig" },
-                .target = c_abi_target.target,
+                .target = resolved_target,
                 .optimize = optimize_mode,
                 .link_libc = true,
                 .use_llvm = c_abi_target.use_llvm,
                 .use_lld = c_abi_target.use_lld,
+                .pic = c_abi_target.pic,
+                .strip = c_abi_target.strip,
             });
-            test_step.force_pic = c_abi_target.force_pic;
-            test_step.strip = c_abi_target.strip;
-            if (c_abi_target.target.abi != null and c_abi_target.target.abi.?.isMusl()) {
-                // TODO NativeTargetInfo insists on dynamically linking musl
-                // for some reason?
-                test_step.target_info.dynamic_linker.max_byte = null;
-            }
             test_step.addCSourceFile(.{
                 .file = .{ .path = "test/c_abi/cfuncs.c" },
                 .flags = &.{"-std=c99"},
@@ -1297,8 +1296,8 @@ pub fn addCases(
     var dir = try b.build_root.handle.openDir("test/cases", .{ .iterate = true });
     defer dir.close();
 
-    cases.addFromDir(dir);
-    try @import("cases.zig").addCases(&cases, build_options);
+    cases.addFromDir(dir, b);
+    try @import("cases.zig").addCases(&cases, build_options, b);
 
     const cases_dir_path = try b.build_root.join(b.allocator, &.{ "test", "cases" });
     cases.lowerToBuildSteps(

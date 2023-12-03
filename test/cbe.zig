@@ -2,16 +2,16 @@ const std = @import("std");
 const Cases = @import("src/Cases.zig");
 const nl = if (@import("builtin").os.tag == .windows) "\r\n" else "\n";
 
-// These tests should work with all platforms, but we're using linux_x64 for
-// now for consistency. Will be expanded eventually.
-const linux_x64 = std.zig.CrossTarget{
-    .cpu_arch = .x86_64,
-    .os_tag = .linux,
-};
+pub fn addCases(ctx: *Cases, b: *std.Build) !void {
+    // These tests should work with all platforms, but we're using linux_x64 for
+    // now for consistency. Will be expanded eventually.
+    const linux_x64: std.zig.CrossTarget = .{
+        .cpu_arch = .x86_64,
+        .os_tag = .linux,
+    };
 
-pub fn addCases(ctx: *Cases) !void {
     {
-        var case = ctx.exeFromCompiledC("hello world with updates", .{});
+        var case = ctx.exeFromCompiledC("hello world with updates", .{}, b);
 
         // Regular old hello world
         case.addCompareOutput(
@@ -59,7 +59,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("var args", .{});
+        var case = ctx.exeFromCompiledC("var args", .{}, b);
 
         case.addCompareOutput(
             \\extern fn printf(format: [*:0]const u8, ...) c_int;
@@ -72,7 +72,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("errorFromInt", .{});
+        var case = ctx.exeFromCompiledC("errorFromInt", .{}, b);
 
         case.addCompareOutput(
             \\pub export fn main() c_int {
@@ -108,7 +108,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("x86_64-linux inline assembly", linux_x64);
+        var case = ctx.exeFromCompiledC("x86_64-linux inline assembly", linux_x64, b);
 
         // Exit with 0
         case.addCompareOutput(
@@ -202,7 +202,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("alloc and retptr", .{});
+        var case = ctx.exeFromCompiledC("alloc and retptr", .{}, b);
 
         case.addCompareOutput(
             \\fn add(a: i32, b: i32) i32 {
@@ -220,7 +220,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("inferred local const and var", .{});
+        var case = ctx.exeFromCompiledC("inferred local const and var", .{}, b);
 
         case.addCompareOutput(
             \\fn add(a: i32, b: i32) i32 {
@@ -236,7 +236,7 @@ pub fn addCases(ctx: *Cases) !void {
         , "");
     }
     {
-        var case = ctx.exeFromCompiledC("control flow", .{});
+        var case = ctx.exeFromCompiledC("control flow", .{}, b);
 
         // Simple while loop
         case.addCompareOutput(
@@ -423,7 +423,7 @@ pub fn addCases(ctx: *Cases) !void {
         });
     }
     //{
-    //    var case = ctx.exeFromCompiledC("optionals", .{});
+    //    var case = ctx.exeFromCompiledC("optionals", .{}, b);
 
     //    // Simple while loop
     //    case.addCompareOutput(
@@ -451,7 +451,7 @@ pub fn addCases(ctx: *Cases) !void {
     //}
 
     {
-        var case = ctx.exeFromCompiledC("errors", .{});
+        var case = ctx.exeFromCompiledC("errors", .{}, b);
         case.addCompareOutput(
             \\pub export fn main() c_int {
             \\    var e1 = error.Foo;
@@ -495,7 +495,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("structs", .{});
+        var case = ctx.exeFromCompiledC("structs", .{}, b);
         case.addError(
             \\const Point = struct { x: i32, y: i32 };
             \\pub export fn main() c_int {
@@ -562,7 +562,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("unions", .{});
+        var case = ctx.exeFromCompiledC("unions", .{}, b);
 
         case.addError(
             \\const U = union {
@@ -596,7 +596,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("enums", .{});
+        var case = ctx.exeFromCompiledC("enums", .{}, b);
 
         case.addError(
             \\const E1 = packed enum { a, b, c };
@@ -838,7 +838,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("shift right and left", .{});
+        var case = ctx.exeFromCompiledC("shift right and left", .{}, b);
         case.addCompareOutput(
             \\pub export fn main() c_int {
             \\    var i: u32 = 16;
@@ -863,7 +863,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("inferred error sets", .{});
+        var case = ctx.exeFromCompiledC("inferred error sets", .{}, b);
 
         case.addCompareOutput(
             \\pub export fn main() c_int {
@@ -884,7 +884,7 @@ pub fn addCases(ctx: *Cases) !void {
 
     {
         // TODO: add u64 tests, ran into issues with the literal generated for std.math.maxInt(u64)
-        var case = ctx.exeFromCompiledC("add and sub wrapping operations", .{});
+        var case = ctx.exeFromCompiledC("add and sub wrapping operations", .{}, b);
         case.addCompareOutput(
             \\pub export fn main() c_int {
             \\    // Addition
@@ -933,7 +933,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("rem", linux_x64);
+        var case = ctx.exeFromCompiledC("rem", linux_x64, b);
         case.addCompareOutput(
             \\fn assert(ok: bool) void {
             \\    if (!ok) unreachable;
