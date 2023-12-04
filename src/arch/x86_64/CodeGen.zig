@@ -9977,12 +9977,25 @@ fn genBinOp(
             defer self.register_manager.unlockReg(gp_lock);
 
             try self.asmRegisterRegister(switch (mir_tag[0]) {
-                ._pd, ._sd => .{ ._pd, .movmsk },
-                ._ps, ._ss => .{ ._ps, .movmsk },
-                .p_b, .p_d, .p_q, .p_w => .{ .p_b, .movmsk },
-                .v_pd, .v_sd => .{ .v_pd, .movmsk },
-                .v_ps, .v_ss => .{ .v_ps, .movmsk },
-                .vp_b, .vp_d, .vp_q, .vp_w => .{ .vp_b, .movmsk },
+                ._pd, ._sd, .p_q => .{ ._pd, .movmsk },
+                ._ps, ._ss, .p_d => .{ ._ps, .movmsk },
+                .p_b => .{ .p_b, .movmsk },
+                .p_w => movmsk: {
+                    try self.asmRegisterRegister(.{ .p_b, .ackssw }, dst_reg, dst_reg);
+                    break :movmsk .{ .p_b, .movmsk };
+                },
+                .v_pd, .v_sd, .vp_q => .{ .v_pd, .movmsk },
+                .v_ps, .v_ss, .vp_d => .{ .v_ps, .movmsk },
+                .vp_b => .{ .vp_b, .movmsk },
+                .vp_w => movmsk: {
+                    try self.asmRegisterRegisterRegister(
+                        .{ .vp_b, .ackssw },
+                        dst_reg,
+                        dst_reg,
+                        dst_reg,
+                    );
+                    break :movmsk .{ .vp_b, .movmsk };
+                },
                 else => unreachable,
             }, gp_reg.to32(), dst_reg);
             return .{ .register = gp_reg };
