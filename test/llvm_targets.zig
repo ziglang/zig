@@ -1,7 +1,7 @@
 const std = @import("std");
 const Cases = @import("src/Cases.zig");
 
-const targets = [_]std.zig.CrossTarget{
+const targets = [_]std.Target.Query{
     .{ .cpu_arch = .aarch64, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .ios, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .ios, .abi = .simulator },

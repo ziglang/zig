@@ -3,6 +3,8 @@ os: Os,
 abi: Abi,
 ofmt: ObjectFormat,
 
+pub const Query = @import("Target/Query.zig");
+
 pub const Os = struct {
     tag: Tag,
     version_range: VersionRange,
@@ -1387,7 +1389,7 @@ pub const Cpu = struct {
 };
 
 pub fn zigTriple(self: Target, allocator: Allocator) ![]u8 {
-    return std.zig.CrossTarget.fromTarget(self).zigTriple(allocator);
+    return Query.fromTarget(self).zigTriple(allocator);
 }
 
 pub fn linuxTripleSimple(allocator: Allocator, cpu_arch: Cpu.Arch, os_tag: Os.Tag, abi: Abi) ![]u8 {

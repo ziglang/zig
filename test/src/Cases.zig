@@ -188,7 +188,7 @@ pub fn exe(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Cas
     return ctx.addExe(name, target);
 }
 
-pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target_query: std.zig.CrossTarget, b: *std.Build) *Case {
+pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target_query: std.Target.Query, b: *std.Build) *Case {
     var adjusted_query = target_query;
     adjusted_query.ofmt = .c;
     ctx.cases.append(Case{
@@ -423,7 +423,7 @@ fn addFromDirInner(
         var manifest = try TestManifest.parse(ctx.arena, src);
 
         const backends = try manifest.getConfigForKeyAlloc(ctx.arena, "backend", Backend);
-        const targets = try manifest.getConfigForKeyAlloc(ctx.arena, "target", std.zig.CrossTarget);
+        const targets = try manifest.getConfigForKeyAlloc(ctx.arena, "target", std.Target.Query);
         const c_frontends = try manifest.getConfigForKeyAlloc(ctx.arena, "c_frontend", CFrontend);
         const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
         const link_libc = try manifest.getConfigForKeyAssertSingle("link_libc", bool);
@@ -1160,9 +1160,9 @@ const TestManifest = struct {
     }
 
     fn getDefaultParser(comptime T: type) ParseFn(T) {
-        if (T == std.zig.CrossTarget) return struct {
+        if (T == std.Target.Query) return struct {
             fn parse(str: []const u8) anyerror!T {
-                return std.zig.CrossTarget.parse(.{ .arch_os_abi = str });
+                return std.Target.Query.parse(.{ .arch_os_abi = str });
             }
         }.parse;
 
@@ -1287,7 +1287,7 @@ pub fn main() !void {
 
             if (cases.items.len == 0) {
                 const backends = try manifest.getConfigForKeyAlloc(arena, "backend", Backend);
-                const targets = try manifest.getConfigForKeyAlloc(arena, "target", std.zig.CrossTarget);
+                const targets = try manifest.getConfigForKeyAlloc(arena, "target", std.Target.Query);
                 const c_frontends = try manifest.getConfigForKeyAlloc(ctx.arena, "c_frontend", CFrontend);
                 const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
                 const link_libc = try manifest.getConfigForKeyAssertSingle("link_libc", bool);
@@ -1385,7 +1385,7 @@ pub fn main() !void {
     return runCases(&ctx, zig_exe_path);
 }
 
-fn resolveTargetQuery(query: std.zig.CrossTarget) std.Build.ResolvedTarget {
+fn resolveTargetQuery(query: std.Target.Query) std.Build.ResolvedTarget {
     const result = std.zig.system.NativeTargetInfo.detect(query) catch
         @panic("unable to resolve target query");
 

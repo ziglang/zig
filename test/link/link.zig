@@ -199,7 +199,6 @@ const std = @import("std");
 
 const Build = std.Build;
 const Compile = Step.Compile;
-const CrossTarget = std.zig.CrossTarget;
 const Run = Step.Run;
 const Step = Build.Step;
 const WriteFile = Step.WriteFile;

@@ -21,7 +21,7 @@ pub const CompareOutputContext = @import("src/CompareOutput.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
 
 const TestTarget = struct {
-    target: std.zig.CrossTarget = .{},
+    target: std.Target.Query = .{},
     optimize_mode: std.builtin.OptimizeMode = .Debug,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
@@ -145,7 +145,7 @@ const test_targets = blk: {
         //},
         // https://github.com/ziglang/zig/issues/13623
         //.{
-        //    .target = std.zig.CrossTarget.parse(.{
+        //    .target = std.Target.Query.parse(.{
         //        .arch_os_abi = "arm-linux-none",
         //        .cpu_features = "generic+v8a",
         //    }) catch unreachable,
@@ -286,13 +286,13 @@ const test_targets = blk: {
         },
 
         .{
-            .target = std.zig.CrossTarget.parse(.{
+            .target = std.Target.Query.parse(.{
                 .arch_os_abi = "arm-linux-none",
                 .cpu_features = "generic+v8a",
             }) catch unreachable,
         },
         .{
-            .target = std.zig.CrossTarget.parse(.{
+            .target = std.Target.Query.parse(.{
                 .arch_os_abi = "arm-linux-musleabihf",
                 .cpu_features = "generic+v8a",
             }) catch unreachable,
@@ -300,7 +300,7 @@ const test_targets = blk: {
         },
         // https://github.com/ziglang/zig/issues/3287
         //.{
-        //    .target = std.zig.CrossTarget.parse(.{
+        //    .target = std.Target.Query.parse(.{
         //        .arch_os_abi = "arm-linux-gnueabihf",
         //        .cpu_features = "generic+v8a",
         //    }) catch unreachable,
@@ -494,7 +494,7 @@ const test_targets = blk: {
 };
 
 const CAbiTarget = struct {
-    target: std.zig.CrossTarget = .{},
+    target: std.Target.Query = .{},
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     pic: ?bool = null,

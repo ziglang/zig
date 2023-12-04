@@ -95,7 +95,5 @@ const addExecutable = link.addExecutable;
 const expectLinkErrors = link.expectLinkErrors;
 const link = @import("link.zig");
 const std = @import("std");
-
-const CrossTarget = std.zig.CrossTarget;
 const Options = link.Options;
 const Step = std.Build.Step;

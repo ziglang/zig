@@ -2,7 +2,7 @@ pub const SimpleCase = struct {
     src_path: []const u8,
     link_libc: bool = false,
     all_modes: bool = false,
-    target: std.zig.CrossTarget = .{},
+    target: std.Target.Query = .{},
     is_test: bool = false,
     is_exe: bool = true,
     /// Run only on this OS.

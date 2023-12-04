@@ -2551,7 +2551,7 @@ fn buildOutputType(
         }
     };
 
-    var target_parse_options: std.zig.CrossTarget.ParseOptions = .{
+    var target_parse_options: std.Target.Query.ParseOptions = .{
         .arch_os_abi = target_arch_os_abi,
         .cpu_features = target_mcpu,
         .dynamic_linker = target_dynamic_linker,
@@ -2563,7 +2563,7 @@ fn buildOutputType(
     if (llvm_m_args.items.len != 0) {
         // If this returns null, we let it fall through to the case below which will
         // run the full parse function and do proper error handling.
-        if (std.zig.CrossTarget.parseCpuArch(target_parse_options)) |cpu_arch| {
+        if (std.Target.Query.parseCpuArch(target_parse_options)) |cpu_arch| {
             var llvm_to_zig_name = std.StringHashMap([]const u8).init(gpa);
             defer llvm_to_zig_name.deinit();
 
@@ -2607,8 +2607,8 @@ fn buildOutputType(
         }
     }
 
-    const cross_target = try parseCrossTargetOrReportFatalError(arena, target_parse_options);
-    const target_info = try detectNativeTargetInfo(cross_target);
+    const target_query = try parseTargetQueryOrReportFatalError(arena, target_parse_options);
+    const target_info = try detectNativeTargetInfo(target_query);
 
     if (target_info.target.os.tag != .freestanding) {
         if (ensure_libc_on_non_freestanding)
@@ -2695,13 +2695,13 @@ fn buildOutputType(
     }
 
     if (use_lld) |opt| {
-        if (opt and cross_target.isDarwin()) {
+        if (opt and target_query.isDarwin()) {
             fatal("LLD requested with Mach-O object format. Only the self-hosted linker is supported for this target.", .{});
         }
     }
 
     if (want_lto) |opt| {
-        if (opt and cross_target.isDarwin()) {
+        if (opt and target_query.isDarwin()) {
             fatal("LTO is not yet supported with the Mach-O object format. More details: https://github.com/ziglang/zig/issues/8680", .{});
         }
     }
@@ -2771,7 +2771,7 @@ fn buildOutputType(
 
     var libc_installation: ?LibCInstallation = null;
     if (libc_paths_file) |paths_file| {
-        libc_installation = LibCInstallation.parse(arena, paths_file, cross_target) catch |err| {
+        libc_installation = LibCInstallation.parse(arena, paths_file, target_query) catch |err| {
             fatal("unable to parse libc paths file at path {s}: {s}", .{ paths_file, @errorName(err) });
         };
     }
@@ -2835,7 +2835,7 @@ fn buildOutputType(
     // After this point, external_system_libs is used instead of system_libs.
 
     // Trigger native system library path detection if necessary.
-    if (sysroot == null and cross_target.isNativeOs() and cross_target.isNativeAbi() and
+    if (sysroot == null and target_query.isNativeOs() and target_query.isNativeAbi() and
         (external_system_libs.len != 0 or want_native_include_dirs))
     {
         const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
@@ -2864,7 +2864,7 @@ fn buildOutputType(
             libc_installation = try LibCInstallation.findNative(.{
                 .allocator = arena,
                 .verbose = true,
-                .target = cross_target.toTarget(),
+                .target = target_query.toTarget(),
             });
 
             try lib_dirs.appendSlice(&.{ libc_installation.?.msvc_lib_dir.?, libc_installation.?.kernel32_lib_dir.? });
@@ -3455,8 +3455,8 @@ fn buildOutputType(
         .global_cache_directory = global_cache_directory,
         .root_name = root_name,
         .target = target_info.target,
-        .is_native_os = cross_target.isNativeOs(),
-        .is_native_abi = cross_target.isNativeAbi(),
+        .is_native_os = target_query.isNativeOs(),
+        .is_native_abi = target_query.isNativeAbi(),
         .dynamic_linker = target_info.dynamic_linker.get(),
         .sysroot = sysroot,
         .output_mode = output_mode,
@@ -4013,16 +4013,16 @@ const ModuleDepIterator = struct {
     }
 };
 
-fn parseCrossTargetOrReportFatalError(
+fn parseTargetQueryOrReportFatalError(
     allocator: Allocator,
-    opts: std.zig.CrossTarget.ParseOptions,
-) !std.zig.CrossTarget {
+    opts: std.Target.Query.ParseOptions,
+) !std.Target.Query {
     var opts_with_diags = opts;
-    var diags: std.zig.CrossTarget.ParseOptions.Diagnostics = .{};
+    var diags: std.Target.Query.ParseOptions.Diagnostics = .{};
     if (opts_with_diags.diagnostics == null) {
         opts_with_diags.diagnostics = &diags;
     }
-    return std.zig.CrossTarget.parse(opts_with_diags) catch |err| switch (err) {
+    return std.Target.Query.parse(opts_with_diags) catch |err| switch (err) {
         error.UnknownCpuModel => {
             help: {
                 var help_text = std.ArrayList(u8).init(allocator);
@@ -4666,9 +4666,9 @@ fn detectRcIncludeDirs(arena: Allocator, zig_lib_dir: []const u8, auto_includes:
     while (true) {
         switch (cur_includes) {
             .any, .msvc => {
-                const cross_target = std.zig.CrossTarget.parse(.{ .arch_os_abi = "native-windows-msvc" }) catch unreachable;
-                const target = cross_target.toTarget();
-                const is_native_abi = cross_target.isNativeAbi();
+                const target_query = std.Target.Query.parse(.{ .arch_os_abi = "native-windows-msvc" }) catch unreachable;
+                const target = target_query.toTarget();
+                const is_native_abi = target_query.isNativeAbi();
                 const detected_libc = Compilation.detectLibCIncludeDirs(arena, zig_lib_dir, target, is_native_abi, true, null) catch |err| {
                     if (cur_includes == .any) {
                         // fall back to mingw
@@ -4691,9 +4691,9 @@ fn detectRcIncludeDirs(arena: Allocator, zig_lib_dir: []const u8, auto_includes:
                 };
             },
             .gnu => {
-                const cross_target = std.zig.CrossTarget.parse(.{ .arch_os_abi = "native-windows-gnu" }) catch unreachable;
-                const target = cross_target.toTarget();
-                const is_native_abi = cross_target.isNativeAbi();
+                const target_query = std.Target.Query.parse(.{ .arch_os_abi = "native-windows-gnu" }) catch unreachable;
+                const target = target_query.toTarget();
+                const is_native_abi = target_query.isNativeAbi();
                 const detected_libc = try Compilation.detectLibCIncludeDirs(arena, zig_lib_dir, target, is_native_abi, true, null);
                 return .{
                     .include_paths = detected_libc.libc_include_dir_list,
@@ -4754,7 +4754,7 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
         }
     }
 
-    const cross_target = try parseCrossTargetOrReportFatalError(gpa, .{
+    const target_query = try parseTargetQueryOrReportFatalError(gpa, .{
         .arch_os_abi = target_arch_os_abi,
     });
 
@@ -4766,7 +4766,7 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
         const libc_installation: ?*LibCInstallation = libc: {
             if (input_file) |libc_file| {
                 const libc = try arena.create(LibCInstallation);
-                libc.* = LibCInstallation.parse(arena, libc_file, cross_target) catch |err| {
+                libc.* = LibCInstallation.parse(arena, libc_file, target_query) catch |err| {
                     fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
                 };
                 break :libc libc;
@@ -4781,8 +4781,8 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
         };
         defer zig_lib_directory.handle.close();
 
-        const target = cross_target.toTarget();
-        const is_native_abi = cross_target.isNativeAbi();
+        const target = target_query.toTarget();
+        const is_native_abi = target_query.isNativeAbi();
 
         const libc_dirs = Compilation.detectLibCIncludeDirs(
             arena,
@@ -4812,15 +4812,15 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
     }
 
     if (input_file) |libc_file| {
-        var libc = LibCInstallation.parse(gpa, libc_file, cross_target) catch |err| {
+        var libc = LibCInstallation.parse(gpa, libc_file, target_query) catch |err| {
             fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
         };
         defer libc.deinit(gpa);
     } else {
-        if (!cross_target.isNative()) {
+        if (!target_query.isNative()) {
             fatal("unable to detect libc for non-native target", .{});
         }
-        const target_info = try detectNativeTargetInfo(cross_target);
+        const target_info = try detectNativeTargetInfo(target_query);
 
         var libc = LibCInstallation.findNative(.{
             .allocator = gpa,
@@ -5113,8 +5113,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
         gimmeMoreOfThoseSweetSweetFileDescriptors();
 
-        const cross_target: std.zig.CrossTarget = .{};
-        const target_info = try detectNativeTargetInfo(cross_target);
+        const target_query: std.Target.Query = .{};
+        const target_info = try detectNativeTargetInfo(target_query);
 
         const exe_basename = try std.zig.binNameAlloc(arena, .{
             .root_name = "build",
@@ -5283,8 +5283,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .global_cache_directory = global_cache_directory,
             .root_name = "build",
             .target = target_info.target,
-            .is_native_os = cross_target.isNativeOs(),
-            .is_native_abi = cross_target.isNativeAbi(),
+            .is_native_os = target_query.isNativeOs(),
+            .is_native_abi = target_query.isNativeAbi(),
             .dynamic_linker = target_info.dynamic_linker.get(),
             .output_mode = .Exe,
             .main_mod = &main_mod,
@@ -6269,8 +6269,8 @@ test "fds" {
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 }
 
-fn detectNativeTargetInfo(cross_target: std.zig.CrossTarget) !std.zig.system.NativeTargetInfo {
-    return std.zig.system.NativeTargetInfo.detect(cross_target);
+fn detectNativeTargetInfo(target_query: std.Target.Query) !std.zig.system.NativeTargetInfo {
+    return std.zig.system.NativeTargetInfo.detect(target_query);
 }
 
 const usage_ast_check =
@@ -6672,8 +6672,8 @@ fn warnAboutForeignBinaries(
     target_info: *const std.zig.system.NativeTargetInfo,
     link_libc: bool,
 ) !void {
-    const host_cross_target: std.zig.CrossTarget = .{};
-    const host_target_info = try detectNativeTargetInfo(host_cross_target);
+    const host_query: std.Target.Query = .{};
+    const host_target_info = try detectNativeTargetInfo(host_query);
 
     switch (host_target_info.getExternalExecutor(target_info, .{ .link_libc = link_libc })) {
         .native => return,

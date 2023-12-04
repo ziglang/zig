@@ -3833,7 +3833,6 @@ const link = @import("link.zig");
 const std = @import("std");
 
 const Build = std.Build;
-const CrossTarget = std.zig.CrossTarget;
 const Options = link.Options;
 const Step = Build.Step;
 const WriteFile = Step.WriteFile;

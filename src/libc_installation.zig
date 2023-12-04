@@ -41,7 +41,7 @@ pub const LibCInstallation = struct {
     pub fn parse(
         allocator: Allocator,
         libc_file: []const u8,
-        target: std.zig.CrossTarget,
+        target: std.Target.Query,
     ) !LibCInstallation {
         var self: LibCInstallation = .{};
 

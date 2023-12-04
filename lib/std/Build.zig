@@ -10,11 +10,11 @@ const log = std.log;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
+const Target = std.Target;
 const process = std.process;
 const EnvMap = std.process.EnvMap;
 const fmt_lib = std.fmt;
 const File = std.fs.File;
-const TargetQuery = std.zig.CrossTarget;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Build = @This();
 
@@ -375,7 +375,7 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
         const v = @field(args, field.name);
         const T = @TypeOf(v);
         switch (T) {
-            TargetQuery => {
+            Target.Query => {
                 user_input_options.put(field.name, .{
                     .name = field.name,
                     .value = .{ .scalar = v.zigTriple(allocator) catch @panic("OOM") },
@@ -1195,9 +1195,9 @@ pub fn standardOptimizeOption(self: *Build, options: StandardOptimizeOptionOptio
 }
 
 pub const StandardTargetOptionsArgs = struct {
-    whitelist: ?[]const TargetQuery = null,
+    whitelist: ?[]const Target.Query = null,
 
-    default_target: TargetQuery = .{},
+    default_target: Target.Query = .{},
 };
 
 /// Exposes standard `zig build` options for choosing a target and additionally
@@ -1208,7 +1208,7 @@ pub fn standardTargetOptions(b: *Build, args: StandardTargetOptionsArgs) Resolve
 }
 
 /// Exposes standard `zig build` options for choosing a target.
-pub fn standardTargetOptionsQueryOnly(self: *Build, args: StandardTargetOptionsArgs) TargetQuery {
+pub fn standardTargetOptionsQueryOnly(self: *Build, args: StandardTargetOptionsArgs) Target.Query {
     const maybe_triple = self.option(
         []const u8,
         "target",
@@ -1222,8 +1222,8 @@ pub fn standardTargetOptionsQueryOnly(self: *Build, args: StandardTargetOptionsA
 
     const triple = maybe_triple orelse "native";
 
-    var diags: TargetQuery.ParseOptions.Diagnostics = .{};
-    const selected_target = TargetQuery.parse(.{
+    var diags: Target.Query.ParseOptions.Diagnostics = .{};
+    const selected_target = Target.Query.parse(.{
         .arch_os_abi = triple,
         .cpu_features = mcpu,
         .diagnostics = &diags,
@@ -1260,7 +1260,7 @@ pub fn standardTargetOptionsQueryOnly(self: *Build, args: StandardTargetOptionsA
                 \\Available operating systems:
                 \\
             , .{diags.os_name.?});
-            inline for (std.meta.fields(std.Target.Os.Tag)) |field| {
+            inline for (std.meta.fields(Target.Os.Tag)) |field| {
                 log.err(" {s}", .{field.name});
             }
             self.markInvalidUserInput();
@@ -1279,7 +1279,7 @@ pub fn standardTargetOptionsQueryOnly(self: *Build, args: StandardTargetOptionsA
         // Make sure it's a match of one of the list.
         var mismatch_triple = true;
         var mismatch_cpu_features = true;
-        var whitelist_item: TargetQuery = .{};
+        var whitelist_item: Target.Query = .{};
         for (list) |t| {
             mismatch_cpu_features = true;
             mismatch_triple = true;
@@ -1316,7 +1316,7 @@ pub fn standardTargetOptionsQueryOnly(self: *Build, args: StandardTargetOptionsA
             var populated_cpu_features = whitelist_cpu.model.features;
             populated_cpu_features.populateDependencies(all_features);
             for (all_features, 0..) |feature, i_usize| {
-                const i = @as(std.Target.Cpu.Feature.Set.Index, @intCast(i_usize));
+                const i = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
                 const in_cpu_set = populated_cpu_features.isEnabled(i);
                 if (in_cpu_set) {
                     log.err("{s} ", .{feature.name});
@@ -1324,7 +1324,7 @@ pub fn standardTargetOptionsQueryOnly(self: *Build, args: StandardTargetOptionsA
             }
             log.err("  Remove: ", .{});
             for (all_features, 0..) |feature, i_usize| {
-                const i = @as(std.Target.Cpu.Feature.Set.Index, @intCast(i_usize));
+                const i = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
                 const in_cpu_set = populated_cpu_features.isEnabled(i);
                 const in_actual_set = selected_cpu.features.isEnabled(i);
                 if (in_actual_set and !in_cpu_set) {
@@ -1587,7 +1587,7 @@ pub fn fmt(self: *Build, comptime format: []const u8, args: anytype) []u8 {
 
 pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []const u8) ![]const u8 {
     // TODO report error for ambiguous situations
-    const exe_extension = @as(TargetQuery, .{}).exeFileExt();
+    const exe_extension = @as(Target.Query, .{}).exeFileExt();
     for (self.search_prefixes.items) |search_prefix| {
         for (names) |name| {
             if (fs.path.isAbsolute(name)) {
@@ -2064,7 +2064,7 @@ pub const InstalledFile = struct {
     }
 };
 
-pub fn serializeCpu(allocator: Allocator, cpu: std.Target.Cpu) ![]const u8 {
+pub fn serializeCpu(allocator: Allocator, cpu: Target.Cpu) ![]const u8 {
     // TODO this logic can disappear if cpu model + features becomes part of the target triple
     const all_features = cpu.arch.allFeaturesList();
     var populated_cpu_features = cpu.model.features;
@@ -2078,7 +2078,7 @@ pub fn serializeCpu(allocator: Allocator, cpu: std.Target.Cpu) ![]const u8 {
         try mcpu_buffer.appendSlice(cpu.model.name);
 
         for (all_features, 0..) |feature, i_usize| {
-            const i = @as(std.Target.Cpu.Feature.Set.Index, @intCast(i_usize));
+            const i = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
             const in_cpu_set = populated_cpu_features.isEnabled(i);
             const in_actual_set = cpu.features.isEnabled(i);
             if (in_cpu_set and !in_actual_set) {
@@ -2127,9 +2127,9 @@ pub fn hex64(x: u64) [16]u8 {
 /// target. The query is kept because the Zig toolchain needs to know which parts
 /// of the target are "native". This can apply to the CPU, the OS, or even the ABI.
 pub const ResolvedTarget = struct {
-    query: TargetQuery,
-    target: std.Target,
-    dynamic_linker: std.Target.DynamicLinker,
+    query: Target.Query,
+    target: Target,
+    dynamic_linker: Target.DynamicLinker,
 
     pub fn toNativeTargetInfo(self: ResolvedTarget) std.zig.system.NativeTargetInfo {
         return .{
@@ -2141,7 +2141,7 @@ pub const ResolvedTarget = struct {
 
 /// Converts a target query into a fully resolved target that can be passed to
 /// various parts of the API.
-pub fn resolveTargetQuery(b: *Build, query: TargetQuery) ResolvedTarget {
+pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
     // This context will likely be required in the future when the target is
     // resolved via a WASI API or via the build protocol.
     _ = b;
@@ -2156,7 +2156,7 @@ pub fn resolveTargetQuery(b: *Build, query: TargetQuery) ResolvedTarget {
     };
 }
 
-pub fn wantSharedLibSymLinks(target: std.Target) bool {
+pub fn wantSharedLibSymLinks(target: Target) bool {
     return target.os.tag != .windows;
 }
 

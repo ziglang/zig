@@ -9,7 +9,6 @@ const native_endian = builtin.cpu.arch.endian();
 const NativeTargetInfo = @This();
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
-const CrossTarget = std.zig.CrossTarget;
 const windows = std.zig.system.windows;
 const darwin = std.zig.system.darwin;
 const linux = std.zig.system.linux;
@@ -30,13 +29,14 @@ pub const DetectError = error{
     Unexpected,
 };
 
-/// Given a `CrossTarget`, which specifies in detail which parts of the target should be detected
-/// natively, which should be standard or default, and which are provided explicitly, this function
-/// resolves the native components by detecting the native system, and then resolves standard/default parts
-/// relative to that.
-pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
-    var os = cross_target.getOsTag().defaultVersionRange(cross_target.getCpuArch());
-    if (cross_target.os_tag == null) {
+/// Given a `Target.Query`, which specifies in detail which parts of the
+/// target should be detected natively, which should be standard or default,
+/// and which are provided explicitly, this function resolves the native
+/// components by detecting the native system, and then resolves
+/// standard/default parts relative to that.
+pub fn detect(query: Target.Query) DetectError!NativeTargetInfo {
+    var os = query.getOsTag().defaultVersionRange(query.getCpuArch());
+    if (query.os_tag == null) {
         switch (builtin.target.os.tag) {
             .linux => {
                 const uts = std.os.uname();
@@ -162,45 +162,45 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
         }
     }
 
-    if (cross_target.os_version_min) |min| switch (min) {
+    if (query.os_version_min) |min| switch (min) {
         .none => {},
-        .semver => |semver| switch (cross_target.getOsTag()) {
+        .semver => |semver| switch (query.getOsTag()) {
             .linux => os.version_range.linux.range.min = semver,
             else => os.version_range.semver.min = semver,
         },
         .windows => |win_ver| os.version_range.windows.min = win_ver,
     };
 
-    if (cross_target.os_version_max) |max| switch (max) {
+    if (query.os_version_max) |max| switch (max) {
         .none => {},
-        .semver => |semver| switch (cross_target.getOsTag()) {
+        .semver => |semver| switch (query.getOsTag()) {
             .linux => os.version_range.linux.range.max = semver,
             else => os.version_range.semver.max = semver,
         },
         .windows => |win_ver| os.version_range.windows.max = win_ver,
     };
 
-    if (cross_target.glibc_version) |glibc| {
-        assert(cross_target.isGnuLibC());
+    if (query.glibc_version) |glibc| {
+        assert(query.isGnuLibC());
         os.version_range.linux.glibc = glibc;
     }
 
     // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
     // native CPU architecture as being different than the current target), we use this:
-    const cpu_arch = cross_target.getCpuArch();
+    const cpu_arch = query.getCpuArch();
 
-    const cpu = switch (cross_target.cpu_model) {
-        .native => detectNativeCpuAndFeatures(cpu_arch, os, cross_target),
+    const cpu = switch (query.cpu_model) {
+        .native => detectNativeCpuAndFeatures(cpu_arch, os, query),
         .baseline => Target.Cpu.baseline(cpu_arch),
-        .determined_by_cpu_arch => if (cross_target.cpu_arch == null)
-            detectNativeCpuAndFeatures(cpu_arch, os, cross_target)
+        .determined_by_cpu_arch => if (query.cpu_arch == null)
+            detectNativeCpuAndFeatures(cpu_arch, os, query)
         else
             Target.Cpu.baseline(cpu_arch),
         .explicit => |model| model.toCpu(cpu_arch),
     } orelse backup_cpu_detection: {
         break :backup_cpu_detection Target.Cpu.baseline(cpu_arch);
     };
-    var result = try detectAbiAndDynamicLinker(cpu, os, cross_target);
+    var result = try detectAbiAndDynamicLinker(cpu, os, query);
     // For x86, we need to populate some CPU feature flags depending on architecture
     // and mode:
     //  * 16bit_mode => if the abi is code16
@@ -209,15 +209,15 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
     // sets one of them, that takes precedence.
     switch (cpu_arch) {
         .x86 => {
-            if (!std.Target.x86.featureSetHasAny(cross_target.cpu_features_add, .{
+            if (!Target.x86.featureSetHasAny(query.cpu_features_add, .{
                 .@"16bit_mode", .@"32bit_mode",
             })) {
                 switch (result.target.abi) {
                     .code16 => result.target.cpu.features.addFeature(
-                        @intFromEnum(std.Target.x86.Feature.@"16bit_mode"),
+                        @intFromEnum(Target.x86.Feature.@"16bit_mode"),
                     ),
                     else => result.target.cpu.features.addFeature(
-                        @intFromEnum(std.Target.x86.Feature.@"32bit_mode"),
+                        @intFromEnum(Target.x86.Feature.@"32bit_mode"),
                     ),
                 }
             }
@@ -228,12 +228,12 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
         },
         .thumb, .thumbeb => {
             result.target.cpu.features.addFeature(
-                @intFromEnum(std.Target.arm.Feature.thumb_mode),
+                @intFromEnum(Target.arm.Feature.thumb_mode),
             );
         },
         else => {},
     }
-    cross_target.updateCpuFeatures(&result.target.cpu.features);
+    query.updateCpuFeatures(&result.target.cpu.features);
     return result;
 }
 
@@ -253,22 +253,22 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
 fn detectAbiAndDynamicLinker(
     cpu: Target.Cpu,
     os: Target.Os,
-    cross_target: CrossTarget,
+    query: Target.Query,
 ) DetectError!NativeTargetInfo {
     const native_target_has_ld = comptime builtin.target.hasDynamicLinker();
     const is_linux = builtin.target.os.tag == .linux;
     const is_solarish = builtin.target.os.tag.isSolarish();
-    const have_all_info = cross_target.dynamic_linker.get() != null and
-        cross_target.abi != null and (!is_linux or cross_target.abi.?.isGnu());
-    const os_is_non_native = cross_target.os_tag != null;
+    const have_all_info = query.dynamic_linker.get() != null and
+        query.abi != null and (!is_linux or query.abi.?.isGnu());
+    const os_is_non_native = query.os_tag != null;
     // The Solaris/illumos environment is always the same.
     if (!native_target_has_ld or have_all_info or os_is_non_native or is_solarish) {
-        return defaultAbiAndDynamicLinker(cpu, os, cross_target);
+        return defaultAbiAndDynamicLinker(cpu, os, query);
     }
-    if (cross_target.abi) |abi| {
+    if (query.abi) |abi| {
         if (abi.isMusl()) {
             // musl implies static linking.
-            return defaultAbiAndDynamicLinker(cpu, os, cross_target);
+            return defaultAbiAndDynamicLinker(cpu, os, query);
         }
     }
     // The current target's ABI cannot be relied on for this. For example, we may build the zig
@@ -287,7 +287,7 @@ fn detectAbiAndDynamicLinker(
     };
     var ld_info_list_buffer: [all_abis.len]LdInfo = undefined;
     var ld_info_list_len: usize = 0;
-    const ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch);
+    const ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch);
 
     for (all_abis) |abi| {
         // This may be a nonsensical parameter. We detect this with
@@ -345,7 +345,7 @@ fn detectAbiAndDynamicLinker(
                 error.Unexpected,
                 => |e| {
                     std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
-                    return defaultAbiAndDynamicLinker(cpu, os, cross_target);
+                    return defaultAbiAndDynamicLinker(cpu, os, query);
                 },
 
                 else => |e| return e,
@@ -363,7 +363,7 @@ fn detectAbiAndDynamicLinker(
             const line = buffer[0..newline];
             if (!mem.startsWith(u8, line, "#!")) break :blk file;
             var it = mem.tokenizeScalar(u8, line[2..], ' ');
-            file_name = it.next() orelse return defaultAbiAndDynamicLinker(cpu, os, cross_target);
+            file_name = it.next() orelse return defaultAbiAndDynamicLinker(cpu, os, query);
             file.close();
         }
     };
@@ -373,7 +373,7 @@ fn detectAbiAndDynamicLinker(
     // trick (block self_exe) won't work. The next thing we fall back to is the same thing, but for elf_file.
     // TODO: inline this function and combine the buffer we already read above to find
     // the possible shebang line with the buffer we use for the ELF header.
-    return abiAndDynamicLinkerFromFile(elf_file, cpu, os, ld_info_list, cross_target) catch |err| switch (err) {
+    return abiAndDynamicLinkerFromFile(elf_file, cpu, os, ld_info_list, query) catch |err| switch (err) {
         error.FileSystem,
         error.SystemResources,
         error.SymLinkLoop,
@@ -393,7 +393,7 @@ fn detectAbiAndDynamicLinker(
         // Finally, we fall back on the standard path.
         => |e| {
             std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
-            return defaultAbiAndDynamicLinker(cpu, os, cross_target);
+            return defaultAbiAndDynamicLinker(cpu, os, query);
         },
     };
 }
@@ -565,7 +565,7 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     while (it.next()) |s| {
         if (mem.startsWith(u8, s, "GLIBC_2.")) {
             const chopped = s["GLIBC_".len..];
-            const ver = CrossTarget.parseVersion(chopped) catch |err| switch (err) {
+            const ver = Target.Query.parseVersion(chopped) catch |err| switch (err) {
                 error.Overflow => return error.InvalidGnuLibCVersion,
                 error.InvalidVersion => return error.InvalidGnuLibCVersion,
             };
@@ -588,7 +588,7 @@ fn glibcVerFromLinkName(link_name: []const u8, prefix: []const u8) error{ Unreco
     }
     // chop off "libc-" and ".so"
     const link_name_chopped = link_name[prefix.len .. link_name.len - suffix.len];
-    return CrossTarget.parseVersion(link_name_chopped) catch |err| switch (err) {
+    return Target.Query.parseVersion(link_name_chopped) catch |err| switch (err) {
         error.Overflow => return error.InvalidGnuLibCVersion,
         error.InvalidVersion => return error.InvalidGnuLibCVersion,
     };
@@ -627,7 +627,7 @@ pub fn abiAndDynamicLinkerFromFile(
     cpu: Target.Cpu,
     os: Target.Os,
     ld_info_list: []const LdInfo,
-    cross_target: CrossTarget,
+    query: Target.Query,
 ) AbiAndDynamicLinkerFromFileError!NativeTargetInfo {
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 align(@alignOf(elf.Elf64_Ehdr)) = undefined;
     _ = try preadMin(file, &hdr_buf, 0, hdr_buf.len);
@@ -655,13 +655,13 @@ pub fn abiAndDynamicLinkerFromFile(
         .target = .{
             .cpu = cpu,
             .os = os,
-            .abi = cross_target.abi orelse Target.Abi.default(cpu.arch, os),
-            .ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
+            .abi = query.abi orelse Target.Abi.default(cpu.arch, os),
+            .ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
         },
-        .dynamic_linker = cross_target.dynamic_linker,
+        .dynamic_linker = query.dynamic_linker,
     };
     var rpath_offset: ?u64 = null; // Found inside PT_DYNAMIC
-    const look_for_ld = cross_target.dynamic_linker.get() == null;
+    const look_for_ld = query.dynamic_linker.get() == null;
 
     var ph_buf: [16 * @sizeOf(elf.Elf64_Phdr)]u8 align(@alignOf(elf.Elf64_Phdr)) = undefined;
     if (phentsize > @sizeOf(elf.Elf64_Phdr)) return error.InvalidElfFile;
@@ -706,7 +706,7 @@ pub fn abiAndDynamicLinkerFromFile(
                 },
                 // We only need this for detecting glibc version.
                 elf.PT_DYNAMIC => if (builtin.target.os.tag == .linux and result.target.isGnuLibC() and
-                    cross_target.glibc_version == null)
+                    query.glibc_version == null)
                 {
                     var dyn_off = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
                     const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
@@ -747,7 +747,7 @@ pub fn abiAndDynamicLinkerFromFile(
     }
 
     if (builtin.target.os.tag == .linux and result.target.isGnuLibC() and
-        cross_target.glibc_version == null)
+        query.glibc_version == null)
     {
         const shstrndx = elfInt(is_64, need_bswap, hdr32.e_shstrndx, hdr64.e_shstrndx);
 
@@ -927,19 +927,19 @@ fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
     return i;
 }
 
-fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, cross_target: CrossTarget) !NativeTargetInfo {
+fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, query: Target.Query) !NativeTargetInfo {
     const target: Target = .{
         .cpu = cpu,
         .os = os,
-        .abi = cross_target.abi orelse Target.Abi.default(cpu.arch, os),
-        .ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
+        .abi = query.abi orelse Target.Abi.default(cpu.arch, os),
+        .ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
     };
     return NativeTargetInfo{
         .target = target,
-        .dynamic_linker = if (cross_target.dynamic_linker.get() == null)
+        .dynamic_linker = if (query.dynamic_linker.get() == null)
             target.standardDynamicLinkerPath()
         else
-            cross_target.dynamic_linker,
+            query.dynamic_linker,
     };
 }
 
@@ -964,13 +964,13 @@ pub fn elfInt(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @
     }
 }
 
-fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, cross_target: CrossTarget) ?Target.Cpu {
+fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, query: Target.Query) ?Target.Cpu {
     // Here we switch on a comptime value rather than `cpu_arch`. This is valid because `cpu_arch`,
     // although it is a runtime value, is guaranteed to be one of the architectures in the set
     // of the respective switch prong.
     switch (builtin.cpu.arch) {
         .x86_64, .x86 => {
-            return @import("x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, cross_target);
+            return @import("x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, query);
         },
         else => {},
     }

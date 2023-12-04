@@ -4,17 +4,17 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    const cross_target = b.resolveTargetQuery(.{
+    const target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
         .os_tag = .windows,
         .abi = .gnu,
     });
 
     add(b, b.host, .any, test_step);
-    add(b, cross_target, .any, test_step);
+    add(b, target, .any, test_step);
 
     add(b, b.host, .gnu, test_step);
-    add(b, cross_target, .gnu, test_step);
+    add(b, target, .gnu, test_step);
 }
 
 fn add(

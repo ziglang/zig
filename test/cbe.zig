@@ -5,7 +5,7 @@ const nl = if (@import("builtin").os.tag == .windows) "\r\n" else "\n";
 pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     // These tests should work with all platforms, but we're using linux_x64 for
     // now for consistency. Will be expanded eventually.
-    const linux_x64: std.zig.CrossTarget = .{
+    const linux_x64: std.Target.Query = .{
         .cpu_arch = .x86_64,
         .os_tag = .linux,
     };
