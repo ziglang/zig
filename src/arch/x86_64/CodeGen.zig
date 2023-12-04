@@ -13046,6 +13046,24 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
                     },
                     else => {},
                 },
+                .Pointer, .Optional => if (ty.childType(mod).isPtrAtRuntime(mod))
+                    switch (ty.vectorLen(mod)) {
+                        1 => return .{ .move = if (self.hasFeature(.avx))
+                            .{ .v_q, .mov }
+                        else
+                            .{ ._q, .mov } },
+                        2 => return .{ .move = if (self.hasFeature(.avx))
+                            if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
+                        else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
+                        3...4 => if (self.hasFeature(.avx))
+                            return .{ .move = if (aligned)
+                                .{ .v_, .movdqa }
+                            else
+                                .{ .v_, .movdqu } },
+                        else => {},
+                    }
+                else
+                    unreachable,
                 .Float => switch (ty.childType(mod).floatBits(self.target.*)) {
                     16 => switch (ty.vectorLen(mod)) {
                         1 => return if (self.hasFeature(.avx)) .{ .vex_insert_extract = .{
