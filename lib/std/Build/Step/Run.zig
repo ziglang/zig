@@ -1297,7 +1297,6 @@ fn addPathForDynLibs(self: *Run, artifact: *Step.Compile) void {
         if (item.module == &other.root_module) {
             if (item.module.target.?.target.os.tag == .windows and other.isDynamicLibrary()) {
                 addPathDir(self, fs.path.dirname(other.getEmittedBin().getPath(b)).?);
-                addPathForDynLibs(self, other);
             }
         }
     }
