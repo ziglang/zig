@@ -2478,8 +2478,11 @@ fn regClassForType(self: *Self, ty: Type) RegisterManager.RegisterBitSet {
             else => abi.RegisterClass.sse,
         },
         .Vector => switch (ty.childType(mod).toIntern()) {
-            .bool_type => abi.RegisterClass.gp,
-            else => abi.RegisterClass.sse,
+            .bool_type, .u1_type => abi.RegisterClass.gp,
+            else => if (ty.isAbiInt(mod) and ty.intInfo(mod).bits == 1)
+                abi.RegisterClass.gp
+            else
+                abi.RegisterClass.sse,
         },
         else => abi.RegisterClass.gp,
     };
@@ -5152,7 +5155,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
         defer if (index_lock) |lock| self.register_manager.unlockReg(lock);
 
         try self.spillEflagsIfOccupied();
-        if (array_ty.isVector(mod) and elem_ty.toIntern() == .bool_type) {
+        if (array_ty.isVector(mod) and elem_ty.bitSize(mod) == 1) {
             const index_reg = switch (index_mcv) {
                 .register => |reg| reg,
                 else => try self.copyToTmpRegister(index_ty, index_mcv),
@@ -15475,26 +15478,59 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                 break :result .{ .load_frame = .{ .index = frame_index } };
             },
             .Array, .Vector => {
-                const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(result_ty, mod));
                 const elem_ty = result_ty.childType(mod);
-                const elem_size: u32 = @intCast(elem_ty.abiSize(mod));
+                if (result_ty.isVector(mod) and elem_ty.bitSize(mod) == 1) {
+                    const result_size: u32 = @intCast(result_ty.abiSize(mod));
+                    const dst_reg = try self.register_manager.allocReg(inst, abi.RegisterClass.gp);
+                    try self.asmRegisterRegister(
+                        .{ ._, .xor },
+                        registerAlias(dst_reg, @min(result_size, 4)),
+                        registerAlias(dst_reg, @min(result_size, 4)),
+                    );
 
-                for (elements, 0..) |elem, elem_i| {
-                    const elem_mcv = try self.resolveInst(elem);
-                    const mat_elem_mcv = switch (elem_mcv) {
-                        .load_tlv => |sym_index| MCValue{ .lea_tlv = sym_index },
-                        else => elem_mcv,
-                    };
-                    const elem_off: i32 = @intCast(elem_size * elem_i);
-                    try self.genSetMem(.{ .frame = frame_index }, elem_off, elem_ty, mat_elem_mcv);
+                    for (elements, 0..) |elem, elem_i| {
+                        const elem_reg = try self.copyToTmpRegister(elem_ty, .{ .air_ref = elem });
+                        const elem_lock = self.register_manager.lockRegAssumeUnused(elem_reg);
+                        defer self.register_manager.unlockReg(elem_lock);
+
+                        try self.asmRegisterImmediate(
+                            .{ ._, .@"and" },
+                            registerAlias(elem_reg, @min(result_size, 4)),
+                            Immediate.u(1),
+                        );
+                        if (elem_i > 0) try self.asmRegisterImmediate(
+                            .{ ._l, .sh },
+                            registerAlias(elem_reg, result_size),
+                            Immediate.u(@intCast(elem_i)),
+                        );
+                        try self.asmRegisterRegister(
+                            .{ ._, .@"or" },
+                            registerAlias(dst_reg, result_size),
+                            registerAlias(elem_reg, result_size),
+                        );
+                    }
+                    break :result .{ .register = dst_reg };
+                } else {
+                    const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(result_ty, mod));
+                    const elem_size: u32 = @intCast(elem_ty.abiSize(mod));
+
+                    for (elements, 0..) |elem, elem_i| {
+                        const elem_mcv = try self.resolveInst(elem);
+                        const mat_elem_mcv = switch (elem_mcv) {
+                            .load_tlv => |sym_index| MCValue{ .lea_tlv = sym_index },
+                            else => elem_mcv,
+                        };
+                        const elem_off: i32 = @intCast(elem_size * elem_i);
+                        try self.genSetMem(.{ .frame = frame_index }, elem_off, elem_ty, mat_elem_mcv);
+                    }
+                    if (result_ty.sentinel(mod)) |sentinel| try self.genSetMem(
+                        .{ .frame = frame_index },
+                        @intCast(elem_size * elements.len),
+                        elem_ty,
+                        try self.genTypedValue(.{ .ty = elem_ty, .val = sentinel }),
+                    );
+                    break :result .{ .load_frame = .{ .index = frame_index } };
                 }
-                if (result_ty.sentinel(mod)) |sentinel| try self.genSetMem(
-                    .{ .frame = frame_index },
-                    @intCast(elem_size * elements.len),
-                    elem_ty,
-                    try self.genTypedValue(.{ .ty = elem_ty, .val = sentinel }),
-                );
-                break :result .{ .load_frame = .{ .index = frame_index } };
             },
             else => unreachable,
         }
