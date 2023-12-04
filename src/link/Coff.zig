@@ -316,6 +316,8 @@ pub fn deinit(self: *Coff) void {
     }
     self.import_tables.deinit(gpa);
 
+    self.lazy_syms.deinit(gpa);
+
     for (self.decls.values()) |*metadata| {
         metadata.deinit(gpa);
     }
