@@ -7324,8 +7324,8 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
             .load_frame => |frame_addr| {
                 const field_abi_size: u32 = @intCast(field_ty.abiSize(mod));
                 if (field_off % 8 == 0) {
-                    const off_mcv =
-                        src_mcv.address().offset(@intCast(@divExact(field_off, 8))).deref();
+                    const field_byte_off = @divExact(field_off, 8);
+                    const off_mcv = src_mcv.address().offset(@intCast(field_byte_off)).deref();
                     const field_bit_size = field_ty.bitSize(mod);
 
                     if (field_abi_size <= 8) {
@@ -7350,7 +7350,9 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                             try self.copyToRegisterWithInstTracking(inst, field_ty, dst_mcv);
                     }
 
-                    const dst_mcv = if (self.reuseOperand(inst, operand, 0, src_mcv))
+                    const container_abi_size: u32 = @intCast(container_ty.abiSize(mod));
+                    const dst_mcv = if (field_byte_off + field_abi_size <= container_abi_size and
+                        self.reuseOperand(inst, operand, 0, src_mcv))
                         off_mcv
                     else dst: {
                         const dst_mcv = try self.allocRegOrMem(inst, true);
