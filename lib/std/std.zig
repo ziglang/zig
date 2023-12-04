@@ -47,7 +47,7 @@ pub const StringArrayHashMap = array_hash_map.StringArrayHashMap;
 pub const StringArrayHashMapUnmanaged = array_hash_map.StringArrayHashMapUnmanaged;
 /// deprecated: use `DoublyLinkedList`.
 pub const TailQueue = DoublyLinkedList;
-pub const Target = @import("target.zig").Target;
+pub const Target = @import("Target.zig");
 pub const Thread = @import("Thread.zig");
 pub const Treap = @import("treap.zig").Treap;
 pub const Tz = tz.Tz;
