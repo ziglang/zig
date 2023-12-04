@@ -294,11 +294,9 @@ test Options {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    const detected = try std.zig.system.NativeTargetInfo.detect(.{});
     const host: std.Build.ResolvedTarget = .{
         .query = .{},
-        .target = detected.target,
-        .dynamic_linker = detected.dynamic_linker,
+        .target = try std.zig.system.resolveTargetQuery(.{}),
     };
 
     var cache: std.Build.Cache = .{

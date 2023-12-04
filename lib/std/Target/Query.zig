@@ -34,7 +34,7 @@ abi: ?Target.Abi = null,
 
 /// When `os_tag` is `null`, then `null` means native. Otherwise it means the standard path
 /// based on the `os_tag`.
-dynamic_linker: DynamicLinker = DynamicLinker{},
+dynamic_linker: Target.DynamicLinker = Target.DynamicLinker.none,
 
 /// `null` means default for the cpu/arch/os combo.
 ofmt: ?Target.ObjectFormat = null,
@@ -60,8 +60,6 @@ pub const OsVersion = union(enum) {
 };
 
 pub const SemanticVersion = std.SemanticVersion;
-
-pub const DynamicLinker = Target.DynamicLinker;
 
 pub fn fromTarget(target: Target) Query {
     var result: Query = .{
@@ -164,7 +162,7 @@ fn updateOsVersionRange(self: *Query, os: Target.Os) void {
     }
 }
 
-/// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
+/// TODO deprecated, use `std.zig.system.resolveTargetQuery`.
 pub fn toTarget(self: Query) Target {
     return .{
         .cpu = self.getCpu(),
@@ -232,7 +230,7 @@ pub fn parse(args: ParseOptions) !Query {
     const diags = args.diagnostics orelse &dummy_diags;
 
     var result: Query = .{
-        .dynamic_linker = DynamicLinker.init(args.dynamic_linker),
+        .dynamic_linker = Target.DynamicLinker.init(args.dynamic_linker),
     };
 
     var it = mem.splitScalar(u8, args.arch_os_abi, '-');
@@ -379,13 +377,13 @@ test parseVersion {
     try std.testing.expectError(error.InvalidVersion, parseVersion("1.2.3.4"));
 }
 
-/// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
+/// TODO deprecated, use `std.zig.system.resolveTargetQuery`.
 pub fn getCpu(self: Query) Target.Cpu {
     switch (self.cpu_model) {
         .native => {
             // This works when doing `zig build` because Zig generates a build executable using
             // native CPU model & features. However this will not be accurate otherwise, and
-            // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
+            // will need to be integrated with `std.zig.system.resolveTargetQuery`.
             return builtin.cpu;
         },
         .baseline => {
@@ -396,7 +394,7 @@ pub fn getCpu(self: Query) Target.Cpu {
         .determined_by_cpu_arch => if (self.cpu_arch == null) {
             // This works when doing `zig build` because Zig generates a build executable using
             // native CPU model & features. However this will not be accurate otherwise, and
-            // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
+            // will need to be integrated with `std.zig.system.resolveTargetQuery`.
             return builtin.cpu;
         } else {
             var adjusted_baseline = Target.Cpu.baseline(self.getCpuArch());
@@ -426,11 +424,11 @@ pub fn getCpuFeatures(self: Query) Target.Cpu.Feature.Set {
     return self.getCpu().features;
 }
 
-/// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
+/// TODO deprecated, use `std.zig.system.resolveTargetQuery`.
 pub fn getOs(self: Query) Target.Os {
     // `builtin.os` works when doing `zig build` because Zig generates a build executable using
     // native OS version range. However this will not be accurate otherwise, and
-    // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
+    // will need to be integrated with `std.zig.system.resolveTargetQuery`.
     var adjusted_os = if (self.os_tag) |os_tag| os_tag.defaultVersionRange(self.getCpuArch()) else builtin.os;
 
     if (self.os_version_min) |min| switch (min) {
@@ -463,7 +461,7 @@ pub fn getOsTag(self: Query) Target.Os.Tag {
     return self.os_tag orelse builtin.os.tag;
 }
 
-/// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
+/// TODO deprecated, use `std.zig.system.resolveTargetQuery`.
 pub fn getOsVersionMin(self: Query) OsVersion {
     if (self.os_version_min) |version_min| return version_min;
     var tmp: Query = undefined;
@@ -471,7 +469,7 @@ pub fn getOsVersionMin(self: Query) OsVersion {
     return tmp.os_version_min.?;
 }
 
-/// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
+/// TODO deprecated, use `std.zig.system.resolveTargetQuery`.
 pub fn getOsVersionMax(self: Query) OsVersion {
     if (self.os_version_max) |version_max| return version_max;
     var tmp: Query = undefined;
@@ -479,14 +477,14 @@ pub fn getOsVersionMax(self: Query) OsVersion {
     return tmp.os_version_max.?;
 }
 
-/// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
+/// TODO deprecated, use `std.zig.system.resolveTargetQuery`.
 pub fn getAbi(self: Query) Target.Abi {
     if (self.abi) |abi| return abi;
 
     if (self.os_tag == null) {
         // This works when doing `zig build` because Zig generates a build executable using
         // native CPU model & features. However this will not be accurate otherwise, and
-        // will need to be integrated with `std.zig.system.NativeTargetInfo.detect`.
+        // will need to be integrated with `std.zig.system.resolveTargetQuery`.
         return builtin.abi;
     }
 

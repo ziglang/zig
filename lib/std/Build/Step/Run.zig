@@ -678,8 +678,8 @@ fn runCommand(
 
             const need_cross_glibc = exe.rootModuleTarget().isGnuLibC() and
                 exe.is_linking_libc;
-            const other_target_info = exe.root_module.target.?.toNativeTargetInfo();
-            switch (b.host.toNativeTargetInfo().getExternalExecutor(&other_target_info, .{
+            const other_target = exe.root_module.target.?.target;
+            switch (std.zig.system.getExternalExecutor(b.host.target, &other_target, .{
                 .qemu_fixes_dl = need_cross_glibc and b.glibc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {
@@ -752,7 +752,7 @@ fn runCommand(
                 .bad_dl => |foreign_dl| {
                     if (allow_skip) return error.MakeSkipped;
 
-                    const host_dl = b.host.dynamic_linker.get() orelse "(none)";
+                    const host_dl = b.host.target.dynamic_linker.get() orelse "(none)";
 
                     return step.fail(
                         \\the host system is unable to execute binaries from the target

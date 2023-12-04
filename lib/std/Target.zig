@@ -1,7 +1,13 @@
+//! All the details about the machine that will be executing code.
+//! Unlike `Query` which might leave some things as "default" or "host", this
+//! data is fully resolved into a concrete set of OS versions, CPU features,
+//! etc.
+
 cpu: Cpu,
 os: Os,
 abi: Abi,
 ofmt: ObjectFormat,
+dynamic_linker: DynamicLinker = DynamicLinker.none,
 
 pub const Query = @import("Target/Query.zig");
 
@@ -1529,13 +1535,19 @@ pub inline fn hasDynamicLinker(self: Target) bool {
 }
 
 pub const DynamicLinker = struct {
-    /// Contains the memory used to store the dynamic linker path. This field should
-    /// not be used directly. See `get` and `set`. This field exists so that this API requires no allocator.
-    buffer: [255]u8 = undefined,
+    /// Contains the memory used to store the dynamic linker path. This field
+    /// should not be used directly. See `get` and `set`. This field exists so
+    /// that this API requires no allocator.
+    buffer: [255]u8,
 
     /// Used to construct the dynamic linker path. This field should not be used
     /// directly. See `get` and `set`.
-    max_byte: ?u8 = null,
+    max_byte: ?u8,
+
+    pub const none: DynamicLinker = .{
+        .buffer = undefined,
+        .max_byte = null,
+    };
 
     /// Asserts that the length is less than or equal to 255 bytes.
     pub fn init(dl_or_null: ?[]const u8) DynamicLinker {
@@ -1561,8 +1573,12 @@ pub const DynamicLinker = struct {
     }
 };
 
-pub fn standardDynamicLinkerPath(self: Target) DynamicLinker {
-    var result: DynamicLinker = .{};
+pub fn standardDynamicLinkerPath(target: Target) DynamicLinker {
+    return standardDynamicLinkerPath_cpu_os_abi(target.cpu, target.os.tag, target.abi);
+}
+
+pub fn standardDynamicLinkerPath_cpu_os_abi(cpu: Cpu, os_tag: Os.Tag, abi: Abi) DynamicLinker {
+    var result = DynamicLinker.none;
     const S = struct {
         fn print(r: *DynamicLinker, comptime fmt: []const u8, args: anytype) DynamicLinker {
             r.max_byte = @as(u8, @intCast((std.fmt.bufPrint(&r.buffer, fmt, args) catch unreachable).len - 1));
@@ -1577,32 +1593,32 @@ pub fn standardDynamicLinkerPath(self: Target) DynamicLinker {
     const print = S.print;
     const copy = S.copy;
 
-    if (self.abi == .android) {
-        const suffix = if (self.ptrBitWidth() == 64) "64" else "";
+    if (abi == .android) {
+        const suffix = if (ptrBitWidth_cpu_abi(cpu, abi) == 64) "64" else "";
         return print(&result, "/system/bin/linker{s}", .{suffix});
     }
 
-    if (self.abi.isMusl()) {
-        const is_arm = switch (self.cpu.arch) {
+    if (abi.isMusl()) {
+        const is_arm = switch (cpu.arch) {
             .arm, .armeb, .thumb, .thumbeb => true,
             else => false,
         };
-        const arch_part = switch (self.cpu.arch) {
+        const arch_part = switch (cpu.arch) {
             .arm, .thumb => "arm",
             .armeb, .thumbeb => "armeb",
             else => |arch| @tagName(arch),
         };
-        const arch_suffix = if (is_arm and self.abi.floatAbi() == .hard) "hf" else "";
+        const arch_suffix = if (is_arm and abi.floatAbi() == .hard) "hf" else "";
         return print(&result, "/lib/ld-musl-{s}{s}.so.1", .{ arch_part, arch_suffix });
     }
 
-    switch (self.os.tag) {
+    switch (os_tag) {
         .freebsd => return copy(&result, "/libexec/ld-elf.so.1"),
         .netbsd => return copy(&result, "/libexec/ld.elf_so"),
         .openbsd => return copy(&result, "/usr/libexec/ld.so"),
         .dragonfly => return copy(&result, "/libexec/ld-elf.so.2"),
         .solaris, .illumos => return copy(&result, "/lib/64/ld.so.1"),
-        .linux => switch (self.cpu.arch) {
+        .linux => switch (cpu.arch) {
             .x86,
             .sparc,
             .sparcel,
@@ -1616,7 +1632,7 @@ pub fn standardDynamicLinkerPath(self: Target) DynamicLinker {
             .armeb,
             .thumb,
             .thumbeb,
-            => return copy(&result, switch (self.abi.floatAbi()) {
+            => return copy(&result, switch (abi.floatAbi()) {
                 .hard => "/lib/ld-linux-armhf.so.3",
                 else => "/lib/ld-linux.so.3",
             }),
@@ -1626,12 +1642,12 @@ pub fn standardDynamicLinkerPath(self: Target) DynamicLinker {
             .mips64,
             .mips64el,
             => {
-                const lib_suffix = switch (self.abi) {
+                const lib_suffix = switch (abi) {
                     .gnuabin32, .gnux32 => "32",
                     .gnuabi64 => "64",
                     else => "",
                 };
-                const is_nan_2008 = mips.featureSetHas(self.cpu.features, .nan2008);
+                const is_nan_2008 = mips.featureSetHas(cpu.features, .nan2008);
                 const loader = if (is_nan_2008) "ld-linux-mipsn8.so.1" else "ld.so.1";
                 return print(&result, "/lib{s}/{s}", .{ lib_suffix, loader });
             },
@@ -1640,7 +1656,7 @@ pub fn standardDynamicLinkerPath(self: Target) DynamicLinker {
             .powerpc64, .powerpc64le => return copy(&result, "/lib64/ld64.so.2"),
             .s390x => return copy(&result, "/lib64/ld64.so.1"),
             .sparc64 => return copy(&result, "/lib64/ld-linux.so.2"),
-            .x86_64 => return copy(&result, switch (self.abi) {
+            .x86_64 => return copy(&result, switch (abi) {
                 .gnux32 => "/libx32/ld-linux-x32.so.2",
                 else => "/lib64/ld-linux-x86-64.so.2",
             }),
@@ -1862,17 +1878,17 @@ pub fn maxIntAlignment(target: Target) u16 {
     };
 }
 
-pub fn ptrBitWidth(target: Target) u16 {
-    switch (target.abi) {
+pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
+    switch (abi) {
         .gnux32, .muslx32, .gnuabin32, .gnuilp32 => return 32,
         .gnuabi64 => return 64,
         else => {},
     }
-    switch (target.cpu.arch) {
+    return switch (cpu.arch) {
         .avr,
         .msp430,
         .spu_2,
-        => return 16,
+        => 16,
 
         .arc,
         .arm,
@@ -1908,7 +1924,7 @@ pub fn ptrBitWidth(target: Target) u16 {
         .loongarch32,
         .dxil,
         .xtensa,
-        => return 32,
+        => 32,
 
         .aarch64,
         .aarch64_be,
@@ -1933,10 +1949,14 @@ pub fn ptrBitWidth(target: Target) u16 {
         .ve,
         .spirv64,
         .loongarch64,
-        => return 64,
+        => 64,
 
-        .sparc => return if (std.Target.sparc.featureSetHas(target.cpu.features, .v9)) 64 else 32,
-    }
+        .sparc => if (std.Target.sparc.featureSetHas(cpu.features, .v9)) 64 else 32,
+    };
+}
+
+pub fn ptrBitWidth(target: Target) u16 {
+    return ptrBitWidth_cpu_abi(target.cpu, target.abi);
 }
 
 pub fn stackAlignment(target: Target) u16 {

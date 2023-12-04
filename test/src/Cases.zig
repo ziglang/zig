@@ -541,7 +541,7 @@ pub fn lowerToBuildSteps(
     cases_dir_path: []const u8,
     incremental_exe: *std.Build.Step.Compile,
 ) void {
-    const host = std.zig.system.NativeTargetInfo.detect(.{}) catch |err|
+    const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
         std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
 
     for (self.incremental_cases.items) |incr_case| {
@@ -648,8 +648,7 @@ pub fn lowerToBuildSteps(
             },
             .Execution => |expected_stdout| no_exec: {
                 const run = if (case.target.target.ofmt == .c) run_step: {
-                    const target_info = case.target.toNativeTargetInfo();
-                    if (host.getExternalExecutor(&target_info, .{ .link_libc = true }) != .native) {
+                    if (getExternalExecutor(host, &case.target.target, .{ .link_libc = true }) != .native) {
                         // We wouldn't be able to run the compiled C code.
                         break :no_exec;
                     }
@@ -694,8 +693,7 @@ pub fn lowerToBuildSteps(
                 continue; // Pass test.
             }
 
-            const target_info = case.target.toNativeTargetInfo();
-            if (host.getExternalExecutor(&target_info, .{ .link_libc = true }) != .native) {
+            if (getExternalExecutor(host, &case.target.target, .{ .link_libc = true }) != .native) {
                 // We wouldn't be able to run the compiled C code.
                 continue; // Pass test.
             }
@@ -1199,6 +1197,8 @@ const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const getExternalExecutor = std.zig.system.getExternalExecutor;
+
 const Compilation = @import("../../src/Compilation.zig");
 const zig_h = @import("../../src/link.zig").File.C.zig_h;
 const introspect = @import("../../src/introspect.zig");
@@ -1386,18 +1386,15 @@ pub fn main() !void {
 }
 
 fn resolveTargetQuery(query: std.Target.Query) std.Build.ResolvedTarget {
-    const result = std.zig.system.NativeTargetInfo.detect(query) catch
-        @panic("unable to resolve target query");
-
     return .{
         .query = query,
-        .target = result.target,
-        .dynamic_linker = result.dynamic_linker,
+        .target = std.zig.system.resolveTargetQuery(query) catch
+            @panic("unable to resolve target query"),
     };
 }
 
 fn runCases(self: *Cases, zig_exe_path: []const u8) !void {
-    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+    const host = try std.zig.system.resolveTargetQuery(.{});
 
     var progress = std.Progress{};
     const root_node = progress.start("compiler", self.cases.items.len);
@@ -1478,7 +1475,7 @@ fn runOneCase(
     zig_exe_path: []const u8,
     thread_pool: *ThreadPool,
     global_cache_directory: Compilation.Directory,
-    host: std.zig.system.NativeTargetInfo,
+    host: std.Target,
 ) !void {
     const tmp_src_path = "tmp.zig";
     const enable_rosetta = build_options.enable_rosetta;
@@ -1488,8 +1485,7 @@ fn runOneCase(
     const enable_darling = build_options.enable_darling;
     const glibc_runtimes_dir: ?[]const u8 = build_options.glibc_runtimes_dir;
 
-    const target_info = try std.zig.system.NativeTargetInfo.detect(case.target);
-    const target = target_info.target;
+    const target = try std.zig.system.resolveTargetQuery(case.target);
 
     var arena_allocator = std.heap.ArenaAllocator.init(allocator);
     defer arena_allocator.deinit();
@@ -1579,7 +1575,7 @@ fn runOneCase(
         .keep_source_files_loaded = true,
         .is_native_os = case.target.isNativeOs(),
         .is_native_abi = case.target.isNativeAbi(),
-        .dynamic_linker = target_info.dynamic_linker.get(),
+        .dynamic_linker = target.dynamic_linker.get(),
         .link_libc = case.link_libc,
         .use_llvm = use_llvm,
         .self_exe_path = zig_exe_path,
@@ -1715,7 +1711,7 @@ fn runOneCase(
                         .{ &tmp.sub_path, bin_name },
                     );
                     if (case.target.ofmt != null and case.target.ofmt.? == .c) {
-                        if (host.getExternalExecutor(target_info, .{ .link_libc = true }) != .native) {
+                        if (getExternalExecutor(host, &target, .{ .link_libc = true }) != .native) {
                             // We wouldn't be able to run the compiled C code.
                             continue :update; // Pass test.
                         }
@@ -1734,7 +1730,7 @@ fn runOneCase(
                         if (zig_lib_directory.path) |p| {
                             try argv.appendSlice(&.{ "-I", p });
                         }
-                    } else switch (host.getExternalExecutor(target_info, .{ .link_libc = case.link_libc })) {
+                    } else switch (getExternalExecutor(host, &target, .{ .link_libc = case.link_libc })) {
                         .native => {
                             if (case.backend == .stage2 and case.target.getCpuArch().isArmOrThumb()) {
                                 // https://github.com/ziglang/zig/issues/13623

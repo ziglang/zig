@@ -746,5 +746,4 @@ const Module = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const LazyPath = std.Build.LazyPath;
-const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 const Step = std.Build.Step;

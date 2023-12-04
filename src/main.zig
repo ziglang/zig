@@ -321,13 +321,14 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
     } else if (mem.eql(u8, cmd, "init")) {
         return cmdInit(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
-        const info = try detectNativeTargetInfo(.{});
+        const host = try std.zig.system.resolveTargetQuery(.{});
         const stdout = io.getStdOut().writer();
-        return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, info.target);
+        return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, host);
     } else if (mem.eql(u8, cmd, "version")) {
         try std.io.getStdOut().writeAll(build_options.version ++ "\n");
-        // Check libc++ linkage to make sure Zig was built correctly, but only for "env" and "version"
-        // to avoid affecting the startup time for build-critical commands (check takes about ~10 μs)
+        // Check libc++ linkage to make sure Zig was built correctly, but only
+        // for "env" and "version" to avoid affecting the startup time for
+        // build-critical commands (check takes about ~10 μs)
         return verifyLibcxxCorrectlyLinked();
     } else if (mem.eql(u8, cmd, "env")) {
         verifyLibcxxCorrectlyLinked();
@@ -2608,9 +2609,9 @@ fn buildOutputType(
     }
 
     const target_query = try parseTargetQueryOrReportFatalError(arena, target_parse_options);
-    const target_info = try detectNativeTargetInfo(target_query);
+    const target = try std.zig.system.resolveTargetQuery(target_query);
 
-    if (target_info.target.os.tag != .freestanding) {
+    if (target.os.tag != .freestanding) {
         if (ensure_libc_on_non_freestanding)
             link_libc = true;
         if (ensure_libcpp_on_non_freestanding)
@@ -2621,7 +2622,7 @@ fn buildOutputType(
         if (!force) {
             entry = null;
         } else if (entry == null and output_mode == .Exe) {
-            entry = switch (target_info.target.ofmt) {
+            entry = switch (target.ofmt) {
                 .coff => "wWinMainCRTStartup",
                 .macho => "_main",
                 .elf, .plan9 => "_start",
@@ -2629,12 +2630,12 @@ fn buildOutputType(
                 else => |tag| fatal("No default entry point available for output format {s}", .{@tagName(tag)}),
             };
         }
-    } else if (entry == null and target_info.target.isWasm() and output_mode == .Exe) {
+    } else if (entry == null and target.isWasm() and output_mode == .Exe) {
         // For WebAssembly the compiler defaults to setting the entry name when no flags are set.
         entry = defaultWasmEntryName(wasi_exec_model);
     }
 
-    if (target_info.target.ofmt == .coff) {
+    if (target.ofmt == .coff) {
         // Now that we know the target supports resources,
         // we can add the res files as link objects.
         for (res_files.items) |res_file| {
@@ -2652,7 +2653,7 @@ fn buildOutputType(
         }
     }
 
-    if (target_info.target.cpu.arch.isWasm()) blk: {
+    if (target.cpu.arch.isWasm()) blk: {
         if (single_threaded == null) {
             single_threaded = true;
         }
@@ -2678,8 +2679,8 @@ fn buildOutputType(
                 fatal("shared memory is not allowed in object files", .{});
             }
 
-            if (!target_info.target.cpu.features.isEnabled(@intFromEnum(std.Target.wasm.Feature.atomics)) or
-                !target_info.target.cpu.features.isEnabled(@intFromEnum(std.Target.wasm.Feature.bulk_memory)))
+            if (!target.cpu.features.isEnabled(@intFromEnum(std.Target.wasm.Feature.atomics)) or
+                !target.cpu.features.isEnabled(@intFromEnum(std.Target.wasm.Feature.bulk_memory)))
             {
                 fatal("'atomics' and 'bulk-memory' features must be enabled to use shared memory", .{});
             }
@@ -2777,15 +2778,15 @@ fn buildOutputType(
     }
 
     for (system_libs.keys(), system_libs.values()) |lib_name, info| {
-        if (target_info.target.is_libc_lib_name(lib_name)) {
+        if (target.is_libc_lib_name(lib_name)) {
             link_libc = true;
             continue;
         }
-        if (target_info.target.is_libcpp_lib_name(lib_name)) {
+        if (target.is_libcpp_lib_name(lib_name)) {
             link_libcpp = true;
             continue;
         }
-        switch (target_util.classifyCompilerRtLibName(target_info.target, lib_name)) {
+        switch (target_util.classifyCompilerRtLibName(target, lib_name)) {
             .none => {},
             .only_libunwind, .both => {
                 link_libunwind = true;
@@ -2797,8 +2798,8 @@ fn buildOutputType(
             },
         }
 
-        if (target_info.target.isMinGW()) {
-            const exists = mingw.libExists(arena, target_info.target, zig_lib_directory, lib_name) catch |err| {
+        if (target.isMinGW()) {
+            const exists = mingw.libExists(arena, target, zig_lib_directory, lib_name) catch |err| {
                 fatal("failed to check zig installation for DLL import libs: {s}", .{
                     @errorName(err),
                 });
@@ -2820,7 +2821,7 @@ fn buildOutputType(
             fatal("cannot use absolute path as a system library: {s}", .{lib_name});
         }
 
-        if (target_info.target.os.tag == .wasi) {
+        if (target.os.tag == .wasi) {
             if (wasi_libc.getEmulatedLibCRTFile(lib_name)) |crt_file| {
                 try wasi_emulated_libs.append(crt_file);
                 continue;
@@ -2838,7 +2839,7 @@ fn buildOutputType(
     if (sysroot == null and target_query.isNativeOs() and target_query.isNativeAbi() and
         (external_system_libs.len != 0 or want_native_include_dirs))
     {
-        const paths = std.zig.system.NativePaths.detect(arena, target_info) catch |err| {
+        const paths = std.zig.system.NativePaths.detect(arena, target) catch |err| {
             fatal("unable to detect native system paths: {s}", .{@errorName(err)});
         };
         for (paths.warnings.items) |warning| {
@@ -2857,7 +2858,7 @@ fn buildOutputType(
     }
 
     if (builtin.target.os.tag == .windows and
-        target_info.target.abi == .msvc and
+        target.abi == .msvc and
         external_system_libs.len != 0)
     {
         if (libc_installation == null) {
@@ -2902,7 +2903,7 @@ fn buildOutputType(
                             &checked_paths,
                             lib_dir_path,
                             lib_name,
-                            target_info.target,
+                            target,
                             info.preferred_mode,
                         )) {
                             const path = try arena.dupe(u8, test_path.items);
@@ -2936,7 +2937,7 @@ fn buildOutputType(
                             &checked_paths,
                             lib_dir_path,
                             lib_name,
-                            target_info.target,
+                            target,
                             info.fallbackMode(),
                         )) {
                             const path = try arena.dupe(u8, test_path.items);
@@ -2970,7 +2971,7 @@ fn buildOutputType(
                             &checked_paths,
                             lib_dir_path,
                             lib_name,
-                            target_info.target,
+                            target,
                             info.preferred_mode,
                         )) {
                             const path = try arena.dupe(u8, test_path.items);
@@ -2994,7 +2995,7 @@ fn buildOutputType(
                             &checked_paths,
                             lib_dir_path,
                             lib_name,
-                            target_info.target,
+                            target,
                             info.fallbackMode(),
                         )) {
                             const path = try arena.dupe(u8, test_path.items);
@@ -3089,15 +3090,13 @@ fn buildOutputType(
     }
     // After this point, resolved_frameworks is used instead of frameworks.
 
-    const object_format = target_info.target.ofmt;
-
-    if (output_mode == .Obj and (object_format == .coff or object_format == .macho)) {
+    if (output_mode == .Obj and (target.ofmt == .coff or target.ofmt == .macho)) {
         const total_obj_count = c_source_files.items.len +
             @intFromBool(root_src_file != null) +
             rc_source_files.items.len +
             link_objects.items.len;
         if (total_obj_count > 1) {
-            fatal("{s} does not support linking multiple objects into one", .{@tagName(object_format)});
+            fatal("{s} does not support linking multiple objects into one", .{@tagName(target.ofmt)});
         }
     }
 
@@ -3110,7 +3109,7 @@ fn buildOutputType(
     const resolved_soname: ?[]const u8 = switch (soname) {
         .yes => |explicit| explicit,
         .no => null,
-        .yes_default_value => switch (object_format) {
+        .yes_default_value => switch (target.ofmt) {
             .elf => if (have_version)
                 try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ root_name, version.major })
             else
@@ -3119,7 +3118,7 @@ fn buildOutputType(
         },
     };
 
-    const a_out_basename = switch (object_format) {
+    const a_out_basename = switch (target.ofmt) {
         .coff => "a.exe",
         else => "a.out",
     };
@@ -3141,7 +3140,7 @@ fn buildOutputType(
             },
             .basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = root_name,
-                .target = target_info.target,
+                .target = target,
                 .output_mode = output_mode,
                 .link_mode = link_mode,
                 .version = optional_version,
@@ -3269,7 +3268,7 @@ fn buildOutputType(
     // Note that cmake when targeting Windows will try to execute
     // zig cc to make an executable and output an implib too.
     const implib_eligible = is_exe_or_dyn_lib and
-        emit_bin_loc != null and target_info.target.os.tag == .windows;
+        emit_bin_loc != null and target.os.tag == .windows;
     if (!implib_eligible) {
         if (!emit_implib_arg_provided) {
             emit_implib = .no;
@@ -3419,7 +3418,7 @@ fn buildOutputType(
         // "-" is stdin. Dump it to a real file.
         const sep = fs.path.sep_str;
         const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-stdin{s}", .{
-            std.crypto.random.int(u64), ext.canonicalName(target_info.target),
+            std.crypto.random.int(u64), ext.canonicalName(target),
         });
         try local_cache_directory.handle.makePath("tmp");
         // Note that in one of the happy paths, execve() is used to switch
@@ -3454,10 +3453,10 @@ fn buildOutputType(
         .local_cache_directory = local_cache_directory,
         .global_cache_directory = global_cache_directory,
         .root_name = root_name,
-        .target = target_info.target,
+        .target = target,
         .is_native_os = target_query.isNativeOs(),
         .is_native_abi = target_query.isNativeAbi(),
-        .dynamic_linker = target_info.dynamic_linker.get(),
+        .dynamic_linker = target.dynamic_linker.get(),
         .sysroot = sysroot,
         .output_mode = output_mode,
         .main_mod = main_mod,
@@ -3603,7 +3602,6 @@ fn buildOutputType(
         .want_structured_cfg = want_structured_cfg,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
-            const target = target_info.target;
             const triple_name = try target.zigTriple(arena);
             std.log.err("unable to find or provide libc for target '{s}'", .{triple_name});
 
@@ -3692,7 +3690,7 @@ fn buildOutputType(
     try comp.makeBinFileExecutable();
     saveState(comp, debug_incremental);
 
-    if (test_exec_args.items.len == 0 and object_format == .c) default_exec_args: {
+    if (test_exec_args.items.len == 0 and target.ofmt == .c) default_exec_args: {
         // Default to using `zig run` to execute the produced .c code from `zig test`.
         const c_code_loc = emit_bin_loc orelse break :default_exec_args;
         const c_code_directory = c_code_loc.directory orelse comp.bin_file.options.emit.?.directory;
@@ -3707,7 +3705,7 @@ fn buildOutputType(
 
         if (link_libc) {
             try test_exec_args.append("-lc");
-        } else if (target_info.target.os.tag == .windows) {
+        } else if (target.os.tag == .windows) {
             try test_exec_args.appendSlice(&.{
                 "--subsystem", "console",
                 "-lkernel32",  "-lntdll",
@@ -3741,7 +3739,7 @@ fn buildOutputType(
             test_exec_args.items,
             self_exe_path.?,
             arg_mode,
-            &target_info,
+            &target,
             &comp_destroyed,
             all_args,
             runtime_args_start,
@@ -3861,7 +3859,7 @@ fn serve(
                 //    test_exec_args,
                 //    self_exe_path.?,
                 //    arg_mode,
-                //    target_info,
+                //    target,
                 //    true,
                 //    &comp_destroyed,
                 //    all_args,
@@ -4071,7 +4069,7 @@ fn runOrTest(
     test_exec_args: []const ?[]const u8,
     self_exe_path: []const u8,
     arg_mode: ArgMode,
-    target_info: *const std.zig.system.NativeTargetInfo,
+    target: *const std.Target,
     comp_destroyed: *bool,
     all_args: []const []const u8,
     runtime_args_start: ?usize,
@@ -4105,7 +4103,7 @@ fn runOrTest(
     if (process.can_execv and arg_mode == .run) {
         // execv releases the locks; no need to destroy the Compilation here.
         const err = process.execve(gpa, argv.items, &env_map);
-        try warnAboutForeignBinaries(arena, arg_mode, target_info, link_libc);
+        try warnAboutForeignBinaries(arena, arg_mode, target, link_libc);
         const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
     } else if (process.can_spawn) {
@@ -4121,7 +4119,7 @@ fn runOrTest(
         comp_destroyed.* = true;
 
         const term = child.spawnAndWait() catch |err| {
-            try warnAboutForeignBinaries(arena, arg_mode, target_info, link_libc);
+            try warnAboutForeignBinaries(arena, arg_mode, target, link_libc);
             const cmd = try std.mem.join(arena, " ", argv.items);
             fatal("the following command failed with '{s}':\n{s}", .{ @errorName(err), cmd });
         };
@@ -4820,12 +4818,10 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
         if (!target_query.isNative()) {
             fatal("unable to detect libc for non-native target", .{});
         }
-        const target_info = try detectNativeTargetInfo(target_query);
-
         var libc = LibCInstallation.findNative(.{
             .allocator = gpa,
             .verbose = true,
-            .target = target_info.target,
+            .target = try std.zig.system.resolveTargetQuery(target_query),
         }) catch |err| {
             fatal("unable to detect native libc: {s}", .{@errorName(err)});
         };
@@ -5114,11 +5110,11 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         gimmeMoreOfThoseSweetSweetFileDescriptors();
 
         const target_query: std.Target.Query = .{};
-        const target_info = try detectNativeTargetInfo(target_query);
+        const target = try std.zig.system.resolveTargetQuery(target_query);
 
         const exe_basename = try std.zig.binNameAlloc(arena, .{
             .root_name = "build",
-            .target = target_info.target,
+            .target = target,
             .output_mode = .Exe,
         });
         const emit_bin: Compilation.EmitLoc = .{
@@ -5282,10 +5278,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .local_cache_directory = local_cache_directory,
             .global_cache_directory = global_cache_directory,
             .root_name = "build",
-            .target = target_info.target,
+            .target = target,
             .is_native_os = target_query.isNativeOs(),
             .is_native_abi = target_query.isNativeAbi(),
-            .dynamic_linker = target_info.dynamic_linker.get(),
+            .dynamic_linker = target.dynamic_linker.get(),
             .output_mode = .Exe,
             .main_mod = &main_mod,
             .emit_bin = emit_bin,
@@ -6269,10 +6265,6 @@ test "fds" {
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 }
 
-fn detectNativeTargetInfo(target_query: std.Target.Query) !std.zig.system.NativeTargetInfo {
-    return std.zig.system.NativeTargetInfo.detect(target_query);
-}
-
 const usage_ast_check =
     \\Usage: zig ast-check [file]
     \\
@@ -6669,24 +6661,24 @@ fn parseIntSuffix(arg: []const u8, prefix_len: usize) u64 {
 fn warnAboutForeignBinaries(
     arena: Allocator,
     arg_mode: ArgMode,
-    target_info: *const std.zig.system.NativeTargetInfo,
+    target: *const std.Target,
     link_libc: bool,
 ) !void {
     const host_query: std.Target.Query = .{};
-    const host_target_info = try detectNativeTargetInfo(host_query);
+    const host_target = try std.zig.system.resolveTargetQuery(host_query);
 
-    switch (host_target_info.getExternalExecutor(target_info, .{ .link_libc = link_libc })) {
+    switch (std.zig.system.getExternalExecutor(host_target, target, .{ .link_libc = link_libc })) {
         .native => return,
         .rosetta => {
-            const host_name = try host_target_info.target.zigTriple(arena);
-            const foreign_name = try target_info.target.zigTriple(arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try target.zigTriple(arena);
             warn("the host system ({s}) does not appear to be capable of executing binaries from the target ({s}). Consider installing Rosetta.", .{
                 host_name, foreign_name,
             });
         },
         .qemu => |qemu| {
-            const host_name = try host_target_info.target.zigTriple(arena);
-            const foreign_name = try target_info.target.zigTriple(arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try target.zigTriple(arena);
             switch (arg_mode) {
                 .zig_test => warn(
                     "the host system ({s}) does not appear to be capable of executing binaries " ++
@@ -6702,8 +6694,8 @@ fn warnAboutForeignBinaries(
             }
         },
         .wine => |wine| {
-            const host_name = try host_target_info.target.zigTriple(arena);
-            const foreign_name = try target_info.target.zigTriple(arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try target.zigTriple(arena);
             switch (arg_mode) {
                 .zig_test => warn(
                     "the host system ({s}) does not appear to be capable of executing binaries " ++
@@ -6719,8 +6711,8 @@ fn warnAboutForeignBinaries(
             }
         },
         .wasmtime => |wasmtime| {
-            const host_name = try host_target_info.target.zigTriple(arena);
-            const foreign_name = try target_info.target.zigTriple(arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try target.zigTriple(arena);
             switch (arg_mode) {
                 .zig_test => warn(
                     "the host system ({s}) does not appear to be capable of executing binaries " ++
@@ -6736,8 +6728,8 @@ fn warnAboutForeignBinaries(
             }
         },
         .darling => |darling| {
-            const host_name = try host_target_info.target.zigTriple(arena);
-            const foreign_name = try target_info.target.zigTriple(arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try target.zigTriple(arena);
             switch (arg_mode) {
                 .zig_test => warn(
                     "the host system ({s}) does not appear to be capable of executing binaries " ++
@@ -6753,7 +6745,7 @@ fn warnAboutForeignBinaries(
             }
         },
         .bad_dl => |foreign_dl| {
-            const host_dl = host_target_info.dynamic_linker.get() orelse "(none)";
+            const host_dl = host_target.dynamic_linker.get() orelse "(none)";
             const tip_suffix = switch (arg_mode) {
                 .zig_test => ", '--test-no-exec', or '--test-cmd'",
                 else => "",
@@ -6763,8 +6755,8 @@ fn warnAboutForeignBinaries(
             });
         },
         .bad_os_or_cpu => {
-            const host_name = try host_target_info.target.zigTriple(arena);
-            const foreign_name = try target_info.target.zigTriple(arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try target.zigTriple(arena);
             const tip_suffix = switch (arg_mode) {
                 .zig_test => ". Consider using '--test-no-exec' or '--test-cmd'",
                 else => "",

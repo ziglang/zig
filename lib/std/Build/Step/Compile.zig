@@ -9,7 +9,6 @@ const StringHashMap = std.StringHashMap;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Allocator = mem.Allocator;
 const Step = std.Build.Step;
-const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 const LazyPath = std.Build.LazyPath;
 const PkgConfigPkg = std.Build.PkgConfigPkg;
 const PkgConfigError = std.Build.PkgConfigError;

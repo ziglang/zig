@@ -6527,7 +6527,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
             try buffer.writer().print("        .{},\n", .{std.zig.fmtId(feature.name)});
         }
     }
-
     try buffer.writer().print(
         \\    }}),
         \\}};
@@ -6607,15 +6606,31 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
             .{ windows.min, windows.max },
         ),
     }
-    try buffer.appendSlice("};\n");
-
-    try buffer.writer().print(
-        \\pub const target = std.Target{{
+    try buffer.appendSlice(
+        \\};
+        \\pub const target: std.Target = .{
         \\    .cpu = cpu,
         \\    .os = os,
         \\    .abi = abi,
         \\    .ofmt = object_format,
-        \\}};
+        \\
+    );
+
+    if (target.dynamic_linker.get()) |dl| {
+        try buffer.writer().print(
+            \\    .dynamic_linker = std.Target.DynamicLinker.init("{s}"),
+            \\}};
+            \\
+        , .{dl});
+    } else {
+        try buffer.appendSlice(
+            \\    .dynamic_linker = std.Target.DynamicLinker.none,
+            \\};
+            \\
+        );
+    }
+
+    try buffer.writer().print(
         \\pub const object_format = std.Target.ObjectFormat.{};
         \\pub const mode = std.builtin.OptimizeMode.{};
         \\pub const link_libc = {};

@@ -2129,14 +2129,6 @@ pub fn hex64(x: u64) [16]u8 {
 pub const ResolvedTarget = struct {
     query: Target.Query,
     target: Target,
-    dynamic_linker: Target.DynamicLinker,
-
-    pub fn toNativeTargetInfo(self: ResolvedTarget) std.zig.system.NativeTargetInfo {
-        return .{
-            .target = self.target,
-            .dynamic_linker = self.dynamic_linker,
-        };
-    }
 };
 
 /// Converts a target query into a fully resolved target that can be passed to
@@ -2146,13 +2138,10 @@ pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
     // resolved via a WASI API or via the build protocol.
     _ = b;
 
-    const result = std.zig.system.NativeTargetInfo.detect(query) catch
-        @panic("unable to resolve target query");
-
     return .{
         .query = query,
-        .target = result.target,
-        .dynamic_linker = result.dynamic_linker,
+        .target = std.zig.system.resolveTargetQuery(query) catch
+            @panic("unable to resolve target query"),
     };
 }
 

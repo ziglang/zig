@@ -516,7 +516,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/zig/string_literal.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/system.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/system/NativePaths.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/zig/system/NativeTargetInfo.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/system/x86.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/tokenizer.zig"
     "${CMAKE_SOURCE_DIR}/src/Air.zig"
