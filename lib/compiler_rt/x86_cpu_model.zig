@@ -8,6 +8,7 @@ const Target = std.Target;
 
 comptime {
     @export(cpu, .{ .name = "__cpu_model", .linkage = common.linkage, .visibility = common.visibility });
+    @export(cpu_extra_features, .{ .name = "__cpu_features2", .linkage = common.linkage, .visibility = common.visibility });
     @export(init, .{ .name = "__cpu_indicator_init", .linkage = common.linkage, .visibility = common.visibility });
 }
 
