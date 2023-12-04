@@ -29,6 +29,8 @@ pub fn build(b: *std.Build) void {
     check_exe.checkInSymtab();
     check_exe.checkContains("__cpu_model");
     check_exe.checkInSymtab();
+    check_exe.checkContains("__cpu_features2");
+    check_exe.checkInSymtab();
     check_exe.checkContains("__cpu_indicator_init");
     test_step.dependOn(&check_exe.step);
 }
