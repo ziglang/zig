@@ -1,35 +1,41 @@
 const std = @import("std");
+const ascii = std.ascii;
+const fs = std.fs;
+const io = std.io;
+const mem = std.mem;
+const process = std.process;
+const assert = std.debug.assert;
 
 pub fn main() !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const args = try std.process.argsAlloc(arena);
-    if (args.len < 1) usageAndExit(std.io.getStdErr(), "update_x86_cpu_model_enums", 1);
-    if (args.len == 1) usageAndExit(std.io.getStdErr(), args[0], 1);
-    if (std.mem.eql(u8, args[1], "--help")) usageAndExit(std.io.getStdOut(), args[0], 0);
-    if (args.len != 4) usageAndExit(std.io.getStdErr(), args[0], 1);
+    const args = try process.argsAlloc(arena);
+    if (args.len < 1) usageAndExit(io.getStdErr(), "update_x86_cpu_model_enums", 1);
+    if (args.len == 1) usageAndExit(io.getStdErr(), args[0], 1);
+    if (mem.eql(u8, args[1], "--help")) usageAndExit(io.getStdOut(), args[0], 0);
+    if (args.len != 4) usageAndExit(io.getStdErr(), args[0], 1);
 
     const zig_exe = args[1];
-    if (std.mem.startsWith(u8, zig_exe, "-")) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
+    if (mem.startsWith(u8, zig_exe, "-")) {
+        usageAndExit(io.getStdErr(), args[0], 1);
     }
 
     const llvm_src_root = args[2];
-    if (std.mem.startsWith(u8, llvm_src_root, "-")) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
+    if (mem.startsWith(u8, llvm_src_root, "-")) {
+        usageAndExit(io.getStdErr(), args[0], 1);
     }
 
     const zig_src_root = args[3];
-    if (std.mem.startsWith(u8, zig_src_root, "-")) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
+    if (mem.startsWith(u8, zig_src_root, "-")) {
+        usageAndExit(io.getStdErr(), args[0], 1);
     }
 
-    var zig_src_dir = try std.fs.cwd().openDir(zig_src_root, .{});
+    var zig_src_dir = try fs.cwd().openDir(zig_src_root, .{});
     defer zig_src_dir.close();
 
-    const def_file_path = try std.fs.path.join(arena, &.{
+    const def_file_path = try fs.path.join(arena, &.{
         llvm_src_root,
         "llvm/include/llvm/TargetParser/X86TargetParser.def",
     });
@@ -54,7 +60,7 @@ pub fn main() !void {
 
         enum_names[0] = "unknown";
         for (enum_names[1..][0..raw_enum_names.len], raw_enum_names) |*name, raw| {
-            std.debug.assert(std.mem.startsWith(u8, raw, "VENDOR_"));
+            assert(mem.startsWith(u8, raw, "VENDOR_"));
             name.* = try llvmNameToZigName(arena, raw[7..]);
         }
         enum_names[1 + raw_enum_names.len] = "other";
@@ -97,8 +103,8 @@ pub fn main() !void {
         const enum_names = try arena.alloc([]const u8, raw_enum_names.len);
 
         for (enum_names, raw_enum_names) |*name, raw| {
-            std.debug.assert(std.mem.startsWith(u8, raw, "\""));
-            std.debug.assert(std.mem.endsWith(u8, raw, "\""));
+            assert(mem.startsWith(u8, raw, "\""));
+            assert(mem.endsWith(u8, raw, "\""));
             name.* = try llvmNameToZigName(arena, raw[1 .. raw.len - 1]);
         }
 
@@ -107,18 +113,18 @@ pub fn main() !void {
     try writeEnum(out_file, "Feature", features_enum);
 }
 
-fn usageAndExit(file: std.fs.File, arg0: []const u8, code: u8) noreturn {
+fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
     file.writer().print(
         \\Usage: {s} /path/to/zig-exe /path/to/llvm-project /path/to/zig-project
         \\
         \\Updates lib/compiler-rt/cpu_model/x86.zig from llvm/include/llvm/TargetParser/X86TargetParser.def
         \\
-    , .{arg0}) catch std.process.exit(1);
-    std.process.exit(code);
+    , .{arg0}) catch process.exit(1);
+    process.exit(code);
 }
 
 // `define` parameter is passed to the preprocessor as a `-D` and extract the enum names line by line
-fn preprocessCPUEnum(arena: std.mem.Allocator, zig_exe: []const u8, def_path: []const u8, define: []const u8) ![]const []const u8 {
+fn preprocessCPUEnum(arena: mem.Allocator, zig_exe: []const u8, def_path: []const u8, define: []const u8) ![]const []const u8 {
     const preprocessed = blk: {
         const argv = try arena.alloc([]const u8, 7);
         argv[0] = zig_exe;
@@ -126,10 +132,10 @@ fn preprocessCPUEnum(arena: std.mem.Allocator, zig_exe: []const u8, def_path: []
         argv[2] = "-P";
         argv[3] = "-E";
         argv[4] = "-xc";
-        argv[5] = try std.mem.concat(arena, u8, &.{ "-D", define });
+        argv[5] = try mem.concat(arena, u8, &.{ "-D", define });
         argv[6] = def_path;
 
-        const result = try std.process.Child.run(.{
+        const result = try process.Child.run(.{
             .allocator = arena,
             .argv = argv,
 
@@ -145,7 +151,7 @@ fn preprocessCPUEnum(arena: std.mem.Allocator, zig_exe: []const u8, def_path: []
 
     var enum_fields = std.ArrayList([]const u8).init(arena);
 
-    var lines = std.mem.tokenizeScalar(u8, preprocessed, '\n');
+    var lines = mem.tokenizeScalar(u8, preprocessed, '\n');
     while (lines.next()) |line| {
         try enum_fields.append(line);
     }
@@ -153,7 +159,7 @@ fn preprocessCPUEnum(arena: std.mem.Allocator, zig_exe: []const u8, def_path: []
     return try enum_fields.toOwnedSlice();
 }
 
-fn writeEnum(file: std.fs.File, enum_name: []const u8, enum_field: []const []const u8) !void {
+fn writeEnum(file: fs.File, enum_name: []const u8, enum_field: []const []const u8) !void {
     var writer = file.writer();
 
     try writer.print(
@@ -163,7 +169,7 @@ fn writeEnum(file: std.fs.File, enum_name: []const u8, enum_field: []const []con
     for (enum_field) |f| {
         if (f.len == 0) continue;
 
-        if (std.ascii.isAlphabetic(f[0]) or f[0] == '_') {
+        if (ascii.isAlphabetic(f[0]) or f[0] == '_') {
             try writer.print(
                 \\    {s},
                 \\
@@ -181,11 +187,11 @@ fn writeEnum(file: std.fs.File, enum_name: []const u8, enum_field: []const []con
     );
 }
 
-fn llvmNameToZigName(arena: std.mem.Allocator, llvm_name: []const u8) ![]const u8 {
+fn llvmNameToZigName(arena: mem.Allocator, llvm_name: []const u8) ![]const u8 {
     const duped = try arena.dupe(u8, llvm_name);
     for (duped) |*byte| switch (byte.*) {
         '-', '.' => byte.* = '_',
-        else => byte.* = std.ascii.toLower(byte.*),
+        else => byte.* = ascii.toLower(byte.*),
     };
     return duped;
 }
