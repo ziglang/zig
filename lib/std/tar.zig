@@ -209,17 +209,17 @@ inline fn blockPadding(size: usize) usize {
 
 fn BufferedReader(comptime ReaderType: type) type {
     return struct {
-        unbuffered_reader: ReaderType,
+        underlying_reader: ReaderType,
         buffer: [BLOCK_SIZE * 8]u8 = undefined,
         start: usize = 0,
         end: usize = 0,
 
         const Self = @This();
 
-        // Fills buffer from underlaying reader.
+        // Fills buffer from underlying unbuffered reader.
         fn fillBuffer(self: *Self) !void {
             self.removeUsed();
-            self.end += try self.unbuffered_reader.read(self.buffer[self.end..]);
+            self.end += try self.underlying_reader.read(self.buffer[self.end..]);
         }
 
         // Returns slice of size count or how much fits into buffer.
@@ -261,7 +261,7 @@ fn BufferedReader(comptime ReaderType: type) type {
         // Advances reader without assuming that count bytes are in the buffer.
         pub fn skip(self: *Self, count: usize) !void {
             if (self.start + count > self.end) {
-                try self.unbuffered_reader.skipBytes(self.start + count - self.end, .{});
+                try self.underlying_reader.skipBytes(self.start + count - self.end, .{});
                 self.start = self.end;
             } else {
                 self.advance(count);
@@ -313,14 +313,14 @@ fn BufferedReader(comptime ReaderType: type) type {
             offset: usize = 0,
             reader: *Self,
 
-            const PaxKey = enum {
+            const PaxKeyKind = enum {
                 path,
                 linkpath,
                 size,
             };
 
             const PaxAttribute = struct {
-                key: PaxKey,
+                key: PaxKeyKind,
                 value_len: usize,
                 parent: *PaxFileReader,
 
@@ -347,7 +347,7 @@ fn BufferedReader(comptime ReaderType: type) type {
                         try self.reader.readSlice(remaining_size),
                         remaining_size,
                     );
-                    const key: PaxKey = if (inf.is("path"))
+                    const key: PaxKeyKind = if (inf.is("path"))
                         .path
                     else if (inf.is("linkpath"))
                         .linkpath
@@ -376,8 +376,7 @@ fn BufferedReader(comptime ReaderType: type) type {
     };
 }
 
-fn Iterator(comptime ReaderType: type) type {
-    const BufferedReaderType = BufferedReader(ReaderType);
+fn Iterator(comptime BufferedReaderType: type) type {
     return struct {
         // scratch buffer for file attributes
         scratch: struct {
@@ -527,11 +526,16 @@ fn Iterator(comptime ReaderType: type) type {
     };
 }
 
-pub fn iterator(reader: anytype, diagnostics: ?*Options.Diagnostics) Iterator(@TypeOf(reader)) {
-    const ReaderType = @TypeOf(reader);
+pub fn iterator(underlying_reader: anytype, diagnostics: ?*Options.Diagnostics) Iterator(BufferedReader(@TypeOf(underlying_reader))) {
     return .{
-        .reader = BufferedReader(ReaderType){ .unbuffered_reader = reader },
+        .reader = bufferedReader(underlying_reader),
         .diagnostics = diagnostics,
+    };
+}
+
+fn bufferedReader(underlying_reader: anytype) BufferedReader(@TypeOf(underlying_reader)) {
+    return BufferedReader(@TypeOf(underlying_reader)){
+        .underlying_reader = underlying_reader,
     };
 }
 
@@ -656,7 +660,7 @@ fn parsePaxAttribute(data: []const u8, max_size: usize) !PaxAttributeInfo {
     const pos_space = std.mem.indexOfScalar(u8, data, ' ') orelse return error.InvalidPaxAttribute;
     const pos_equals = std.mem.indexOfScalarPos(u8, data, pos_space, '=') orelse return error.InvalidPaxAttribute;
     const kv_size = try std.fmt.parseInt(usize, data[0..pos_space], 10);
-    if (kv_size > max_size) {
+    if (kv_size > max_size or kv_size < pos_equals + 2) {
         return error.InvalidPaxAttribute;
     }
     const key = data[pos_space + 1 .. pos_equals];
@@ -1057,3 +1061,94 @@ const Md5Writer = struct {
         return std.fmt.bytesToHex(s, .lower);
     }
 };
+
+test "tar PaxFileReader" {
+    const Attribute = struct {
+        const PaxKeyKind = enum {
+            path,
+            linkpath,
+            size,
+        };
+        key: PaxKeyKind,
+        value: []const u8,
+    };
+    const cases = [_]struct {
+        data: []const u8,
+        attrs: []const Attribute,
+        err: ?anyerror = null,
+    }{
+        .{ // valid but unknown keys
+            .data =
+            \\30 mtime=1350244992.023960108
+            \\6 k=1
+            \\13 key1=val1
+            \\10 a=name
+            \\9 a=name
+            \\
+            ,
+            .attrs = &[_]Attribute{},
+        },
+        .{ // mix of known and unknown keys
+            .data =
+            \\6 k=1
+            \\13 path=name
+            \\17 linkpath=link
+            \\13 key1=val1
+            \\12 size=123
+            \\13 key2=val2
+            \\
+            ,
+            .attrs = &[_]Attribute{
+                .{ .key = .path, .value = "name" },
+                .{ .key = .linkpath, .value = "link" },
+                .{ .key = .size, .value = "123" },
+            },
+        },
+        .{ // too short size of the second key-value pair
+            .data =
+            \\13 path=name
+            \\10 linkpath=value
+            \\
+            ,
+            .attrs = &[_]Attribute{
+                .{ .key = .path, .value = "name" },
+            },
+            .err = error.InvalidPaxAttribute,
+        },
+        .{ // too long size of the second key-value pair
+            .data =
+            \\13 path=name
+            \\19 linkpath=value
+            \\
+            ,
+            .attrs = &[_]Attribute{
+                .{ .key = .path, .value = "name" },
+            },
+            .err = error.InvalidPaxAttribute,
+        },
+    };
+    var buffer: [1024]u8 = undefined;
+
+    for (cases) |case| {
+        var stream = std.io.fixedBufferStream(case.data);
+        var brdr = bufferedReader(stream.reader());
+
+        var rdr = brdr.paxFileReader(case.data.len);
+        var i: usize = 0;
+        while (rdr.next() catch |err| {
+            if (case.err) |e| {
+                try std.testing.expectEqual(e, err);
+                continue;
+            } else {
+                return err;
+            }
+        }) |attr| : (i += 1) {
+            try std.testing.expectEqualStrings(
+                case.attrs[i].value,
+                try attr.value(&buffer),
+            );
+        }
+        try std.testing.expectEqual(case.attrs.len, i);
+        try std.testing.expect(case.err == null);
+    }
+}
