@@ -1042,7 +1042,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => {}, // already reported
+            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
             else => |e| try self.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -1128,7 +1128,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     for (system_libs.items) |lib| {
         self.parseLibrary(lib, false) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => {}, // already reported
+            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
             else => |e| try self.reportParseError(
                 lib.path,
                 "unexpected error: parsing library failed with error {s}",
@@ -1151,7 +1151,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => {}, // already reported
+            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
             else => |e| try self.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -1316,7 +1316,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
 
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => {}, // already reported
+            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
             else => |e| try self.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -1453,7 +1453,7 @@ pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8)
 
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => {}, // already reported
+            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
             else => |e| try self.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -1959,7 +1959,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
             .needed = scr_obj.needed,
             .path = full_path,
         }, false) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => {}, // already reported
+            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
             else => |e| try self.reportParseError(
                 full_path,
                 "unexpected error: parsing library failed with error {s}",
