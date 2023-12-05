@@ -1036,14 +1036,17 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
     for (test_targets) |test_target| {
         const is_native = test_target.target.isNative() or
-            (test_target.target.getOsTag() == builtin.os.tag and
-            test_target.target.getCpuArch() == builtin.cpu.arch);
+            (test_target.target.os_tag == builtin.os.tag and
+            test_target.target.cpu_arch == builtin.cpu.arch);
 
         if (options.skip_non_native and !is_native)
             continue;
 
+        const resolved_target = b.resolveTargetQuery(test_target.target);
+        const target = resolved_target.target;
+
         if (options.skip_cross_glibc and !test_target.target.isNative() and
-            test_target.target.isGnuLibC() and test_target.link_libc == true)
+            target.isGnuLibC() and test_target.link_libc == true)
             continue;
 
         if (options.skip_libc and test_target.link_libc == true)
@@ -1053,35 +1056,30 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             continue;
 
         // TODO get compiler-rt tests passing for self-hosted backends.
-        if ((test_target.target.getCpuArch() != .x86_64 or
-            test_target.target.getObjectFormat() != .elf) and
+        if ((target.cpu.arch != .x86_64 or target.ofmt != .elf) and
             test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
             continue;
 
         // TODO get compiler-rt tests passing for wasm32-wasi
         // currently causes "LLVM ERROR: Unable to expand fixed point multiplication."
-        if (test_target.target.getCpuArch() == .wasm32 and
-            test_target.target.getOsTag() == .wasi and
+        if (target.cpu.arch == .wasm32 and target.os.tag == .wasi and
             mem.eql(u8, options.name, "compiler-rt"))
         {
             continue;
         }
 
         // TODO get universal-libc tests passing for other self-hosted backends.
-        if (test_target.target.getCpuArch() != .x86_64 and
+        if (target.cpu.arch != .x86_64 and
             test_target.use_llvm == false and mem.eql(u8, options.name, "universal-libc"))
             continue;
 
         // TODO get std lib tests passing for other self-hosted backends.
-        if ((test_target.target.getCpuArch() != .x86_64 or
-            test_target.target.getOsTag() != .linux) and
+        if ((target.cpu.arch != .x86_64 or target.os.tag != .linux) and
             test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
             continue;
 
-        if (test_target.target.getCpuArch() == .x86_64 and
-            test_target.target.getOsTag() == .windows and
-            test_target.target.cpu_arch == null and
-            test_target.optimize_mode != .Debug and
+        if (target.cpu.arch == .x86_64 and target.os.tag == .windows and
+            test_target.target.cpu_arch == null and test_target.optimize_mode != .Debug and
             mem.eql(u8, options.name, "std"))
         {
             // https://github.com/ziglang/zig/issues/17902
@@ -1094,11 +1092,11 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (!want_this_mode) continue;
 
         const libc_suffix = if (test_target.link_libc == true) "-libc" else "";
-        const triple_txt = test_target.target.zigTriple(b.allocator) catch @panic("OOM");
-        const model_txt = test_target.target.getCpuModel().name;
+        const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
+        const model_txt = target.cpu.model.name;
 
         // wasm32-wasi builds need more RAM, idk why
-        const max_rss = if (test_target.target.getOs().tag == .wasi)
+        const max_rss = if (target.os.tag == .wasi)
             options.max_rss * 2
         else
             options.max_rss;
@@ -1106,7 +1104,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         const these_tests = b.addTest(.{
             .root_source_file = .{ .path = options.root_src },
             .optimize = test_target.optimize_mode,
-            .target = b.resolveTargetQuery(test_target.target),
+            .target = resolved_target,
             .max_rss = max_rss,
             .filter = options.test_filter,
             .link_libc = test_target.link_libc,
@@ -1120,7 +1118,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
             "-llvm"
-        else if (test_target.target.ofmt == std.Target.ObjectFormat.c)
+        else if (target.ofmt == std.Target.ObjectFormat.c)
             "-cbe"
         else if (test_target.use_llvm == false)
             "-selfhosted"
@@ -1131,7 +1129,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         these_tests.addIncludePath(.{ .path = "test" });
 
-        if (test_target.target.getOs().tag == .wasi) {
+        if (target.os.tag == .wasi) {
             // WASI's default stack size can be too small for some big tests.
             these_tests.stack_size = 2 * 1024 * 1024;
         }
@@ -1148,14 +1146,14 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             use_pic,
         });
 
-        if (test_target.target.ofmt == std.Target.ObjectFormat.c) {
-            var altered_target = test_target.target;
-            altered_target.ofmt = null;
+        if (target.ofmt == std.Target.ObjectFormat.c) {
+            var altered_query = test_target.target;
+            altered_query.ofmt = null;
 
             const compile_c = b.addExecutable(.{
                 .name = qualified_name,
                 .link_libc = test_target.link_libc,
-                .target = b.resolveTargetQuery(altered_target),
+                .target = b.resolveTargetQuery(altered_query),
                 .zig_lib_dir = .{ .path = "lib" },
             });
             compile_c.addCSourceFile(.{
@@ -1179,7 +1177,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                 },
             });
             compile_c.addIncludePath(.{ .path = "lib" }); // for zig.h
-            if (test_target.target.getOsTag() == .windows) {
+            if (target.os.tag == .windows) {
                 if (true) {
                     // Unfortunately this requires about 8G of RAM for clang to compile
                     // and our Windows CI runners do not have this much.

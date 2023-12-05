@@ -1394,7 +1394,7 @@ pub const Cpu = struct {
     }
 };
 
-pub fn zigTriple(self: Target, allocator: Allocator) ![]u8 {
+pub fn zigTriple(self: Target, allocator: Allocator) Allocator.Error![]u8 {
     return Query.fromTarget(self).zigTriple(allocator);
 }
 
@@ -1566,10 +1566,19 @@ pub const DynamicLinker = struct {
     pub fn set(self: *DynamicLinker, dl_or_null: ?[]const u8) void {
         if (dl_or_null) |dl| {
             @memcpy(self.buffer[0..dl.len], dl);
-            self.max_byte = @as(u8, @intCast(dl.len - 1));
+            self.max_byte = @intCast(dl.len - 1);
         } else {
             self.max_byte = null;
         }
+    }
+
+    pub fn eql(a: DynamicLinker, b: DynamicLinker) bool {
+        const a_m = a.max_byte orelse return b.max_byte == null;
+        const b_m = b.max_byte orelse return false;
+        if (a_m != b_m) return false;
+        const a_s = a.buffer[0 .. a_m + 1];
+        const b_s = b.buffer[0 .. a_m + 1];
+        return std.mem.eql(u8, a_s, b_s);
     }
 };
 

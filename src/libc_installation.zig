@@ -41,7 +41,7 @@ pub const LibCInstallation = struct {
     pub fn parse(
         allocator: Allocator,
         libc_file: []const u8,
-        target: std.Target.Query,
+        target: std.Target,
     ) !LibCInstallation {
         var self: LibCInstallation = .{};
 
@@ -95,24 +95,23 @@ pub const LibCInstallation = struct {
             return error.ParseError;
         }
 
-        const os_tag = target.getOsTag();
+        const os_tag = target.os.tag;
         if (self.crt_dir == null and !target.isDarwin()) {
             log.err("crt_dir may not be empty for {s}\n", .{@tagName(os_tag)});
             return error.ParseError;
         }
 
-        const abi = target.getAbi();
-        if (self.msvc_lib_dir == null and target.isWindows() and abi == .msvc) {
+        if (self.msvc_lib_dir == null and os_tag == .windows and target.abi == .msvc) {
             log.err("msvc_lib_dir may not be empty for {s}-{s}\n", .{
                 @tagName(os_tag),
-                @tagName(abi),
+                @tagName(target.abi),
             });
             return error.ParseError;
         }
-        if (self.kernel32_lib_dir == null and target.isWindows() and abi == .msvc) {
+        if (self.kernel32_lib_dir == null and os_tag == .windows and target.abi == .msvc) {
             log.err("kernel32_lib_dir may not be empty for {s}-{s}\n", .{
                 @tagName(os_tag),
-                @tagName(abi),
+                @tagName(target.abi),
             });
             return error.ParseError;
         }

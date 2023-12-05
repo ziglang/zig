@@ -627,12 +627,12 @@ pub fn appendZigProcessFlags(
         try zig_args.append(@tagName(m.code_model));
     }
 
-    if (m.target) |target| {
+    if (m.target) |*target| {
         // Communicate the query via CLI since it's more compact.
         if (!target.query.isNative()) {
             try zig_args.appendSlice(&.{
                 "-target", try target.query.zigTriple(b.allocator),
-                "-mcpu",   try std.Build.serializeCpu(b.allocator, target.query.getCpu()),
+                "-mcpu",   try target.query.serializeCpuAlloc(b.allocator),
             });
 
             if (target.query.dynamic_linker.get()) |dynamic_linker| {

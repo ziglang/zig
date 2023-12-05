@@ -2696,13 +2696,13 @@ fn buildOutputType(
     }
 
     if (use_lld) |opt| {
-        if (opt and target_query.isDarwin()) {
+        if (opt and target.isDarwin()) {
             fatal("LLD requested with Mach-O object format. Only the self-hosted linker is supported for this target.", .{});
         }
     }
 
     if (want_lto) |opt| {
-        if (opt and target_query.isDarwin()) {
+        if (opt and target.isDarwin()) {
             fatal("LTO is not yet supported with the Mach-O object format. More details: https://github.com/ziglang/zig/issues/8680", .{});
         }
     }
@@ -2772,7 +2772,7 @@ fn buildOutputType(
 
     var libc_installation: ?LibCInstallation = null;
     if (libc_paths_file) |paths_file| {
-        libc_installation = LibCInstallation.parse(arena, paths_file, target_query) catch |err| {
+        libc_installation = LibCInstallation.parse(arena, paths_file, target) catch |err| {
             fatal("unable to parse libc paths file at path {s}: {s}", .{ paths_file, @errorName(err) });
         };
     }
@@ -2865,7 +2865,7 @@ fn buildOutputType(
             libc_installation = try LibCInstallation.findNative(.{
                 .allocator = arena,
                 .verbose = true,
-                .target = target_query.toTarget(),
+                .target = target,
             });
 
             try lib_dirs.appendSlice(&.{ libc_installation.?.msvc_lib_dir.?, libc_installation.?.kernel32_lib_dir.? });
@@ -4755,6 +4755,7 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
     const target_query = try parseTargetQueryOrReportFatalError(gpa, .{
         .arch_os_abi = target_arch_os_abi,
     });
+    const target = try std.zig.system.resolveTargetQuery(target_query);
 
     if (print_includes) {
         var arena_state = std.heap.ArenaAllocator.init(gpa);
@@ -4764,7 +4765,7 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
         const libc_installation: ?*LibCInstallation = libc: {
             if (input_file) |libc_file| {
                 const libc = try arena.create(LibCInstallation);
-                libc.* = LibCInstallation.parse(arena, libc_file, target_query) catch |err| {
+                libc.* = LibCInstallation.parse(arena, libc_file, target) catch |err| {
                     fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
                 };
                 break :libc libc;
@@ -4779,7 +4780,6 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
         };
         defer zig_lib_directory.handle.close();
 
-        const target = target_query.toTarget();
         const is_native_abi = target_query.isNativeAbi();
 
         const libc_dirs = Compilation.detectLibCIncludeDirs(
@@ -4810,7 +4810,7 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
     }
 
     if (input_file) |libc_file| {
-        var libc = LibCInstallation.parse(gpa, libc_file, target_query) catch |err| {
+        var libc = LibCInstallation.parse(gpa, libc_file, target) catch |err| {
             fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
         };
         defer libc.deinit(gpa);
@@ -4821,7 +4821,7 @@ pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
         var libc = LibCInstallation.findNative(.{
             .allocator = gpa,
             .verbose = true,
-            .target = try std.zig.system.resolveTargetQuery(target_query),
+            .target = target,
         }) catch |err| {
             fatal("unable to detect native libc: {s}", .{@errorName(err)});
         };

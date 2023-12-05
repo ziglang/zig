@@ -383,12 +383,7 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                 }) catch @panic("OOM");
                 user_input_options.put("cpu", .{
                     .name = "cpu",
-                    .value = .{
-                        .scalar = if (v.isNativeCpu())
-                            "native"
-                        else
-                            serializeCpu(allocator, v.getCpu()) catch unreachable,
-                    },
+                    .value = .{ .scalar = v.serializeCpuAlloc(allocator) catch @panic("OOM") },
                     .used = false,
                 }) catch @panic("OOM");
             },
@@ -400,12 +395,7 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                 }) catch @panic("OOM");
                 user_input_options.put("cpu", .{
                     .name = "cpu",
-                    .value = .{
-                        .scalar = if (v.query.isNativeCpu())
-                            "native"
-                        else
-                            serializeCpu(allocator, v.target.cpu) catch unreachable,
-                    },
+                    .value = .{ .scalar = v.query.serializeCpuAlloc(allocator) catch @panic("OOM") },
                     .used = false,
                 }) catch @panic("OOM");
             },
@@ -1196,7 +1186,6 @@ pub fn standardOptimizeOption(self: *Build, options: StandardOptimizeOptionOptio
 
 pub const StandardTargetOptionsArgs = struct {
     whitelist: ?[]const Target.Query = null,
-
     default_target: Target.Query = .{},
 };
 
@@ -1208,13 +1197,13 @@ pub fn standardTargetOptions(b: *Build, args: StandardTargetOptionsArgs) Resolve
 }
 
 /// Exposes standard `zig build` options for choosing a target.
-pub fn standardTargetOptionsQueryOnly(self: *Build, args: StandardTargetOptionsArgs) Target.Query {
-    const maybe_triple = self.option(
+pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs) Target.Query {
+    const maybe_triple = b.option(
         []const u8,
         "target",
         "The CPU architecture, OS, and ABI to build for",
     );
-    const mcpu = self.option([]const u8, "cpu", "Target CPU features to add or subtract");
+    const mcpu = b.option([]const u8, "cpu", "Target CPU features to add or subtract");
 
     if (maybe_triple == null and mcpu == null) {
         return args.default_target;
@@ -1236,7 +1225,7 @@ pub fn standardTargetOptionsQueryOnly(self: *Build, args: StandardTargetOptionsA
             for (diags.arch.?.allCpuModels()) |cpu| {
                 log.err(" {s}", .{cpu.name});
             }
-            self.markInvalidUserInput();
+            b.markInvalidUserInput();
             return args.default_target;
         },
         error.UnknownCpuFeature => {
@@ -1251,7 +1240,7 @@ pub fn standardTargetOptionsQueryOnly(self: *Build, args: StandardTargetOptionsA
             for (diags.arch.?.allFeaturesList()) |feature| {
                 log.err(" {s}: {s}", .{ feature.name, feature.description });
             }
-            self.markInvalidUserInput();
+            b.markInvalidUserInput();
             return args.default_target;
         },
         error.UnknownOperatingSystem => {
@@ -1263,80 +1252,35 @@ pub fn standardTargetOptionsQueryOnly(self: *Build, args: StandardTargetOptionsA
             inline for (std.meta.fields(Target.Os.Tag)) |field| {
                 log.err(" {s}", .{field.name});
             }
-            self.markInvalidUserInput();
+            b.markInvalidUserInput();
             return args.default_target;
         },
         else => |e| {
             log.err("Unable to parse target '{s}': {s}\n", .{ triple, @errorName(e) });
-            self.markInvalidUserInput();
+            b.markInvalidUserInput();
             return args.default_target;
         },
     };
 
-    const selected_canonicalized_triple = selected_target.zigTriple(self.allocator) catch @panic("OOM");
+    const whitelist = args.whitelist orelse return selected_target;
 
-    if (args.whitelist) |list| whitelist_check: {
-        // Make sure it's a match of one of the list.
-        var mismatch_triple = true;
-        var mismatch_cpu_features = true;
-        var whitelist_item: Target.Query = .{};
-        for (list) |t| {
-            mismatch_cpu_features = true;
-            mismatch_triple = true;
-
-            const t_triple = t.zigTriple(self.allocator) catch @panic("OOM");
-            if (mem.eql(u8, t_triple, selected_canonicalized_triple)) {
-                mismatch_triple = false;
-                whitelist_item = t;
-                if (t.getCpuFeatures().isSuperSetOf(selected_target.getCpuFeatures())) {
-                    mismatch_cpu_features = false;
-                    break :whitelist_check;
-                } else {
-                    break;
-                }
-            }
-        }
-        if (mismatch_triple) {
-            log.err("Chosen target '{s}' does not match one of the supported targets:", .{
-                selected_canonicalized_triple,
-            });
-            for (list) |t| {
-                const t_triple = t.zigTriple(self.allocator) catch @panic("OOM");
-                log.err(" {s}", .{t_triple});
-            }
-        } else {
-            assert(mismatch_cpu_features);
-            const whitelist_cpu = whitelist_item.getCpu();
-            const selected_cpu = selected_target.getCpu();
-            log.err("Chosen CPU model '{s}' does not match one of the supported targets:", .{
-                selected_cpu.model.name,
-            });
-            log.err("  Supported feature Set: ", .{});
-            const all_features = whitelist_cpu.arch.allFeaturesList();
-            var populated_cpu_features = whitelist_cpu.model.features;
-            populated_cpu_features.populateDependencies(all_features);
-            for (all_features, 0..) |feature, i_usize| {
-                const i = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
-                const in_cpu_set = populated_cpu_features.isEnabled(i);
-                if (in_cpu_set) {
-                    log.err("{s} ", .{feature.name});
-                }
-            }
-            log.err("  Remove: ", .{});
-            for (all_features, 0..) |feature, i_usize| {
-                const i = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
-                const in_cpu_set = populated_cpu_features.isEnabled(i);
-                const in_actual_set = selected_cpu.features.isEnabled(i);
-                if (in_actual_set and !in_cpu_set) {
-                    log.err("{s} ", .{feature.name});
-                }
-            }
-        }
-        self.markInvalidUserInput();
-        return args.default_target;
+    // Make sure it's a match of one of the list.
+    for (whitelist) |q| {
+        if (q.eql(selected_target))
+            return selected_target;
     }
 
-    return selected_target;
+    for (whitelist) |q| {
+        log.info("allowed target: -Dtarget={s} -Dcpu={s}", .{
+            q.zigTriple(b.allocator) catch @panic("OOM"),
+            q.serializeCpuAlloc(b.allocator) catch @panic("OOM"),
+        });
+    }
+    log.err("chosen target '{s}' does not match one of the allowed targets", .{
+        selected_target.zigTriple(b.allocator) catch @panic("OOM"),
+    });
+    b.markInvalidUserInput();
+    return args.default_target;
 }
 
 pub fn addUserInputOption(self: *Build, name_raw: []const u8, value_raw: []const u8) !bool {
@@ -2063,34 +2007,6 @@ pub const InstalledFile = struct {
         };
     }
 };
-
-pub fn serializeCpu(allocator: Allocator, cpu: Target.Cpu) ![]const u8 {
-    // TODO this logic can disappear if cpu model + features becomes part of the target triple
-    const all_features = cpu.arch.allFeaturesList();
-    var populated_cpu_features = cpu.model.features;
-    populated_cpu_features.populateDependencies(all_features);
-
-    if (populated_cpu_features.eql(cpu.features)) {
-        // The CPU name alone is sufficient.
-        return cpu.model.name;
-    } else {
-        var mcpu_buffer = ArrayList(u8).init(allocator);
-        try mcpu_buffer.appendSlice(cpu.model.name);
-
-        for (all_features, 0..) |feature, i_usize| {
-            const i = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
-            const in_cpu_set = populated_cpu_features.isEnabled(i);
-            const in_actual_set = cpu.features.isEnabled(i);
-            if (in_cpu_set and !in_actual_set) {
-                try mcpu_buffer.writer().print("-{s}", .{feature.name});
-            } else if (!in_cpu_set and in_actual_set) {
-                try mcpu_buffer.writer().print("+{s}", .{feature.name});
-            }
-        }
-
-        return try mcpu_buffer.toOwnedSlice();
-    }
-}
 
 /// This function is intended to be called in the `configure` phase only.
 /// It returns an absolute directory path, which is potentially going to be a

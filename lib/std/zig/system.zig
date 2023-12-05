@@ -163,7 +163,8 @@ pub const DetectError = error{
 /// components by detecting the native system, and then resolves
 /// standard/default parts relative to that.
 pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
-    var os = query.getOsTag().defaultVersionRange(query.getCpuArch());
+    const query_os_tag = query.os_tag orelse builtin.os.tag;
+    var os = query_os_tag.defaultVersionRange(query.cpu_arch orelse builtin.cpu.arch);
     if (query.os_tag == null) {
         switch (builtin.target.os.tag) {
             .linux => {
@@ -292,7 +293,7 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
 
     if (query.os_version_min) |min| switch (min) {
         .none => {},
-        .semver => |semver| switch (query.getOsTag()) {
+        .semver => |semver| switch (os.tag) {
             .linux => os.version_range.linux.range.min = semver,
             else => os.version_range.semver.min = semver,
         },
@@ -301,7 +302,7 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
 
     if (query.os_version_max) |max| switch (max) {
         .none => {},
-        .semver => |semver| switch (query.getOsTag()) {
+        .semver => |semver| switch (os.tag) {
             .linux => os.version_range.linux.range.max = semver,
             else => os.version_range.semver.max = semver,
         },
@@ -309,13 +310,12 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     };
 
     if (query.glibc_version) |glibc| {
-        assert(query.isGnuLibC());
         os.version_range.linux.glibc = glibc;
     }
 
     // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
     // native CPU architecture as being different than the current target), we use this:
-    const cpu_arch = query.getCpuArch();
+    const cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
 
     const cpu = switch (query.cpu_model) {
         .native => detectNativeCpuAndFeatures(cpu_arch, os, query),
@@ -361,8 +361,25 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         },
         else => {},
     }
-    query.updateCpuFeatures(&result.cpu.features);
+    updateCpuFeatures(
+        &result.cpu.features,
+        cpu_arch.allFeaturesList(),
+        query.cpu_features_add,
+        query.cpu_features_sub,
+    );
     return result;
+}
+
+fn updateCpuFeatures(
+    set: *Target.Cpu.Feature.Set,
+    all_features_list: []const Target.Cpu.Feature,
+    add_set: Target.Cpu.Feature.Set,
+    sub_set: Target.Cpu.Feature.Set,
+) void {
+    set.removeFeatureSet(sub_set);
+    set.addFeatureSet(add_set);
+    set.populateDependencies(all_features_list);
+    set.removeFeatureSet(sub_set);
 }
 
 fn detectNativeCpuAndFeatures(cpu_arch: Target.Cpu.Arch, os: Target.Os, query: Target.Query) ?Target.Cpu {
