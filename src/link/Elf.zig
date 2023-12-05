@@ -1344,23 +1344,25 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
         try zig_object.addAtomsToRelaSections(self);
         try self.updateSectionSizesObject();
 
+        try self.allocateAllocSectionsObject();
         try self.allocateNonAllocSections();
 
         if (build_options.enable_logging) {
-            state_log.debug("{}", .{self.dumpState()});
+            log.debug("{}", .{self.dumpState()});
         }
 
         try self.writeSyntheticSectionsObject();
         try self.writeShdrTable();
         try self.writeElfHeader();
+
+        // TODO we can avoid reading in the file contents we just wrote if we give the linker
+        // ability to write directly to a buffer.
+        try zig_object.readFileContents(self);
     }
 
     var files = std.ArrayList(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(self.objects.items.len + 1);
-    // Note to self: we currently must have ZigObject written out first as we write the object
-    // file into the same file descriptor and then re-read its contents.
-    // TODO implement writing ZigObject to a buffer instead of file.
     if (self.zigObjectPtr()) |zig_object| files.appendAssumeCapacity(zig_object.index);
     for (self.objects.items) |index| files.appendAssumeCapacity(index);
 
@@ -1381,7 +1383,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
     for (files.items) |index| {
         const file_ptr = self.file(index).?;
         try file_ptr.updateArStrtab(gpa, &ar_strtab);
-        file_ptr.updateArSize(self);
+        file_ptr.updateArSize();
     }
 
     // Update file offsets of contributing objects.
@@ -1433,7 +1435,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
     // Write object files
     for (files.items) |index| {
         if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
-        try self.file(index).?.writeAr(self, buffer.writer());
+        try self.file(index).?.writeAr(buffer.writer());
     }
 
     assert(buffer.items.len == total_size);
@@ -2970,6 +2972,7 @@ fn writeShdrTable(self: *Elf) !void {
             defer gpa.free(buf);
 
             for (buf, 0..) |*shdr, i| {
+                assert(self.shdrs.items[i].sh_offset != math.maxInt(u64));
                 shdr.* = shdrTo32(self.shdrs.items[i]);
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf32_Shdr, shdr);
@@ -2982,6 +2985,7 @@ fn writeShdrTable(self: *Elf) !void {
             defer gpa.free(buf);
 
             for (buf, 0..) |*shdr, i| {
+                assert(self.shdrs.items[i].sh_offset != math.maxInt(u64));
                 shdr.* = self.shdrs.items[i];
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf64_Shdr, shdr);

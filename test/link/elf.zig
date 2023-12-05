@@ -29,6 +29,7 @@ pub fn testAll(b: *Build) *Step {
 
     // Exercise linker in ar mode
     elf_step.dependOn(testEmitStaticLib(b, .{ .target = musl_target }));
+    elf_step.dependOn(testEmitStaticLibZig(b, .{ .use_llvm = false, .target = musl_target }));
 
     // Exercise linker with self-hosted backend (no LLVM)
     elf_step.dependOn(testGcSectionsZig(b, .{ .use_llvm = false, .target = default_target }));
@@ -739,6 +740,42 @@ fn testEmitStaticLib(b: *Build, opts: Options) *Step {
     check.checkExactPath("in object", obj3.getEmittedBin());
     check.checkExact("strongBarAlias");
     test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testEmitStaticLibZig(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "emit-static-lib-zig", opts);
+
+    const obj1 = addObject(b, "obj1", opts);
+    addZigSourceBytes(obj1,
+        \\export var foo: i32 = 42;
+        \\export var bar: i32 = 2;
+    );
+
+    const lib = addStaticLibrary(b, "lib", opts);
+    addZigSourceBytes(lib,
+        \\extern var foo: i32;
+        \\extern var bar: i32;
+        \\export fn fooBar() i32 {
+        \\  return foo + bar;
+        \\}
+    );
+    lib.addObject(obj1);
+
+    const exe = addExecutable(b, "test", opts);
+    addZigSourceBytes(exe,
+        \\const std = @import("std");
+        \\extern fn fooBar() i32;
+        \\pub fn main() void {
+        \\  std.debug.print("{d}", .{fooBar()});
+        \\}
+    );
+    exe.linkLibrary(lib);
+
+    const run = addRunArtifact(exe);
+    run.expectStdErrEqual("44");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
