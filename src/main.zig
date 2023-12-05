@@ -4664,8 +4664,11 @@ fn detectRcIncludeDirs(arena: Allocator, zig_lib_dir: []const u8, auto_includes:
     while (true) {
         switch (cur_includes) {
             .any, .msvc => {
-                const target_query = std.Target.Query.parse(.{ .arch_os_abi = "native-windows-msvc" }) catch unreachable;
-                const target = target_query.toTarget();
+                const target_query: std.Target.Query = .{
+                    .os_tag = .windows,
+                    .abi = .msvc,
+                };
+                const target = try std.zig.system.resolveTargetQuery(target_query);
                 const is_native_abi = target_query.isNativeAbi();
                 const detected_libc = Compilation.detectLibCIncludeDirs(arena, zig_lib_dir, target, is_native_abi, true, null) catch |err| {
                     if (cur_includes == .any) {
@@ -4689,8 +4692,11 @@ fn detectRcIncludeDirs(arena: Allocator, zig_lib_dir: []const u8, auto_includes:
                 };
             },
             .gnu => {
-                const target_query = std.Target.Query.parse(.{ .arch_os_abi = "native-windows-gnu" }) catch unreachable;
-                const target = target_query.toTarget();
+                const target_query: std.Target.Query = .{
+                    .os_tag = .windows,
+                    .abi = .gnu,
+                };
+                const target = try std.zig.system.resolveTargetQuery(target_query);
                 const is_native_abi = target_query.isNativeAbi();
                 const detected_libc = try Compilation.detectLibCIncludeDirs(arena, zig_lib_dir, target, is_native_abi, true, null);
                 return .{
