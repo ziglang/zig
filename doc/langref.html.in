@@ -10595,7 +10595,7 @@ pub fn main() !void {
       {#header_close#}
 
       {#header_open|Where are the bytes?#}
-      <p>String literals such as {#syntax#}"foo"{#endsyntax#} are in the global constant data section.
+      <p>String literals such as {#syntax#}"hello"{#endsyntax#} are in the global constant data section.
       This is why it is an error to pass a string literal to a mutable slice, like this:
       </p>
       {#code_begin|test_err|test_string_literal_to_slice|expected type '[]u8', found '*const [5:0]u8'#}
