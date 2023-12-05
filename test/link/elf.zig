@@ -1875,8 +1875,10 @@ fn testMismatchedCpuArchitectureError(b: *Build, opts: Options) *Step {
     exe.linkLibC();
 
     expectLinkErrors(exe, test_step, .{ .exact = &.{
-        "invalid cpu architecture: expected 'x86_64', but found 'aarch64'",
+        "invalid cpu architecture: aarch64",
         "note: while parsing /?/a.o",
+        "undefined symbol: foo",
+        "note: referenced by /?/a.o:.text",
     } });
 
     return test_step;
@@ -3305,7 +3307,9 @@ fn testUnknownFileTypeError(b: *Build, opts: Options) *Step {
     exe.linkLibC();
 
     expectLinkErrors(exe, test_step, .{ .exact = &.{
-        "unknown file type",
+        "invalid token in LD script: '\\x00\\x00\\x00\\x0c\\x00\\x00\\x00/usr/lib/dyld\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x0d' (0:829)",
+        "note: while parsing /?/liba.dylib",
+        "error: unexpected error: parsing input file failed with error InvalidLdScript",
         "note: while parsing /?/liba.dylib",
         "undefined symbol: foo",
         "note: referenced by /?/a.o:.text",
