@@ -1194,6 +1194,9 @@ pub fn addAnonymousModule(cs: *Compile, name: []const u8, options: std.Build.Cre
     return addModule(cs, name, module);
 }
 
+/// Export a `Step.Options` instance into a `module_name` module that can be imported
+/// into the code of this compilation.
+/// See the description in `Step.Options` for more information.
 pub fn addOptions(cs: *Compile, module_name: []const u8, options: *Step.Options) void {
     addModule(cs, module_name, options.createModule());
 }

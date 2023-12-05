@@ -1,3 +1,19 @@
+//! This module provides utilities to export build-time values from build.zig
+//! into a separate module ready to be imported. Here is a common usage:
+//!
+//! (In build.zig)
+//! ```
+//! const exe_options = b.addOptions();
+//! exe_options.addOption(bool, "num_threads", 32);
+//! const exe = b.addExecutable(...);
+//! exe.addOptions("my_build_options", exe_options);
+//! ```
+//! (In your application code)
+//! ```
+//! const build_options = @import("my_build_options");
+//! std.debug.assert(build_options.num_threads == 32);
+//! ```
+
 const std = @import("std");
 const builtin = @import("builtin");
 const fs = std.fs;
@@ -187,6 +203,7 @@ pub fn addOptionArtifact(self: *Options, name: []const u8, artifact: *Step.Compi
     return addOptionPath(self, name, artifact.getEmittedBin());
 }
 
+/// Retrieve the exported module.
 pub fn createModule(self: *Options) *std.Build.Module {
     return self.step.owner.createModule(.{
         .source_file = self.getOutput(),
@@ -197,6 +214,7 @@ pub fn createModule(self: *Options) *std.Build.Module {
 /// deprecated: use `getOutput`
 pub const getSource = getOutput;
 
+/// Get the path to the source file of exported module.
 pub fn getOutput(self: *Options) LazyPath {
     return .{ .generated = &self.generated_file };
 }

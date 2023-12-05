@@ -617,6 +617,10 @@ pub fn resolveInstallPrefix(self: *Build, install_prefix: ?[]const u8, dir_list:
     self.h_dir = self.pathJoin(&h_list);
 }
 
+/// Create a `Step.Options` instance to encapsulate values generated in
+/// build.zig and make them accessible in the code.
+/// Usually used with `Step.Compile.addOptions`. See the description in
+/// `Step.Options` for example usages.
 pub fn addOptions(self: *Build) *Step.Options {
     return Step.Options.create(self);
 }
@@ -1006,6 +1010,8 @@ fn makeUninstall(uninstall_step: *Step, prog_node: *std.Progress.Node) anyerror!
     // TODO remove empty directories
 }
 
+/// Add a project-specific option (e.g. `-Dfoo=bar`) of type `T`. Return the value users supplied, or
+/// null if the option is absent.
 pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_raw: []const u8) ?T {
     const name = self.dupe(name_raw);
     const description = self.dupe(description_raw);
