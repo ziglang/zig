@@ -103,7 +103,6 @@ pub const Options = struct {
     root_name: [:0]const u8,
     /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
     module: ?*Module,
-    dynamic_linker: ?[]const u8,
     /// The root path for the dynamic linker and system libraries (as well as frameworks on Darwin)
     sysroot: ?[]const u8,
     /// Used for calculating how much space to reserve for symbols in case the binary file

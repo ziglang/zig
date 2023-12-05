@@ -803,7 +803,6 @@ pub const InitOptions = struct {
     main_mod: ?*Package.Module,
     output_mode: std.builtin.OutputMode,
     thread_pool: *ThreadPool,
-    dynamic_linker: ?[]const u8 = null,
     sysroot: ?[]const u8 = null,
     /// `null` means to not emit a binary file.
     emit_bin: ?EmitLoc,
@@ -1836,7 +1835,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .root_name = root_name,
             .module = module,
             .target = options.target,
-            .dynamic_linker = options.dynamic_linker,
             .sysroot = sysroot,
             .output_mode = options.output_mode,
             .link_mode = link_mode,
@@ -2800,7 +2798,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
                 man.hash.addOptionalBytes(libc_installation.kernel32_lib_dir);
             }
         }
-        man.hash.addOptionalBytes(comp.bin_file.options.dynamic_linker);
+        man.hash.addOptionalBytes(target.dynamic_linker.get());
     }
     man.hash.addOptionalBytes(comp.bin_file.options.soname);
     man.hash.addOptional(comp.bin_file.options.version);

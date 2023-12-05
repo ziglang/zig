@@ -1574,7 +1574,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
     } else {
         if (!self.isStatic()) {
-            if (self.base.options.dynamic_linker) |path| {
+            if (self.base.options.target.dynamic_linker.get()) |path| {
                 try argv.append("-dynamic-linker");
                 try argv.append(path);
             }
@@ -2374,7 +2374,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                 man.hash.addBytes(libc_installation.crt_dir.?);
             }
             if (have_dynamic_linker) {
-                man.hash.addOptionalBytes(self.base.options.dynamic_linker);
+                man.hash.addOptionalBytes(self.base.options.target.dynamic_linker.get());
             }
         }
         man.hash.addOptionalBytes(self.base.options.soname);
@@ -2687,7 +2687,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             }
 
             if (have_dynamic_linker) {
-                if (self.base.options.dynamic_linker) |dynamic_linker| {
+                if (self.base.options.target.dynamic_linker.get()) |dynamic_linker| {
                     try argv.append("-dynamic-linker");
                     try argv.append(dynamic_linker);
                 }
@@ -3503,7 +3503,7 @@ fn initSyntheticSections(self: *Elf) !void {
         // a segfault in the dynamic linker trying to load a binary that is static
         // and doesn't contain .dynamic section.
         if (self.isStatic() and !self.base.options.pie) break :blk false;
-        break :blk self.base.options.dynamic_linker != null;
+        break :blk self.base.options.target.dynamic_linker.get() != null;
     };
     if (needs_interp) {
         self.interp_section_index = try self.addSection(.{
@@ -4244,7 +4244,7 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     if (self.interp_section_index) |index| {
-        self.shdrs.items[index].sh_size = self.base.options.dynamic_linker.?.len + 1;
+        self.shdrs.items[index].sh_size = self.base.options.target.dynamic_linker.get().?.len + 1;
     }
 
     if (self.hash_section_index) |index| {
@@ -4938,14 +4938,14 @@ fn writeSyntheticSections(self: *Elf) !void {
     const gpa = self.base.allocator;
 
     if (self.interp_section_index) |shndx| {
+        var buffer: [256]u8 = undefined;
+        const interp = self.base.options.target.dynamic_linker.get().?;
+        @memcpy(buffer[0..interp.len], interp);
+        buffer[interp.len] = 0;
+        const contents = buffer[0 .. interp.len + 1];
         const shdr = self.shdrs.items[shndx];
-        const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer = try gpa.alloc(u8, sh_size);
-        defer gpa.free(buffer);
-        const dylinker = self.base.options.dynamic_linker.?;
-        @memcpy(buffer[0..dylinker.len], dylinker);
-        buffer[dylinker.len] = 0;
-        try self.base.file.?.pwriteAll(buffer, shdr.sh_offset);
+        assert(shdr.sh_size == contents.len);
+        try self.base.file.?.pwriteAll(contents, shdr.sh_offset);
     }
 
     if (self.hash_section_index) |shndx| {
