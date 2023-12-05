@@ -54,6 +54,15 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
 
     self.header = try reader.readStruct(elf.Elf64_Ehdr);
 
+    if (elf_file.base.options.target.cpu.arch != self.header.?.e_machine.toTargetCpuArch().?) {
+        try elf_file.reportParseError2(
+            self.index,
+            "invalid cpu architecture: {s}",
+            .{@tagName(self.header.?.e_machine.toTargetCpuArch().?)},
+        );
+        return error.InvalidCpuArch;
+    }
+
     if (self.header.?.e_shnum == 0) return;
 
     const gpa = elf_file.base.allocator;

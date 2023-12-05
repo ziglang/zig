@@ -1041,9 +1041,14 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     for (positionals.items) |obj| {
-        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
-            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+        self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
+            error.LinkFail, error.InvalidCpuArch => {}, // already reported
+            else => |e| try self.reportParseError(
+                obj.path,
+                "unexpected error: parsing input file failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
     }
 
     var system_libs = std.ArrayList(SystemLib).init(arena);
@@ -1122,9 +1127,14 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     for (system_libs.items) |lib| {
-        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parseLibrary(lib, false, &parse_ctx) catch |err|
-            try self.handleAndReportParseError(lib.path, err, &parse_ctx);
+        self.parseLibrary(lib, false) catch |err| switch (err) {
+            error.LinkFail, error.InvalidCpuArch => {}, // already reported
+            else => |e| try self.reportParseError(
+                lib.path,
+                "unexpected error: parsing library failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
     }
 
     // Finally, as the last input objects we add compiler_rt and CSU postlude (if any).
@@ -1140,9 +1150,14 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (csu.crtn) |v| try positionals.append(.{ .path = v });
 
     for (positionals.items) |obj| {
-        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
-            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+        self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
+            error.LinkFail, error.InvalidCpuArch => {}, // already reported
+            else => |e| try self.reportParseError(
+                obj.path,
+                "unexpected error: parsing input file failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
     }
 
     // Init all objects
@@ -1300,9 +1315,14 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
     for (positionals.items) |obj| {
-        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
-            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+        self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
+            error.LinkFail, error.InvalidCpuArch => {}, // already reported
+            else => |e| try self.reportParseError(
+                obj.path,
+                "unexpected error: parsing input file failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
     }
 
     // First, we flush relocatable object file generated with our backends.
@@ -1432,9 +1452,14 @@ pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8)
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
     for (positionals.items) |obj| {
-        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
-            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+        self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
+            error.LinkFail, error.InvalidCpuArch => {}, // already reported
+            else => |e| try self.reportParseError(
+                obj.path,
+                "unexpected error: parsing input file failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
     }
 
     // Init all objects
@@ -1770,37 +1795,36 @@ const ParseError = error{
     FileSystem,
     NotSupported,
     InvalidCharacter,
-    MalformedObject,
 } || LdScript.Error || std.os.AccessError || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
 
-fn parsePositional(self: *Elf, path: []const u8, must_link: bool, ctx: *ParseErrorCtx) ParseError!void {
+fn parsePositional(self: *Elf, path: []const u8, must_link: bool) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
     if (try Object.isObject(path)) {
-        try self.parseObject(path, ctx);
+        try self.parseObject(path);
     } else {
-        try self.parseLibrary(.{ .path = path }, must_link, ctx);
+        try self.parseLibrary(.{ .path = path }, must_link);
     }
 }
 
-fn parseLibrary(self: *Elf, lib: SystemLib, must_link: bool, ctx: *ParseErrorCtx) ParseError!void {
+fn parseLibrary(self: *Elf, lib: SystemLib, must_link: bool) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     if (try Archive.isArchive(lib.path)) {
-        try self.parseArchive(lib.path, must_link, ctx);
+        try self.parseArchive(lib.path, must_link);
     } else if (try SharedObject.isSharedObject(lib.path)) {
-        try self.parseSharedObject(lib, ctx);
+        try self.parseSharedObject(lib);
     } else {
         // TODO if the script has a top-level comment identifying it as GNU ld script,
         // then report parse errors. Otherwise return UnknownFileType.
-        self.parseLdScript(lib, ctx) catch |err| switch (err) {
+        self.parseLdScript(lib) catch |err| switch (err) {
             else => return error.UnknownFileType,
         };
     }
 }
 
-fn parseObject(self: *Elf, path: []const u8, ctx: *ParseErrorCtx) ParseError!void {
+fn parseObject(self: *Elf, path: []const u8) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1818,12 +1842,9 @@ fn parseObject(self: *Elf, path: []const u8, ctx: *ParseErrorCtx) ParseError!voi
 
     const object = self.file(index).?.object;
     try object.parse(self);
-
-    ctx.detected_cpu_arch = object.header.?.e_machine.toTargetCpuArch().?;
-    if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
 }
 
-fn parseArchive(self: *Elf, path: []const u8, must_link: bool, ctx: *ParseErrorCtx) ParseError!void {
+fn parseArchive(self: *Elf, path: []const u8, must_link: bool) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1846,13 +1867,10 @@ fn parseArchive(self: *Elf, path: []const u8, must_link: bool, ctx: *ParseErrorC
         object.alive = must_link;
         try object.parse(self);
         try self.objects.append(gpa, index);
-
-        ctx.detected_cpu_arch = object.header.?.e_machine.toTargetCpuArch().?;
-        if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
     }
 }
 
-fn parseSharedObject(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!void {
+fn parseSharedObject(self: *Elf, lib: SystemLib) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1872,12 +1890,9 @@ fn parseSharedObject(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError
 
     const shared_object = self.file(index).?.shared_object;
     try shared_object.parse(self);
-
-    ctx.detected_cpu_arch = shared_object.header.?.e_machine.toTargetCpuArch().?;
-    if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
 }
 
-fn parseLdScript(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!void {
+fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1890,11 +1905,6 @@ fn parseLdScript(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!voi
     var script = LdScript{};
     defer script.deinit(gpa);
     try script.parse(data, self);
-
-    if (script.cpu_arch) |cpu_arch| {
-        ctx.detected_cpu_arch = cpu_arch;
-        if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
-    }
 
     const lib_dirs = self.base.options.lib_dirs;
 
@@ -1949,11 +1959,17 @@ fn parseLdScript(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!voi
         }
 
         const full_path = test_path.items;
-        var scr_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
         self.parseLibrary(.{
             .needed = scr_obj.needed,
             .path = full_path,
-        }, false, &scr_ctx) catch |err| try self.handleAndReportParseError(full_path, err, &scr_ctx);
+        }, false) catch |err| switch (err) {
+            error.LinkFail, error.InvalidCpuArch => {}, // already reported
+            else => |e| try self.reportParseError(
+                full_path,
+                "unexpected error: parsing library failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
     }
 }
 
@@ -3009,6 +3025,8 @@ fn writePhdrTable(self: *Elf) !void {
 }
 
 fn writeElfHeader(self: *Elf) !void {
+    if (self.misc_errors.items.len > 0) return; // We had errors, so skip flushing to render the output unusable
+
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 = undefined;
 
     var index: usize = 0;
@@ -6044,33 +6062,6 @@ fn reportMissingLibraryError(
     try err.addMsg(self, format, args);
     for (checked_paths) |path| {
         try err.addNote(self, "tried {s}", .{path});
-    }
-}
-
-const ParseErrorCtx = struct {
-    detected_cpu_arch: std.Target.Cpu.Arch,
-};
-
-fn handleAndReportParseError(
-    self: *Elf,
-    path: []const u8,
-    err: ParseError,
-    ctx: *const ParseErrorCtx,
-) error{OutOfMemory}!void {
-    const cpu_arch = self.base.options.target.cpu.arch;
-    switch (err) {
-        error.LinkFail => {}, // already reported
-        error.UnknownFileType => try self.reportParseError(path, "unknown file type", .{}),
-        error.InvalidCpuArch => try self.reportParseError(
-            path,
-            "invalid cpu architecture: expected '{s}', but found '{s}'",
-            .{ @tagName(cpu_arch), @tagName(ctx.detected_cpu_arch) },
-        ),
-        else => |e| try self.reportParseError(
-            path,
-            "unexpected error: parsing object failed with error {s}",
-            .{@errorName(e)},
-        ),
     }
 }
 
