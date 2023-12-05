@@ -460,7 +460,9 @@ pub fn zigTriple(self: Query, allocator: Allocator) Allocator.Error![]u8 {
                 try formatVersion(v, result.writer());
             },
             .windows => |v| {
-                try result.writer().print("...{s}", .{v});
+                // This is counting on a custom format() function defined on `WindowsVersion`
+                // to add a prefix '.' and make there be a total of three dots.
+                try result.writer().print("..{s}", .{v});
             },
         }
     }
