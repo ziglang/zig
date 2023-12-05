@@ -33,4 +33,25 @@ pub fn build(b: *std.Build) void {
     check_exe.checkInSymtab();
     check_exe.checkContains("__cpu_indicator_init");
     test_step.dependOn(&check_exe.step);
+
+    const lib = b.addSharedLibrary(.{
+        .name = "main-lib",
+        .optimize = optimize,
+        .target = target,
+    });
+    lib.linkLibC();
+    lib.addCSourceFile(.{
+        .file = .{ .path = "main.c" },
+        .flags = &.{ "-fvisibility=hidden", "-DNO_MAIN" },
+    });
+    lib.bundle_compiler_rt = true;
+
+    const check_lib = lib.checkObject();
+    check_lib.checkInDynamicSymtab();
+    check_lib.checkNotPresent("__cpu_model");
+    check_lib.checkInDynamicSymtab();
+    check_lib.checkNotPresent("__cpu_features2");
+    check_lib.checkInDynamicSymtab();
+    check_lib.checkNotPresent("__cpu_indicator_init");
+    test_step.dependOn(&check_lib.step);
 }
