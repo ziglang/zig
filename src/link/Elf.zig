@@ -1160,6 +1160,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         };
     }
 
+    if (self.misc_errors.items.len > 0) return error.FlushFailure;
+
     // Init all objects
     for (self.objects.items) |index| {
         try self.file(index).?.object.init(self);
@@ -1167,6 +1169,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     for (self.shared_objects.items) |index| {
         try self.file(index).?.shared_object.init(self);
     }
+
+    if (self.misc_errors.items.len > 0) return error.FlushFailure;
 
     // Dedup shared objects
     {
@@ -1294,6 +1298,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         self.error_flags.no_entry_point_found = false;
         try self.writeElfHeader();
     }
+
+    if (self.misc_errors.items.len > 0) return error.FlushFailure;
 }
 
 pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
@@ -2803,7 +2809,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                     }));
                 } else {
                     self.error_flags.missing_libc = true;
-                    return error.FlushFailure;
                 }
             }
         }
