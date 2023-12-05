@@ -1042,7 +1042,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.LinkFail, error.InvalidCpuArch => {}, // already reported
+            error.MalformedObject, error.InvalidCpuArch => {}, // already reported
             else => |e| try self.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -1128,7 +1128,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     for (system_libs.items) |lib| {
         self.parseLibrary(lib, false) catch |err| switch (err) {
-            error.LinkFail, error.InvalidCpuArch => {}, // already reported
+            error.MalformedObject, error.InvalidCpuArch => {}, // already reported
             else => |e| try self.reportParseError(
                 lib.path,
                 "unexpected error: parsing library failed with error {s}",
@@ -1151,7 +1151,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.LinkFail, error.InvalidCpuArch => {}, // already reported
+            error.MalformedObject, error.InvalidCpuArch => {}, // already reported
             else => |e| try self.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -1316,7 +1316,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
 
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.LinkFail, error.InvalidCpuArch => {}, // already reported
+            error.MalformedObject, error.InvalidCpuArch => {}, // already reported
             else => |e| try self.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -1453,7 +1453,7 @@ pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8)
 
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.LinkFail, error.InvalidCpuArch => {}, // already reported
+            error.MalformedObject, error.InvalidCpuArch => {}, // already reported
             else => |e| try self.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -1785,8 +1785,8 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 }
 
 const ParseError = error{
-    LinkFail,
-    UnknownFileType,
+    MalformedObject,
+    MalformedArchive,
     InvalidCpuArch,
     OutOfMemory,
     Overflow,
@@ -1816,11 +1816,7 @@ fn parseLibrary(self: *Elf, lib: SystemLib, must_link: bool) ParseError!void {
     } else if (try SharedObject.isSharedObject(lib.path)) {
         try self.parseSharedObject(lib);
     } else {
-        // TODO if the script has a top-level comment identifying it as GNU ld script,
-        // then report parse errors. Otherwise return UnknownFileType.
-        self.parseLdScript(lib) catch |err| switch (err) {
-            else => return error.UnknownFileType,
-        };
+        try self.parseLdScript(lib);
     }
 }
 
@@ -1902,7 +1898,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     defer gpa.free(data);
 
-    var script = LdScript{};
+    var script = LdScript{ .path = lib.path };
     defer script.deinit(gpa);
     try script.parse(data, self);
 
@@ -1963,7 +1959,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
             .needed = scr_obj.needed,
             .path = full_path,
         }, false) catch |err| switch (err) {
-            error.LinkFail, error.InvalidCpuArch => {}, // already reported
+            error.MalformedObject, error.InvalidCpuArch => {}, // already reported
             else => |e| try self.reportParseError(
                 full_path,
                 "unexpected error: parsing library failed with error {s}",
@@ -2195,7 +2191,7 @@ fn scanRelocs(self: *Elf) !void {
         try object.scanRelocs(self, &undefs);
     }
 
-    try self.reportUndefined(&undefs);
+    try self.reportUndefinedSymbols(&undefs);
 
     for (self.symbols.items, 0..) |*sym, i| {
         const index = @as(u32, @intCast(i));
@@ -4760,7 +4756,7 @@ fn writeAtoms(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer, sh_offset);
     }
 
-    try self.reportUndefined(&undefs);
+    try self.reportUndefinedSymbols(&undefs);
 }
 
 fn writeAtomsObject(self: *Elf) !void {
@@ -6023,7 +6019,7 @@ pub fn insertDynString(self: *Elf, name: []const u8) error{OutOfMemory}!u32 {
     return off;
 }
 
-fn reportUndefined(self: *Elf, undefs: anytype) !void {
+fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
     const gpa = self.base.allocator;
     const max_notes = 4;
 
@@ -6065,7 +6061,7 @@ fn reportMissingLibraryError(
     }
 }
 
-fn reportParseError(
+pub fn reportParseError(
     self: *Elf,
     path: []const u8,
     comptime format: []const u8,

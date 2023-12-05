@@ -70,7 +70,7 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
             "corrupted header: section header table extends past the end of file",
             .{},
         );
-        return error.LinkFail;
+        return error.MalformedObject;
     }
 
     const shoff = std.math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;
@@ -84,7 +84,7 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
     for (shdrs, 0..) |shdr, i| {
         if (self.data.len < shdr.sh_offset or self.data.len < shdr.sh_offset + shdr.sh_size) {
             try elf_file.reportParseError2(self.index, "corrupted section header", .{});
-            return error.LinkFail;
+            return error.MalformedObject;
         }
         self.shdrs.appendAssumeCapacity(try ElfShdr.fromElf64Shdr(shdr));
         switch (shdr.sh_type) {
