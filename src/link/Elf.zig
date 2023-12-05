@@ -1331,6 +1331,8 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
         };
     }
 
+    if (self.misc_errors.items.len > 0) return error.FlushFailure;
+
     // First, we flush relocatable object file generated with our backends.
     if (self.zigObjectPtr()) |zig_object| {
         zig_object.resolveSymbols(self);
@@ -1468,10 +1470,14 @@ pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8)
         };
     }
 
+    if (self.misc_errors.items.len > 0) return error.FlushFailure;
+
     // Init all objects
     for (self.objects.items) |index| {
         try self.file(index).?.object.init(self);
     }
+
+    if (self.misc_errors.items.len > 0) return error.FlushFailure;
 
     // Now, we are ready to resolve the symbols across all input files.
     // We will first resolve the files in the ZigObject, next in the parsed
