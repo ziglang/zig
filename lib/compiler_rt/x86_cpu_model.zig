@@ -7,9 +7,12 @@ const common = @import("common.zig");
 const Target = std.Target;
 
 comptime {
-    @export(cpu, .{ .name = "__cpu_model", .linkage = common.linkage, .visibility = common.visibility });
-    @export(cpu_extra_features, .{ .name = "__cpu_features2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(init, .{ .name = "__cpu_indicator_init", .linkage = common.linkage, .visibility = common.visibility });
+    const linkage: std.builtin.GlobalLinkage = common.linkage;
+    const visibility: std.builtin.SymbolVisibility = if (linkage != .Internal) .hidden else .default;
+
+    @export(cpu, .{ .name = "__cpu_model", .linkage = linkage, .visibility = visibility });
+    @export(cpu_extra_features, .{ .name = "__cpu_features2", .linkage = linkage, .visibility = visibility });
+    @export(init, .{ .name = "__cpu_indicator_init", .linkage = linkage, .visibility = visibility });
 }
 
 // Based on LLVM's compiler-rt implementation.
