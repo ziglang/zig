@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
 
     // The test requires getFdPath in order to to get the path of the
     // File returned by openSelfExe
-    if (!std.os.isGetFdPathSupportedOnTarget(target.target.os)) return;
+    if (!std.os.isGetFdPathSupportedOnTarget(target.result.os)) return;
 
     const main = b.addExecutable(.{
         .name = "main",

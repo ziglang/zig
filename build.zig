@@ -221,7 +221,7 @@ pub fn build(b: *std.Build) !void {
 
     test_step.dependOn(&exe.step);
 
-    if (target.target.os.tag == .windows and target.target.abi == .gnu) {
+    if (target.result.os.tag == .windows and target.result.abi == .gnu) {
         // LTO is currently broken on mingw, this can be removed when it's fixed.
         exe.want_lto = false;
         check_case_exe.want_lto = false;
@@ -347,7 +347,7 @@ pub fn build(b: *std.Build) !void {
             try addStaticLlvmOptionsToExe(exe);
             try addStaticLlvmOptionsToExe(check_case_exe);
         }
-        if (target.target.os.tag == .windows) {
+        if (target.result.os.tag == .windows) {
             inline for (.{ exe, check_case_exe }) |artifact| {
                 artifact.linkSystemLibrary("version");
                 artifact.linkSystemLibrary("uuid");
@@ -371,7 +371,7 @@ pub fn build(b: *std.Build) !void {
         );
 
         // On mingw, we need to opt into windows 7+ to get some features required by tracy.
-        const tracy_c_flags: []const []const u8 = if (target.target.os.tag == .windows and target.target.abi == .gnu)
+        const tracy_c_flags: []const []const u8 = if (target.result.os.tag == .windows and target.result.abi == .gnu)
             &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined", "-D_WIN32_WINNT=0x601" }
         else
             &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
@@ -383,7 +383,7 @@ pub fn build(b: *std.Build) !void {
         }
         exe.linkLibC();
 
-        if (target.target.os.tag == .windows) {
+        if (target.result.os.tag == .windows) {
             exe.linkSystemLibrary("dbghelp");
             exe.linkSystemLibrary("ws2_32");
         }

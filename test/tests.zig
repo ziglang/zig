@@ -1043,7 +1043,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             continue;
 
         const resolved_target = b.resolveTargetQuery(test_target.target);
-        const target = resolved_target.target;
+        const target = resolved_target.result;
 
         if (options.skip_cross_glibc and !test_target.target.isNative() and
             target.isGnuLibC() and test_target.link_libc == true)
@@ -1229,7 +1229,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
             if (skip_non_native and !c_abi_target.target.isNative()) continue;
 
             const resolved_target = b.resolveTargetQuery(c_abi_target.target);
-            const target = resolved_target.target;
+            const target = resolved_target.result;
 
             if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
                 // https://github.com/ziglang/zig/issues/14908

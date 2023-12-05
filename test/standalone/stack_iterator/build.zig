@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = .{ .path = "unwind.zig" },
             .target = target,
             .optimize = optimize,
-            .unwind_tables = target.target.isDarwin(),
+            .unwind_tables = target.result.isDarwin(),
             .omit_frame_pointer = false,
         });
 
@@ -70,7 +70,7 @@ pub fn build(b: *std.Build) void {
             .strip = false,
         });
 
-        if (target.target.os.tag == .windows)
+        if (target.result.os.tag == .windows)
             c_shared_lib.defineCMacro("LIB_API", "__declspec(dllexport)");
 
         c_shared_lib.addCSourceFile(.{
@@ -84,7 +84,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = .{ .path = "shared_lib_unwind.zig" },
             .target = target,
             .optimize = optimize,
-            .unwind_tables = target.target.isDarwin(),
+            .unwind_tables = target.result.isDarwin(),
             .omit_frame_pointer = true,
         });
 

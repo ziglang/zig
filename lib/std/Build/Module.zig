@@ -10,7 +10,7 @@ root_source_file: ?LazyPath,
 /// maintain step dependency edges.
 import_table: std.StringArrayHashMapUnmanaged(*Module),
 
-target: ?std.Build.ResolvedTarget = null,
+resolved_target: ?std.Build.ResolvedTarget = null,
 optimize: ?std.builtin.OptimizeMode = null,
 dwarf_format: ?std.dwarf.Format,
 
@@ -192,7 +192,7 @@ pub fn init(m: *Module, owner: *std.Build, options: CreateOptions, compile: ?*St
         .depending_steps = .{},
         .root_source_file = if (options.root_source_file) |lp| lp.dupe(owner) else null,
         .import_table = .{},
-        .target = options.target,
+        .resolved_target = options.target,
         .optimize = options.optimize,
         .link_libc = options.link_libc,
         .link_libcpp = options.link_libcpp,
@@ -627,7 +627,7 @@ pub fn appendZigProcessFlags(
         try zig_args.append(@tagName(m.code_model));
     }
 
-    if (m.target) |*target| {
+    if (m.resolved_target) |*target| {
         // Communicate the query via CLI since it's more compact.
         if (!target.query.isNative()) {
             try zig_args.appendSlice(&.{
@@ -737,9 +737,9 @@ fn linkLibraryOrObject(m: *Module, other: *Step.Compile) void {
 }
 
 fn requireKnownTarget(m: *Module) std.Target {
-    const resolved_target = m.target orelse
+    const resolved_target = m.resolved_target orelse
         @panic("this API requires the Module to be created with a known 'target' field");
-    return resolved_target.target;
+    return resolved_target.result;
 }
 
 const Module = @This();

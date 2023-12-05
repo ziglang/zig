@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const target = b.resolveTargetQuery(.{ .os_tag = .macos });
-    const sdk = std.zig.system.darwin.getSdk(b.allocator, target.target) orelse
+    const sdk = std.zig.system.darwin.getSdk(b.allocator, target.result) orelse
         @panic("macOS SDK is required to run the test");
 
     const exe = b.addExecutable(.{

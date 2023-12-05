@@ -48,7 +48,7 @@ pub fn main() !void {
 
     const host: std.Build.ResolvedTarget = .{
         .query = .{},
-        .target = try std.zig.system.resolveTargetQuery(.{}),
+        .result = try std.zig.system.resolveTargetQuery(.{}),
     };
 
     const build_root_directory: std.Build.Cache.Directory = .{

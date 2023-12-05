@@ -251,7 +251,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     else
         owner.fmt("{s} ", .{name});
 
-    const target = options.root_module.target.?.target;
+    const target = options.root_module.target.?.result;
 
     const step_name = owner.fmt("{s} {s}{s} {s}", .{
         switch (options.kind) {
@@ -954,7 +954,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try addFlag(&zig_args, "llvm", self.use_llvm);
     try addFlag(&zig_args, "lld", self.use_lld);
 
-    if (self.root_module.target.?.query.ofmt) |ofmt| {
+    if (self.root_module.resolved_target.?.query.ofmt) |ofmt| {
         try zig_args.append(try std.fmt.allocPrint(b.allocator, "-ofmt={s}", .{@tagName(ofmt)}));
     }
 
@@ -1845,5 +1845,5 @@ fn matchCompileError(actual: []const u8, expected: []const u8) bool {
 
 pub fn rootModuleTarget(c: *Compile) std.Target {
     // The root module is always given a target, so we know this to be non-null.
-    return c.root_module.target.?.target;
+    return c.root_module.resolved_target.?.result;
 }

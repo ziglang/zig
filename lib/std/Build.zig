@@ -2044,7 +2044,7 @@ pub fn hex64(x: u64) [16]u8 {
 /// of the target are "native". This can apply to the CPU, the OS, or even the ABI.
 pub const ResolvedTarget = struct {
     query: Target.Query,
-    target: Target,
+    result: Target,
 };
 
 /// Converts a target query into a fully resolved target that can be passed to
@@ -2056,7 +2056,7 @@ pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
 
     return .{
         .query = query,
-        .target = std.zig.system.resolveTargetQuery(query) catch
+        .result = std.zig.system.resolveTargetQuery(query) catch
             @panic("unable to resolve target query"),
     };
 }

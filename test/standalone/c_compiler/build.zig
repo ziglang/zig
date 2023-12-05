@@ -42,7 +42,7 @@ fn add(
     exe_cpp.addCSourceFile(.{ .file = .{ .path = "test.cpp" }, .flags = &[0][]const u8{} });
     exe_cpp.linkLibCpp();
 
-    switch (target.target.os.tag) {
+    switch (target.result.os.tag) {
         .windows => {
             // https://github.com/ziglang/zig/issues/8531
             exe_cpp.want_lto = false;

@@ -1763,7 +1763,7 @@ fn testInitArrayOrder(b: *Build, opts: Options) *Step {
     exe.addObject(g_o);
     exe.addObject(h_o);
 
-    if (opts.target.target.isGnuLibC()) {
+    if (opts.target.result.isGnuLibC()) {
         // TODO I think we need to clarify our use of `-fPIC -fPIE` flags for different targets
         exe.pie = true;
     }
