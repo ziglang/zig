@@ -390,7 +390,7 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
             ResolvedTarget => {
                 user_input_options.put(field.name, .{
                     .name = field.name,
-                    .value = .{ .scalar = v.target.zigTriple(allocator) catch @panic("OOM") },
+                    .value = .{ .scalar = v.query.zigTriple(allocator) catch @panic("OOM") },
                     .used = false,
                 }) catch @panic("OOM");
                 user_input_options.put("cpu", .{
