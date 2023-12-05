@@ -1442,6 +1442,8 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
 
     try self.base.file.?.setEndPos(total_size);
     try self.base.file.?.pwriteAll(buffer.items, 0);
+
+    if (self.misc_errors.items.len > 0) return error.FlushFailure;
 }
 
 pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
@@ -1512,6 +1514,8 @@ pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8)
     try self.writeSyntheticSectionsObject();
     try self.writeShdrTable();
     try self.writeElfHeader();
+
+    if (self.misc_errors.items.len > 0) return error.FlushFailure;
 }
 
 /// --verbose-link output
