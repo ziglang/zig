@@ -68,7 +68,7 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
     const gpa = elf_file.base.allocator;
 
     if (self.data.len < self.header.?.e_shoff or
-        self.data.len < self.header.?.e_shoff + self.header.?.e_shnum * @sizeOf(elf.Elf64_Shdr))
+        self.data.len < self.header.?.e_shoff + @as(u64, @intCast(self.header.?.e_shnum)) * @sizeOf(elf.Elf64_Shdr))
     {
         try elf_file.reportParseError2(
             self.index,

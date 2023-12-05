@@ -63,7 +63,7 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
     }
 
     if (self.data.len < self.header.?.e_shoff or
-        self.data.len < self.header.?.e_shoff + self.header.?.e_shnum * @sizeOf(elf.Elf64_Shdr))
+        self.data.len < self.header.?.e_shoff + @as(u64, @intCast(self.header.?.e_shnum)) * @sizeOf(elf.Elf64_Shdr))
     {
         try elf_file.reportParseError2(
             self.index,
