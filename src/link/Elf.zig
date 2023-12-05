@@ -1760,6 +1760,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 }
 
 const ParseError = error{
+    LinkFail,
     UnknownFileType,
     InvalidCpuArch,
     OutOfMemory,
@@ -1769,6 +1770,7 @@ const ParseError = error{
     FileSystem,
     NotSupported,
     InvalidCharacter,
+    MalformedObject,
 } || LdScript.Error || std.os.AccessError || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
 
 fn parsePositional(self: *Elf, path: []const u8, must_link: bool, ctx: *ParseErrorCtx) ParseError!void {
@@ -6057,6 +6059,7 @@ fn handleAndReportParseError(
 ) error{OutOfMemory}!void {
     const cpu_arch = self.base.options.target.cpu.arch;
     switch (err) {
+        error.LinkFail => {}, // already reported
         error.UnknownFileType => try self.reportParseError(path, "unknown file type", .{}),
         error.InvalidCpuArch => try self.reportParseError(
             path,
@@ -6080,6 +6083,17 @@ fn reportParseError(
     var err = try self.addErrorWithNotes(1);
     try err.addMsg(self, format, args);
     try err.addNote(self, "while parsing {s}", .{path});
+}
+
+pub fn reportParseError2(
+    self: *Elf,
+    file_index: File.Index,
+    comptime format: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
+    var err = try self.addErrorWithNotes(1);
+    try err.addMsg(self, format, args);
+    try err.addNote(self, "while parsing {}", .{self.file(file_index).?.fmtPath()});
 }
 
 const FormatShdrCtx = struct {
