@@ -3,6 +3,7 @@
 //! and any relocations that may have been emitted.
 //! Think about this as fake in-memory Object file for the Zig module.
 
+data: std.ArrayListUnmanaged(u8) = .{},
 path: []const u8,
 index: File.Index,
 
@@ -101,6 +102,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
 }
 
 pub fn deinit(self: *ZigObject, allocator: Allocator) void {
+    self.data.deinit(allocator);
     allocator.free(self.path);
     self.local_esyms.deinit(allocator);
     self.global_esyms.deinit(allocator);
@@ -441,6 +443,27 @@ pub fn markLive(self: *ZigObject, elf_file: *Elf) void {
     }
 }
 
+/// This is just a temporary helper function that allows us to re-read what we wrote to file into a buffer.
+/// We need this so that we can write to an archive.
+/// TODO implement writing ZigObject data directly to a buffer instead.
+pub fn readFileContents(self: *ZigObject, elf_file: *Elf) !void {
+    const gpa = elf_file.base.allocator;
+    const shsize: u64 = switch (elf_file.ptr_width) {
+        .p32 => @sizeOf(elf.Elf32_Shdr),
+        .p64 => @sizeOf(elf.Elf64_Shdr),
+    };
+    var end_pos: u64 = elf_file.shdr_table_offset.? + elf_file.shdrs.items.len * shsize;
+    for (elf_file.shdrs.items) |shdr| {
+        if (shdr.sh_type == elf.SHT_NOBITS) continue;
+        end_pos = @max(end_pos, shdr.sh_offset + shdr.sh_size);
+    }
+    const size = std.math.cast(usize, end_pos) orelse return error.Overflow;
+    try self.data.resize(gpa, size);
+
+    const amt = try elf_file.base.file.?.preadAll(self.data.items, 0);
+    if (amt != size) return error.InputOutput;
+}
+
 pub fn updateArSymtab(self: ZigObject, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) error{OutOfMemory}!void {
     const gpa = elf_file.base.allocator;
 
@@ -457,34 +480,21 @@ pub fn updateArSymtab(self: ZigObject, ar_symtab: *Archive.ArSymtab, elf_file: *
     }
 }
 
-pub fn updateArSize(self: *ZigObject, elf_file: *Elf) void {
-    var end_pos: u64 = elf_file.shdr_table_offset.?;
-    for (elf_file.shdrs.items) |shdr| {
-        end_pos = @max(end_pos, shdr.sh_offset + shdr.sh_size);
-    }
-    self.output_ar_state.size = end_pos;
+pub fn updateArSize(self: *ZigObject) void {
+    self.output_ar_state.size = self.data.items.len;
 }
 
-pub fn writeAr(self: ZigObject, elf_file: *Elf, writer: anytype) !void {
-    const gpa = elf_file.base.allocator;
-
-    const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
-    const contents = try gpa.alloc(u8, size);
-    defer gpa.free(contents);
-
-    const amt = try elf_file.base.file.?.preadAll(contents, 0);
-    if (amt != self.output_ar_state.size) return error.InputOutput;
-
+pub fn writeAr(self: ZigObject, writer: anytype) !void {
     const name = self.path;
     const hdr = Archive.setArHdr(.{
         .name = if (name.len <= Archive.max_member_name_len)
             .{ .name = name }
         else
             .{ .name_off = self.output_ar_state.name_off },
-        .size = @intCast(size),
+        .size = @intCast(self.data.items.len),
     });
     try writer.writeAll(mem.asBytes(&hdr));
-    try writer.writeAll(contents);
+    try writer.writeAll(self.data.items);
 }
 
 pub fn addAtomsToRelaSections(self: ZigObject, elf_file: *Elf) !void {
