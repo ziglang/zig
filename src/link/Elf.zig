@@ -1348,7 +1348,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
         try self.allocateNonAllocSections();
 
         if (build_options.enable_logging) {
-            log.debug("{}", .{self.dumpState()});
+            state_log.debug("{}", .{self.dumpState()});
         }
 
         try self.writeSyntheticSectionsObject();
