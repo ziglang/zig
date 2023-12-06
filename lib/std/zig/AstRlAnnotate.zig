@@ -18,7 +18,7 @@ const AstRlAnnotate = @This();
 const Ast = std.zig.Ast;
 const Allocator = std.mem.Allocator;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
-const BuiltinFn = @import("BuiltinFn.zig");
+const BuiltinFn = std.zig.BuiltinFn;
 const assert = std.debug.assert;
 
 gpa: Allocator,

@@ -140,9 +140,9 @@ test "exhaustive tagToId" {
         writer.writeAll(parsed_sort.suffix.?) catch unreachable;
         const expected_field_name = comptime field: {
             var name_buf: [5]u8 = undefined;
-            std.mem.copy(u8, &name_buf, parsed_sort.language_code);
+            @memcpy(&name_buf[0..parsed_sort.language_code.len], parsed_sort.language_code);
             name_buf[2] = '_';
-            std.mem.copy(u8, name_buf[3..], parsed_sort.country_code.?);
+            @memcpy(name_buf[3..], parsed_sort.country_code.?);
             break :field name_buf;
         };
         const expected = @field(LanguageId, &expected_field_name);

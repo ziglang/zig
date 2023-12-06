@@ -224,7 +224,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             var result_i: usize = 0; // out of 8
             var byte_i: usize = 0; // out of 8
             for (struct_type.field_types.get(ip), 0..) |field_ty_ip, i| {
-                const field_ty = field_ty_ip.toType();
+                const field_ty = Type.fromInterned(field_ty_ip);
                 const field_align = struct_type.fieldAlign(ip, i);
                 if (field_align != .none and field_align.compare(.lt, field_ty.abiAlignment(mod)))
                     return memory_class;
@@ -342,12 +342,12 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             for (union_obj.field_types.get(ip), 0..) |field_ty, field_index| {
                 const field_align = union_obj.fieldAlign(ip, @intCast(field_index));
                 if (field_align != .none and
-                    field_align.compare(.lt, field_ty.toType().abiAlignment(mod)))
+                    field_align.compare(.lt, Type.fromInterned(field_ty).abiAlignment(mod)))
                 {
                     return memory_class;
                 }
                 // Combine this field with the previous one.
-                const field_class = classifySystemV(field_ty.toType(), mod, .field);
+                const field_class = classifySystemV(Type.fromInterned(field_ty), mod, .field);
                 for (&result, 0..) |*result_item, i| {
                     const field_item = field_class[i];
                     // "If both classes are equal, this is the resulting class."

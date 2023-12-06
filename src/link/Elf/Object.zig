@@ -54,9 +54,29 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
 
     self.header = try reader.readStruct(elf.Elf64_Ehdr);
 
+    if (elf_file.base.options.target.cpu.arch != self.header.?.e_machine.toTargetCpuArch().?) {
+        try elf_file.reportParseError2(
+            self.index,
+            "invalid cpu architecture: {s}",
+            .{@tagName(self.header.?.e_machine.toTargetCpuArch().?)},
+        );
+        return error.InvalidCpuArch;
+    }
+
     if (self.header.?.e_shnum == 0) return;
 
     const gpa = elf_file.base.allocator;
+
+    if (self.data.len < self.header.?.e_shoff or
+        self.data.len < self.header.?.e_shoff + @as(u64, @intCast(self.header.?.e_shnum)) * @sizeOf(elf.Elf64_Shdr))
+    {
+        try elf_file.reportParseError2(
+            self.index,
+            "corrupt header: section header table extends past the end of file",
+            .{},
+        );
+        return error.MalformedObject;
+    }
 
     const shoff = math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;
     const shdrs = @as(
@@ -66,10 +86,23 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
     try self.shdrs.ensureTotalCapacityPrecise(gpa, shdrs.len);
 
     for (shdrs) |shdr| {
+        if (shdr.sh_type != elf.SHT_NOBITS) {
+            if (self.data.len < shdr.sh_offset or self.data.len < shdr.sh_offset + shdr.sh_size) {
+                try elf_file.reportParseError2(self.index, "corrupt section: extends past the end of file", .{});
+                return error.MalformedObject;
+            }
+        }
         self.shdrs.appendAssumeCapacity(try ElfShdr.fromElf64Shdr(shdr));
     }
 
-    try self.strtab.appendSlice(gpa, self.shdrContents(self.header.?.e_shstrndx));
+    const shstrtab = self.shdrContents(self.header.?.e_shstrndx);
+    for (shdrs) |shdr| {
+        if (shdr.sh_name >= shstrtab.len) {
+            try elf_file.reportParseError2(self.index, "corrupt section name offset", .{});
+            return error.MalformedObject;
+        }
+    }
+    try self.strtab.appendSlice(gpa, shstrtab);
 
     const symtab_index = for (self.shdrs.items, 0..) |shdr, i| switch (shdr.sh_type) {
         elf.SHT_SYMTAB => break @as(u16, @intCast(i)),
@@ -81,7 +114,10 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
         self.first_global = shdr.sh_info;
 
         const raw_symtab = self.shdrContents(index);
-        const nsyms = @divExact(raw_symtab.len, @sizeOf(elf.Elf64_Sym));
+        const nsyms = math.divExact(usize, raw_symtab.len, @sizeOf(elf.Elf64_Sym)) catch {
+            try elf_file.reportParseError2(self.index, "symbol table not evenly divisible", .{});
+            return error.MalformedObject;
+        };
         const symtab = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw_symtab.ptr))[0..nsyms];
 
         const strtab_bias = @as(u32, @intCast(self.strtab.items.len));

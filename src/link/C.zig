@@ -13,6 +13,7 @@ const codegen = @import("../codegen/c.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const Type = @import("../type.zig").Type;
+const Value = @import("../value.zig").Value;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 
@@ -23,7 +24,7 @@ base: link.File,
 /// This linker backend does not try to incrementally link output C source code.
 /// Instead, it tracks all declarations in this table, and iterates over it
 /// in the flush function, stitching pre-rendered pieces of C code together.
-decl_table: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclBlock) = .{},
+decl_table: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, DeclBlock) = .{},
 /// All the string bytes of rendered C code, all squished into one array.
 /// While in progress, a separate buffer is used, and then when finished, the
 /// buffer is copied into this one.
@@ -137,7 +138,7 @@ pub fn deinit(self: *C) void {
     self.code_buf.deinit(gpa);
 }
 
-pub fn freeDecl(self: *C, decl_index: Module.Decl.Index) void {
+pub fn freeDecl(self: *C, decl_index: InternPool.DeclIndex) void {
     const gpa = self.base.allocator;
     if (self.decl_table.fetchSwapRemove(decl_index)) |kv| {
         var decl_block = kv.value;
@@ -254,8 +255,8 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
     }
 
     const tv: @import("../TypedValue.zig") = .{
-        .ty = module.intern_pool.typeOf(anon_decl).toType(),
-        .val = anon_decl.toValue(),
+        .ty = Type.fromInterned(module.intern_pool.typeOf(anon_decl)),
+        .val = Value.fromInterned(anon_decl),
     };
     const c_value: codegen.CValue = .{ .constant = anon_decl };
     const alignment: Alignment = self.aligned_anon_decls.get(anon_decl) orelse .none;
@@ -278,7 +279,7 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
     };
 }
 
-pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDecl(self: *C, module: *Module, decl_index: InternPool.DeclIndex) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -336,7 +337,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
     gop.value_ptr.fwd_decl = try self.addString(object.dg.fwd_decl.items);
 }
 
-pub fn updateDeclLineNumber(self: *C, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDeclLineNumber(self: *C, module: *Module, decl_index: InternPool.DeclIndex) !void {
     // The C backend does not have the ability to fix line numbers without re-generating
     // the entire Decl.
     _ = self;

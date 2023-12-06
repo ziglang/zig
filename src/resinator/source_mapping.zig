@@ -476,7 +476,7 @@ pub const SourceMappings = struct {
 
         const after_collapsed_start = line_num + num_following_lines_to_collapse;
         const new_num_lines = self.mapping.items.len - num_following_lines_to_collapse;
-        std.mem.copy(SourceSpan, self.mapping.items[line_num..new_num_lines], self.mapping.items[after_collapsed_start..]);
+        std.mem.copyForwards(SourceSpan, self.mapping.items[line_num..new_num_lines], self.mapping.items[after_collapsed_start..]);
 
         self.mapping.items.len = new_num_lines;
     }

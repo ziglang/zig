@@ -9,6 +9,8 @@ const Tokenizer = @import("Tokenizer.zig");
 const Preprocessor = @import("Preprocessor.zig");
 const Tree = @import("Tree.zig");
 const Token = Tree.Token;
+const NumberPrefix = Token.NumberPrefix;
+const NumberSuffix = Token.NumberSuffix;
 const TokenIndex = Tree.TokenIndex;
 const NodeIndex = Tree.NodeIndex;
 const Type = @import("Type.zig");
@@ -24,9 +26,6 @@ const Symbol = SymbolStack.Symbol;
 const record_layout = @import("record_layout.zig");
 const StrInt = @import("StringInterner.zig");
 const StringId = StrInt.StringId;
-const number_affixes = @import("number_affixes.zig");
-const NumberPrefix = number_affixes.Prefix;
-const NumberSuffix = number_affixes.Suffix;
 const Builtins = @import("Builtins.zig");
 const Builtin = Builtins.Builtin;
 const target_util = @import("target.zig");
@@ -323,7 +322,7 @@ fn expectIdentifier(p: *Parser) Error!TokenIndex {
         return p.errExpectedToken(.identifier, actual);
     }
 
-    return (try p.eatIdentifier()) orelse unreachable;
+    return (try p.eatIdentifier()) orelse error.ParsingFailed;
 }
 
 fn eatToken(p: *Parser, id: Token.Id) ?TokenIndex {
@@ -347,7 +346,7 @@ pub fn tokSlice(p: *Parser, tok: TokenIndex) []const u8 {
     const loc = p.pp.tokens.items(.loc)[tok];
     var tmp_tokenizer = Tokenizer{
         .buf = p.comp.getSource(loc.id).buf,
-        .comp = p.comp,
+        .langopts = p.comp.langopts,
         .index = loc.byte_offset,
         .source = .generated,
     };
@@ -715,6 +714,9 @@ pub fn parse(pp: *Preprocessor) Compilation.Error!Tree {
         p.field_attr_buf.deinit();
     }
 
+    try p.syms.pushScope(&p);
+    defer p.syms.popScope();
+
     // NodeIndex 0 must be invalid
     _ = try p.addNode(.{ .tag = .invalid, .ty = undefined, .data = undefined });
 
@@ -1010,7 +1012,7 @@ fn decl(p: *Parser) Error!bool {
         // Collect old style parameter declarations.
         if (init_d.d.old_style_func != null) {
             const attrs = init_d.d.ty.getAttributes();
-            var base_ty = if (init_d.d.ty.specifier == .attributed) init_d.d.ty.elemType() else init_d.d.ty;
+            var base_ty = if (init_d.d.ty.specifier == .attributed) init_d.d.ty.data.attributed.base else init_d.d.ty;
             base_ty.specifier = .func;
             init_d.d.ty = try base_ty.withAttributes(p.arena, attrs);
 
@@ -1066,7 +1068,7 @@ fn decl(p: *Parser) Error!bool {
                     d.ty = try Attribute.applyParameterAttributes(p, d.ty, attr_buf_top_declarator, .alignas_on_param);
 
                     // bypass redefinition check to avoid duplicate errors
-                    try p.syms.syms.append(p.gpa, .{
+                    try p.syms.define(p.gpa, .{
                         .kind = .def,
                         .name = interned_name,
                         .tok = d.name,
@@ -1088,7 +1090,7 @@ fn decl(p: *Parser) Error!bool {
                 }
 
                 // bypass redefinition check to avoid duplicate errors
-                try p.syms.syms.append(p.gpa, .{
+                try p.syms.define(p.gpa, .{
                     .kind = .def,
                     .name = param.name,
                     .tok = param.name_tok,
@@ -1428,12 +1430,14 @@ fn typeof(p: *Parser) Error!?Type {
             .data = typeof_expr.ty.data,
             .qual = if (unqual) .{} else typeof_expr.ty.qual.inheritFromTypeof(),
             .specifier = typeof_expr.ty.specifier,
+            .decayed = typeof_expr.ty.decayed,
         },
     };
 
     return Type{
         .data = .{ .expr = inner },
         .specifier = .typeof_expr,
+        .decayed = typeof_expr.ty.decayed,
     };
 }
 
@@ -1814,6 +1818,7 @@ fn initDeclarator(p: *Parser, decl_spec: *DeclSpec, attr_buf_top: usize) Error!?
         } else {
             init_d.d.ty.specifier = init_d.initializer.ty.specifier;
             init_d.d.ty.data = init_d.initializer.ty.data;
+            init_d.d.ty.decayed = init_d.initializer.ty.decayed;
         }
     }
     if (apply_var_attributes) {
@@ -2105,7 +2110,7 @@ fn recordSpec(p: *Parser) Error!Type {
                 .specifier = if (is_struct) .@"struct" else .@"union",
                 .data = .{ .record = record_ty },
             }, attr_buf_top, null);
-            try p.syms.syms.append(p.gpa, .{
+            try p.syms.define(p.gpa, .{
                 .kind = if (is_struct) .@"struct" else .@"union",
                 .name = interned_name,
                 .tok = ident,
@@ -2151,10 +2156,8 @@ fn recordSpec(p: *Parser) Error!Type {
 
     // declare a symbol for the type
     // We need to replace the symbol's type if it has attributes
-    var symbol_index: ?usize = null;
     if (maybe_ident != null and !defined) {
-        symbol_index = p.syms.syms.len;
-        try p.syms.syms.append(p.gpa, .{
+        try p.syms.define(p.gpa, .{
             .kind = if (is_struct) .@"struct" else .@"union",
             .name = record_ty.name,
             .tok = maybe_ident.?,
@@ -2216,8 +2219,11 @@ fn recordSpec(p: *Parser) Error!Type {
         .specifier = if (is_struct) .@"struct" else .@"union",
         .data = .{ .record = record_ty },
     }, attr_buf_top, null);
-    if (ty.specifier == .attributed and symbol_index != null) {
-        p.syms.syms.items(.ty)[symbol_index.?] = ty;
+    if (ty.specifier == .attributed and maybe_ident != null) {
+        const ident_str = p.tokSlice(maybe_ident.?);
+        const interned_name = try StrInt.intern(p.comp, ident_str);
+        const ptr = p.syms.getPtr(interned_name, .tags);
+        ptr.ty = ty;
     }
 
     if (!ty.hasIncompleteSize()) {
@@ -2474,7 +2480,7 @@ fn enumSpec(p: *Parser) Error!Type {
                 .specifier = .@"enum",
                 .data = .{ .@"enum" = enum_ty },
             }, attr_buf_top, null);
-            try p.syms.syms.append(p.gpa, .{
+            try p.syms.define(p.gpa, .{
                 .kind = .@"enum",
                 .name = interned_name,
                 .tok = ident,
@@ -2525,7 +2531,6 @@ fn enumSpec(p: *Parser) Error!Type {
         p.enum_buf.items.len = enum_buf_top;
     }
 
-    const sym_stack_top = p.syms.syms.len;
     var e = Enumerator.init(fixed_ty);
     while (try p.enumerator(&e)) |field_and_node| {
         try p.enum_buf.append(field_and_node.field);
@@ -2551,13 +2556,12 @@ fn enumSpec(p: *Parser) Error!Type {
     const field_nodes = p.list_buf.items[list_buf_top..];
 
     if (fixed_ty == null) {
-        const vals = p.syms.syms.items(.val)[sym_stack_top..];
-        const types = p.syms.syms.items(.ty)[sym_stack_top..];
-
         for (enum_fields, 0..) |*field, i| {
             if (field.ty.eql(Type.int, p.comp, false)) continue;
 
-            var res = Result{ .node = field.node, .ty = field.ty, .val = vals[i] };
+            const sym = p.syms.get(field.name, .vars) orelse continue;
+
+            var res = Result{ .node = field.node, .ty = field.ty, .val = sym.val };
             const dest_ty = if (p.comp.fixedEnumTagSpecifier()) |some|
                 Type{ .specifier = some }
             else if (try res.intFitsInType(p, Type.int))
@@ -2567,8 +2571,9 @@ fn enumSpec(p: *Parser) Error!Type {
             else
                 continue;
 
-            try vals[i].intCast(dest_ty, p.comp);
-            types[i] = dest_ty;
+            const symbol = p.syms.getPtr(field.name, .vars);
+            try symbol.val.intCast(dest_ty, p.comp);
+            symbol.ty = dest_ty;
             p.nodes.items(.ty)[@intFromEnum(field_nodes[i])] = dest_ty;
             field.ty = dest_ty;
             res.ty = dest_ty;
@@ -2585,7 +2590,7 @@ fn enumSpec(p: *Parser) Error!Type {
 
     // declare a symbol for the type
     if (maybe_ident != null and !defined) {
-        try p.syms.syms.append(p.gpa, .{
+        try p.syms.define(p.gpa, .{
             .kind = .@"enum",
             .name = enum_ty.name,
             .ty = ty,
@@ -2885,7 +2890,7 @@ fn declarator(
         try res.ty.combine(outer);
         try res.ty.validateCombinedType(p, suffix_start);
         res.old_style_func = d.old_style_func;
-        res.func_declarator = d.func_declarator;
+        if (d.func_declarator) |some| res.func_declarator = some;
         return res;
     }
 
@@ -4376,7 +4381,7 @@ fn stmt(p: *Parser) Error!NodeIndex {
 /// | keyword_default ':' stmt
 fn labeledStmt(p: *Parser) Error!?NodeIndex {
     if ((p.tok_ids[p.tok_i] == .identifier or p.tok_ids[p.tok_i] == .extended_identifier) and p.tok_ids[p.tok_i + 1] == .colon) {
-        const name_tok = p.expectIdentifier() catch unreachable;
+        const name_tok = try p.expectIdentifier();
         const str = p.tokSlice(name_tok);
         if (p.findLabel(str)) |some| {
             try p.errStr(.duplicate_label, name_tok, str);
@@ -4814,10 +4819,23 @@ const CallExpr = union(enum) {
     /// of arguments, `paramCountOverride` is used to tell us how many arguments we should actually expect to see for
     /// these custom-typechecked functions.
     fn paramCountOverride(self: CallExpr) ?u32 {
+        @setEvalBranchQuota(10_000);
         return switch (self) {
             .standard => null,
             .builtin => |builtin| switch (builtin.tag) {
                 Builtin.tagFromName("__builtin_complex").? => 2,
+
+                Builtin.tagFromName("__atomic_fetch_add").?,
+                Builtin.tagFromName("__atomic_fetch_sub").?,
+                Builtin.tagFromName("__atomic_fetch_and").?,
+                Builtin.tagFromName("__atomic_fetch_xor").?,
+                Builtin.tagFromName("__atomic_fetch_or").?,
+                Builtin.tagFromName("__atomic_fetch_nand").?,
+                => 3,
+
+                Builtin.tagFromName("__atomic_compare_exchange").?,
+                Builtin.tagFromName("__atomic_compare_exchange_n").?,
+                => 6,
                 else => null,
             },
         };
@@ -4827,10 +4845,25 @@ const CallExpr = union(enum) {
         return switch (self) {
             .standard => callable_ty.returnType(),
             .builtin => |builtin| switch (builtin.tag) {
+                Builtin.tagFromName("__atomic_fetch_add").?,
+                Builtin.tagFromName("__atomic_fetch_sub").?,
+                Builtin.tagFromName("__atomic_fetch_and").?,
+                Builtin.tagFromName("__atomic_fetch_xor").?,
+                Builtin.tagFromName("__atomic_fetch_or").?,
+                Builtin.tagFromName("__atomic_fetch_nand").?,
+                => {
+                    if (p.list_buf.items.len < 2) return Type.invalid; // not enough arguments; already an error
+                    const second_param = p.list_buf.items[p.list_buf.items.len - 2];
+                    return p.nodes.items(.ty)[@intFromEnum(second_param)];
+                },
                 Builtin.tagFromName("__builtin_complex").? => {
+                    if (p.list_buf.items.len < 1) return Type.invalid; // not enough arguments; already an error
                     const last_param = p.list_buf.items[p.list_buf.items.len - 1];
                     return p.nodes.items(.ty)[@intFromEnum(last_param)].makeComplex();
                 },
+                Builtin.tagFromName("__atomic_compare_exchange").?,
+                Builtin.tagFromName("__atomic_compare_exchange_n").?,
+                => .{ .specifier = .bool },
                 else => callable_ty.returnType(),
             },
         };
@@ -7458,7 +7491,7 @@ fn primaryExpr(p: *Parser) Error!Result {
     }
     switch (p.tok_ids[p.tok_i]) {
         .identifier, .extended_identifier => {
-            const name_tok = p.expectIdentifier() catch unreachable;
+            const name_tok = try p.expectIdentifier();
             const name = p.tokSlice(name_tok);
             const interned_name = try StrInt.intern(p.comp, name);
             if (p.syms.findSymbol(interned_name)) |sym| {
@@ -7938,6 +7971,8 @@ fn parseFloat(p: *Parser, buf: []const u8, suffix: NumberSuffix) !Result {
         .F, .IF => .float,
         .F16 => .float16,
         .L, .IL => .long_double,
+        .W, .IW => .float80,
+        .Q, .IQ, .F128, .IF128 => .float128,
         else => unreachable,
     } };
     const val = try Value.intern(p.comp, key: {
@@ -7946,7 +7981,7 @@ fn parseFloat(p: *Parser, buf: []const u8, suffix: NumberSuffix) !Result {
         const strings_top = p.strings.items.len;
         defer p.strings.items.len = strings_top;
         for (buf) |c| {
-            if (c != '_') p.strings.appendAssumeCapacity(c);
+            if (c != '\'') p.strings.appendAssumeCapacity(c);
         }
 
         const float = std.fmt.parseFloat(f128, p.strings.items[strings_top..]) catch unreachable;
@@ -7971,6 +8006,8 @@ fn parseFloat(p: *Parser, buf: []const u8, suffix: NumberSuffix) !Result {
             .I => .complex_double,
             .IF => .complex_float,
             .IL => .complex_long_double,
+            .IW => .complex_float80,
+            .IQ, .IF128 => .complex_float128,
             else => unreachable,
         } };
         res.val = .{}; // TODO add complex values
@@ -8123,11 +8160,21 @@ fn bitInt(p: *Parser, base: u8, buf: []const u8, suffix: NumberSuffix, tok_i: To
     var managed = try big.int.Managed.init(p.gpa);
     defer managed.deinit();
 
-    managed.setString(base, buf) catch |e| switch (e) {
-        error.InvalidBase => unreachable, // `base` is one of 2, 8, 10, 16
-        error.InvalidCharacter => unreachable, // digits validated by Tokenizer
-        else => |er| return er,
-    };
+    {
+        try p.strings.ensureUnusedCapacity(buf.len);
+
+        const strings_top = p.strings.items.len;
+        defer p.strings.items.len = strings_top;
+        for (buf) |c| {
+            if (c != '\'') p.strings.appendAssumeCapacity(c);
+        }
+
+        managed.setString(base, p.strings.items[strings_top..]) catch |e| switch (e) {
+            error.InvalidBase => unreachable, // `base` is one of 2, 8, 10, 16
+            error.InvalidCharacter => unreachable, // digits validated by Tokenizer
+            else => |er| return er,
+        };
+    }
     const c = managed.toConst();
     const bits_needed: std.math.IntFittingRange(0, Compilation.bit_int_max_bits) = blk: {
         // Literal `0` requires at least 1 bit

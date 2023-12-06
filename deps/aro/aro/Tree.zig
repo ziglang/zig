@@ -1,11 +1,12 @@
 const std = @import("std");
 const Interner = @import("backend").Interner;
-const Type = @import("Type.zig");
-const Tokenizer = @import("Tokenizer.zig");
+const Attribute = @import("Attribute.zig");
 const CodeGen = @import("CodeGen.zig");
 const Compilation = @import("Compilation.zig");
+const number_affixes = @import("Tree/number_affixes.zig");
 const Source = @import("Source.zig");
-const Attribute = @import("Attribute.zig");
+const Tokenizer = @import("Tokenizer.zig");
+const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const StringInterner = @import("StringInterner.zig");
 
@@ -92,6 +93,8 @@ pub const Token = struct {
 
     pub const List = std.MultiArrayList(Token);
     pub const Id = Tokenizer.Token.Id;
+    pub const NumberPrefix = number_affixes.Prefix;
+    pub const NumberSuffix = number_affixes.Suffix;
 };
 
 pub const TokenIndex = u32;
@@ -669,7 +672,7 @@ pub fn tokSlice(tree: *const Tree, tok_i: TokenIndex) []const u8 {
     const loc = tree.tokens.items(.loc)[tok_i];
     var tmp_tokenizer = Tokenizer{
         .buf = tree.comp.getSource(loc.id).buf,
-        .comp = tree.comp,
+        .langopts = tree.comp.langopts,
         .index = loc.byte_offset,
         .source = .generated,
     };

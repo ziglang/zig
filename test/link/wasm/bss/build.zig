@@ -26,6 +26,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
         lib.strip = false;
         // to make sure the bss segment is emitted, we must import memory
         lib.import_memory = true;
+        lib.link_gc_sections = false;
 
         const check_lib = lib.checkObject();
 
@@ -73,6 +74,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
         lib.strip = false;
         // to make sure the bss segment is emitted, we must import memory
         lib.import_memory = true;
+        lib.link_gc_sections = false;
 
         const check_lib = lib.checkObject();
         check_lib.checkStart();

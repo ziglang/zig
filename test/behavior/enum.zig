@@ -1225,3 +1225,13 @@ test "auto-numbered enum with signed tag type" {
     try std.testing.expectEqualStrings("a", @tagName(E.a));
     try std.testing.expectEqualStrings("b", @tagName(E.b));
 }
+
+test "lazy initialized field" {
+    try std.testing.expectEqual(@as(u8, @alignOf(struct {})), getLazyInitialized(.a));
+}
+
+fn getLazyInitialized(param: enum(u8) {
+    a = @bitCast(packed struct(u8) { a: u8 }{ .a = @alignOf(struct {}) }),
+}) u8 {
+    return @intFromEnum(param);
+}

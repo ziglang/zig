@@ -261,16 +261,22 @@ pub fn run(f: *Fetch) RunError!void {
                 f.hash_tok,
                 try eb.addString("path-based dependencies are not hashed"),
             );
-            if ((std.mem.startsWith(u8, pkg_root.sub_path, "../") or
-                std.mem.eql(u8, pkg_root.sub_path, "..")) and
-                pkg_root.root_dir.eql(cache_root))
-            {
-                return f.fail(
-                    f.location_tok,
-                    try eb.printString("dependency path outside project: '{}{s}'", .{
-                        pkg_root.root_dir, pkg_root.sub_path,
-                    }),
-                );
+            // Packages fetched by URL may not use relative paths to escape outside the
+            // fetched package directory from within the package cache.
+            if (pkg_root.root_dir.eql(cache_root)) {
+                // `parent_package_root.sub_path` contains a path like this:
+                // "p/$hash", or
+                // "p/$hash/foo", with possibly more directories after "foo".
+                // We want to fail unless the resolved relative path has a
+                // prefix of "p/$hash/".
+                const digest_len = @typeInfo(Manifest.MultiHashHexDigest).Array.len;
+                const expected_prefix = f.parent_package_root.sub_path[0 .. "p/".len + digest_len];
+                if (!std.mem.startsWith(u8, pkg_root.sub_path, expected_prefix)) {
+                    return f.fail(
+                        f.location_tok,
+                        try eb.printString("dependency path outside project: '{}'", .{pkg_root}),
+                    );
+                }
             }
             f.package_root = pkg_root;
             try loadManifest(f, pkg_root);
@@ -520,24 +526,7 @@ fn loadManifest(f: *Fetch, pkg_root: Package.Path) RunError!void {
 
     if (manifest.errors.len > 0) {
         const src_path = try eb.printString("{}{s}", .{ pkg_root, Manifest.basename });
-        const token_starts = ast.tokens.items(.start);
-
-        for (manifest.errors) |msg| {
-            const start_loc = ast.tokenLocation(0, msg.tok);
-
-            try eb.addRootErrorMessage(.{
-                .msg = try eb.addString(msg.msg),
-                .src_loc = try eb.addSourceLocation(.{
-                    .src_path = src_path,
-                    .span_start = token_starts[msg.tok],
-                    .span_end = @intCast(token_starts[msg.tok] + ast.tokenSlice(msg.tok).len),
-                    .span_main = token_starts[msg.tok] + msg.off,
-                    .line = @intCast(start_loc.line),
-                    .column = @intCast(start_loc.column),
-                    .source_line = try eb.addString(ast.source[start_loc.line_start..start_loc.line_end]),
-                }),
-            });
-        }
+        try manifest.copyErrorsIntoBundle(ast.*, src_path, eb);
         return error.FetchFailed;
     }
 }
