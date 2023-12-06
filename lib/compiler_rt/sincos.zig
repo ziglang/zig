@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const math = std.math;
+const mem = std.mem;
 const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
@@ -45,7 +46,7 @@ pub fn sincosf(x: f32, r_sin: *f32, r_cos: *f32) callconv(.C) void {
         // |x| < 2**-12
         if (ix < 0x39800000) {
             // raise inexact if x!=0 and underflow if subnormal
-            math.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
+            mem.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
             r_sin.* = x;
             r_cos.* = 1.0;
             return;
@@ -133,7 +134,7 @@ pub fn sincos(x: f64, r_sin: *f64, r_cos: *f64) callconv(.C) void {
         // if |x| < 2**-27 * sqrt(2)
         if (ix < 0x3e46a09e) {
             // raise inexact if x != 0 and underflow if subnormal
-            math.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
+            mem.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
             r_sin.* = x;
             r_cos.* = 1.0;
             return;
@@ -231,7 +232,7 @@ inline fn sincos_generic(comptime F: type, x: F, r_sin: *F, r_cos: *F) void {
         if (se < 0x3fff - math.floatFractionalBits(F) - 1) {
             // raise underflow if subnormal
             if (se == 0) {
-                math.doNotOptimizeAway(x * 0x1p-120);
+                mem.doNotOptimizeAway(x * 0x1p-120);
             }
             r_sin.* = x;
             // raise inexact if x!=0

@@ -254,19 +254,19 @@ pub const RcIncludes = enum {
 
 const Job = union(enum) {
     /// Write the constant value for a Decl to the output file.
-    codegen_decl: Module.Decl.Index,
+    codegen_decl: InternPool.DeclIndex,
     /// Write the machine code for a function to the output file.
     /// This will either be a non-generic `func_decl` or a `func_instance`.
     codegen_func: InternPool.Index,
     /// Render the .h file snippet for the Decl.
-    emit_h_decl: Module.Decl.Index,
+    emit_h_decl: InternPool.DeclIndex,
     /// The Decl needs to be analyzed and possibly export itself.
     /// It may have already be analyzed, or it may have been determined
     /// to be outdated; in this case perform semantic analysis again.
-    analyze_decl: Module.Decl.Index,
+    analyze_decl: InternPool.DeclIndex,
     /// The source file containing the Decl has been updated, and so the
     /// Decl may need its line number information updated in the debug info.
-    update_line_number: Module.Decl.Index,
+    update_line_number: InternPool.DeclIndex,
     /// The main source file for the module needs to be analyzed.
     analyze_mod: *Package.Module,
 
@@ -1002,6 +1002,8 @@ pub const InitOptions = struct {
     /// (Windows) PDB output path
     pdb_out_path: ?[]const u8 = null,
     error_limit: ?Module.ErrorInt = null,
+    /// (SPIR-V) whether to generate a structured control flow graph or not
+    want_structured_cfg: ?bool = null,
 };
 
 fn addModuleTableToCacheHash(
@@ -1447,6 +1449,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         };
         const formatted_panics = options.formatted_panics orelse (options.optimize_mode == .Debug);
 
+        const error_limit = options.error_limit orelse (std.math.maxInt(u16) - 1);
+
         // We put everything into the cache hash that *cannot be modified
         // during an incremental update*. For example, one cannot change the
         // target between updates, but one can change source files, so the
@@ -1545,6 +1549,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             hash.add(options.skip_linker_dependencies);
             hash.add(options.parent_compilation_link_libc);
             hash.add(formatted_panics);
+            hash.add(options.emit_h != null);
+            hash.add(error_limit);
+            hash.addOptional(options.want_structured_cfg);
 
             // In the case of incremental cache mode, this `zig_cache_artifact_directory`
             // is computed based on a hash of non-linker inputs, and it is where all
@@ -1699,7 +1706,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .local_zir_cache = local_zir_cache,
                 .emit_h = emit_h,
                 .tmp_hack_arena = std.heap.ArenaAllocator.init(gpa),
-                .error_limit = options.error_limit orelse (std.math.maxInt(u16) - 1),
+                .error_limit = error_limit,
             };
             try module.init();
 
@@ -1759,7 +1766,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             const digest = hash.final();
             const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
-            var artifact_dir = try options.local_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
+            const artifact_dir = try options.local_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
             owned_link_dir = artifact_dir;
             const link_artifact_directory: Directory = .{
                 .handle = artifact_dir,
@@ -1958,6 +1965,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .force_undefined_symbols = options.force_undefined_symbols,
             .pdb_source_path = options.pdb_source_path,
             .pdb_out_path = options.pdb_out_path,
+            .want_structured_cfg = options.want_structured_cfg,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -2173,7 +2181,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // LLD might drop some symbols as unused during LTO and GCing, therefore,
             // we force mark them for resolution here.
 
-            var tls_index_sym = switch (comp.getTarget().cpu.arch) {
+            const tls_index_sym = switch (comp.getTarget().cpu.arch) {
                 .x86 => "__tls_index",
                 else => "_tls_index",
             };
@@ -2576,7 +2584,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             var artifact_dir = try comp.local_cache_directory.handle.openDir(o_sub_path, .{});
             defer artifact_dir.close();
 
-            var dir_path = try comp.local_cache_directory.join(comp.gpa, &.{o_sub_path});
+            const dir_path = try comp.local_cache_directory.join(comp.gpa, &.{o_sub_path});
             defer comp.gpa.free(dir_path);
 
             module.zig_cache_artifact_directory = .{
@@ -2732,6 +2740,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.add(comp.bin_file.options.valgrind);
         man.hash.add(comp.bin_file.options.single_threaded);
         man.hash.add(comp.bin_file.options.use_llvm);
+        man.hash.add(comp.bin_file.options.use_lib_llvm);
         man.hash.add(comp.bin_file.options.dll_export_fns);
         man.hash.add(comp.bin_file.options.is_test);
         man.hash.add(comp.test_evented_io);
@@ -2739,8 +2748,10 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.addOptionalBytes(comp.test_name_prefix);
         man.hash.add(comp.bin_file.options.skip_linker_dependencies);
         man.hash.add(comp.bin_file.options.parent_compilation_link_libc);
+        man.hash.add(comp.formatted_panics);
         man.hash.add(mod.emit_h != null);
         man.hash.add(mod.error_limit);
+        man.hash.addOptional(comp.bin_file.options.want_structured_cfg);
     }
 
     try man.addOptionalFile(comp.bin_file.options.linker_script);
@@ -4194,7 +4205,7 @@ pub const CImportResult = struct {
 /// This API is currently coupled pretty tightly to stage1's needs; it will need to be reworked
 /// a bit when we want to start using it from self-hosted.
 pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
-    if (build_options.only_c) unreachable; // @cImport is not needed for bootstrapping
+    if (build_options.only_core_functionality) @panic("@cImport is not available in a zig2.c build");
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
@@ -4961,7 +4972,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
             var cli_diagnostics = resinator.cli.Diagnostics.init(comp.gpa);
             defer cli_diagnostics.deinit();
-            var options = resinator.cli.parse(comp.gpa, resinator_args.items, &cli_diagnostics) catch |err| switch (err) {
+            const options = resinator.cli.parse(comp.gpa, resinator_args.items, &cli_diagnostics) catch |err| switch (err) {
                 error.ParseError => {
                     return comp.failWin32ResourceCli(win32_resource, &cli_diagnostics);
                 },
@@ -5062,7 +5073,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             log.warn("failed to delete '{s}': {s}", .{ out_dep_path, @errorName(err) });
         };
 
-        var full_input = std.fs.cwd().readFileAlloc(arena, out_rcpp_path, std.math.maxInt(usize)) catch |err| switch (err) {
+        const full_input = std.fs.cwd().readFileAlloc(arena, out_rcpp_path, std.math.maxInt(usize)) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => |e| {
                 return comp.failWin32Resource(win32_resource, "failed to read preprocessed file '{s}': {s}", .{ out_rcpp_path, @errorName(e) });
@@ -5072,7 +5083,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         var mapping_results = try resinator.source_mapping.parseAndRemoveLineCommands(arena, full_input, full_input, .{ .initial_filename = rc_src.src_path });
         defer mapping_results.mappings.deinit(arena);
 
-        var final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
+        const final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
 
         var output_file = zig_cache_tmp_dir.createFile(out_res_path, .{}) catch |err| {
             return comp.failWin32Resource(win32_resource, "failed to create output file '{s}': {s}", .{ out_res_path, @errorName(err) });
@@ -6823,6 +6834,7 @@ fn buildOutputFromZig(
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
         .parent_compilation_link_libc = comp.bin_file.options.link_libc,
+        .want_structured_cfg = comp.bin_file.options.want_structured_cfg,
     });
     defer sub_compilation.destroy();
 
@@ -6903,6 +6915,7 @@ pub fn build_crt_file(
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
         .parent_compilation_link_libc = comp.bin_file.options.link_libc,
+        .want_structured_cfg = comp.bin_file.options.want_structured_cfg,
     });
     defer sub_compilation.destroy();
 

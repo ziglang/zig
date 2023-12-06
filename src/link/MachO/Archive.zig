@@ -98,7 +98,7 @@ pub fn parse(self: *Archive, allocator: Allocator, reader: anytype) !void {
     _ = try reader.readBytesNoEof(SARMAG);
     self.header = try reader.readStruct(ar_hdr);
     const name_or_length = try self.header.nameOrLength();
-    var embedded_name = try parseName(allocator, name_or_length, reader);
+    const embedded_name = try parseName(allocator, name_or_length, reader);
     log.debug("parsing archive '{s}' at '{s}'", .{ embedded_name, self.name });
     defer allocator.free(embedded_name);
 
@@ -124,7 +124,7 @@ fn parseName(allocator: Allocator, name_or_length: ar_hdr.NameOrLength, reader: 
 
 fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !void {
     const symtab_size = try reader.readInt(u32, .little);
-    var symtab = try allocator.alloc(u8, symtab_size);
+    const symtab = try allocator.alloc(u8, symtab_size);
     defer allocator.free(symtab);
 
     reader.readNoEof(symtab) catch {
@@ -133,7 +133,7 @@ fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !
     };
 
     const strtab_size = try reader.readInt(u32, .little);
-    var strtab = try allocator.alloc(u8, strtab_size);
+    const strtab = try allocator.alloc(u8, strtab_size);
     defer allocator.free(strtab);
 
     reader.readNoEof(strtab) catch {

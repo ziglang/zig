@@ -57,6 +57,7 @@ fn testMemcpyDestManyPtr() !void {
     var str = "hello".*;
     var buf: [5]u8 = undefined;
     var len: usize = 5;
+    _ = &len;
     @memcpy(@as([*]u8, @ptrCast(&buf)), @as([*]const u8, @ptrCast(&str))[0..len]);
     try expect(buf[0] == 'h');
     try expect(buf[1] == 'e');

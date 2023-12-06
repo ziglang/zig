@@ -1625,13 +1625,18 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             });
             const main_token = try c.addToken(.equal, "=");
             if (payload.value.tag() == .identifier) {
-                // Render as `_ = @TypeOf(foo);` to avoid tripping "pointless discard" error.
+                // Render as `_ = &foo;` to avoid tripping "pointless discard" and "local variable never mutated" errors.
+                var addr_of_pl: Payload.UnOp = .{
+                    .base = .{ .tag = .address_of },
+                    .data = payload.value,
+                };
+                const addr_of: Node = .{ .ptr_otherwise = &addr_of_pl.base };
                 return c.addNode(.{
                     .tag = .assign,
                     .main_token = main_token,
                     .data = .{
                         .lhs = lhs,
-                        .rhs = try renderBuiltinCall(c, "@TypeOf", &.{payload.value}),
+                        .rhs = try renderNode(c, addr_of),
                     },
                 });
             } else {
@@ -2043,29 +2048,38 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             }
             _ = try c.addToken(.r_brace, "}");
 
-            if (payload.inits.len < 2) {
-                return c.addNode(.{
+            return switch (payload.inits.len) {
+                0 => c.addNode(.{
+                    .tag = .struct_init_one,
+                    .main_token = l_brace,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = 0,
+                    },
+                }),
+                1 => c.addNode(.{
                     .tag = .struct_init_one_comma,
                     .main_token = l_brace,
                     .data = .{
                         .lhs = lhs,
                         .rhs = inits[0],
                     },
-                });
-            } else {
-                const span = try c.listToSpan(inits);
-                return c.addNode(.{
-                    .tag = .struct_init_comma,
-                    .main_token = l_brace,
-                    .data = .{
-                        .lhs = lhs,
-                        .rhs = try c.addExtra(NodeSubRange{
-                            .start = span.start,
-                            .end = span.end,
-                        }),
-                    },
-                });
-            }
+                }),
+                else => blk: {
+                    const span = try c.listToSpan(inits);
+                    break :blk c.addNode(.{
+                        .tag = .struct_init_comma,
+                        .main_token = l_brace,
+                        .data = .{
+                            .lhs = lhs,
+                            .rhs = try c.addExtra(NodeSubRange{
+                                .start = span.start,
+                                .end = span.end,
+                            }),
+                        },
+                    });
+                },
+            };
         },
         .@"anytype" => unreachable, // Handled in renderParams
     }

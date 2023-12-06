@@ -2,7 +2,7 @@ export fn entry() void {
     var sp = asm volatile ("mov %[foo], sp"
         : [bar] "=r" (-> usize),
     );
-    _ = sp;
+    _ = &sp;
 }
 
 // error

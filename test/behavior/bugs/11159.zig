@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 test {
     const T = @TypeOf(.{ @as(i32, 0), @as(u32, 0) });
     var a: T = .{ 0, 0 };
-    _ = a;
+    _ = &a;
 }
 
 test {
@@ -13,7 +13,7 @@ test {
         comptime y: u32 = 0,
     };
     var a: S = .{};
-    _ = a;
+    _ = &a;
     var b = S{};
-    _ = b;
+    _ = &b;
 }

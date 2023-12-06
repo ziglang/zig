@@ -22,7 +22,7 @@ pub fn calcUuid(comp: *const Compilation, file: fs.File, file_size: u64, out: *[
     defer comp.gpa.free(final_buffer);
 
     for (hashes, 0..) |hash, i| {
-        mem.copy(u8, final_buffer[i * Md5.digest_length ..][0..Md5.digest_length], &hash);
+        @memcpy(final_buffer[i * Md5.digest_length ..][0..Md5.digest_length], &hash);
     }
 
     Md5.hash(final_buffer, out, .{});

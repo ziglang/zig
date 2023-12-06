@@ -797,7 +797,7 @@ pub const Mutable = struct {
         // 0b0..01..1000 with @log2(@sizeOf(Limb)) consecutive ones
         const endian_mask: usize = (@sizeOf(Limb) - 1) << 3;
 
-        var bytes = std.mem.sliceAsBytes(r.limbs);
+        const bytes = std.mem.sliceAsBytes(r.limbs);
         var bits = std.packed_int_array.PackedIntSliceEndian(u1, .little).init(bytes, limbs_required * @bitSizeOf(Limb));
 
         var k: usize = 0;
@@ -1407,7 +1407,7 @@ pub const Mutable = struct {
             }
 
             // Avoid copying u to s by swapping u and s
-            var tmp_s = s;
+            const tmp_s = s;
             s = u;
             u = tmp_s;
         }
@@ -1911,7 +1911,7 @@ pub const Mutable = struct {
         var positive = true;
         if (signedness == .signed) {
             const total_bits = bit_offset + bit_count;
-            var last_byte = switch (endian) {
+            const last_byte = switch (endian) {
                 .little => ((total_bits + 7) / 8) - 1,
                 .big => buffer.len - ((total_bits + 7) / 8),
             };
@@ -3161,7 +3161,7 @@ pub const Managed = struct {
 
     /// r = a ^ b
     pub fn bitXor(r: *Managed, a: *const Managed, b: *const Managed) !void {
-        var cap = @max(a.len(), b.len()) + @intFromBool(a.isPositive() != b.isPositive());
+        const cap = @max(a.len(), b.len()) + @intFromBool(a.isPositive() != b.isPositive());
         try r.ensureCapacity(cap);
 
         var m = r.toMutable();
@@ -4178,7 +4178,7 @@ fn llpow(r: []Limb, a: []const Limb, b: u32, tmp_limbs: []Limb) void {
     // most significant bit set.
     // Square the result if the current bit is zero, square and multiply by a if
     // it is one.
-    var exp_bits = 32 - 1 - b_leading_zeros;
+    const exp_bits = 32 - 1 - b_leading_zeros;
     var exp = b << @as(u5, @intCast(1 + b_leading_zeros));
 
     var i: usize = 0;

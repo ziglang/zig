@@ -17008,3 +17008,155 @@ wmemmove
     .param_str = "w*w*wC*z"
     .header = .wchar
     .attributes = .{ .lib_function_without_prefix = true, .const_evaluable = true }
+
+__c11_atomic_init
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__c11_atomic_load
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__c11_atomic_store
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__c11_atomic_exchange
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__c11_atomic_compare_exchange_strong
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__c11_atomic_compare_exchange_weak
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__c11_atomic_fetch_add
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__c11_atomic_fetch_sub
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__c11_atomic_fetch_and
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__c11_atomic_fetch_or
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__c11_atomic_fetch_xor
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__c11_atomic_fetch_nand
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__c11_atomic_fetch_max
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__c11_atomic_fetch_min
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_load
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_load_n
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_store
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_store_n
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_exchange
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_exchange_n
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_compare_exchange
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_compare_exchange_n
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_fetch_add
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_fetch_sub
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_fetch_and
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_fetch_or
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_fetch_xor
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_fetch_nand
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_add_fetch
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_sub_fetch
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_and_fetch
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_or_fetch
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_xor_fetch
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_max_fetch
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_min_fetch
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_nand_fetch
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_fetch_min
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }
+
+__atomic_fetch_max
+    .param_str = "v."
+    .attributes = .{ .custom_typecheck = true }

@@ -165,7 +165,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const y : u16 = 5678;
         \\pub fn main() void {
         \\    var x_local : i32 = print_ok(x);
-        \\    _ = x_local;
+        \\    _ = &x_local;
         \\}
         \\fn print_ok(val: @TypeOf(x)) @TypeOf(foo) {
         \\    _ = val;
@@ -504,7 +504,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\
         \\pub fn main() !void {
         \\    var allocator_buf: [10]u8 = undefined;
-        \\    var fba = std.heap.FixedBufferAllocator.init(&allocator_buf);
+        \\    const fba = std.heap.FixedBufferAllocator.init(&allocator_buf);
         \\    var fba_wrapped = std.mem.validationWrap(fba);
         \\    var logging_allocator = std.heap.loggingAllocator(fba_wrapped.allocator());
         \\    const allocator = logging_allocator.allocator();

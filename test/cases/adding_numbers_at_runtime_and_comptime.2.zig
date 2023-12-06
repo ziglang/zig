@@ -1,5 +1,6 @@
 pub fn main() void {
     var x: usize = 3;
+    _ = &x;
     const y = add(1, 2, x);
     if (y - 6 != 0) unreachable;
 }

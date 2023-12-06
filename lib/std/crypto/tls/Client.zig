@@ -355,7 +355,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                     inline .AES_128_GCM_SHA256,
                     .AES_256_GCM_SHA384,
                     .CHACHA20_POLY1305_SHA256,
-                    .AEGIS_256_SHA384,
+                    .AEGIS_256_SHA512,
                     .AEGIS_128L_SHA256,
                     => |tag| {
                         const P = std.meta.TagPayloadByName(tls.HandshakeCipher, @tagName(tag));
@@ -491,7 +491,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                 try all_extd.ensure(4);
                                 const et = all_extd.decode(tls.ExtensionType);
                                 const ext_size = all_extd.decode(u16);
-                                var extd = try all_extd.sub(ext_size);
+                                const extd = try all_extd.sub(ext_size);
                                 _ = extd;
                                 switch (et) {
                                     .server_name => {},
@@ -516,7 +516,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                             while (!certs_decoder.eof()) {
                                 try certs_decoder.ensure(3);
                                 const cert_size = certs_decoder.decode(u24);
-                                var certd = try certs_decoder.sub(cert_size);
+                                const certd = try certs_decoder.sub(cert_size);
 
                                 const subject_cert: Certificate = .{
                                     .buffer = certd.buf,
@@ -552,7 +552,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
 
                                 try certs_decoder.ensure(2);
                                 const total_ext_size = certs_decoder.decode(u16);
-                                var all_extd = try certs_decoder.sub(total_ext_size);
+                                const all_extd = try certs_decoder.sub(total_ext_size);
                                 _ = all_extd;
                             }
                         },
@@ -569,7 +569,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                             try hsd.ensure(sig_len);
                             const encoded_sig = hsd.slice(sig_len);
                             const max_digest_len = 64;
-                            var verify_buffer =
+                            var verify_buffer: [64 + 34 + max_digest_len]u8 =
                                 ([1]u8{0x20} ** 64) ++
                                 "TLS 1.3, server CertificateVerify\x00".* ++
                                 @as([max_digest_len]u8, undefined);
@@ -1406,7 +1406,7 @@ fn limitVecs(iovecs: []std.os.iovec, len: usize) []std.os.iovec {
 const cipher_suites = if (crypto.core.aes.has_hardware_support)
     enum_array(tls.CipherSuite, &.{
         .AEGIS_128L_SHA256,
-        .AEGIS_256_SHA384,
+        .AEGIS_256_SHA512,
         .AES_128_GCM_SHA256,
         .AES_256_GCM_SHA384,
         .CHACHA20_POLY1305_SHA256,
@@ -1415,7 +1415,7 @@ else
     enum_array(tls.CipherSuite, &.{
         .CHACHA20_POLY1305_SHA256,
         .AEGIS_128L_SHA256,
-        .AEGIS_256_SHA384,
+        .AEGIS_256_SHA512,
         .AES_128_GCM_SHA256,
         .AES_256_GCM_SHA384,
     });

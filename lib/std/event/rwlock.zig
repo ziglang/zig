@@ -228,7 +228,7 @@ test "std.event.RwLock" {
 }
 fn testLock(allocator: Allocator, lock: *RwLock) callconv(.Async) void {
     var read_nodes: [100]Loop.NextTickNode = undefined;
-    for (read_nodes) |*read_node| {
+    for (&read_nodes) |*read_node| {
         const frame = allocator.create(@Frame(readRunner)) catch @panic("memory");
         read_node.data = frame;
         frame.* = async readRunner(lock);
@@ -236,19 +236,19 @@ fn testLock(allocator: Allocator, lock: *RwLock) callconv(.Async) void {
     }
 
     var write_nodes: [shared_it_count]Loop.NextTickNode = undefined;
-    for (write_nodes) |*write_node| {
+    for (&write_nodes) |*write_node| {
         const frame = allocator.create(@Frame(writeRunner)) catch @panic("memory");
         write_node.data = frame;
         frame.* = async writeRunner(lock);
         Loop.instance.?.onNextTick(write_node);
     }
 
-    for (write_nodes) |*write_node| {
+    for (&write_nodes) |*write_node| {
         const casted = @as(*const @Frame(writeRunner), @ptrCast(write_node.data));
         await casted;
         allocator.destroy(casted);
     }
-    for (read_nodes) |*read_node| {
+    for (&read_nodes) |*read_node| {
         const casted = @as(*const @Frame(readRunner), @ptrCast(read_node.data));
         await casted;
         allocator.destroy(casted);

@@ -11,6 +11,8 @@ const Parser = @import("Parser.zig");
 const Value = @import("Value.zig");
 const StringId = @import("StringInterner.zig").StringId;
 
+const SymbolStack = @This();
+
 pub const Symbol = struct {
     name: StringId,
     ty: Type,
@@ -31,72 +33,74 @@ pub const Kind = enum {
     constexpr,
 };
 
-const SymbolStack = @This();
+scopes: std.ArrayListUnmanaged(Scope) = .{},
+/// allocations from nested scopes are retained after popping; `active_len` is the number
+/// of currently-active items in `scopes`.
+active_len: usize = 0,
 
-syms: std.MultiArrayList(Symbol) = .{},
-scopes: std.ArrayListUnmanaged(u32) = .{},
+const Scope = struct {
+    vars: std.AutoHashMapUnmanaged(StringId, Symbol) = .{},
+    tags: std.AutoHashMapUnmanaged(StringId, Symbol) = .{},
+
+    fn deinit(self: *Scope, allocator: Allocator) void {
+        self.vars.deinit(allocator);
+        self.tags.deinit(allocator);
+    }
+
+    fn clearRetainingCapacity(self: *Scope) void {
+        self.vars.clearRetainingCapacity();
+        self.tags.clearRetainingCapacity();
+    }
+};
 
 pub fn deinit(s: *SymbolStack, gpa: Allocator) void {
-    s.syms.deinit(gpa);
+    std.debug.assert(s.active_len == 0); // all scopes should have been popped
+    for (s.scopes.items) |*scope| {
+        scope.deinit(gpa);
+    }
     s.scopes.deinit(gpa);
     s.* = undefined;
 }
 
-pub fn scopeEnd(s: SymbolStack) u32 {
-    if (s.scopes.items.len == 0) return 0;
-    return s.scopes.items[s.scopes.items.len - 1];
-}
-
 pub fn pushScope(s: *SymbolStack, p: *Parser) !void {
-    try s.scopes.append(p.gpa, @intCast(s.syms.len));
+    if (s.active_len + 1 > s.scopes.items.len) {
+        try s.scopes.append(p.gpa, .{});
+        s.active_len = s.scopes.items.len;
+    } else {
+        s.scopes.items[s.active_len].clearRetainingCapacity();
+        s.active_len += 1;
+    }
 }
 
 pub fn popScope(s: *SymbolStack) void {
-    s.syms.len = s.scopes.pop();
+    s.active_len -= 1;
 }
 
 pub fn findTypedef(s: *SymbolStack, p: *Parser, name: StringId, name_tok: TokenIndex, no_type_yet: bool) !?Symbol {
-    const kinds = s.syms.items(.kind);
-    const names = s.syms.items(.name);
-    var i = s.syms.len;
-    while (i > 0) {
-        i -= 1;
-        switch (kinds[i]) {
-            .typedef => if (names[i] == name) return s.syms.get(i),
-            .@"struct" => if (names[i] == name) {
-                if (no_type_yet) return null;
-                try p.errStr(.must_use_struct, name_tok, p.tokSlice(name_tok));
-                return s.syms.get(i);
-            },
-            .@"union" => if (names[i] == name) {
-                if (no_type_yet) return null;
-                try p.errStr(.must_use_union, name_tok, p.tokSlice(name_tok));
-                return s.syms.get(i);
-            },
-            .@"enum" => if (names[i] == name) {
-                if (no_type_yet) return null;
-                try p.errStr(.must_use_enum, name_tok, p.tokSlice(name_tok));
-                return s.syms.get(i);
-            },
-            .def, .decl, .constexpr => if (names[i] == name) return null,
-            else => {},
-        }
+    const prev = s.lookup(name, .vars) orelse s.lookup(name, .tags) orelse return null;
+    switch (prev.kind) {
+        .typedef => return prev,
+        .@"struct" => {
+            if (no_type_yet) return null;
+            try p.errStr(.must_use_struct, name_tok, p.tokSlice(name_tok));
+            return prev;
+        },
+        .@"union" => {
+            if (no_type_yet) return null;
+            try p.errStr(.must_use_union, name_tok, p.tokSlice(name_tok));
+            return prev;
+        },
+        .@"enum" => {
+            if (no_type_yet) return null;
+            try p.errStr(.must_use_enum, name_tok, p.tokSlice(name_tok));
+            return prev;
+        },
+        else => return null,
     }
-    return null;
 }
 
 pub fn findSymbol(s: *SymbolStack, name: StringId) ?Symbol {
-    const kinds = s.syms.items(.kind);
-    const names = s.syms.items(.name);
-    var i = s.syms.len;
-    while (i > 0) {
-        i -= 1;
-        switch (kinds[i]) {
-            .def, .decl, .enumeration, .constexpr => if (names[i] == name) return s.syms.get(i),
-            else => {},
-        }
-    }
-    return null;
+    return s.lookup(name, .vars);
 }
 
 pub fn findTag(
@@ -107,34 +111,60 @@ pub fn findTag(
     name_tok: TokenIndex,
     next_tok_id: Token.Id,
 ) !?Symbol {
-    const kinds = s.syms.items(.kind);
-    const names = s.syms.items(.name);
     // `tag Name;` should always result in a new type if in a new scope.
-    const end = if (next_tok_id == .semicolon) s.scopeEnd() else 0;
-    var i = s.syms.len;
-    while (i > end) {
-        i -= 1;
-        switch (kinds[i]) {
-            .@"enum" => if (names[i] == name) {
-                if (kind == .keyword_enum) return s.syms.get(i);
-                break;
-            },
-            .@"struct" => if (names[i] == name) {
-                if (kind == .keyword_struct) return s.syms.get(i);
-                break;
-            },
-            .@"union" => if (names[i] == name) {
-                if (kind == .keyword_union) return s.syms.get(i);
-                break;
-            },
-            else => {},
-        }
-    } else return null;
-
-    if (i < s.scopeEnd()) return null;
+    const prev = (if (next_tok_id == .semicolon) s.get(name, .tags) else s.lookup(name, .tags)) orelse return null;
+    switch (prev.kind) {
+        .@"enum" => if (kind == .keyword_enum) return prev,
+        .@"struct" => if (kind == .keyword_struct) return prev,
+        .@"union" => if (kind == .keyword_union) return prev,
+        else => unreachable,
+    }
+    if (s.get(name, .tags) == null) return null;
     try p.errStr(.wrong_tag, name_tok, p.tokSlice(name_tok));
-    try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
+    try p.errTok(.previous_definition, prev.tok);
     return null;
+}
+
+const ScopeKind = enum {
+    /// structs, enums, unions
+    tags,
+    /// everything else
+    vars,
+};
+
+/// Return the Symbol for `name` (or null if not found) in the innermost scope
+pub fn get(s: *SymbolStack, name: StringId, kind: ScopeKind) ?Symbol {
+    return switch (kind) {
+        .vars => s.scopes.items[s.active_len - 1].vars.get(name),
+        .tags => s.scopes.items[s.active_len - 1].tags.get(name),
+    };
+}
+
+/// Return the Symbol for `name` (or null if not found) in the nearest active scope,
+/// starting at the innermost.
+fn lookup(s: *SymbolStack, name: StringId, kind: ScopeKind) ?Symbol {
+    var i = s.active_len;
+    while (i > 0) {
+        i -= 1;
+        switch (kind) {
+            .vars => if (s.scopes.items[i].vars.get(name)) |sym| return sym,
+            .tags => if (s.scopes.items[i].tags.get(name)) |sym| return sym,
+        }
+    }
+    return null;
+}
+
+/// Define a symbol in the innermost scope. Does not issue diagnostics or check correctness
+/// with regard to the C standard.
+pub fn define(s: *SymbolStack, allocator: Allocator, symbol: Symbol) !void {
+    switch (symbol.kind) {
+        .constexpr, .def, .decl, .enumeration, .typedef => {
+            try s.scopes.items[s.active_len - 1].vars.put(allocator, symbol.name, symbol);
+        },
+        .@"struct", .@"union", .@"enum" => {
+            try s.scopes.items[s.active_len - 1].tags.put(allocator, symbol.name, symbol);
+        },
+    }
 }
 
 pub fn defineTypedef(
@@ -145,25 +175,22 @@ pub fn defineTypedef(
     tok: TokenIndex,
     node: NodeIndex,
 ) !void {
-    const kinds = s.syms.items(.kind);
-    const names = s.syms.items(.name);
-    const end = s.scopeEnd();
-    var i = s.syms.len;
-    while (i > end) {
-        i -= 1;
-        switch (kinds[i]) {
-            .typedef => if (names[i] == name) {
-                const prev_ty = s.syms.items(.ty)[i];
-                if (ty.eql(prev_ty, p.comp, true)) break;
-                try p.errStr(.redefinition_of_typedef, tok, try p.typePairStrExtra(ty, " vs ", prev_ty));
-                const previous_tok = s.syms.items(.tok)[i];
-                if (previous_tok != 0) try p.errTok(.previous_definition, previous_tok);
-                break;
+    if (s.get(name, .vars)) |prev| {
+        switch (prev.kind) {
+            .typedef => {
+                if (!ty.eql(prev.ty, p.comp, true)) {
+                    try p.errStr(.redefinition_of_typedef, tok, try p.typePairStrExtra(ty, " vs ", prev.ty));
+                    if (prev.tok != 0) try p.errTok(.previous_definition, prev.tok);
+                }
             },
-            else => {},
+            .enumeration, .decl, .def, .constexpr => {
+                try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
+                try p.errTok(.previous_definition, prev.tok);
+            },
+            else => unreachable,
         }
     }
-    try s.syms.append(p.gpa, .{
+    try s.define(p.gpa, .{
         .kind = .typedef,
         .name = name,
         .tok = tok,
@@ -183,35 +210,31 @@ pub fn defineSymbol(
     val: Value,
     constexpr: bool,
 ) !void {
-    const kinds = s.syms.items(.kind);
-    const names = s.syms.items(.name);
-    const end = s.scopeEnd();
-    var i = s.syms.len;
-    while (i > end) {
-        i -= 1;
-        switch (kinds[i]) {
-            .enumeration => if (names[i] == name) {
+    if (s.get(name, .vars)) |prev| {
+        switch (prev.kind) {
+            .enumeration => {
                 try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
-                break;
+                try p.errTok(.previous_definition, prev.tok);
             },
-            .decl => if (names[i] == name) {
-                const prev_ty = s.syms.items(.ty)[i];
-                if (!ty.eql(prev_ty, p.comp, true)) {
+            .decl => {
+                if (!ty.eql(prev.ty, p.comp, true)) {
                     try p.errStr(.redefinition_incompatible, tok, p.tokSlice(tok));
-                    try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
+                    try p.errTok(.previous_definition, prev.tok);
                 }
-                break;
             },
-            .def, .constexpr => if (names[i] == name) {
+            .def, .constexpr => {
                 try p.errStr(.redefinition, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
-                break;
+                try p.errTok(.previous_definition, prev.tok);
             },
-            else => {},
+            .typedef => {
+                try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
+                try p.errTok(.previous_definition, prev.tok);
+            },
+            else => unreachable,
         }
     }
-    try s.syms.append(p.gpa, .{
+
+    try s.define(p.gpa, .{
         .kind = if (constexpr) .constexpr else .def,
         .name = name,
         .tok = tok,
@@ -219,6 +242,15 @@ pub fn defineSymbol(
         .node = node,
         .val = val,
     });
+}
+
+/// Get a pointer to the named symbol in the innermost scope.
+/// Asserts that a symbol with the name exists.
+pub fn getPtr(s: *SymbolStack, name: StringId, kind: ScopeKind) *Symbol {
+    return switch (kind) {
+        .tags => s.scopes.items[s.active_len - 1].tags.getPtr(name).?,
+        .vars => s.scopes.items[s.active_len - 1].vars.getPtr(name).?,
+    };
 }
 
 pub fn declareSymbol(
@@ -229,39 +261,34 @@ pub fn declareSymbol(
     tok: TokenIndex,
     node: NodeIndex,
 ) !void {
-    const kinds = s.syms.items(.kind);
-    const names = s.syms.items(.name);
-    const end = s.scopeEnd();
-    var i = s.syms.len;
-    while (i > end) {
-        i -= 1;
-        switch (kinds[i]) {
-            .enumeration => if (names[i] == name) {
+    if (s.get(name, .vars)) |prev| {
+        switch (prev.kind) {
+            .enumeration => {
                 try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
-                break;
+                try p.errTok(.previous_definition, prev.tok);
             },
-            .decl => if (names[i] == name) {
-                const prev_ty = s.syms.items(.ty)[i];
-                if (!ty.eql(prev_ty, p.comp, true)) {
+            .decl => {
+                if (!ty.eql(prev.ty, p.comp, true)) {
                     try p.errStr(.redefinition_incompatible, tok, p.tokSlice(tok));
-                    try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
+                    try p.errTok(.previous_definition, prev.tok);
                 }
-                break;
             },
-            .def, .constexpr => if (names[i] == name) {
-                const prev_ty = s.syms.items(.ty)[i];
-                if (!ty.eql(prev_ty, p.comp, true)) {
+            .def, .constexpr => {
+                if (!ty.eql(prev.ty, p.comp, true)) {
                     try p.errStr(.redefinition_incompatible, tok, p.tokSlice(tok));
-                    try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
-                    break;
+                    try p.errTok(.previous_definition, prev.tok);
+                } else {
+                    return;
                 }
-                return;
             },
-            else => {},
+            .typedef => {
+                try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
+                try p.errTok(.previous_definition, prev.tok);
+            },
+            else => unreachable,
         }
     }
-    try s.syms.append(p.gpa, .{
+    try s.define(p.gpa, .{
         .kind = .decl,
         .name = name,
         .tok = tok,
@@ -272,25 +299,23 @@ pub fn declareSymbol(
 }
 
 pub fn defineParam(s: *SymbolStack, p: *Parser, name: StringId, ty: Type, tok: TokenIndex) !void {
-    const kinds = s.syms.items(.kind);
-    const names = s.syms.items(.name);
-    const end = s.scopeEnd();
-    var i = s.syms.len;
-    while (i > end) {
-        i -= 1;
-        switch (kinds[i]) {
-            .enumeration, .decl, .def, .constexpr => if (names[i] == name) {
+    if (s.get(name, .vars)) |prev| {
+        switch (prev.kind) {
+            .enumeration, .decl, .def, .constexpr => {
                 try p.errStr(.redefinition_of_parameter, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
-                break;
+                try p.errTok(.previous_definition, prev.tok);
             },
-            else => {},
+            .typedef => {
+                try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
+                try p.errTok(.previous_definition, prev.tok);
+            },
+            else => unreachable,
         }
     }
     if (ty.is(.fp16) and !p.comp.hasHalfPrecisionFloatABI()) {
         try p.errStr(.suggest_pointer_for_invalid_fp16, tok, "parameters");
     }
-    try s.syms.append(p.gpa, .{
+    try s.define(p.gpa, .{
         .kind = .def,
         .name = name,
         .tok = tok,
@@ -306,35 +331,28 @@ pub fn defineTag(
     kind: Token.Id,
     tok: TokenIndex,
 ) !?Symbol {
-    const kinds = s.syms.items(.kind);
-    const names = s.syms.items(.name);
-    const end = s.scopeEnd();
-    var i = s.syms.len;
-    while (i > end) {
-        i -= 1;
-        switch (kinds[i]) {
-            .@"enum" => if (names[i] == name) {
-                if (kind == .keyword_enum) return s.syms.get(i);
-                try p.errStr(.wrong_tag, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
-                return null;
-            },
-            .@"struct" => if (names[i] == name) {
-                if (kind == .keyword_struct) return s.syms.get(i);
-                try p.errStr(.wrong_tag, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
-                return null;
-            },
-            .@"union" => if (names[i] == name) {
-                if (kind == .keyword_union) return s.syms.get(i);
-                try p.errStr(.wrong_tag, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
-                return null;
-            },
-            else => {},
-        }
+    const prev = s.get(name, .tags) orelse return null;
+    switch (prev.kind) {
+        .@"enum" => {
+            if (kind == .keyword_enum) return prev;
+            try p.errStr(.wrong_tag, tok, p.tokSlice(tok));
+            try p.errTok(.previous_definition, prev.tok);
+            return null;
+        },
+        .@"struct" => {
+            if (kind == .keyword_struct) return prev;
+            try p.errStr(.wrong_tag, tok, p.tokSlice(tok));
+            try p.errTok(.previous_definition, prev.tok);
+            return null;
+        },
+        .@"union" => {
+            if (kind == .keyword_union) return prev;
+            try p.errStr(.wrong_tag, tok, p.tokSlice(tok));
+            try p.errTok(.previous_definition, prev.tok);
+            return null;
+        },
+        else => unreachable,
     }
-    return null;
 }
 
 pub fn defineEnumeration(
@@ -345,27 +363,26 @@ pub fn defineEnumeration(
     tok: TokenIndex,
     val: Value,
 ) !void {
-    const kinds = s.syms.items(.kind);
-    const names = s.syms.items(.name);
-    const end = s.scopeEnd();
-    var i = s.syms.len;
-    while (i > end) {
-        i -= 1;
-        switch (kinds[i]) {
-            .enumeration => if (names[i] == name) {
+    if (s.get(name, .vars)) |prev| {
+        switch (prev.kind) {
+            .enumeration => {
                 try p.errStr(.redefinition, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
+                try p.errTok(.previous_definition, prev.tok);
                 return;
             },
-            .decl, .def, .constexpr => if (names[i] == name) {
+            .decl, .def, .constexpr => {
                 try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, s.syms.items(.tok)[i]);
+                try p.errTok(.previous_definition, prev.tok);
                 return;
             },
-            else => {},
+            .typedef => {
+                try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
+                try p.errTok(.previous_definition, prev.tok);
+            },
+            else => unreachable,
         }
     }
-    try s.syms.append(p.gpa, .{
+    try s.define(p.gpa, .{
         .kind = .enumeration,
         .name = name,
         .tok = tok,

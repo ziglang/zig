@@ -52,6 +52,27 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
     const reader = stream.reader();
 
     self.header = try reader.readStruct(elf.Elf64_Ehdr);
+
+    if (elf_file.base.options.target.cpu.arch != self.header.?.e_machine.toTargetCpuArch().?) {
+        try elf_file.reportParseError2(
+            self.index,
+            "invalid cpu architecture: {s}",
+            .{@tagName(self.header.?.e_machine.toTargetCpuArch().?)},
+        );
+        return error.InvalidCpuArch;
+    }
+
+    if (self.data.len < self.header.?.e_shoff or
+        self.data.len < self.header.?.e_shoff + @as(u64, @intCast(self.header.?.e_shnum)) * @sizeOf(elf.Elf64_Shdr))
+    {
+        try elf_file.reportParseError2(
+            self.index,
+            "corrupted header: section header table extends past the end of file",
+            .{},
+        );
+        return error.MalformedObject;
+    }
+
     const shoff = std.math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;
 
     const shdrs = @as(
@@ -61,6 +82,10 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
     try self.shdrs.ensureTotalCapacityPrecise(gpa, shdrs.len);
 
     for (shdrs, 0..) |shdr, i| {
+        if (self.data.len < shdr.sh_offset or self.data.len < shdr.sh_offset + shdr.sh_size) {
+            try elf_file.reportParseError2(self.index, "corrupted section header", .{});
+            return error.MalformedObject;
+        }
         self.shdrs.appendAssumeCapacity(try ElfShdr.fromElf64Shdr(shdr));
         switch (shdr.sh_type) {
             elf.SHT_DYNSYM => self.dynsym_sect_index = @as(u16, @intCast(i)),

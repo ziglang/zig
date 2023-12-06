@@ -35,7 +35,7 @@ di_files: std.AutoArrayHashMapUnmanaged(*const Module.File, void) = .{},
 
 global_abbrev_relocs: std.ArrayListUnmanaged(AbbrevRelocation) = .{},
 
-const AtomTable = std.AutoHashMapUnmanaged(Module.Decl.Index, Atom.Index);
+const AtomTable = std.AutoHashMapUnmanaged(InternPool.DeclIndex, Atom.Index);
 
 const Atom = struct {
     /// Offset into .debug_info pointing to the tag for this Decl, or
@@ -303,9 +303,9 @@ pub const DeclState = struct {
                                 // DW.AT.name, DW.FORM.string
                                 try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
                                 // DW.AT.type, DW.FORM.ref4
-                                var index = dbg_info_buffer.items.len;
+                                const index = dbg_info_buffer.items.len;
                                 try dbg_info_buffer.resize(index + 4);
-                                try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
+                                try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                                 // DW.AT.data_member_location, DW.FORM.udata
                                 const field_off = ty.structFieldOffset(field_index, mod);
                                 try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
@@ -323,15 +323,15 @@ pub const DeclState = struct {
 
                             if (struct_type.isTuple(ip)) {
                                 for (struct_type.field_types.get(ip), struct_type.offsets.get(ip), 0..) |field_ty, field_off, field_index| {
-                                    if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+                                    if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
                                     // DW.AT.member
                                     try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
                                     // DW.AT.name, DW.FORM.string
                                     try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
                                     // DW.AT.type, DW.FORM.ref4
-                                    var index = dbg_info_buffer.items.len;
+                                    const index = dbg_info_buffer.items.len;
                                     try dbg_info_buffer.resize(index + 4);
-                                    try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
+                                    try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                                     // DW.AT.data_member_location, DW.FORM.udata
                                     try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
                                 }
@@ -341,7 +341,7 @@ pub const DeclState = struct {
                                     struct_type.field_types.get(ip),
                                     struct_type.offsets.get(ip),
                                 ) |field_name_ip, field_ty, field_off| {
-                                    if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+                                    if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
                                     const field_name = ip.stringToSlice(field_name_ip);
                                     // DW.AT.member
                                     try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
@@ -350,9 +350,9 @@ pub const DeclState = struct {
                                     dbg_info_buffer.appendSliceAssumeCapacity(field_name);
                                     dbg_info_buffer.appendAssumeCapacity(0);
                                     // DW.AT.type, DW.FORM.ref4
-                                    var index = dbg_info_buffer.items.len;
+                                    const index = dbg_info_buffer.items.len;
                                     try dbg_info_buffer.resize(index + 4);
-                                    try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
+                                    try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                                     // DW.AT.data_member_location, DW.FORM.udata
                                     try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
                                 }
@@ -389,7 +389,7 @@ pub const DeclState = struct {
                         const value = enum_type.values.get(ip)[field_i];
                         // TODO do not assume a 64bit enum value - could be bigger.
                         // See https://github.com/ziglang/zig/issues/645
-                        const field_int_val = try value.toValue().intFromEnum(ty, mod);
+                        const field_int_val = try Value.fromInterned(value).intFromEnum(ty, mod);
                         break :value @bitCast(field_int_val.toSignedInt(mod));
                     };
                     mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), value, target_endian);
@@ -443,7 +443,7 @@ pub const DeclState = struct {
                 }
 
                 for (union_obj.field_types.get(ip), union_obj.field_names.get(ip)) |field_ty, field_name| {
-                    if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+                    if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
                     // DW.AT.member
                     try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
                     // DW.AT.name, DW.FORM.string
@@ -452,7 +452,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(index));
+                    try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try dbg_info_buffer.append(0);
                 }
@@ -469,7 +469,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom_index, union_obj.enum_tag_ty.toType(), @intCast(index));
+                    try self.addTypeRelocGlobal(atom_index, Type.fromInterned(union_obj.enum_tag_ty), @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try leb128.writeULEB128(dbg_info_buffer.writer(), tag_offset);
 
@@ -555,7 +555,7 @@ pub const DeclState = struct {
         self: *DeclState,
         name: [:0]const u8,
         ty: Type,
-        owner_decl: Module.Decl.Index,
+        owner_decl: InternPool.DeclIndex,
         loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
         const dbg_info = &self.dbg_info;
@@ -669,7 +669,7 @@ pub const DeclState = struct {
         self: *DeclState,
         name: [:0]const u8,
         ty: Type,
-        owner_decl: Module.Decl.Index,
+        owner_decl: InternPool.DeclIndex,
         is_ptr: bool,
         loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
@@ -1073,7 +1073,7 @@ pub fn deinit(self: *Dwarf) void {
 
 /// Initializes Decl's state and its matching output buffers.
 /// Call this before `commitDeclState`.
-pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !DeclState {
+pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclIndex) !DeclState {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1191,7 +1191,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
 pub fn commitDeclState(
     self: *Dwarf,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
     sym_addr: u64,
     sym_size: u64,
     decl_state: *DeclState,
@@ -1640,7 +1640,7 @@ fn writeDeclDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []cons
     }
 }
 
-pub fn updateDeclLineNumber(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDeclLineNumber(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclIndex) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1682,7 +1682,7 @@ pub fn updateDeclLineNumber(self: *Dwarf, mod: *Module, decl_index: Module.Decl.
     }
 }
 
-pub fn freeDecl(self: *Dwarf, decl_index: Module.Decl.Index) void {
+pub fn freeDecl(self: *Dwarf, decl_index: InternPool.DeclIndex) void {
     const gpa = self.allocator;
 
     // Free SrcFn atom
@@ -2627,7 +2627,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
     }
 }
 
-fn addDIFile(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !u28 {
+fn addDIFile(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclIndex) !u28 {
     const decl = mod.declPtr(decl_index);
     const file_scope = decl.getFileScope(mod);
     const gop = try self.di_files.getOrPut(self.allocator, file_scope);
@@ -2771,7 +2771,7 @@ fn createAtom(self: *Dwarf, comptime kind: Kind) !Atom.Index {
     return index;
 }
 
-fn getOrCreateAtomForDecl(self: *Dwarf, comptime kind: Kind, decl_index: Module.Decl.Index) !Atom.Index {
+fn getOrCreateAtomForDecl(self: *Dwarf, comptime kind: Kind, decl_index: InternPool.DeclIndex) !Atom.Index {
     switch (kind) {
         .src_fn => {
             const gop = try self.src_fn_decls.getOrPut(self.allocator, decl_index);

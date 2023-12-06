@@ -91,13 +91,13 @@ test "Reader.readUntilDelimiterAlloc returns ArrayLists with bytes read until th
     const reader = fis.reader();
 
     {
-        var result = try reader.readUntilDelimiterAlloc(a, '\n', 5);
+        const result = try reader.readUntilDelimiterAlloc(a, '\n', 5);
         defer a.free(result);
         try std.testing.expectEqualStrings("0000", result);
     }
 
     {
-        var result = try reader.readUntilDelimiterAlloc(a, '\n', 5);
+        const result = try reader.readUntilDelimiterAlloc(a, '\n', 5);
         defer a.free(result);
         try std.testing.expectEqualStrings("1234", result);
     }
@@ -112,7 +112,7 @@ test "Reader.readUntilDelimiterAlloc returns an empty ArrayList" {
     const reader = fis.reader();
 
     {
-        var result = try reader.readUntilDelimiterAlloc(a, '\n', 5);
+        const result = try reader.readUntilDelimiterAlloc(a, '\n', 5);
         defer a.free(result);
         try std.testing.expectEqualStrings("", result);
     }
@@ -126,7 +126,7 @@ test "Reader.readUntilDelimiterAlloc returns StreamTooLong, then an ArrayList wi
 
     try std.testing.expectError(error.StreamTooLong, reader.readUntilDelimiterAlloc(a, '\n', 5));
 
-    var result = try reader.readUntilDelimiterAlloc(a, '\n', 5);
+    const result = try reader.readUntilDelimiterAlloc(a, '\n', 5);
     defer a.free(result);
     try std.testing.expectEqualStrings("67", result);
 }
@@ -219,13 +219,13 @@ test "Reader.readUntilDelimiterOrEofAlloc returns ArrayLists with bytes read unt
     const reader = fis.reader();
 
     {
-        var result = (try reader.readUntilDelimiterOrEofAlloc(a, '\n', 5)).?;
+        const result = (try reader.readUntilDelimiterOrEofAlloc(a, '\n', 5)).?;
         defer a.free(result);
         try std.testing.expectEqualStrings("0000", result);
     }
 
     {
-        var result = (try reader.readUntilDelimiterOrEofAlloc(a, '\n', 5)).?;
+        const result = (try reader.readUntilDelimiterOrEofAlloc(a, '\n', 5)).?;
         defer a.free(result);
         try std.testing.expectEqualStrings("1234", result);
     }
@@ -240,7 +240,7 @@ test "Reader.readUntilDelimiterOrEofAlloc returns an empty ArrayList" {
     const reader = fis.reader();
 
     {
-        var result = (try reader.readUntilDelimiterOrEofAlloc(a, '\n', 5)).?;
+        const result = (try reader.readUntilDelimiterOrEofAlloc(a, '\n', 5)).?;
         defer a.free(result);
         try std.testing.expectEqualStrings("", result);
     }
@@ -254,7 +254,7 @@ test "Reader.readUntilDelimiterOrEofAlloc returns StreamTooLong, then an ArrayLi
 
     try std.testing.expectError(error.StreamTooLong, reader.readUntilDelimiterOrEofAlloc(a, '\n', 5));
 
-    var result = (try reader.readUntilDelimiterOrEofAlloc(a, '\n', 5)).?;
+    const result = (try reader.readUntilDelimiterOrEofAlloc(a, '\n', 5)).?;
     defer a.free(result);
     try std.testing.expectEqualStrings("67", result);
 }

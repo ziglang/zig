@@ -121,7 +121,7 @@ pub const Filesystem = union(enum) {
             base: []const u8,
             i: usize = 0,
 
-            fn next(self: *@This()) !?std.fs.IterableDir.Entry {
+            fn next(self: *@This()) !?std.fs.Dir.Entry {
                 while (self.i < self.entries.len) {
                     const entry = self.entries[self.i];
                     self.i += 1;
@@ -130,7 +130,7 @@ pub const Filesystem = union(enum) {
                         const remaining = entry.path[self.base.len + 1 ..];
                         if (std.mem.indexOfScalar(u8, remaining, std.fs.path.sep) != null) continue;
                         const extension = std.fs.path.extension(remaining);
-                        const kind: std.fs.IterableDir.Entry.Kind = if (extension.len == 0) .directory else .file;
+                        const kind: std.fs.Dir.Entry.Kind = if (extension.len == 0) .directory else .file;
                         return .{ .name = remaining, .kind = kind };
                     }
                 }
@@ -139,18 +139,18 @@ pub const Filesystem = union(enum) {
         };
     };
 
-    const IterableDir = union(enum) {
-        dir: std.fs.IterableDir,
+    const Dir = union(enum) {
+        dir: std.fs.Dir,
         fake: FakeDir,
 
-        pub fn iterate(self: IterableDir) Iterator {
+        pub fn iterate(self: Dir) Iterator {
             return switch (self) {
                 .dir => |dir| .{ .iterator = dir.iterate() },
                 .fake => |fake| .{ .fake = fake.iterate() },
             };
         }
 
-        pub fn close(self: *IterableDir) void {
+        pub fn close(self: *Dir) void {
             switch (self.*) {
                 .dir => |*d| d.close(),
                 .fake => {},
@@ -159,10 +159,10 @@ pub const Filesystem = union(enum) {
     };
 
     const Iterator = union(enum) {
-        iterator: std.fs.IterableDir.Iterator,
+        iterator: std.fs.Dir.Iterator,
         fake: FakeDir.Iterator,
 
-        pub fn next(self: *Iterator) std.fs.IterableDir.Iterator.Error!?std.fs.IterableDir.Entry {
+        pub fn next(self: *Iterator) std.fs.Dir.Iterator.Error!?std.fs.Dir.Entry {
             return switch (self.*) {
                 .iterator => |*it| it.next(),
                 .fake => |*it| it.next(),
@@ -221,9 +221,9 @@ pub const Filesystem = union(enum) {
         };
     }
 
-    pub fn openIterableDir(fs: Filesystem, dir_name: []const u8) std.fs.Dir.OpenError!IterableDir {
+    pub fn openDir(fs: Filesystem, dir_name: []const u8) std.fs.Dir.OpenError!Dir {
         return switch (fs) {
-            .real => .{ .dir = try std.fs.cwd().openIterableDir(dir_name, .{ .access_sub_paths = false }) },
+            .real => .{ .dir = try std.fs.cwd().openDir(dir_name, .{ .access_sub_paths = false, .iterate = true }) },
             .fake => |entries| .{ .fake = .{ .entries = entries, .path = dir_name } },
         };
     }

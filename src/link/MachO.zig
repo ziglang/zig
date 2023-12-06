@@ -1923,6 +1923,8 @@ fn resolveBoundarySymbols(self: *MachO) !void {
             _ = self.unresolved.swapRemove(global_index);
             continue;
         }
+
+        next_sym += 1;
     }
 }
 
@@ -2250,7 +2252,7 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
     else
         try codegen.generateFunction(&self.base, decl.srcLoc(mod), func_index, air, liveness, &code_buffer, .none);
 
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2276,7 +2278,7 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
     try self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
-pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Module.Decl.Index) !u32 {
+pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const gop = try self.unnamed_const_atoms.getOrPut(gpa, decl_index);
@@ -2330,7 +2332,7 @@ fn lowerConst(
     const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| return .{ .fail = em },
     };
@@ -2356,7 +2358,7 @@ fn lowerConst(
     return .{ .ok = atom_index };
 }
 
-pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) !void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -2398,7 +2400,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
         null;
     defer if (decl_state) |*ds| ds.deinit();
 
-    const decl_val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
+    const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const res = if (decl_state) |*ds|
         try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
             .ty = decl.ty,
@@ -2416,7 +2418,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
             .parent_atom_index = sym_index,
         });
 
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2542,7 +2544,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *MachO, sym: File.LazySymbol) !Atom.In
     return atom;
 }
 
-fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.Decl.Index) !void {
+fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: InternPool.DeclIndex) !void {
     const mod = self.base.options.module.?;
     // Lowering a TLV on macOS involves two stages:
     // 1. first we lower the initializer into appopriate section (__thread_data or __thread_bss)
@@ -2567,7 +2569,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
 
     const decl = module.declPtr(decl_index);
     const decl_metadata = self.decls.get(decl_index).?;
-    const decl_val = decl.val.getVariable(mod).?.init.toValue();
+    const decl_val = Value.fromInterned(decl.val.getVariable(mod).?.init);
     const res = if (decl_state) |*ds|
         try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
             .ty = decl.ty,
@@ -2585,7 +2587,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
             .parent_atom_index = init_sym_index,
         });
 
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2637,7 +2639,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
     self.markRelocsDirtyByTarget(init_atom_sym_loc);
 }
 
-pub fn getOrCreateAtomForDecl(self: *MachO, decl_index: Module.Decl.Index) !Atom.Index {
+pub fn getOrCreateAtomForDecl(self: *MachO, decl_index: InternPool.DeclIndex) !Atom.Index {
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
         const sym_index = try self.allocateSymbol();
@@ -2652,7 +2654,7 @@ pub fn getOrCreateAtomForDecl(self: *MachO, decl_index: Module.Decl.Index) !Atom
     return gop.value_ptr.atom;
 }
 
-fn getDeclOutputSection(self: *MachO, decl_index: Module.Decl.Index) u8 {
+fn getDeclOutputSection(self: *MachO, decl_index: InternPool.DeclIndex) u8 {
     const decl = self.base.options.module.?.declPtr(decl_index);
     const ty = decl.ty;
     const val = decl.val;
@@ -2691,7 +2693,7 @@ fn getDeclOutputSection(self: *MachO, decl_index: Module.Decl.Index) u8 {
     return sect_id;
 }
 
-fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 {
+fn updateDeclCode(self: *MachO, decl_index: InternPool.DeclIndex, code: []u8) !u64 {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
@@ -2762,7 +2764,7 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
     return atom.getSymbol(self).n_value;
 }
 
-pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: InternPool.DeclIndex) !void {
     if (self.d_sym) |*d_sym| {
         try d_sym.dwarf.updateDeclLineNumber(module, decl_index);
     }
@@ -2904,7 +2906,7 @@ pub fn updateExports(
 
 pub fn deleteDeclExport(
     self: *MachO,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
     name: InternPool.NullTerminatedString,
 ) Allocator.Error!void {
     if (self.llvm_object) |_| return;
@@ -2938,7 +2940,7 @@ pub fn deleteDeclExport(
     sym_index.* = 0;
 }
 
-fn freeUnnamedConsts(self: *MachO, decl_index: Module.Decl.Index) void {
+fn freeUnnamedConsts(self: *MachO, decl_index: InternPool.DeclIndex) void {
     const gpa = self.base.allocator;
     const unnamed_consts = self.unnamed_const_atoms.getPtr(decl_index) orelse return;
     for (unnamed_consts.items) |atom| {
@@ -2947,7 +2949,7 @@ fn freeUnnamedConsts(self: *MachO, decl_index: Module.Decl.Index) void {
     unnamed_consts.clearAndFree(gpa);
 }
 
-pub fn freeDecl(self: *MachO, decl_index: Module.Decl.Index) void {
+pub fn freeDecl(self: *MachO, decl_index: InternPool.DeclIndex) void {
     if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
@@ -2966,7 +2968,7 @@ pub fn freeDecl(self: *MachO, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn getDeclVAddr(self: *MachO, decl_index: Module.Decl.Index, reloc_info: File.RelocInfo) !u64 {
+pub fn getDeclVAddr(self: *MachO, decl_index: InternPool.DeclIndex, reloc_info: File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
 
     const this_atom_index = try self.getOrCreateAtomForDecl(decl_index);
@@ -2993,7 +2995,7 @@ pub fn lowerAnonDecl(
 ) !codegen.Result {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
-    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
     const decl_alignment = switch (explicit_alignment) {
         .none => ty.abiAlignment(mod),
         else => explicit_alignment,
@@ -3004,7 +3006,7 @@ pub fn lowerAnonDecl(
             return .ok;
     }
 
-    const val = decl_val.toValue();
+    const val = Value.fromInterned(decl_val);
     const tv = TypedValue{ .ty = ty, .val = val };
     var name_buf: [32]u8 = undefined;
     const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
@@ -3425,7 +3427,7 @@ fn allocateAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignm
 
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
-    var vaddr = blk: {
+    const vaddr = blk: {
         var i: usize = 0;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
@@ -3969,7 +3971,7 @@ fn writeDyldInfoData(self: *MachO) !void {
     link_seg.filesize = needed_size;
     assert(mem.isAlignedGeneric(u64, link_seg.fileoff + link_seg.filesize, @alignOf(u64)));
 
-    var buffer = try gpa.alloc(u8, needed_size);
+    const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
     @memset(buffer, 0);
 
@@ -5226,7 +5228,7 @@ fn reportMissingLibraryError(
 ) error{OutOfMemory}!void {
     const gpa = self.base.allocator;
     try self.misc_errors.ensureUnusedCapacity(gpa, 1);
-    var notes = try gpa.alloc(File.ErrorMsg, checked_paths.len);
+    const notes = try gpa.alloc(File.ErrorMsg, checked_paths.len);
     errdefer gpa.free(notes);
     for (checked_paths, notes) |path, *note| {
         note.* = .{ .msg = try std.fmt.allocPrint(gpa, "tried {s}", .{path}) };
@@ -5665,7 +5667,7 @@ const is_hot_update_compatible = switch (builtin.target.os.tag) {
     else => false,
 };
 
-const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
+const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.OptionalDeclIndex, LazySymbolMetadata);
 
 const LazySymbolMetadata = struct {
     const State = enum { unused, pending_flush, flushed };
@@ -5699,10 +5701,10 @@ const DeclMetadata = struct {
     }
 };
 
-const DeclTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata);
+const DeclTable = std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, DeclMetadata);
 const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, DeclMetadata);
 const BindingTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Atom.Binding));
-const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
+const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, std.ArrayListUnmanaged(Atom.Index));
 const RebaseTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
 const RelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
 const ActionTable = std.AutoHashMapUnmanaged(u32, RelocFlags);

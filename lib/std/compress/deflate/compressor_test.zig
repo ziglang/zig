@@ -27,7 +27,7 @@ fn testSync(level: deflate.Compression, input: []const u8) !void {
     var whole_buf = std.ArrayList(u8).init(testing.allocator);
     defer whole_buf.deinit();
 
-    var multi_writer = io.multiWriter(.{
+    const multi_writer = io.multiWriter(.{
         divided_buf.writer(),
         whole_buf.writer(),
     }).writer();
@@ -48,7 +48,7 @@ fn testSync(level: deflate.Compression, input: []const u8) !void {
         defer decomp.deinit();
 
         // Write first half of the input and flush()
-        var half: usize = (input.len + 1) / 2;
+        const half: usize = (input.len + 1) / 2;
         var half_len: usize = half - 0;
         {
             _ = try comp.writer().writeAll(input[0..half]);
@@ -57,10 +57,10 @@ fn testSync(level: deflate.Compression, input: []const u8) !void {
             try comp.flush();
 
             // Read back
-            var decompressed = try testing.allocator.alloc(u8, half_len);
+            const decompressed = try testing.allocator.alloc(u8, half_len);
             defer testing.allocator.free(decompressed);
 
-            var read = try decomp.reader().readAll(decompressed); // read at least half
+            const read = try decomp.reader().readAll(decompressed); // read at least half
             try testing.expectEqual(half_len, read);
             try testing.expectEqualSlices(u8, input[0..half], decompressed);
         }
@@ -74,7 +74,7 @@ fn testSync(level: deflate.Compression, input: []const u8) !void {
             try comp.close();
 
             // Read back
-            var decompressed = try testing.allocator.alloc(u8, half_len);
+            const decompressed = try testing.allocator.alloc(u8, half_len);
             defer testing.allocator.free(decompressed);
 
             var read = try decomp.reader().readAll(decompressed);
@@ -94,11 +94,11 @@ fn testSync(level: deflate.Compression, input: []const u8) !void {
     try comp.close();
 
     // stream should work for ordinary reader too (reading whole_buf in one go)
-    var whole_buf_reader = io.fixedBufferStream(whole_buf.items).reader();
+    const whole_buf_reader = io.fixedBufferStream(whole_buf.items).reader();
     var decomp = try decompressor(testing.allocator, whole_buf_reader, null);
     defer decomp.deinit();
 
-    var decompressed = try testing.allocator.alloc(u8, input.len);
+    const decompressed = try testing.allocator.alloc(u8, input.len);
     defer testing.allocator.free(decompressed);
 
     _ = try decomp.reader().readAll(decompressed);
@@ -125,10 +125,10 @@ fn testToFromWithLevelAndLimit(level: deflate.Compression, input: []const u8, li
     var decomp = try decompressor(testing.allocator, fib.reader(), null);
     defer decomp.deinit();
 
-    var decompressed = try testing.allocator.alloc(u8, input.len);
+    const decompressed = try testing.allocator.alloc(u8, input.len);
     defer testing.allocator.free(decompressed);
 
-    var read: usize = try decomp.reader().readAll(decompressed);
+    const read: usize = try decomp.reader().readAll(decompressed);
     try testing.expectEqual(input.len, read);
     try testing.expectEqualSlices(u8, input, decompressed);
 
@@ -153,7 +153,7 @@ fn testToFromWithLimit(input: []const u8, limit: [11]u32) !void {
 }
 
 test "deflate/inflate" {
-    var limits = [_]u32{0} ** 11;
+    const limits = [_]u32{0} ** 11;
 
     var test0 = [_]u8{};
     var test1 = [_]u8{0x11};
@@ -313,7 +313,7 @@ test "decompressor dictionary" {
     try comp.writer().writeAll(text);
     try comp.close();
 
-    var decompressed = try testing.allocator.alloc(u8, text.len);
+    const decompressed = try testing.allocator.alloc(u8, text.len);
     defer testing.allocator.free(decompressed);
 
     var decomp = try decompressor(
@@ -432,7 +432,7 @@ test "deflate/inflate string" {
     };
 
     inline for (deflate_inflate_string_tests) |t| {
-        var golden = @embedFile("testdata/" ++ t.filename);
+        const golden = @embedFile("testdata/" ++ t.filename);
         try testToFromWithLimit(golden, t.limit);
     }
 }
@@ -466,14 +466,14 @@ test "inflate reset" {
     var decomp = try decompressor(testing.allocator, fib.reader(), null);
     defer decomp.deinit();
 
-    var decompressed_0: []u8 = try decomp.reader()
+    const decompressed_0: []u8 = try decomp.reader()
         .readAllAlloc(testing.allocator, math.maxInt(usize));
     defer testing.allocator.free(decompressed_0);
 
     fib = io.fixedBufferStream(compressed_strings[1].items);
     try decomp.reset(fib.reader(), null);
 
-    var decompressed_1: []u8 = try decomp.reader()
+    const decompressed_1: []u8 = try decomp.reader()
         .readAllAlloc(testing.allocator, math.maxInt(usize));
     defer testing.allocator.free(decompressed_1);
 
@@ -513,14 +513,14 @@ test "inflate reset dictionary" {
     var decomp = try decompressor(testing.allocator, fib.reader(), dict);
     defer decomp.deinit();
 
-    var decompressed_0: []u8 = try decomp.reader()
+    const decompressed_0: []u8 = try decomp.reader()
         .readAllAlloc(testing.allocator, math.maxInt(usize));
     defer testing.allocator.free(decompressed_0);
 
     fib = io.fixedBufferStream(compressed_strings[1].items);
     try decomp.reset(fib.reader(), dict);
 
-    var decompressed_1: []u8 = try decomp.reader()
+    const decompressed_1: []u8 = try decomp.reader()
         .readAllAlloc(testing.allocator, math.maxInt(usize));
     defer testing.allocator.free(decompressed_1);
 

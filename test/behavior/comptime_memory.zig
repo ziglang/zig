@@ -280,7 +280,7 @@ test "dance on linker values" {
         if (ptr_size > @sizeOf(Bits))
             try doTypePunBitsTest(&weird_ptr[1]);
 
-        var arr_bytes = @as(*[2][ptr_size]u8, @ptrCast(&arr));
+        const arr_bytes: *[2][ptr_size]u8 = @ptrCast(&arr);
 
         var rebuilt_bytes: [ptr_size]u8 = undefined;
         var i: usize = 0;

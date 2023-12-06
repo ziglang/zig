@@ -21,9 +21,6 @@ const Ast = std.zig.Ast;
 
 const InternPool = @import("InternPool.zig");
 const Zir = @This();
-const Type = @import("type.zig").Type;
-const Value = @import("value.zig").Value;
-const TypedValue = @import("TypedValue.zig");
 const Module = @import("Module.zig");
 const LazySrcLoc = Module.LazySrcLoc;
 
@@ -3416,8 +3413,9 @@ pub const DeclIterator = struct {
         it.extra_index += 5; // src_hash(4) + line(1)
         const name = it.zir.nullTerminatedString(it.zir.extra[it.extra_index]);
         it.extra_index += 3; // name(1) + value(1) + doc_comment(1)
-        it.extra_index += @as(u1, @truncate(flags >> 2));
-        it.extra_index += @as(u1, @truncate(flags >> 3));
+        it.extra_index += @as(u1, @truncate(flags >> 2)); // align
+        it.extra_index += @as(u1, @truncate(flags >> 3)); // link_section
+        it.extra_index += @as(u1, @truncate(flags >> 3)); // address_space
 
         return Item{
             .sub_index = sub_index,

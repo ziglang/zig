@@ -5,8 +5,7 @@ fn get_foo() fn (*u8) usize {
     comptime {
         return struct {
             fn func(ptr: *u8) usize {
-                var u = @intFromPtr(ptr);
-                return u;
+                return @intFromPtr(ptr);
             }
         }.func;
     }

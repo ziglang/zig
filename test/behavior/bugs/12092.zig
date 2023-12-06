@@ -19,6 +19,7 @@ test {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var baz: u32 = 24;
+    _ = &baz;
     try takeFoo(&.{
         .a = .{
             .b = baz,

@@ -30,7 +30,7 @@ const table_size = 1 << table_bits; // Size of the table.
 const buffer_reset = math.maxInt(i32) - max_store_block_size * 2;
 
 fn load32(b: []u8, i: i32) u32 {
-    var s = b[@as(usize, @intCast(i)) .. @as(usize, @intCast(i)) + 4];
+    const s = b[@as(usize, @intCast(i)) .. @as(usize, @intCast(i)) + 4];
     return @as(u32, @intCast(s[0])) |
         @as(u32, @intCast(s[1])) << 8 |
         @as(u32, @intCast(s[2])) << 16 |
@@ -38,7 +38,7 @@ fn load32(b: []u8, i: i32) u32 {
 }
 
 fn load64(b: []u8, i: i32) u64 {
-    var s = b[@as(usize, @intCast(i))..@as(usize, @intCast(i + 8))];
+    const s = b[@as(usize, @intCast(i))..@as(usize, @intCast(i + 8))];
     return @as(u64, @intCast(s[0])) |
         @as(u64, @intCast(s[1])) << 8 |
         @as(u64, @intCast(s[2])) << 16 |
@@ -117,7 +117,7 @@ pub const DeflateFast = struct {
         // s_limit is when to stop looking for offset/length copies. The input_margin
         // lets us use a fast path for emitLiteral in the main loop, while we are
         // looking for copies.
-        var s_limit = @as(i32, @intCast(src.len - input_margin));
+        const s_limit = @as(i32, @intCast(src.len - input_margin));
 
         // next_emit is where in src the next emitLiteral should start from.
         var next_emit: i32 = 0;
@@ -147,18 +147,18 @@ pub const DeflateFast = struct {
             var candidate: TableEntry = undefined;
             while (true) {
                 s = next_s;
-                var bytes_between_hash_lookups = skip >> 5;
+                const bytes_between_hash_lookups = skip >> 5;
                 next_s = s + bytes_between_hash_lookups;
                 skip += bytes_between_hash_lookups;
                 if (next_s > s_limit) {
                     break :outer;
                 }
                 candidate = self.table[next_hash & table_mask];
-                var now = load32(src, next_s);
+                const now = load32(src, next_s);
                 self.table[next_hash & table_mask] = .{ .offset = s + self.cur, .val = cv };
                 next_hash = hash(now);
 
-                var offset = s - (candidate.offset - self.cur);
+                const offset = s - (candidate.offset - self.cur);
                 if (offset > max_match_offset or cv != candidate.val) {
                     // Out of range or not matched.
                     cv = now;
@@ -187,8 +187,8 @@ pub const DeflateFast = struct {
                 // Extend the 4-byte match as long as possible.
                 //
                 s += 4;
-                var t = candidate.offset - self.cur + 4;
-                var l = self.matchLen(s, t, src);
+                const t = candidate.offset - self.cur + 4;
+                const l = self.matchLen(s, t, src);
 
                 // matchToken is flate's equivalent of Snappy's emitCopy. (length,offset)
                 dst[tokens_count.*] = token.matchToken(
@@ -209,20 +209,20 @@ pub const DeflateFast = struct {
                 // are faster as one load64 call (with some shifts) instead of
                 // three load32 calls.
                 var x = load64(src, s - 1);
-                var prev_hash = hash(@as(u32, @truncate(x)));
+                const prev_hash = hash(@as(u32, @truncate(x)));
                 self.table[prev_hash & table_mask] = TableEntry{
                     .offset = self.cur + s - 1,
                     .val = @as(u32, @truncate(x)),
                 };
                 x >>= 8;
-                var curr_hash = hash(@as(u32, @truncate(x)));
+                const curr_hash = hash(@as(u32, @truncate(x)));
                 candidate = self.table[curr_hash & table_mask];
                 self.table[curr_hash & table_mask] = TableEntry{
                     .offset = self.cur + s,
                     .val = @as(u32, @truncate(x)),
                 };
 
-                var offset = s - (candidate.offset - self.cur);
+                const offset = s - (candidate.offset - self.cur);
                 if (offset > max_match_offset or @as(u32, @truncate(x)) != candidate.val) {
                     cv = @as(u32, @truncate(x >> 8));
                     next_hash = hash(cv);
@@ -261,7 +261,7 @@ pub const DeflateFast = struct {
         // If we are inside the current block
         if (t >= 0) {
             var b = src[@as(usize, @intCast(t))..];
-            var a = src[@as(usize, @intCast(s))..@as(usize, @intCast(s1))];
+            const a = src[@as(usize, @intCast(s))..@as(usize, @intCast(s1))];
             b = b[0..a.len];
             // Extend the match to be as long as possible.
             for (a, 0..) |_, i| {
@@ -273,7 +273,7 @@ pub const DeflateFast = struct {
         }
 
         // We found a match in the previous block.
-        var tp = @as(i32, @intCast(self.prev_len)) + t;
+        const tp = @as(i32, @intCast(self.prev_len)) + t;
         if (tp < 0) {
             return 0;
         }
@@ -293,7 +293,7 @@ pub const DeflateFast = struct {
 
         // If we reached our limit, we matched everything we are
         // allowed to in the previous block and we return.
-        var n = @as(i32, @intCast(b.len));
+        const n = @as(i32, @intCast(b.len));
         if (@as(u32, @intCast(s + n)) == s1) {
             return n;
         }
@@ -366,7 +366,7 @@ test "best speed match 1/3" {
             .cur = 0,
         };
         var current = [_]u8{ 3, 4, 5, 0, 1, 2, 3, 4, 5 };
-        var got: i32 = e.matchLen(3, -3, &current);
+        const got: i32 = e.matchLen(3, -3, &current);
         try expectEqual(@as(i32, 6), got);
     }
     {
@@ -379,7 +379,7 @@ test "best speed match 1/3" {
             .cur = 0,
         };
         var current = [_]u8{ 2, 4, 5, 0, 1, 2, 3, 4, 5 };
-        var got: i32 = e.matchLen(3, -3, &current);
+        const got: i32 = e.matchLen(3, -3, &current);
         try expectEqual(@as(i32, 3), got);
     }
     {
@@ -392,7 +392,7 @@ test "best speed match 1/3" {
             .cur = 0,
         };
         var current = [_]u8{ 3, 4, 5, 0, 1, 2, 3, 4, 5 };
-        var got: i32 = e.matchLen(3, -3, &current);
+        const got: i32 = e.matchLen(3, -3, &current);
         try expectEqual(@as(i32, 2), got);
     }
     {
@@ -405,7 +405,7 @@ test "best speed match 1/3" {
             .cur = 0,
         };
         var current = [_]u8{ 2, 2, 2, 2, 1, 2, 3, 4, 5 };
-        var got: i32 = e.matchLen(0, -1, &current);
+        const got: i32 = e.matchLen(0, -1, &current);
         try expectEqual(@as(i32, 4), got);
     }
     {
@@ -418,7 +418,7 @@ test "best speed match 1/3" {
             .cur = 0,
         };
         var current = [_]u8{ 2, 2, 2, 2, 1, 2, 3, 4, 5 };
-        var got: i32 = e.matchLen(4, -7, &current);
+        const got: i32 = e.matchLen(4, -7, &current);
         try expectEqual(@as(i32, 5), got);
     }
     {
@@ -431,7 +431,7 @@ test "best speed match 1/3" {
             .cur = 0,
         };
         var current = [_]u8{ 2, 2, 2, 2, 1, 2, 3, 4, 5 };
-        var got: i32 = e.matchLen(0, -1, &current);
+        const got: i32 = e.matchLen(0, -1, &current);
         try expectEqual(@as(i32, 0), got);
     }
     {
@@ -444,7 +444,7 @@ test "best speed match 1/3" {
             .cur = 0,
         };
         var current = [_]u8{ 9, 2, 2, 2, 1, 2, 3, 4, 5 };
-        var got: i32 = e.matchLen(1, 0, &current);
+        const got: i32 = e.matchLen(1, 0, &current);
         try expectEqual(@as(i32, 0), got);
     }
 }
@@ -462,7 +462,7 @@ test "best speed match 2/3" {
             .cur = 0,
         };
         var current = [_]u8{ 9, 2, 2, 2, 1, 2, 3, 4, 5 };
-        var got: i32 = e.matchLen(1, -5, &current);
+        const got: i32 = e.matchLen(1, -5, &current);
         try expectEqual(@as(i32, 0), got);
     }
     {
@@ -475,7 +475,7 @@ test "best speed match 2/3" {
             .cur = 0,
         };
         var current = [_]u8{ 9, 2, 2, 2, 1, 2, 3, 4, 5 };
-        var got: i32 = e.matchLen(1, -1, &current);
+        const got: i32 = e.matchLen(1, -1, &current);
         try expectEqual(@as(i32, 0), got);
     }
     {
@@ -488,7 +488,7 @@ test "best speed match 2/3" {
             .cur = 0,
         };
         var current = [_]u8{ 2, 2, 2, 2, 1, 2, 3, 4, 5 };
-        var got: i32 = e.matchLen(1, 0, &current);
+        const got: i32 = e.matchLen(1, 0, &current);
         try expectEqual(@as(i32, 3), got);
     }
     {
@@ -501,7 +501,7 @@ test "best speed match 2/3" {
             .cur = 0,
         };
         var current = [_]u8{ 3, 4, 5 };
-        var got: i32 = e.matchLen(0, -3, &current);
+        const got: i32 = e.matchLen(0, -3, &current);
         try expectEqual(@as(i32, 3), got);
     }
 }
@@ -564,11 +564,11 @@ test "best speed match 2/2" {
     };
 
     for (cases) |c| {
-        var previous = try testing.allocator.alloc(u8, c.previous);
+        const previous = try testing.allocator.alloc(u8, c.previous);
         defer testing.allocator.free(previous);
         @memset(previous, 0);
 
-        var current = try testing.allocator.alloc(u8, c.current);
+        const current = try testing.allocator.alloc(u8, c.current);
         defer testing.allocator.free(current);
         @memset(current, 0);
 
@@ -579,7 +579,7 @@ test "best speed match 2/2" {
             .allocator = undefined,
             .cur = 0,
         };
-        var got: i32 = e.matchLen(c.s, c.t, current);
+        const got: i32 = e.matchLen(c.s, c.t, current);
         try expectEqual(@as(i32, c.expected), got);
     }
 }
@@ -609,10 +609,10 @@ test "best speed shift offsets" {
     // Second part should pick up matches from the first block.
     tokens_count = 0;
     enc.encode(&tokens, &tokens_count, &test_data);
-    var want_first_tokens = tokens_count;
+    const want_first_tokens = tokens_count;
     tokens_count = 0;
     enc.encode(&tokens, &tokens_count, &test_data);
-    var want_second_tokens = tokens_count;
+    const want_second_tokens = tokens_count;
 
     try expect(want_first_tokens > want_second_tokens);
 
@@ -657,7 +657,7 @@ test "best speed reset" {
     const ArrayList = std.ArrayList;
 
     const input_size = 65536;
-    var input = try testing.allocator.alloc(u8, input_size);
+    const input = try testing.allocator.alloc(u8, input_size);
     defer testing.allocator.free(input);
 
     var i: usize = 0;
@@ -699,7 +699,7 @@ test "best speed reset" {
         // Reset until we are right before the wraparound.
         // Each reset adds max_match_offset to the offset.
         i = 0;
-        var limit = (buffer_reset - input.len - o - max_match_offset) / max_match_offset;
+        const limit = (buffer_reset - input.len - o - max_match_offset) / max_match_offset;
         while (i < limit) : (i += 1) {
             // skip ahead to where we are close to wrap around...
             comp.reset(discard.writer());

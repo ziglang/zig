@@ -1,6 +1,7 @@
 comptime {
     var undef_ptr: *i32 = undefined;
     const ptr: *i32 = @ptrCast(undef_ptr);
+    _ = &undef_ptr;
     _ = ptr;
 }
 

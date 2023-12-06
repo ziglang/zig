@@ -4,8 +4,6 @@ const assert = debug.assert;
 const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
-const meta = std.meta;
-const trait = meta.trait;
 const autoHash = std.hash.autoHash;
 const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
@@ -2076,11 +2074,11 @@ test "iterator hash map" {
     try reset_map.putNoClobber(1, 22);
     try reset_map.putNoClobber(2, 33);
 
-    var keys = [_]i32{
+    const keys = [_]i32{
         0, 2, 1,
     };
 
-    var values = [_]i32{
+    const values = [_]i32{
         11, 33, 22,
     };
 
@@ -2116,7 +2114,7 @@ test "iterator hash map" {
     }
 
     it.reset();
-    var entry = it.next().?;
+    const entry = it.next().?;
     try testing.expect(entry.key_ptr.* == first_entry.key_ptr.*);
     try testing.expect(entry.value_ptr.* == first_entry.value_ptr.*);
 }
@@ -2341,13 +2339,13 @@ test "reIndex" {
 test "auto store_hash" {
     const HasCheapEql = AutoArrayHashMap(i32, i32);
     const HasExpensiveEql = AutoArrayHashMap([32]i32, i32);
-    try testing.expect(meta.fieldInfo(HasCheapEql.Data, .hash).type == void);
-    try testing.expect(meta.fieldInfo(HasExpensiveEql.Data, .hash).type != void);
+    try testing.expect(std.meta.fieldInfo(HasCheapEql.Data, .hash).type == void);
+    try testing.expect(std.meta.fieldInfo(HasExpensiveEql.Data, .hash).type != void);
 
     const HasCheapEqlUn = AutoArrayHashMapUnmanaged(i32, i32);
     const HasExpensiveEqlUn = AutoArrayHashMapUnmanaged([32]i32, i32);
-    try testing.expect(meta.fieldInfo(HasCheapEqlUn.Data, .hash).type == void);
-    try testing.expect(meta.fieldInfo(HasExpensiveEqlUn.Data, .hash).type != void);
+    try testing.expect(std.meta.fieldInfo(HasCheapEqlUn.Data, .hash).type == void);
+    try testing.expect(std.meta.fieldInfo(HasExpensiveEqlUn.Data, .hash).type != void);
 }
 
 test "sort" {
@@ -2434,12 +2432,12 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
     return struct {
         fn hash(ctx: Context, key: K) u32 {
             _ = ctx;
-            if (comptime trait.hasUniqueRepresentation(K)) {
-                return @as(u32, @truncate(Wyhash.hash(0, std.mem.asBytes(&key))));
+            if (std.meta.hasUniqueRepresentation(K)) {
+                return @truncate(Wyhash.hash(0, std.mem.asBytes(&key)));
             } else {
                 var hasher = Wyhash.init(0);
                 autoHash(&hasher, key);
-                return @as(u32, @truncate(hasher.final()));
+                return @truncate(hasher.final());
             }
         }
     }.hash;
@@ -2450,7 +2448,7 @@ pub fn getAutoEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K
         fn eql(ctx: Context, a: K, b: K, b_index: usize) bool {
             _ = b_index;
             _ = ctx;
-            return meta.eql(a, b);
+            return std.meta.eql(a, b);
         }
     }.eql;
 }

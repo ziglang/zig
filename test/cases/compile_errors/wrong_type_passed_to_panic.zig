@@ -1,5 +1,5 @@
 export fn entry() void {
-    var e = error.Foo;
+    const e = error.Foo;
     @panic(e);
 }
 

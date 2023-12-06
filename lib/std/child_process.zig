@@ -847,7 +847,7 @@ pub const ChildProcess = struct {
             }
 
             windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
-                var original_err = switch (no_path_err) {
+                const original_err = switch (no_path_err) {
                     error.FileNotFound, error.InvalidExe, error.AccessDenied => |e| e,
                     error.UnrecoverableInvalidExe => return error.InvalidExe,
                     else => |e| return e,
@@ -976,7 +976,8 @@ fn windowsCreateProcessPathExt(
         defer dir_buf.shrinkRetainingCapacity(dir_path_len);
         const dir_path_z = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
         const prefixed_path = try windows.wToPrefixedFileW(null, dir_path_z);
-        break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{}, true) catch return error.FileNotFound;
+        break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{ .iterate = true }) catch
+            return error.FileNotFound;
     };
     defer dir.close();
 
@@ -1285,7 +1286,7 @@ fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const w
     wr.* = wr_h;
 }
 
-var pipe_name_counter = std.atomic.Atomic(u32).init(1);
+var pipe_name_counter = std.atomic.Value(u32).init(1);
 
 fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
     var tmp_bufw: [128]u16 = undefined;

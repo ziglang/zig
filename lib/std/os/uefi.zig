@@ -149,11 +149,10 @@ pub const TimeCapabilities = extern struct {
 pub const FileHandle = *opaque {};
 
 test "GUID formatting" {
-    var bytes = [_]u8{ 137, 60, 203, 50, 128, 128, 124, 66, 186, 19, 80, 73, 135, 59, 194, 135 };
+    const bytes = [_]u8{ 137, 60, 203, 50, 128, 128, 124, 66, 186, 19, 80, 73, 135, 59, 194, 135 };
+    const guid: Guid = @bitCast(bytes);
 
-    var guid = @as(Guid, @bitCast(bytes));
-
-    var str = try std.fmt.allocPrint(std.testing.allocator, "{}", .{guid});
+    const str = try std.fmt.allocPrint(std.testing.allocator, "{}", .{guid});
     defer std.testing.allocator.free(str);
 
     try std.testing.expect(std.mem.eql(u8, str, "32cb3c89-8080-427c-ba13-5049873bc287"));
