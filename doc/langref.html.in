@@ -4635,6 +4635,14 @@ test "while null capture" {
     } else {
         try expect(sum2 == 3);
     }
+
+    var i: u32 = 0;
+    var sum3: u32 = 0;
+    numbers_left = 3;
+    while (eventuallyNullSequence()) |value| : (i += 1) {
+        sum3 += value;
+    }
+    try expect(i == 3);
 }
 
 var numbers_left: u32 = undefined;
@@ -6329,6 +6337,8 @@ test "optional pointers" {
 }
       {#code_end#}
       {#header_close#}
+
+      {#see_also|while with Optionals|if#}
       {#header_close#}
       {#header_open|Casting#}
       <p>
