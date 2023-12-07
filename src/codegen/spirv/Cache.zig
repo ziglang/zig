@@ -66,15 +66,6 @@ const Tag = enum {
     /// Function (proto)type
     /// data is payload to FunctionType
     type_function,
-    // /// Pointer type in the CrossWorkgroup storage class
-    // /// data is child type
-    // type_ptr_generic,
-    // /// Pointer type in the CrossWorkgroup storage class
-    // /// data is child type
-    // type_ptr_crosswgp,
-    // /// Pointer type in the Function storage class
-    // /// data is child type
-    // type_ptr_function,
     /// Simple pointer type that does not have any decorations.
     /// data is payload to SimplePointerType
     type_ptr_simple,
