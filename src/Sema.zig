@@ -37186,7 +37186,7 @@ pub fn analyzeAddressSpace(
         // TODO: check that .shared and .local are left uninitialized
         .param => is_nv,
         .global, .shared, .local => is_gpu,
-        .constant => is_gpu and (ctx == .constant),
+        .constant => is_gpu and (ctx == .constant or ctx == .pointer),
         // TODO this should also check how many flash banks the cpu has
         .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
     };
