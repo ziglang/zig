@@ -1971,11 +1971,6 @@ fn renderSwitchCase(
         break :blk hasComment(tree, tree.firstToken(switch_case.ast.values[0]), switch_case.ast.arrow_token);
     };
 
-    // render inline keyword
-    if (switch_case.inline_token) |some| {
-        try renderToken(r, some, .space);
-    }
-
     // Render everything before the arrow
     if (switch_case.ast.values.len == 0) {
         try renderToken(r, switch_case.ast.arrow_token - 1, .space); // else keyword

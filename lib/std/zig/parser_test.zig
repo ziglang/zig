@@ -3365,6 +3365,15 @@ test "zig fmt: switch multiline string" {
     );
 }
 
+test "zig fmt: switch inline for loop" {
+    try testCanonical(
+        \\const a = switch (1) {
+        \\    inline for (1) |_| 1 => 1,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: while" {
     try testCanonical(
         \\test "while" {
