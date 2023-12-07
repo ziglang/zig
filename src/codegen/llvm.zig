@@ -554,7 +554,7 @@ const DataLayoutBuilder = struct {
         }
         const alloca_addr_space = llvmAllocaAddressSpace(self.target);
         if (alloca_addr_space != .default) try writer.print("-A{d}", .{@intFromEnum(alloca_addr_space)});
-        const global_addr_space = llvmDefaultGlobalAddressSpace(self.target);
+        const global_addr_space = llvmDefaultGlobalAddressSpace(self.target, .global);
         if (global_addr_space != .default) try writer.print("-G{d}", .{@intFromEnum(global_addr_space)});
         if (any_non_integral) {
             try writer.writeAll("-ni");
@@ -3117,7 +3117,6 @@ pub const Object = struct {
     fn resolveGlobalAnonDecl(
         o: *Object,
         decl_val: InternPool.Index,
-        llvm_addr_space: Builder.AddrSpace,
         alignment: InternPool.Alignment,
     ) Error!Builder.Variable.Index {
         assert(alignment != .none);
@@ -3135,6 +3134,7 @@ pub const Object = struct {
 
         const mod = o.module;
         const decl_ty = mod.intern_pool.typeOf(decl_val);
+        const llvm_addr_space = llvmDefaultGlobalAddressSpace(mod.getTarget(), .constant);
 
         const variable_index = try o.builder.addVariable(
             try o.builder.fmt("__anon_{d}", .{@intFromEnum(decl_val)}),
@@ -3147,6 +3147,7 @@ pub const Object = struct {
         variable_index.setLinkage(.internal, &o.builder);
         variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
         variable_index.setAlignment(alignment.toLlvm(), &o.builder);
+        variable_index.setMutability(.constant, &o.builder);
         return variable_index;
     }
 
@@ -3162,12 +3163,18 @@ pub const Object = struct {
         const decl = mod.declPtr(decl_index);
         const is_extern = decl.isExtern(mod);
 
+        const address_space = toLlvmGlobalAddressSpace(
+            decl.@"addrspace",
+            if (decl.val.getVariable(mod) == null) .constant else .global,
+            mod.getTarget(),
+        );
+
         const variable_index = try o.builder.addVariable(
             try o.builder.string(mod.intern_pool.stringToSlice(
                 if (is_extern) decl.name else try decl.getFullyQualifiedName(mod),
             )),
             try o.lowerType(decl.ty),
-            toLlvmGlobalAddressSpace(decl.@"addrspace", mod.getTarget()),
+            address_space,
         );
         gop.value_ptr.* = variable_index.ptrConst(&o.builder).global;
 
@@ -4491,7 +4498,7 @@ pub const Object = struct {
         const orig_ty = Type.fromInterned(anon_decl.orig_ty);
         const llvm_addr_space = toLlvmAddressSpace(orig_ty.ptrAddressSpace(mod), target);
         const alignment = orig_ty.ptrAlignment(mod);
-        const llvm_global = (try o.resolveGlobalAnonDecl(decl_val, llvm_addr_space, alignment)).ptrConst(&o.builder).global;
+        const llvm_global = (try o.resolveGlobalAnonDecl(decl_val, alignment)).ptrConst(&o.builder).global;
 
         const llvm_val = try o.builder.convConst(
             .unneeded,
@@ -4815,7 +4822,7 @@ pub const FuncGen = struct {
         const variable_index = try o.builder.addVariable(
             .empty,
             llvm_val.typeOf(&o.builder),
-            toLlvmGlobalAddressSpace(.generic, target),
+            toLlvmGlobalAddressSpace(.generic, .constant, target),
         );
         try variable_index.setInitializer(llvm_val, &o.builder);
         variable_index.setLinkage(.private, &o.builder);
@@ -10907,20 +10914,23 @@ fn llvmAllocaAddressSpace(target: std.Target) Builder.AddrSpace {
 
 /// On some targets, global values that are in the generic address space must be generated into a
 /// different address space, and then cast back to the generic address space.
-fn llvmDefaultGlobalAddressSpace(target: std.Target) Builder.AddrSpace {
+fn llvmDefaultGlobalAddressSpace(target: std.Target, mut: Builder.Mutability) Builder.AddrSpace {
     return switch (target.cpu.arch) {
         // On amdgcn, globals must be explicitly allocated and uploaded so that the program can access
         // them.
-        .amdgcn => Builder.AddrSpace.amdgpu.global,
+        .amdgcn => switch (mut) {
+            .global => Builder.AddrSpace.amdgpu.global,
+            .constant => Builder.AddrSpace.amdgpu.constant,
+        },
         else => .default,
     };
 }
 
 /// Return the actual address space that a value should be stored in if its a global address space.
 /// When a value is placed in the resulting address space, it needs to be cast back into wanted_address_space.
-fn toLlvmGlobalAddressSpace(wanted_address_space: std.builtin.AddressSpace, target: std.Target) Builder.AddrSpace {
+fn toLlvmGlobalAddressSpace(wanted_address_space: std.builtin.AddressSpace, mut: Builder.Mutability, target: std.Target) Builder.AddrSpace {
     return switch (wanted_address_space) {
-        .generic => llvmDefaultGlobalAddressSpace(target),
+        .generic => llvmDefaultGlobalAddressSpace(target, mut),
         else => |as| toLlvmAddressSpace(as, target),
     };
 }
