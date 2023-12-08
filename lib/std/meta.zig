@@ -29,7 +29,7 @@ pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
         const kvs = comptime build_kvs: {
             const EnumKV = struct { []const u8, T };
             var kvs_array: [@typeInfo(T).Enum.fields.len]EnumKV = undefined;
-            inline for (@typeInfo(T).Enum.fields, 0..) |enumField, i| {
+            for (@typeInfo(T).Enum.fields, 0..) |enumField, i| {
                 kvs_array[i] = .{ enumField.name, @field(T, enumField.name) };
             }
             break :build_kvs kvs_array[0..];
