@@ -6801,6 +6801,32 @@ test "peer type resolution: *const T and ?*T" {
     try expect(a == b);
     try expect(b == a);
 }
+
+test "peer type resolution: error union switch" {
+    // The non-error and error cases are only peers if the error case is just a switch expression;
+    // the pattern `if (x) {...} else |err| blk: { switch (err) {...} }` does not consider the
+    // non-error and error case to be peers.
+    var a: error{ A, B, C }!u32 = 0;
+    _ = &a;
+    const b = if (a) |x|
+        x + 3
+    else |err| switch (err) {
+        error.A => 0,
+        error.B => 1,
+        error.C => null,
+    };
+    try expect(@TypeOf(b) == ?u32);
+
+    // The non-error and error cases are only peers if the error case is just a switch expression;
+    // the pattern `x catch |err| blk: { switch (err) {...} }` does not consider the unwrapped `x`
+    // and error case to be peers.
+    const c = a catch |err| switch (err) {
+        error.A => 0,
+        error.B => 1,
+        error.C => null,
+    };
+    try expect(@TypeOf(c) == ?u32);
+}
       {#code_end#}
       {#header_close#}
       {#header_close#}
