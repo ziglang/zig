@@ -26,22 +26,22 @@ pub const Register = enum(u8) {
     /// x86 has. It is embedded in some instructions, such as the `B8 +rd` move
     /// instruction, and is used in the R/M byte.
     pub fn id(self: Register) u3 {
-        return @truncate(u3, @intFromEnum(self));
+        return @truncate(@intFromEnum(self));
     }
 
     /// Convert from any register to its 32 bit alias.
     pub fn to32(self: Register) Register {
-        return @enumFromInt(Register, @as(u8, self.id()));
+        return @enumFromInt(@as(u8, self.id()));
     }
 
     /// Convert from any register to its 16 bit alias.
     pub fn to16(self: Register) Register {
-        return @enumFromInt(Register, @as(u8, self.id()) + 8);
+        return @enumFromInt(@as(u8, self.id()) + 8);
     }
 
     /// Convert from any register to its 8 bit alias.
     pub fn to8(self: Register) Register {
-        return @enumFromInt(Register, @as(u8, self.id()) + 16);
+        return @enumFromInt(@as(u8, self.id()) + 16);
     }
 
     pub fn dwarfLocOp(reg: Register) u8 {
