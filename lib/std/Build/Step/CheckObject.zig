@@ -923,9 +923,18 @@ const MachODumper = struct {
                     sect.segName(),
                     sect.sectName(),
                 });
+                if (sym.n_desc & macho.REFERENCED_DYNAMICALLY != 0) try writer.writeAll(" [referenced dynamically]");
+                if (sym.weakDef()) try writer.writeAll(" weak");
+                if (sym.weakRef()) try writer.writeAll(" weakref");
                 if (sym.ext()) {
+                    if (sym.pext()) try writer.writeAll(" private");
                     try writer.writeAll(" external");
-                }
+                } else if (sym.pext()) try writer.writeAll(" (was private external)");
+                try writer.print(" {s}\n", .{sym_name});
+            } else if (sym.tentative()) {
+                const alignment = (sym.n_desc >> 8) & 0x0F;
+                try writer.print("  0x{x:0>16} (common) (alignment 2^{d})", .{ sym.n_value, alignment });
+                if (sym.ext()) try writer.writeAll(" external");
                 try writer.print(" {s}\n", .{sym_name});
             } else if (sym.undf()) {
                 const ordinal = @divTrunc(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
@@ -946,17 +955,13 @@ const MachODumper = struct {
                     break :blk basename[0..ext];
                 };
                 try writer.writeAll("(undefined)");
-                if (sym.weakRef()) {
-                    try writer.writeAll(" weak");
-                }
-                if (sym.ext()) {
-                    try writer.writeAll(" external");
-                }
+                if (sym.weakRef()) try writer.writeAll(" weakref");
+                if (sym.ext()) try writer.writeAll(" external");
                 try writer.print(" {s} (from {s})\n", .{
                     sym_name,
                     import_name,
                 });
-            } else unreachable;
+            }
         }
     }
 };
