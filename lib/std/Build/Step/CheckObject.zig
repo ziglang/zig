@@ -567,6 +567,8 @@ const MachODumper = struct {
         var sections = std.ArrayList(macho.section_64).init(gpa);
         var imports = std.ArrayList([]const u8).init(gpa);
 
+        try dumpHeader(hdr, writer);
+
         var it: LoadCommandIterator = .{
             .ncmds = hdr.ncmds,
             .buffer = bytes[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
@@ -607,6 +609,74 @@ const MachODumper = struct {
         }
 
         return output.toOwnedSlice();
+    }
+
+    fn dumpHeader(hdr: macho.mach_header_64, writer: anytype) !void {
+        const cputype = switch (hdr.cputype) {
+            macho.CPU_TYPE_ARM64 => "ARM64",
+            macho.CPU_TYPE_X86_64 => "X86_64",
+            else => "Unknown",
+        };
+        const filetype = switch (hdr.filetype) {
+            macho.MH_OBJECT => "MH_OBJECT",
+            macho.MH_EXECUTE => "MH_EXECUTE",
+            macho.MH_FVMLIB => "MH_FVMLIB",
+            macho.MH_CORE => "MH_CORE",
+            macho.MH_PRELOAD => "MH_PRELOAD",
+            macho.MH_DYLIB => "MH_DYLIB",
+            macho.MH_DYLINKER => "MH_DYLINKER",
+            macho.MH_BUNDLE => "MH_BUNDLE",
+            macho.MH_DYLIB_STUB => "MH_DYLIB_STUB",
+            macho.MH_DSYM => "MH_DSYM",
+            macho.MH_KEXT_BUNDLE => "MH_KEXT_BUNDLE",
+            else => "Unknown",
+        };
+
+        try writer.print(
+            \\header
+            \\cputype {s}
+            \\filetype {s}
+            \\ncmds {d}
+            \\sizeofcmds {x}
+            \\flags
+        , .{
+            cputype,
+            filetype,
+            hdr.ncmds,
+            hdr.sizeofcmds,
+        });
+
+        if (hdr.flags > 0) {
+            if (hdr.flags & macho.MH_NOUNDEFS != 0) try writer.writeAll(" NOUNDEFS");
+            if (hdr.flags & macho.MH_INCRLINK != 0) try writer.writeAll(" INCRLINK");
+            if (hdr.flags & macho.MH_DYLDLINK != 0) try writer.writeAll(" DYLDLINK");
+            if (hdr.flags & macho.MH_BINDATLOAD != 0) try writer.writeAll(" BINDATLOAD");
+            if (hdr.flags & macho.MH_PREBOUND != 0) try writer.writeAll(" PREBOUND");
+            if (hdr.flags & macho.MH_SPLIT_SEGS != 0) try writer.writeAll(" SPLIT_SEGS");
+            if (hdr.flags & macho.MH_LAZY_INIT != 0) try writer.writeAll(" LAZY_INIT");
+            if (hdr.flags & macho.MH_TWOLEVEL != 0) try writer.writeAll(" TWOLEVEL");
+            if (hdr.flags & macho.MH_FORCE_FLAT != 0) try writer.writeAll(" FORCE_FLAT");
+            if (hdr.flags & macho.MH_NOMULTIDEFS != 0) try writer.writeAll(" NOMULTIDEFS");
+            if (hdr.flags & macho.MH_NOFIXPREBINDING != 0) try writer.writeAll(" NOFIXPREBINDING");
+            if (hdr.flags & macho.MH_PREBINDABLE != 0) try writer.writeAll(" PREBINDABLE");
+            if (hdr.flags & macho.MH_ALLMODSBOUND != 0) try writer.writeAll(" ALLMODSBOUND");
+            if (hdr.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0) try writer.writeAll(" SUBSECTIONS_VIA_SYMBOLS");
+            if (hdr.flags & macho.MH_CANONICAL != 0) try writer.writeAll(" CANONICAL");
+            if (hdr.flags & macho.MH_WEAK_DEFINES != 0) try writer.writeAll(" WEAK_DEFINES");
+            if (hdr.flags & macho.MH_BINDS_TO_WEAK != 0) try writer.writeAll(" BINDS_TO_WEAK");
+            if (hdr.flags & macho.MH_ALLOW_STACK_EXECUTION != 0) try writer.writeAll(" ALLOW_STACK_EXECUTION");
+            if (hdr.flags & macho.MH_ROOT_SAFE != 0) try writer.writeAll(" ROOT_SAFE");
+            if (hdr.flags & macho.MH_SETUID_SAFE != 0) try writer.writeAll(" SETUID_SAFE");
+            if (hdr.flags & macho.MH_NO_REEXPORTED_DYLIBS != 0) try writer.writeAll(" NO_REEXPORTED_DYLIBS");
+            if (hdr.flags & macho.MH_PIE != 0) try writer.writeAll(" PIE");
+            if (hdr.flags & macho.MH_DEAD_STRIPPABLE_DYLIB != 0) try writer.writeAll(" DEAD_STRIPPABLE_DYLIB");
+            if (hdr.flags & macho.MH_HAS_TLV_DESCRIPTORS != 0) try writer.writeAll(" HAS_TLV_DESCRIPTORS");
+            if (hdr.flags & macho.MH_NO_HEAP_EXECUTION != 0) try writer.writeAll(" NO_HEAP_EXECUTION");
+            if (hdr.flags & macho.MH_APP_EXTENSION_SAFE != 0) try writer.writeAll(" APP_EXTENSION_SAFE");
+            if (hdr.flags & macho.MH_NLIST_OUTOFSYNC_WITH_DYLDINFO != 0) try writer.writeAll(" NLIST_OUTOFSYNC_WITH_DYLDINFO");
+        }
+
+        try writer.writeByte('\n');
     }
 
     fn dumpLoadCommand(lc: macho.LoadCommandIterator.LoadCommand, index: usize, writer: anytype) !void {
