@@ -233,7 +233,7 @@ test "parseCharLiteral" {
 
 /// Parses `bytes` as a Zig string literal and writes the result to the std.io.Writer type.
 /// Asserts `bytes` has '"' at beginning and end.
-pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result {
+pub fn parseWrite(writer: anytype, bytes: []const u8) !Result {
     assert(bytes.len >= 2 and bytes[0] == '"' and bytes[bytes.len - 1] == '"');
 
     var index: usize = 1;

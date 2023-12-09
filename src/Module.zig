@@ -1012,7 +1012,7 @@ pub const File = struct {
         if (file.tree_loaded) return &file.tree;
 
         const source = try file.getSource(gpa);
-        file.tree = try Ast.parse(gpa, source.bytes, .zig);
+        file.tree = try Ast.parse(gpa, source.bytes, mode(file.sub_file_path));
         file.tree_loaded = true;
         return &file.tree;
     }
@@ -1128,6 +1128,16 @@ pub const File = struct {
     }
 };
 
+// XXX: reivist
+pub fn mode(sub_file_path: []const u8) Ast.Mode {
+    if (std.mem.endsWith(u8, sub_file_path, ".zon")) {
+        return .zon;
+    } else if (std.mem.endsWith(u8, sub_file_path, ".zig")) {
+        return .zig;
+    } else unreachable;
+}
+
+/// Represents the contents of a file loaded with `@embedFile`.
 pub const EmbedFile = struct {
     /// Relative to the owning module's root directory.
     sub_file_path: InternPool.NullTerminatedString,
@@ -2819,7 +2829,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     file.source = source;
     file.source_loaded = true;
 
-    file.tree = try Ast.parse(gpa, source, .zig);
+    file.tree = try Ast.parse(gpa, source, mode(file.sub_file_path));
     file.tree_loaded = true;
 
     // Any potential AST errors are converted to ZIR errors here.
@@ -3124,7 +3134,7 @@ pub fn populateBuiltinFile(mod: *Module) !void {
         else => |e| return e,
     }
 
-    file.tree = try Ast.parse(gpa, file.source, .zig);
+    file.tree = try Ast.parse(gpa, file.source, mode(file.sub_file_path));
     file.tree_loaded = true;
     assert(file.tree.errors.len == 0); // builtin.zig must parse
 
@@ -3475,6 +3485,8 @@ pub fn semaPkg(mod: *Module, pkg: *Package.Module) !void {
 /// Regardless of the file status, will create a `Decl` so that we
 /// can track dependencies and re-analyze when the file becomes outdated.
 pub fn semaFile(mod: *Module, file: *File) SemaError!void {
+    assert(mode(file.sub_file_path) == .zig);
+
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3582,6 +3594,484 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         defer mod.comp.whole_cache_manifest_mutex.unlock();
         try whole_cache_manifest.addFilePostContents(resolved_path, source.bytes, source.stat);
     }
+}
+
+const LowerZon = struct {
+    mod: *Module,
+    file: *File,
+
+    // XXX: return error or return poisoned value?
+    pub fn fail(
+        self: *LowerZon,
+        loc: LazySrcLoc,
+        comptime format: []const u8,
+        args: anytype,
+    ) (Allocator.Error || error { AnalysisFail }) {
+        // XXX: good idea?
+        @setCold(true);
+
+        const src_loc = .{
+            .file_scope = self.file,
+            .parent_decl_node = 0,
+            .lazy = loc,
+        };
+        const err_msg = try Module.ErrorMsg.create(self.mod.gpa, src_loc, format, args);
+        try self.mod.failed_files.putNoClobber(self.mod.gpa, self.file, err_msg);
+        return error.AnalysisFail;
+    }
+
+    pub fn failWithStrLitError(
+        self: *LowerZon,
+        _: Ast.TokenIndex,
+        byte_abs: u32,
+        comptime format: []const u8,
+        args: anytype,
+    ) (Allocator.Error || error { AnalysisFail }) {
+        return self.fail(.{ .byte_abs = byte_abs }, format, args);
+    }
+
+    fn numberError(
+        self: *LowerZon,
+        _: Ast.TokenIndex,
+        byte_abs: u32,
+        comptime format: []const u8,
+        args: anytype,
+        notes: []const u32,
+    ) Allocator.Error!void {
+        // XXX: use notes...
+        _ = notes;
+        switch (self.fail(.{ .byte_abs = byte_abs }, format, args)) {
+            error.AnalysisFail => {},
+            else => |err| return err,
+        }
+    }
+
+    // XXX: ...
+    fn errNote(self: *LowerZon, token: Ast.TokenIndex, comptime format: []const u8, args: anytype) Allocator.Error!u32 {
+        _ = self;
+        _ = token;
+        _ = format;
+        _ = args;
+        return 0;
+    }
+
+    fn lower(self: *LowerZon) !InternPool.Index {
+        const tree = self.file.getTree(self.mod.gpa) catch unreachable;
+        if (tree.errors.len != 0) {
+            return self.lowerAstErrors();
+        }
+
+        const data = tree.nodes.items(.data);
+        const root = data[0].lhs;
+        return self.expr(root);
+    }
+
+    // XXX: is compileError correct here..? can any of this be pulled out from AstGen.lowerAstErrors into a common function?
+    fn lowerAstErrors(self: *LowerZon) CompileError {
+        const tree = self.file.tree;
+        assert(tree.errors.len > 0);
+
+        const gpa = self.mod.gpa;
+        const parse_err = tree.errors[0];
+
+        var buf: std.ArrayListUnmanaged(u8) = .{};
+        defer buf.deinit(gpa);
+
+        // Create the main error
+        buf.clearRetainingCapacity();
+        try tree.renderError(parse_err, buf.writer(gpa));
+        const err_msg = try Module.ErrorMsg.create(
+            gpa,
+            .{
+                .file_scope = self.file,
+                .parent_decl_node = 0,
+                .lazy = .{ .token_abs = parse_err.token + @intFromBool(parse_err.token_is_prev) },
+            },
+            "{s}",
+            .{buf.items},
+        );
+
+        // XXX: test this, make sure I got it right...
+        // Check for invalid bytes
+        const token_starts = tree.tokens.items(.start);
+        const token_tags = tree.tokens.items(.tag);
+        if (token_tags[parse_err.token + @intFromBool(parse_err.token_is_prev)] == .invalid) {
+            const bad_off: u32 = @intCast(tree.tokenSlice(parse_err.token + @intFromBool(parse_err.token_is_prev)).len);
+            const byte_abs = token_starts[parse_err.token + @intFromBool(parse_err.token_is_prev)] + bad_off;
+            try self.mod.errNoteNonLazy(
+                .{
+                    .file_scope = self.file,
+                    .parent_decl_node = 0,
+                    .lazy = .{ .byte_abs = byte_abs },
+                },
+                err_msg,
+                "invalid byte: '{'}'",
+                .{ std.zig.fmtEscapes(tree.source[byte_abs..][0..1]) },
+            );
+        }
+
+        // XXX: do I need to explicitly mention that it's a note somehow or is that information already encoded in the message?
+        // Create the notes
+        for (tree.errors[1..]) |note| {
+            if (!note.is_note) break;
+
+            buf.clearRetainingCapacity();
+            try tree.renderError(note, buf.writer(gpa));
+            try self.mod.errNoteNonLazy(
+                .{
+                    .file_scope = self.file,
+                    .parent_decl_node = 0,
+                    .lazy = .{ .token_abs = note.token + @intFromBool(note.token_is_prev) },
+                },
+                err_msg,
+                "{s}",
+                .{buf.items},
+            );
+        }
+
+        try self.mod.failed_files.putNoClobber(gpa, self.file, err_msg);
+        return error.AnalysisFail;
+    }
+
+    fn expr(self: *LowerZon, node: Ast.Node.Index) !InternPool.Index {
+        const gpa = self.mod.gpa;
+        const data = self.file.tree.nodes.items(.data);
+        const tags = self.file.tree.nodes.items(.tag);
+        switch (tags[node]) {
+            .identifier => {
+                const main_tokens = self.file.tree.nodes.items(.main_token);
+                const token = main_tokens[node];
+                const bytes = self.file.tree.tokenSlice(token);
+                // XXX: make comptime string map or something?
+                if (std.mem.eql(u8, bytes, "true")) {
+                    return .bool_true;
+                } else if (std.mem.eql(u8, bytes, "false")) {
+                    return .bool_false;
+                } else if (std.mem.eql(u8, bytes, "null")) {
+                    return .null_value;
+                } else {
+                    return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{ bytes });
+                }
+            },
+            .number_literal, .char_literal => return self.number(node, false),
+            .negation => return self.number(data[node].lhs, true),
+            // XXX: make sure works with @""!
+            .enum_literal => {
+                const main_tokens = self.file.tree.nodes.items(.main_token);
+                const token = main_tokens[node];
+                const bytes = self.file.tree.tokenSlice(token);
+                return self.mod.intern_pool.get(gpa, .{
+                    .enum_literal = try self.mod.intern_pool.getOrPutString(gpa, bytes),
+                });
+            },
+            .string_literal => {
+                const main_tokens = self.file.tree.nodes.items(.main_token);
+                const token = main_tokens[node];
+                const raw_string = self.file.tree.tokenSlice(token);
+
+                var bytes = std.ArrayListUnmanaged(u8){};
+                defer bytes.deinit(gpa);
+
+                const offset = self.file.tree.tokens.items(.start)[token];
+                switch (try std.zig.string_literal.parseWrite(bytes.writer(gpa), raw_string)) {
+                    .success => {},
+                    .failure => |err| return AstGen.failWithStrLitError(
+                        self,
+                        failWithStrLitError,
+                        err,
+                        token,
+                        raw_string,
+                        offset,
+                    ),
+                }
+
+                const array_ty = try self.mod.arrayType(.{
+                    .len = bytes.items.len,
+                    .sentinel = .zero_u8,
+                    .child = .u8_type,
+                });
+                const val = try self.mod.intern(.{ .aggregate = .{
+                    .ty = array_ty.toIntern(),
+                    .storage = .{ .bytes = bytes.items },
+                } });
+                const ptr_ty = (try self.mod.ptrType(.{
+                    .child = array_ty.toIntern(),
+                    .flags = .{
+                        .alignment = .none,
+                        .is_const = true,
+                        .address_space = .generic,
+                    },
+                })).toIntern();
+                return try self.mod.intern(.{ .ptr = .{
+                    .ty = ptr_ty,
+                    .addr = .{ .anon_decl = .{ .val = val, .orig_ty = ptr_ty } },
+                } });
+            },
+            // XXX: enforce no named structs
+            // XXX: does zig support any kind of reepated array syntax or is that just mul? do we support that in zon?
+            // XXX: am i supposed to special case empty struct?
+            .struct_init_one,
+            .struct_init_one_comma,
+            .struct_init_dot_two,
+            .struct_init_dot_two_comma,
+            .struct_init_dot,
+            .struct_init_dot_comma,
+            .struct_init,
+            .struct_init_comma => {
+                var buf: [2]Ast.Node.Index = undefined;
+                const struct_init = self.file.tree.fullStructInit(&buf, node).?;
+                if (struct_init.ast.type_expr != 0) {
+                    return self.fail(.{ .node_abs = struct_init.ast.type_expr }, "type expressions not allowed in ZON", .{});
+                }
+                const types = try gpa.alloc(InternPool.Index, struct_init.ast.fields.len);
+                defer gpa.free(types);
+
+                const values = try gpa.alloc(InternPool.Index, struct_init.ast.fields.len);
+                defer gpa.free(values);
+
+                var names = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void){};
+                defer names.deinit(gpa);
+                try names.ensureTotalCapacity(gpa, struct_init.ast.fields.len);
+
+                for (struct_init.ast.fields, 0..) |field, i| {
+                    values[i] = try self.expr(field);
+                    types[i] = self.mod.intern_pool.typeOf(values[i]);
+
+                    // XXX: need to create or find a parseIdentifier like the runtime code that deals with @"" names, and make sure
+                    // dup fields aren't tripped up by it
+                    const name_token = self.file.tree.firstToken(field) - 2;
+                    const name = try self.mod.intern_pool.getOrPutString(gpa, self.file.tree.tokenSlice(name_token));
+                    const gop = names.getOrPutAssumeCapacity(name);
+                    if (gop.found_existing) {
+                        return self.fail(.{ .token_abs = name_token }, "duplicate field", .{});
+                    }
+                }
+
+                const struct_type = try self.mod.intern_pool.getAnonStructType(gpa, .{
+                    .types = types,
+                    .names = names.entries.items(.key),
+                    .values = values,
+                });
+                return self.mod.intern_pool.get(gpa, .{ .aggregate = .{
+                    .ty = struct_type,
+                    .storage = .{ .elems = values },
+                }});
+            },
+            .array_init_one,
+            .array_init_one_comma,
+            .array_init_dot_two,
+            .array_init_dot_two_comma,
+            .array_init_dot,
+            .array_init_dot_comma ,
+            .array_init,
+            .array_init_comma => {
+                // XXX: Ast.full.ContainerField?
+                var buf: [2]Ast.Node.Index = undefined;
+                const array_init = self.file.tree.fullArrayInit(&buf, node).?;
+                if (array_init.ast.type_expr != 0) {
+                    return self.fail(.{ .node_abs = array_init.ast.type_expr }, "type expressions not allowed in ZON", .{});
+                }
+                const types = try gpa.alloc(InternPool.Index, array_init.ast.elements.len);
+                defer gpa.free(types);
+                const values = try gpa.alloc(InternPool.Index, array_init.ast.elements.len);
+                defer gpa.free(values);
+                for (array_init.ast.elements, 0..) |element, i| {
+                    values[i] = try self.expr(element);
+                    types[i] = self.mod.intern_pool.typeOf(values[i]);
+                }
+                const tuple_type = try self.mod.intern_pool.getAnonStructType(gpa, .{
+                    .types = types,
+                    .names = &.{},
+                    .values = values,
+                });
+                return self.mod.intern_pool.get(gpa, .{ .aggregate = .{
+                    .ty = tuple_type,
+                    .storage = .{ .elems = values },
+                }});
+            },
+            .block_two => if (data[node].lhs == 0 or data[node].rhs == 0) {
+                return .void_value;
+            } else {
+                // XXX: why is this unreachable?
+                unreachable;
+            },
+            .address_of => {
+                const child_node = data[node].lhs;
+                switch (tags[child_node]) {
+                    .array_init_one,
+                    .array_init_one_comma,
+                    .array_init_dot_two,
+                    .array_init_dot_two_comma,
+                    .array_init_dot,
+                    .array_init_dot_comma ,
+                    .array_init,
+                    .array_init_comma => {
+                        const value = try self.expr(child_node);
+                        const ty = try self.mod.intern_pool.get(gpa, .{ .ptr_type = .{
+                            .child = self.mod.intern_pool.typeOf(value),
+                        }});
+                        return self.mod.intern_pool.get(gpa, .{ .ptr = .{
+                            .ty = ty,
+                            // XXX: is anon decl correct? (see other use  of this too below)
+                            .addr = .{ .anon_decl = .{ .orig_ty = ty, .val = value } }
+                        }});
+
+                    },
+                    // XXX: hmm we could remove possibility of type expressions by just not allowing those tags actually
+                    .struct_init_one,
+                    .struct_init_one_comma,
+                    .struct_init_dot_two,
+                    .struct_init_dot_two_comma,
+                    .struct_init_dot,
+                    .struct_init_dot_comma,
+                    .struct_init,
+                    .struct_init_comma,
+                    => {
+                        var buf: [2]Ast.Node.Index = undefined;
+                        const full = self.file.tree.fullStructInit(&buf, child_node).?.ast.fields;
+                        if (full.len == 0) {
+                            const value = .empty_struct;
+                            const ty = try self.mod.intern_pool.get(gpa, .{ .ptr_type = .{
+                                .child = self.mod.intern_pool.typeOf(value),
+                            }});
+                            return self.mod.intern_pool.get(gpa, .{ .ptr = .{
+                                .ty = ty,
+                                .addr = .{ .anon_decl = .{ .orig_ty = ty, .val = value } }
+                            }});
+                        }
+                    },
+                    else => {}
+                }
+            },
+            else => {}
+        }
+
+        return self.fail(.{ .node_abs = node }, "invalid ZON value", .{});
+    }
+
+    fn numberOrNegation(self: *LowerZon, node: Ast.Node.Index) !InternPool.Index {
+        const data = self.file.tree.nodes.items(.data);
+        const tags = self.file.tree.nodes.items(.tag);
+        switch (tags[node]) {
+            .negation => self.number(data[node].lhs, true),
+            _ => self.number(node, false),
+        }
+    }
+
+    fn number(self: *LowerZon, node: Ast.Node.Index, is_negative: bool) !InternPool.Index {
+        const gpa = self.mod.gpa;
+        const tags = self.file.tree.nodes.items(.tag);
+        switch (tags[node]) {
+            .char_literal => {
+                const main_tokens = self.file.tree.nodes.items(.main_token);
+                const token = main_tokens[node];
+                const token_bytes = self.file.tree.tokenSlice(token);
+                const char = switch (std.zig.string_literal.parseCharLiteral(token_bytes)) {
+                    .success => |char| char,
+                    .failure => |err| return AstGen.failWithStrLitError(
+                        self,
+                        failWithStrLitError,
+                        err,
+                        token,
+                        token_bytes,
+                        0,
+                    ),
+                };
+                return self.mod.intern_pool.get(gpa, .{ .int = .{
+                    .ty = try self.mod.intern(.{ .simple_type = .comptime_int }),
+                    .storage = .{ .i64 = if (is_negative) -@as(i64, char) else char },
+                }});
+            },
+            .number_literal => {
+                const main_tokens = self.file.tree.nodes.items(.main_token);
+                const token = main_tokens[node];
+                const token_bytes = self.file.tree.tokenSlice(token);
+                const parsed = std.zig.number_literal.parseNumberLiteral(token_bytes);
+                switch (parsed) {
+                    .int => |unsigned| {
+                        if (is_negative) {
+                            const signed = std.math.negate(unsigned) catch {
+                                // XXX: test all cases...
+                                // XXX: can I just always do this or is that worse for perf?
+                                var result = try std.math.big.int.Managed.initSet(gpa, unsigned);
+                                defer result.deinit();
+                                result.negate();
+                                return self.mod.intern_pool.get(gpa, .{ .int = .{
+                                    .ty = .comptime_int_type,
+                                    .storage = .{ .big_int = result.toConst() },
+                                }});
+                            };
+                            return self.mod.intern_pool.get(gpa, .{ .int = .{
+                                .ty = .comptime_int_type,
+                                .storage = .{ .u64 = signed },
+                            }});
+                        } else {
+                            return self.mod.intern_pool.get(gpa, .{ .int = .{
+                                .ty = .comptime_int_type,
+                                .storage = .{ .u64 = unsigned },
+                            }});
+                        }
+                    },
+                    // XXX: handle big ints at runtime too
+                    // XXX: any way to do big int math without allocating all args..?
+                    .big_int => |base| {
+                        // XXX: compare to `zirIntBig`, but I think that function only works because this logic was already done elsewhere.
+                        var base_managed = try std.math.big.int.Managed.initSet(gpa, @as(u8, @intFromEnum(base)));
+                        defer base_managed.deinit();
+                        const prefix_offset = @as(u8, 2) * @intFromBool(base != .decimal);
+                        var result = try std.math.big.int.Managed.init(gpa);
+                        defer result.deinit();
+                        for (token_bytes[prefix_offset..]) |char| {
+                            if (char == '_') continue;
+                            var d = try std.math.big.int.Managed.initSet(gpa, std.fmt.charToDigit(char, @intFromEnum(base)) catch unreachable);
+                            defer d.deinit();
+                            try result.mul(&result, &base_managed);
+                            if (is_negative) {
+                                try result.sub(&result, &d);
+                            } else {
+                                try result.add(&result, &d);
+                            }
+                        }
+                        return self.mod.intern_pool.get(gpa, .{ .int = .{
+                            .ty = try self.mod.intern(.{ .simple_type = .comptime_int }),
+                            .storage = .{ .big_int = result.toConst() },
+                        }});
+                    },
+                    // XXX: I think it's okay to ignore float base, parseFloat will handle it right?
+                    .float => {
+                        // XXX: always f128?
+                        const unsigned_float = std.fmt.parseFloat(f128, token_bytes) catch unreachable;
+                        const float = if (is_negative) -unsigned_float else unsigned_float;
+                        return try self.mod.intern(.{ .float = .{
+                            .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
+                            .storage = .{ .f128 = float },
+                        } });
+                    },
+                    // XXX: ...
+                    .failure => |err| return AstGen.failWithNumberError(
+                        self,
+                        numberError,
+                        errNote,
+                        err,
+                        token,
+                        token_bytes,
+                    ),
+                }
+            },
+            else => unreachable,
+        }
+    }
+};
+
+// XXX: all error handling, including syntax checks/making sure no types named! make sure no leaks either etc, just getting it working first. Also, arena allocation or no?
+// XXX: pub temporary
+pub fn semaZon(mod: *Module, file: *File) !Air.Inst.Ref {
+    var lower_zon = LowerZon{
+        .mod = mod,
+        .file = file,
+    };
+    const interned = try lower_zon.lower();
+    return Air.internedToRef(interned);
 }
 
 /// Returns `true` if the Decl type changed.
@@ -3939,7 +4429,7 @@ pub fn importFile(
     if (cur_file.mod.deps.get(import_string)) |pkg| {
         return mod.importPkg(pkg);
     }
-    if (!mem.endsWith(u8, import_string, ".zig")) {
+    if (!mem.endsWith(u8, import_string, ".zig") and !mem.endsWith(u8, import_string, ".zon")) {
         return error.ModuleNotFound;
     }
     const gpa = mod.gpa;

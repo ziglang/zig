@@ -5,6 +5,7 @@ pub const Digest = [Hash.digest_length]u8;
 pub const multihash_len = 1 + 1 + Hash.digest_length;
 pub const multihash_hex_digest_len = 2 * multihash_len;
 pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
+const AstGen = @import("../AstGen.zig");
 
 pub const Dependency = struct {
     location: Location,
@@ -430,7 +431,6 @@ const Parse = struct {
         return duped;
     }
 
-    /// TODO: try to DRY this with AstGen.parseStrLit
     fn parseStrLit(
         p: *Parse,
         token: Ast.TokenIndex,
@@ -444,92 +444,14 @@ const Parse = struct {
         buf.* = buf_managed.moveToUnmanaged();
         switch (try result) {
             .success => {},
-            .failure => |err| try p.appendStrLitError(err, token, bytes, offset),
-        }
-    }
-
-    /// TODO: try to DRY this with AstGen.failWithStrLitError
-    fn appendStrLitError(
-        p: *Parse,
-        err: std.zig.string_literal.Error,
-        token: Ast.TokenIndex,
-        bytes: []const u8,
-        offset: u32,
-    ) Allocator.Error!void {
-        const raw_string = bytes[offset..];
-        switch (err) {
-            .invalid_escape_character => |bad_index| {
-                try p.appendErrorOff(
-                    token,
-                    offset + @as(u32, @intCast(bad_index)),
-                    "invalid escape character: '{c}'",
-                    .{raw_string[bad_index]},
-                );
-            },
-            .expected_hex_digit => |bad_index| {
-                try p.appendErrorOff(
-                    token,
-                    offset + @as(u32, @intCast(bad_index)),
-                    "expected hex digit, found '{c}'",
-                    .{raw_string[bad_index]},
-                );
-            },
-            .empty_unicode_escape_sequence => |bad_index| {
-                try p.appendErrorOff(
-                    token,
-                    offset + @as(u32, @intCast(bad_index)),
-                    "empty unicode escape sequence",
-                    .{},
-                );
-            },
-            .expected_hex_digit_or_rbrace => |bad_index| {
-                try p.appendErrorOff(
-                    token,
-                    offset + @as(u32, @intCast(bad_index)),
-                    "expected hex digit or '}}', found '{c}'",
-                    .{raw_string[bad_index]},
-                );
-            },
-            .invalid_unicode_codepoint => |bad_index| {
-                try p.appendErrorOff(
-                    token,
-                    offset + @as(u32, @intCast(bad_index)),
-                    "unicode escape does not correspond to a valid codepoint",
-                    .{},
-                );
-            },
-            .expected_lbrace => |bad_index| {
-                try p.appendErrorOff(
-                    token,
-                    offset + @as(u32, @intCast(bad_index)),
-                    "expected '{{', found '{c}",
-                    .{raw_string[bad_index]},
-                );
-            },
-            .expected_rbrace => |bad_index| {
-                try p.appendErrorOff(
-                    token,
-                    offset + @as(u32, @intCast(bad_index)),
-                    "expected '}}', found '{c}",
-                    .{raw_string[bad_index]},
-                );
-            },
-            .expected_single_quote => |bad_index| {
-                try p.appendErrorOff(
-                    token,
-                    offset + @as(u32, @intCast(bad_index)),
-                    "expected single quote ('), found '{c}",
-                    .{raw_string[bad_index]},
-                );
-            },
-            .invalid_character => |bad_index| {
-                try p.appendErrorOff(
-                    token,
-                    offset + @as(u32, @intCast(bad_index)),
-                    "invalid byte in string or character literal: '{c}'",
-                    .{raw_string[bad_index]},
-                );
-            },
+            .failure => |err| try AstGen.failWithStrLitError(
+                p,
+                Parse.appendErrorOff,
+                err,
+                token,
+                bytes,
+                offset,
+            ),
         }
     }
 

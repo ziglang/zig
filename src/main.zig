@@ -5696,8 +5696,7 @@ fn fmtPathFile(
 
     // Add to set after no longer possible to get error.IsDir.
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
-
-    var tree = try Ast.parse(gpa, source_code, .zig);
+    var tree = try Ast.parse(gpa, source_code, Module.mode(sub_path));
     defer tree.deinit(gpa);
 
     if (tree.errors.len != 0) {
@@ -6384,7 +6383,7 @@ pub fn cmdAstCheck(
         .fully_qualified_name = "root",
     });
 
-    file.tree = try Ast.parse(gpa, file.source, .zig);
+    file.tree = try Ast.parse(gpa, file.source, Module.mode(file.sub_file_path));
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
@@ -6564,7 +6563,7 @@ pub fn cmdChangelist(
     file.source = source;
     file.source_loaded = true;
 
-    file.tree = try Ast.parse(gpa, file.source, .zig);
+    file.tree = try Ast.parse(gpa, file.source, Module.mode(file.sub_file_path));
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
@@ -6598,7 +6597,7 @@ pub fn cmdChangelist(
     if (new_amt != new_stat.size)
         return error.UnexpectedEndOfFile;
 
-    var new_tree = try Ast.parse(gpa, new_source, .zig);
+    var new_tree = try Ast.parse(gpa, new_source, Module.mode(new_source_file));
     defer new_tree.deinit(gpa);
 
     var old_zir = file.zir;

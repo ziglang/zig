@@ -2479,7 +2479,9 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         // that are implemented in stage2 but not stage1.
         try comp.astgen_work_queue.ensureUnusedCapacity(module.import_table.count());
         for (module.import_table.values()) |value| {
-            comp.astgen_work_queue.writeItemAssumeCapacity(value);
+            if (Module.mode(value.sub_file_path) == .zig) {
+                comp.astgen_work_queue.writeItemAssumeCapacity(value);
+            }
         }
 
         // Put a work item in for checking if any files used with `@embedFile` changed.
@@ -4031,6 +4033,8 @@ fn workerAstGenFile(
     wg: *WaitGroup,
     src: AstGenSrc,
 ) void {
+    assert(Module.mode(file.sub_file_path) == .zig);
+
     defer wg.finish();
 
     var child_prog_node = prog_node.start(file.sub_file_path, 0);
@@ -4083,7 +4087,7 @@ fn workerAstGenFile(
                 }
                 break :blk res;
             };
-            if (import_result.is_new) {
+            if (import_result.is_new and Module.mode(import_result.file.sub_file_path) == .zig) {
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
                     file.sub_file_path, import_path, import_result.file.sub_file_path,
                 });

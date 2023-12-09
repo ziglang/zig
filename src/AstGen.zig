@@ -116,6 +116,8 @@ fn appendRefsAssumeCapacity(astgen: *AstGen, refs: []const Zir.Inst.Ref) void {
 }
 
 pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
+    assert(tree.mode == .zig);
+
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
@@ -7731,7 +7733,7 @@ fn charLiteral(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zir
             const result = try gz.addInt(codepoint);
             return rvalue(gz, ri, result, node);
         },
-        .failure => |err| return astgen.failWithStrLitError(err, main_token, slice, 0),
+        .failure => |err| return astgen.failWithStrLitError(failOff, err, main_token, slice, 0),
     }
 }
 
@@ -7800,7 +7802,7 @@ fn numberLiteral(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index, source_node:
             });
             return rvalue(gz, ri, result, source_node);
         },
-        .failure => |err| return astgen.failWithNumberError(err, num_token, bytes),
+        .failure => |err| return astgen.failWithNumberError(appendErrorTokNotesOff, errNoteTok, err, num_token, bytes),
     };
 
     if (sign == .positive) {
@@ -7811,35 +7813,44 @@ fn numberLiteral(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index, source_node:
     }
 }
 
-fn failWithNumberError(astgen: *AstGen, err: std.zig.number_literal.Error, token: Ast.TokenIndex, bytes: []const u8) InnerError {
+pub fn failWithNumberError(
+    self: anytype,
+    // TODO: these are anytype instead of explicit because making them explicit seems to trigger a compiler error?
+    fail: anytype,
+    note: anytype,
+    err: std.zig.number_literal.Error,
+    token: Ast.TokenIndex,
+    bytes: []const u8,
+) (Allocator.Error || error { AnalysisFail }) {
     const is_float = std.mem.indexOfScalar(u8, bytes, '.') != null;
     switch (err) {
         .leading_zero => if (is_float) {
-            return astgen.failTok(token, "number '{s}' has leading zero", .{bytes});
+            try fail(self, token, 0, "number '{s}' has leading zero", .{bytes}, &.{});
         } else {
-            return astgen.failTokNotes(token, "number '{s}' has leading zero", .{bytes}, &.{
-                try astgen.errNoteTok(token, "use '0o' prefix for octal literals", .{}),
+            try fail(self, token, 0, "number '{s}' has leading zero", .{bytes}, &.{
+                try note(self, token, "use '0o' prefix for octal literals", .{}),
             });
         },
-        .digit_after_base => return astgen.failTok(token, "expected a digit after base prefix", .{}),
-        .upper_case_base => |i| return astgen.failOff(token, @intCast(i), "base prefix must be lowercase", .{}),
-        .invalid_float_base => |i| return astgen.failOff(token, @intCast(i), "invalid base for float literal", .{}),
-        .repeated_underscore => |i| return astgen.failOff(token, @intCast(i), "repeated digit separator", .{}),
-        .invalid_underscore_after_special => |i| return astgen.failOff(token, @intCast(i), "expected digit before digit separator", .{}),
-        .invalid_digit => |info| return astgen.failOff(token, @intCast(info.i), "invalid digit '{c}' for {s} base", .{ bytes[info.i], @tagName(info.base) }),
-        .invalid_digit_exponent => |i| return astgen.failOff(token, @intCast(i), "invalid digit '{c}' in exponent", .{bytes[i]}),
-        .duplicate_exponent => |i| return astgen.failOff(token, @intCast(i), "duplicate exponent", .{}),
-        .exponent_after_underscore => |i| return astgen.failOff(token, @intCast(i), "expected digit before exponent", .{}),
-        .special_after_underscore => |i| return astgen.failOff(token, @intCast(i), "expected digit before '{c}'", .{bytes[i]}),
-        .trailing_special => |i| return astgen.failOff(token, @intCast(i), "expected digit after '{c}'", .{bytes[i - 1]}),
-        .trailing_underscore => |i| return astgen.failOff(token, @intCast(i), "trailing digit separator", .{}),
+        .digit_after_base => try fail(self, token, 0, "expected a digit after base prefix", .{}, &.{}),
+        .upper_case_base => |i| try fail(self, token, @intCast(i), "base prefix must be lowercase", .{}, &.{}),
+        .invalid_float_base => |i| try fail(self, token, @intCast(i), "invalid base for float literal", .{}, &.{}),
+        .repeated_underscore => |i| try fail(self, token, @intCast(i), "repeated digit separator", .{}, &.{}),
+        .invalid_underscore_after_special => |i| try fail(self, token, @intCast(i), "expected digit before digit separator", .{}, &.{}),
+        .invalid_digit => |info| try fail(self, token, @intCast(info.i), "invalid digit '{c}' for {s} base", .{ bytes[info.i], @tagName(info.base) }, &.{}),
+        .invalid_digit_exponent => |i| try fail(self, token, @intCast(i), "invalid digit '{c}' in exponent", .{bytes[i]}, &.{}),
+        .duplicate_exponent => |i| try fail(self, token, @intCast(i), "duplicate exponent", .{}, &.{}),
+        .exponent_after_underscore => |i| try fail(self, token, @intCast(i), "expected digit before exponent", .{}, &.{}),
+        .special_after_underscore => |i| try fail(self, token, @intCast(i), "expected digit before '{c}'", .{bytes[i]}, &.{}),
+        .trailing_special => |i| try fail(self, token, @intCast(i), "expected digit after '{c}'", .{bytes[i - 1]}, &.{}),
+        .trailing_underscore => |i| try fail(self, token, @intCast(i), "trailing digit separator", .{}, &.{}),
         .duplicate_period => unreachable, // Validated by tokenizer
         .invalid_character => unreachable, // Validated by tokenizer
         .invalid_exponent_sign => |i| {
             assert(bytes.len >= 2 and bytes[0] == '0' and bytes[1] == 'x'); // Validated by tokenizer
-            return astgen.failOff(token, @intCast(i), "sign '{c}' cannot follow digit '{c}' in hex base", .{ bytes[i], bytes[i - 1] });
+            try fail(self, token, @intCast(i), "sign '{c}' cannot follow digit '{c}' in hex base", .{ bytes[i], bytes[i - 1] }, &.{});
         },
     }
+    return error.AnalysisFail;
 }
 
 fn asmExpr(
@@ -10418,15 +10429,24 @@ fn parseStrLit(
     buf.* = buf_managed.moveToUnmanaged();
     switch (try result) {
         .success => return,
-        .failure => |err| return astgen.failWithStrLitError(err, token, bytes, offset),
+        .failure => |err| return astgen.failWithStrLitError(failOff, err, token, bytes, offset),
     }
 }
 
-fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token: Ast.TokenIndex, bytes: []const u8, offset: u32) InnerError {
+// TODO: give fail a specific type?
+pub fn failWithStrLitError(
+    self: anytype,
+    comptime fail: anytype,
+    err: std.zig.string_literal.Error,
+    token: Ast.TokenIndex,
+    bytes: []const u8,
+    offset: u32,
+) (@typeInfo(@TypeOf(fail)).Fn.return_type orelse void) {
     const raw_string = bytes[offset..];
     switch (err) {
         .invalid_escape_character => |bad_index| {
-            return astgen.failOff(
+            return fail(
+                self,
                 token,
                 offset + @as(u32, @intCast(bad_index)),
                 "invalid escape character: '{c}'",
@@ -10434,7 +10454,8 @@ fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token
             );
         },
         .expected_hex_digit => |bad_index| {
-            return astgen.failOff(
+            return fail(
+                self,
                 token,
                 offset + @as(u32, @intCast(bad_index)),
                 "expected hex digit, found '{c}'",
@@ -10442,7 +10463,8 @@ fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token
             );
         },
         .empty_unicode_escape_sequence => |bad_index| {
-            return astgen.failOff(
+            return fail(
+                self,
                 token,
                 offset + @as(u32, @intCast(bad_index)),
                 "empty unicode escape sequence",
@@ -10450,7 +10472,8 @@ fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token
             );
         },
         .expected_hex_digit_or_rbrace => |bad_index| {
-            return astgen.failOff(
+            return fail(
+                self,
                 token,
                 offset + @as(u32, @intCast(bad_index)),
                 "expected hex digit or '}}', found '{c}'",
@@ -10458,7 +10481,8 @@ fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token
             );
         },
         .invalid_unicode_codepoint => |bad_index| {
-            return astgen.failOff(
+            return fail(
+                self,
                 token,
                 offset + @as(u32, @intCast(bad_index)),
                 "unicode escape does not correspond to a valid codepoint",
@@ -10466,7 +10490,8 @@ fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token
             );
         },
         .expected_lbrace => |bad_index| {
-            return astgen.failOff(
+            return fail(
+                self,
                 token,
                 offset + @as(u32, @intCast(bad_index)),
                 "expected '{{', found '{c}",
@@ -10474,7 +10499,8 @@ fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token
             );
         },
         .expected_rbrace => |bad_index| {
-            return astgen.failOff(
+            return fail(
+                self,
                 token,
                 offset + @as(u32, @intCast(bad_index)),
                 "expected '}}', found '{c}",
@@ -10482,7 +10508,8 @@ fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token
             );
         },
         .expected_single_quote => |bad_index| {
-            return astgen.failOff(
+            return fail(
+                self,
                 token,
                 offset + @as(u32, @intCast(bad_index)),
                 "expected single quote ('), found '{c}",
@@ -10490,7 +10517,8 @@ fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token
             );
         },
         .invalid_character => |bad_index| {
-            return astgen.failOff(
+            return fail(
+                self,
                 token,
                 offset + @as(u32, @intCast(bad_index)),
                 "invalid byte in string or character literal: '{c}'",
@@ -10615,7 +10643,7 @@ fn appendErrorTokNotesOff(
     comptime format: []const u8,
     args: anytype,
     notes: []const u32,
-) !void {
+) Allocator.Error!void {
     @setCold(true);
     const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;

@@ -88,6 +88,11 @@ pub const Case = struct {
     expect_exact: bool = false,
     backend: Backend = .stage2,
     link_libc: bool = false,
+    /// A list of imports to cache alongside the source file.
+    imports: []const []const u8 = &.{},
+    /// Where to look for imports relative to the `cases_dir_path` given to
+    /// `lower_to_build_steps`. If null, file imports will assert.
+    import_path: ?[]const u8 = null,
 
     deps: std.ArrayList(DepModule),
 
@@ -427,6 +432,7 @@ fn addFromDirInner(
         const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
         const link_libc = try manifest.getConfigForKeyAssertSingle("link_libc", bool);
         const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
+        const imports = try manifest.getConfigForKeyAlloc(ctx.arena, "imports", []const u8);
 
         if (manifest.type == .translate_c) {
             for (c_frontends) |c_frontend| {
@@ -482,6 +488,7 @@ fn addFromDirInner(
                 const next = ctx.cases.items.len;
                 try ctx.cases.append(.{
                     .name = std.fs.path.stem(filename),
+                    .import_path = std.fs.path.dirname(filename),
                     .target = target,
                     .backend = backend,
                     .updates = std.ArrayList(Cases.Update).init(ctx.cases.allocator),
@@ -489,6 +496,7 @@ fn addFromDirInner(
                     .output_mode = output_mode,
                     .link_libc = link_libc,
                     .deps = std.ArrayList(DepModule).init(ctx.cases.allocator),
+                    .imports = imports,
                 });
                 try cases.append(next);
             }
@@ -578,10 +586,20 @@ pub fn lowerToBuildSteps(
         var file_sources = std.StringHashMap(std.Build.LazyPath).init(b.allocator);
         defer file_sources.deinit();
         for (update.files.items) |file| {
+            // std.debug.print("file: {s}\n", .{file.path});
             file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
-        const root_source_file = writefiles.files.items[0].getPath();
 
+        for (case.imports) |import_rel| {
+            const import_abs = std.fs.path.join(b.allocator, &.{
+                cases_dir_path,
+                case.import_path orelse @panic("import_path not set"),
+                import_rel,
+            }) catch @panic("OOM");
+            _ = writefiles.addCopyFile(.{ .path = import_abs }, import_rel);
+        }
+
+        const root_source_file = writefiles.files.items[0].getPath();
         const artifact = if (case.is_test) b.addTest(.{
             .root_source_file = root_source_file,
             .name = case.name,
@@ -936,6 +954,8 @@ const TestManifestConfigDefaults = struct {
             return "false";
         } else if (std.mem.eql(u8, key, "c_frontend")) {
             return "clang";
+        } else if (std.mem.eql(u8, key, "imports")) {
+            return "";
         } else unreachable;
     }
 };
@@ -982,7 +1002,7 @@ const TestManifest = struct {
 
     fn ConfigValueIterator(comptime T: type) type {
         return struct {
-            inner: std.mem.SplitIterator(u8, .scalar),
+            inner: std.mem.TokenIterator(u8, .scalar),
 
             fn next(self: *@This()) !?T {
                 const next_raw = self.inner.next() orelse return null;
@@ -1076,7 +1096,7 @@ const TestManifest = struct {
     ) ConfigValueIterator(T) {
         const bytes = self.config_map.get(key) orelse TestManifestConfigDefaults.get(self.type, key);
         return ConfigValueIterator(T){
-            .inner = std.mem.splitScalar(u8, bytes, ','),
+            .inner = std.mem.tokenizeScalar(u8, bytes, ','),
         };
     }
 
@@ -1188,6 +1208,17 @@ const TestManifest = struct {
                 }
             }.parse,
             .Struct => @compileError("no default parser for " ++ @typeName(T)),
+            .Pointer => {
+                if (T == []const u8) {
+                    return struct {
+                        fn parse(str: []const u8) anyerror!T {
+                            return str;
+                        }
+                    }.parse;
+                } else {
+                    @compileError("no default parser for " ++ @typeName(T));
+                }
+            },
             else => @compileError("no default parser for " ++ @typeName(T)),
         }
     }
