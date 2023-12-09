@@ -597,6 +597,7 @@ const usage_build_generic =
     \\  --test-evented-io              Runs the test in evented I/O mode
     \\  --test-no-exec                 Compiles test binary without running it
     \\  --test-runner [path]           Specify a custom test runner
+    \\  --test-list                    Output all test names then exit
     \\
     \\Debug Options (Zig Compiler Development):
     \\  -fopt-bisect-limit=[limit]   Only run [limit] first LLVM optimization passes
@@ -800,6 +801,7 @@ fn buildOutputType(
     var time_report = false;
     var stack_report = false;
     var show_builtin = false;
+    var list_tests = false;
     var emit_bin: EmitBin = .yes_default_path;
     var emit_asm: Emit = .no;
     var emit_llvm_ir: Emit = .no;
@@ -1247,6 +1249,9 @@ fn buildOutputType(
                         test_runner_path = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-cmd")) {
                         try test_exec_args.append(args_iter.nextOrFatal());
+                    } else if (mem.eql(u8, arg, "--test-list")) {
+                        list_tests = true;
+                        emit_bin = .no;
                     } else if (mem.eql(u8, arg, "--cache-dir")) {
                         override_local_cache_dir = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--global-cache-dir")) {
@@ -3689,6 +3694,19 @@ fn buildOutputType(
         },
         else => |e| return e,
     };
+
+    if (arg_mode == .zig_test and list_tests) {
+        if (comp.bin_file.options.module) |module| {
+            for (module.test_functions.keys()) |test_decl_index| {
+                const test_decl = module.declPtr(test_decl_index);
+                try std.io.getStdOut().writer().print("{s}\n", .{
+                    module.intern_pool.stringToSlice(test_decl.name),
+                });
+            }
+        }
+        return cleanExit();
+    }
+
     if (build_options.only_c) return cleanExit();
     try comp.makeBinFileExecutable();
     saveState(comp, debug_incremental);
