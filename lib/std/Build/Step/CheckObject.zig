@@ -577,9 +577,12 @@ const MachODumper = struct {
         const writer = output.writer();
 
         var symtab: ?Symtab = null;
-        var segments = std.ArrayList(macho.segment_command_u64);
+        var segments = std.ArrayList(macho.segment_command_64).init(gpa);
+        defer segments.deinit();
         var sections = std.ArrayList(macho.section_64).init(gpa);
+        defer sections.deinit();
         var imports = std.ArrayList([]const u8).init(gpa);
+        defer imports.deinit();
         var text_seg: ?u8 = null;
         var dyld_info_lc: ?macho.dyld_info_command = null;
 
@@ -636,10 +639,27 @@ const MachODumper = struct {
             try writer.writeAll(dyld_info_label ++ "\n");
             if (lc.rebase_size > 0) {
                 const data = bytes[lc.rebase_off..][0..lc.rebase_size];
+                try writer.writeAll("rebase info\n");
                 try dumpRebaseInfo(gpa, data, segments.items, writer);
+            }
+            if (lc.bind_size > 0) {
+                const data = bytes[lc.bind_off..][0..lc.bind_size];
+                try writer.writeAll("bind info\n");
+                try dumpBindInfo(gpa, data, segments.items, imports.items, false, writer);
+            }
+            if (lc.weak_bind_size > 0) {
+                const data = bytes[lc.weak_bind_off..][0..lc.weak_bind_size];
+                try writer.writeAll("weak bind info\n");
+                try dumpBindInfo(gpa, data, segments.items, imports.items, false, writer);
+            }
+            if (lc.lazy_bind_size > 0) {
+                const data = bytes[lc.lazy_bind_off..][0..lc.lazy_bind_size];
+                try writer.writeAll("lazy bind info\n");
+                try dumpBindInfo(gpa, data, segments.items, imports.items, true, writer);
             }
             if (lc.export_size > 0) {
                 const data = bytes[lc.export_off..][0..lc.export_size];
+                try writer.writeAll("exports\n");
                 try dumpExportsTrie(gpa, data, segments.items[text_seg.?], writer);
             }
         }
@@ -1011,7 +1031,6 @@ const MachODumper = struct {
         defer rebases.deinit();
         try parseRebaseInfo(data, segments, &rebases);
         mem.sort(u64, rebases.items, {}, std.sort.asc(u64));
-        try writer.writeAll("rebase info\n");
         for (rebases.items) |addr| {
             try writer.print("0x{x}\n", .{addr});
         }
@@ -1048,7 +1067,7 @@ const MachODumper = struct {
                 },
                 macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB => {
                     const addend = try std.leb.readULEB128(u64, reader);
-                    const seg = segments.items[seg_id.?];
+                    const seg = segments[seg_id.?];
                     const addr = seg.vmaddr + offset;
                     try rebases.append(addr);
                     offset += addend + @sizeOf(u64);
@@ -1072,13 +1091,150 @@ const MachODumper = struct {
                         },
                         else => unreachable,
                     }
-                    const seg = segments.items[seg_id.?];
+                    const seg = segments[seg_id.?];
                     const base_addr = seg.vmaddr;
                     var count: usize = 0;
                     while (count < ntimes) : (count += 1) {
                         const addr = base_addr + offset;
                         try rebases.append(addr);
                         offset += skip + @sizeOf(u64);
+                    }
+                },
+                else => break,
+            }
+        }
+    }
+
+    const Binding = struct {
+        address: u64,
+        addend: i64,
+        ordinal: ?u16,
+        name: []const u8,
+
+        fn deinit(binding: *Binding, gpa: Allocator) void {
+            gpa.free(binding.name);
+        }
+
+        fn lessThan(ctx: void, lhs: Binding, rhs: Binding) bool {
+            _ = ctx;
+            return lhs.address < rhs.address;
+        }
+    };
+
+    fn dumpBindInfo(
+        gpa: Allocator,
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        dylibs: []const []const u8,
+        is_lazy: bool,
+        writer: anytype,
+    ) !void {
+        var bindings = std.ArrayList(Binding).init(gpa);
+        defer {
+            for (bindings.items) |*b| {
+                b.deinit(gpa);
+            }
+            bindings.deinit();
+        }
+        try parseBindInfo(gpa, data, segments, &bindings, is_lazy);
+        mem.sort(Binding, bindings.items, {}, Binding.lessThan);
+        for (bindings.items) |binding| {
+            try writer.print("0x{x} [addend: {d}]", .{ binding.address, binding.addend });
+            if (binding.ordinal) |ord| {
+                try writer.print(" ({s})", .{std.fs.path.basename(dylibs[ord - 1])});
+            }
+            try writer.print(" {s}\n", .{binding.name});
+        }
+    }
+
+    fn parseBindInfo(
+        gpa: Allocator,
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        bindings: *std.ArrayList(Binding),
+        lazy_ops: bool,
+    ) !void {
+        var stream = std.io.fixedBufferStream(data);
+        var creader = std.io.countingReader(stream.reader());
+        const reader = creader.reader();
+
+        var seg_id: ?u8 = null;
+        var dylib_id: ?u16 = null;
+        var offset: u64 = 0;
+        var addend: i64 = 0;
+
+        var name_buf = std.ArrayList(u8).init(gpa);
+        defer name_buf.deinit();
+
+        while (true) {
+            const byte = reader.readByte() catch break;
+            const opc = byte & macho.BIND_OPCODE_MASK;
+            const imm = byte & macho.BIND_IMMEDIATE_MASK;
+            switch (opc) {
+                macho.BIND_OPCODE_DONE => {
+                    if (!lazy_ops) break;
+                },
+                macho.BIND_OPCODE_SET_TYPE_IMM => {
+                    if (lazy_ops) break;
+                },
+                macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM => {
+                    dylib_id = imm;
+                },
+                macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
+                    seg_id = imm;
+                    offset = try std.leb.readULEB128(u64, reader);
+                },
+                macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
+                    name_buf.clearRetainingCapacity();
+                    try reader.readUntilDelimiterArrayList(&name_buf, 0, std.math.maxInt(u32));
+                    try name_buf.append(0);
+                },
+                macho.BIND_OPCODE_SET_ADDEND_SLEB => {
+                    addend = try std.leb.readILEB128(i64, reader);
+                },
+                macho.BIND_OPCODE_ADD_ADDR_ULEB => {
+                    if (lazy_ops) break;
+                    const x = try std.leb.readULEB128(u64, reader);
+                    offset = @intCast(@as(i64, @intCast(offset)) + @as(i64, @bitCast(x)));
+                },
+                macho.BIND_OPCODE_DO_BIND,
+                macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB,
+                macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED,
+                macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB,
+                => {
+                    var add_addr: u64 = 0;
+                    var count: u64 = 1;
+                    var skip: u64 = 0;
+
+                    switch (opc) {
+                        macho.BIND_OPCODE_DO_BIND => {},
+                        macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB => {
+                            if (lazy_ops) break;
+                            add_addr = try std.leb.readULEB128(u64, reader);
+                        },
+                        macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED => {
+                            if (lazy_ops) break;
+                            add_addr = imm * @sizeOf(u64);
+                        },
+                        macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB => {
+                            if (lazy_ops) break;
+                            count = try std.leb.readULEB128(u64, reader);
+                            skip = try std.leb.readULEB128(u64, reader);
+                        },
+                        else => unreachable,
+                    }
+
+                    const seg = segments[seg_id.?];
+                    var i: u64 = 0;
+                    while (i < count) : (i += 1) {
+                        const addr: u64 = @intCast(@as(i64, @intCast(seg.vmaddr + offset)));
+                        try bindings.append(.{
+                            .address = addr,
+                            .addend = addend,
+                            .ordinal = dylib_id,
+                            .name = try gpa.dupe(u8, name_buf.items),
+                        });
+                        offset += skip + @sizeOf(u64) + add_addr;
                     }
                 },
                 else => break,
@@ -1101,7 +1257,6 @@ const MachODumper = struct {
 
         mem.sort(Export, exports.items, {}, Export.lessThan);
 
-        try writer.writeAll("exports\n");
         for (exports.items) |exp| {
             switch (exp.tag) {
                 .@"export" => {
