@@ -577,9 +577,10 @@ const MachODumper = struct {
         const writer = output.writer();
 
         var symtab: ?Symtab = null;
+        var segments = std.ArrayList(macho.segment_command_u64);
         var sections = std.ArrayList(macho.section_64).init(gpa);
         var imports = std.ArrayList([]const u8).init(gpa);
-        var text_seg: ?macho.segment_command_64 = null;
+        var text_seg: ?u8 = null;
         var dyld_info_lc: ?macho.dyld_info_command = null;
 
         try dumpHeader(hdr, writer);
@@ -597,8 +598,10 @@ const MachODumper = struct {
                     for (cmd.getSections()) |sect| {
                         sections.appendAssumeCapacity(sect);
                     }
+                    const seg_id: u8 = @intCast(segments.items.len);
+                    try segments.append(seg);
                     if (mem.eql(u8, seg.segName(), "__TEXT")) {
-                        text_seg = seg;
+                        text_seg = seg_id;
                     }
                 },
                 .SYMTAB => {
@@ -631,9 +634,13 @@ const MachODumper = struct {
 
         if (dyld_info_lc) |lc| {
             try writer.writeAll(dyld_info_label ++ "\n");
+            if (lc.rebase_size > 0) {
+                const data = bytes[lc.rebase_off..][0..lc.rebase_size];
+                try dumpRebaseInfo(gpa, data, segments.items, writer);
+            }
             if (lc.export_size > 0) {
                 const data = bytes[lc.export_off..][0..lc.export_size];
-                try dumpExportsTrie(gpa, data, text_seg.?, writer);
+                try dumpExportsTrie(gpa, data, segments.items[text_seg.?], writer);
             }
         }
 
@@ -990,6 +997,91 @@ const MachODumper = struct {
                     sym_name,
                     import_name,
                 });
+            }
+        }
+    }
+
+    fn dumpRebaseInfo(
+        gpa: Allocator,
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        writer: anytype,
+    ) !void {
+        var rebases = std.ArrayList(u64).init(gpa);
+        defer rebases.deinit();
+        try parseRebaseInfo(data, segments, &rebases);
+        mem.sort(u64, rebases.items, {}, std.sort.asc(u64));
+        try writer.writeAll("rebase info\n");
+        for (rebases.items) |addr| {
+            try writer.print("0x{x}\n", .{addr});
+        }
+    }
+
+    fn parseRebaseInfo(
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        rebases: *std.ArrayList(u64),
+    ) !void {
+        var stream = std.io.fixedBufferStream(data);
+        var creader = std.io.countingReader(stream.reader());
+        const reader = creader.reader();
+
+        var seg_id: ?u8 = null;
+        var offset: u64 = 0;
+        while (true) {
+            const byte = reader.readByte() catch break;
+            const opc = byte & macho.REBASE_OPCODE_MASK;
+            const imm = byte & macho.REBASE_IMMEDIATE_MASK;
+            switch (opc) {
+                macho.REBASE_OPCODE_DONE => break,
+                macho.REBASE_OPCODE_SET_TYPE_IMM => {},
+                macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
+                    seg_id = imm;
+                    offset = try std.leb.readULEB128(u64, reader);
+                },
+                macho.REBASE_OPCODE_ADD_ADDR_IMM_SCALED => {
+                    offset += imm * @sizeOf(u64);
+                },
+                macho.REBASE_OPCODE_ADD_ADDR_ULEB => {
+                    const addend = try std.leb.readULEB128(u64, reader);
+                    offset += addend;
+                },
+                macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB => {
+                    const addend = try std.leb.readULEB128(u64, reader);
+                    const seg = segments.items[seg_id.?];
+                    const addr = seg.vmaddr + offset;
+                    try rebases.append(addr);
+                    offset += addend + @sizeOf(u64);
+                },
+                macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES,
+                macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES,
+                macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB,
+                => {
+                    var ntimes: u64 = 1;
+                    var skip: u64 = 0;
+                    switch (opc) {
+                        macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES => {
+                            ntimes = imm;
+                        },
+                        macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES => {
+                            ntimes = try std.leb.readULEB128(u64, reader);
+                        },
+                        macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB => {
+                            ntimes = try std.leb.readULEB128(u64, reader);
+                            skip = try std.leb.readULEB128(u64, reader);
+                        },
+                        else => unreachable,
+                    }
+                    const seg = segments.items[seg_id.?];
+                    const base_addr = seg.vmaddr;
+                    var count: usize = 0;
+                    while (count < ntimes) : (count += 1) {
+                        const addr = base_addr + offset;
+                        try rebases.append(addr);
+                        offset += skip + @sizeOf(u64);
+                    }
+                },
+                else => break,
             }
         }
     }
