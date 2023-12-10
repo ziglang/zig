@@ -847,16 +847,23 @@ pub const Value = struct {
                 // and Extern is handled in non-packed writeToMemory.
                 assert(struct_type.layout == .Packed);
                 var bits: u16 = 0;
-                const storage = ip.indexToKey(val.toIntern()).aggregate.storage;
                 for (0..struct_type.field_types.len) |i| {
+                    const field_val = switch (val.ip_index) {
+                        .none => switch (val.tag()) {
+                            .bytes => unreachable,
+                            .aggregate => val.castTag(.aggregate).?.data[i],
+                            .repeated => val.castTag(.repeated).?.data,
+                            else => unreachable,
+                        },
+                        else => Value.fromInterned(switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
+                            .bytes => unreachable,
+                            .elems => |elems| elems[i],
+                            .repeated_elem => |elem| elem,
+                        }),
+                    };
                     const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
                     const field_bits: u16 = @intCast(field_ty.bitSize(mod));
-                    const field_val = switch (storage) {
-                        .bytes => unreachable,
-                        .elems => |elems| elems[i],
-                        .repeated_elem => |elem| elem,
-                    };
-                    try Value.fromInterned(field_val).writeToPackedMemory(field_ty, mod, buffer, bit_offset + bits);
+                    try field_val.writeToPackedMemory(field_ty, mod, buffer, bit_offset + bits);
                     bits += field_bits;
                 }
             },
