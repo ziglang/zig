@@ -312,6 +312,20 @@ pub const HashHelper = struct {
         ) catch unreachable;
         return out_digest;
     }
+
+    pub fn oneShot(bytes: []const u8) [hex_digest_len]u8 {
+        var hasher: Hasher = hasher_init;
+        hasher.update(bytes);
+        var bin_digest: BinDigest = undefined;
+        hasher.final(&bin_digest);
+        var out_digest: [hex_digest_len]u8 = undefined;
+        _ = fmt.bufPrint(
+            &out_digest,
+            "{s}",
+            .{fmt.fmtSliceHexLower(&bin_digest)},
+        ) catch unreachable;
+        return out_digest;
+    }
 };
 
 pub const Lock = struct {

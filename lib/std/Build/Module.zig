@@ -34,6 +34,7 @@ valgrind: ?bool,
 pic: ?bool,
 red_zone: ?bool,
 omit_frame_pointer: ?bool,
+error_tracing: ?bool,
 link_libc: ?bool,
 link_libcpp: ?bool,
 
@@ -177,6 +178,7 @@ pub const CreateOptions = struct {
     /// Whether to omit the stack frame pointer. Frees up a register and makes it
     /// more difficult to obtain stack traces. Has target-dependent effects.
     omit_frame_pointer: ?bool = null,
+    error_tracing: ?bool = null,
 };
 
 pub const Import = struct {
@@ -216,6 +218,7 @@ pub fn init(m: *Module, owner: *std.Build, options: CreateOptions, compile: ?*St
         .pic = options.pic,
         .red_zone = options.red_zone,
         .omit_frame_pointer = options.omit_frame_pointer,
+        .error_tracing = options.error_tracing,
         .export_symbol_names = &.{},
     };
 
@@ -601,6 +604,7 @@ pub fn appendZigProcessFlags(
     try addFlag(zig_args, m.stack_check, "-fstack-check", "-fno-stack-check");
     try addFlag(zig_args, m.stack_protector, "-fstack-protector", "-fno-stack-protector");
     try addFlag(zig_args, m.omit_frame_pointer, "-fomit-frame-pointer", "-fno-omit-frame-pointer");
+    try addFlag(zig_args, m.error_tracing, "-ferror-tracing", "-fno-error-tracing");
     try addFlag(zig_args, m.sanitize_c, "-fsanitize-c", "-fno-sanitize-c");
     try addFlag(zig_args, m.sanitize_thread, "-fsanitize-thread", "-fno-sanitize-thread");
     try addFlag(zig_args, m.valgrind, "-fvalgrind", "-fno-valgrind");

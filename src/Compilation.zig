@@ -38,12 +38,43 @@ const Autodoc = @import("Autodoc.zig");
 const Color = @import("main.zig").Color;
 const resinator = @import("resinator.zig");
 
+pub const Config = @import("Compilation/Config.zig");
+
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
 /// Arena-allocated memory, mostly used during initialization. However, it can be used
 /// for other things requiring the same lifetime as the `Compilation`.
 arena: std.heap.ArenaAllocator,
-bin_file: *link.File,
+/// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
+/// TODO: rename to zcu: ?*Zcu
+module: ?*Module,
+/// All compilations have a root module because this is where some important
+/// settings are stored, such as target and optimization mode. This module
+/// might not have any .zig code associated with it, however.
+root_mod: *Package.Module,
+
+/// User-specified settings that have all the defaults resolved into concrete values.
+config: Config,
+
+/// This is `null` when `-fno-emit-bin` is used.
+bin_file: ?*link.File,
+
+/// The root path for the dynamic linker and system libraries (as well as frameworks on Darwin)
+sysroot: ?[]const u8,
+/// This is `null` when not building a Windows DLL, or when `-fno-emit-implib` is used.
+implib_emit: ?Emit,
+/// This is non-null when `-femit-docs` is provided.
+docs_emit: ?Emit,
+root_name: [:0]const u8,
+cache_mode: CacheMode,
+include_compiler_rt: bool,
+objects: []Compilation.LinkObject,
+/// These are *always* dynamically linked. Static libraries will be
+/// provided as positional arguments.
+system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
+version: ?std.SemanticVersion,
+libc_installation: ?*const LibCInstallation,
+
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
 win32_resource_table: if (build_options.only_core_functionality) void else std.AutoArrayHashMapUnmanaged(*Win32Resource, void) =
     if (build_options.only_core_functionality) {} else .{},
@@ -87,8 +118,6 @@ failed_win32_resources: if (build_options.only_core_functionality) void else std
 misc_failures: std.AutoArrayHashMapUnmanaged(MiscTask, MiscError) = .{},
 
 keep_source_files_loaded: bool,
-c_frontend: CFrontend,
-sanitize_c: bool,
 /// When this is `true` it means invoking clang as a sub-process is expected to inherit
 /// stdin, stdout, stderr, and if it returns non success, to forward the exit code.
 /// Otherwise we attempt to parse the error messages and expose them via the Compilation API.
@@ -107,8 +136,6 @@ verbose_llvm_cpu_features: bool,
 disable_c_depfile: bool,
 time_report: bool,
 stack_report: bool,
-unwind_tables: bool,
-test_evented_io: bool,
 debug_compiler_runtime_libs: bool,
 debug_compile_errors: bool,
 job_queued_compiler_rt_lib: bool = false,
@@ -118,7 +145,6 @@ formatted_panics: bool = false,
 last_update_was_cache_hit: bool = false,
 
 c_source_files: []const CSourceFile,
-clang_argv: []const []const u8,
 rc_source_files: []const RcSourceFile,
 cache_parent: *Cache,
 /// Path to own executable for invoking `zig clang`.
@@ -194,7 +220,29 @@ emit_llvm_bc: ?EmitLoc,
 work_queue_wait_group: WaitGroup = .{},
 astgen_wait_group: WaitGroup = .{},
 
-pub const default_stack_protector_buffer_size = 4;
+pub const Emit = struct {
+    /// Where the output will go.
+    directory: Directory,
+    /// Path to the output file, relative to `directory`.
+    sub_path: []const u8,
+
+    /// Returns the full path to `basename` if it were in the same directory as the
+    /// `Emit` sub_path.
+    pub fn basenamePath(emit: Emit, arena: Allocator, basename: [:0]const u8) ![:0]const u8 {
+        const full_path = if (emit.directory.path) |p|
+            try std.fs.path.join(arena, &[_][]const u8{ p, emit.sub_path })
+        else
+            emit.sub_path;
+
+        if (std.fs.path.dirname(full_path)) |dirname| {
+            return try std.fs.path.joinZ(arena, &.{ dirname, basename });
+        } else {
+            return basename;
+        }
+    }
+};
+
+pub const default_stack_protector_buffer_size = target_util.default_stack_protector_buffer_size;
 pub const SemaError = Module.SemaError;
 
 pub const CRTFile = struct {
@@ -208,8 +256,8 @@ pub const CRTFile = struct {
     }
 };
 
-// supported languages for "zig clang -x <lang>".
-// Loosely based on llvm-project/clang/include/clang/Driver/Types.def
+/// Supported languages for "zig clang -x <lang>".
+/// Loosely based on llvm-project/clang/include/clang/Driver/Types.def
 pub const LangToExt = std.ComptimeStringMap(FileExt, .{
     .{ "c", .c },
     .{ "c-header", .h },
@@ -226,16 +274,20 @@ pub const LangToExt = std.ComptimeStringMap(FileExt, .{
 
 /// For passing to a C compiler.
 pub const CSourceFile = struct {
+    /// Many C compiler flags are determined by settings contained in the owning Module.
+    owner: *Package.Module,
     src_path: []const u8,
     extra_flags: []const []const u8 = &.{},
     /// Same as extra_flags except they are not added to the Cache hash.
     cache_exempt_flags: []const []const u8 = &.{},
-    // this field is non-null iff language was explicitly set with "-x lang".
+    /// This field is non-null if and only if the language was explicitly set
+    /// with "-x lang".
     ext: ?FileExt = null,
 };
 
 /// For passing to resinator.
 pub const RcSourceFile = struct {
+    owner: *Package.Module,
     src_path: []const u8,
     extra_flags: []const []const u8 = &.{},
 };
@@ -742,6 +794,22 @@ pub const EmitLoc = struct {
 };
 
 pub const cache_helpers = struct {
+    pub fn addResolvedTarget(
+        hh: *Cache.HashHelper,
+        resolved_target: Package.Module.ResolvedTarget,
+    ) void {
+        const target = resolved_target.result;
+        hh.add(target.cpu.arch);
+        hh.addBytes(target.cpu.model.name);
+        hh.add(target.cpu.features.ints);
+        hh.add(target.os.tag);
+        hh.add(target.os.getVersionRange());
+        hh.add(target.abi);
+        hh.add(target.ofmt);
+        hh.add(resolved_target.is_native_os);
+        hh.add(resolved_target.is_native_abi);
+    }
+
     pub fn addEmitLoc(hh: *Cache.HashHelper, emit_loc: EmitLoc) void {
         hh.addBytes(emit_loc.basename);
     }
@@ -751,7 +819,7 @@ pub const cache_helpers = struct {
         addEmitLoc(hh, optional_emit_loc orelse return);
     }
 
-    pub fn hashCSource(self: *Cache.Manifest, c_source: Compilation.CSourceFile) !void {
+    pub fn hashCSource(self: *Cache.Manifest, c_source: CSourceFile) !void {
         _ = try self.addFile(c_source.src_path, null);
         // Hash the extra flags, with special care to call addFile for file parameters.
         // TODO this logic can likely be improved by utilizing clang_options_data.zig.
@@ -769,8 +837,6 @@ pub const cache_helpers = struct {
         }
     }
 };
-
-pub const CFrontend = enum { clang, aro };
 
 pub const ClangPreprocessorMode = enum {
     no,
@@ -798,11 +864,21 @@ pub const InitOptions = struct {
     zig_lib_directory: Directory,
     local_cache_directory: Directory,
     global_cache_directory: Directory,
-    target: Target,
-    root_name: []const u8,
-    main_mod: ?*Package.Module,
-    output_mode: std.builtin.OutputMode,
     thread_pool: *ThreadPool,
+    self_exe_path: ?[]const u8 = null,
+
+    /// Options that have been resolved by calling `resolveDefaults`.
+    config: Compilation.Config,
+
+    root_mod: *Package.Module,
+    /// Normally, `main_mod` and `root_mod` are the same. The exception is `zig
+    /// test`, in which `root_mod` is the test runner, and `main_mod` is the
+    /// user's source file which has the tests.
+    main_mod: ?*Package.Module,
+    /// This is provided so that the API user has a chance to tweak the
+    /// per-module settings of the standard library.
+    std_mod: *Package.Module,
+    root_name: []const u8,
     sysroot: ?[]const u8 = null,
     /// `null` means to not emit a binary file.
     emit_bin: ?EmitLoc,
@@ -818,7 +894,6 @@ pub const InitOptions = struct {
     emit_docs: ?EmitLoc = null,
     /// `null` means to not emit an import lib.
     emit_implib: ?EmitLoc = null,
-    link_mode: ?std.builtin.LinkMode = null,
     dll_export_fns: ?bool = false,
     /// Normally when using LLD to link, Zig uses a file named "lld.id" in the
     /// same directory as the output binary which contains the hash of the link
@@ -828,14 +903,12 @@ pub const InitOptions = struct {
     /// this flag would be set to disable this machinery to avoid false positives.
     disable_lld_caching: bool = false,
     cache_mode: CacheMode = .incremental,
-    optimize_mode: std.builtin.OptimizeMode = .Debug,
     keep_source_files_loaded: bool = false,
-    clang_argv: []const []const u8 = &[0][]const u8{},
     lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
     symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{},
-    c_source_files: []const CSourceFile = &[0]CSourceFile{},
-    rc_source_files: []const RcSourceFile = &[0]RcSourceFile{},
+    c_source_files: []const CSourceFile = &.{},
+    rc_source_files: []const RcSourceFile = &.{},
     manifest_file: ?[]const u8 = null,
     rc_includes: RcIncludes = .any,
     link_objects: []LinkObject = &[0]LinkObject{},
@@ -849,40 +922,16 @@ pub const InitOptions = struct {
     /// * mman
     /// * signal
     wasi_emulated_libs: []const wasi_libc.CRTFile = &[0]wasi_libc.CRTFile{},
-    link_libc: bool = false,
-    link_libcpp: bool = false,
-    link_libunwind: bool = false,
-    want_pic: ?bool = null,
     /// This means that if the output mode is an executable it will be a
     /// Position Independent Executable. If the output mode is not an
     /// executable this field is ignored.
-    want_pie: ?bool = null,
-    want_sanitize_c: ?bool = null,
-    want_stack_check: ?bool = null,
-    /// null means default.
-    /// 0 means no stack protector.
-    /// other number means stack protection with that buffer size.
-    want_stack_protector: ?u32 = null,
-    want_red_zone: ?bool = null,
-    omit_frame_pointer: ?bool = null,
-    want_valgrind: ?bool = null,
-    want_tsan: ?bool = null,
     want_compiler_rt: ?bool = null,
     want_lto: ?bool = null,
-    want_unwind_tables: ?bool = null,
-    use_llvm: ?bool = null,
-    use_lib_llvm: ?bool = null,
-    use_lld: ?bool = null,
-    use_clang: ?bool = null,
-    single_threaded: ?bool = null,
-    strip: ?bool = null,
     formatted_panics: ?bool = null,
     rdynamic: bool = false,
     function_sections: bool = false,
     data_sections: bool = false,
     no_builtin: bool = false,
-    is_native_os: bool,
-    is_native_abi: bool,
     time_report: bool = false,
     stack_report: bool = false,
     link_eh_frame_hdr: bool = false,
@@ -893,14 +942,11 @@ pub const InitOptions = struct {
     linker_gc_sections: ?bool = null,
     linker_allow_shlib_undefined: ?bool = null,
     linker_bind_global_refs_locally: ?bool = null,
-    linker_import_memory: ?bool = null,
-    linker_export_memory: ?bool = null,
     linker_import_symbols: bool = false,
     linker_import_table: bool = false,
     linker_export_table: bool = false,
     linker_initial_memory: ?u64 = null,
     linker_max_memory: ?u64 = null,
-    linker_shared_memory: bool = false,
     linker_global_base: ?u64 = null,
     linker_export_symbol_names: []const []const u8 = &.{},
     linker_print_gc_sections: bool = false,
@@ -938,8 +984,6 @@ pub const InitOptions = struct {
     verbose_llvm_bc: ?[]const u8 = null,
     verbose_cimport: bool = false,
     verbose_llvm_cpu_features: bool = false,
-    is_test: bool = false,
-    test_evented_io: bool = false,
     debug_compiler_runtime_libs: bool = false,
     debug_compile_errors: bool = false,
     /// Normally when you create a `Compilation`, Zig will automatically build
@@ -952,23 +996,18 @@ pub const InitOptions = struct {
     force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{},
     stack_size_override: ?u64 = null,
     image_base_override: ?u64 = null,
-    self_exe_path: ?[]const u8 = null,
     version: ?std.SemanticVersion = null,
     compatibility_version: ?std.SemanticVersion = null,
     libc_installation: ?*const LibCInstallation = null,
-    machine_code_model: std.builtin.CodeModel = .default,
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
     /// This is for stage1 and should be deleted upon completion of self-hosting.
     color: Color = .auto,
     reference_trace: ?u32 = null,
-    error_tracing: ?bool = null,
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
     test_runner_path: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
     dwarf_format: ?std.dwarf.Format = null,
-    /// WASI-only. Type of WASI execution model ("command" or "reactor").
-    wasi_exec_model: ?std.builtin.WasiExecModel = null,
     /// (Zig compiler development) Enable dumping linker's state as JSON.
     enable_link_snapshots: bool = false,
     /// (Darwin) Install name of the dylib
@@ -989,77 +1028,93 @@ pub const InitOptions = struct {
     pdb_source_path: ?[]const u8 = null,
     /// (Windows) PDB output path
     pdb_out_path: ?[]const u8 = null,
-    error_limit: ?Module.ErrorInt = null,
+    error_limit: ?Compilation.Module.ErrorInt = null,
     /// (SPIR-V) whether to generate a structured control flow graph or not
     want_structured_cfg: ?bool = null,
 };
 
 fn addModuleTableToCacheHash(
+    gpa: Allocator,
+    arena: Allocator,
     hash: *Cache.HashHelper,
-    arena: *std.heap.ArenaAllocator,
-    mod_table: Package.Module.Deps,
-    seen_table: *std.AutoHashMap(*Package.Module, void),
+    root_mod: *Package.Module,
     hash_type: union(enum) { path_bytes, files: *Cache.Manifest },
 ) (error{OutOfMemory} || std.os.GetCwdError)!void {
-    const allocator = arena.allocator();
+    var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .{};
+    try seen_table.put(gpa, root_mod, {});
 
-    const module_indices = try allocator.alloc(u32, mod_table.count());
-    // Copy over the hashmap entries to our slice
-    for (module_indices, 0..) |*module_index, index| module_index.* = @intCast(index);
-    // Sort the slice by package name
-    mem.sortUnstable(u32, module_indices, &mod_table, struct {
-        fn lessThan(deps: *const Package.Module.Deps, lhs: u32, rhs: u32) bool {
-            const keys = deps.keys();
-            return std.mem.lessThan(u8, keys[lhs], keys[rhs]);
+    const SortByName = struct {
+        names: []const []const u8,
+
+        pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
+            const lhs_key = ctx.names[lhs_index];
+            const rhs_key = ctx.names[rhs_index];
+            return mem.lessThan(u8, lhs_key, rhs_key);
         }
-    }.lessThan);
+    };
 
-    for (module_indices) |module_index| {
-        const module = mod_table.values()[module_index];
-        if ((try seen_table.getOrPut(module)).found_existing) continue;
+    var i: usize = 0;
+    while (i < seen_table.count()) : (i += 1) {
+        const mod = seen_table.keys()[i];
 
-        // Finally insert the package name and path to the cache hash.
-        hash.addBytes(mod_table.keys()[module_index]);
+        cache_helpers.addResolvedTarget(hash, mod.resolved_target);
+        hash.add(mod.optimize_mode);
+        hash.add(mod.code_model);
+        hash.add(mod.single_threaded);
+        hash.add(mod.error_tracing);
+        hash.add(mod.valgrind);
+        hash.add(mod.pic);
+        hash.add(mod.strip);
+        hash.add(mod.omit_frame_pointer);
+        hash.add(mod.stack_check);
+        hash.add(mod.red_zone);
+        hash.add(mod.sanitize_c);
+        hash.add(mod.sanitize_thread);
+
         switch (hash_type) {
             .path_bytes => {
-                hash.addBytes(module.root_src_path);
-                hash.addOptionalBytes(module.root.root_dir.path);
-                hash.addBytes(module.root.sub_path);
+                hash.addBytes(mod.root_src_path);
+                hash.addOptionalBytes(mod.root.root_dir.path);
+                hash.addBytes(mod.root.sub_path);
             },
             .files => |man| {
-                const pkg_zig_file = try module.root.joinString(
-                    allocator,
-                    module.root_src_path,
-                );
+                const pkg_zig_file = try mod.root.joinString(arena, mod.root_src_path);
                 _ = try man.addFile(pkg_zig_file, null);
             },
         }
-        // Recurse to handle the module's dependencies
-        try addModuleTableToCacheHash(hash, arena, module.deps, seen_table, hash_type);
+
+        mod.deps.sortUnstable(SortByName{ .names = mod.deps.keys() });
+
+        hash.addListOfBytes(mod.deps.keys());
+
+        const deps = mod.deps.values();
+        try seen_table.ensureUnusedCapacity(gpa, deps.len);
+        for (deps) |dep| seen_table.putAssumeCapacity(dep, {});
     }
 }
 
 pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
-    const is_dyn_lib = switch (options.output_mode) {
+    const output_mode = options.config.output_mode;
+    const is_dyn_lib = switch (output_mode) {
         .Obj, .Exe => false,
-        .Lib => (options.link_mode orelse .Static) == .Dynamic,
+        .Lib => options.config.link_mode == .Dynamic,
     };
-    const is_exe_or_dyn_lib = switch (options.output_mode) {
+    const is_exe_or_dyn_lib = switch (output_mode) {
         .Obj => false,
         .Lib => is_dyn_lib,
         .Exe => true,
     };
 
-    // WASI-only. Resolve the optional exec-model option, defaults to command.
-    const wasi_exec_model = if (options.target.os.tag != .wasi) undefined else options.wasi_exec_model orelse .command;
-
     if (options.linker_export_table and options.linker_import_table) {
         return error.ExportTableAndImportTableConflict;
     }
 
+    const have_zcu = options.root_mod.root_src_path.len != 0;
+
     const comp: *Compilation = comp: {
-        // For allocations that have the same lifetime as Compilation. This arena is used only during this
-        // initialization and then is freed in deinit().
+        // For allocations that have the same lifetime as Compilation. This
+        // arena is used only during this initialization and then is freed in
+        // deinit().
         var arena_allocator = std.heap.ArenaAllocator.init(gpa);
         errdefer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
@@ -1069,366 +1124,145 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const comp = try arena.create(Compilation);
         const root_name = try arena.dupeZ(u8, options.root_name);
 
-        // Make a decision on whether to use LLVM or our own backend.
-        const use_lib_llvm = options.use_lib_llvm orelse build_options.have_llvm;
-        const use_llvm = blk: {
-            if (options.use_llvm) |explicit|
-                break :blk explicit;
-
-            // If emitting to LLVM bitcode object format, must use LLVM backend.
-            if (options.emit_llvm_ir != null or options.emit_llvm_bc != null)
-                break :blk true;
-
-            // If we have no zig code to compile, no need for LLVM.
-            if (options.main_mod == null)
-                break :blk false;
-
-            // If we cannot use LLVM libraries, then our own backends will be a
-            // better default since the LLVM backend can only produce bitcode
-            // and not an object file or executable.
-            if (!use_lib_llvm)
-                break :blk false;
-
-            // If LLVM does not support the target, then we can't use it.
-            if (!target_util.hasLlvmSupport(options.target, options.target.ofmt))
-                break :blk false;
-
-            // Prefer LLVM for release builds.
-            if (options.optimize_mode != .Debug)
-                break :blk true;
-
-            // At this point we would prefer to use our own self-hosted backend,
-            // because the compilation speed is better than LLVM. But only do it if
-            // we are confident in the robustness of the backend.
-            break :blk !target_util.selfHostedBackendIsAsRobustAsLlvm(options.target);
-        };
-        if (!use_llvm) {
-            if (options.use_llvm == true) {
-                return error.ZigCompilerNotBuiltWithLLVMExtensions;
-            }
-            if (options.emit_llvm_ir != null or options.emit_llvm_bc != null) {
-                return error.EmittingLlvmModuleRequiresUsingLlvmBackend;
-            }
-        }
+        const use_llvm = options.config.use_llvm;
 
         // TODO: once we support incremental compilation for the LLVM backend via
         // saving the LLVM module into a bitcode file and restoring it, along with
         // compiler state, the second clause here can be removed so that incremental
         // cache mode is used for LLVM backend too. We need some fuzz testing before
         // that can be enabled.
-        const cache_mode = if ((use_llvm or options.main_mod == null) and !options.disable_lld_caching)
+        const cache_mode = if ((use_llvm or !have_zcu) and !options.disable_lld_caching)
             CacheMode.whole
         else
             options.cache_mode;
 
-        const tsan = options.want_tsan orelse false;
-        // TSAN is implemented in C++ so it requires linking libc++.
-        const link_libcpp = options.link_libcpp or tsan;
-        const link_libc = link_libcpp or options.link_libc or options.link_libunwind or
-            target_util.osRequiresLibC(options.target);
+        const any_unwind_tables = options.config.any_unwind_tables;
 
-        const link_libunwind = options.link_libunwind or
-            (link_libcpp and target_util.libcNeedsLibUnwind(options.target));
-        const unwind_tables = options.want_unwind_tables orelse
-            (link_libunwind or target_util.needUnwindTables(options.target));
-        const link_eh_frame_hdr = options.link_eh_frame_hdr or unwind_tables;
+        const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables;
         const build_id = options.build_id orelse .none;
 
-        // Make a decision on whether to use LLD or our own linker.
-        const use_lld = options.use_lld orelse blk: {
-            if (options.target.isDarwin()) {
-                break :blk false;
-            }
-
-            if (!build_options.have_llvm)
-                break :blk false;
-
-            if (options.target.ofmt == .c)
-                break :blk false;
-
-            if (options.want_lto) |lto| {
-                if (lto) {
-                    break :blk true;
-                }
-            }
-
-            // Our linker can't handle objects or most advanced options yet.
-            if (options.link_objects.len != 0 or
-                options.c_source_files.len != 0 or
-                options.frameworks.len != 0 or
-                options.system_lib_names.len != 0 or
-                options.link_libc or options.link_libcpp or
-                link_eh_frame_hdr or
-                options.link_emit_relocs or
-                options.output_mode == .Lib or
-                options.linker_script != null or options.version_script != null or
-                options.emit_implib != null or
-                build_id != .none or
-                options.symbol_wrap_set.count() > 0)
-            {
-                break :blk true;
-            }
-
-            if (use_llvm) {
-                // If stage1 generates an object file, self-hosted linker is not
-                // yet sophisticated enough to handle that.
-                break :blk options.main_mod != null;
-            }
-
-            break :blk false;
-        };
-
-        const lto = blk: {
-            if (options.want_lto) |want_lto| {
-                if (want_lto and !use_lld and !options.target.isDarwin())
-                    return error.LtoUnavailableWithoutLld;
-                break :blk want_lto;
-            } else if (!use_lld) {
-                // zig ld LTO support is tracked by
-                // https://github.com/ziglang/zig/issues/8680
-                break :blk false;
-            } else if (options.c_source_files.len == 0) {
-                break :blk false;
-            } else if (options.target.cpu.arch.isRISCV()) {
-                // Clang and LLVM currently don't support RISC-V target-abi for LTO.
-                // Compiling with LTO may fail or produce undesired results.
-                // See https://reviews.llvm.org/D71387
-                // See https://reviews.llvm.org/D102582
-                break :blk false;
-            } else switch (options.output_mode) {
-                .Lib, .Obj => break :blk false,
-                .Exe => switch (options.optimize_mode) {
-                    .Debug => break :blk false,
-                    .ReleaseSafe, .ReleaseFast, .ReleaseSmall => break :blk true,
-                },
-            }
-        };
-
-        const must_dynamic_link = dl: {
-            if (target_util.cannotDynamicLink(options.target))
-                break :dl false;
-            if (is_exe_or_dyn_lib and link_libc and
-                (options.target.isGnuLibC() or target_util.osRequiresLibC(options.target)))
-            {
-                break :dl true;
-            }
-            const any_dyn_libs: bool = x: {
-                if (options.system_lib_names.len != 0)
-                    break :x true;
-                for (options.link_objects) |obj| {
-                    switch (classifyFileExt(obj.path)) {
-                        .shared_library => break :x true,
-                        else => continue,
-                    }
-                }
-                break :x false;
-            };
-            if (any_dyn_libs) {
-                // When creating a executable that links to system libraries,
-                // we require dynamic linking, but we must not link static libraries
-                // or object files dynamically!
-                break :dl (options.output_mode == .Exe);
-            }
-
-            break :dl false;
-        };
-        const default_link_mode: std.builtin.LinkMode = blk: {
-            if (must_dynamic_link) {
-                break :blk .Dynamic;
-            } else if (is_exe_or_dyn_lib and link_libc and
-                options.is_native_abi and options.target.abi.isMusl())
-            {
-                // If targeting the system's native ABI and the system's
-                // libc is musl, link dynamically by default.
-                break :blk .Dynamic;
-            } else {
-                break :blk .Static;
-            }
-        };
-        const link_mode: std.builtin.LinkMode = if (options.link_mode) |lm| blk: {
-            if (lm == .Static and must_dynamic_link) {
-                return error.UnableToStaticLink;
-            }
-            break :blk lm;
-        } else default_link_mode;
+        const link_libc = options.config.link_libc;
 
         const dll_export_fns = options.dll_export_fns orelse (is_dyn_lib or options.rdynamic);
 
         const libc_dirs = try detectLibCIncludeDirs(
             arena,
             options.zig_lib_directory.path.?,
-            options.target,
-            options.is_native_abi,
+            options.root_mod.resolved_target.result,
+            options.root_mod.resolved_target.is_native_abi,
             link_libc,
             options.libc_installation,
         );
 
-        const rc_dirs = try detectWin32ResourceIncludeDirs(
-            arena,
-            options,
-        );
+        // The include directories used when preprocessing .rc files are separate from the
+        // target. Which include directories are used is determined by `options.rc_includes`.
+        //
+        // Note: It should be okay that the include directories used when compiling .rc
+        // files differ from the include directories used when compiling the main
+        // binary, since the .res format is not dependent on anything ABI-related. The
+        // only relevant differences would be things like `#define` constants being
+        // different in the MinGW headers vs the MSVC headers, but any such
+        // differences would likely be a MinGW bug.
+        const rc_dirs = b: {
+            // Set the includes to .none here when there are no rc files to compile
+            var includes = if (options.rc_source_files.len > 0) options.rc_includes else .none;
+            const target = options.root_mod.resolved_target.result;
+            if (!options.root_mod.resolved_target.is_native_os or target.os.tag != .windows) {
+                switch (includes) {
+                    // MSVC can't be found when the host isn't Windows, so short-circuit.
+                    .msvc => return error.WindowsSdkNotFound,
+                    // Skip straight to gnu since we won't be able to detect
+                    // MSVC on non-Windows hosts.
+                    .any => includes = .gnu,
+                    .none, .gnu => {},
+                }
+            }
+            while (true) switch (includes) {
+                .any, .msvc => break :b detectLibCIncludeDirs(
+                    arena,
+                    options.zig_lib_directory.path.?,
+                    .{
+                        .cpu = target.cpu,
+                        .os = target.os,
+                        .abi = .msvc,
+                        .ofmt = target.ofmt,
+                    },
+                    options.root_mod.resolved_target.is_native_abi,
+                    // The .rc preprocessor will need to know the libc include dirs even if we
+                    // are not linking libc, so force 'link_libc' to true
+                    true,
+                    options.libc_installation,
+                ) catch |err| {
+                    if (includes == .any) {
+                        // fall back to mingw
+                        includes = .gnu;
+                        continue;
+                    }
+                    return err;
+                },
+                .gnu => break :b try detectLibCFromBuilding(arena, options.zig_lib_directory.path.?, .{
+                    .cpu = target.cpu,
+                    .os = target.os,
+                    .abi = .gnu,
+                    .ofmt = target.ofmt,
+                }),
+                .none => break :b LibCDirs{
+                    .libc_include_dir_list = &[0][]u8{},
+                    .libc_installation = null,
+                    .libc_framework_dir_list = &.{},
+                    .sysroot = null,
+                    .darwin_sdk_layout = null,
+                },
+            };
+        };
 
         const sysroot = options.sysroot orelse libc_dirs.sysroot;
-
-        const pie: bool = pie: {
-            if (is_dyn_lib) {
-                if (options.want_pie == true) return error.OutputModeForbidsPie;
-                break :pie false;
-            }
-            if (target_util.requiresPIE(options.target)) {
-                if (options.want_pie == false) return error.TargetRequiresPie;
-                break :pie true;
-            }
-            if (tsan) {
-                if (options.want_pie == false) return error.TsanRequiresPie;
-                break :pie true;
-            }
-            if (options.want_pie) |want_pie| {
-                break :pie want_pie;
-            }
-            break :pie false;
-        };
-
-        const must_pic: bool = b: {
-            if (target_util.requiresPIC(options.target, link_libc))
-                break :b true;
-            break :b link_mode == .Dynamic;
-        };
-        const pic = if (options.want_pic) |explicit| pic: {
-            if (!explicit) {
-                if (must_pic) {
-                    return error.TargetRequiresPIC;
-                }
-                if (pie) {
-                    return error.PIERequiresPIC;
-                }
-            }
-            break :pic explicit;
-        } else pie or must_pic;
-
-        // Make a decision on whether to use Clang or Aro for translate-c and compiling C files.
-        const c_frontend: CFrontend = blk: {
-            if (options.use_clang) |want_clang| {
-                break :blk if (want_clang) .clang else .aro;
-            }
-            break :blk if (build_options.have_llvm) .clang else .aro;
-        };
-        if (!build_options.have_llvm and c_frontend == .clang) {
-            return error.ZigCompilerNotBuiltWithLLVMExtensions;
-        }
-
-        const is_safe_mode = switch (options.optimize_mode) {
-            .Debug, .ReleaseSafe => true,
-            .ReleaseFast, .ReleaseSmall => false,
-        };
-
-        const sanitize_c = options.want_sanitize_c orelse is_safe_mode;
-
-        const stack_check: bool = options.want_stack_check orelse b: {
-            if (!target_util.supportsStackProbing(options.target)) break :b false;
-            break :b is_safe_mode;
-        };
-        if (stack_check and !target_util.supportsStackProbing(options.target))
-            return error.StackCheckUnsupportedByTarget;
-
-        const stack_protector: u32 = sp: {
-            const zig_backend = zigBackend(options.target, use_llvm);
-            if (!target_util.supportsStackProtector(options.target, zig_backend)) {
-                if (options.want_stack_protector) |x| {
-                    if (x > 0) return error.StackProtectorUnsupportedByTarget;
-                }
-                break :sp 0;
-            }
-
-            // This logic is checking for linking libc because otherwise our start code
-            // which is trying to set up TLS (i.e. the fs/gs registers) but the stack
-            // protection code depends on fs/gs registers being already set up.
-            // If we were able to annotate start code, or perhaps the entire std lib,
-            // as being exempt from stack protection checks, we could change this logic
-            // to supporting stack protection even when not linking libc.
-            // TODO file issue about this
-            if (!link_libc) {
-                if (options.want_stack_protector) |x| {
-                    if (x > 0) return error.StackProtectorUnavailableWithoutLibC;
-                }
-                break :sp 0;
-            }
-
-            if (options.want_stack_protector) |x| break :sp x;
-            if (is_safe_mode) break :sp default_stack_protector_buffer_size;
-            break :sp 0;
-        };
 
         const include_compiler_rt = options.want_compiler_rt orelse
             (!options.skip_linker_dependencies and is_exe_or_dyn_lib);
 
-        const single_threaded = st: {
-            if (target_util.isSingleThreaded(options.target)) {
-                if (options.single_threaded == false)
-                    return error.TargetRequiresSingleThreaded;
-                break :st true;
-            }
-            if (options.main_mod != null) {
-                const zig_backend = zigBackend(options.target, use_llvm);
-                if (!target_util.supportsThreads(options.target, zig_backend)) {
-                    if (options.single_threaded == false)
-                        return error.BackendRequiresSingleThreaded;
-                    break :st true;
-                }
-            }
-            break :st options.single_threaded orelse false;
-        };
-
-        const llvm_cpu_features: ?[*:0]const u8 = if (use_llvm) blk: {
-            var buf = std.ArrayList(u8).init(arena);
-            for (options.target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
-                const index = @as(Target.Cpu.Feature.Set.Index, @intCast(index_usize));
-                const is_enabled = options.target.cpu.features.isEnabled(index);
-
-                if (feature.llvm_name) |llvm_name| {
-                    const plus_or_minus = "-+"[@intFromBool(is_enabled)];
-                    try buf.ensureUnusedCapacity(2 + llvm_name.len);
-                    buf.appendAssumeCapacity(plus_or_minus);
-                    buf.appendSliceAssumeCapacity(llvm_name);
-                    buf.appendSliceAssumeCapacity(",");
-                }
-            }
-            if (buf.items.len == 0) break :blk "";
-            assert(mem.endsWith(u8, buf.items, ","));
-            buf.items[buf.items.len - 1] = 0;
-            buf.shrinkAndFree(buf.items.len);
-            break :blk buf.items[0 .. buf.items.len - 1 :0].ptr;
-        } else null;
+        if (include_compiler_rt and output_mode == .Obj) {
+            // For objects, this mechanism relies on essentially `_ = @import("compiler-rt");`
+            // injected into the object.
+            const compiler_rt_mod = try Package.Module.create(arena, .{
+                .global_cache_directory = options.global_cache_directory,
+                .paths = .{
+                    .root = .{
+                        .root_dir = options.zig_lib_directory,
+                    },
+                    .root_src_path = "compiler_rt.zig",
+                },
+                .fully_qualified_name = "compiler_rt",
+                .cc_argv = &.{},
+                .inherited = .{},
+                .global = options.config,
+                .parent = options.root_mod,
+                .builtin_mod = options.root_mod.getBuiltinDependency(),
+            });
+            try options.root_mod.deps.putNoClobber(arena, "compiler_rt", compiler_rt_mod);
+        }
 
         if (options.verbose_llvm_cpu_features) {
-            if (llvm_cpu_features) |cf| print: {
+            if (options.root_mod.resolved_target.llvm_cpu_features) |cf| print: {
+                const target = options.root_mod.resolved_target.result;
                 std.debug.getStderrMutex().lock();
                 defer std.debug.getStderrMutex().unlock();
                 const stderr = std.io.getStdErr().writer();
-                nosuspend stderr.print("compilation: {s}\n", .{options.root_name}) catch break :print;
-                nosuspend stderr.print("  target: {s}\n", .{try options.target.zigTriple(arena)}) catch break :print;
-                nosuspend stderr.print("  cpu: {s}\n", .{options.target.cpu.model.name}) catch break :print;
-                nosuspend stderr.print("  features: {s}\n", .{cf}) catch {};
+                nosuspend {
+                    stderr.print("compilation: {s}\n", .{options.root_name}) catch break :print;
+                    stderr.print("  target: {s}\n", .{try target.zigTriple(arena)}) catch break :print;
+                    stderr.print("  cpu: {s}\n", .{target.cpu.model.name}) catch break :print;
+                    stderr.print("  features: {s}\n", .{cf}) catch {};
+                }
             }
         }
 
-        const strip = options.strip orelse !target_util.hasDebugInfo(options.target);
-        const valgrind: bool = b: {
-            if (!target_util.hasValgrindSupport(options.target)) break :b false;
-            if (options.want_valgrind) |explicit| break :b explicit;
-            if (strip) break :b false;
-            break :b options.optimize_mode == .Debug;
-        };
-        if (!valgrind and options.want_valgrind == true)
-            return error.ValgrindUnsupportedOnTarget;
-
-        const red_zone = options.want_red_zone orelse target_util.hasRedZone(options.target);
-        const omit_frame_pointer = options.omit_frame_pointer orelse (options.optimize_mode != .Debug);
-        const linker_optimization: u8 = options.linker_optimization orelse switch (options.optimize_mode) {
+        const linker_optimization: u8 = options.linker_optimization orelse switch (options.root_mod.optimize_mode) {
             .Debug => @as(u8, 0),
             else => @as(u8, 3),
         };
-        const formatted_panics = options.formatted_panics orelse (options.optimize_mode == .Debug);
+        // TODO: https://github.com/ziglang/zig/issues/17969
+        const formatted_panics = options.formatted_panics orelse (options.root_mod.optimize_mode == .Debug);
 
         const error_limit = options.error_limit orelse (std.math.maxInt(u16) - 1);
 
@@ -1453,43 +1287,25 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // This is shared hasher state common to zig source and all C source files.
         cache.hash.addBytes(build_options.version);
         cache.hash.add(builtin.zig_backend);
-        cache.hash.add(options.optimize_mode);
-        cache.hash.add(options.target.cpu.arch);
-        cache.hash.addBytes(options.target.cpu.model.name);
-        cache.hash.add(options.target.cpu.features.ints);
-        cache.hash.add(options.target.os.tag);
-        cache.hash.add(options.target.os.getVersionRange());
-        cache.hash.add(options.is_native_os);
-        cache.hash.add(options.target.abi);
-        cache.hash.add(options.target.ofmt);
-        cache.hash.add(pic);
-        cache.hash.add(pie);
-        cache.hash.add(lto);
-        cache.hash.add(unwind_tables);
-        cache.hash.add(tsan);
-        cache.hash.add(stack_check);
-        cache.hash.add(stack_protector);
-        cache.hash.add(red_zone);
-        cache.hash.add(omit_frame_pointer);
-        cache.hash.add(link_mode);
+        cache.hash.add(options.config.pie);
+        cache.hash.add(options.config.lto);
+        cache.hash.add(options.config.link_mode);
         cache.hash.add(options.function_sections);
         cache.hash.add(options.data_sections);
         cache.hash.add(options.no_builtin);
-        cache.hash.add(strip);
         cache.hash.add(link_libc);
-        cache.hash.add(link_libcpp);
-        cache.hash.add(link_libunwind);
-        cache.hash.add(options.output_mode);
-        cache.hash.add(options.machine_code_model);
+        cache.hash.add(options.config.link_libcpp);
+        cache.hash.add(options.config.link_libunwind);
+        cache.hash.add(output_mode);
         cache.hash.addOptional(options.dwarf_format);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_bin);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_implib);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_docs);
         cache.hash.addBytes(options.root_name);
-        if (options.target.os.tag == .wasi) cache.hash.add(wasi_exec_model);
+        cache.hash.add(options.config.wasi_exec_model);
         // TODO audit this and make sure everything is in it
 
-        const module: ?*Module = if (options.main_mod) |main_mod| blk: {
+        const zcu: ?*Module = if (have_zcu) blk: {
             // Options that are specific to zig source files, that cannot be
             // modified between incremental updates.
             var hash = cache.hash;
@@ -1502,13 +1318,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                     // do want to namespace different source file names because they are
                     // likely different compilations and therefore this would be likely to
                     // cause cache hits.
-                    hash.addBytes(main_mod.root_src_path);
-                    hash.addOptionalBytes(main_mod.root.root_dir.path);
-                    hash.addBytes(main_mod.root.sub_path);
-                    {
-                        var seen_table = std.AutoHashMap(*Package.Module, void).init(arena);
-                        try addModuleTableToCacheHash(&hash, &arena_allocator, main_mod.deps, &seen_table, .path_bytes);
-                    }
+                    try addModuleTableToCacheHash(gpa, arena, &hash, options.root_mod, .path_bytes);
                 },
                 .whole => {
                     // In this case, we postpone adding the input source file until
@@ -1518,13 +1328,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             }
 
             // Synchronize with other matching comments: ZigOnlyHashStuff
-            hash.add(valgrind);
-            hash.add(single_threaded);
             hash.add(use_llvm);
-            hash.add(use_lib_llvm);
+            hash.add(options.config.use_lib_llvm);
             hash.add(dll_export_fns);
-            hash.add(options.is_test);
-            hash.add(options.test_evented_io);
+            hash.add(options.config.is_test);
+            hash.add(options.config.test_evented_io);
             hash.addOptionalBytes(options.test_filter);
             hash.addOptionalBytes(options.test_name_prefix);
             hash.add(options.skip_linker_dependencies);
@@ -1565,85 +1373,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .path = try options.local_cache_directory.join(arena, &[_][]const u8{artifact_sub_dir}),
             };
 
-            const builtin_mod = try Package.Module.create(arena, .{
-                .root = .{ .root_dir = zig_cache_artifact_directory },
-                .root_src_path = "builtin.zig",
-                .fully_qualified_name = "builtin",
-            });
-
-            // When you're testing std, the main module is std. In that case,
-            // we'll just set the std module to the main one, since avoiding
-            // the errors caused by duplicating it is more effort than it's
-            // worth.
-            const main_mod_is_std = m: {
-                const std_path = try std.fs.path.resolve(arena, &[_][]const u8{
-                    options.zig_lib_directory.path orelse ".",
-                    "std",
-                    "std.zig",
-                });
-                const main_path = try std.fs.path.resolve(arena, &[_][]const u8{
-                    main_mod.root.root_dir.path orelse ".",
-                    main_mod.root.sub_path,
-                    main_mod.root_src_path,
-                });
-                break :m mem.eql(u8, main_path, std_path);
-            };
-
-            const std_mod = if (main_mod_is_std)
-                main_mod
-            else
-                try Package.Module.create(arena, .{
-                    .root = .{
-                        .root_dir = options.zig_lib_directory,
-                        .sub_path = "std",
-                    },
-                    .root_src_path = "std.zig",
-                    .fully_qualified_name = "std",
-                });
-
-            const root_mod = if (options.is_test) root_mod: {
-                const test_mod = if (options.test_runner_path) |test_runner| test_mod: {
-                    const pkg = try Package.Module.create(arena, .{
-                        .root = .{
-                            .root_dir = Directory.cwd(),
-                            .sub_path = std.fs.path.dirname(test_runner) orelse "",
-                        },
-                        .root_src_path = std.fs.path.basename(test_runner),
-                        .fully_qualified_name = "root",
-                    });
-
-                    pkg.deps = try main_mod.deps.clone(arena);
-                    break :test_mod pkg;
-                } else try Package.Module.create(arena, .{
-                    .root = .{
-                        .root_dir = options.zig_lib_directory,
-                    },
-                    .root_src_path = "test_runner.zig",
-                    .fully_qualified_name = "root",
-                });
-
-                break :root_mod test_mod;
-            } else main_mod;
-
-            const compiler_rt_mod = if (include_compiler_rt and options.output_mode == .Obj) compiler_rt_mod: {
-                break :compiler_rt_mod try Package.Module.create(arena, .{
-                    .root = .{
-                        .root_dir = options.zig_lib_directory,
-                    },
-                    .root_src_path = "compiler_rt.zig",
-                    .fully_qualified_name = "compiler_rt",
-                });
-            } else null;
-
-            {
-                try main_mod.deps.ensureUnusedCapacity(arena, 4);
-                main_mod.deps.putAssumeCapacity("builtin", builtin_mod);
-                main_mod.deps.putAssumeCapacity("root", root_mod);
-                main_mod.deps.putAssumeCapacity("std", std_mod);
-                if (compiler_rt_mod) |m|
-                    main_mod.deps.putAssumeCapacity("compiler_rt", m);
-            }
-
             // Pre-open the directory handles for cached ZIR code so that it does not need
             // to redundantly happen for each AstGen operation.
             const zir_sub_dir = "z";
@@ -1674,13 +1403,14 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // However we currently do not have serialization of such metadata, so for now
             // we set up an empty Module that does the entire compilation fresh.
 
-            const module = try arena.create(Module);
-            errdefer module.deinit();
-            module.* = .{
+            const zcu = try arena.create(Module);
+            errdefer zcu.deinit();
+            zcu.* = .{
                 .gpa = gpa,
                 .comp = comp,
-                .main_mod = main_mod,
-                .root_mod = root_mod,
+                .main_mod = options.main_mod orelse options.root_mod,
+                .root_mod = options.root_mod,
+                .std_mod = options.std_mod,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .global_zir_cache = global_zir_cache,
                 .local_zir_cache = local_zir_cache,
@@ -1688,31 +1418,24 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .tmp_hack_arena = std.heap.ArenaAllocator.init(gpa),
                 .error_limit = error_limit,
             };
-            try module.init();
+            try zcu.init();
 
-            break :blk module;
+            break :blk zcu;
         } else blk: {
             if (options.emit_h != null) return error.NoZigModuleForCHeader;
             break :blk null;
         };
-        errdefer if (module) |zm| zm.deinit();
-
-        const error_return_tracing = !strip and switch (options.optimize_mode) {
-            .Debug, .ReleaseSafe => (!options.target.isWasm() or options.target.os.tag == .emscripten) and
-                !options.target.cpu.arch.isBpf() and (options.error_tracing orelse true),
-            .ReleaseFast => options.error_tracing orelse false,
-            .ReleaseSmall => false,
-        };
+        errdefer if (zcu) |u| u.deinit();
 
         // For resource management purposes.
         var owned_link_dir: ?std.fs.Dir = null;
         errdefer if (owned_link_dir) |*dir| dir.close();
 
-        const bin_file_emit: ?link.Emit = blk: {
+        const bin_file_emit: ?Emit = blk: {
             const emit_bin = options.emit_bin orelse break :blk null;
 
             if (emit_bin.directory) |directory| {
-                break :blk link.Emit{
+                break :blk Emit{
                     .directory = directory,
                     .sub_path = emit_bin.basename,
                 };
@@ -1725,9 +1448,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .incremental => {},
             }
 
-            if (module) |zm| {
-                break :blk link.Emit{
-                    .directory = zm.zig_cache_artifact_directory,
+            if (zcu) |u| {
+                break :blk Emit{
+                    .directory = u.zig_cache_artifact_directory,
                     .sub_path = emit_bin.basename,
                 };
             }
@@ -1752,17 +1475,17 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .handle = artifact_dir,
                 .path = try options.local_cache_directory.join(arena, &[_][]const u8{artifact_sub_dir}),
             };
-            break :blk link.Emit{
+            break :blk Emit{
                 .directory = link_artifact_directory,
                 .sub_path = emit_bin.basename,
             };
         };
 
-        const implib_emit: ?link.Emit = blk: {
+        const implib_emit: ?Emit = blk: {
             const emit_implib = options.emit_implib orelse break :blk null;
 
             if (emit_implib.directory) |directory| {
-                break :blk link.Emit{
+                break :blk Emit{
                     .directory = directory,
                     .sub_path = emit_implib.basename,
                 };
@@ -1776,13 +1499,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             // Use the same directory as the bin. The CLI already emits an
             // error if -fno-emit-bin is combined with -femit-implib.
-            break :blk link.Emit{
+            break :blk Emit{
                 .directory = bin_file_emit.?.directory,
                 .sub_path = emit_implib.basename,
             };
         };
 
-        const docs_emit: ?link.Emit = blk: {
+        const docs_emit: ?Emit = blk: {
             const emit_docs = options.emit_docs orelse break :blk null;
 
             if (emit_docs.directory) |directory| {
@@ -1805,7 +1528,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             };
 
             break :blk .{
-                .directory = module.?.zig_cache_artifact_directory,
+                .directory = zcu.?.zig_cache_artifact_directory,
                 .sub_path = emit_docs.basename,
             };
         };
@@ -1828,131 +1551,20 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             system_libs.putAssumeCapacity(lib_name, options.system_lib_infos[i]);
         }
 
-        const bin_file = try link.File.openPath(gpa, .{
-            .emit = bin_file_emit,
-            .implib_emit = implib_emit,
-            .docs_emit = docs_emit,
-            .root_name = root_name,
-            .module = module,
-            .target = options.target,
-            .sysroot = sysroot,
-            .output_mode = options.output_mode,
-            .link_mode = link_mode,
-            .optimize_mode = options.optimize_mode,
-            .use_lld = use_lld,
-            .use_llvm = use_llvm,
-            .use_lib_llvm = use_lib_llvm,
-            .link_libc = link_libc,
-            .link_libcpp = link_libcpp,
-            .link_libunwind = link_libunwind,
-            .darwin_sdk_layout = libc_dirs.darwin_sdk_layout,
-            .objects = options.link_objects,
-            .frameworks = options.frameworks,
-            .framework_dirs = options.framework_dirs,
-            .system_libs = system_libs,
-            .wasi_emulated_libs = options.wasi_emulated_libs,
-            .lib_dirs = options.lib_dirs,
-            .rpath_list = options.rpath_list,
-            .symbol_wrap_set = options.symbol_wrap_set,
-            .strip = strip,
-            .is_native_os = options.is_native_os,
-            .is_native_abi = options.is_native_abi,
-            .function_sections = options.function_sections,
-            .data_sections = options.data_sections,
-            .no_builtin = options.no_builtin,
-            .allow_shlib_undefined = options.linker_allow_shlib_undefined,
-            .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
-            .compress_debug_sections = options.linker_compress_debug_sections orelse .none,
-            .module_definition_file = options.linker_module_definition_file,
-            .sort_section = options.linker_sort_section,
-            .import_memory = options.linker_import_memory orelse false,
-            .export_memory = options.linker_export_memory orelse !(options.linker_import_memory orelse false),
-            .import_symbols = options.linker_import_symbols,
-            .import_table = options.linker_import_table,
-            .export_table = options.linker_export_table,
-            .initial_memory = options.linker_initial_memory,
-            .max_memory = options.linker_max_memory,
-            .shared_memory = options.linker_shared_memory,
-            .global_base = options.linker_global_base,
-            .export_symbol_names = options.linker_export_symbol_names,
-            .print_gc_sections = options.linker_print_gc_sections,
-            .print_icf_sections = options.linker_print_icf_sections,
-            .print_map = options.linker_print_map,
-            .opt_bisect_limit = options.linker_opt_bisect_limit,
-            .z_nodelete = options.linker_z_nodelete,
-            .z_notext = options.linker_z_notext,
-            .z_defs = options.linker_z_defs,
-            .z_origin = options.linker_z_origin,
-            .z_nocopyreloc = options.linker_z_nocopyreloc,
-            .z_now = options.linker_z_now,
-            .z_relro = options.linker_z_relro,
-            .z_common_page_size = options.linker_z_common_page_size,
-            .z_max_page_size = options.linker_z_max_page_size,
-            .tsaware = options.linker_tsaware,
-            .nxcompat = options.linker_nxcompat,
-            .dynamicbase = options.linker_dynamicbase,
-            .linker_optimization = linker_optimization,
-            .major_subsystem_version = options.major_subsystem_version,
-            .minor_subsystem_version = options.minor_subsystem_version,
-            .entry = options.entry,
-            .stack_size_override = options.stack_size_override,
-            .image_base_override = options.image_base_override,
-            .include_compiler_rt = include_compiler_rt,
-            .linker_script = options.linker_script,
-            .version_script = options.version_script,
-            .gc_sections = options.linker_gc_sections,
-            .eh_frame_hdr = link_eh_frame_hdr,
-            .emit_relocs = options.link_emit_relocs,
-            .rdynamic = options.rdynamic,
-            .soname = options.soname,
-            .version = options.version,
-            .compatibility_version = options.compatibility_version,
-            .libc_installation = libc_dirs.libc_installation,
-            .pic = pic,
-            .pie = pie,
-            .lto = lto,
-            .valgrind = valgrind,
-            .tsan = tsan,
-            .stack_check = stack_check,
-            .stack_protector = stack_protector,
-            .red_zone = red_zone,
-            .omit_frame_pointer = omit_frame_pointer,
-            .single_threaded = single_threaded,
-            .verbose_link = options.verbose_link,
-            .machine_code_model = options.machine_code_model,
-            .dll_export_fns = dll_export_fns,
-            .error_return_tracing = error_return_tracing,
-            .llvm_cpu_features = llvm_cpu_features,
-            .skip_linker_dependencies = options.skip_linker_dependencies,
-            .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
-            .build_id = build_id,
-            .cache_mode = cache_mode,
-            .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
-            .subsystem = options.subsystem,
-            .is_test = options.is_test,
-            .dwarf_format = options.dwarf_format,
-            .wasi_exec_model = wasi_exec_model,
-            .hash_style = options.hash_style,
-            .enable_link_snapshots = options.enable_link_snapshots,
-            .install_name = options.install_name,
-            .entitlements = options.entitlements,
-            .pagezero_size = options.pagezero_size,
-            .headerpad_size = options.headerpad_size,
-            .headerpad_max_install_names = options.headerpad_max_install_names,
-            .dead_strip_dylibs = options.dead_strip_dylibs,
-            .force_undefined_symbols = options.force_undefined_symbols,
-            .pdb_source_path = options.pdb_source_path,
-            .pdb_out_path = options.pdb_out_path,
-            .want_structured_cfg = options.want_structured_cfg,
-        });
-        errdefer bin_file.destroy();
+        const each_lib_rpath = options.each_lib_rpath orelse
+            options.root_mod.resolved_target.is_native_os;
+
         comp.* = .{
             .gpa = gpa,
             .arena = arena_allocator,
+            .module = zcu,
+            .root_mod = options.root_mod,
+            .config = options.config,
+            .bin_file = null,
+            .cache_mode = cache_mode,
             .zig_lib_directory = options.zig_lib_directory,
             .local_cache_directory = options.local_cache_directory,
             .global_cache_directory = options.global_cache_directory,
-            .bin_file = bin_file,
             .whole_bin_sub_path = whole_bin_sub_path,
             .whole_implib_sub_path = whole_implib_sub_path,
             .whole_docs_sub_path = whole_docs_sub_path,
@@ -1966,8 +1578,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .astgen_work_queue = std.fifo.LinearFifo(*Module.File, .Dynamic).init(gpa),
             .embed_file_work_queue = std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic).init(gpa),
             .keep_source_files_loaded = options.keep_source_files_loaded,
-            .c_frontend = c_frontend,
-            .clang_argv = options.clang_argv,
             .c_source_files = options.c_source_files,
             .rc_source_files = options.rc_source_files,
             .cache_parent = cache,
@@ -1975,7 +1585,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .libc_include_dir_list = libc_dirs.libc_include_dir_list,
             .libc_framework_dir_list = libc_dirs.libc_framework_dir_list,
             .rc_include_dir_list = rc_dirs.libc_include_dir_list,
-            .sanitize_c = sanitize_c,
             .thread_pool = options.thread_pool,
             .clang_passthrough_mode = options.clang_passthrough_mode,
             .clang_preprocessor_mode = options.clang_preprocessor_mode,
@@ -1994,22 +1603,110 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .formatted_panics = formatted_panics,
             .time_report = options.time_report,
             .stack_report = options.stack_report,
-            .unwind_tables = unwind_tables,
             .test_filter = options.test_filter,
             .test_name_prefix = options.test_name_prefix,
-            .test_evented_io = options.test_evented_io,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
             .libcxx_abi_version = options.libcxx_abi_version,
+            .implib_emit = implib_emit,
+            .docs_emit = docs_emit,
+            .root_name = root_name,
+            .sysroot = sysroot,
+            .system_libs = system_libs,
+            .version = options.version,
+            .libc_installation = libc_dirs.libc_installation,
+            .include_compiler_rt = include_compiler_rt,
+            .objects = options.link_objects,
         };
+
+        if (bin_file_emit) |emit| {
+            comp.bin_file = try link.File.open(arena, .{
+                .comp = comp,
+                .emit = emit,
+                .optimization = linker_optimization,
+                .linker_script = options.linker_script,
+                .z_nodelete = options.linker_z_nodelete,
+                .z_notext = options.linker_z_notext,
+                .z_defs = options.linker_z_defs,
+                .z_origin = options.linker_z_origin,
+                .z_nocopyreloc = options.linker_z_nocopyreloc,
+                .z_now = options.linker_z_now,
+                .z_relro = options.linker_z_relro,
+                .z_common_page_size = options.linker_z_common_page_size,
+                .z_max_page_size = options.linker_z_max_page_size,
+                .darwin_sdk_layout = libc_dirs.darwin_sdk_layout,
+                .frameworks = options.frameworks,
+                .framework_dirs = options.framework_dirs,
+                .wasi_emulated_libs = options.wasi_emulated_libs,
+                .lib_dirs = options.lib_dirs,
+                .rpath_list = options.rpath_list,
+                .symbol_wrap_set = options.symbol_wrap_set,
+                .function_sections = options.function_sections,
+                .data_sections = options.data_sections,
+                .no_builtin = options.no_builtin,
+                .allow_shlib_undefined = options.linker_allow_shlib_undefined,
+                .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
+                .compress_debug_sections = options.linker_compress_debug_sections orelse .none,
+                .module_definition_file = options.linker_module_definition_file,
+                .sort_section = options.linker_sort_section,
+                .import_symbols = options.linker_import_symbols,
+                .import_table = options.linker_import_table,
+                .export_table = options.linker_export_table,
+                .initial_memory = options.linker_initial_memory,
+                .max_memory = options.linker_max_memory,
+                .global_base = options.linker_global_base,
+                .export_symbol_names = options.linker_export_symbol_names,
+                .print_gc_sections = options.linker_print_gc_sections,
+                .print_icf_sections = options.linker_print_icf_sections,
+                .print_map = options.linker_print_map,
+                .opt_bisect_limit = options.linker_opt_bisect_limit,
+                .tsaware = options.linker_tsaware,
+                .nxcompat = options.linker_nxcompat,
+                .dynamicbase = options.linker_dynamicbase,
+                .major_subsystem_version = options.major_subsystem_version,
+                .minor_subsystem_version = options.minor_subsystem_version,
+                .stack_size_override = options.stack_size_override,
+                .image_base_override = options.image_base_override,
+                .version_script = options.version_script,
+                .gc_sections = options.linker_gc_sections,
+                .eh_frame_hdr = link_eh_frame_hdr,
+                .emit_relocs = options.link_emit_relocs,
+                .rdynamic = options.rdynamic,
+                .soname = options.soname,
+                .compatibility_version = options.compatibility_version,
+                .verbose_link = options.verbose_link,
+                .dll_export_fns = dll_export_fns,
+                .skip_linker_dependencies = options.skip_linker_dependencies,
+                .parent_compilation_link_libc = options.parent_compilation_link_libc,
+                .each_lib_rpath = each_lib_rpath,
+                .build_id = build_id,
+                .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
+                .subsystem = options.subsystem,
+                .dwarf_format = options.dwarf_format,
+                .hash_style = options.hash_style,
+                .enable_link_snapshots = options.enable_link_snapshots,
+                .install_name = options.install_name,
+                .entitlements = options.entitlements,
+                .pagezero_size = options.pagezero_size,
+                .headerpad_size = options.headerpad_size,
+                .headerpad_max_install_names = options.headerpad_max_install_names,
+                .dead_strip_dylibs = options.dead_strip_dylibs,
+                .force_undefined_symbols = options.force_undefined_symbols,
+                .pdb_source_path = options.pdb_source_path,
+                .pdb_out_path = options.pdb_out_path,
+                .want_structured_cfg = options.want_structured_cfg,
+                .entry_addr = null, // CLI does not expose this option (yet?)
+            });
+        }
+
         break :comp comp;
     };
     errdefer comp.destroy();
 
-    const target = comp.getTarget();
+    const target = options.root_mod.resolved_target.result;
 
-    const capable_of_building_compiler_rt = canBuildLibCompilerRt(target, comp.bin_file.options.use_llvm);
-    const capable_of_building_zig_libc = canBuildZigLibC(target, comp.bin_file.options.use_llvm);
+    const capable_of_building_compiler_rt = canBuildLibCompilerRt(target, options.config.use_llvm);
+    const capable_of_building_zig_libc = canBuildZigLibC(target, options.config.use_llvm);
 
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
@@ -2109,7 +1806,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 });
             }
             comp.work_queue.writeAssumeCapacity(&[_]Job{
-                .{ .wasi_libc_crt_file = wasi_libc.execModelCrtFile(wasi_exec_model) },
+                .{ .wasi_libc_crt_file = wasi_libc.execModelCrtFile(options.config.wasi_exec_model) },
                 .{ .wasi_libc_crt_file = .libc_a },
             });
         }
@@ -2171,7 +1868,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             if (is_exe_or_dyn_lib) {
                 log.debug("queuing a job to build compiler_rt_lib", .{});
                 comp.job_queued_compiler_rt_lib = true;
-            } else if (options.output_mode != .Obj) {
+            } else if (output_mode != .Obj) {
                 log.debug("queuing a job to build compiler_rt_obj", .{});
                 // In this case we are making a static library, so we ask
                 // for a compiler-rt object to put in it.
@@ -2283,7 +1980,7 @@ pub fn clearMiscFailures(comp: *Compilation) void {
 }
 
 pub fn getTarget(self: Compilation) Target {
-    return self.bin_file.options.target;
+    return self.root_mod.resolved_target.result;
 }
 
 fn restorePrevZigCacheArtifactDirectory(comp: *Compilation, directory: *Directory) void {
@@ -2436,7 +2133,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
 
         // Make sure std.zig is inside the import_table. We unconditionally need
         // it for start.zig.
-        const std_mod = module.main_mod.deps.get("std").?;
+        const std_mod = module.std_mod;
         _ = try module.importPkg(std_mod);
 
         // Normally we rely on importing std to in turn import the root source file
@@ -2449,7 +2146,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             _ = try module.importPkg(module.main_mod);
         }
 
-        if (module.main_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
+        if (module.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
             _ = try module.importPkg(compiler_rt_mod);
         }
 
@@ -2474,7 +2171,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             try comp.work_queue.writeItem(.{ .analyze_mod = module.main_mod });
         }
 
-        if (module.main_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
+        if (module.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
             try comp.work_queue.writeItem(.{ .analyze_mod = compiler_rt_mod });
         }
     }
@@ -2699,16 +2396,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_mod.root.joinString(arena, mod.main_mod.root_src_path);
         _ = try man.addFile(main_zig_file, null);
-        {
-            var seen_table = std.AutoHashMap(*Package.Module, void).init(arena);
-
-            // Skip builtin.zig; it is useless as an input, and we don't want to have to
-            // write it before checking for a cache hit.
-            const builtin_mod = mod.main_mod.deps.get("builtin").?;
-            try seen_table.put(builtin_mod, {});
-
-            try addModuleTableToCacheHash(&man.hash, &arena_allocator, mod.main_mod.deps, &seen_table, .{ .files = man });
-        }
+        try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.main_mod, .{ .files = man });
 
         // Synchronize with other matching comments: ZigOnlyHashStuff
         man.hash.add(comp.bin_file.options.valgrind);
@@ -2761,8 +2449,6 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_asm);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_bc);
-
-    man.hash.addListOfBytes(comp.clang_argv);
 
     man.hash.addOptional(comp.bin_file.options.stack_size_override);
     man.hash.addOptional(comp.bin_file.options.image_base_override);
@@ -3341,7 +3027,7 @@ pub const ErrorNoteHashContext = struct {
         const eb = ctx.eb.tmpBundle();
         const msg_a = eb.nullTerminatedString(a.msg);
         const msg_b = eb.nullTerminatedString(b.msg);
-        if (!std.mem.eql(u8, msg_a, msg_b)) return false;
+        if (!mem.eql(u8, msg_a, msg_b)) return false;
 
         if (a.src_loc == .none and b.src_loc == .none) return true;
         if (a.src_loc == .none or b.src_loc == .none) return false;
@@ -3351,7 +3037,7 @@ pub const ErrorNoteHashContext = struct {
         const src_path_a = eb.nullTerminatedString(src_a.src_path);
         const src_path_b = eb.nullTerminatedString(src_b.src_path);
 
-        return std.mem.eql(u8, src_path_a, src_path_b) and
+        return mem.eql(u8, src_path_a, src_path_b) and
             src_a.line == src_b.line and
             src_a.column == src_b.column and
             src_a.span_main == src_b.span_main;
@@ -4149,7 +3835,7 @@ pub const CImportResult = struct {
     cache_hit: bool,
     errors: std.zig.ErrorBundle,
 
-    pub fn deinit(result: *CImportResult, gpa: std.mem.Allocator) void {
+    pub fn deinit(result: *CImportResult, gpa: mem.Allocator) void {
         result.errors.deinit(gpa);
     }
 };
@@ -5321,9 +5007,9 @@ pub fn addCCArgs(
                     argv.appendAssumeCapacity(arg);
                 }
             }
-            const mcmodel = comp.bin_file.options.machine_code_model;
-            if (mcmodel != .default) {
-                try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={s}", .{@tagName(mcmodel)}));
+            const code_model = comp.bin_file.options.machine_code_model;
+            if (code_model != .default) {
+                try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={s}", .{@tagName(code_model)}));
             }
 
             switch (target.os.tag) {
@@ -5616,68 +5302,6 @@ fn failCObjWithOwnedDiagBundle(
     }
     c_object.status = .failure;
     return error.AnalysisFail;
-}
-
-/// The include directories used when preprocessing .rc files are separate from the
-/// target. Which include directories are used is determined by `options.rc_includes`.
-///
-/// Note: It should be okay that the include directories used when compiling .rc
-/// files differ from the include directories used when compiling the main
-/// binary, since the .res format is not dependent on anything ABI-related. The
-/// only relevant differences would be things like `#define` constants being
-/// different in the MinGW headers vs the MSVC headers, but any such
-/// differences would likely be a MinGW bug.
-fn detectWin32ResourceIncludeDirs(arena: Allocator, options: InitOptions) !LibCDirs {
-    // Set the includes to .none here when there are no rc files to compile
-    var includes = if (options.rc_source_files.len > 0) options.rc_includes else .none;
-    if (builtin.target.os.tag != .windows) {
-        switch (includes) {
-            // MSVC can't be found when the host isn't Windows, so short-circuit.
-            .msvc => return error.WindowsSdkNotFound,
-            // Skip straight to gnu since we won't be able to detect MSVC on non-Windows hosts.
-            .any => includes = .gnu,
-            .none, .gnu => {},
-        }
-    }
-    while (true) {
-        switch (includes) {
-            .any, .msvc => return detectLibCIncludeDirs(
-                arena,
-                options.zig_lib_directory.path.?,
-                .{
-                    .cpu = options.target.cpu,
-                    .os = options.target.os,
-                    .abi = .msvc,
-                    .ofmt = options.target.ofmt,
-                },
-                options.is_native_abi,
-                // The .rc preprocessor will need to know the libc include dirs even if we
-                // are not linking libc, so force 'link_libc' to true
-                true,
-                options.libc_installation,
-            ) catch |err| {
-                if (includes == .any) {
-                    // fall back to mingw
-                    includes = .gnu;
-                    continue;
-                }
-                return err;
-            },
-            .gnu => return detectLibCFromBuilding(arena, options.zig_lib_directory.path.?, .{
-                .cpu = options.target.cpu,
-                .os = options.target.os,
-                .abi = .gnu,
-                .ofmt = options.target.ofmt,
-            }),
-            .none => return LibCDirs{
-                .libc_include_dir_list = &[0][]u8{},
-                .libc_installation = null,
-                .libc_framework_dir_list = &.{},
-                .sysroot = null,
-                .darwin_sdk_layout = null,
-            },
-        }
-    }
 }
 
 fn failWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, comptime format: []const u8, args: anytype) SemaError {
@@ -6061,7 +5685,7 @@ const LibCDirs = struct {
     libc_installation: ?*const LibCInstallation,
     libc_framework_dir_list: []const []const u8,
     sysroot: ?[]const u8,
-    darwin_sdk_layout: ?link.DarwinSdkLayout,
+    darwin_sdk_layout: ?link.File.MachO.SdkLayout,
 };
 
 fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8) !LibCDirs {
@@ -6374,7 +5998,7 @@ fn parseLldStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []con
                 err.context_lines = try context_lines.toOwnedSlice();
             }
 
-            var split = std.mem.splitSequence(u8, line, "error: ");
+            var split = mem.splitSequence(u8, line, "error: ");
             _ = split.first();
 
             const duped_msg = try std.fmt.allocPrint(comp.gpa, "{s}: {s}", .{ prefix, split.rest() });
@@ -6427,7 +6051,7 @@ fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool) bool {
         .spirv32, .spirv64 => return false,
         else => {},
     }
-    return switch (zigBackend(target, use_llvm)) {
+    return switch (target_util.zigBackend(target, use_llvm)) {
         .stage2_llvm => true,
         .stage2_x86_64 => if (target.ofmt == .elf) true else build_options.have_llvm,
         else => build_options.have_llvm,
@@ -6445,7 +6069,7 @@ fn canBuildZigLibC(target: std.Target, use_llvm: bool) bool {
         .spirv32, .spirv64 => return false,
         else => {},
     }
-    return switch (zigBackend(target, use_llvm)) {
+    return switch (target_util.zigBackend(target, use_llvm)) {
         .stage2_llvm => true,
         .stage2_x86_64 => if (target.ofmt == .elf) true else build_options.have_llvm,
         else => build_options.have_llvm,
@@ -6454,236 +6078,7 @@ fn canBuildZigLibC(target: std.Target, use_llvm: bool) bool {
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
     const target = comp.bin_file.options.target;
-    return zigBackend(target, comp.bin_file.options.use_llvm);
-}
-
-fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBackend {
-    if (use_llvm) return .stage2_llvm;
-    if (target.ofmt == .c) return .stage2_c;
-    return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => std.builtin.CompilerBackend.stage2_wasm,
-        .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
-        .x86_64 => .stage2_x86_64,
-        .x86 => .stage2_x86,
-        .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
-        .riscv64 => .stage2_riscv64,
-        .sparc64 => .stage2_sparc64,
-        .spirv64 => .stage2_spirv64,
-        else => .other,
-    };
-}
-
-pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Allocator.Error![:0]u8 {
-    const tracy_trace = trace(@src());
-    defer tracy_trace.end();
-
-    var buffer = std.ArrayList(u8).init(allocator);
-    defer buffer.deinit();
-
-    const target = comp.getTarget();
-    const generic_arch_name = target.cpu.arch.genericName();
-    const zig_backend = comp.getZigBackend();
-
-    @setEvalBranchQuota(4000);
-    try buffer.writer().print(
-        \\const std = @import("std");
-        \\/// Zig version. When writing code that supports multiple versions of Zig, prefer
-        \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
-        \\pub const zig_version = std.SemanticVersion.parse(zig_version_string) catch unreachable;
-        \\pub const zig_version_string = "{s}";
-        \\pub const zig_backend = std.builtin.CompilerBackend.{};
-        \\
-        \\pub const output_mode = std.builtin.OutputMode.{};
-        \\pub const link_mode = std.builtin.LinkMode.{};
-        \\pub const is_test = {};
-        \\pub const single_threaded = {};
-        \\pub const abi = std.Target.Abi.{};
-        \\pub const cpu: std.Target.Cpu = .{{
-        \\    .arch = .{},
-        \\    .model = &std.Target.{}.cpu.{},
-        \\    .features = std.Target.{}.featureSet(&[_]std.Target.{}.Feature{{
-        \\
-    , .{
-        build_options.version,
-        std.zig.fmtId(@tagName(zig_backend)),
-        std.zig.fmtId(@tagName(comp.bin_file.options.output_mode)),
-        std.zig.fmtId(@tagName(comp.bin_file.options.link_mode)),
-        comp.bin_file.options.is_test,
-        comp.bin_file.options.single_threaded,
-        std.zig.fmtId(@tagName(target.abi)),
-        std.zig.fmtId(@tagName(target.cpu.arch)),
-        std.zig.fmtId(generic_arch_name),
-        std.zig.fmtId(target.cpu.model.name),
-        std.zig.fmtId(generic_arch_name),
-        std.zig.fmtId(generic_arch_name),
-    });
-
-    for (target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
-        const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
-        const is_enabled = target.cpu.features.isEnabled(index);
-        if (is_enabled) {
-            try buffer.writer().print("        .{},\n", .{std.zig.fmtId(feature.name)});
-        }
-    }
-    try buffer.writer().print(
-        \\    }}),
-        \\}};
-        \\pub const os = std.Target.Os{{
-        \\    .tag = .{},
-        \\    .version_range = .{{
-    ,
-        .{std.zig.fmtId(@tagName(target.os.tag))},
-    );
-
-    switch (target.os.getVersionRange()) {
-        .none => try buffer.appendSlice(" .none = {} },\n"),
-        .semver => |semver| try buffer.writer().print(
-            \\ .semver = .{{
-            \\        .min = .{{
-            \\            .major = {},
-            \\            .minor = {},
-            \\            .patch = {},
-            \\        }},
-            \\        .max = .{{
-            \\            .major = {},
-            \\            .minor = {},
-            \\            .patch = {},
-            \\        }},
-            \\    }}}},
-            \\
-        , .{
-            semver.min.major,
-            semver.min.minor,
-            semver.min.patch,
-
-            semver.max.major,
-            semver.max.minor,
-            semver.max.patch,
-        }),
-        .linux => |linux| try buffer.writer().print(
-            \\ .linux = .{{
-            \\        .range = .{{
-            \\            .min = .{{
-            \\                .major = {},
-            \\                .minor = {},
-            \\                .patch = {},
-            \\            }},
-            \\            .max = .{{
-            \\                .major = {},
-            \\                .minor = {},
-            \\                .patch = {},
-            \\            }},
-            \\        }},
-            \\        .glibc = .{{
-            \\            .major = {},
-            \\            .minor = {},
-            \\            .patch = {},
-            \\        }},
-            \\    }}}},
-            \\
-        , .{
-            linux.range.min.major,
-            linux.range.min.minor,
-            linux.range.min.patch,
-
-            linux.range.max.major,
-            linux.range.max.minor,
-            linux.range.max.patch,
-
-            linux.glibc.major,
-            linux.glibc.minor,
-            linux.glibc.patch,
-        }),
-        .windows => |windows| try buffer.writer().print(
-            \\ .windows = .{{
-            \\        .min = {s},
-            \\        .max = {s},
-            \\    }}}},
-            \\
-        ,
-            .{ windows.min, windows.max },
-        ),
-    }
-    try buffer.appendSlice(
-        \\};
-        \\pub const target: std.Target = .{
-        \\    .cpu = cpu,
-        \\    .os = os,
-        \\    .abi = abi,
-        \\    .ofmt = object_format,
-        \\
-    );
-
-    if (target.dynamic_linker.get()) |dl| {
-        try buffer.writer().print(
-            \\    .dynamic_linker = std.Target.DynamicLinker.init("{s}"),
-            \\}};
-            \\
-        , .{dl});
-    } else {
-        try buffer.appendSlice(
-            \\    .dynamic_linker = std.Target.DynamicLinker.none,
-            \\};
-            \\
-        );
-    }
-
-    try buffer.writer().print(
-        \\pub const object_format = std.Target.ObjectFormat.{};
-        \\pub const mode = std.builtin.OptimizeMode.{};
-        \\pub const link_libc = {};
-        \\pub const link_libcpp = {};
-        \\pub const have_error_return_tracing = {};
-        \\pub const valgrind_support = {};
-        \\pub const sanitize_thread = {};
-        \\pub const position_independent_code = {};
-        \\pub const position_independent_executable = {};
-        \\pub const strip_debug_info = {};
-        \\pub const code_model = std.builtin.CodeModel.{};
-        \\pub const omit_frame_pointer = {};
-        \\
-    , .{
-        std.zig.fmtId(@tagName(target.ofmt)),
-        std.zig.fmtId(@tagName(comp.bin_file.options.optimize_mode)),
-        comp.bin_file.options.link_libc,
-        comp.bin_file.options.link_libcpp,
-        comp.bin_file.options.error_return_tracing,
-        comp.bin_file.options.valgrind,
-        comp.bin_file.options.tsan,
-        comp.bin_file.options.pic,
-        comp.bin_file.options.pie,
-        comp.bin_file.options.strip,
-        std.zig.fmtId(@tagName(comp.bin_file.options.machine_code_model)),
-        comp.bin_file.options.omit_frame_pointer,
-    });
-
-    if (target.os.tag == .wasi) {
-        const wasi_exec_model_fmt = std.zig.fmtId(@tagName(comp.bin_file.options.wasi_exec_model));
-        try buffer.writer().print(
-            \\pub const wasi_exec_model = std.builtin.WasiExecModel.{};
-            \\
-        , .{wasi_exec_model_fmt});
-    }
-
-    if (comp.bin_file.options.is_test) {
-        try buffer.appendSlice(
-            \\pub var test_functions: []const std.builtin.TestFn = undefined; // overwritten later
-            \\
-        );
-        if (comp.test_evented_io) {
-            try buffer.appendSlice(
-                \\pub const test_io_mode = .evented;
-                \\
-            );
-        } else {
-            try buffer.appendSlice(
-                \\pub const test_io_mode = .blocking;
-                \\
-            );
-        }
-    }
-
-    return buffer.toOwnedSliceSentinel(0);
+    return target_util.zigBackend(target, comp.bin_file.options.use_llvm);
 }
 
 pub fn updateSubCompilation(
@@ -6730,21 +6125,46 @@ fn buildOutputFromZig(
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
+    var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
     assert(output_mode != .Exe);
 
-    var main_mod: Package.Module = .{
-        .root = .{ .root_dir = comp.zig_lib_directory },
-        .root_src_path = src_basename,
+    const config = try Config.resolve(.{
+        .output_mode = output_mode,
+        .resolved_target = comp.root_mod.resolved_target,
+        .is_test = false,
+        .have_zcu = true,
+        .emit_bin = true,
+        .root_optimize_mode = comp.compilerRtOptMode(),
+    });
+
+    const root_mod = Package.Module.create(.{
+        .paths = .{
+            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root_src_path = src_basename,
+        },
         .fully_qualified_name = "root",
-    };
+        .inherited = .{
+            .strip = comp.compilerRtStrip(),
+            .stack_check = false,
+            .stack_protector = 0,
+            .red_zone = comp.root_mod.red_zone,
+            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            .unwind_tables = comp.bin_file.options.eh_frame_hdr,
+            .pic = comp.root_mod.pic,
+        },
+        .global = config,
+        .cc_argv = &.{},
+    });
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();
-    const bin_basename = try std.zig.binNameAlloc(comp.gpa, .{
+    const bin_basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
         .target = target,
         .output_mode = output_mode,
     });
-    defer comp.gpa.free(bin_basename);
 
     const emit_bin = Compilation.EmitLoc{
         .directory = null, // Put it in the cache directory.
@@ -6754,33 +6174,18 @@ fn buildOutputFromZig(
         .global_cache_directory = comp.global_cache_directory,
         .local_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
+        .resolved = config,
         .cache_mode = .whole,
-        .target = target,
         .root_name = root_name,
-        .main_mod = &main_mod,
-        .output_mode = output_mode,
+        .root_mod = root_mod,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.bin_file.options.libc_installation,
         .emit_bin = emit_bin,
-        .optimize_mode = comp.compilerRtOptMode(),
         .link_mode = .Static,
         .function_sections = true,
         .data_sections = true,
         .no_builtin = true,
-        .want_sanitize_c = false,
-        .want_stack_check = false,
-        .want_stack_protector = 0,
-        .want_red_zone = comp.bin_file.options.red_zone,
-        .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
-        .want_valgrind = false,
-        .want_tsan = false,
-        .want_unwind_tables = comp.bin_file.options.eh_frame_hdr,
-        .want_pic = comp.bin_file.options.pic,
-        .want_pie = null,
         .emit_h = null,
-        .strip = comp.compilerRtStrip(),
-        .is_native_os = comp.bin_file.options.is_native_os,
-        .is_native_abi = comp.bin_file.options.is_native_abi,
         .self_exe_path = comp.self_exe_path,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,
@@ -6815,7 +6220,7 @@ pub fn build_crt_file(
     output_mode: std.builtin.OutputMode,
     misc_task_tag: MiscTask,
     prog_node: *std.Progress.Node,
-    c_source_files: []const Compilation.CSourceFile,
+    c_source_files: []const CSourceFile,
 ) !void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();

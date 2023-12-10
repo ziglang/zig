@@ -59,6 +59,7 @@ root_mod: *Package.Module,
 /// Normally, `main_mod` and `root_mod` are the same. The exception is `zig test`, in which
 /// `root_mod` is the test runner, and `main_mod` is the user's source file which has the tests.
 main_mod: *Package.Module,
+std_mod: *Package.Module,
 sema_prog_node: std.Progress.Node = undefined,
 
 /// Used by AstGen worker to load and store ZIR cache.
@@ -3599,7 +3600,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
     // TODO: figure out how this works under incremental changes to builtin.zig!
     const builtin_type_target_index: InternPool.Index = blk: {
-        const std_mod = mod.main_mod.deps.get("std").?;
+        const std_mod = mod.std_mod;
         if (decl.getFileScope(mod).mod != std_mod) break :blk .none;
         // We're in the std module.
         const std_file = (try mod.importPkg(std_mod)).file;
@@ -3924,10 +3925,7 @@ pub fn importFile(
     import_string: []const u8,
 ) !ImportFileResult {
     if (std.mem.eql(u8, import_string, "std")) {
-        return mod.importPkg(mod.main_mod.deps.get("std").?);
-    }
-    if (std.mem.eql(u8, import_string, "builtin")) {
-        return mod.importPkg(mod.main_mod.deps.get("builtin").?);
+        return mod.importPkg(mod.std_mod);
     }
     if (std.mem.eql(u8, import_string, "root")) {
         return mod.importPkg(mod.root_mod);

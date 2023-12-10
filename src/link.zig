@@ -66,237 +66,18 @@ pub fn hashAddFrameworks(man: *Cache.Manifest, hm: []const Framework) !void {
 
 pub const producer_string = if (builtin.is_test) "zig test" else "zig " ++ build_options.version;
 
-pub const Emit = struct {
-    /// Where the output will go.
-    directory: Compilation.Directory,
-    /// Path to the output file, relative to `directory`.
-    sub_path: []const u8,
-
-    /// Returns the full path to `basename` if it were in the same directory as the
-    /// `Emit` sub_path.
-    pub fn basenamePath(emit: Emit, arena: Allocator, basename: [:0]const u8) ![:0]const u8 {
-        const full_path = if (emit.directory.path) |p|
-            try fs.path.join(arena, &[_][]const u8{ p, emit.sub_path })
-        else
-            emit.sub_path;
-
-        if (fs.path.dirname(full_path)) |dirname| {
-            return try fs.path.joinZ(arena, &.{ dirname, basename });
-        } else {
-            return basename;
-        }
-    }
-};
-
-pub const Options = struct {
-    /// This is `null` when `-fno-emit-bin` is used.
-    emit: ?Emit,
-    /// This is `null` when not building a Windows DLL, or when `-fno-emit-implib` is used.
-    implib_emit: ?Emit,
-    /// This is non-null when `-femit-docs` is provided.
-    docs_emit: ?Emit,
-    target: std.Target,
-    output_mode: std.builtin.OutputMode,
-    link_mode: std.builtin.LinkMode,
-    optimize_mode: std.builtin.OptimizeMode,
-    machine_code_model: std.builtin.CodeModel,
-    root_name: [:0]const u8,
-    /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
-    module: ?*Module,
-    /// The root path for the dynamic linker and system libraries (as well as frameworks on Darwin)
-    sysroot: ?[]const u8,
-    /// Used for calculating how much space to reserve for symbols in case the binary file
-    /// does not already have a symbol table.
-    symbol_count_hint: u64 = 32,
-    /// Used for calculating how much space to reserve for executable program code in case
-    /// the binary file does not already have such a section.
-    program_code_size_hint: u64 = 256 * 1024,
-    entry_addr: ?u64 = null,
-    entry: ?[]const u8,
-    stack_size_override: ?u64,
-    image_base_override: ?u64,
-    /// 0 means no stack protector
-    /// other value means stack protector with that buffer size.
-    stack_protector: u32,
-    cache_mode: CacheMode,
-    include_compiler_rt: bool,
-    /// Set to `true` to omit debug info.
-    strip: bool,
-    /// If this is true then this link code is responsible for outputting an object
-    /// file and then using LLD to link it together with the link options and other objects.
-    /// Otherwise (depending on `use_llvm`) this link code directly outputs and updates the final binary.
-    use_lld: bool,
-    /// If this is true then this link code is responsible for making an LLVM IR Module,
-    /// outputting it to an object file, and then linking that together with link options and
-    /// other objects.
-    /// Otherwise (depending on `use_lld`) this link code directly outputs and updates the final binary.
-    use_llvm: bool,
-    use_lib_llvm: bool,
-    link_libc: bool,
-    link_libcpp: bool,
-    link_libunwind: bool,
-    darwin_sdk_layout: ?DarwinSdkLayout,
-    function_sections: bool,
-    data_sections: bool,
-    no_builtin: bool,
-    eh_frame_hdr: bool,
-    emit_relocs: bool,
-    rdynamic: bool,
-    z_nodelete: bool,
-    z_notext: bool,
-    z_defs: bool,
-    z_origin: bool,
-    z_nocopyreloc: bool,
-    z_now: bool,
-    z_relro: bool,
-    z_common_page_size: ?u64,
-    z_max_page_size: ?u64,
-    tsaware: bool,
-    nxcompat: bool,
-    dynamicbase: bool,
-    linker_optimization: u8,
-    compress_debug_sections: CompressDebugSections,
-    bind_global_refs_locally: bool,
-    import_memory: bool,
-    export_memory: bool,
-    import_symbols: bool,
-    import_table: bool,
-    export_table: bool,
-    initial_memory: ?u64,
-    max_memory: ?u64,
-    shared_memory: bool,
-    export_symbol_names: []const []const u8,
-    global_base: ?u64,
-    is_native_os: bool,
-    is_native_abi: bool,
-    pic: bool,
-    pie: bool,
-    lto: bool,
-    valgrind: bool,
-    tsan: bool,
-    stack_check: bool,
-    red_zone: bool,
-    omit_frame_pointer: bool,
-    single_threaded: bool,
-    verbose_link: bool,
-    dll_export_fns: bool,
-    error_return_tracing: bool,
-    skip_linker_dependencies: bool,
-    each_lib_rpath: bool,
-    build_id: std.zig.BuildId,
-    disable_lld_caching: bool,
-    is_test: bool,
-    hash_style: HashStyle,
-    sort_section: ?SortSection,
-    major_subsystem_version: ?u32,
-    minor_subsystem_version: ?u32,
-    gc_sections: ?bool = null,
-    allow_shlib_undefined: ?bool,
-    subsystem: ?std.Target.SubSystem,
-    linker_script: ?[]const u8,
-    version_script: ?[]const u8,
-    soname: ?[]const u8,
-    llvm_cpu_features: ?[*:0]const u8,
-    print_gc_sections: bool,
-    print_icf_sections: bool,
-    print_map: bool,
-    opt_bisect_limit: i32,
-
-    objects: []Compilation.LinkObject,
-    framework_dirs: []const []const u8,
-    frameworks: []const Framework,
-    /// These are *always* dynamically linked. Static libraries will be
-    /// provided as positional arguments.
-    system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
-    wasi_emulated_libs: []const wasi_libc.CRTFile,
-    // TODO: remove this. libraries are resolved by the frontend.
-    lib_dirs: []const []const u8,
-    rpath_list: []const []const u8,
-
-    /// List of symbols forced as undefined in the symbol table
-    /// thus forcing their resolution by the linker.
-    /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
-    force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
-    /// Use a wrapper function for symbol. Any undefined reference to symbol
-    /// will be resolved to __wrap_symbol. Any undefined reference to
-    /// __real_symbol will be resolved to symbol. This can be used to provide a
-    /// wrapper for a system function. The wrapper function should be called
-    /// __wrap_symbol. If it wishes to call the system function, it should call
-    /// __real_symbol.
-    symbol_wrap_set: std.StringArrayHashMapUnmanaged(void),
-
-    version: ?std.SemanticVersion,
-    compatibility_version: ?std.SemanticVersion,
-    libc_installation: ?*const LibCInstallation,
-
-    dwarf_format: ?std.dwarf.Format,
-
-    /// WASI-only. Type of WASI execution model ("command" or "reactor").
-    wasi_exec_model: std.builtin.WasiExecModel = undefined,
-
-    /// (Zig compiler development) Enable dumping of linker's state as JSON.
-    enable_link_snapshots: bool = false,
-
-    /// (Darwin) Install name for the dylib
-    install_name: ?[]const u8 = null,
-
-    /// (Darwin) Path to entitlements file
-    entitlements: ?[]const u8 = null,
-
-    /// (Darwin) size of the __PAGEZERO segment
-    pagezero_size: ?u64 = null,
-
-    /// (Darwin) set minimum space for future expansion of the load commands
-    headerpad_size: ?u32 = null,
-
-    /// (Darwin) set enough space as if all paths were MATPATHLEN
-    headerpad_max_install_names: bool = false,
-
-    /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
-    dead_strip_dylibs: bool = false,
-
-    /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
-    /// paths when consolidating CodeView streams into a single PDB file.
-    pdb_source_path: ?[]const u8 = null,
-
-    /// (Windows) PDB output path
-    pdb_out_path: ?[]const u8 = null,
-
-    /// (Windows) .def file to specify when linking
-    module_definition_file: ?[]const u8 = null,
-
-    /// (SPIR-V) whether to generate a structured control flow graph or not
-    want_structured_cfg: ?bool = null,
-
-    pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
-        return if (options.use_lld) .Obj else options.output_mode;
-    }
-
-    pub fn move(self: *Options) Options {
-        const copied_state = self.*;
-        self.system_libs = .{};
-        self.force_undefined_symbols = .{};
-        return copied_state;
-    }
-};
-
 pub const HashStyle = enum { sysv, gnu, both };
 
 pub const CompressDebugSections = enum { none, zlib, zstd };
 
-/// The filesystem layout of darwin SDK elements.
-pub const DarwinSdkLayout = enum {
-    /// macOS SDK layout: TOP { /usr/include, /usr/lib, /System/Library/Frameworks }.
-    sdk,
-    /// Shipped libc layout: TOP { /lib/libc/include,  /lib/libc/darwin, <NONE> }.
-    vendored,
-};
-
 pub const File = struct {
     tag: Tag,
-    options: Options,
+
+    /// The owner of this output File.
+    comp: *Compilation,
+    emit: Compilation.Emit,
+
     file: ?fs.File,
-    allocator: Allocator,
     /// When linking with LLD, this linker code will output an object file only at
     /// this location, and then this path can be placed on the LLD linker line.
     intermediary_basename: ?[]const u8 = null,
@@ -307,103 +88,132 @@ pub const File = struct {
 
     child_pid: ?std.ChildProcess.Id = null,
 
+    pub const OpenOptions = struct {
+        comp: *Compilation,
+        emit: Compilation.Emit,
+
+        symbol_count_hint: u64 = 32,
+        program_code_size_hint: u64 = 256 * 1024,
+
+        /// Virtual address of the entry point procedure relative to image base.
+        entry_addr: ?u64,
+        stack_size_override: ?u64,
+        image_base_override: ?u64,
+        function_sections: bool,
+        data_sections: bool,
+        no_builtin: bool,
+        eh_frame_hdr: bool,
+        emit_relocs: bool,
+        rdynamic: bool,
+        optimization: u8,
+        linker_script: ?[]const u8,
+        z_nodelete: bool,
+        z_notext: bool,
+        z_defs: bool,
+        z_origin: bool,
+        z_nocopyreloc: bool,
+        z_now: bool,
+        z_relro: bool,
+        z_common_page_size: ?u64,
+        z_max_page_size: ?u64,
+        tsaware: bool,
+        nxcompat: bool,
+        dynamicbase: bool,
+        compress_debug_sections: CompressDebugSections,
+        bind_global_refs_locally: bool,
+        import_symbols: bool,
+        import_table: bool,
+        export_table: bool,
+        initial_memory: ?u64,
+        max_memory: ?u64,
+        export_symbol_names: []const []const u8,
+        global_base: ?u64,
+        verbose_link: bool,
+        dll_export_fns: bool,
+        skip_linker_dependencies: bool,
+        parent_compilation_link_libc: bool,
+        each_lib_rpath: bool,
+        build_id: std.zig.BuildId,
+        disable_lld_caching: bool,
+        hash_style: HashStyle,
+        sort_section: ?SortSection,
+        major_subsystem_version: ?u32,
+        minor_subsystem_version: ?u32,
+        gc_sections: ?bool = null,
+        allow_shlib_undefined: ?bool,
+        subsystem: ?std.Target.SubSystem,
+        version_script: ?[]const u8,
+        soname: ?[]const u8,
+        print_gc_sections: bool,
+        print_icf_sections: bool,
+        print_map: bool,
+        opt_bisect_limit: i32,
+
+        /// List of symbols forced as undefined in the symbol table
+        /// thus forcing their resolution by the linker.
+        /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
+        force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
+        /// Use a wrapper function for symbol. Any undefined reference to symbol
+        /// will be resolved to __wrap_symbol. Any undefined reference to
+        /// __real_symbol will be resolved to symbol. This can be used to provide a
+        /// wrapper for a system function. The wrapper function should be called
+        /// __wrap_symbol. If it wishes to call the system function, it should call
+        /// __real_symbol.
+        symbol_wrap_set: std.StringArrayHashMapUnmanaged(void),
+
+        compatibility_version: ?std.SemanticVersion,
+
+        dwarf_format: ?std.dwarf.Format,
+
+        // TODO: remove this. libraries are resolved by the frontend.
+        lib_dirs: []const []const u8,
+        rpath_list: []const []const u8,
+
+        /// (Zig compiler development) Enable dumping of linker's state as JSON.
+        enable_link_snapshots: bool,
+
+        /// (Darwin) Install name for the dylib
+        install_name: ?[]const u8,
+        /// (Darwin) Path to entitlements file
+        entitlements: ?[]const u8,
+        /// (Darwin) size of the __PAGEZERO segment
+        pagezero_size: ?u64,
+        /// (Darwin) set minimum space for future expansion of the load commands
+        headerpad_size: ?u32,
+        /// (Darwin) set enough space as if all paths were MATPATHLEN
+        headerpad_max_install_names: bool,
+        /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
+        dead_strip_dylibs: bool,
+        framework_dirs: []const []const u8,
+        frameworks: []const Framework,
+        darwin_sdk_layout: ?MachO.SdkLayout,
+
+        /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
+        /// paths when consolidating CodeView streams into a single PDB file.
+        pdb_source_path: ?[]const u8,
+        /// (Windows) PDB output path
+        pdb_out_path: ?[]const u8,
+        /// (Windows) .def file to specify when linking
+        module_definition_file: ?[]const u8,
+
+        /// (SPIR-V) whether to generate a structured control flow graph or not
+        want_structured_cfg: ?bool,
+
+        wasi_emulated_libs: []const wasi_libc.CRTFile,
+    };
+
     /// Attempts incremental linking, if the file already exists. If
     /// incremental linking fails, falls back to truncating the file and
     /// rewriting it. A malicious file is detected as incremental link failure
     /// and does not cause Illegal Behavior. This operation is not atomic.
-    pub fn openPath(allocator: Allocator, options: Options) !*File {
-        const have_macho = !build_options.only_c;
-        if (have_macho and options.target.ofmt == .macho) {
-            return &(try MachO.openPath(allocator, options)).base;
+    /// `arena` is used for allocations with the same lifetime as the created File.
+    pub fn open(arena: Allocator, options: OpenOptions) !*File {
+        switch (Tag.fromObjectFormat(options.comp.root_mod.resolved_target.result.ofmt)) {
+            inline else => |tag| {
+                const ptr = try tag.Type().open(arena, options);
+                return &ptr.base;
+            },
         }
-
-        if (options.emit == null) {
-            return switch (options.target.ofmt) {
-                .coff => &(try Coff.createEmpty(allocator, options)).base,
-                .elf => &(try Elf.createEmpty(allocator, options)).base,
-                .macho => unreachable,
-                .wasm => &(try Wasm.createEmpty(allocator, options)).base,
-                .plan9 => return &(try Plan9.createEmpty(allocator, options)).base,
-                .c => unreachable, // Reported error earlier.
-                .spirv => &(try SpirV.createEmpty(allocator, options)).base,
-                .nvptx => &(try NvPtx.createEmpty(allocator, options)).base,
-                .hex => return error.HexObjectFormatUnimplemented,
-                .raw => return error.RawObjectFormatUnimplemented,
-                .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
-            };
-        }
-        const emit = options.emit.?;
-        const use_lld = build_options.have_llvm and options.use_lld; // comptime-known false when !have_llvm
-        const sub_path = if (use_lld) blk: {
-            if (options.module == null) {
-                // No point in opening a file, we would not write anything to it.
-                // Initialize with empty.
-                return switch (options.target.ofmt) {
-                    .coff => &(try Coff.createEmpty(allocator, options)).base,
-                    .elf => &(try Elf.createEmpty(allocator, options)).base,
-                    .macho => unreachable,
-                    .plan9 => &(try Plan9.createEmpty(allocator, options)).base,
-                    .wasm => &(try Wasm.createEmpty(allocator, options)).base,
-                    .c => unreachable, // Reported error earlier.
-                    .spirv => &(try SpirV.createEmpty(allocator, options)).base,
-                    .nvptx => &(try NvPtx.createEmpty(allocator, options)).base,
-                    .hex => return error.HexObjectFormatUnimplemented,
-                    .raw => return error.RawObjectFormatUnimplemented,
-                    .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
-                };
-            }
-            // Open a temporary object file, not the final output file because we
-            // want to link with LLD.
-            break :blk try std.fmt.allocPrint(allocator, "{s}{s}", .{
-                emit.sub_path, options.target.ofmt.fileExt(options.target.cpu.arch),
-            });
-        } else emit.sub_path;
-        errdefer if (use_lld) allocator.free(sub_path);
-
-        const file: *File = f: {
-            switch (options.target.ofmt) {
-                .coff => {
-                    if (build_options.only_c) unreachable;
-                    break :f &(try Coff.openPath(allocator, sub_path, options)).base;
-                },
-                .elf => {
-                    if (build_options.only_c) unreachable;
-                    break :f &(try Elf.openPath(allocator, sub_path, options)).base;
-                },
-                .macho => unreachable,
-                .plan9 => {
-                    if (build_options.only_c) unreachable;
-                    break :f &(try Plan9.openPath(allocator, sub_path, options)).base;
-                },
-                .wasm => {
-                    if (build_options.only_c) unreachable;
-                    break :f &(try Wasm.openPath(allocator, sub_path, options)).base;
-                },
-                .c => {
-                    break :f &(try C.openPath(allocator, sub_path, options)).base;
-                },
-                .spirv => {
-                    if (build_options.only_c) unreachable;
-                    break :f &(try SpirV.openPath(allocator, sub_path, options)).base;
-                },
-                .nvptx => {
-                    if (build_options.only_c) unreachable;
-                    break :f &(try NvPtx.openPath(allocator, sub_path, options)).base;
-                },
-                .hex => return error.HexObjectFormatUnimplemented,
-                .raw => return error.RawObjectFormatUnimplemented,
-                .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
-            }
-        };
-
-        if (use_lld) {
-            // TODO this intermediary_basename isn't enough; in the case of `zig build-exe`,
-            // we also want to put the intermediary object file in the cache while the
-            // main emit directory is the cwd.
-            file.intermediary_basename = sub_path;
-        }
-
-        return file;
     }
 
     pub fn cast(base: *File, comptime T: type) ?*T {
@@ -664,56 +474,45 @@ pub const File = struct {
     pub fn destroy(base: *File) void {
         base.releaseLock();
         if (base.file) |f| f.close();
-        if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
-        base.options.system_libs.deinit(base.allocator);
-        base.options.force_undefined_symbols.deinit(base.allocator);
         switch (base.tag) {
             .coff => {
                 if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(Coff, "base", base);
                 parent.deinit();
-                base.allocator.destroy(parent);
             },
             .elf => {
                 if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(Elf, "base", base);
                 parent.deinit();
-                base.allocator.destroy(parent);
             },
             .macho => {
                 if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(MachO, "base", base);
                 parent.deinit();
-                base.allocator.destroy(parent);
             },
             .c => {
                 const parent = @fieldParentPtr(C, "base", base);
                 parent.deinit();
-                base.allocator.destroy(parent);
             },
             .wasm => {
                 if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(Wasm, "base", base);
                 parent.deinit();
-                base.allocator.destroy(parent);
             },
             .spirv => {
                 if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(SpirV, "base", base);
                 parent.deinit();
-                base.allocator.destroy(parent);
             },
             .plan9 => {
                 if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(Plan9, "base", base);
                 parent.deinit();
-                base.allocator.destroy(parent);
             },
             .nvptx => {
                 if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(NvPtx, "base", base);
                 parent.deinit();
-                base.allocator.destroy(parent);
             },
         }
     }
@@ -1197,6 +996,35 @@ pub const File = struct {
         spirv,
         plan9,
         nvptx,
+
+        pub fn Type(comptime tag: Tag) type {
+            return switch (tag) {
+                .coff => Coff,
+                .elf => Elf,
+                .macho => MachO,
+                .c => C,
+                .wasm => Wasm,
+                .spirv => SpirV,
+                .plan9 => Plan9,
+                .nvptx => NvPtx,
+            };
+        }
+
+        pub fn fromObjectFormat(ofmt: std.Target.ObjectFormat) Tag {
+            return switch (ofmt) {
+                .coff => .coff,
+                .elf => .elf,
+                .macho => .macho,
+                .wasm => .wasm,
+                .plan9 => .plan9,
+                .c => .c,
+                .spirv => .spirv,
+                .nvptx => .nvptx,
+                .hex => @panic("TODO implement hex object format"),
+                .raw => @panic("TODO implement raw object format"),
+                .dxcontainer => @panic("TODO implement dxcontainer object format"),
+            };
+        }
     };
 
     pub const ErrorFlags = struct {
@@ -1235,6 +1063,33 @@ pub const File = struct {
         }
     };
 
+    pub fn effectiveOutputMode(
+        use_lld: bool,
+        output_mode: std.builtin.OutputMode,
+    ) std.builtin.OutputMode {
+        return if (use_lld) .Obj else output_mode;
+    }
+
+    pub fn determineMode(
+        use_lld: bool,
+        output_mode: std.builtin.OutputMode,
+        link_mode: std.builtin.LinkMode,
+    ) fs.File.Mode {
+        // On common systems with a 0o022 umask, 0o777 will still result in a file created
+        // with 0o755 permissions, but it works appropriately if the system is configured
+        // more leniently. As another data point, C's fopen seems to open files with the
+        // 666 mode.
+        const executable_mode = if (builtin.target.os.tag == .windows) 0 else 0o777;
+        switch (effectiveOutputMode(use_lld, output_mode)) {
+            .Lib => return switch (link_mode) {
+                .Dynamic => executable_mode,
+                .Static => fs.File.default_mode,
+            },
+            .Exe => return executable_mode,
+            .Obj => return fs.File.default_mode,
+        }
+    }
+
     pub const C = @import("link/C.zig");
     pub const Coff = @import("link/Coff.zig");
     pub const Plan9 = @import("link/Plan9.zig");
@@ -1245,19 +1100,3 @@ pub const File = struct {
     pub const NvPtx = @import("link/NvPtx.zig");
     pub const Dwarf = @import("link/Dwarf.zig");
 };
-
-pub fn determineMode(options: Options) fs.File.Mode {
-    // On common systems with a 0o022 umask, 0o777 will still result in a file created
-    // with 0o755 permissions, but it works appropriately if the system is configured
-    // more leniently. As another data point, C's fopen seems to open files with the
-    // 666 mode.
-    const executable_mode = if (builtin.target.os.tag == .windows) 0 else 0o777;
-    switch (options.effectiveOutputMode()) {
-        .Lib => return switch (options.link_mode) {
-            .Dynamic => executable_mode,
-            .Static => fs.File.default_mode,
-        },
-        .Exe => return executable_mode,
-        .Obj => return fs.File.default_mode,
-    }
-}

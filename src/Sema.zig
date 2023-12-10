@@ -36668,7 +36668,7 @@ fn getBuiltinDecl(sema: *Sema, block: *Block, name: []const u8) CompileError!Int
 
     const mod = sema.mod;
     const ip = &mod.intern_pool;
-    const std_mod = mod.main_mod.deps.get("std").?;
+    const std_mod = mod.std_mod;
     const std_file = (mod.importPkg(std_mod) catch unreachable).file;
     const opt_builtin_inst = (try sema.namespaceLookupRef(
         block,

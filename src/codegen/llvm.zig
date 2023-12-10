@@ -853,16 +853,9 @@ pub const Object = struct {
     /// want to iterate over it while adding entries to it.
     pub const DITypeMap = std.AutoArrayHashMapUnmanaged(InternPool.Index, AnnotatedDITypePtr);
 
-    pub fn create(gpa: Allocator, options: link.Options) !*Object {
-        const obj = try gpa.create(Object);
-        errdefer gpa.destroy(obj);
-        obj.* = try Object.init(gpa, options);
-        return obj;
-    }
-
-    pub fn init(gpa: Allocator, options: link.Options) !Object {
-        const llvm_target_triple = try targetTriple(gpa, options.target);
-        defer gpa.free(llvm_target_triple);
+    pub fn create(arena: Allocator, options: link.File.OpenOptions) !*Object {
+        const gpa = options.comp.gpa;
+        const llvm_target_triple = try targetTriple(arena, options.target);
 
         var builder = try Builder.init(.{
             .allocator = gpa,
@@ -899,19 +892,14 @@ pub const Object = struct {
                 // TODO: the only concern I have with this is WASI as either host or target, should
                 // we leave the paths as relative then?
                 const compile_unit_dir_z = blk: {
-                    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
                     if (options.module) |mod| m: {
-                        const d = try mod.root_mod.root.joinStringZ(builder.gpa, "");
+                        const d = try mod.root_mod.root.joinStringZ(arena, "");
                         if (d.len == 0) break :m;
                         if (std.fs.path.isAbsolute(d)) break :blk d;
-                        const abs = std.fs.realpath(d, &buf) catch break :blk d;
-                        builder.gpa.free(d);
-                        break :blk try builder.gpa.dupeZ(u8, abs);
+                        break :blk std.fs.realpathAlloc(arena, d) catch d;
                     }
-                    const cwd = try std.process.getCwd(&buf);
-                    break :blk try builder.gpa.dupeZ(u8, cwd);
+                    break :blk try std.process.getCwdAlloc(arena);
                 };
-                defer builder.gpa.free(compile_unit_dir_z);
 
                 builder.llvm.di_compile_unit = builder.llvm.di_builder.?.createCompileUnit(
                     DW.LANG.C99,
@@ -989,7 +977,8 @@ pub const Object = struct {
             }
         }
 
-        return .{
+        const obj = try arena.create(Object);
+        obj.* = .{
             .gpa = gpa,
             .builder = builder,
             .module = options.module.?,
@@ -1009,9 +998,11 @@ pub const Object = struct {
             .null_opt_usize = .no_init,
             .struct_field_map = .{},
         };
+        return obj;
     }
 
-    pub fn deinit(self: *Object, gpa: Allocator) void {
+    pub fn deinit(self: *Object) void {
+        const gpa = self.gpa;
         self.di_map.deinit(gpa);
         self.di_type_map.deinit(gpa);
         if (self.builder.useLibLlvm()) {
@@ -1026,11 +1017,6 @@ pub const Object = struct {
         self.builder.deinit();
         self.struct_field_map.deinit(gpa);
         self.* = undefined;
-    }
-
-    pub fn destroy(self: *Object, gpa: Allocator) void {
-        self.deinit(gpa);
-        gpa.destroy(self);
     }
 
     fn locPath(
@@ -2899,7 +2885,7 @@ pub const Object = struct {
     fn getStackTraceType(o: *Object) Allocator.Error!Type {
         const mod = o.module;
 
-        const std_mod = mod.main_mod.deps.get("std").?;
+        const std_mod = mod.std_mod;
         const std_file = (mod.importPkg(std_mod) catch unreachable).file;
 
         const builtin_str = try mod.intern_pool.getOrPutString(mod.gpa, "builtin");

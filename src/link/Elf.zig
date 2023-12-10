@@ -200,26 +200,34 @@ pub const min_text_capacity = padToIdeal(minimum_atom_size);
 
 pub const PtrWidth = enum { p32, p64 };
 
-pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Elf {
-    assert(options.target.ofmt == .elf);
+pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Elf {
+    if (build_options.only_c) unreachable;
+    const target = options.comp.root_mod.resolved_target.result;
+    assert(target.ofmt == .elf);
 
-    const self = try createEmpty(allocator, options);
+    const use_lld = build_options.have_llvm and options.comp.config.use_lld;
+    const use_llvm = build_options.have_llvm and options.comp.config.use_llvm;
+
+    const self = try createEmpty(arena, options);
     errdefer self.base.destroy();
+
+    if (use_lld and use_llvm) {
+        // LLVM emits the object file; LLD links it into the final product.
+        return self;
+    }
 
     const is_obj = options.output_mode == .Obj;
     const is_obj_or_ar = is_obj or (options.output_mode == .Lib and options.link_mode == .Static);
 
-    if (options.use_llvm) {
-        const use_lld = build_options.have_llvm and self.base.options.use_lld;
-        if (use_lld) return self;
-
-        if (options.module != null) {
-            self.base.intermediary_basename = try std.fmt.allocPrint(allocator, "{s}{s}", .{
-                sub_path, options.target.ofmt.fileExt(options.target.cpu.arch),
-            });
-        }
-    }
-    errdefer if (self.base.intermediary_basename) |path| allocator.free(path);
+    const sub_path = if (!use_lld) options.emit.sub_path else p: {
+        // Open a temporary object file, not the final output file because we
+        // want to link with LLD.
+        const o_file_path = try std.fmt.allocPrint(arena, "{s}{s}", .{
+            options.emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
+        });
+        self.base.intermediary_basename = o_file_path;
+        break :p o_file_path;
+    };
 
     self.base.file = try options.emit.?.directory.handle.createFile(sub_path, .{
         .truncate = false,
@@ -227,24 +235,26 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         .mode = link.determineMode(options),
     });
 
+    const gpa = options.comp.gpa;
+
     // Index 0 is always a null symbol.
-    try self.symbols.append(allocator, .{});
+    try self.symbols.append(gpa, .{});
     // Index 0 is always a null symbol.
-    try self.symbols_extra.append(allocator, 0);
+    try self.symbols_extra.append(gpa, 0);
     // Allocate atom index 0 to null atom
-    try self.atoms.append(allocator, .{});
+    try self.atoms.append(gpa, .{});
     // Append null file at index 0
-    try self.files.append(allocator, .null);
+    try self.files.append(gpa, .null);
     // Append null byte to string tables
-    try self.shstrtab.append(allocator, 0);
-    try self.strtab.append(allocator, 0);
+    try self.shstrtab.append(gpa, 0);
+    try self.strtab.append(gpa, 0);
     // There must always be a null shdr in index 0
     _ = try self.addSection(.{ .name = "" });
     // Append null symbol in output symtab
-    try self.symtab.append(allocator, null_sym);
+    try self.symtab.append(gpa, null_sym);
 
     if (!is_obj_or_ar) {
-        try self.dynstrtab.append(allocator, 0);
+        try self.dynstrtab.append(gpa, 0);
 
         // Initialize PT_PHDR program header
         const p_align: u16 = switch (self.ptr_width) {
@@ -283,10 +293,10 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     }
 
     if (options.module != null and !options.use_llvm) {
-        const index = @as(File.Index, @intCast(try self.files.addOne(allocator)));
+        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
         self.files.set(index, .{ .zig_object = .{
             .index = index,
-            .path = try std.fmt.allocPrint(self.base.allocator, "{s}.o", .{std.fs.path.stem(
+            .path = try std.fmt.allocPrint(arena, "{s}.o", .{std.fs.path.stem(
                 options.module.?.main_mod.root_src_path,
             )}),
         } });
@@ -298,16 +308,16 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     return self;
 }
 
-pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
-    const ptr_width: PtrWidth = switch (options.target.ptrBitWidth()) {
+pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Elf {
+    const target = options.comp.root_mod.resolved_target.result;
+    const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
         else => return error.UnsupportedELFArchitecture,
     };
-    const self = try gpa.create(Elf);
-    errdefer gpa.destroy(self);
+    const self = try arena.create(Elf);
 
-    const page_size: u32 = switch (options.target.cpu.arch) {
+    const page_size: u32 = switch (target.cpu.arch) {
         .powerpc64le => 0x10000,
         .sparc64 => 0x2000,
         else => 0x1000,
@@ -321,25 +331,25 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
     self.* = .{
         .base = .{
             .tag = .elf,
-            .options = options,
-            .allocator = gpa,
+            .comp = options.comp,
+            .emit = options.emit,
             .file = null,
         },
         .ptr_width = ptr_width,
         .page_size = page_size,
         .default_sym_version = default_sym_version,
     };
-    if (options.use_llvm and options.module != null) {
-        self.llvm_object = try LlvmObject.create(gpa, options);
+    if (options.use_llvm and options.comp.config.have_zcu) {
+        self.llvm_object = try LlvmObject.create(arena, options);
     }
 
     return self;
 }
 
 pub fn deinit(self: *Elf) void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
-    if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
+    if (self.llvm_object) |llvm_object| llvm_object.deinit();
 
     for (self.files.items(.tags), self.files.items(.data)) |tag, *data| switch (tag) {
         .null => {},
@@ -496,10 +506,11 @@ fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) u64 {
 
 /// TODO move to ZigObject
 pub fn initMetadata(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const ptr_size = self.ptrWidthBytes();
-    const ptr_bit_width = self.base.options.target.ptrBitWidth();
-    const is_linux = self.base.options.target.os.tag == .linux;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const ptr_bit_width = target.ptrBitWidth();
+    const is_linux = target.os.tag == .linux;
     const zig_object = self.zigObjectPtr().?;
 
     const fillSection = struct {
@@ -943,7 +954,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         if (use_lld) return;
     }
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     var sub_prog_node = prog_node.start("ELF Flush", 0);
     sub_prog_node.activate();
     defer sub_prog_node.end();
@@ -952,7 +963,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const target = self.base.options.target;
+    const target = self.base.comp.root_mod.resolved_target.result;
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
     const module_obj_path: ?[]const u8 = if (self.base.intermediary_basename) |path| blk: {
@@ -1303,7 +1314,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 }
 
 pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
     defer positionals.deinit();
@@ -1447,7 +1458,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
 }
 
 pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
     defer positionals.deinit();
@@ -1524,7 +1535,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const target = self.base.options.target;
+    const target = self.base.comp.root_mod.resolved_target.result;
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
     const module_obj_path: ?[]const u8 = if (self.base.intermediary_basename) |path| blk: {
@@ -1574,7 +1585,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
     } else {
         if (!self.isStatic()) {
-            if (self.base.options.target.dynamic_linker.get()) |path| {
+            if (target.dynamic_linker.get()) |path| {
                 try argv.append("-dynamic-linker");
                 try argv.append(path);
             }
@@ -1842,7 +1853,7 @@ fn parseObject(self: *Elf, path: []const u8) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const in_file = try std.fs.cwd().openFile(path, .{});
     defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
@@ -1862,7 +1873,7 @@ fn parseArchive(self: *Elf, path: []const u8, must_link: bool) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const in_file = try std.fs.cwd().openFile(path, .{});
     defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
@@ -1888,7 +1899,7 @@ fn parseSharedObject(self: *Elf, lib: SystemLib) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const in_file = try std.fs.cwd().openFile(lib.path, .{});
     defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
@@ -1910,7 +1921,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const in_file = try std.fs.cwd().openFile(lib.path, .{});
     defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
@@ -1996,7 +2007,7 @@ fn accessLibPath(
     link_mode: ?std.builtin.LinkMode,
 ) !bool {
     const sep = fs.path.sep_str;
-    const target = self.base.options.target;
+    const target = self.base.comp.root_mod.resolved_target.result;
     test_path.clearRetainingCapacity();
     const prefix = if (link_mode != null) "lib" else "";
     const suffix = if (link_mode) |mode| switch (mode) {
@@ -2190,7 +2201,7 @@ fn claimUnresolvedObject(self: *Elf) void {
 /// This is also the point where we will report undefined symbols for any
 /// alloc sections.
 fn scanRelocs(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     var undefs = std.AutoHashMap(Symbol.Index, std.ArrayList(Atom.Index)).init(gpa);
     defer {
@@ -2293,7 +2304,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const have_dynamic_linker = self.base.options.link_libc and
         self.base.options.link_mode == .Dynamic and is_exe_or_dyn_lib;
-    const target = self.base.options.target;
+    const target = self.base.comp.root_mod.resolved_target.result;
     const gc_sections = self.base.options.gc_sections orelse !is_obj;
     const stack_size = self.base.options.stack_size_override orelse 16777216;
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
@@ -2374,7 +2385,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                 man.hash.addBytes(libc_installation.crt_dir.?);
             }
             if (have_dynamic_linker) {
-                man.hash.addOptionalBytes(self.base.options.target.dynamic_linker.get());
+                man.hash.addOptionalBytes(target.dynamic_linker.get());
             }
         }
         man.hash.addOptionalBytes(self.base.options.soname);
@@ -2687,7 +2698,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             }
 
             if (have_dynamic_linker) {
-                if (self.base.options.target.dynamic_linker.get()) |dynamic_linker| {
+                if (target.dynamic_linker.get()) |dynamic_linker| {
                     try argv.append("-dynamic-linker");
                     try argv.append(dynamic_linker);
                 }
@@ -2937,7 +2948,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 }
 
 fn writeDwarfAddrAssumeCapacity(self: *Elf, buf: *std.ArrayList(u8), addr: u64) void {
-    const target_endian = self.base.options.target.cpu.arch.endian();
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const target_endian = target.cpu.arch.endian();
     switch (self.ptr_width) {
         .p32 => mem.writeInt(u32, buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(addr)), target_endian),
         .p64 => mem.writeInt(u64, buf.addManyAsArrayAssumeCapacity(8), addr, target_endian),
@@ -2945,8 +2957,9 @@ fn writeDwarfAddrAssumeCapacity(self: *Elf, buf: *std.ArrayList(u8), addr: u64) 
 }
 
 fn writeShdrTable(self: *Elf) !void {
-    const gpa = self.base.allocator;
-    const target_endian = self.base.options.target.cpu.arch.endian();
+    const gpa = self.base.comp.gpa;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const target_endian = target.cpu.arch.endian();
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
     const shsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Shdr),
@@ -3001,8 +3014,9 @@ fn writeShdrTable(self: *Elf) !void {
 }
 
 fn writePhdrTable(self: *Elf) !void {
-    const gpa = self.base.allocator;
-    const target_endian = self.base.options.target.cpu.arch.endian();
+    const gpa = self.base.comp.gpa;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const target_endian = target.cpu.arch.endian();
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
     const phdr_table = &self.phdrs.items[self.phdr_table_index.?];
 
@@ -3054,7 +3068,8 @@ fn writeElfHeader(self: *Elf) !void {
     };
     index += 1;
 
-    const endian = self.base.options.target.cpu.arch.endian();
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const endian = target.cpu.arch.endian();
     hdr_buf[index] = switch (endian) {
         .little => elf.ELFDATA2LSB,
         .big => elf.ELFDATA2MSB,
@@ -3083,7 +3098,7 @@ fn writeElfHeader(self: *Elf) !void {
     mem.writeInt(u16, hdr_buf[index..][0..2], @intFromEnum(elf_type), endian);
     index += 2;
 
-    const machine = self.base.options.target.cpu.arch.toElfMachine();
+    const machine = target.cpu.arch.toElfMachine();
     mem.writeInt(u16, hdr_buf[index..][0..2], @intFromEnum(machine), endian);
     index += 2;
 
@@ -3248,7 +3263,7 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
 
     for (self.shdrs.items) |shdr| {
         if (self.getStartStopBasename(shdr)) |name| {
-            const gpa = self.base.allocator;
+            const gpa = self.base.comp.gpa;
             try self.start_stop_indexes.ensureUnusedCapacity(gpa, 2);
 
             const start = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
@@ -3394,6 +3409,7 @@ fn initOutputSections(self: *Elf) !void {
 }
 
 fn initSyntheticSections(self: *Elf) !void {
+    const target = self.base.comp.root_mod.resolved_target.result;
     const ptr_size = self.ptrWidthBytes();
 
     const needs_eh_frame = for (self.objects.items) |index| {
@@ -3503,7 +3519,7 @@ fn initSyntheticSections(self: *Elf) !void {
         // a segfault in the dynamic linker trying to load a binary that is static
         // and doesn't contain .dynamic section.
         if (self.isStatic() and !self.base.options.pie) break :blk false;
-        break :blk self.base.options.target.dynamic_linker.get() != null;
+        break :blk target.dynamic_linker.get() != null;
     };
     if (needs_interp) {
         self.interp_section_index = try self.addSection(.{
@@ -3613,7 +3629,7 @@ fn initSectionsObject(self: *Elf) !void {
 }
 
 fn initComdatGroups(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
@@ -3732,7 +3748,7 @@ fn initSpecialPhdrs(self: *Elf) !void {
 /// Ties are broken by the file prority which corresponds to the inclusion of input sections in this output section
 /// we are about to sort.
 fn sortInitFini(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     const Entry = struct {
         priority: i32,
@@ -3872,7 +3888,7 @@ fn sortPhdrs(self: *Elf) error{OutOfMemory}!void {
         }
     };
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     var entries = try std.ArrayList(Entry).initCapacity(gpa, self.phdrs.items.len);
     defer entries.deinit();
     for (0..self.phdrs.items.len) |phndx| {
@@ -3977,7 +3993,7 @@ fn sortShdrs(self: *Elf) !void {
         }
     };
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     var entries = try std.ArrayList(Entry).initCapacity(gpa, self.shdrs.items.len);
     defer entries.deinit();
     for (0..self.shdrs.items.len) |shndx| {
@@ -4004,7 +4020,7 @@ fn sortShdrs(self: *Elf) !void {
 }
 
 fn resetShdrIndexes(self: *Elf, backlinks: []const u16) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     for (&[_]*?u16{
         &self.eh_frame_section_index,
@@ -4187,6 +4203,7 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u16) !void {
 }
 
 fn updateSectionSizes(self: *Elf) !void {
+    const target = self.base.comp.root_mod.resolved_target.result;
     for (self.output_sections.keys(), self.output_sections.values()) |shndx, atom_list| {
         const shdr = &self.shdrs.items[shndx];
         for (atom_list.items) |atom_index| {
@@ -4244,7 +4261,7 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     if (self.interp_section_index) |index| {
-        self.shdrs.items[index].sh_size = self.base.options.target.dynamic_linker.get().?.len + 1;
+        self.shdrs.items[index].sh_size = target.dynamic_linker.get().?.len + 1;
     }
 
     if (self.hash_section_index) |index| {
@@ -4453,7 +4470,7 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
     // as we are more interested in quick turnaround and compatibility
     // with `findFreeSpace` mechanics than anything else.
     const Cover = std.ArrayList(u16);
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     var covers: [max_number_of_object_segments]Cover = undefined;
     for (&covers) |*cover| {
         cover.* = Cover.init(gpa);
@@ -4691,7 +4708,7 @@ fn allocateAtoms(self: *Elf) void {
 }
 
 fn writeAtoms(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     var undefs = std.AutoHashMap(Symbol.Index, std.ArrayList(Atom.Index)).init(gpa);
     defer {
@@ -4779,7 +4796,7 @@ fn writeAtoms(self: *Elf) !void {
 }
 
 fn writeAtomsObject(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     // TODO iterate over `output_sections` directly
     for (self.shdrs.items, 0..) |shdr, shndx| {
@@ -4852,7 +4869,7 @@ fn updateSymtabSize(self: *Elf) !void {
     var nglobals: u32 = 0;
     var strsize: u32 = 0;
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     var files = std.ArrayList(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(self.objects.items.len + self.shared_objects.items.len + 2);
@@ -4935,11 +4952,12 @@ fn updateSymtabSize(self: *Elf) !void {
 }
 
 fn writeSyntheticSections(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const gpa = self.base.comp.gpa;
 
     if (self.interp_section_index) |shndx| {
         var buffer: [256]u8 = undefined;
-        const interp = self.base.options.target.dynamic_linker.get().?;
+        const interp = target.dynamic_linker.get().?;
         @memcpy(buffer[0..interp.len], interp);
         buffer[interp.len] = 0;
         const contents = buffer[0 .. interp.len + 1];
@@ -5065,7 +5083,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 }
 
 fn writeSyntheticSectionsObject(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     for (self.output_rela_sections.values()) |sec| {
         if (sec.atom_list.items.len == 0) continue;
@@ -5135,7 +5153,7 @@ fn writeSyntheticSectionsObject(self: *Elf) !void {
 }
 
 fn writeComdatGroups(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     for (self.comdat_group_sections.items) |cgs| {
         const shdr = self.shdrs.items[cgs.shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
@@ -5160,7 +5178,8 @@ fn writeShStrtab(self: *Elf) !void {
 }
 
 fn writeSymtab(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const gpa = self.base.comp.gpa;
     const symtab_shdr = self.shdrs.items[self.symtab_section_index.?];
     const strtab_shdr = self.shdrs.items[self.strtab_section_index.?];
     const sym_size: u64 = switch (self.ptr_width) {
@@ -5220,7 +5239,7 @@ fn writeSymtab(self: *Elf) !void {
         self.plt_got.writeSymtab(self);
     }
 
-    const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
+    const foreign_endian = target.cpu.arch.endian() != builtin.cpu.arch.endian();
     switch (self.ptr_width) {
         .p32 => {
             const buf = try gpa.alloc(elf.Elf32_Sym, self.symtab.items.len);
@@ -5299,7 +5318,8 @@ fn ptrWidthBytes(self: Elf) u8 {
 /// Does not necessarily match `ptrWidthBytes` for example can be 2 bytes
 /// in a 32-bit ELF file.
 pub fn archPtrWidthBytes(self: Elf) u8 {
-    return @as(u8, @intCast(@divExact(self.base.options.target.ptrBitWidth(), 8)));
+    const target = self.base.comp.root_mod.resolved_target.result;
+    return @intCast(@divExact(target.ptrBitWidth(), 8));
 }
 
 fn phdrTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {
@@ -5694,7 +5714,7 @@ pub const AddSectionOpts = struct {
 };
 
 pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const index = @as(u16, @intCast(self.shdrs.items.len));
     const shdr = try self.shdrs.addOne(gpa);
     shdr.* = .{
@@ -5887,7 +5907,7 @@ const GetOrPutGlobalResult = struct {
 };
 
 pub fn getOrPutGlobal(self: *Elf, name: []const u8) !GetOrPutGlobalResult {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const name_off = try self.strings.insert(gpa, name);
     const gop = try self.resolver.getOrPut(gpa, name_off);
     if (!gop.found_existing) {
@@ -5923,7 +5943,7 @@ const GetOrCreateComdatGroupOwnerResult = struct {
 };
 
 pub fn getOrCreateComdatGroupOwner(self: *Elf, name: [:0]const u8) !GetOrCreateComdatGroupOwnerResult {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const off = try self.strings.insert(gpa, name);
     const gop = try self.comdat_groups_table.getOrPut(gpa, off);
     if (!gop.found_existing) {
@@ -6039,7 +6059,7 @@ pub fn insertDynString(self: *Elf, name: []const u8) error{OutOfMemory}!u32 {
 }
 
 fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const max_notes = 4;
 
     try self.misc_errors.ensureUnusedCapacity(gpa, undefs.count());

@@ -521,6 +521,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/Air.zig"
     "${CMAKE_SOURCE_DIR}/src/AstGen.zig"
     "${CMAKE_SOURCE_DIR}/src/Compilation.zig"
+    "${CMAKE_SOURCE_DIR}/src/Compilation/Config.zig"
     "${CMAKE_SOURCE_DIR}/src/Liveness.zig"
     "${CMAKE_SOURCE_DIR}/src/Module.zig"
     "${CMAKE_SOURCE_DIR}/src/Package.zig"

@@ -3,6 +3,8 @@ const Type = @import("type.zig").Type;
 const AddressSpace = std.builtin.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
 
+pub const default_stack_protector_buffer_size = 4;
+
 pub const ArchOsAbi = struct {
     arch: std.Target.Cpu.Arch,
     os: std.Target.Os.Tag,
@@ -204,9 +206,16 @@ pub fn supports_fpic(target: std.Target) bool {
     return target.os.tag != .windows and target.os.tag != .uefi;
 }
 
-pub fn isSingleThreaded(target: std.Target) bool {
+pub fn alwaysSingleThreaded(target: std.Target) bool {
     _ = target;
     return false;
+}
+
+pub fn defaultSingleThreaded(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .wasm32, .wasm64 => true,
+        else => false,
+    };
 }
 
 /// Valgrind supports more, but Zig does not support them yet.
@@ -375,12 +384,17 @@ pub fn classifyCompilerRtLibName(target: std.Target, name: []const u8) CompilerR
 }
 
 pub fn hasDebugInfo(target: std.Target) bool {
-    if (target.cpu.arch.isNvptx()) {
-        // TODO: not sure how to test "ptx >= 7.5" with featureset
-        return std.Target.nvptx.featureSetHas(target.cpu.features, .ptx75);
-    }
-
-    return true;
+    return switch (target.cpu.arch) {
+        .nvptx, .nvptx64 => std.Target.nvptx.featureSetHas(target.cpu.features, .ptx75) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx76) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx77) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx78) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx80) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx81),
+        .wasm32, .wasm64 => false,
+        .bpfel, .bpfeb => false,
+        else => true,
+    };
 }
 
 pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.OptimizeMode {
@@ -617,5 +631,38 @@ pub fn fnCallConvAllowsZigTypes(target: std.Target, cc: std.builtin.CallingConve
         // integrated CPU/GPU code.
         .Kernel => target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64,
         else => false,
+    };
+}
+
+pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBackend {
+    if (use_llvm) return .stage2_llvm;
+    if (target.ofmt == .c) return .stage2_c;
+    return switch (target.cpu.arch) {
+        .wasm32, .wasm64 => std.builtin.CompilerBackend.stage2_wasm,
+        .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
+        .x86_64 => .stage2_x86_64,
+        .x86 => .stage2_x86,
+        .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
+        .riscv64 => .stage2_riscv64,
+        .sparc64 => .stage2_sparc64,
+        .spirv64 => .stage2_spirv64,
+        else => .other,
+    };
+}
+
+pub fn defaultEntrySymbolName(
+    target: std.Target,
+    /// May be `undefined` when `target` is not WASI.
+    wasi_exec_model: std.builtin.WasiExecModel,
+) ?[]const u8 {
+    return switch (target.ofmt) {
+        .coff => "wWinMainCRTStartup",
+        .macho => "_main",
+        .elf, .plan9 => "_start",
+        .wasm => switch (wasi_exec_model) {
+            .reactor => "_initialize",
+            .command => "_start",
+        },
+        else => null,
     };
 }
