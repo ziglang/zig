@@ -861,7 +861,10 @@ fn lenSliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) usize {
             },
             .Many => if (ptr_info.sentinel) |sentinel_ptr| {
                 const sentinel = @as(*align(1) const ptr_info.child, @ptrCast(sentinel_ptr)).*;
-                // We may be looking for something other than the sentinel,
+                if (sentinel == end) {
+                    return indexOfSentinel(ptr_info.child, end, ptr);
+                }
+                // We're looking for something other than the sentinel,
                 // but iterating past the sentinel would be a bug so we need
                 // to check for both.
                 var i: usize = 0;
