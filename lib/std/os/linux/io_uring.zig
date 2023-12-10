@@ -15,11 +15,11 @@ pub const IO_Uring = struct {
     features: u32,
 
     /// A friendly way to setup an io_uring, with default linux.io_uring_params.
-    /// `entries` must be a power of two between 1 and 4096, although the kernel will make the final
+    /// `entries` must be a power of two between 1 and 32768, although the kernel will make the final
     /// call on how many entries the submission and completion queues will ultimately have,
     /// see https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L8027-L8050.
     /// Matches the interface of io_uring_queue_init() in liburing.
-    pub fn init(entries: u13, flags: u32) !IO_Uring {
+    pub fn init(entries: u16, flags: u32) !IO_Uring {
         var params = mem.zeroInit(linux.io_uring_params, .{
             .flags = flags,
             .sq_thread_idle = 1000,
@@ -31,7 +31,7 @@ pub const IO_Uring = struct {
     /// queue thread cpu affinity or thread idle timeout (the kernel and our default is 1 second).
     /// `params` is passed by reference because the kernel needs to modify the parameters.
     /// Matches the interface of io_uring_queue_init_params() in liburing.
-    pub fn init_params(entries: u13, p: *linux.io_uring_params) !IO_Uring {
+    pub fn init_params(entries: u16, p: *linux.io_uring_params) !IO_Uring {
         if (entries == 0) return error.EntriesZero;
         if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
 
