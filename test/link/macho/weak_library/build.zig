@@ -42,10 +42,10 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     check.checkExact("name @rpath/liba.dylib");
 
     check.checkInSymtab();
-    check.checkExact("(undefined) weak external _a (from liba)");
+    check.checkExact("(undefined) weakref external _a (from liba)");
 
     check.checkInSymtab();
-    check.checkExact("(undefined) weak external _asStr (from liba)");
+    check.checkExact("(undefined) weakref external _asStr (from liba)");
     test_step.dependOn(&check.step);
 
     const run = b.addRunArtifact(exe);
