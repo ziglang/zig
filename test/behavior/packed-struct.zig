@@ -1229,3 +1229,22 @@ test "load flag from packed struct in union" {
     try X.b(&x);
     comptime if (@sizeOf(A) != 1) unreachable;
 }
+
+test "bitcasting a packed struct at comptime and using the result" {
+    comptime {
+        const Struct = packed struct {
+            x: packed union { a: u63, b: i32 },
+            y: u1,
+
+            pub fn bitcast(fd: u64) @This() {
+                return @bitCast(fd);
+            }
+
+            pub fn cannotReach(_: @This()) i32 {
+                return 0;
+            }
+        };
+
+        _ = Struct.bitcast(@as(u64, 0)).cannotReach();
+    }
+}

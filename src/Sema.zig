@@ -30341,6 +30341,7 @@ fn storePtrVal(
     var mut_kit = try sema.beginComptimePtrMutation(block, src, ptr_val, operand_ty);
     try sema.checkComptimeVarStore(block, src, mut_kit.mut_decl);
 
+    try sema.resolveTypeLayout(operand_ty);
     switch (mut_kit.pointee) {
         .opv => {},
         .direct => |val_ptr| {
@@ -30355,6 +30356,7 @@ fn storePtrVal(
             val_ptr.* = Value.fromInterned((try operand_val.intern(operand_ty, mod)));
         },
         .reinterpret => |reinterpret| {
+            try sema.resolveTypeLayout(mut_kit.ty);
             const abi_size = try sema.usizeCast(block, src, mut_kit.ty.abiSize(mod));
             const buffer = try sema.gpa.alloc(u8, abi_size);
             defer sema.gpa.free(buffer);
@@ -31372,6 +31374,9 @@ fn bitCastUnionFieldVal(
 ) !?Value {
     const mod = sema.mod;
     if (old_ty.eql(field_ty, mod)) return val;
+
+    // Bitcasting a union field value requires that that field's layout be known
+    try sema.resolveTypeLayout(field_ty);
 
     const old_size = try sema.usizeCast(block, src, old_ty.abiSize(mod));
     const field_size = try sema.usizeCast(block, src, field_ty.abiSize(mod));
@@ -35301,7 +35306,10 @@ fn resolveLazyValue(sema: *Sema, val: Value) CompileError!Value {
             },
         },
         .un => |un| {
-            const resolved_tag = (try sema.resolveLazyValue(Value.fromInterned(un.tag))).toIntern();
+            const resolved_tag = if (un.tag == .none)
+                .none
+            else
+                (try sema.resolveLazyValue(Value.fromInterned(un.tag))).toIntern();
             const resolved_val = (try sema.resolveLazyValue(Value.fromInterned(un.val))).toIntern();
             return if (resolved_tag == un.tag and resolved_val == un.val)
                 val
