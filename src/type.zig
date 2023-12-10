@@ -1605,7 +1605,22 @@ pub const Type = struct {
             .struct_type => |struct_type| {
                 if (struct_type.layout == .Packed) {
                     if (opt_sema) |sema| try sema.resolveTypeLayout(ty);
-                    return try Type.fromInterned(struct_type.backingIntType(ip).*).bitSizeAdvanced(mod, opt_sema);
+
+                    const backing_int_type = struct_type.backingIntType(ip).*;
+
+                    if (backing_int_type != .none) {
+                        return try Type.fromInterned(backing_int_type).bitSizeAdvanced(mod, opt_sema);
+                    } else {
+                        assert(struct_type.haveFieldTypes(ip));
+
+                        var size: u64 = 0;
+                        for (0..struct_type.field_types.len) |field_index| {
+                            const field_ty = struct_type.field_types.get(ip)[field_index];
+                            size += try bitSizeAdvanced(Type.fromInterned(field_ty), mod, opt_sema);
+                        }
+
+                        return size;
+                    }
                 }
                 return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
             },
