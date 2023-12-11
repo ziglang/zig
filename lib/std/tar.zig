@@ -331,11 +331,6 @@ test "tar stripComponents" {
     try expectEqualStrings("c", try stripComponents("a/b/c", 2));
 }
 
-fn noNull(str: []const u8) ![]const u8 {
-    if (std.mem.indexOfScalar(u8, str, 0)) |_| return error.InvalidPaxAttribute;
-    return str;
-}
-
 test "tar run Go test cases" {
     const Case = struct {
         const File = struct {
@@ -443,7 +438,7 @@ test "tar run Go test cases" {
         .{
             // pax attribute don't end with \n
             .path = "pax-bad-hdr-file.tar",
-            .err = error.InvalidPaxAttribute,
+            .err = error.PaxInvalidAttributeEnd,
         },
         .{
             // size is in pax attribute
@@ -579,11 +574,11 @@ test "tar run Go test cases" {
         .{
             // null in pax key
             .path = "pax-nul-xattrs.tar",
-            .err = error.InvalidPaxAttribute,
+            .err = error.PaxNullInKeyword,
         },
         .{
             .path = "pax-nul-path.tar",
-            .err = error.InvalidPaxAttribute,
+            .err = error.PaxNullInValue,
         },
         .{
             .path = "neg-size.tar",
@@ -715,7 +710,7 @@ fn paxReader(reader: anytype, size: usize) PaxReader(@TypeOf(reader)) {
     };
 }
 
-const PaxAttrKind = enum {
+const PaxAttributeKind = enum {
     path,
     linkpath,
     size,
@@ -723,54 +718,50 @@ const PaxAttrKind = enum {
 
 fn PaxReader(comptime ReaderType: type) type {
     return struct {
-        size: usize,
+        size: usize, // cumulative size of all pax attributes
         reader: ReaderType,
+        // scratch buffer used for reading attribute length and keyword
+        scratch: [128]u8 = undefined,
 
         const Self = @This();
 
-        const Attr = struct {
-            kind: PaxAttrKind,
-            len: usize,
-            reader: ReaderType,
+        const Attribute = struct {
+            kind: PaxAttributeKind,
+            len: usize, // length of the attribute value
+            reader: ReaderType, // reader positioned at value start
 
             // Copies pax attribute value into destination buffer.
-            // Must be called with destination buffer of size at least value_len.
-            pub fn value(self: Attr, dst: []u8) ![]const u8 {
+            // Must be called with destination buffer of size at least Attribute.len.
+            pub fn value(self: Attribute, dst: []u8) ![]const u8 {
                 assert(self.len <= dst.len);
                 const buf = dst[0..self.len];
                 const n = try self.reader.readAll(buf);
                 if (n < self.len) return error.UnexpectedEndOfStream;
-                try checkRecordEnd(self.reader);
-                return noNull(buf);
+                try validateAttributeEnding(self.reader);
+                if (hasNull(buf)) return error.PaxNullInValue;
+                return buf;
             }
         };
 
-        // Iterates over pax records. Returns known records. Caller has to call
-        // value in Record, to advance reader across value.
-        pub fn next(self: *Self) !?Attr {
-            var buf: [128]u8 = undefined;
-            var fbs = std.io.fixedBufferStream(&buf);
-
-            // An extended header consists of one or more records, each constructed as follows:
+        // Iterates over pax attributes. Returns known only known attributes.
+        // Caller has to call value in Attribute, to advance reader across value.
+        pub fn next(self: *Self) !?Attribute {
+            // Pax extended header consists of one or more attributes, each constructed as follows:
             // "%d %s=%s\n", <length>, <keyword>, <value>
             while (self.size > 0) {
-                fbs.reset();
-                // read length
-                try self.reader.streamUntilDelimiter(fbs.writer(), ' ', null);
-                const rec_len = try std.fmt.parseInt(usize, fbs.getWritten(), 10); // record len in bytes
-                var pos = try fbs.getPos() + 1; // bytes used for record len + separator
-                fbs.reset();
-                // read keyword
-                try self.reader.streamUntilDelimiter(fbs.writer(), '=', null);
-                const keyword = fbs.getWritten();
-                pos += try fbs.getPos() + 1; // keyword bytes + separator
-                try checkKeyword(keyword);
-                // get value_len
-                if (rec_len < pos + 1) return error.InvalidPaxAttribute;
-                const value_len = rec_len - pos - 1; // pos = start of value, -1 => without \n record terminator
+                const length_buf = try self.readUntil(' ');
+                const length = try std.fmt.parseInt(usize, length_buf, 10); // record length in bytes
 
-                self.size -= rec_len;
-                const kind: PaxAttrKind = if (eql(keyword, "path"))
+                const keyword = try self.readUntil('=');
+                if (hasNull(keyword)) return error.PaxNullInKeyword;
+
+                // calculate value_len
+                const value_start = length_buf.len + keyword.len + 2; // 2 separators
+                if (length < value_start + 1 or self.size < length) return error.UnexpectedEndOfStream;
+                const value_len = length - value_start - 1; // \n separator at end
+                self.size -= length;
+
+                const kind: PaxAttributeKind = if (eql(keyword, "path"))
                     .path
                 else if (eql(keyword, "linkpath"))
                     .linkpath
@@ -778,10 +769,10 @@ fn PaxReader(comptime ReaderType: type) type {
                     .size
                 else {
                     try self.reader.skipBytes(value_len, .{});
-                    try checkRecordEnd(self.reader);
+                    try validateAttributeEnding(self.reader);
                     continue;
                 };
-                return Attr{
+                return Attribute{
                     .kind = kind,
                     .len = value_len,
                     .reader = self.reader,
@@ -791,24 +782,30 @@ fn PaxReader(comptime ReaderType: type) type {
             return null;
         }
 
+        inline fn readUntil(self: *Self, delimiter: u8) ![]const u8 {
+            var fbs = std.io.fixedBufferStream(&self.scratch);
+            try self.reader.streamUntilDelimiter(fbs.writer(), delimiter, null);
+            return fbs.getWritten();
+        }
+
         inline fn eql(a: []const u8, b: []const u8) bool {
             return std.mem.eql(u8, a, b);
         }
 
-        fn checkKeyword(keyword: []const u8) !void {
-            if (std.mem.indexOfScalar(u8, keyword, 0)) |_| return error.InvalidPaxAttribute;
+        inline fn hasNull(str: []const u8) bool {
+            return (std.mem.indexOfScalar(u8, str, 0)) != null;
         }
 
         // Checks that each record ends with new line.
-        fn checkRecordEnd(reader: ReaderType) !void {
-            if (try reader.readByte() != '\n') return error.InvalidPaxAttribute;
+        inline fn validateAttributeEnding(reader: ReaderType) !void {
+            if (try reader.readByte() != '\n') return error.PaxInvalidAttributeEnd;
         }
     };
 }
 
 test "tar PaxReader" {
     const Attr = struct {
-        kind: PaxAttrKind,
+        kind: PaxAttributeKind,
         value: []const u8 = undefined,
         err: ?anyerror = null,
     };
@@ -853,8 +850,21 @@ test "tar PaxReader" {
             .attrs = &[_]Attr{
                 .{ .kind = .path, .value = "name" },
             },
-            .err = error.InvalidPaxAttribute,
+            .err = error.UnexpectedEndOfStream,
         },
+        .{ // too long size of the second key-value pair
+            .data =
+            \\13 path=name
+            \\6 k=1
+            \\19 linkpath=value
+            \\
+            ,
+            .attrs = &[_]Attr{
+                .{ .kind = .path, .value = "name" },
+            },
+            .err = error.UnexpectedEndOfStream,
+        },
+
         .{ // too long size of the second key-value pair
             .data =
             \\13 path=name
@@ -864,7 +874,7 @@ test "tar PaxReader" {
             ,
             .attrs = &[_]Attr{
                 .{ .kind = .path, .value = "name" },
-                .{ .kind = .linkpath, .err = error.InvalidPaxAttribute },
+                .{ .kind = .linkpath, .err = error.PaxInvalidAttributeEnd },
             },
         },
         .{ // null in keyword is not valid
@@ -872,12 +882,12 @@ test "tar PaxReader" {
             .attrs = &[_]Attr{
                 .{ .kind = .path, .value = "name" },
             },
-            .err = error.InvalidPaxAttribute,
+            .err = error.PaxNullInKeyword,
         },
         .{ // null in value is not valid
             .data = "23 path=name\x00with null\n",
             .attrs = &[_]Attr{
-                .{ .kind = .path, .err = error.InvalidPaxAttribute },
+                .{ .kind = .path, .err = error.PaxNullInValue },
             },
         },
         .{ // 1000 characters path
@@ -1017,6 +1027,16 @@ fn TarReader(comptime ReaderType: type) type {
             const buf = try self.scratch.alloc(size);
             try self.reader.readNoEof(buf);
             return nullStr(buf);
+        }
+
+        fn reset(self: *Self) void {
+            self.file = File{
+                .name = self.file_name_buffer[0..0],
+                .link_name = self.link_name_buffer[0..0],
+                .size = 0,
+                .file_type = 0xff,
+                .mode = 0,
+            };
         }
 
         // Externally, `next` iterates through the tar archive as if it is a
