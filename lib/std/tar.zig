@@ -58,7 +58,7 @@ pub const Options = struct {
             },
             unsupported_file_type: struct {
                 file_name: []const u8,
-                file_type: Header.FileType,
+                file_type: Header.Kind,
             },
         };
 
@@ -90,7 +90,7 @@ pub const Header = struct {
 
     bytes: *const [SIZE]u8,
 
-    pub const FileType = enum(u8) {
+    pub const Kind = enum(u8) {
         normal_alias = 0,
         normal = '0',
         hard_link = '1',
@@ -142,7 +142,7 @@ pub const Header = struct {
         return @intCast(try header.numeric(100, 8));
     }
 
-    pub fn fileSize(header: Header) !u64 {
+    pub fn size(header: Header) !u64 {
         return header.numeric(124, 12);
     }
 
@@ -159,8 +159,8 @@ pub const Header = struct {
         return header.str(345, 155);
     }
 
-    pub fn fileType(header: Header) FileType {
-        const result: FileType = @enumFromInt(header.bytes[156]);
+    pub fn kind(header: Header) Kind {
+        const result: Kind = @enumFromInt(header.bytes[156]);
         if (result == .normal_alias) return .normal;
         return result;
     }
@@ -242,7 +242,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
     var iter = tarReader(reader, options.diagnostics);
 
     while (try iter.next()) |file| {
-        switch (file.file_type) {
+        switch (file.kind) {
             .directory => {
                 const file_name = try stripComponents(file.name, options.strip_components);
                 if (file_name.len != 0 and !options.exclude_empty_directories) {
@@ -339,7 +339,7 @@ test "tar run Go test cases" {
             size: usize = 0,
             mode: u32 = 0,
             link_name: []const u8 = &[0]u8{},
-            file_type: Header.FileType = .normal,
+            kind: Header.Kind = .normal,
             truncated: bool = false, // when there is no file body, just header, usefull for huge files
         };
 
@@ -376,7 +376,7 @@ test "tar run Go test cases" {
         },
         .{
             .path = "sparse-formats.tar",
-            .err = error.TarUnsupportedFileType,
+            .err = error.TarUnsupportedHeader,
         },
         .{
             .path = "star.tar",
@@ -427,7 +427,7 @@ test "tar run Go test cases" {
                 .{
                     .name = "a/b",
                     .size = 0,
-                    .file_type = .symbolic_link,
+                    .kind = .symbolic_link,
                     .mode = 0o777,
                     .link_name = "123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100",
                 },
@@ -448,7 +448,7 @@ test "tar run Go test cases" {
                 .{
                     .name = "foo",
                     .size = 999,
-                    .file_type = .normal,
+                    .kind = .normal,
                     .mode = 0o640,
                 },
             },
@@ -489,7 +489,7 @@ test "tar run Go test cases" {
                 .{
                     .name = "P1050238.JPG.log",
                     .size = 14,
-                    .file_type = .normal,
+                    .kind = .normal,
                     .mode = 0o664,
                 },
             },
@@ -504,13 +504,13 @@ test "tar run Go test cases" {
                 .{
                     .name = "small.txt",
                     .size = 5,
-                    .file_type = .normal,
+                    .kind = .normal,
                     .mode = 0o644,
                 },
                 .{
                     .name = "small2.txt",
                     .size = 11,
-                    .file_type = .normal,
+                    .kind = .normal,
                     .mode = 0o644,
                 },
             },
@@ -525,14 +525,14 @@ test "tar run Go test cases" {
                 .{
                     .name = "GNU2/GNU2/long-path-name",
                     .link_name = "GNU4/GNU4/long-linkpath-name",
-                    .file_type = .symbolic_link,
+                    .kind = .symbolic_link,
                 },
             },
         },
         .{
             // has gnu type D (directory) and S (sparse) blocks
             .path = "gnu-incremental.tar",
-            .err = error.TarUnsupportedFileType,
+            .err = error.TarUnsupportedHeader,
         },
         .{
             // should use values only from last pax header
@@ -541,7 +541,7 @@ test "tar run Go test cases" {
                 .{
                     .name = "bar",
                     .link_name = "PAX4/PAX4/long-linkpath-name",
-                    .file_type = .symbolic_link,
+                    .kind = .symbolic_link,
                 },
             },
         },
@@ -620,7 +620,7 @@ test "tar run Go test cases" {
             .files = &[_]Case.File{
                 .{
                     .name = "123456789/" ** 30,
-                    .file_type = .directory,
+                    .kind = .directory,
                 },
             },
         },
@@ -668,7 +668,7 @@ test "tar run Go test cases" {
             const expected = case.files[i];
             try std.testing.expectEqualStrings(expected.name, actual.name);
             try std.testing.expectEqual(expected.size, actual.size);
-            try std.testing.expectEqual(expected.file_type, actual.file_type);
+            try std.testing.expectEqual(expected.kind, actual.kind);
             try std.testing.expectEqual(expected.mode, actual.mode);
             try std.testing.expectEqualStrings(expected.link_name, actual.link_name);
 
@@ -955,7 +955,7 @@ fn TarReader(comptime ReaderType: type) type {
             link_name: []const u8, // target name of symlink
             size: usize, // size of the file in bytes
             mode: u32,
-            file_type: Header.FileType,
+            kind: Header.Kind,
 
             reader: ReaderType,
 
@@ -1004,7 +1004,7 @@ fn TarReader(comptime ReaderType: type) type {
                 .name = self.file_name_buffer[0..0],
                 .link_name = self.link_name_buffer[0..0],
                 .size = 0,
-                .file_type = .normal,
+                .kind = .normal,
                 .mode = 0,
                 .reader = self.reader,
             };
@@ -1026,14 +1026,14 @@ fn TarReader(comptime ReaderType: type) type {
             self.initFile();
 
             while (try self.readHeader()) |header| {
-                const file_type = header.fileType();
-                const size: usize = @intCast(try header.fileSize());
+                const kind = header.kind();
+                const size: usize = @intCast(try header.size());
                 self.padding = blockPadding(size);
 
-                switch (file_type) {
+                switch (kind) {
                     // File types to retrun upstream
                     .directory, .normal, .symbolic_link => {
-                        self.file.file_type = file_type;
+                        self.file.kind = kind;
                         self.file.mode = try header.mode();
 
                         // set file attributes if not already set by prefix/extended headers
@@ -1083,10 +1083,10 @@ fn TarReader(comptime ReaderType: type) type {
                     },
                     // All other are unsupported header types
                     else => {
-                        const d = self.diagnostics orelse return error.TarUnsupportedFileType;
+                        const d = self.diagnostics orelse return error.TarUnsupportedHeader;
                         try d.errors.append(d.allocator, .{ .unsupported_file_type = .{
                             .file_name = try d.allocator.dupe(u8, header.name()),
-                            .file_type = file_type,
+                            .file_type = kind,
                         } });
                     },
                 }
