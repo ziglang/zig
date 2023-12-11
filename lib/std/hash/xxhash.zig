@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
 const expectEqual = std.testing.expectEqual;
+const native_endian = builtin.cpu.arch.endian();
 
 const rotl = std.math.rotl;
 
@@ -184,8 +185,6 @@ pub const XxHash64 = struct {
     }
 
     pub fn update(self: *XxHash64, input: anytype) void {
-        validateType(@TypeOf(input));
-
         if (input.len < 32 - self.buf_len) {
             @memcpy(self.buf[self.buf_len..][0..input.len], input);
             self.buf_len += input.len;
@@ -231,8 +230,6 @@ pub const XxHash64 = struct {
     };
 
     pub fn hash(seed: u64, input: anytype) u64 {
-        validateType(@TypeOf(input));
-
         if (input.len < 32) {
             return finalize(seed +% prime_5, 0, input);
         } else {
@@ -314,8 +311,6 @@ pub const XxHash32 = struct {
     }
 
     pub fn update(self: *XxHash32, input: []const u8) void {
-        validateType(@TypeOf(input));
-
         if (input.len < 16 - self.buf_len) {
             @memcpy(self.buf[self.buf_len..][0..input.len], input);
             self.buf_len += input.len;
@@ -415,8 +410,6 @@ pub const XxHash32 = struct {
     }
 
     pub fn hash(seed: u32, input: anytype) u32 {
-        validateType(@TypeOf(input));
-
         if (input.len < 16) {
             return finalize(seed +% prime_5, 0, input);
         } else {
@@ -472,7 +465,7 @@ pub const XxHash3 = struct {
     }
 
     inline fn swap(x: anytype) @TypeOf(x) {
-        return if (builtin.cpu.arch.endian() == .big) @byteSwap(x) else x;
+        return if (native_endian == .big) @byteSwap(x) else x;
     }
 
     inline fn disableAutoVectorization(x: anytype) void {
@@ -586,8 +579,6 @@ pub const XxHash3 = struct {
     // Public API - Oneshot
 
     pub fn hash(seed: u64, input: anytype) u64 {
-        validateType(@TypeOf(input));
-
         const secret = &default_secret;
         if (input.len > 240) return hashLong(seed, input);
         if (input.len > 128) return hash240(seed, input, secret);
@@ -708,8 +699,6 @@ pub const XxHash3 = struct {
     }
 
     pub fn update(self: *XxHash3, input: anytype) void {
-        validateType(@TypeOf(input));
-
         self.total_len += input.len;
         std.debug.assert(self.buffered <= self.buffer.len);
 
@@ -781,18 +770,6 @@ pub const XxHash3 = struct {
 };
 
 const verify = @import("verify.zig");
-
-fn validateType(comptime T: type) void {
-    comptime {
-        if (!((std.meta.trait.isSlice(T) or
-            std.meta.trait.is(.Array)(T) or
-            std.meta.trait.isPtrTo(.Array)(T)) and
-            std.meta.Elem(T) == u8))
-        {
-            @compileError("expect a slice, array or pointer to array of u8, got " ++ @typeName(T));
-        }
-    }
-}
 
 fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64) !void {
     try expectEqual(expected, H.hash(seed, input));

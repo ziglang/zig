@@ -4,26 +4,31 @@ const builtin = @import("builtin");
 test "issue12891" {
     const f = 10.0;
     var i: usize = 0;
+    _ = &i;
     try std.testing.expect(i < f);
 }
 test "nan" {
     const f = comptime std.math.nan(f64);
     var i: usize = 0;
+    _ = &i;
     try std.testing.expect(!(f < i));
 }
 test "inf" {
     const f = comptime std.math.inf(f64);
     var i: usize = 0;
+    _ = &i;
     try std.testing.expect(f > i);
 }
 test "-inf < 0" {
     const f = comptime -std.math.inf(f64);
     var i: usize = 0;
+    _ = &i;
     try std.testing.expect(f < i);
 }
 test "inf >= 1" {
     const f = comptime std.math.inf(f64);
     var i: usize = 1;
+    _ = &i;
     try std.testing.expect(f >= i);
 }
 test "isNan(nan * 1)" {

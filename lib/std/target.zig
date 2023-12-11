@@ -823,7 +823,6 @@ pub const Target = struct {
 
                     /// Returns true if any specified feature is enabled.
                     pub fn featureSetHasAny(set: Set, features: anytype) bool {
-                        comptime std.debug.assert(std.meta.trait.isIndexable(@TypeOf(features)));
                         inline for (features) |feature| {
                             if (set.isEnabled(@intFromEnum(@as(F, feature)))) return true;
                         }
@@ -832,7 +831,6 @@ pub const Target = struct {
 
                     /// Returns true if every specified feature is enabled.
                     pub fn featureSetHasAll(set: Set, features: anytype) bool {
-                        comptime std.debug.assert(std.meta.trait.isIndexable(@TypeOf(features)));
                         inline for (features) |feature| {
                             if (!set.isEnabled(@intFromEnum(@as(F, feature)))) return false;
                         }

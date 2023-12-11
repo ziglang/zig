@@ -189,7 +189,7 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
     // native CPU architecture as being different than the current target), we use this:
     const cpu_arch = cross_target.getCpuArch();
 
-    var cpu = switch (cross_target.cpu_model) {
+    const cpu = switch (cross_target.cpu_model) {
         .native => detectNativeCpuAndFeatures(cpu_arch, os, cross_target),
         .baseline => Target.Cpu.baseline(cpu_arch),
         .determined_by_cpu_arch => if (cross_target.cpu_arch == null)
@@ -280,7 +280,7 @@ fn detectAbiAndDynamicLinker(
         assert(@intFromEnum(Target.Abi.none) == 0);
         const fields = std.meta.fields(Target.Abi)[1..];
         var array: [fields.len]Target.Abi = undefined;
-        inline for (fields, 0..) |field, i| {
+        for (fields, 0..) |field, i| {
             array[i] = @field(Target.Abi, field.name);
         }
         break :blk array;
@@ -801,11 +801,9 @@ pub fn abiAndDynamicLinkerFromFile(
 
         if (dynstr) |ds| {
             if (rpath_offset) |rpoff| {
-                // TODO this pointer cast should not be necessary
-                const rpoff_usize = std.math.cast(usize, rpoff) orelse return error.InvalidElfFile;
-                if (rpoff_usize > ds.size) return error.InvalidElfFile;
-                const rpoff_file = ds.offset + rpoff_usize;
-                const rp_max_size = ds.size - rpoff_usize;
+                if (rpoff > ds.size) return error.InvalidElfFile;
+                const rpoff_file = ds.offset + rpoff;
+                const rp_max_size = ds.size - rpoff;
 
                 const strtab_len = @min(rp_max_size, strtab_buf.len);
                 const strtab_read_len = try preadMin(file, &strtab_buf, rpoff_file, strtab_len);
@@ -917,6 +915,7 @@ fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
             error.Unseekable => return error.UnableToReadElfFile,
             error.ConnectionResetByPeer => return error.UnableToReadElfFile,
             error.ConnectionTimedOut => return error.UnableToReadElfFile,
+            error.SocketNotConnected => return error.UnableToReadElfFile,
             error.NetNameDeleted => return error.UnableToReadElfFile,
             error.Unexpected => return error.Unexpected,
             error.InputOutput => return error.FileSystem,

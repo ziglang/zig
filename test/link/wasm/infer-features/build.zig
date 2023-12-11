@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
 
     // Wasm library that doesn't have any features specified. This will
     // infer its featureset from other linked object files.
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addExecutable(.{
         .name = "lib",
         .root_source_file = .{ .path = "main.zig" },
         .optimize = .Debug,
@@ -27,6 +27,7 @@ pub fn build(b: *std.Build) void {
             .os_tag = .freestanding,
         },
     });
+    lib.entry = .disabled;
     lib.use_llvm = false;
     lib.use_lld = false;
     lib.addObject(c_obj);

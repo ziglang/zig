@@ -4,8 +4,6 @@ const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
 const mem = @This();
-const meta = std.meta;
-const trait = meta.trait;
 const testing = std.testing;
 const Endian = std.builtin.Endian;
 const native_endian = builtin.cpu.arch.endian();
@@ -192,10 +190,6 @@ test "Allocator.resize" {
     }
 }
 
-/// Deprecated: use `@memcpy` if the arguments do not overlap, or
-/// `copyForwards` if they do.
-pub const copy = copyForwards;
-
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
@@ -218,8 +212,6 @@ pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
         dest[i] = source[i];
     }
 }
-
-pub const set = @compileError("deprecated; use @memset instead");
 
 /// Generally, Zig users are encouraged to explicitly initialize all fields of a struct explicitly rather than using this function.
 /// However, it is recognized that there are sometimes use cases for initializing all fields to a "zero" value. For example, when
@@ -315,8 +307,6 @@ pub fn zeroes(comptime T: type) T {
 }
 
 test "zeroes" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const C_struct = extern struct {
         x: u32,
         y: u32 align(128),
@@ -405,11 +395,11 @@ test "zeroes" {
         b: u32,
     };
 
-    var c = zeroes(C_union);
+    const c = zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), c.a);
     try testing.expectEqual(@as(u32, 0), c.b);
 
-    comptime var comptime_union = zeroes(C_union);
+    const comptime_union = comptime zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), comptime_union.a);
     try testing.expectEqual(@as(u32, 0), comptime_union.b);
 
@@ -738,7 +728,7 @@ test "span" {
 }
 
 /// Helper for the return type of sliceTo()
-fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
+fn SliceTo(comptime T: type, comptime end: std.meta.Elem(T)) type {
     switch (@typeInfo(T)) {
         .Optional => |optional_info| {
             return ?SliceTo(optional_info.child, end);
@@ -798,7 +788,7 @@ fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
 /// resulting slice is also sentinel terminated.
 /// Pointer properties such as mutability and alignment are preserved.
 /// C pointers are assumed to be non-null.
-pub fn sliceTo(ptr: anytype, comptime end: meta.Elem(@TypeOf(ptr))) SliceTo(@TypeOf(ptr), end) {
+pub fn sliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) SliceTo(@TypeOf(ptr), end) {
     if (@typeInfo(@TypeOf(ptr)) == .Optional) {
         const non_null = ptr orelse return null;
         return sliceTo(non_null, end);
@@ -854,7 +844,7 @@ test "sliceTo" {
 }
 
 /// Private helper for sliceTo(). If you want the length, use sliceTo(foo, x).len
-fn lenSliceTo(ptr: anytype, comptime end: meta.Elem(@TypeOf(ptr))) usize {
+fn lenSliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) usize {
     switch (@typeInfo(@TypeOf(ptr))) {
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
@@ -1321,7 +1311,7 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
     if (needle.len > haystack.len) return null;
     if (needle.len == 0) return haystack.len;
 
-    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
+    if (!std.meta.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return lastIndexOfLinear(T, haystack, needle);
 
     const haystack_bytes = sliceAsBytes(haystack);
@@ -1352,7 +1342,7 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
         return indexOfScalarPos(T, haystack, start_index, needle[0]);
     }
 
-    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
+    if (!std.meta.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return indexOfPosLinear(T, haystack, start_index, needle);
 
     const haystack_bytes = sliceAsBytes(haystack);
@@ -2956,12 +2946,12 @@ fn joinMaybeZ(allocator: Allocator, separator: []const u8, slices: []const []con
     const buf = try allocator.alloc(u8, total_len);
     errdefer allocator.free(buf);
 
-    copy(u8, buf, slices[0]);
+    @memcpy(buf[0..slices[0].len], slices[0]);
     var buf_index: usize = slices[0].len;
     for (slices[1..]) |slice| {
-        copy(u8, buf[buf_index..], separator);
+        @memcpy(buf[buf_index .. buf_index + separator.len], separator);
         buf_index += separator.len;
-        copy(u8, buf[buf_index..], slice);
+        @memcpy(buf[buf_index .. buf_index + slice.len], slice);
         buf_index += slice.len;
     }
 
@@ -3054,7 +3044,7 @@ pub fn concatMaybeSentinel(allocator: Allocator, comptime T: type, slices: []con
 
     var buf_index: usize = 0;
     for (slices) |slice| {
-        copy(T, buf[buf_index..], slice);
+        @memcpy(buf[buf_index .. buf_index + slice.len], slice);
         buf_index += slice.len;
     }
 
@@ -3370,13 +3360,7 @@ fn ReverseIterator(comptime T: type) type {
 
 /// Iterates over a slice in reverse.
 pub fn reverseIterator(slice: anytype) ReverseIterator(@TypeOf(slice)) {
-    const T = @TypeOf(slice);
-    if (comptime trait.isPtrTo(.Array)(T)) {
-        return .{ .ptr = slice, .index = slice.len };
-    } else {
-        comptime assert(trait.isSlice(T));
-        return .{ .ptr = slice.ptr, .index = slice.len };
-    }
+    return .{ .ptr = slice.ptr, .index = slice.len };
 }
 
 test "reverseIterator" {
@@ -3396,12 +3380,12 @@ test "reverseIterator" {
         try testing.expectEqual(@as(?i32, null), it.next());
 
         it = reverseIterator(slice);
-        try testing.expect(trait.isConstPtr(@TypeOf(it.nextPtr().?)));
+        try testing.expect(*const i32 == @TypeOf(it.nextPtr().?));
         try testing.expectEqual(@as(?i32, 7), it.nextPtr().?.*);
         try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
         try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
 
-        var mut_slice: []i32 = &array;
+        const mut_slice: []i32 = &array;
         var mut_it = reverseIterator(mut_slice);
         mut_it.nextPtr().?.* += 1;
         mut_it.nextPtr().?.* += 2;
@@ -3416,12 +3400,12 @@ test "reverseIterator" {
         try testing.expectEqual(@as(?i32, null), it.next());
 
         it = reverseIterator(ptr_to_array);
-        try testing.expect(trait.isConstPtr(@TypeOf(it.nextPtr().?)));
+        try testing.expect(*const i32 == @TypeOf(it.nextPtr().?));
         try testing.expectEqual(@as(?i32, 7), it.nextPtr().?.*);
         try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
         try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
 
-        var mut_ptr_to_array: *[2]i32 = &array;
+        const mut_ptr_to_array: *[2]i32 = &array;
         var mut_it = reverseIterator(mut_ptr_to_array);
         mut_it.nextPtr().?.* += 1;
         mut_it.nextPtr().?.* += 2;
@@ -3583,7 +3567,7 @@ test "replacementSize" {
 
 /// Perform a replacement on an allocated buffer of pre-determined size. Caller must free returned memory.
 pub fn replaceOwned(comptime T: type, allocator: Allocator, input: []const T, needle: []const T, replacement: []const T) Allocator.Error![]T {
-    var output = try allocator.alloc(T, replacementSize(T, input, needle, replacement));
+    const output = try allocator.alloc(T, replacementSize(T, input, needle, replacement));
     _ = replace(T, input, needle, replacement, output);
     return output;
 }
@@ -3695,8 +3679,8 @@ pub fn alignPointer(ptr: anytype, align_to: usize) ?@TypeOf(ptr) {
 test "alignPointer" {
     const S = struct {
         fn checkAlign(comptime T: type, base: usize, align_to: usize, expected: usize) !void {
-            var ptr = @as(T, @ptrFromInt(base));
-            var aligned = alignPointer(ptr, align_to);
+            const ptr: T = @ptrFromInt(base);
+            const aligned = alignPointer(ptr, align_to);
             try testing.expectEqual(expected, @intFromPtr(aligned));
         }
     };
@@ -3732,11 +3716,7 @@ fn CopyPtrAttrs(
 }
 
 fn AsBytesReturnType(comptime P: type) type {
-    if (!trait.isSingleItemPtr(P))
-        @compileError("expected single item pointer, passed " ++ @typeName(P));
-
-    const size = @sizeOf(meta.Child(P));
-
+    const size = @sizeOf(std.meta.Child(P));
     return CopyPtrAttrs(P, .One, [size]u8);
 }
 
@@ -3820,21 +3800,13 @@ test "toBytes" {
 }
 
 fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
-    const size = @as(usize, @sizeOf(T));
-
-    if (comptime !trait.is(.Pointer)(B) or
-        (meta.Child(B) != [size]u8 and meta.Child(B) != [size:0]u8))
-    {
-        @compileError(std.fmt.comptimePrint("expected *[{}]u8, passed " ++ @typeName(B), .{size}));
-    }
-
     return CopyPtrAttrs(B, .One, T);
 }
 
 /// Given a pointer to an array of bytes, returns a pointer to a value of the specified type
 /// backed by those bytes, preserving pointer attributes.
 pub fn bytesAsValue(comptime T: type, bytes: anytype) BytesAsValueReturnType(T, @TypeOf(bytes)) {
-    return @as(BytesAsValueReturnType(T, @TypeOf(bytes)), @ptrCast(bytes));
+    return @ptrCast(bytes);
 }
 
 test "bytesAsValue" {
@@ -3850,7 +3822,7 @@ test "bytesAsValue" {
         .big => "\xC0\xDE\xFA\xCE",
         .little => "\xCE\xFA\xDE\xC0",
     }.*;
-    var codeface = bytesAsValue(u32, &codeface_bytes);
+    const codeface = bytesAsValue(u32, &codeface_bytes);
     try testing.expect(codeface.* == 0xC0DEFACE);
     codeface.* = 0;
     for (codeface_bytes) |b|
@@ -3874,7 +3846,7 @@ test "bytesAsValue" {
         .big => "\xA1\xDE\xEF\xBE",
     };
     const inst2 = bytesAsValue(S, inst_bytes);
-    try testing.expect(meta.eql(inst, inst2.*));
+    try testing.expect(std.meta.eql(inst, inst2.*));
 }
 
 test "bytesAsValue preserves pointer attributes" {
@@ -3907,14 +3879,6 @@ test "bytesToValue" {
 }
 
 fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
-    if (!(trait.isSlice(bytesType) or trait.isPtrTo(.Array)(bytesType)) or meta.Elem(bytesType) != u8) {
-        @compileError("expected []u8 or *[_]u8, passed " ++ @typeName(bytesType));
-    }
-
-    if (trait.isPtrTo(.Array)(bytesType) and @typeInfo(meta.Child(bytesType)).Array.len % @sizeOf(T) != 0) {
-        @compileError("number of bytes in " ++ @typeName(bytesType) ++ " is not divisible by size of " ++ @typeName(T));
-    }
-
     return CopyPtrAttrs(bytesType, .Slice, T);
 }
 
@@ -3943,6 +3907,7 @@ test "bytesAsSlice" {
     {
         const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
         var runtime_zero: usize = 0;
+        _ = &runtime_zero;
         const slice = bytesAsSlice(u16, bytes[runtime_zero..]);
         try testing.expect(slice.len == 2);
         try testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
@@ -3959,6 +3924,7 @@ test "bytesAsSlice keeps pointer alignment" {
     {
         var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
         var runtime_zero: usize = 0;
+        _ = &runtime_zero;
         const numbers = bytesAsSlice(u32, bytes[runtime_zero..]);
         try comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
     }
@@ -3969,8 +3935,8 @@ test "bytesAsSlice on a packed struct" {
         a: u8,
     };
 
-    var b = [1]u8{9};
-    var f = bytesAsSlice(F, &b);
+    const b: [1]u8 = .{9};
+    const f = bytesAsSlice(F, &b);
     try testing.expect(f[0].a == 9);
 }
 
@@ -4000,10 +3966,6 @@ test "bytesAsSlice preserves pointer attributes" {
 }
 
 fn SliceAsBytesReturnType(comptime Slice: type) type {
-    if (!trait.isSlice(Slice) and !trait.isPtrTo(.Array)(Slice)) {
-        @compileError("expected []T or *[_]T, passed " ++ @typeName(Slice));
-    }
-
     return CopyPtrAttrs(Slice, .Slice, u8);
 }
 
@@ -4012,15 +3974,15 @@ pub fn sliceAsBytes(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
     const Slice = @TypeOf(slice);
 
     // a slice of zero-bit values always occupies zero bytes
-    if (@sizeOf(meta.Elem(Slice)) == 0) return &[0]u8{};
+    if (@sizeOf(std.meta.Elem(Slice)) == 0) return &[0]u8{};
 
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (slice.len == 0 and comptime meta.sentinel(Slice) == null) return &[0]u8{};
+    if (slice.len == 0 and std.meta.sentinel(Slice) == null) return &[0]u8{};
 
     const cast_target = CopyPtrAttrs(Slice, .Many, u8);
 
-    return @as(cast_target, @ptrCast(slice))[0 .. slice.len * @sizeOf(meta.Elem(Slice))];
+    return @as(cast_target, @ptrCast(slice))[0 .. slice.len * @sizeOf(std.meta.Elem(Slice))];
 }
 
 test "sliceAsBytes" {
@@ -4122,8 +4084,7 @@ pub const alignForwardGeneric = @compileError("renamed to alignForward");
 /// result eventually gets discarded.
 // TODO: use @declareSideEffect() when it is available - https://github.com/ziglang/zig/issues/6168
 pub fn doNotOptimizeAway(val: anytype) void {
-    var a: u8 = 0;
-    if (@typeInfo(@TypeOf(.{a})).Struct.fields[0].is_comptime) return;
+    if (@inComptime()) return;
 
     const max_gp_register_bits = @bitSizeOf(c_long);
     const t = @typeInfo(@TypeOf(val));
@@ -4342,8 +4303,6 @@ pub fn alignInSlice(slice: anytype, comptime new_alignment: usize) ?AlignedSlice
 }
 
 test "read/write(Var)PackedInt" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     switch (builtin.cpu.arch) {
         // This test generates too much code to execute on WASI.
         // LLVM backend fails with "too many locals: locals exceed maximum"

@@ -5,12 +5,14 @@ const expect = std.testing.expect;
 test "switch on empty enum" {
     const E = enum {};
     var e: E = undefined;
+    _ = &e;
     switch (e) {}
 }
 
 test "switch on empty enum with a specified tag type" {
     const E = enum(u8) {};
     var e: E = undefined;
+    _ = &e;
     switch (e) {}
 }
 
@@ -19,6 +21,7 @@ test "switch on empty auto numbered tagged union" {
 
     const U = union(enum(u8)) {};
     var u: U = undefined;
+    _ = &u;
     switch (u) {}
 }
 
@@ -28,6 +31,7 @@ test "switch on empty tagged union" {
     const E = enum {};
     const U = union(E) {};
     var u: U = undefined;
+    _ = &u;
     switch (u) {}
 }
 

@@ -14,17 +14,19 @@ pub fn build(b: *std.Build) void {
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.OptimizeMode, is_safe: bool) void {
     {
-        const lib = b.addSharedLibrary(.{
+        const lib = b.addExecutable(.{
             .name = "lib",
             .root_source_file = .{ .path = "lib.zig" },
             .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
             .optimize = optimize_mode,
         });
+        lib.entry = .disabled;
         lib.use_llvm = false;
         lib.use_lld = false;
         lib.strip = false;
         // to make sure the bss segment is emitted, we must import memory
         lib.import_memory = true;
+        lib.link_gc_sections = false;
 
         const check_lib = lib.checkObject();
 
@@ -60,17 +62,19 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
 
     // verify zero'd declaration is stored in bss for all optimization modes.
     {
-        const lib = b.addSharedLibrary(.{
+        const lib = b.addExecutable(.{
             .name = "lib",
             .root_source_file = .{ .path = "lib2.zig" },
             .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
             .optimize = optimize_mode,
         });
+        lib.entry = .disabled;
         lib.use_llvm = false;
         lib.use_lld = false;
         lib.strip = false;
         // to make sure the bss segment is emitted, we must import memory
         lib.import_memory = true;
+        lib.link_gc_sections = false;
 
         const check_lib = lib.checkObject();
         check_lib.checkStart();

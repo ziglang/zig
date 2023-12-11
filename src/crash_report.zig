@@ -322,7 +322,7 @@ const PanicSwitch = struct {
     /// Updated atomically before taking the panic_mutex.
     /// In recoverable cases, the program will not abort
     /// until all panicking threads have dumped their traces.
-    var panicking = std.atomic.Atomic(u8).init(0);
+    var panicking = std.atomic.Value(u8).init(0);
 
     // Locked to avoid interleaving panic messages from multiple threads.
     var panic_mutex = std.Thread.Mutex{};
@@ -477,7 +477,7 @@ const PanicSwitch = struct {
             // and call abort()
 
             // Sleep forever without hammering the CPU
-            var futex = std.atomic.Atomic(u32).init(0);
+            var futex = std.atomic.Value(u32).init(0);
             while (true) std.Thread.Futex.wait(&futex, 0);
 
             // This should be unreachable, recurse into recoverAbort.

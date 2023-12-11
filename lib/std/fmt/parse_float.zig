@@ -83,8 +83,6 @@ test "fmt.parseFloat #11169" {
 }
 
 test "fmt.parseFloat hex.special" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testing.expect(math.isNan(try parseFloat(f32, "nAn")));
     try testing.expect(math.isPositiveInf(try parseFloat(f32, "iNf")));
     try testing.expect(math.isPositiveInf(try parseFloat(f32, "+Inf")));

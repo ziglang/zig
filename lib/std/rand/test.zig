@@ -1,5 +1,4 @@
 const std = @import("../std.zig");
-const builtin = @import("builtin");
 const math = std.math;
 const DefaultPrng = std.rand.DefaultPrng;
 const Random = std.rand.Random;
@@ -200,8 +199,6 @@ fn testRandomIntLessThan() !void {
 }
 
 test "Random intAtMost" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     @setEvalBranchQuota(10000);
     try testRandomIntAtMost();
     try comptime testRandomIntAtMost();
@@ -242,8 +239,6 @@ fn testRandomIntAtMost() !void {
 }
 
 test "Random Biased" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     var prng = DefaultPrng.init(0);
     const random = prng.random();
     // Not thoroughly checking the logic here.
@@ -337,13 +332,13 @@ test "Random float chi-square goodness of fit" {
     while (i < num_numbers) : (i += 1) {
         const rand_f32 = random.float(f32);
         const rand_f64 = random.float(f64);
-        var f32_put = try f32_hist.getOrPut(@as(u32, @intFromFloat(rand_f32 * @as(f32, @floatFromInt(num_buckets)))));
+        const f32_put = try f32_hist.getOrPut(@as(u32, @intFromFloat(rand_f32 * @as(f32, @floatFromInt(num_buckets)))));
         if (f32_put.found_existing) {
             f32_put.value_ptr.* += 1;
         } else {
             f32_put.value_ptr.* = 1;
         }
-        var f64_put = try f64_hist.getOrPut(@as(u32, @intFromFloat(rand_f64 * @as(f64, @floatFromInt(num_buckets)))));
+        const f64_put = try f64_hist.getOrPut(@as(u32, @intFromFloat(rand_f64 * @as(f64, @floatFromInt(num_buckets)))));
         if (f64_put.found_existing) {
             f64_put.value_ptr.* += 1;
         } else {
@@ -452,8 +447,6 @@ test "CSPRNG" {
 }
 
 test "Random weightedIndex" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     // Make sure weightedIndex works for various integers and floats
     inline for (.{ u64, i4, f32, f64 }) |T| {
         var prng = DefaultPrng.init(0);

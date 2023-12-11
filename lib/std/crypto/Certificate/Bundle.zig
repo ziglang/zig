@@ -160,7 +160,7 @@ pub fn addCertsFromDirPath(
     dir: fs.Dir,
     sub_dir_path: []const u8,
 ) AddCertsFromDirPathError!void {
-    var iterable_dir = try dir.openIterableDir(sub_dir_path, .{});
+    var iterable_dir = try dir.openDir(sub_dir_path, .{ .iterate = true });
     defer iterable_dir.close();
     return addCertsFromDir(cb, gpa, iterable_dir);
 }
@@ -171,14 +171,14 @@ pub fn addCertsFromDirPathAbsolute(
     abs_dir_path: []const u8,
 ) AddCertsFromDirPathError!void {
     assert(fs.path.isAbsolute(abs_dir_path));
-    var iterable_dir = try fs.openIterableDirAbsolute(abs_dir_path, .{});
+    var iterable_dir = try fs.openDirAbsolute(abs_dir_path, .{ .iterate = true });
     defer iterable_dir.close();
     return addCertsFromDir(cb, gpa, iterable_dir);
 }
 
 pub const AddCertsFromDirError = AddCertsFromFilePathError;
 
-pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.IterableDir) AddCertsFromDirError!void {
+pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.Dir) AddCertsFromDirError!void {
     var it = iterable_dir.iterate();
     while (try it.next()) |entry| {
         switch (entry.kind) {
@@ -186,7 +186,7 @@ pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.IterableDir
             else => continue,
         }
 
-        try addCertsFromFilePath(cb, gpa, iterable_dir.dir, entry.name);
+        try addCertsFromFilePath(cb, gpa, iterable_dir, entry.name);
     }
 }
 
@@ -317,8 +317,6 @@ const MapContext = struct {
 
 test "scan for OS-provided certificates" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var bundle: Bundle = .{};
     defer bundle.deinit(std.testing.allocator);

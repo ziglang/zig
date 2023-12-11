@@ -14,9 +14,9 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(arena);
     const path_to_walk = args[1];
-    const iterable_dir = try std.fs.cwd().openIterableDir(path_to_walk, .{});
+    const dir = try std.fs.cwd().openDir(path_to_walk, .{ .iterate = true });
 
-    var walker = try iterable_dir.walk(arena);
+    var walker = try dir.walk(arena);
     defer walker.deinit();
 
     var buffer: [500]u8 = undefined;
@@ -30,7 +30,7 @@ pub fn main() !void {
         node.activate();
         defer node.end();
 
-        const source = try iterable_dir.dir.readFileAlloc(arena, entry.path, 20 * 1024 * 1024);
+        const source = try dir.readFileAlloc(arena, entry.path, 20 * 1024 * 1024);
         if (!std.mem.startsWith(u8, source, expected_header)) {
             std.debug.print("no match: {s}\n", .{entry.path});
             continue;
@@ -39,9 +39,9 @@ pub fn main() !void {
         const truncated_source = source[expected_header.len..];
 
         const new_source = try arena.alloc(u8, truncated_source.len + new_header.len);
-        std.mem.copy(u8, new_source, new_header);
-        std.mem.copy(u8, new_source[new_header.len..], truncated_source);
+        @memcpy(new_source[0..new_source.len], new_header);
+        @memcpy(new_source[new_header.len .. new_header.len + truncated_source.len], truncated_source);
 
-        try iterable_dir.dir.writeFile(entry.path, new_source);
+        try dir.writeFile(entry.path, new_source);
     }
 }

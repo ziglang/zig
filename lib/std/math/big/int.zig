@@ -69,7 +69,7 @@ pub fn calcPowLimbsBufferLen(a_bit_count: usize, y: usize) usize {
 pub fn calcSqrtLimbsBufferLen(a_bit_count: usize) usize {
     const a_limb_count = (a_bit_count - 1) / limb_bits + 1;
     const shift = (a_bit_count + 1) / 2;
-    const u_s_rem_limb_count = 1 + ((shift - 1) / limb_bits + 1);
+    const u_s_rem_limb_count = 1 + ((shift / limb_bits) + 1);
     return a_limb_count + 3 * u_s_rem_limb_count + calcDivLimbsBufferLen(a_limb_count, u_s_rem_limb_count);
 }
 
@@ -797,7 +797,7 @@ pub const Mutable = struct {
         // 0b0..01..1000 with @log2(@sizeOf(Limb)) consecutive ones
         const endian_mask: usize = (@sizeOf(Limb) - 1) << 3;
 
-        var bytes = std.mem.sliceAsBytes(r.limbs);
+        const bytes = std.mem.sliceAsBytes(r.limbs);
         var bits = std.packed_int_array.PackedIntSliceEndian(u1, .little).init(bytes, limbs_required * @bitSizeOf(Limb));
 
         var k: usize = 0;
@@ -1318,7 +1318,7 @@ pub const Mutable = struct {
     ///
     /// `limbs_buffer` is used for temporary storage.
     /// The amount required is given by `calcPowLimbsBufferLen`.
-    pub fn pow(r: *Mutable, a: Const, b: u32, limbs_buffer: []Limb) !void {
+    pub fn pow(r: *Mutable, a: Const, b: u32, limbs_buffer: []Limb) void {
         assert(r.limbs.ptr != a.limbs.ptr); // illegal aliasing
 
         // Handle all the trivial cases first
@@ -1380,7 +1380,7 @@ pub const Mutable = struct {
         var u = b: {
             const start = buf_index;
             const shift = (a.bitCountAbs() + 1) / 2;
-            buf_index += 1 + ((shift - 1) / limb_bits + 1);
+            buf_index += 1 + ((shift / limb_bits) + 1);
             var m = Mutable.init(limbs_buffer[start..buf_index], 1);
             m.shiftLeft(m.toConst(), shift); // u must be >= ⌊√a⌋, and should be as small as possible for efficiency
             break :b m;
@@ -1407,7 +1407,7 @@ pub const Mutable = struct {
             }
 
             // Avoid copying u to s by swapping u and s
-            var tmp_s = s;
+            const tmp_s = s;
             s = u;
             u = tmp_s;
         }
@@ -1911,7 +1911,7 @@ pub const Mutable = struct {
         var positive = true;
         if (signedness == .signed) {
             const total_bits = bit_offset + bit_count;
-            var last_byte = switch (endian) {
+            const last_byte = switch (endian) {
                 .little => ((total_bits + 7) / 8) - 1,
                 .big => buffer.len - ((total_bits + 7) / 8),
             };
@@ -3161,7 +3161,7 @@ pub const Managed = struct {
 
     /// r = a ^ b
     pub fn bitXor(r: *Managed, a: *const Managed, b: *const Managed) !void {
-        var cap = @max(a.len(), b.len()) + @intFromBool(a.isPositive() != b.isPositive());
+        const cap = @max(a.len(), b.len()) + @intFromBool(a.isPositive() != b.isPositive());
         try r.ensureCapacity(cap);
 
         var m = r.toMutable();
@@ -3213,7 +3213,7 @@ pub const Managed = struct {
             var m = try Managed.initCapacity(rma.allocator, needed_limbs);
             errdefer m.deinit();
             var m_mut = m.toMutable();
-            try m_mut.pow(a.toConst(), b, limbs_buffer);
+            m_mut.pow(a.toConst(), b, limbs_buffer);
             m.setMetadata(m_mut.positive, m_mut.len);
 
             rma.deinit();
@@ -3221,15 +3221,26 @@ pub const Managed = struct {
         } else {
             try rma.ensureCapacity(needed_limbs);
             var rma_mut = rma.toMutable();
-            try rma_mut.pow(a.toConst(), b, limbs_buffer);
+            rma_mut.pow(a.toConst(), b, limbs_buffer);
             rma.setMetadata(rma_mut.positive, rma_mut.len);
         }
     }
 
     /// r = ⌊√a⌋
     pub fn sqrt(rma: *Managed, a: *const Managed) !void {
-        const needed_limbs = calcSqrtLimbsBufferLen(a.bitCountAbs());
+        const bit_count = a.bitCountAbs();
 
+        if (bit_count == 0) {
+            try rma.set(0);
+            rma.setMetadata(a.isPositive(), rma.len());
+            return;
+        }
+
+        if (!a.isPositive()) {
+            return error.SqrtOfNegativeNumber;
+        }
+
+        const needed_limbs = calcSqrtLimbsBufferLen(bit_count);
         const limbs_buffer = try rma.allocator.alloc(Limb, needed_limbs);
         defer rma.allocator.free(limbs_buffer);
 
@@ -4167,7 +4178,7 @@ fn llpow(r: []Limb, a: []const Limb, b: u32, tmp_limbs: []Limb) void {
     // most significant bit set.
     // Square the result if the current bit is zero, square and multiply by a if
     // it is one.
-    var exp_bits = 32 - 1 - b_leading_zeros;
+    const exp_bits = 32 - 1 - b_leading_zeros;
     var exp = b << @as(u5, @intCast(1 + b_leading_zeros));
 
     var i: usize = 0;

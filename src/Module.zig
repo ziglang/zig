@@ -34,7 +34,7 @@ const isUpDir = @import("introspect.zig").isUpDir;
 const clang = @import("clang.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
-const BuiltinFn = @import("BuiltinFn.zig");
+const BuiltinFn = std.zig.BuiltinFn;
 
 comptime {
     @setEvalBranchQuota(4000);
@@ -132,10 +132,6 @@ failed_exports: std.AutoArrayHashMapUnmanaged(*Export, *ErrorMsg) = .{},
 /// are stored here.
 cimport_errors: std.AutoArrayHashMapUnmanaged(Decl.Index, std.zig.ErrorBundle) = .{},
 
-/// Candidates for deletion. After a semantic analysis update completes, this list
-/// contains Decls that need to be deleted if they end up having no references to them.
-deletion_set: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
-
 /// Key is the error name, index is the error tag value. Index 0 has a length-0 string.
 global_error_set: GlobalErrorSet = .{},
 
@@ -165,7 +161,7 @@ emit_h: ?*GlobalEmitH,
 
 test_functions: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
 
-global_assembly: std.AutoHashMapUnmanaged(Decl.Index, []u8) = .{},
+global_assembly: std.AutoArrayHashMapUnmanaged(Decl.Index, []u8) = .{},
 
 reference_table: std.AutoHashMapUnmanaged(Decl.Index, struct {
     referencer: Decl.Index,
@@ -438,9 +434,6 @@ pub const Decl = struct {
     /// with it. That means when `Decl` is destroyed, the cleanup code should additionally
     /// check if the value owns a `Namespace`, and destroy that too.
     owns_tv: bool,
-    /// This flag is set when this Decl is added to `Module.deletion_set`, and cleared
-    /// when removed.
-    deletion_flag: bool,
     /// Whether the corresponding AST decl has a `pub` keyword.
     is_pub: bool,
     /// Whether the corresponding AST decl has a `export` keyword.
@@ -463,13 +456,6 @@ pub const Decl = struct {
     /// What kind of a declaration is this.
     kind: Kind,
 
-    /// The shallow set of other decls whose typed_value could possibly change if this Decl's
-    /// typed_value is modified.
-    dependants: DepsTable = .{},
-    /// The shallow set of other decls whose typed_value changing indicates that this Decl's
-    /// typed_value may need to be regenerated.
-    dependencies: DepsTable = .{},
-
     pub const Kind = enum {
         @"usingnamespace",
         @"test",
@@ -478,27 +464,8 @@ pub const Decl = struct {
         anon,
     };
 
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn toOptional(i: Index) OptionalIndex {
-            return @as(OptionalIndex, @enumFromInt(@intFromEnum(i)));
-        }
-    };
-
-    pub const OptionalIndex = enum(u32) {
-        none = std.math.maxInt(u32),
-        _,
-
-        pub fn init(oi: ?Index) OptionalIndex {
-            return @as(OptionalIndex, @enumFromInt(@intFromEnum(oi orelse return .none)));
-        }
-
-        pub fn unwrap(oi: OptionalIndex) ?Index {
-            if (oi == .none) return null;
-            return @as(Index, @enumFromInt(@intFromEnum(oi)));
-        }
-    };
+    const Index = InternPool.DeclIndex;
+    const OptionalIndex = InternPool.OptionalDeclIndex;
 
     pub const DepsTable = std.AutoArrayHashMapUnmanaged(Decl.Index, DepType);
 
@@ -673,7 +640,7 @@ pub const Decl = struct {
     pub fn internValue(decl: *Decl, mod: *Module) Allocator.Error!InternPool.Index {
         assert(decl.has_tv);
         const ip_index = try decl.val.intern(decl.ty, mod);
-        decl.val = ip_index.toValue();
+        decl.val = Value.fromInterned(ip_index);
         return ip_index;
     }
 
@@ -842,27 +809,8 @@ pub const Namespace = struct {
     /// Value is whether the usingnamespace decl is marked `pub`.
     usingnamespace_set: std.AutoHashMapUnmanaged(Decl.Index, bool) = .{},
 
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn toOptional(i: Index) OptionalIndex {
-            return @as(OptionalIndex, @enumFromInt(@intFromEnum(i)));
-        }
-    };
-
-    pub const OptionalIndex = enum(u32) {
-        none = std.math.maxInt(u32),
-        _,
-
-        pub fn init(oi: ?Index) OptionalIndex {
-            return @as(OptionalIndex, @enumFromInt(@intFromEnum(oi orelse return .none)));
-        }
-
-        pub fn unwrap(oi: OptionalIndex) ?Index {
-            if (oi == .none) return null;
-            return @as(Index, @enumFromInt(@intFromEnum(oi)));
-        }
-    };
+    const Index = InternPool.NamespaceIndex;
+    const OptionalIndex = InternPool.OptionalNamespaceIndex;
 
     const DeclContext = struct {
         module: *Module,
@@ -879,47 +827,6 @@ pub const Namespace = struct {
             return a_decl.name == b_decl.name;
         }
     };
-
-    pub fn deinit(ns: *Namespace, mod: *Module) void {
-        ns.destroyDecls(mod);
-        ns.* = undefined;
-    }
-
-    pub fn destroyDecls(ns: *Namespace, mod: *Module) void {
-        const gpa = mod.gpa;
-
-        var decls = ns.decls;
-        ns.decls = .{};
-
-        for (decls.keys()) |decl_index| {
-            mod.destroyDecl(decl_index);
-        }
-        decls.deinit(gpa);
-
-        ns.usingnamespace_set.deinit(gpa);
-    }
-
-    pub fn deleteAllDecls(
-        ns: *Namespace,
-        mod: *Module,
-        outdated_decls: ?*std.AutoArrayHashMap(Decl.Index, void),
-    ) !void {
-        const gpa = mod.gpa;
-
-        var decls = ns.decls;
-        ns.decls = .{};
-
-        // TODO rework this code to not panic on OOM.
-        // (might want to coordinate with the clearDecl function)
-
-        for (decls.keys()) |child_decl| {
-            mod.clearDecl(child_decl, outdated_decls) catch @panic("out of memory");
-            mod.destroyDecl(child_decl);
-        }
-        decls.deinit(gpa);
-
-        ns.usingnamespace_set.deinit(gpa);
-    }
 
     // This renders e.g. "std.fs.Dir.OpenOptions"
     pub fn renderFullyQualifiedName(
@@ -1257,6 +1164,7 @@ pub const ErrorMsg = struct {
         comptime format: []const u8,
         args: anytype,
     ) !*ErrorMsg {
+        assert(src_loc.lazy != .unneeded);
         const err_msg = try gpa.create(ErrorMsg);
         errdefer gpa.destroy(err_msg);
         err_msg.* = try ErrorMsg.init(gpa, src_loc, format, args);
@@ -1521,6 +1429,14 @@ pub const SrcLoc = struct {
                 const end = start + @as(u32, @intCast(tree.tokenSlice(tok_index).len));
                 return Span{ .start = start, .end = end, .main = start };
             },
+            .node_offset_field_name_init => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const tok_index = tree.firstToken(node) - 2;
+                const start = tree.tokens.items(.start)[tok_index];
+                const end = start + @as(u32, @intCast(tree.tokenSlice(tok_index).len));
+                return Span{ .start = start, .end = end, .main = start };
+            },
             .node_offset_deref_ptr => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -1691,6 +1607,33 @@ pub const SrcLoc = struct {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
                 return nodeToSpan(tree, node_datas[node].rhs);
+            },
+            .array_cat_lhs, .array_cat_rhs => |cat| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(cat.array_cat_offset);
+                const node_datas = tree.nodes.items(.data);
+                const arr_node = if (src_loc.lazy == .array_cat_lhs)
+                    node_datas[node].lhs
+                else
+                    node_datas[node].rhs;
+
+                const node_tags = tree.nodes.items(.tag);
+                var buf: [2]Ast.Node.Index = undefined;
+                switch (node_tags[arr_node]) {
+                    .array_init_one,
+                    .array_init_one_comma,
+                    .array_init_dot_two,
+                    .array_init_dot_two_comma,
+                    .array_init_dot,
+                    .array_init_dot_comma,
+                    .array_init,
+                    .array_init_comma,
+                    => {
+                        const full = tree.fullArrayInit(&buf, arr_node).?.ast.elements;
+                        return nodeToSpan(tree, full[cat.elem_index]);
+                    },
+                    else => return nodeToSpan(tree, arr_node),
+                }
             },
 
             .node_offset_switch_operand => |node_off| {
@@ -2186,10 +2129,14 @@ pub const LazySrcLoc = union(enum) {
     /// The payload is offset from the containing Decl AST node.
     /// The source location points to the field name of:
     ///  * a field access expression (`a.b`), or
-    ///  * the callee of a method call (`a.b()`), or
-    ///  * the operand ("b" node) of a field initialization expression (`.a = b`), or
+    ///  * the callee of a method call (`a.b()`)
     /// The Decl is determined contextually.
     node_offset_field_name: i32,
+    /// The payload is offset from the containing Decl AST node.
+    /// The source location points to the field name of the operand ("b" node)
+    /// of a field initialization expression (`.a = b`)
+    /// The Decl is determined contextually.
+    node_offset_field_name_init: i32,
     /// The source location points to the pointer of a pointer deref expression,
     /// found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a pointer deref AST node. Next, navigate
@@ -2377,6 +2324,15 @@ pub const LazySrcLoc = union(enum) {
         /// The index of the parameter the source location points to.
         param_index: u32,
     },
+    array_cat_lhs: ArrayCat,
+    array_cat_rhs: ArrayCat,
+
+    const ArrayCat = struct {
+        /// Points to the array concat AST node.
+        array_cat_offset: i32,
+        /// The index of the element the source location points to.
+        elem_index: u32,
+    };
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
 
@@ -2428,6 +2384,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_slice_sentinel,
             .node_offset_call_func,
             .node_offset_field_name,
+            .node_offset_field_name_init,
             .node_offset_deref_ptr,
             .node_offset_asm_source,
             .node_offset_asm_ret_ty,
@@ -2466,6 +2423,8 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_store_operand,
             .for_input,
             .for_capture_from_input,
+            .array_cat_lhs,
+            .array_cat_rhs,
             => .{
                 .file_scope = decl.getFileScope(mod),
                 .parent_decl_node = decl.src_node,
@@ -2533,7 +2492,6 @@ pub fn deinit(mod: *Module) void {
         mod.embed_table.deinit(gpa);
     }
 
-    mod.deletion_set.deinit(gpa);
     mod.compile_log_text.deinit(gpa);
 
     mod.zig_cache_artifact_directory.handle.close();
@@ -2596,8 +2554,20 @@ pub fn deinit(mod: *Module) void {
 
     mod.test_functions.deinit(gpa);
 
+    for (mod.global_assembly.values()) |s| {
+        gpa.free(s);
+    }
     mod.global_assembly.deinit(gpa);
+
     mod.reference_table.deinit(gpa);
+
+    {
+        var it = mod.intern_pool.allocated_namespaces.iterator(0);
+        while (it.next()) |namespace| {
+            namespace.decls.deinit(gpa);
+            namespace.usingnamespace_set.deinit(gpa);
+        }
+    }
 
     mod.intern_pool.deinit(gpa);
     mod.tmp_hack_arena.deinit();
@@ -2612,22 +2582,10 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
     const ip = &mod.intern_pool;
 
     {
-        const decl = mod.declPtr(decl_index);
         _ = mod.test_functions.swapRemove(decl_index);
-        if (decl.deletion_flag) {
-            assert(mod.deletion_set.swapRemove(decl_index));
-        }
-        if (mod.global_assembly.fetchRemove(decl_index)) |kv| {
+        if (mod.global_assembly.fetchSwapRemove(decl_index)) |kv| {
             gpa.free(kv.value);
         }
-        if (decl.has_tv) {
-            if (decl.getOwnedInnerNamespaceIndex(mod).unwrap()) |i| {
-                mod.namespacePtr(i).destroyDecls(mod);
-                mod.destroyNamespace(i);
-            }
-        }
-        decl.dependants.deinit(gpa);
-        decl.dependencies.deinit(gpa);
     }
 
     ip.destroyDecl(gpa, decl_index);
@@ -3278,16 +3236,6 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             // prior to re-analysis.
             try mod.deleteDeclExports(decl_index);
 
-            // Dependencies will be re-discovered, so we remove them here prior to re-analysis.
-            for (decl.dependencies.keys()) |dep_index| {
-                const dep = mod.declPtr(dep_index);
-                dep.removeDependant(decl_index);
-                if (dep.dependants.count() == 0 and !dep.deletion_flag) {
-                    try mod.markDeclForDeletion(dep_index);
-                }
-            }
-            decl.dependencies.clearRetainingCapacity();
-
             break :blk true;
         },
 
@@ -3331,33 +3279,8 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     };
 
     if (subsequent_analysis) {
-        // Update all dependents which have at least this level of dependency.
-        // If our type remained the same and we're a function, only update
-        // decls which depend on our body; otherwise, update all dependents.
-        const update_level: Decl.DepType = if (!type_changed and decl.ty.zigTypeTag(mod) == .Fn) .function_body else .normal;
-
-        for (decl.dependants.keys(), decl.dependants.values()) |dep_index, dep_type| {
-            if (@intFromEnum(dep_type) < @intFromEnum(update_level)) continue;
-
-            const dep = mod.declPtr(dep_index);
-            switch (dep.analysis) {
-                .unreferenced => unreachable,
-                .in_progress => continue, // already doing analysis, ok
-                .outdated => continue, // already queued for update
-
-                .file_failure,
-                .dependency_failure,
-                .sema_failure,
-                .sema_failure_retryable,
-                .liveness_failure,
-                .codegen_failure,
-                .codegen_failure_retryable,
-                .complete,
-                => if (dep.generation != mod.generation) {
-                    try mod.markOutdatedDecl(dep_index);
-                },
-            }
-        }
+        _ = type_changed;
+        @panic("TODO re-implement incremental compilation");
     }
 }
 
@@ -3586,8 +3509,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     new_decl.ty = Type.type;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
-    new_decl.has_tv = true;
-    new_decl.owns_tv = true;
     new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
     new_decl.analysis = .in_progress;
     new_decl.generation = mod.generation;
@@ -3635,8 +3556,10 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         _ = try decl.internValue(mod);
     }
 
-    new_namespace.ty = struct_ty.toType();
-    new_decl.val = struct_ty.toValue();
+    new_namespace.ty = Type.fromInterned(struct_ty);
+    new_decl.val = Value.fromInterned(struct_ty);
+    new_decl.has_tv = true;
+    new_decl.owns_tv = true;
     new_decl.analysis = .complete;
 
     if (mod.comp.whole_cache_manifest) |whole_cache_manifest| {
@@ -3788,7 +3711,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
             return sema.fail(&block_scope, ty_src, "type {} has no namespace", .{ty.fmt(mod)});
         }
 
-        decl.ty = InternPool.Index.type_type.toType();
+        decl.ty = Type.fromInterned(InternPool.Index.type_type);
         decl.val = ty.toValue();
         decl.alignment = .none;
         decl.@"linksection" = .none;
@@ -3818,7 +3741,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
                 }
 
                 decl.ty = decl_tv.ty;
-                decl.val = (try decl_tv.val.intern(decl_tv.ty, mod)).toValue();
+                decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
                 // linksection, align, and addrspace were already set by Sema
                 decl.has_tv = true;
                 decl.owns_tv = owns_tv;
@@ -3871,7 +3794,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     }
 
     decl.ty = decl_tv.ty;
-    decl.val = (try decl_tv.val.intern(decl_tv.ty, mod)).toValue();
+    decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
     decl.alignment = blk: {
         const align_ref = decl.zirAlignRef(mod);
         if (align_ref == .none) break :blk .none;
@@ -3936,37 +3859,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     }
 
     return type_changed;
-}
-
-/// Returns the depender's index of the dependee.
-pub fn declareDeclDependency(mod: *Module, depender_index: Decl.Index, dependee_index: Decl.Index) !void {
-    return mod.declareDeclDependencyType(depender_index, dependee_index, .normal);
-}
-
-/// Returns the depender's index of the dependee.
-pub fn declareDeclDependencyType(mod: *Module, depender_index: Decl.Index, dependee_index: Decl.Index, dep_type: Decl.DepType) !void {
-    if (depender_index == dependee_index) return;
-
-    const depender = mod.declPtr(depender_index);
-    const dependee = mod.declPtr(dependee_index);
-
-    if (depender.dependencies.get(dependee_index)) |cur_type| {
-        if (@intFromEnum(cur_type) >= @intFromEnum(dep_type)) {
-            // We already have this dependency (or stricter) marked
-            return;
-        }
-    }
-
-    if (dependee.deletion_flag) {
-        dependee.deletion_flag = false;
-        assert(mod.deletion_set.swapRemove(dependee_index));
-    }
-
-    try depender.dependencies.ensureUnusedCapacity(mod.gpa, 1);
-    try dependee.dependants.ensureUnusedCapacity(mod.gpa, 1);
-
-    dependee.dependants.putAssumeCapacity(depender_index, dep_type);
-    depender.dependencies.putAssumeCapacity(dependee_index, dep_type);
 }
 
 pub const ImportFileResult = struct {
@@ -4195,7 +4087,7 @@ pub fn embedFile(
         }
         return error.ImportOutsideModulePath;
     };
-    errdefer gpa.free(sub_file_path);
+    defer gpa.free(sub_file_path);
 
     return newEmbedFile(mod, cur_file.mod, sub_file_path, resolved_path, gop, src_loc);
 }
@@ -4496,81 +4388,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     }
 }
 
-/// Make it as if the semantic analysis for this Decl never happened.
-pub fn clearDecl(
-    mod: *Module,
-    decl_index: Decl.Index,
-    outdated_decls: ?*std.AutoArrayHashMap(Decl.Index, void),
-) Allocator.Error!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const decl = mod.declPtr(decl_index);
-
-    const gpa = mod.gpa;
-    try mod.deletion_set.ensureUnusedCapacity(gpa, decl.dependencies.count());
-
-    if (outdated_decls) |map| {
-        _ = map.swapRemove(decl_index);
-        try map.ensureUnusedCapacity(decl.dependants.count());
-    }
-
-    // Remove itself from its dependencies.
-    for (decl.dependencies.keys()) |dep_index| {
-        const dep = mod.declPtr(dep_index);
-        dep.removeDependant(decl_index);
-        if (dep.dependants.count() == 0 and !dep.deletion_flag) {
-            // We don't recursively perform a deletion here, because during the update,
-            // another reference to it may turn up.
-            dep.deletion_flag = true;
-            mod.deletion_set.putAssumeCapacity(dep_index, {});
-        }
-    }
-    decl.dependencies.clearRetainingCapacity();
-
-    // Anything that depends on this deleted decl needs to be re-analyzed.
-    for (decl.dependants.keys()) |dep_index| {
-        const dep = mod.declPtr(dep_index);
-        dep.removeDependency(decl_index);
-        if (outdated_decls) |map| {
-            map.putAssumeCapacity(dep_index, {});
-        }
-    }
-    decl.dependants.clearRetainingCapacity();
-
-    if (mod.failed_decls.fetchSwapRemove(decl_index)) |kv| {
-        kv.value.destroy(gpa);
-    }
-    if (mod.cimport_errors.fetchSwapRemove(decl_index)) |kv| {
-        var errors = kv.value;
-        errors.deinit(gpa);
-    }
-    if (mod.emit_h) |emit_h| {
-        if (emit_h.failed_decls.fetchSwapRemove(decl_index)) |kv| {
-            kv.value.destroy(gpa);
-        }
-        assert(emit_h.decl_table.swapRemove(decl_index));
-    }
-    _ = mod.compile_log_decls.swapRemove(decl_index);
-    try mod.deleteDeclExports(decl_index);
-
-    if (decl.has_tv) {
-        if (decl.ty.isFnOrHasRuntimeBits(mod)) {
-            mod.comp.bin_file.freeDecl(decl_index);
-        }
-        if (decl.getOwnedInnerNamespace(mod)) |namespace| {
-            try namespace.deleteAllDecls(mod, outdated_decls);
-        }
-    }
-
-    if (decl.deletion_flag) {
-        decl.deletion_flag = false;
-        assert(mod.deletion_set.swapRemove(decl_index));
-    }
-
-    decl.analysis = .unreferenced;
-}
-
 /// This function is exclusively called for anonymous decls.
 /// All resources referenced by anonymous decls are owned by InternPool
 /// so there is no cleanup to do here.
@@ -4587,30 +4404,10 @@ pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
     }
 }
 
-/// We don't perform a deletion here, because this Decl or another one
-/// may end up referencing it before the update is complete.
-fn markDeclForDeletion(mod: *Module, decl_index: Decl.Index) !void {
-    const decl = mod.declPtr(decl_index);
-    decl.deletion_flag = true;
-    try mod.deletion_set.put(mod.gpa, decl_index, {});
-}
-
 /// Cancel the creation of an anon decl and delete any references to it.
 /// If other decls depend on this decl, they must be aborted first.
 pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
-    const decl = mod.declPtr(decl_index);
-
     assert(!mod.declIsRoot(decl_index));
-
-    // An aborted decl must not have dependants -- they must have
-    // been aborted first and removed from this list.
-    assert(decl.dependants.count() == 0);
-
-    for (decl.dependencies.keys()) |dep_index| {
-        const dep = mod.declPtr(dep_index);
-        dep.removeDependant(decl_index);
-    }
-
     mod.destroyDecl(decl_index);
 }
 
@@ -4712,7 +4509,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .owner_decl_index = decl_index,
         .func_index = func_index,
         .func_is_naked = fn_ty_info.cc == .Naked,
-        .fn_ret_ty = fn_ty_info.return_type.toType(),
+        .fn_ret_ty = Type.fromInterned(fn_ty_info.return_type),
         .fn_ret_ty_ies = null,
         .owner_func_index = func_index,
         .branch_quota = @max(func.branchQuota(ip).*, Sema.default_branch_quota),
@@ -4783,7 +4580,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         const param_ty = fn_ty_info.param_types.get(ip)[runtime_param_index];
         runtime_param_index += 1;
 
-        const opt_opv = sema.typeHasOnePossibleValue(param_ty.toType()) catch |err| switch (err) {
+        const opt_opv = sema.typeHasOnePossibleValue(Type.fromInterned(param_ty)) catch |err| switch (err) {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
@@ -4794,8 +4591,8 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
             gop.value_ptr.* = Air.internedToRef(opv.toIntern());
             continue;
         }
-        const arg_index: u32 = @intCast(sema.air_instructions.len);
-        gop.value_ptr.* = Air.indexToRef(arg_index);
+        const arg_index: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
+        gop.value_ptr.* = arg_index.toRef();
         inner_block.instructions.appendAssumeCapacity(arg_index);
         sema.air_instructions.appendAssumeCapacity(.{
             .tag = .arg,
@@ -4829,7 +4626,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         while (it.next()) |ptr_inst| {
             // The lack of a resolve_inferred_alloc means that this instruction
             // is unused so it just has to be a no-op.
-            sema.air_instructions.set(ptr_inst.*, .{
+            sema.air_instructions.set(@intFromEnum(ptr_inst.*), .{
                 .tag = .alloc,
                 .data = .{ .ty = Type.single_const_pointer_to_comptime_int },
             });
@@ -4862,7 +4659,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     const main_block_index = sema.addExtraAssumeCapacity(Air.Block{
         .body_len = @intCast(inner_block.instructions.items.len),
     });
-    sema.air_extra.appendSliceAssumeCapacity(inner_block.instructions.items);
+    sema.air_extra.appendSliceAssumeCapacity(@ptrCast(inner_block.instructions.items));
     sema.air_extra.items[@intFromEnum(Air.ExtraIndex.main_block)] = main_block_index;
 
     // Resolving inferred error sets is done *before* setting the function
@@ -4910,7 +4707,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     // Similarly, resolve any queued up types that were requested to be resolved for
     // the backends.
     for (sema.types_to_resolve.keys()) |ty| {
-        sema.resolveTypeFully(ty.toType()) catch |err| switch (err) {
+        sema.resolveTypeFully(Type.fromInterned(ty)) catch |err| switch (err) {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
@@ -4979,7 +4776,6 @@ pub fn allocateNewDecl(
         .@"linksection" = .none,
         .@"addrspace" = .generic,
         .analysis = .unreferenced,
-        .deletion_flag = false,
         .zir_decl_index = .none,
         .src_scope = src_scope,
         .generation = 0,
@@ -5477,52 +5273,6 @@ pub fn optionsSrc(mod: *Module, decl: *Decl, base_src: LazySrcLoc, wanted: []con
     return base_src;
 }
 
-/// Called from `performAllTheWork`, after all AstGen workers have finished,
-/// and before the main semantic analysis loop begins.
-pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
-    // Ultimately, the goal is to queue up `analyze_decl` tasks in the work queue
-    // for the outdated decls, but we cannot queue up the tasks until after
-    // we find out which ones have been deleted, otherwise there would be
-    // deleted Decl pointers in the work queue.
-    var outdated_decls = std.AutoArrayHashMap(Decl.Index, void).init(mod.gpa);
-    defer outdated_decls.deinit();
-    for (mod.import_table.values()) |file| {
-        try outdated_decls.ensureUnusedCapacity(file.outdated_decls.items.len);
-        for (file.outdated_decls.items) |decl_index| {
-            outdated_decls.putAssumeCapacity(decl_index, {});
-        }
-        file.outdated_decls.clearRetainingCapacity();
-
-        // Handle explicitly deleted decls from the source code. This is one of two
-        // places that Decl deletions happen. The other is in `Compilation`, after
-        // `performAllTheWork`, where we iterate over `Module.deletion_set` and
-        // delete Decls which are no longer referenced.
-        // If a Decl is explicitly deleted from source, and also no longer referenced,
-        // it may be both in this `deleted_decls` set, as well as in the
-        // `Module.deletion_set`. To avoid deleting it twice, we remove it from the
-        // deletion set at this time.
-        for (file.deleted_decls.items) |decl_index| {
-            const decl = mod.declPtr(decl_index);
-
-            // Remove from the namespace it resides in, preserving declaration order.
-            assert(decl.zir_decl_index != .none);
-            _ = mod.namespacePtr(decl.src_namespace).decls.orderedRemoveAdapted(
-                decl.name,
-                DeclAdapter{ .mod = mod },
-            );
-
-            try mod.clearDecl(decl_index, &outdated_decls);
-            mod.destroyDecl(decl_index);
-        }
-        file.deleted_decls.clearRetainingCapacity();
-    }
-    // Finally we can queue up re-analysis tasks after we have processed
-    // the deleted decls.
-    for (outdated_decls.keys()) |key| {
-        try mod.markOutdatedDecl(key);
-    }
-}
-
 /// Called from `Compilation.update`, after everything is done, just before
 /// reporting compile errors. In this function we emit exported symbol collision
 /// errors and communicate exported symbols to the linker backend.
@@ -5642,10 +5392,10 @@ pub fn populateTestFunctions(
                 });
                 const test_name_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .none, .{
                     .ty = test_name_decl_ty,
-                    .val = (try mod.intern(.{ .aggregate = .{
+                    .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
                         .ty = test_name_decl_ty.toIntern(),
                         .storage = .{ .bytes = test_decl_name },
-                    } })).toValue(),
+                    } }))),
                 });
                 break :n test_name_decl_index;
             };
@@ -5689,14 +5439,11 @@ pub fn populateTestFunctions(
         });
         const array_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .none, .{
             .ty = array_decl_ty,
-            .val = (try mod.intern(.{ .aggregate = .{
+            .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = array_decl_ty.toIntern(),
                 .storage = .{ .elems = test_fn_vals },
-            } })).toValue(),
+            } }))),
         });
-        for (array_decl_dependencies.items) |array_decl_dependency| {
-            try mod.declareDeclDependency(array_decl_index, array_decl_dependency);
-        }
 
         break :d array_decl_index;
     };
@@ -5801,7 +5548,7 @@ pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
         .func => |func| try mod.markDeclIndexAlive(func.owner_decl),
         .error_union => |error_union| switch (error_union.val) {
             .err_name => {},
-            .payload => |payload| try mod.markReferencedDeclsAlive(payload.toValue()),
+            .payload => |payload| try mod.markReferencedDeclsAlive(Value.fromInterned(payload)),
         },
         .ptr => |ptr| {
             switch (ptr.addr) {
@@ -5809,17 +5556,17 @@ pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
                 .anon_decl => {},
                 .mut_decl => |mut_decl| try mod.markDeclIndexAlive(mut_decl.decl),
                 .int, .comptime_field => {},
-                .eu_payload, .opt_payload => |parent| try mod.markReferencedDeclsAlive(parent.toValue()),
-                .elem, .field => |base_index| try mod.markReferencedDeclsAlive(base_index.base.toValue()),
+                .eu_payload, .opt_payload => |parent| try mod.markReferencedDeclsAlive(Value.fromInterned(parent)),
+                .elem, .field => |base_index| try mod.markReferencedDeclsAlive(Value.fromInterned(base_index.base)),
             }
-            if (ptr.len != .none) try mod.markReferencedDeclsAlive(ptr.len.toValue());
+            if (ptr.len != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(ptr.len));
         },
-        .opt => |opt| if (opt.val != .none) try mod.markReferencedDeclsAlive(opt.val.toValue()),
+        .opt => |opt| if (opt.val != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(opt.val)),
         .aggregate => |aggregate| for (aggregate.storage.values()) |elem|
-            try mod.markReferencedDeclsAlive(elem.toValue()),
+            try mod.markReferencedDeclsAlive(Value.fromInterned(elem)),
         .un => |un| {
-            if (un.tag != .none) try mod.markReferencedDeclsAlive(un.tag.toValue());
-            try mod.markReferencedDeclsAlive(un.val.toValue());
+            if (un.tag != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(un.tag));
+            try mod.markReferencedDeclsAlive(Value.fromInterned(un.val));
         },
         else => {},
     }
@@ -5906,14 +5653,14 @@ pub fn intern(mod: *Module, key: InternPool.Key) Allocator.Error!InternPool.Inde
 
 /// Shortcut for calling `intern_pool.getCoerced`.
 pub fn getCoerced(mod: *Module, val: Value, new_ty: Type) Allocator.Error!Value {
-    return (try mod.intern_pool.getCoerced(mod.gpa, val.toIntern(), new_ty.toIntern())).toValue();
+    return Value.fromInterned((try mod.intern_pool.getCoerced(mod.gpa, val.toIntern(), new_ty.toIntern())));
 }
 
 pub fn intType(mod: *Module, signedness: std.builtin.Signedness, bits: u16) Allocator.Error!Type {
-    return (try intern(mod, .{ .int_type = .{
+    return Type.fromInterned((try intern(mod, .{ .int_type = .{
         .signedness = signedness,
         .bits = bits,
-    } })).toType();
+    } })));
 }
 
 pub fn errorIntType(mod: *Module) std.mem.Allocator.Error!Type {
@@ -5922,17 +5669,17 @@ pub fn errorIntType(mod: *Module) std.mem.Allocator.Error!Type {
 
 pub fn arrayType(mod: *Module, info: InternPool.Key.ArrayType) Allocator.Error!Type {
     const i = try intern(mod, .{ .array_type = info });
-    return i.toType();
+    return Type.fromInterned(i);
 }
 
 pub fn vectorType(mod: *Module, info: InternPool.Key.VectorType) Allocator.Error!Type {
     const i = try intern(mod, .{ .vector_type = info });
-    return i.toType();
+    return Type.fromInterned(i);
 }
 
 pub fn optionalType(mod: *Module, child_type: InternPool.Index) Allocator.Error!Type {
     const i = try intern(mod, .{ .opt_type = child_type });
-    return i.toType();
+    return Type.fromInterned(i);
 }
 
 pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type {
@@ -5945,7 +5692,7 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
     // pointee type needs to be resolved more, that needs to be done before calling
     // this ptr() function.
     if (info.flags.alignment != .none and
-        info.flags.alignment == info.child.toType().abiAlignment(mod))
+        info.flags.alignment == Type.fromInterned(info.child).abiAlignment(mod))
     {
         canon_info.flags.alignment = .none;
     }
@@ -5955,7 +5702,7 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
         // we change it to 0 here. If this causes an assertion trip, the pointee type
         // needs to be resolved before calling this ptr() function.
         .none => if (info.packed_offset.host_size != 0) {
-            const elem_bit_size = info.child.toType().bitSize(mod);
+            const elem_bit_size = Type.fromInterned(info.child).bitSize(mod);
             assert(info.packed_offset.bit_offset + elem_bit_size <= info.packed_offset.host_size * 8);
             if (info.packed_offset.host_size * 8 == elem_bit_size) {
                 canon_info.packed_offset.host_size = 0;
@@ -5965,7 +5712,7 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
         _ => assert(@intFromEnum(info.flags.vector_index) < info.packed_offset.host_size),
     }
 
-    return (try intern(mod, .{ .ptr_type = canon_info })).toType();
+    return Type.fromInterned((try intern(mod, .{ .ptr_type = canon_info })));
 }
 
 pub fn singleMutPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
@@ -5998,26 +5745,26 @@ pub fn adjustPtrTypeChild(mod: *Module, ptr_ty: Type, new_child: Type) Allocator
 }
 
 pub fn funcType(mod: *Module, key: InternPool.GetFuncTypeKey) Allocator.Error!Type {
-    return (try mod.intern_pool.getFuncType(mod.gpa, key)).toType();
+    return Type.fromInterned((try mod.intern_pool.getFuncType(mod.gpa, key)));
 }
 
 /// Use this for `anyframe->T` only.
 /// For `anyframe`, use the `InternPool.Index.anyframe` tag directly.
 pub fn anyframeType(mod: *Module, payload_ty: Type) Allocator.Error!Type {
-    return (try intern(mod, .{ .anyframe_type = payload_ty.toIntern() })).toType();
+    return Type.fromInterned((try intern(mod, .{ .anyframe_type = payload_ty.toIntern() })));
 }
 
 pub fn errorUnionType(mod: *Module, error_set_ty: Type, payload_ty: Type) Allocator.Error!Type {
-    return (try intern(mod, .{ .error_union_type = .{
+    return Type.fromInterned((try intern(mod, .{ .error_union_type = .{
         .error_set_type = error_set_ty.toIntern(),
         .payload_type = payload_ty.toIntern(),
-    } })).toType();
+    } })));
 }
 
 pub fn singleErrorSetType(mod: *Module, name: InternPool.NullTerminatedString) Allocator.Error!Type {
     const names: *const [1]InternPool.NullTerminatedString = &name;
     const new_ty = try mod.intern_pool.getErrorSetType(mod.gpa, names);
-    return new_ty.toType();
+    return Type.fromInterned(new_ty);
 }
 
 /// Sorts `names` in place.
@@ -6032,7 +5779,7 @@ pub fn errorSetFromUnsortedNames(
         InternPool.NullTerminatedString.indexLessThan,
     );
     const new_ty = try mod.intern_pool.getErrorSetType(mod.gpa, names);
-    return new_ty.toType();
+    return Type.fromInterned(new_ty);
 }
 
 /// Supports only pointers, not pointer-like optionals.
@@ -6042,7 +5789,7 @@ pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
         .ty = ty.toIntern(),
         .addr = .{ .int = (try mod.intValue_u64(Type.usize, x)).toIntern() },
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 /// Creates an enum tag value based on the integer tag value.
@@ -6055,7 +5802,7 @@ pub fn enumValue(mod: *Module, ty: Type, tag_int: InternPool.Index) Allocator.Er
         .ty = ty.toIntern(),
         .int = tag_int,
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 /// Creates an enum tag value based on the field index according to source code
@@ -6067,23 +5814,23 @@ pub fn enumValueFieldIndex(mod: *Module, ty: Type, field_index: u32) Allocator.E
 
     if (enum_type.values.len == 0) {
         // Auto-numbered fields.
-        return (try ip.get(gpa, .{ .enum_tag = .{
+        return Value.fromInterned((try ip.get(gpa, .{ .enum_tag = .{
             .ty = ty.toIntern(),
             .int = try ip.get(gpa, .{ .int = .{
                 .ty = enum_type.tag_ty,
                 .storage = .{ .u64 = field_index },
             } }),
-        } })).toValue();
+        } })));
     }
 
-    return (try ip.get(gpa, .{ .enum_tag = .{
+    return Value.fromInterned((try ip.get(gpa, .{ .enum_tag = .{
         .ty = ty.toIntern(),
         .int = enum_type.values.get(ip)[field_index],
-    } })).toValue();
+    } })));
 }
 
 pub fn undefValue(mod: *Module, ty: Type) Allocator.Error!Value {
-    return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+    return Value.fromInterned((try mod.intern(.{ .undef = ty.toIntern() })));
 }
 
 pub fn undefRef(mod: *Module, ty: Type) Allocator.Error!Air.Inst.Ref {
@@ -6107,7 +5854,7 @@ pub fn intValue_big(mod: *Module, ty: Type, x: BigIntConst) Allocator.Error!Valu
         .ty = ty.toIntern(),
         .storage = .{ .big_int = x },
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 pub fn intValue_u64(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
@@ -6115,7 +5862,7 @@ pub fn intValue_u64(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
         .ty = ty.toIntern(),
         .storage = .{ .u64 = x },
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 pub fn intValue_i64(mod: *Module, ty: Type, x: i64) Allocator.Error!Value {
@@ -6123,7 +5870,7 @@ pub fn intValue_i64(mod: *Module, ty: Type, x: i64) Allocator.Error!Value {
         .ty = ty.toIntern(),
         .storage = .{ .i64 = x },
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 pub fn unionValue(mod: *Module, union_ty: Type, tag: Value, val: Value) Allocator.Error!Value {
@@ -6132,7 +5879,7 @@ pub fn unionValue(mod: *Module, union_ty: Type, tag: Value, val: Value) Allocato
         .tag = tag.toIntern(),
         .val = val.toIntern(),
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 /// This function casts the float representation down to the representation of the type, potentially
@@ -6150,7 +5897,7 @@ pub fn floatValue(mod: *Module, ty: Type, x: anytype) Allocator.Error!Value {
         .ty = ty.toIntern(),
         .storage = storage,
     } });
-    return i.toValue();
+    return Value.fromInterned(i);
 }
 
 pub fn nullValue(mod: *Module, opt_ty: Type) Allocator.Error!Value {
@@ -6160,7 +5907,7 @@ pub fn nullValue(mod: *Module, opt_ty: Type) Allocator.Error!Value {
         .ty = opt_ty.toIntern(),
         .val = .none,
     } });
-    return result.toValue();
+    return Value.fromInterned(result);
 }
 
 pub fn smallestUnsignedInt(mod: *Module, max: u64) Allocator.Error!Type {
@@ -6217,10 +5964,10 @@ pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
             return @as(u16, @intCast(big.bitCountTwosComp()));
         },
         .lazy_align => |lazy_ty| {
-            return Type.smallestUnsignedBits(lazy_ty.toType().abiAlignment(mod).toByteUnits(0)) + @intFromBool(sign);
+            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiAlignment(mod).toByteUnits(0)) + @intFromBool(sign);
         },
         .lazy_size => |lazy_ty| {
-            return Type.smallestUnsignedBits(lazy_ty.toType().abiSize(mod)) + @intFromBool(sign);
+            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiSize(mod)) + @intFromBool(sign);
         },
     }
 }
@@ -6505,14 +6252,14 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
     var payload_size: u64 = 0;
     var payload_align: Alignment = .@"1";
     for (u.field_types.get(ip), 0..) |field_ty, i| {
-        if (!field_ty.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
+        if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
 
         const explicit_align = u.fieldAlign(ip, @intCast(i));
         const field_align = if (explicit_align != .none)
             explicit_align
         else
-            field_ty.toType().abiAlignment(mod);
-        const field_size = field_ty.toType().abiSize(mod);
+            Type.fromInterned(field_ty).abiAlignment(mod);
+        const field_size = Type.fromInterned(field_ty).abiSize(mod);
         if (field_size > payload_size) {
             payload_size = field_size;
             biggest_field = @intCast(i);
@@ -6524,7 +6271,7 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
         }
     }
     const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
-    if (!have_tag or !u.enum_tag_ty.toType().hasRuntimeBits(mod)) {
+    if (!have_tag or !Type.fromInterned(u.enum_tag_ty).hasRuntimeBits(mod)) {
         return .{
             .abi_size = payload_align.forward(payload_size),
             .abi_align = payload_align,
@@ -6539,8 +6286,8 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
         };
     }
 
-    const tag_size = u.enum_tag_ty.toType().abiSize(mod);
-    const tag_align = u.enum_tag_ty.toType().abiAlignment(mod).max(.@"1");
+    const tag_size = Type.fromInterned(u.enum_tag_ty).abiSize(mod);
+    const tag_align = Type.fromInterned(u.enum_tag_ty).abiAlignment(mod).max(.@"1");
     return .{
         .abi_size = u.size,
         .abi_align = tag_align.max(payload_align),
@@ -6564,9 +6311,9 @@ pub fn unionAbiAlignment(mod: *Module, u: InternPool.UnionType) Alignment {
     const ip = &mod.intern_pool;
     const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
     var max_align: Alignment = .none;
-    if (have_tag) max_align = u.enum_tag_ty.toType().abiAlignment(mod);
+    if (have_tag) max_align = Type.fromInterned(u.enum_tag_ty).abiAlignment(mod);
     for (u.field_types.get(ip), 0..) |field_ty, field_index| {
-        if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+        if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
 
         const field_align = mod.unionFieldNormalAlignment(u, @intCast(field_index));
         max_align = max_align.max(field_align);
@@ -6581,7 +6328,7 @@ pub fn unionFieldNormalAlignment(mod: *Module, u: InternPool.UnionType, field_in
     const ip = &mod.intern_pool;
     const field_align = u.fieldAlign(ip, field_index);
     if (field_align != .none) return field_align;
-    const field_ty = u.field_types.get(ip)[field_index].toType();
+    const field_ty = Type.fromInterned(u.field_types.get(ip)[field_index]);
     return field_ty.abiAlignment(mod);
 }
 
@@ -6649,7 +6396,7 @@ pub fn structPackedFieldBitOffset(
         if (i == field_index) {
             return @intCast(bit_sum);
         }
-        const field_ty = struct_type.field_types.get(ip)[i].toType();
+        const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
         bit_sum += field_ty.bitSize(mod);
     }
     unreachable; // index out of bounds

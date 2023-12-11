@@ -297,8 +297,6 @@ test "RwLock - concurrent access" {
     if (builtin.single_threaded)
         return;
 
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const num_writers: usize = 2;
     const num_readers: usize = 4;
     const num_writes: usize = 10000;
@@ -309,7 +307,7 @@ test "RwLock - concurrent access" {
 
         rwl: RwLock = .{},
         writes: usize = 0,
-        reads: std.atomic.Atomic(usize) = std.atomic.Atomic(usize).init(0),
+        reads: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 
         term1: usize = 0,
         term2: usize = 0,

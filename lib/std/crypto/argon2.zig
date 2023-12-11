@@ -565,7 +565,7 @@ const PhcFormatHasher = struct {
         const expected_hash = hash_result.hash.constSlice();
         var hash_buf: [max_hash_len]u8 = undefined;
         if (expected_hash.len > hash_buf.len) return HasherError.InvalidEncoding;
-        var hash = hash_buf[0..expected_hash.len];
+        const hash = hash_buf[0..expected_hash.len];
 
         try kdf(allocator, hash, password, hash_result.salt.constSlice(), params, mode);
         if (!mem.eql(u8, hash, expected_hash)) return HasherError.PasswordVerificationFailed;
@@ -896,8 +896,6 @@ test "kdf" {
 }
 
 test "phc format hasher" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const allocator = std.testing.allocator;
     const password = "testpass";
 
@@ -913,8 +911,6 @@ test "phc format hasher" {
 }
 
 test "password hash and password verify" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const allocator = std.testing.allocator;
     const password = "testpass";
 

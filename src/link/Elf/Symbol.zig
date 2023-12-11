@@ -42,7 +42,8 @@ pub fn outputShndx(symbol: Symbol) ?u16 {
     return symbol.output_section_index;
 }
 
-pub fn isLocal(symbol: Symbol) bool {
+pub fn isLocal(symbol: Symbol, elf_file: *Elf) bool {
+    if (elf_file.isRelocatable()) return symbol.elfSym(elf_file).st_bind() == elf.STB_LOCAL;
     return !(symbol.flags.import or symbol.flags.@"export");
 }
 
@@ -58,7 +59,11 @@ pub fn @"type"(symbol: Symbol, elf_file: *Elf) u4 {
 }
 
 pub fn name(symbol: Symbol, elf_file: *Elf) [:0]const u8 {
-    return elf_file.strtab.getAssumeExists(symbol.name_offset);
+    if (symbol.flags.global) return elf_file.strings.getAssumeExists(symbol.name_offset);
+    const file_ptr = symbol.file(elf_file).?;
+    return switch (file_ptr) {
+        inline else => |x| x.getString(symbol.name_offset),
+    };
 }
 
 pub fn atom(symbol: Symbol, elf_file: *Elf) ?*Atom {
@@ -71,11 +76,10 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
 
 pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
     const file_ptr = symbol.file(elf_file).?;
-    switch (file_ptr) {
-        .zig_object => |x| return x.elfSym(symbol.esym_index).*,
-        .linker_defined => |x| return x.symtab.items[symbol.esym_index],
-        inline else => |x| return x.symtab[symbol.esym_index],
-    }
+    return switch (file_ptr) {
+        .zig_object => |x| x.elfSym(symbol.esym_index).*,
+        inline else => |x| x.symtab.items[symbol.esym_index],
+    };
 }
 
 pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
@@ -101,6 +105,24 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf
         return symbol.pltAddress(elf_file);
     }
     return symbol.value;
+}
+
+pub fn outputSymtabIndex(symbol: Symbol, elf_file: *Elf) ?u32 {
+    if (!symbol.flags.output_symtab) return null;
+    const file_ptr = symbol.file(elf_file).?;
+    const symtab_ctx = switch (file_ptr) {
+        inline else => |x| x.output_symtab_ctx,
+    };
+    const idx = symbol.extra(elf_file).?.symtab;
+    return if (symbol.isLocal(elf_file)) idx + symtab_ctx.ilocal else idx + symtab_ctx.iglobal;
+}
+
+pub fn setOutputSymtabIndex(symbol: *Symbol, index: u32, elf_file: *Elf) !void {
+    if (symbol.extra(elf_file)) |extras| {
+        var new_extras = extras;
+        new_extras.symtab = index;
+        symbol.setExtra(new_extras, elf_file);
+    } else try symbol.addExtra(.{ .symtab = index }, elf_file);
 }
 
 pub fn gotAddress(symbol: Symbol, elf_file: *Elf) u64 {
@@ -164,6 +186,8 @@ const GetOrCreateZigGotEntryResult = struct {
 };
 
 pub fn getOrCreateZigGotEntry(symbol: *Symbol, symbol_index: Index, elf_file: *Elf) !GetOrCreateZigGotEntryResult {
+    assert(!elf_file.isRelocatable());
+    assert(symbol.flags.needs_zig_got);
     if (symbol.flags.has_zig_got) return .{ .found_existing = true, .index = symbol.extra(elf_file).?.zig_got };
     const index = try elf_file.zig_got.addSymbol(symbol_index, elf_file);
     return .{ .found_existing = false, .index = index };
@@ -201,14 +225,11 @@ pub fn setExtra(symbol: Symbol, extras: Extra, elf_file: *Elf) void {
 }
 
 pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
-    const file_ptr = symbol.file(elf_file) orelse {
-        out.* = Elf.null_sym;
-        return;
-    };
+    const file_ptr = symbol.file(elf_file).?;
     const esym = symbol.elfSym(elf_file);
     const st_type = symbol.type(elf_file);
     const st_bind: u8 = blk: {
-        if (symbol.isLocal()) break :blk 0;
+        if (symbol.isLocal(elf_file)) break :blk 0;
         if (symbol.flags.weak) break :blk elf.STB_WEAK;
         if (file_ptr == .shared_object) break :blk elf.STB_GLOBAL;
         break :blk esym.st_bind();
@@ -216,8 +237,8 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
     const st_shndx = blk: {
         if (symbol.flags.has_copy_rel) break :blk elf_file.copy_rel_section_index.?;
         if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
-        if (symbol.atom(elf_file) == null and file_ptr != .linker_defined)
-            break :blk elf.SHN_ABS;
+        if (elf_file.isRelocatable() and esym.st_shndx == elf.SHN_COMMON) break :blk elf.SHN_COMMON;
+        if (symbol.atom(elf_file) == null and file_ptr != .linker_defined) break :blk elf.SHN_ABS;
         break :blk symbol.outputShndx() orelse elf.SHN_UNDEF;
     };
     const st_value = blk: {
@@ -226,20 +247,17 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
             if (symbol.flags.is_canonical) break :blk symbol.address(.{}, elf_file);
             break :blk 0;
         }
-        if (st_shndx == elf.SHN_ABS) break :blk symbol.value;
+        if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.value;
         const shdr = &elf_file.shdrs.items[st_shndx];
         if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
             break :blk symbol.value - elf_file.tlsAddress();
         break :blk symbol.value;
     };
-    out.* = .{
-        .st_name = symbol.name_offset,
-        .st_info = (st_bind << 4) | st_type,
-        .st_other = esym.st_other,
-        .st_shndx = st_shndx,
-        .st_value = st_value,
-        .st_size = esym.st_size,
-    };
+    out.st_info = (st_bind << 4) | st_type;
+    out.st_other = esym.st_other;
+    out.st_shndx = st_shndx;
+    out.st_value = st_value;
+    out.st_size = esym.st_size;
 }
 
 pub fn format(
@@ -340,6 +358,12 @@ pub const Flags = packed struct {
     /// Whether this symbol is weak.
     weak: bool = false,
 
+    /// Whether the symbol has its name interned in global symbol
+    /// resolver table.
+    /// This happens for any symbol that is considered a global
+    /// symbol, but is not necessarily an import or export.
+    global: bool = false,
+
     /// Whether the symbol makes into the output symtab.
     output_symtab: bool = false,
 
@@ -373,7 +397,13 @@ pub const Flags = packed struct {
     has_tlsdesc: bool = false,
 
     /// Whether the symbol contains .zig.got indirection.
+    needs_zig_got: bool = false,
     has_zig_got: bool = false,
+
+    /// Whether the symbol is a TLS variable.
+    /// TODO this is really not needed if only we operated on esyms between
+    /// codegen and ZigObject.
+    is_tls: bool = false,
 };
 
 pub const Extra = struct {
@@ -381,6 +411,7 @@ pub const Extra = struct {
     plt: u32 = 0,
     plt_got: u32 = 0,
     dynamic: u32 = 0,
+    symtab: u32 = 0,
     copy_rel: u32 = 0,
     tlsgd: u32 = 0,
     gottp: u32 = 0,

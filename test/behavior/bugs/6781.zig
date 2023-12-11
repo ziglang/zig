@@ -51,7 +51,8 @@ pub const JournalHeader = packed struct {
             return @as(u128, @bitCast(target[0..hash_chain_root_size].*));
         } else {
             var array = target[0..hash_chain_root_size].*;
-            return @as(u128, @bitCast(array));
+            _ = &array;
+            return @bitCast(array);
         }
     }
 

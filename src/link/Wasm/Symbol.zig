@@ -34,6 +34,7 @@ pub const Tag = enum {
     /// synthetic kind used by the wasm linker during incremental compilation
     /// to notate a symbol has been freed, but still lives in the symbol list.
     dead,
+    undefined,
 
     /// From a given symbol tag, returns the `ExternalType`
     /// Asserts the given tag can be represented as an external type.
@@ -45,6 +46,7 @@ pub const Tag = enum {
             .section => unreachable, // Not an external type
             .event => unreachable, // Not an external type
             .dead => unreachable, // Dead symbols should not be referenced
+            .undefined => unreachable,
             .table => .table,
         };
     }
@@ -77,6 +79,9 @@ pub const Flag = enum(u32) {
     WASM_SYM_NO_STRIP = 0x80,
     /// Indicates a symbol is TLS
     WASM_SYM_TLS = 0x100,
+    /// Zig specific flag. Uses the most significant bit of the flag to annotate whether a symbol is
+    /// alive or not. Dead symbols are allowed to be garbage collected.
+    alive = 0x80000000,
 };
 
 /// Verifies if the given symbol should be imported from the
@@ -88,6 +93,23 @@ pub fn requiresImport(symbol: Symbol) bool {
     // if (symbol.isDefined() and symbol.isWeak()) return true; //TODO: Only when building shared lib
 
     return true;
+}
+
+/// Marks a symbol as 'alive', ensuring the garbage collector will not collect the trash.
+pub fn mark(symbol: *Symbol) void {
+    symbol.flags |= @intFromEnum(Flag.alive);
+}
+
+pub fn unmark(symbol: *Symbol) void {
+    symbol.flags &= ~@intFromEnum(Flag.alive);
+}
+
+pub fn isAlive(symbol: Symbol) bool {
+    return symbol.flags & @intFromEnum(Flag.alive) != 0;
+}
+
+pub fn isDead(symbol: Symbol) bool {
+    return symbol.flags & @intFromEnum(Flag.alive) == 0;
 }
 
 pub fn isTLS(symbol: Symbol) bool {
@@ -169,6 +191,7 @@ pub fn format(symbol: Symbol, comptime fmt: []const u8, options: std.fmt.FormatO
         .event => 'E',
         .table => 'T',
         .dead => '-',
+        .undefined => unreachable,
     };
     const visible: []const u8 = if (symbol.isVisible()) "yes" else "no";
     const binding: []const u8 = if (symbol.isLocal()) "local" else "global";

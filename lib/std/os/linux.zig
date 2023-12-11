@@ -1326,6 +1326,7 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
                     next_unsent = i + 1;
                     break;
                 }
+                size += iov.iov_len;
             }
         }
         if (next_unsent < kvlen or next_unsent == 0) { // want to make sure at least one syscall occurs (e.g. to trigger MSG.EOR)
@@ -3614,6 +3615,14 @@ pub const inotify_event = extern struct {
     cookie: u32,
     len: u32,
     //name: [?]u8,
+
+    // if an event is returned for a directory or file inside the directory being watched
+    // returns the name of said directory/file
+    // returns `null` if the directory/file is the one being watched
+    pub fn getName(self: *const inotify_event) ?[:0]const u8 {
+        if (self.len == 0) return null;
+        return std.mem.span(@as([*:0]const u8, @ptrCast(self)) + @sizeOf(inotify_event));
+    }
 };
 
 pub const dirent64 = extern struct {

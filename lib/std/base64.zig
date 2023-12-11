@@ -239,7 +239,7 @@ pub const Base64Decoder = struct {
             if ((bits & invalid_char_tst) != 0) return error.InvalidCharacter;
             std.mem.writeInt(u32, dest[dest_idx..][0..4], bits, .little);
         }
-        var remaining = source[fast_src_idx..];
+        const remaining = source[fast_src_idx..];
         for (remaining, fast_src_idx..) |c, src_idx| {
             const d = decoder.char_to_index[c];
             if (d == invalid_char) {
@@ -259,7 +259,7 @@ pub const Base64Decoder = struct {
             return error.InvalidPadding;
         }
         if (leftover_idx == null) return;
-        var leftover = source[leftover_idx.?..];
+        const leftover = source[leftover_idx.?..];
         if (decoder.pad_char) |pad_char| {
             const padding_len = acc_len / 2;
             var padding_chars: usize = 0;
@@ -338,7 +338,7 @@ pub const Base64DecoderWithIgnore = struct {
             if (decoder.pad_char != null and padding_len != 0) return error.InvalidPadding;
             return dest_idx;
         }
-        var leftover = source[leftover_idx.?..];
+        const leftover = source[leftover_idx.?..];
         if (decoder.pad_char) |pad_char| {
             var padding_chars: usize = 0;
             for (leftover) |c| {
@@ -355,8 +355,6 @@ pub const Base64DecoderWithIgnore = struct {
 };
 
 test "base64" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     @setEvalBranchQuota(8000);
     try testBase64();
     try comptime testAllApis(standard, "comptime", "Y29tcHRpbWU=");
@@ -377,8 +375,6 @@ test "base64 padding dest overflow" {
 }
 
 test "base64 url_safe_no_pad" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     @setEvalBranchQuota(8000);
     try testBase64UrlSafeNoPad();
     try comptime testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
@@ -487,7 +483,7 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
     // Base64Decoder
     {
         var buffer: [0x100]u8 = undefined;
-        var decoded = buffer[0..try codecs.Decoder.calcSizeForSlice(expected_encoded)];
+        const decoded = buffer[0..try codecs.Decoder.calcSizeForSlice(expected_encoded)];
         try codecs.Decoder.decode(decoded, expected_encoded);
         try testing.expectEqualSlices(u8, expected_decoded, decoded);
     }
@@ -496,8 +492,8 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
     {
         const decoder_ignore_nothing = codecs.decoderWithIgnore("");
         var buffer: [0x100]u8 = undefined;
-        var decoded = buffer[0..try decoder_ignore_nothing.calcSizeUpperBound(expected_encoded.len)];
-        var written = try decoder_ignore_nothing.decode(decoded, expected_encoded);
+        const decoded = buffer[0..try decoder_ignore_nothing.calcSizeUpperBound(expected_encoded.len)];
+        const written = try decoder_ignore_nothing.decode(decoded, expected_encoded);
         try testing.expect(written <= decoded.len);
         try testing.expectEqualSlices(u8, expected_decoded, decoded[0..written]);
     }
@@ -506,8 +502,8 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
 fn testDecodeIgnoreSpace(codecs: Codecs, expected_decoded: []const u8, encoded: []const u8) !void {
     const decoder_ignore_space = codecs.decoderWithIgnore(" ");
     var buffer: [0x100]u8 = undefined;
-    var decoded = buffer[0..try decoder_ignore_space.calcSizeUpperBound(encoded.len)];
-    var written = try decoder_ignore_space.decode(decoded, encoded);
+    const decoded = buffer[0..try decoder_ignore_space.calcSizeUpperBound(encoded.len)];
+    const written = try decoder_ignore_space.decode(decoded, encoded);
     try testing.expectEqualSlices(u8, expected_decoded, decoded[0..written]);
 }
 
@@ -515,7 +511,7 @@ fn testError(codecs: Codecs, encoded: []const u8, expected_err: anyerror) !void 
     const decoder_ignore_space = codecs.decoderWithIgnore(" ");
     var buffer: [0x100]u8 = undefined;
     if (codecs.Decoder.calcSizeForSlice(encoded)) |decoded_size| {
-        var decoded = buffer[0..decoded_size];
+        const decoded = buffer[0..decoded_size];
         if (codecs.Decoder.decode(decoded, encoded)) |_| {
             return error.ExpectedError;
         } else |err| if (err != expected_err) return err;
@@ -529,7 +525,7 @@ fn testError(codecs: Codecs, encoded: []const u8, expected_err: anyerror) !void 
 fn testNoSpaceLeftError(codecs: Codecs, encoded: []const u8) !void {
     const decoder_ignore_space = codecs.decoderWithIgnore(" ");
     var buffer: [0x100]u8 = undefined;
-    var decoded = buffer[0 .. (try codecs.Decoder.calcSizeForSlice(encoded)) - 1];
+    const decoded = buffer[0 .. (try codecs.Decoder.calcSizeForSlice(encoded)) - 1];
     if (decoder_ignore_space.decode(decoded, encoded)) |_| {
         return error.ExpectedError;
     } else |err| if (err != error.NoSpaceLeft) return err;
@@ -538,7 +534,7 @@ fn testNoSpaceLeftError(codecs: Codecs, encoded: []const u8) !void {
 fn testFourBytesDestNoSpaceLeftError(codecs: Codecs, encoded: []const u8) !void {
     const decoder_ignore_space = codecs.decoderWithIgnore(" ");
     var buffer: [0x100]u8 = undefined;
-    var decoded = buffer[0..4];
+    const decoded = buffer[0..4];
     if (decoder_ignore_space.decode(decoded, encoded)) |_| {
         return error.ExpectedError;
     } else |err| if (err != error.NoSpaceLeft) return err;

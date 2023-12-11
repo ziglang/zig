@@ -6,8 +6,8 @@ const math = std.math;
 fn test__subodi4(a: i64, b: i64) !void {
     var result_ov: c_int = undefined;
     var expected_ov: c_int = undefined;
-    var result = subo.__subodi4(a, b, &result_ov);
-    var expected: i64 = simple_subodi4(a, b, &expected_ov);
+    const result = subo.__subodi4(a, b, &result_ov);
+    const expected: i64 = simple_subodi4(a, b, &expected_ov);
     try testing.expectEqual(expected, result);
     try testing.expectEqual(expected_ov, result_ov);
 }

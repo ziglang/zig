@@ -113,12 +113,14 @@ pub fn render(tree: Ast, gpa: Allocator) RenderError![]u8 {
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
 
-    try tree.renderToArrayList(&buffer);
+    try tree.renderToArrayList(&buffer, .{});
     return buffer.toOwnedSlice();
 }
 
-pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8)) RenderError!void {
-    return @import("./render.zig").renderTree(buffer, tree);
+pub const Fixups = private_render.Fixups;
+
+pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), fixups: Fixups) RenderError!void {
+    return @import("./render.zig").renderTree(buffer, tree, fixups);
 }
 
 /// Returns an extra offset for column and byte offset of errors that
@@ -138,9 +140,20 @@ pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenInde
         .line_end = self.source.len,
     };
     const token_start = self.tokens.items(.start)[token_index];
-    for (self.source[start_offset..], 0..) |c, i| {
-        if (i + start_offset == token_start) {
-            loc.line_end = i + start_offset;
+
+    // Scan to by line until we go past the token start
+    while (std.mem.indexOfScalarPos(u8, self.source, loc.line_start, '\n')) |i| {
+        if (i >= token_start) {
+            break; // Went past
+        }
+        loc.line += 1;
+        loc.line_start = i + 1;
+    }
+
+    const offset = loc.line_start;
+    for (self.source[offset..], 0..) |c, i| {
+        if (i + offset == token_start) {
+            loc.line_end = i + offset;
             while (loc.line_end < self.source.len and self.source[loc.line_end] != '\n') {
                 loc.line_end += 1;
             }
@@ -3530,6 +3543,7 @@ const Token = std.zig.Token;
 const Ast = @This();
 const Allocator = std.mem.Allocator;
 const Parse = @import("Parse.zig");
+const private_render = @import("./render.zig");
 
 test {
     testing.refAllDecls(@This());

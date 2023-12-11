@@ -1742,6 +1742,16 @@ pub const table = [_]Entry{
 
     .{ .vpandn, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0xdf }, 0, .vex_256_wig, .avx2 },
 
+    .{ .vpbroadcastb,    .rm, &.{ .xmm, .xmm_m8  }, &.{ 0x66, 0x0f, 0x38, 0x78 }, 0, .vex_128_w0, .avx2 },
+    .{ .vpbroadcastb,    .rm, &.{ .ymm, .xmm_m8  }, &.{ 0x66, 0x0f, 0x38, 0x78 }, 0, .vex_256_w0, .avx2 },
+    .{ .vpbroadcastw,    .rm, &.{ .xmm, .xmm_m16 }, &.{ 0x66, 0x0f, 0x38, 0x79 }, 0, .vex_128_w0, .avx2 },
+    .{ .vpbroadcastw,    .rm, &.{ .ymm, .xmm_m16 }, &.{ 0x66, 0x0f, 0x38, 0x79 }, 0, .vex_256_w0, .avx2 },
+    .{ .vpbroadcastd,    .rm, &.{ .xmm, .xmm_m32 }, &.{ 0x66, 0x0f, 0x38, 0x58 }, 0, .vex_128_w0, .avx2 },
+    .{ .vpbroadcastd,    .rm, &.{ .ymm, .xmm_m32 }, &.{ 0x66, 0x0f, 0x38, 0x58 }, 0, .vex_256_w0, .avx2 },
+    .{ .vpbroadcastq,    .rm, &.{ .xmm, .xmm_m64 }, &.{ 0x66, 0x0f, 0x38, 0x59 }, 0, .vex_128_w0, .avx2 },
+    .{ .vpbroadcastq,    .rm, &.{ .ymm, .xmm_m64 }, &.{ 0x66, 0x0f, 0x38, 0x59 }, 0, .vex_256_w0, .avx2 },
+    .{ .vpbroadcasti128, .rm, &.{ .ymm, .m128    }, &.{ 0x66, 0x0f, 0x38, 0x5a }, 0, .vex_256_w0, .avx2 },
+
     .{ .vpcmpeqb, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x74 }, 0, .vex_256_wig, .avx2 },
     .{ .vpcmpeqw, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x75 }, 0, .vex_256_wig, .avx2 },
     .{ .vpcmpeqd, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x76 }, 0, .vex_256_wig, .avx2 },

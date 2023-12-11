@@ -1,6 +1,6 @@
 pub export fn entry() void {
     var y: [*]align(4) u8 = @ptrFromInt(5);
-    _ = y;
+    _ = &y;
 }
 
 // error

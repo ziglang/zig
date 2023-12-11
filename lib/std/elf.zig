@@ -1664,6 +1664,8 @@ pub const EM = enum(u16) {
     }
 };
 
+pub const GRP_COMDAT = 1;
+
 /// Section data should be writable during execution.
 pub const SHF_WRITE = 0x1;
 
@@ -1896,3 +1898,92 @@ pub const STV = enum(u2) {
     HIDDEN = 2,
     PROTECTED = 3,
 };
+
+pub const ar_hdr = extern struct {
+    /// Member file name, sometimes / terminated.
+    ar_name: [16]u8,
+
+    /// File date, decimal seconds since Epoch.
+    ar_date: [12]u8,
+
+    /// User ID, in ASCII format.
+    ar_uid: [6]u8,
+
+    /// Group ID, in ASCII format.
+    ar_gid: [6]u8,
+
+    /// File mode, in ASCII octal.
+    ar_mode: [8]u8,
+
+    /// File size, in ASCII decimal.
+    ar_size: [10]u8,
+
+    /// Always contains ARFMAG.
+    ar_fmag: [2]u8,
+
+    pub fn date(self: ar_hdr) std.fmt.ParseIntError!u64 {
+        const value = mem.trimRight(u8, &self.ar_date, &[_]u8{0x20});
+        return std.fmt.parseInt(u64, value, 10);
+    }
+
+    pub fn size(self: ar_hdr) std.fmt.ParseIntError!u32 {
+        const value = mem.trimRight(u8, &self.ar_size, &[_]u8{0x20});
+        return std.fmt.parseInt(u32, value, 10);
+    }
+
+    pub fn isStrtab(self: ar_hdr) bool {
+        return mem.eql(u8, &self.ar_name, STRNAME);
+    }
+
+    pub fn isSymtab(self: ar_hdr) bool {
+        return mem.eql(u8, &self.ar_name, SYMNAME);
+    }
+
+    pub fn isSymtab64(self: ar_hdr) bool {
+        return mem.eql(u8, &self.ar_name, SYM64NAME);
+    }
+
+    pub fn isSymdef(self: ar_hdr) bool {
+        return mem.eql(u8, &self.ar_name, SYMDEFNAME);
+    }
+
+    pub fn isSymdefSorted(self: ar_hdr) bool {
+        return mem.eql(u8, &self.ar_name, SYMDEFSORTEDNAME);
+    }
+
+    pub fn name(self: *const ar_hdr) ?[]const u8 {
+        const value = &self.ar_name;
+        if (value[0] == '/') return null;
+        const sentinel = mem.indexOfScalar(u8, value, '/') orelse value.len;
+        return value[0..sentinel];
+    }
+
+    pub fn nameOffset(self: ar_hdr) std.fmt.ParseIntError!?u32 {
+        const value = &self.ar_name;
+        if (value[0] != '/') return null;
+        const trimmed = mem.trimRight(u8, value, &[_]u8{0x20});
+        return try std.fmt.parseInt(u32, trimmed[1..], 10);
+    }
+};
+
+fn genSpecialMemberName(comptime name: []const u8) *const [16]u8 {
+    assert(name.len <= 16);
+    const padding = 16 - name.len;
+    return name ++ &[_]u8{0x20} ** padding;
+}
+
+// Archive files start with the ARMAG identifying string.  Then follows a
+// `struct ar_hdr', and as many bytes of member file data as its `ar_size'
+// member indicates, for each member file.
+/// String that begins an archive file.
+pub const ARMAG = "!<arch>\n";
+/// String in ar_fmag at the end of each header.
+pub const ARFMAG = "`\n";
+/// 32-bit symtab identifier
+pub const SYMNAME = genSpecialMemberName("/");
+/// Strtab identifier
+pub const STRNAME = genSpecialMemberName("//");
+/// 64-bit symtab identifier
+pub const SYM64NAME = genSpecialMemberName("/SYM64/");
+pub const SYMDEFNAME = genSpecialMemberName("__.SYMDEF");
+pub const SYMDEFSORTEDNAME = genSpecialMemberName("__.SYMDEF SORTED");

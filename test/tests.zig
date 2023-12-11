@@ -29,6 +29,7 @@ const TestTarget = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     force_pic: ?bool = null,
+    strip: ?bool = null,
 };
 
 const test_targets = blk: {
@@ -115,6 +116,7 @@ const test_targets = blk: {
             },
             .use_llvm = false,
             .use_lld = false,
+            .strip = true,
         },
         // Doesn't support new liveness
         //.{
@@ -497,6 +499,7 @@ const CAbiTarget = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     force_pic: ?bool = null,
+    strip: ?bool = null,
     c_defines: []const []const u8 = &.{},
 };
 
@@ -528,6 +531,7 @@ const c_abi_targets = [_]CAbiTarget{
         },
         .use_llvm = false,
         .use_lld = false,
+        .strip = true,
         .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
     },
     .{
@@ -776,39 +780,17 @@ pub fn addCliTests(b: *std.Build) *Step {
     const s = std.fs.path.sep_str;
 
     {
-
-        // Test `zig init-lib`.
+        // Test `zig init`.
         const tmp_path = b.makeTempPath();
-        const init_lib = b.addSystemCommand(&.{ b.zig_exe, "init-lib" });
-        init_lib.setCwd(.{ .cwd_relative = tmp_path });
-        init_lib.setName("zig init-lib");
-        init_lib.expectStdOutEqual("");
-        init_lib.expectStdErrEqual("info: Created build.zig\n" ++
-            "info: Created src" ++ s ++ "main.zig\n" ++
-            "info: Next, try `zig build --help` or `zig build test`\n");
-
-        const run_test = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
-        run_test.setCwd(.{ .cwd_relative = tmp_path });
-        run_test.setName("zig build test");
-        run_test.expectStdOutEqual("");
-        run_test.step.dependOn(&init_lib.step);
-
-        const cleanup = b.addRemoveDirTree(tmp_path);
-        cleanup.step.dependOn(&run_test.step);
-
-        step.dependOn(&cleanup.step);
-    }
-
-    {
-        // Test `zig init-exe`.
-        const tmp_path = b.makeTempPath();
-        const init_exe = b.addSystemCommand(&.{ b.zig_exe, "init-exe" });
+        const init_exe = b.addSystemCommand(&.{ b.zig_exe, "init" });
         init_exe.setCwd(.{ .cwd_relative = tmp_path });
-        init_exe.setName("zig init-exe");
+        init_exe.setName("zig init");
         init_exe.expectStdOutEqual("");
-        init_exe.expectStdErrEqual("info: Created build.zig\n" ++
-            "info: Created src" ++ s ++ "main.zig\n" ++
-            "info: Next, try `zig build --help` or `zig build run`\n");
+        init_exe.expectStdErrEqual("info: created build.zig\n" ++
+            "info: created build.zig.zon\n" ++
+            "info: created src" ++ s ++ "main.zig\n" ++
+            "info: created src" ++ s ++ "root.zig\n" ++
+            "info: see `zig build --help` for a menu of options\n");
 
         // Test missing output path.
         const bad_out_arg = "-femit-bin=does" ++ s ++ "not" ++ s ++ "exist" ++ s ++ "foo.exe";
@@ -1095,6 +1077,16 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
             continue;
 
+        if (test_target.target.getCpuArch() == .x86_64 and
+            test_target.target.getOsTag() == .windows and
+            test_target.target.cpu_arch == null and
+            test_target.optimize_mode != .Debug and
+            mem.eql(u8, options.name, "std"))
+        {
+            // https://github.com/ziglang/zig/issues/17902
+            continue;
+        }
+
         const want_this_mode = for (options.optimize_modes) |m| {
             if (m == test_target.optimize_mode) break true;
         } else false;
@@ -1123,6 +1115,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .zig_lib_dir = .{ .path = "lib" },
         });
         these_tests.force_pic = test_target.force_pic;
+        these_tests.strip = test_target.strip;
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
             "-llvm"
@@ -1265,6 +1258,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 .use_lld = c_abi_target.use_lld,
             });
             test_step.force_pic = c_abi_target.force_pic;
+            test_step.strip = c_abi_target.strip;
             if (c_abi_target.target.abi != null and c_abi_target.target.abi.?.isMusl()) {
                 // TODO NativeTargetInfo insists on dynamically linking musl
                 // for some reason?
@@ -1300,7 +1294,7 @@ pub fn addCases(
 
     var cases = @import("src/Cases.zig").init(gpa, arena);
 
-    var dir = try b.build_root.handle.openIterableDir("test/cases", .{});
+    var dir = try b.build_root.handle.openDir("test/cases", .{ .iterate = true });
     defer dir.close();
 
     cases.addFromDir(dir);

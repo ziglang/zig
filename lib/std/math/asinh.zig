@@ -6,6 +6,7 @@
 
 const std = @import("../std.zig");
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
@@ -46,7 +47,7 @@ fn asinh32(x: f32) f32 {
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {
-        math.doNotOptimizeAway(rx + 0x1.0p120);
+        mem.doNotOptimizeAway(rx + 0x1.0p120);
     }
 
     return if (s != 0) -rx else rx;
@@ -73,7 +74,7 @@ fn asinh64(x: f64) f64 {
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {
-        math.doNotOptimizeAway(rx + 0x1.0p120);
+        mem.doNotOptimizeAway(rx + 0x1.0p120);
     }
 
     return if (s != 0) -rx else rx;
@@ -111,16 +112,16 @@ test "math.asinh64" {
 }
 
 test "math.asinh32.special" {
-    try expect(asinh32(0.0) == 0.0);
-    try expect(@as(u32, @bitCast(asinh32(-0.0))) == @as(u32, 0x80000000));
+    try expect(math.isPositiveZero(asinh32(0.0)));
+    try expect(math.isNegativeZero(asinh32(-0.0)));
     try expect(math.isPositiveInf(asinh32(math.inf(f32))));
     try expect(math.isNegativeInf(asinh32(-math.inf(f32))));
     try expect(math.isNan(asinh32(math.nan(f32))));
 }
 
 test "math.asinh64.special" {
-    try expect(asinh64(0.0) == 0.0);
-    try expect(@as(u64, @bitCast(asinh64(-0.0))) == @as(u64, 0x8000000000000000));
+    try expect(math.isPositiveZero(asinh64(0.0)));
+    try expect(math.isNegativeZero(asinh64(-0.0)));
     try expect(math.isPositiveInf(asinh64(math.inf(f64))));
     try expect(math.isNegativeInf(asinh64(-math.inf(f64))));
     try expect(math.isNan(asinh64(math.nan(f64))));

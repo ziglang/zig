@@ -21,9 +21,6 @@ const Ast = std.zig.Ast;
 
 const InternPool = @import("InternPool.zig");
 const Zir = @This();
-const Type = @import("type.zig").Type;
-const Value = @import("value.zig").Value;
-const TypedValue = @import("TypedValue.zig");
 const Module = @import("Module.zig");
 const LazySrcLoc = Module.LazySrcLoc;
 
@@ -250,7 +247,7 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. Payload is `Bin`.
         array_cat,
         /// Array multiplication `a ** b`
-        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// Uses the `pl_node` union field. Payload is `ArrayMul`.
         array_mul,
         /// `[N]T` syntax. No source location provided.
         /// Uses the `pl_node` union field. Payload is `Bin`. lhs is length, rhs is element type.
@@ -3373,6 +3370,15 @@ pub const Inst = struct {
         /// The expected field count.
         expect_len: u32,
     };
+
+    pub const ArrayMul = struct {
+        /// The result type of the array multiplication operation, or `.none` if none was available.
+        res_ty: Ref,
+        /// The LHS of the array multiplication.
+        lhs: Ref,
+        /// The RHS of the array multiplication.
+        rhs: Ref,
+    };
 };
 
 pub const SpecialProng = enum { none, @"else", under };
@@ -3407,8 +3413,9 @@ pub const DeclIterator = struct {
         it.extra_index += 5; // src_hash(4) + line(1)
         const name = it.zir.nullTerminatedString(it.zir.extra[it.extra_index]);
         it.extra_index += 3; // name(1) + value(1) + doc_comment(1)
-        it.extra_index += @as(u1, @truncate(flags >> 2));
-        it.extra_index += @as(u1, @truncate(flags >> 3));
+        it.extra_index += @as(u1, @truncate(flags >> 2)); // align
+        it.extra_index += @as(u1, @truncate(flags >> 3)); // link_section
+        it.extra_index += @as(u1, @truncate(flags >> 3)); // address_space
 
         return Item{
             .sub_index = sub_index,

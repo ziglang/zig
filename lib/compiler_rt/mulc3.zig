@@ -25,7 +25,7 @@ pub inline fn mulc3(comptime T: type, a_in: T, b_in: T, c_in: T, d_in: T) Comple
     const zero: T = 0.0;
     const one: T = 1.0;
 
-    var z = Complex(T){
+    const z: Complex(T) = .{
         .real = ac - bd,
         .imag = ad + bc,
     };

@@ -12,7 +12,7 @@ fn rangeSum(x: i32) i32 {
     frame = null;
 
     if (x == 0) return 0;
-    var child = rangeSumIndirect(x - 1);
+    const child = rangeSumIndirect(x - 1);
     return child + 1;
 }
 
@@ -23,7 +23,7 @@ fn rangeSumIndirect(x: i32) i32 {
     frame = null;
 
     if (x == 0) return 0;
-    var child = rangeSum(x - 1);
+    const child = rangeSum(x - 1);
     return child + 1;
 }
 
@@ -32,5 +32,5 @@ fn rangeSumIndirect(x: i32) i32 {
 // target=native
 //
 // tmp.zig:8:1: error: '@Frame(rangeSum)' depends on itself
-// tmp.zig:15:33: note: when analyzing type '@Frame(rangeSum)' here
-// tmp.zig:26:25: note: when analyzing type '@Frame(rangeSumIndirect)' here
+// tmp.zig:15:35: note: when analyzing type '@Frame(rangeSum)' here
+// tmp.zig:28:25: note: when analyzing type '@Frame(rangeSumIndirect)' here

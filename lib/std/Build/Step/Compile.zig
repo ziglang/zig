@@ -189,7 +189,8 @@ dll_export_fns: ?bool = null,
 
 subsystem: ?std.Target.SubSystem = null,
 
-entry_symbol_name: ?[]const u8 = null,
+/// How the linker must handle the entry point of the executable.
+entry: Entry = .default,
 
 /// List of symbols forced as undefined in the symbol table
 /// thus forcing their resolution by the linker.
@@ -219,6 +220,10 @@ generated_implib: ?*GeneratedFile,
 generated_llvm_bc: ?*GeneratedFile,
 generated_llvm_ir: ?*GeneratedFile,
 generated_h: ?*GeneratedFile,
+
+/// The maximum number of distinct errors within a compilation step
+/// Defaults to `std.math.maxInt(u16)`
+error_limit: ?u32 = null,
 
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
@@ -302,6 +307,18 @@ pub const SystemLib = struct {
 const FrameworkLinkInfo = struct {
     needed: bool = false,
     weak: bool = false,
+};
+
+const Entry = union(enum) {
+    /// Let the compiler decide whether to make an entry point and what to name
+    /// it.
+    default,
+    /// The executable will have no entry point.
+    disabled,
+    /// The executable will have an entry point with the default symbol name.
+    enabled,
+    /// The executable will have an entry point with the specified symbol name.
+    symbol_name: []const u8,
 };
 
 pub const IncludeDir = union(enum) {
@@ -1418,9 +1435,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(try std.fmt.allocPrint(b.allocator, "-ofmt={s}", .{@tagName(ofmt)}));
     }
 
-    if (self.entry_symbol_name) |entry| {
-        try zig_args.append("--entry");
-        try zig_args.append(entry);
+    switch (self.entry) {
+        .default => {},
+        .disabled => try zig_args.append("-fno-entry"),
+        .enabled => try zig_args.append("-fentry"),
+        .symbol_name => |entry_name| {
+            try zig_args.append(try std.fmt.allocPrint(b.allocator, "-fentry={s}", .{entry_name}));
+        },
     }
 
     {
@@ -2074,6 +2095,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             .EfiRuntimeDriver => "efi_runtime_driver",
         });
     }
+
+    if (self.error_limit) |err_limit| try zig_args.appendSlice(&.{
+        "--error-limit",
+        b.fmt("{}", .{err_limit}),
+    });
 
     try zig_args.append("--listen=-");
 

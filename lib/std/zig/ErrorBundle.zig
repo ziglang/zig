@@ -162,6 +162,7 @@ pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
 }
 
 pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, writer: anytype) anyerror!void {
+    if (eb.extra.len == 0) return;
     for (eb.getMessages()) |err_msg| {
         try renderErrorMessageToWriter(eb, options, err_msg, writer, "error", .red, 0);
     }

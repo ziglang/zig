@@ -402,7 +402,7 @@ pub fn fchown(fd: fd_t, owner: ?uid_t, group: ?gid_t) FChownError!void {
         switch (system.getErrno(res)) {
             .SUCCESS => return,
             .INTR => continue,
-            .BADF => unreachable, // Can be reached if the fd refers to a non-iterable directory.
+            .BADF => unreachable, // Can be reached if the fd refers to a directory opened without `OpenDirOptions{ .iterate = true }`
 
             .FAULT => unreachable,
             .INVAL => unreachable,
@@ -686,6 +686,7 @@ pub const ReadError = error{
     ConnectionResetByPeer,
     ConnectionTimedOut,
     NotOpenForReading,
+    SocketNotConnected,
 
     // Windows only
     NetNameDeleted,
@@ -732,6 +733,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NOTCAPABLE => return error.AccessDenied,
@@ -760,6 +762,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
             .TIMEDOUT => return error.ConnectionTimedOut,
             else => |err| return unexpectedErrno(err),
@@ -800,6 +803,9 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
@@ -819,7 +825,9 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -864,7 +872,9 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -897,7 +907,9 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
             .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -1009,6 +1021,9 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -1035,6 +1050,9 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
             .ISDIR => return error.IsDir,
             .NOBUFS => return error.SystemResources,
             .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
@@ -4642,7 +4660,7 @@ pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessErr
         const path_w = try windows.sliceToPrefixedFileW(dirfd, path);
         return faccessatW(dirfd, path_w.span().ptr, mode, flags);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        var resolved = RelativePathWasi{ .dir_fd = dirfd, .relative_path = path };
+        const resolved = RelativePathWasi{ .dir_fd = dirfd, .relative_path = path };
 
         const file = blk: {
             break :blk fstatat(dirfd, path, flags);
@@ -4775,7 +4793,7 @@ pub fn pipe2(flags: u32) PipeError![2]fd_t {
         }
     }
 
-    var fds: [2]fd_t = try pipe();
+    const fds: [2]fd_t = try pipe();
     errdefer {
         close(fds[0]);
         close(fds[1]);
@@ -5493,7 +5511,7 @@ pub fn dl_iterate_phdr(
             }
         }.callbackC, @as(?*anyopaque, @ptrFromInt(@intFromPtr(&context))))) {
             0 => return,
-            else => |err| return @as(Error, @errorCast(@errorFromInt(@as(u16, @intCast(err))))), // TODO don't hardcode u16
+            else => |err| return @as(Error, @errorCast(@errorFromInt(@as(std.meta.Int(.unsigned, @bitSizeOf(anyerror)), @intCast(err))))),
         }
     }
 
@@ -6461,7 +6479,7 @@ pub const CopyFileRangeError = error{
     CorruptedData,
 } || PReadError || PWriteError || UnexpectedError;
 
-var has_copy_file_range_syscall = std.atomic.Atomic(bool).init(true);
+var has_copy_file_range_syscall = std.atomic.Value(bool).init(true);
 
 /// Transfer data between file descriptors at specified offsets.
 /// Returns the number of bytes written, which can less than requested.
@@ -6624,6 +6642,7 @@ pub const RecvFromError = error{
     SystemResources,
 
     ConnectionResetByPeer,
+    ConnectionTimedOut,
 
     /// The socket has not been bound.
     SocketNotBound,
@@ -6663,6 +6682,7 @@ pub fn recvfrom(
                     .WSAENETDOWN => return error.NetworkSubsystemFailed,
                     .WSAENOTCONN => return error.SocketNotConnected,
                     .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSAETIMEDOUT => return error.ConnectionTimedOut,
                     // TODO: handle more errors
                     else => |err| return windows.unexpectedWSAError(err),
                 }
@@ -6682,6 +6702,7 @@ pub fn recvfrom(
                 .NOMEM => return error.SystemResources,
                 .CONNREFUSED => return error.ConnectionRefused,
                 .CONNRESET => return error.ConnectionResetByPeer,
+                .TIMEDOUT => return error.ConnectionTimedOut,
                 else => |err| return unexpectedErrno(err),
             }
         }
@@ -6709,7 +6730,7 @@ pub fn dn_expand(
         // loop invariants: p<end, dest<dend
         if ((p[0] & 0xc0) != 0) {
             if (p + 1 == end) return error.InvalidDnsPacket;
-            var j = ((p[0] & @as(usize, 0x3f)) << 8) | p[1];
+            const j = ((p[0] & @as(usize, 0x3f)) << 8) | p[1];
             if (len == std.math.maxInt(usize)) len = @intFromPtr(p) + 2 - @intFromPtr(comp_dn.ptr);
             if (j >= msg.len) return error.InvalidDnsPacket;
             p = msg.ptr + j;
@@ -7285,7 +7306,7 @@ pub const TimerFdGetError = error{InvalidHandle} || UnexpectedError;
 pub const TimerFdSetError = TimerFdGetError || error{Canceled};
 
 pub fn timerfd_create(clokid: i32, flags: u32) TimerFdCreateError!fd_t {
-    var rc = linux.timerfd_create(clokid, flags);
+    const rc = linux.timerfd_create(clokid, flags);
     return switch (errno(rc)) {
         .SUCCESS => @as(fd_t, @intCast(rc)),
         .INVAL => unreachable,
@@ -7299,7 +7320,7 @@ pub fn timerfd_create(clokid: i32, flags: u32) TimerFdCreateError!fd_t {
 }
 
 pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const linux.itimerspec, old_value: ?*linux.itimerspec) TimerFdSetError!void {
-    var rc = linux.timerfd_settime(fd, flags, new_value, old_value);
+    const rc = linux.timerfd_settime(fd, flags, new_value, old_value);
     return switch (errno(rc)) {
         .SUCCESS => {},
         .BADF => error.InvalidHandle,
@@ -7312,7 +7333,7 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const linux.itimerspec, 
 
 pub fn timerfd_gettime(fd: i32) TimerFdGetError!linux.itimerspec {
     var curr_value: linux.itimerspec = undefined;
-    var rc = linux.timerfd_gettime(fd, &curr_value);
+    const rc = linux.timerfd_gettime(fd, &curr_value);
     return switch (errno(rc)) {
         .SUCCESS => return curr_value,
         .BADF => error.InvalidHandle,

@@ -18,7 +18,7 @@ pub fn main() !void {
     );
 
     var names = std.ArrayList([]const u8).init(allocator);
-    var cwd = try std.fs.cwd().openIterableDir(".", .{});
+    var cwd = try std.fs.cwd().openDir(".", .{ .iterate = true });
     var it = cwd.iterate();
     while (try it.next()) |entry| {
         try names.append(try allocator.dupe(u8, entry.name));

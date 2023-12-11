@@ -614,18 +614,18 @@ const Date = struct {
 };
 
 pub fn parseTimeDigits(text: *const [2]u8, min: u8, max: u8) !u8 {
-    const nn: @Vector(2, u16) = .{ text[0], text[1] };
-    const zero: @Vector(2, u16) = .{ '0', '0' };
-    const mm: @Vector(2, u16) = .{ 10, 1 };
-    const result = @reduce(.Add, (nn -% zero) *% mm);
+    const result = if (use_vectors) result: {
+        const nn: @Vector(2, u16) = .{ text[0], text[1] };
+        const zero: @Vector(2, u16) = .{ '0', '0' };
+        const mm: @Vector(2, u16) = .{ 10, 1 };
+        break :result @reduce(.Add, (nn -% zero) *% mm);
+    } else std.fmt.parseInt(u8, text, 10) catch return error.CertificateTimeInvalid;
     if (result < min) return error.CertificateTimeInvalid;
     if (result > max) return error.CertificateTimeInvalid;
     return @truncate(result);
 }
 
 test parseTimeDigits {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const expectEqual = std.testing.expectEqual;
     try expectEqual(@as(u8, 0), try parseTimeDigits("00", 0, 99));
     try expectEqual(@as(u8, 99), try parseTimeDigits("99", 0, 99));
@@ -638,17 +638,17 @@ test parseTimeDigits {
 }
 
 pub fn parseYear4(text: *const [4]u8) !u16 {
-    const nnnn: @Vector(4, u32) = .{ text[0], text[1], text[2], text[3] };
-    const zero: @Vector(4, u32) = .{ '0', '0', '0', '0' };
-    const mmmm: @Vector(4, u32) = .{ 1000, 100, 10, 1 };
-    const result = @reduce(.Add, (nnnn -% zero) *% mmmm);
+    const result = if (use_vectors) result: {
+        const nnnn: @Vector(4, u32) = .{ text[0], text[1], text[2], text[3] };
+        const zero: @Vector(4, u32) = .{ '0', '0', '0', '0' };
+        const mmmm: @Vector(4, u32) = .{ 1000, 100, 10, 1 };
+        break :result @reduce(.Add, (nnnn -% zero) *% mmmm);
+    } else std.fmt.parseInt(u16, text, 10) catch return error.CertificateTimeInvalid;
     if (result > 9999) return error.CertificateTimeInvalid;
     return @truncate(result);
 }
 
 test parseYear4 {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const expectEqual = std.testing.expectEqual;
     try expectEqual(@as(u16, 0), try parseYear4("0000"));
     try expectEqual(@as(u16, 9999), try parseYear4("9999"));
@@ -982,7 +982,7 @@ pub const rsa = struct {
             if (mgf_len > mgf_out_buf.len) { // Modulus > 4096 bits
                 return error.InvalidSignature;
             }
-            var mgf_out = mgf_out_buf[0 .. ((mgf_len - 1) / Hash.digest_length + 1) * Hash.digest_length];
+            const mgf_out = mgf_out_buf[0 .. ((mgf_len - 1) / Hash.digest_length + 1) * Hash.digest_length];
             var dbMask = try MGF1(Hash, mgf_out, h, mgf_len);
 
             // 8.   Let DB = maskedDB \xor dbMask.
@@ -1124,4 +1124,4 @@ pub const rsa = struct {
     }
 };
 
-const builtin = @import("builtin");
+const use_vectors = @import("builtin").zig_backend != .stage2_x86_64;

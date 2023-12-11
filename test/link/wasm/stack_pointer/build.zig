@@ -13,16 +13,18 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addExecutable(.{
         .name = "lib",
         .root_source_file = .{ .path = "lib.zig" },
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
         .optimize = optimize,
     });
+    lib.entry = .disabled;
     lib.use_llvm = false;
     lib.use_lld = false;
     lib.strip = false;
     lib.stack_size = std.wasm.page_size * 2; // set an explicit stack size
+    lib.link_gc_sections = false;
     b.installArtifact(lib);
 
     const check_lib = lib.checkObject();

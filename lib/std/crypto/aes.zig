@@ -28,8 +28,6 @@ pub const Aes128 = impl.Aes128;
 pub const Aes256 = impl.Aes256;
 
 test "ctr" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     // NIST SP 800-38A pp 55-58
     const ctr = @import("modes.zig").ctr;
 
@@ -49,7 +47,7 @@ test "ctr" {
     };
 
     var out: [exp_out.len]u8 = undefined;
-    var ctx = Aes128.initEnc(key);
+    const ctx = Aes128.initEnc(key);
     ctr(AesEncryptCtx(Aes128), ctx, out[0..], in[0..], iv, std.builtin.Endian.big);
     try testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
 }

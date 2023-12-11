@@ -368,7 +368,7 @@ pub fn addCompile(
 /// Each file should include a test manifest as a contiguous block of comments at
 /// the end of the file. The first line should be the test type, followed by a set of
 /// key-value config values, followed by a blank line, then the expected output.
-pub fn addFromDir(ctx: *Cases, dir: std.fs.IterableDir) void {
+pub fn addFromDir(ctx: *Cases, dir: std.fs.Dir) void {
     var current_file: []const u8 = "none";
     ctx.addFromDirInner(dir, &current_file) catch |err| {
         std.debug.panicExtra(
@@ -382,7 +382,7 @@ pub fn addFromDir(ctx: *Cases, dir: std.fs.IterableDir) void {
 
 fn addFromDirInner(
     ctx: *Cases,
-    iterable_dir: std.fs.IterableDir,
+    iterable_dir: std.fs.Dir,
     /// This is kept up to date with the currently being processed file so
     /// that if any errors occur the caller knows it happened during this file.
     current_file: *[]const u8,
@@ -416,7 +416,7 @@ fn addFromDirInner(
         }
 
         const max_file_size = 10 * 1024 * 1024;
-        const src = try iterable_dir.dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
+        const src = try iterable_dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
 
         // Parse the manifest
         var manifest = try TestManifest.parse(ctx.arena, src);
@@ -908,11 +908,11 @@ const TestManifestConfigDefaults = struct {
                 // TODO we should also specify ABIs explicitly as the backends are
                 // getting more and more complete
                 // Linux
-                inline for (&[_][]const u8{ "x86_64", "arm", "aarch64" }) |arch| {
+                for (&[_][]const u8{ "x86_64", "arm", "aarch64" }) |arch| {
                     defaults = defaults ++ arch ++ "-linux" ++ ",";
                 }
                 // macOS
-                inline for (&[_][]const u8{ "x86_64", "aarch64" }) |arch| {
+                for (&[_][]const u8{ "x86_64", "aarch64" }) |arch| {
                     defaults = defaults ++ arch ++ "-macos" ++ ",";
                 }
                 // Windows
@@ -976,7 +976,7 @@ const TestManifest = struct {
 
         fn next(self: *TrailingIterator) ?[]const u8 {
             const next_inner = self.inner.next() orelse return null;
-            return std.mem.trim(u8, next_inner[2..], " \t");
+            return if (next_inner.len == 2) "" else std.mem.trimRight(u8, next_inner[3..], " \t");
         }
     };
 
@@ -1161,10 +1161,7 @@ const TestManifest = struct {
     fn getDefaultParser(comptime T: type) ParseFn(T) {
         if (T == CrossTarget) return struct {
             fn parse(str: []const u8) anyerror!T {
-                var opts = CrossTarget.ParseOptions{
-                    .arch_os_abi = str,
-                };
-                return try CrossTarget.parse(opts);
+                return CrossTarget.parse(.{ .arch_os_abi = str });
             }
         }.parse;
 
@@ -1249,7 +1246,7 @@ pub fn main() !void {
     var filenames = std.ArrayList([]const u8).init(arena);
 
     const case_dirname = std.fs.path.dirname(case_file_path).?;
-    var iterable_dir = try std.fs.cwd().openIterableDir(case_dirname, .{});
+    var iterable_dir = try std.fs.cwd().openDir(case_dirname, .{ .iterate = true });
     defer iterable_dir.close();
 
     if (std.mem.endsWith(u8, case_file_path, ".0.zig")) {
@@ -1283,7 +1280,7 @@ pub fn main() !void {
 
         for (batch) |filename| {
             const max_file_size = 10 * 1024 * 1024;
-            const src = try iterable_dir.dir.readFileAllocOptions(arena, filename, max_file_size, null, 1, 0);
+            const src = try iterable_dir.readFileAllocOptions(arena, filename, max_file_size, null, 1, 0);
 
             // Parse the manifest
             var manifest = try TestManifest.parse(arena, src);
@@ -1691,7 +1688,7 @@ fn runOneCase(
                 var argv = std.ArrayList([]const u8).init(allocator);
                 defer argv.deinit();
 
-                var exec_result = x: {
+                const exec_result = x: {
                     var exec_node = update_node.start("execute", 0);
                     exec_node.activate();
                     defer exec_node.end();

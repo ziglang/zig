@@ -22,6 +22,7 @@ const CPU = packed struct {
     }
     fn tick(self: *CPU) !void {
         var queued_interrupts = self.ram.get(0xFFFF) & self.ram.get(0xFF0F);
+        _ = &queued_interrupts;
         if (self.interrupts and queued_interrupts != 0) {
             self.interrupts = false;
         }

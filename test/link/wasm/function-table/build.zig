@@ -13,34 +13,40 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const import_table = b.addSharedLibrary(.{
+    const import_table = b.addExecutable(.{
         .name = "import_table",
         .root_source_file = .{ .path = "lib.zig" },
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
         .optimize = optimize,
     });
+    import_table.entry = .disabled;
     import_table.use_llvm = false;
     import_table.use_lld = false;
     import_table.import_table = true;
+    import_table.link_gc_sections = false;
 
-    const export_table = b.addSharedLibrary(.{
+    const export_table = b.addExecutable(.{
         .name = "export_table",
         .root_source_file = .{ .path = "lib.zig" },
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
         .optimize = optimize,
     });
+    export_table.entry = .disabled;
     export_table.use_llvm = false;
     export_table.use_lld = false;
     export_table.export_table = true;
+    export_table.link_gc_sections = false;
 
-    const regular_table = b.addSharedLibrary(.{
+    const regular_table = b.addExecutable(.{
         .name = "regular_table",
         .root_source_file = .{ .path = "lib.zig" },
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
         .optimize = optimize,
     });
+    regular_table.entry = .disabled;
     regular_table.use_llvm = false;
     regular_table.use_lld = false;
+    regular_table.link_gc_sections = false; // Ensure function table is not empty
 
     const check_import = import_table.checkObject();
     const check_export = export_table.checkObject();

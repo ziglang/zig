@@ -274,6 +274,7 @@ fn add_cc_args(
 }
 
 pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
+    if (build_options.only_c) @panic("building import libs not included in core functionality");
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
@@ -287,10 +288,6 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         },
         else => |e| return e,
     };
-
-    // We need to invoke `zig clang` to use the preprocessor.
-    if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
-    const self_exe_path = comp.self_exe_path orelse return error.PreprocessorDisabled;
 
     const target = comp.getTarget();
 
@@ -337,67 +334,54 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         "o", &digest, final_def_basename,
     });
 
-    const target_def_arg = switch (target.cpu.arch) {
-        .x86 => "-DDEF_I386",
-        .x86_64 => "-DDEF_X64",
-        .arm, .armeb, .thumb, .thumbeb, .aarch64_32 => "-DDEF_ARM32",
-        .aarch64, .aarch64_be => "-DDEF_ARM64",
+    const target_defines = switch (target.cpu.arch) {
+        .x86 => "#define DEF_I386\n",
+        .x86_64 => "#define DEF_X64\n",
+        .arm, .armeb, .thumb, .thumbeb, .aarch64_32 => "#define DEF_ARM32\n",
+        .aarch64, .aarch64_be => "#define DEF_ARM64\n",
         else => unreachable,
     };
 
-    const args = [_][]const u8{
-        self_exe_path,
-        "clang",
-        "-x",
-        "c",
-        def_file_path,
-        "-Wp,-w",
-        "-undef",
-        "-P",
-        "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", "def-include" }),
-        target_def_arg,
-        "-E",
-        "-o",
-        def_final_path,
-    };
+    const aro = @import("aro");
+    var aro_comp = aro.Compilation.init(comp.gpa);
+    defer aro_comp.deinit();
 
-    if (comp.verbose_cc) {
-        Compilation.dump_argv(&args);
+    const include_dir = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", "def-include" });
+
+    if (comp.verbose_cc) print: {
+        std.debug.getStderrMutex().lock();
+        defer std.debug.getStderrMutex().unlock();
+        const stderr = std.io.getStdErr().writer();
+        nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
+        nosuspend stderr.print("include dir: {s}\n", .{include_dir}) catch break :print;
+        nosuspend stderr.print("output path: {s}\n", .{def_final_path}) catch break :print;
     }
 
-    if (std.process.can_spawn) {
-        var child = std.ChildProcess.init(&args, arena);
-        child.stdin_behavior = .Ignore;
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
+    try aro_comp.include_dirs.append(comp.gpa, include_dir);
 
-        try child.spawn();
+    const builtin_macros = try aro_comp.generateBuiltinMacros(.include_system_defines);
+    const user_macros = try aro_comp.addSourceFromBuffer("<command line>", target_defines);
+    const def_file_source = try aro_comp.addSourceFromPath(def_file_path);
 
-        const stderr = try child.stderr.?.reader().readAllAlloc(arena, std.math.maxInt(usize));
+    var pp = aro.Preprocessor.init(&aro_comp);
+    defer pp.deinit();
+    pp.linemarkers = .none;
+    pp.preserve_whitespace = true;
 
-        const term = child.wait() catch |err| {
-            // TODO surface a proper error here
-            log.err("unable to spawn {s}: {s}", .{ args[0], @errorName(err) });
-            return error.ClangPreprocessorFailed;
-        };
-        switch (term) {
-            .Exited => |code| {
-                if (code != 0) {
-                    // TODO surface a proper error here
-                    log.err("clang exited with code {d} and stderr: {s}", .{ code, stderr });
-                    return error.ClangPreprocessorFailed;
-                }
-            },
-            else => {
-                // TODO surface a proper error here
-                log.err("clang terminated unexpectedly with stderr: {s}", .{stderr});
-                return error.ClangPreprocessorFailed;
-            },
+    try pp.preprocessSources(&.{ def_file_source, builtin_macros, user_macros });
+
+    for (aro_comp.diagnostics.list.items) |diagnostic| {
+        if (diagnostic.kind == .@"fatal error" or diagnostic.kind == .@"error") {
+            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
+            return error.AroPreprocessorFailed;
         }
-    } else {
-        log.err("unable to spawn {s}: spawning child process not supported on {s}", .{ args[0], @tagName(builtin.os.tag) });
-        return error.ClangPreprocessorFailed;
+    }
+
+    {
+        // new scope to ensure definition file is written before passing the path to WriteImportLibrary
+        const def_final_file = try comp.global_cache_directory.handle.createFile(def_final_path, .{ .truncate = true });
+        defer def_final_file.close();
+        try pp.prettyPrintTokens(def_final_file.writer());
     }
 
     const lib_final_path = try comp.global_cache_directory.join(comp.gpa, &[_][]const u8{
@@ -405,6 +389,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     });
     errdefer comp.gpa.free(lib_final_path);
 
+    if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
     const llvm_bindings = @import("codegen/llvm/bindings.zig");
     const llvm = @import("codegen/llvm.zig");
     const arch_tag = llvm.targetArch(target.cpu.arch);

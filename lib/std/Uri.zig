@@ -176,6 +176,11 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
 
         var end_of_host: usize = authority.len;
 
+        // if  we see `]` first without `@`
+        if (authority[start_of_host] == ']') {
+            return error.InvalidFormat;
+        }
+
         if (authority.len > start_of_host and authority[start_of_host] == '[') { // IPv6
             end_of_host = std.mem.lastIndexOf(u8, authority, "]") orelse return error.InvalidFormat;
             end_of_host += 1;
@@ -193,6 +198,7 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
             }
         }
 
+        if (start_of_host >= end_of_host) return error.InvalidFormat;
         uri.host = authority[start_of_host..end_of_host];
     }
 
@@ -779,4 +785,10 @@ test "format" {
     defer buf.deinit();
     try uri.format(":/?#", .{}, buf.writer());
     try std.testing.expectEqualSlices(u8, "file:/foo/bar/baz", buf.items);
+}
+
+test "URI malformed input" {
+    try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://]["));
+    try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://]@["));
+    try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://lo]s\x85hc@[/8\x10?0Q"));
 }

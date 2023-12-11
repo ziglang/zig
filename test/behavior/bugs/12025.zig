@@ -5,6 +5,7 @@ test {
         .foo = &1,
         .bar = &2,
     };
+    _ = &st;
 
     inline for (@typeInfo(@TypeOf(st)).Struct.fields) |field| {
         _ = field;

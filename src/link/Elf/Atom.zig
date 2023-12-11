@@ -42,7 +42,10 @@ next_index: Index = 0,
 pub const Alignment = @import("../../InternPool.zig").Alignment;
 
 pub fn name(self: Atom, elf_file: *Elf) []const u8 {
-    return elf_file.strtab.getAssumeExists(self.name_offset);
+    const file_ptr = self.file(elf_file).?;
+    return switch (file_ptr) {
+        inline else => |x| x.getString(self.name_offset),
+    };
 }
 
 pub fn file(self: Atom, elf_file: *Elf) ?File {
@@ -55,6 +58,11 @@ pub fn inputShdr(self: Atom, elf_file: *Elf) Object.ElfShdr {
         .zig_object => |x| x.inputShdr(self.atom_index, elf_file),
         else => unreachable,
     };
+}
+
+pub fn relocsShndx(self: Atom) ?u32 {
+    if (self.relocs_section_index == 0) return null;
+    return self.relocs_section_index;
 }
 
 pub fn outputShndx(self: Atom) ?u16 {
@@ -277,11 +285,58 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
 }
 
 pub fn relocs(self: Atom, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
+    const shndx = self.relocsShndx() orelse return &[0]elf.Elf64_Rela{};
     return switch (self.file(elf_file).?) {
-        .zig_object => |x| x.relocs.items[self.relocs_section_index].items,
-        .object => |x| x.getRelocs(self.relocs_section_index),
+        .zig_object => |x| x.relocs.items[shndx].items,
+        .object => |x| x.getRelocs(shndx),
         else => unreachable,
     };
+}
+
+pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.Elf64_Rela)) !void {
+    relocs_log.debug("0x{x}: {s}", .{ self.value, self.name(elf_file) });
+
+    const file_ptr = self.file(elf_file).?;
+    for (self.relocs(elf_file)) |rel| {
+        const target_index = switch (file_ptr) {
+            .zig_object => |x| x.symbol(rel.r_sym()),
+            .object => |x| x.symbols.items[rel.r_sym()],
+            else => unreachable,
+        };
+        const target = elf_file.symbol(target_index);
+        const r_type = switch (rel.r_type()) {
+            Elf.R_X86_64_ZIG_GOT32,
+            Elf.R_X86_64_ZIG_GOTPCREL,
+            => unreachable, // Sanity check if we accidentally emitted those.
+            else => |r_type| r_type,
+        };
+        const r_offset = self.value + rel.r_offset;
+        var r_addend = rel.r_addend;
+        var r_sym: u32 = 0;
+        switch (target.type(elf_file)) {
+            elf.STT_SECTION => {
+                r_addend += @intCast(target.value);
+                r_sym = elf_file.sectionSymbolOutputSymtabIndex(target.outputShndx().?);
+            },
+            else => {
+                r_sym = target.outputSymtabIndex(elf_file) orelse 0;
+            },
+        }
+
+        relocs_log.debug("  {s}: [{x} => {d}({s})] + {x}", .{
+            fmtRelocType(r_type),
+            r_offset,
+            r_sym,
+            target.name(elf_file),
+            r_addend,
+        });
+
+        out_relocs.appendAssumeCapacity(.{
+            .r_offset = r_offset,
+            .r_addend = r_addend,
+            .r_info = (@as(u64, @intCast(r_sym)) << 32) | r_type,
+        });
+    }
 }
 
 pub fn fdes(self: Atom, elf_file: *Elf) []Fde {
@@ -602,7 +657,8 @@ fn dynAbsRelocAction(symbol: *const Symbol, elf_file: *Elf) RelocAction {
 }
 
 fn outputType(elf_file: *Elf) u2 {
-    return switch (elf_file.base.options.effectiveOutputMode()) {
+    assert(!elf_file.isRelocatable());
+    return switch (elf_file.base.options.output_mode) {
         .Obj => unreachable,
         .Lib => 0,
         .Exe => if (elf_file.base.options.pie) 1 else 2,
@@ -692,7 +748,7 @@ fn reportUndefined(
 ) !void {
     const rel_esym = switch (self.file(elf_file).?) {
         .zig_object => |x| x.elfSym(rel.r_sym()).*,
-        .object => |x| x.symtab[rel.r_sym()],
+        .object => |x| x.symtab.items[rel.r_sym()],
         else => unreachable,
     };
     const esym = sym.elfSym(elf_file);

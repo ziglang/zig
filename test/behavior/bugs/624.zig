@@ -25,5 +25,6 @@ test "foo" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var allocator = ContextAllocator{ .n = 10 };
+    _ = &allocator;
     try expect(allocator.n == 10);
 }

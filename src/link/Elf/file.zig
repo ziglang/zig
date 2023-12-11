@@ -68,9 +68,12 @@ pub const File = union(enum) {
     }
 
     pub fn resetGlobals(file: File, elf_file: *Elf) void {
-        switch (file) {
-            .linker_defined => unreachable,
-            inline else => |x| x.resetGlobals(elf_file),
+        for (file.globals()) |global_index| {
+            const global = elf_file.symbol(global_index);
+            const name_offset = global.name_offset;
+            global.* = .{};
+            global.name_offset = name_offset;
+            global.flags.global = true;
         }
     }
 
@@ -83,24 +86,37 @@ pub const File = union(enum) {
 
     pub fn markLive(file: File, elf_file: *Elf) void {
         switch (file) {
-            .linker_defined => unreachable,
+            .linker_defined => {},
             inline else => |x| x.markLive(elf_file),
         }
     }
 
     pub fn atoms(file: File) []const Atom.Index {
         return switch (file) {
-            .linker_defined => unreachable,
-            .shared_object => unreachable,
+            .linker_defined, .shared_object => &[0]Atom.Index{},
             .zig_object => |x| x.atoms.items,
             .object => |x| x.atoms.items,
         };
     }
 
+    pub fn cies(file: File) []const Cie {
+        return switch (file) {
+            .zig_object => &[0]Cie{},
+            .object => |x| x.cies.items,
+            inline else => unreachable,
+        };
+    }
+
+    pub fn symbol(file: File, ind: Symbol.Index) Symbol.Index {
+        return switch (file) {
+            .zig_object => |x| x.symbol(ind),
+            inline else => |x| x.symbols.items[ind],
+        };
+    }
+
     pub fn locals(file: File) []const Symbol.Index {
         return switch (file) {
-            .linker_defined => unreachable,
-            .shared_object => unreachable,
+            .linker_defined, .shared_object => &[0]Symbol.Index{},
             inline else => |x| x.locals(),
         };
     }
@@ -108,6 +124,57 @@ pub const File = union(enum) {
     pub fn globals(file: File) []const Symbol.Index {
         return switch (file) {
             inline else => |x| x.globals(),
+        };
+    }
+
+    pub fn updateSymtabSize(file: File, elf_file: *Elf) !void {
+        return switch (file) {
+            inline else => |x| x.updateSymtabSize(elf_file),
+        };
+    }
+
+    pub fn writeSymtab(file: File, elf_file: *Elf) void {
+        return switch (file) {
+            inline else => |x| x.writeSymtab(elf_file),
+        };
+    }
+
+    pub fn updateArSymtab(file: File, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {
+        return switch (file) {
+            .zig_object => |x| x.updateArSymtab(ar_symtab, elf_file),
+            .object => |x| x.updateArSymtab(ar_symtab, elf_file),
+            inline else => unreachable,
+        };
+    }
+
+    pub fn updateArStrtab(file: File, allocator: Allocator, ar_strtab: *Archive.ArStrtab) !void {
+        const path = switch (file) {
+            .zig_object => |x| x.path,
+            .object => |x| x.path,
+            inline else => unreachable,
+        };
+        const state = switch (file) {
+            .zig_object => |x| &x.output_ar_state,
+            .object => |x| &x.output_ar_state,
+            inline else => unreachable,
+        };
+        if (path.len <= Archive.max_member_name_len) return;
+        state.name_off = try ar_strtab.insert(allocator, path);
+    }
+
+    pub fn updateArSize(file: File) void {
+        return switch (file) {
+            .zig_object => |x| x.updateArSize(),
+            .object => |x| x.updateArSize(),
+            inline else => unreachable,
+        };
+    }
+
+    pub fn writeAr(file: File, writer: anytype) !void {
+        return switch (file) {
+            .zig_object => |x| x.writeAr(writer),
+            .object => |x| x.writeAr(writer),
+            inline else => unreachable,
         };
     }
 
@@ -126,7 +193,9 @@ const std = @import("std");
 const elf = std.elf;
 
 const Allocator = std.mem.Allocator;
+const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
+const Cie = @import("eh_frame.zig").Cie;
 const Elf = @import("../Elf.zig");
 const LinkerDefined = @import("LinkerDefined.zig");
 const Object = @import("Object.zig");

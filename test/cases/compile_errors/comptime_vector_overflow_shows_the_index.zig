@@ -2,7 +2,7 @@ comptime {
     var a: @Vector(4, u8) = [_]u8{ 1, 2, 255, 4 };
     var b: @Vector(4, u8) = [_]u8{ 5, 6, 1, 8 };
     var x = a + b;
-    _ = x;
+    _ = .{ &a, &b, &x };
 }
 
 // error

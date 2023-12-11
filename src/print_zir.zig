@@ -370,7 +370,6 @@ const Writer = struct {
             .add_sat,
             .add_unsafe,
             .array_cat,
-            .array_mul,
             .mul,
             .mulwrap,
             .mul_sat,
@@ -430,6 +429,8 @@ const Writer = struct {
             => try self.writePlNodeBin(stream, inst),
 
             .for_len => try self.writePlNodeMultiOp(stream, inst),
+
+            .array_mul => try self.writeArrayMul(stream, inst),
 
             .elem_val_imm => try self.writeElemValImm(stream, inst),
 
@@ -974,6 +975,18 @@ const Writer = struct {
             try self.writeInstRef(stream, arg);
         }
         try stream.writeAll("}) ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeArrayMul(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const extra = self.code.extraData(Zir.Inst.ArrayMul, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.res_ty);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.rhs);
+        try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
 
@@ -2456,20 +2469,15 @@ const Writer = struct {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].save_err_ret_index;
 
         try self.writeInstRef(stream, inst_data.operand);
+
         try stream.writeAll(")");
     }
 
     fn writeRestoreErrRetIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].restore_err_ret_index;
 
-        if (inst_data.block != .none) {
-            try self.writeInstRef(stream, inst_data.block);
-        }
-
-        if (inst_data.operand != .none) {
-            if (inst_data.block != .none) try stream.writeAll(", ");
-            try self.writeInstRef(stream, inst_data.operand);
-        }
+        try self.writeInstRef(stream, inst_data.block);
+        try self.writeInstRef(stream, inst_data.operand);
 
         try stream.writeAll(")");
     }
@@ -2615,7 +2623,9 @@ const Writer = struct {
     }
 
     fn writeInstRef(self: *Writer, stream: anytype, ref: Zir.Inst.Ref) !void {
-        if (ref.toIndex()) |i| {
+        if (ref == .none) {
+            return stream.writeAll(".none");
+        } else if (ref.toIndex()) |i| {
             return self.writeInstIndex(stream, i);
         } else {
             const val: InternPool.Index = @enumFromInt(@intFromEnum(ref));

@@ -186,9 +186,7 @@ test "approxEqAbs and approxEqRel" {
     }
 }
 
-pub fn doNotOptimizeAway(val: anytype) void {
-    return mem.doNotOptimizeAway(val);
-}
+pub const doNotOptimizeAway = @compileError("Deprecated: use `std.mem.doNotOptimizeAway` instead");
 
 pub fn raiseInvalid() void {
     // Raise INVALID fpu exception
@@ -222,6 +220,8 @@ pub const isFinite = @import("math/isfinite.zig").isFinite;
 pub const isInf = @import("math/isinf.zig").isInf;
 pub const isPositiveInf = @import("math/isinf.zig").isPositiveInf;
 pub const isNegativeInf = @import("math/isinf.zig").isNegativeInf;
+pub const isPositiveZero = @import("math/iszero.zig").isPositiveZero;
+pub const isNegativeZero = @import("math/iszero.zig").isNegativeZero;
 pub const isNormal = @import("math/isnormal.zig").isNormal;
 pub const nextAfter = @import("math/nextafter.zig").nextAfter;
 pub const signbit = @import("math/signbit.zig").signbit;
@@ -425,6 +425,7 @@ test "clamp" {
 
     // Mix of comptime and non-comptime
     var i: i32 = 1;
+    _ = &i;
     try testing.expect(std.math.clamp(i, 0, 1) == 1);
 }
 
@@ -492,8 +493,6 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "shl" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
@@ -539,8 +538,6 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "shr" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
@@ -587,8 +584,6 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
 }
 
 test "rotr" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
@@ -634,8 +629,6 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
 }
 
 test "rotl" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
@@ -764,8 +757,6 @@ pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "divTrunc" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testDivTrunc();
     try comptime testDivTrunc();
 }
@@ -790,8 +781,6 @@ pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "divFloor" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testDivFloor();
     try comptime testDivFloor();
 }
@@ -810,7 +799,7 @@ fn testDivFloor() !void {
 /// zero.
 pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if ((comptime std.meta.trait.isNumber(T)) and denominator == 0) return error.DivisionByZero;
+    if (denominator == 0) return error.DivisionByZero;
     const info = @typeInfo(T);
     switch (info) {
         .ComptimeFloat, .Float => return @ceil(numerator / denominator),
@@ -829,8 +818,6 @@ pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "divCeil" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testDivCeil();
     try comptime testDivCeil();
 }
@@ -875,8 +862,6 @@ pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "divExact" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testDivExact();
     try comptime testDivExact();
 }
@@ -903,8 +888,6 @@ pub fn mod(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "mod" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testMod();
     try comptime testMod();
 }
@@ -931,8 +914,6 @@ pub fn rem(comptime T: type, numerator: T, denominator: T) !T {
 }
 
 test "rem" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testRem();
     try comptime testRem();
 }
@@ -1131,7 +1112,7 @@ pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     comptime assert(info.signedness == .unsigned);
     const PromotedType = std.meta.Int(info.signedness, info.bits + 1);
     const overflowBit = @as(PromotedType, 1) << info.bits;
-    var x = ceilPowerOfTwoPromote(T, value);
+    const x = ceilPowerOfTwoPromote(T, value);
     if (overflowBit & x != 0) {
         return error.Overflow;
     }
@@ -1285,7 +1266,8 @@ pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
 }
 
 test "lerp" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and
+        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .fma)) return error.SkipZigTest;
 
     try testing.expectEqual(@as(f64, 75), lerp(50, 100, 0.5));
     try testing.expectEqual(@as(f32, 43.75), lerp(50, 25, 0.25));

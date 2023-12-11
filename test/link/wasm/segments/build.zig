@@ -13,15 +13,17 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addExecutable(.{
         .name = "lib",
         .root_source_file = .{ .path = "lib.zig" },
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
         .optimize = optimize,
     });
+    lib.entry = .disabled;
     lib.use_llvm = false;
     lib.use_lld = false;
     lib.strip = false;
+    lib.link_gc_sections = false; // so data is not garbage collected and we can verify data section
     b.installArtifact(lib);
 
     const check_lib = lib.checkObject();

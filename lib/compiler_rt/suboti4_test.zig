@@ -6,8 +6,8 @@ const math = std.math;
 fn test__suboti4(a: i128, b: i128) !void {
     var result_ov: c_int = undefined;
     var expected_ov: c_int = undefined;
-    var result = subo.__suboti4(a, b, &result_ov);
-    var expected: i128 = simple_suboti4(a, b, &expected_ov);
+    const result = subo.__suboti4(a, b, &result_ov);
+    const expected: i128 = simple_suboti4(a, b, &expected_ov);
     try testing.expectEqual(expected, result);
     try testing.expectEqual(expected_ov, result_ov);
 }

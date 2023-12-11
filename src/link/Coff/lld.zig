@@ -483,12 +483,6 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                     try argv.append(lib.full_object_path);
                 }
             }
-            // MinGW doesn't provide libssp symbols
-            if (target.abi.isGnu()) {
-                if (comp.libssp_static_lib) |lib| {
-                    try argv.append(lib.full_object_path);
-                }
-            }
             // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
             // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
             if (comp.compiler_rt_obj) |obj| try argv.append(obj.full_object_path);

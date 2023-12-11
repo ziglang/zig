@@ -1,5 +1,6 @@
 pub export fn entry() void {
     var a = false;
+    _ = &a;
     const arr1 = .{ 1, 2, 3 };
     loop: inline for (arr1) |val1| {
         _ = val1;
@@ -17,5 +18,5 @@ pub export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :9:30: error: comptime control flow inside runtime block
-// :6:13: note: runtime control flow here
+// :10:30: error: comptime control flow inside runtime block
+// :7:13: note: runtime control flow here

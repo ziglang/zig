@@ -293,7 +293,7 @@ const Check = struct {
 
 /// Creates a new empty sequence of actions.
 pub fn checkStart(self: *CheckObject) void {
-    var new_check = Check.create(self.step.owner.allocator);
+    const new_check = Check.create(self.step.owner.allocator);
     self.checks.append(new_check) catch @panic("OOM");
 }
 
@@ -381,6 +381,18 @@ pub fn checkInSymtab(self: *CheckObject) void {
     self.checkExact(label);
 }
 
+/// Creates a new check checking specifically dyld_info_only contents parsed and dumped
+/// from the object file.
+/// This check is target-dependent and applicable to MachO only.
+pub fn checkInDyldInfo(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .macho => MachODumper.dyld_info_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart();
+    self.checkExact(label);
+}
+
 /// Creates a new check checking specifically dynamic symbol table parsed and dumped from the object
 /// file.
 /// This check is target-dependent and applicable to ELF only.
@@ -400,6 +412,17 @@ pub fn checkInDynamicSection(self: *CheckObject) void {
     const label = switch (self.obj_format) {
         .elf => ElfDumper.dynamic_section_label,
         else => @panic("Unsupported target platform"),
+    };
+    self.checkStart();
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically symbol table parsed and dumped from the archive
+/// file.
+pub fn checkInArchiveSymtab(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .elf => ElfDumper.archive_symtab_label,
+        else => @panic("TODO other file formats"),
     };
     self.checkStart();
     self.checkExact(label);
@@ -532,6 +555,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
 const MachODumper = struct {
     const LoadCommandIterator = macho.LoadCommandIterator;
+    const dyld_info_label = "dyld info data";
     const symtab_label = "symbol table";
 
     const Symtab = struct {
@@ -553,8 +577,16 @@ const MachODumper = struct {
         const writer = output.writer();
 
         var symtab: ?Symtab = null;
+        var segments = std.ArrayList(macho.segment_command_64).init(gpa);
+        defer segments.deinit();
         var sections = std.ArrayList(macho.section_64).init(gpa);
+        defer sections.deinit();
         var imports = std.ArrayList([]const u8).init(gpa);
+        defer imports.deinit();
+        var text_seg: ?u8 = null;
+        var dyld_info_lc: ?macho.dyld_info_command = null;
+
+        try dumpHeader(hdr, writer);
 
         var it: LoadCommandIterator = .{
             .ncmds = hdr.ncmds,
@@ -569,6 +601,11 @@ const MachODumper = struct {
                     for (cmd.getSections()) |sect| {
                         sections.appendAssumeCapacity(sect);
                     }
+                    const seg_id: u8 = @intCast(segments.items.len);
+                    try segments.append(seg);
+                    if (mem.eql(u8, seg.segName(), "__TEXT")) {
+                        text_seg = seg_id;
+                    }
                 },
                 .SYMTAB => {
                     const lc = cmd.cast(macho.symtab_command).?;
@@ -581,6 +618,9 @@ const MachODumper = struct {
                 .REEXPORT_DYLIB,
                 => {
                     try imports.append(cmd.getDylibPathName());
+                },
+                .DYLD_INFO_ONLY => {
+                    dyld_info_lc = cmd.cast(macho.dyld_info_command).?;
                 },
                 else => {},
             }
@@ -595,7 +635,104 @@ const MachODumper = struct {
             try dumpSymtab(sections.items, imports.items, stab, writer);
         }
 
+        if (dyld_info_lc) |lc| {
+            try writer.writeAll(dyld_info_label ++ "\n");
+            if (lc.rebase_size > 0) {
+                const data = bytes[lc.rebase_off..][0..lc.rebase_size];
+                try writer.writeAll("rebase info\n");
+                try dumpRebaseInfo(gpa, data, segments.items, writer);
+            }
+            if (lc.bind_size > 0) {
+                const data = bytes[lc.bind_off..][0..lc.bind_size];
+                try writer.writeAll("bind info\n");
+                try dumpBindInfo(gpa, data, segments.items, imports.items, false, writer);
+            }
+            if (lc.weak_bind_size > 0) {
+                const data = bytes[lc.weak_bind_off..][0..lc.weak_bind_size];
+                try writer.writeAll("weak bind info\n");
+                try dumpBindInfo(gpa, data, segments.items, imports.items, false, writer);
+            }
+            if (lc.lazy_bind_size > 0) {
+                const data = bytes[lc.lazy_bind_off..][0..lc.lazy_bind_size];
+                try writer.writeAll("lazy bind info\n");
+                try dumpBindInfo(gpa, data, segments.items, imports.items, true, writer);
+            }
+            if (lc.export_size > 0) {
+                const data = bytes[lc.export_off..][0..lc.export_size];
+                try writer.writeAll("exports\n");
+                try dumpExportsTrie(gpa, data, segments.items[text_seg.?], writer);
+            }
+        }
+
         return output.toOwnedSlice();
+    }
+
+    fn dumpHeader(hdr: macho.mach_header_64, writer: anytype) !void {
+        const cputype = switch (hdr.cputype) {
+            macho.CPU_TYPE_ARM64 => "ARM64",
+            macho.CPU_TYPE_X86_64 => "X86_64",
+            else => "Unknown",
+        };
+        const filetype = switch (hdr.filetype) {
+            macho.MH_OBJECT => "MH_OBJECT",
+            macho.MH_EXECUTE => "MH_EXECUTE",
+            macho.MH_FVMLIB => "MH_FVMLIB",
+            macho.MH_CORE => "MH_CORE",
+            macho.MH_PRELOAD => "MH_PRELOAD",
+            macho.MH_DYLIB => "MH_DYLIB",
+            macho.MH_DYLINKER => "MH_DYLINKER",
+            macho.MH_BUNDLE => "MH_BUNDLE",
+            macho.MH_DYLIB_STUB => "MH_DYLIB_STUB",
+            macho.MH_DSYM => "MH_DSYM",
+            macho.MH_KEXT_BUNDLE => "MH_KEXT_BUNDLE",
+            else => "Unknown",
+        };
+
+        try writer.print(
+            \\header
+            \\cputype {s}
+            \\filetype {s}
+            \\ncmds {d}
+            \\sizeofcmds {x}
+            \\flags
+        , .{
+            cputype,
+            filetype,
+            hdr.ncmds,
+            hdr.sizeofcmds,
+        });
+
+        if (hdr.flags > 0) {
+            if (hdr.flags & macho.MH_NOUNDEFS != 0) try writer.writeAll(" NOUNDEFS");
+            if (hdr.flags & macho.MH_INCRLINK != 0) try writer.writeAll(" INCRLINK");
+            if (hdr.flags & macho.MH_DYLDLINK != 0) try writer.writeAll(" DYLDLINK");
+            if (hdr.flags & macho.MH_BINDATLOAD != 0) try writer.writeAll(" BINDATLOAD");
+            if (hdr.flags & macho.MH_PREBOUND != 0) try writer.writeAll(" PREBOUND");
+            if (hdr.flags & macho.MH_SPLIT_SEGS != 0) try writer.writeAll(" SPLIT_SEGS");
+            if (hdr.flags & macho.MH_LAZY_INIT != 0) try writer.writeAll(" LAZY_INIT");
+            if (hdr.flags & macho.MH_TWOLEVEL != 0) try writer.writeAll(" TWOLEVEL");
+            if (hdr.flags & macho.MH_FORCE_FLAT != 0) try writer.writeAll(" FORCE_FLAT");
+            if (hdr.flags & macho.MH_NOMULTIDEFS != 0) try writer.writeAll(" NOMULTIDEFS");
+            if (hdr.flags & macho.MH_NOFIXPREBINDING != 0) try writer.writeAll(" NOFIXPREBINDING");
+            if (hdr.flags & macho.MH_PREBINDABLE != 0) try writer.writeAll(" PREBINDABLE");
+            if (hdr.flags & macho.MH_ALLMODSBOUND != 0) try writer.writeAll(" ALLMODSBOUND");
+            if (hdr.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0) try writer.writeAll(" SUBSECTIONS_VIA_SYMBOLS");
+            if (hdr.flags & macho.MH_CANONICAL != 0) try writer.writeAll(" CANONICAL");
+            if (hdr.flags & macho.MH_WEAK_DEFINES != 0) try writer.writeAll(" WEAK_DEFINES");
+            if (hdr.flags & macho.MH_BINDS_TO_WEAK != 0) try writer.writeAll(" BINDS_TO_WEAK");
+            if (hdr.flags & macho.MH_ALLOW_STACK_EXECUTION != 0) try writer.writeAll(" ALLOW_STACK_EXECUTION");
+            if (hdr.flags & macho.MH_ROOT_SAFE != 0) try writer.writeAll(" ROOT_SAFE");
+            if (hdr.flags & macho.MH_SETUID_SAFE != 0) try writer.writeAll(" SETUID_SAFE");
+            if (hdr.flags & macho.MH_NO_REEXPORTED_DYLIBS != 0) try writer.writeAll(" NO_REEXPORTED_DYLIBS");
+            if (hdr.flags & macho.MH_PIE != 0) try writer.writeAll(" PIE");
+            if (hdr.flags & macho.MH_DEAD_STRIPPABLE_DYLIB != 0) try writer.writeAll(" DEAD_STRIPPABLE_DYLIB");
+            if (hdr.flags & macho.MH_HAS_TLV_DESCRIPTORS != 0) try writer.writeAll(" HAS_TLV_DESCRIPTORS");
+            if (hdr.flags & macho.MH_NO_HEAP_EXECUTION != 0) try writer.writeAll(" NO_HEAP_EXECUTION");
+            if (hdr.flags & macho.MH_APP_EXTENSION_SAFE != 0) try writer.writeAll(" APP_EXTENSION_SAFE");
+            if (hdr.flags & macho.MH_NLIST_OUTOFSYNC_WITH_DYLDINFO != 0) try writer.writeAll(" NLIST_OUTOFSYNC_WITH_DYLDINFO");
+        }
+
+        try writer.writeByte('\n');
     }
 
     fn dumpLoadCommand(lc: macho.LoadCommandIterator.LoadCommand, index: usize, writer: anytype) !void {
@@ -842,9 +979,18 @@ const MachODumper = struct {
                     sect.segName(),
                     sect.sectName(),
                 });
+                if (sym.n_desc & macho.REFERENCED_DYNAMICALLY != 0) try writer.writeAll(" [referenced dynamically]");
+                if (sym.weakDef()) try writer.writeAll(" weak");
+                if (sym.weakRef()) try writer.writeAll(" weakref");
                 if (sym.ext()) {
+                    if (sym.pext()) try writer.writeAll(" private");
                     try writer.writeAll(" external");
-                }
+                } else if (sym.pext()) try writer.writeAll(" (was private external)");
+                try writer.print(" {s}\n", .{sym_name});
+            } else if (sym.tentative()) {
+                const alignment = (sym.n_desc >> 8) & 0x0F;
+                try writer.print("  0x{x:0>16} (common) (alignment 2^{d})", .{ sym.n_value, alignment });
+                if (sym.ext()) try writer.writeAll(" external");
                 try writer.print(" {s}\n", .{sym_name});
             } else if (sym.undf()) {
                 const ordinal = @divTrunc(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
@@ -865,17 +1011,414 @@ const MachODumper = struct {
                     break :blk basename[0..ext];
                 };
                 try writer.writeAll("(undefined)");
-                if (sym.weakRef()) {
-                    try writer.writeAll(" weak");
-                }
-                if (sym.ext()) {
-                    try writer.writeAll(" external");
-                }
+                if (sym.weakRef()) try writer.writeAll(" weakref");
+                if (sym.ext()) try writer.writeAll(" external");
                 try writer.print(" {s} (from {s})\n", .{
                     sym_name,
                     import_name,
                 });
-            } else unreachable;
+            }
+        }
+    }
+
+    fn dumpRebaseInfo(
+        gpa: Allocator,
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        writer: anytype,
+    ) !void {
+        var rebases = std.ArrayList(u64).init(gpa);
+        defer rebases.deinit();
+        try parseRebaseInfo(data, segments, &rebases);
+        mem.sort(u64, rebases.items, {}, std.sort.asc(u64));
+        for (rebases.items) |addr| {
+            try writer.print("0x{x}\n", .{addr});
+        }
+    }
+
+    fn parseRebaseInfo(
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        rebases: *std.ArrayList(u64),
+    ) !void {
+        var stream = std.io.fixedBufferStream(data);
+        var creader = std.io.countingReader(stream.reader());
+        const reader = creader.reader();
+
+        var seg_id: ?u8 = null;
+        var offset: u64 = 0;
+        while (true) {
+            const byte = reader.readByte() catch break;
+            const opc = byte & macho.REBASE_OPCODE_MASK;
+            const imm = byte & macho.REBASE_IMMEDIATE_MASK;
+            switch (opc) {
+                macho.REBASE_OPCODE_DONE => break,
+                macho.REBASE_OPCODE_SET_TYPE_IMM => {},
+                macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
+                    seg_id = imm;
+                    offset = try std.leb.readULEB128(u64, reader);
+                },
+                macho.REBASE_OPCODE_ADD_ADDR_IMM_SCALED => {
+                    offset += imm * @sizeOf(u64);
+                },
+                macho.REBASE_OPCODE_ADD_ADDR_ULEB => {
+                    const addend = try std.leb.readULEB128(u64, reader);
+                    offset += addend;
+                },
+                macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB => {
+                    const addend = try std.leb.readULEB128(u64, reader);
+                    const seg = segments[seg_id.?];
+                    const addr = seg.vmaddr + offset;
+                    try rebases.append(addr);
+                    offset += addend + @sizeOf(u64);
+                },
+                macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES,
+                macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES,
+                macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB,
+                => {
+                    var ntimes: u64 = 1;
+                    var skip: u64 = 0;
+                    switch (opc) {
+                        macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES => {
+                            ntimes = imm;
+                        },
+                        macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES => {
+                            ntimes = try std.leb.readULEB128(u64, reader);
+                        },
+                        macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB => {
+                            ntimes = try std.leb.readULEB128(u64, reader);
+                            skip = try std.leb.readULEB128(u64, reader);
+                        },
+                        else => unreachable,
+                    }
+                    const seg = segments[seg_id.?];
+                    const base_addr = seg.vmaddr;
+                    var count: usize = 0;
+                    while (count < ntimes) : (count += 1) {
+                        const addr = base_addr + offset;
+                        try rebases.append(addr);
+                        offset += skip + @sizeOf(u64);
+                    }
+                },
+                else => break,
+            }
+        }
+    }
+
+    const Binding = struct {
+        address: u64,
+        addend: i64,
+        ordinal: ?u16,
+        name: []const u8,
+
+        fn deinit(binding: *Binding, gpa: Allocator) void {
+            gpa.free(binding.name);
+        }
+
+        fn lessThan(ctx: void, lhs: Binding, rhs: Binding) bool {
+            _ = ctx;
+            return lhs.address < rhs.address;
+        }
+    };
+
+    fn dumpBindInfo(
+        gpa: Allocator,
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        dylibs: []const []const u8,
+        is_lazy: bool,
+        writer: anytype,
+    ) !void {
+        var bindings = std.ArrayList(Binding).init(gpa);
+        defer {
+            for (bindings.items) |*b| {
+                b.deinit(gpa);
+            }
+            bindings.deinit();
+        }
+        try parseBindInfo(gpa, data, segments, &bindings, is_lazy);
+        mem.sort(Binding, bindings.items, {}, Binding.lessThan);
+        for (bindings.items) |binding| {
+            try writer.print("0x{x} [addend: {d}]", .{ binding.address, binding.addend });
+            if (binding.ordinal) |ord| {
+                try writer.print(" ({s})", .{std.fs.path.basename(dylibs[ord - 1])});
+            }
+            try writer.print(" {s}\n", .{binding.name});
+        }
+    }
+
+    fn parseBindInfo(
+        gpa: Allocator,
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        bindings: *std.ArrayList(Binding),
+        lazy_ops: bool,
+    ) !void {
+        var stream = std.io.fixedBufferStream(data);
+        var creader = std.io.countingReader(stream.reader());
+        const reader = creader.reader();
+
+        var seg_id: ?u8 = null;
+        var dylib_id: ?u16 = null;
+        var offset: u64 = 0;
+        var addend: i64 = 0;
+
+        var name_buf = std.ArrayList(u8).init(gpa);
+        defer name_buf.deinit();
+
+        while (true) {
+            const byte = reader.readByte() catch break;
+            const opc = byte & macho.BIND_OPCODE_MASK;
+            const imm = byte & macho.BIND_IMMEDIATE_MASK;
+            switch (opc) {
+                macho.BIND_OPCODE_DONE => {
+                    if (!lazy_ops) break;
+                },
+                macho.BIND_OPCODE_SET_TYPE_IMM => {
+                    if (lazy_ops) break;
+                },
+                macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM => {
+                    dylib_id = imm;
+                },
+                macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
+                    seg_id = imm;
+                    offset = try std.leb.readULEB128(u64, reader);
+                },
+                macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
+                    name_buf.clearRetainingCapacity();
+                    try reader.readUntilDelimiterArrayList(&name_buf, 0, std.math.maxInt(u32));
+                    try name_buf.append(0);
+                },
+                macho.BIND_OPCODE_SET_ADDEND_SLEB => {
+                    addend = try std.leb.readILEB128(i64, reader);
+                },
+                macho.BIND_OPCODE_ADD_ADDR_ULEB => {
+                    if (lazy_ops) break;
+                    const x = try std.leb.readULEB128(u64, reader);
+                    offset = @intCast(@as(i64, @intCast(offset)) + @as(i64, @bitCast(x)));
+                },
+                macho.BIND_OPCODE_DO_BIND,
+                macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB,
+                macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED,
+                macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB,
+                => {
+                    var add_addr: u64 = 0;
+                    var count: u64 = 1;
+                    var skip: u64 = 0;
+
+                    switch (opc) {
+                        macho.BIND_OPCODE_DO_BIND => {},
+                        macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB => {
+                            if (lazy_ops) break;
+                            add_addr = try std.leb.readULEB128(u64, reader);
+                        },
+                        macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED => {
+                            if (lazy_ops) break;
+                            add_addr = imm * @sizeOf(u64);
+                        },
+                        macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB => {
+                            if (lazy_ops) break;
+                            count = try std.leb.readULEB128(u64, reader);
+                            skip = try std.leb.readULEB128(u64, reader);
+                        },
+                        else => unreachable,
+                    }
+
+                    const seg = segments[seg_id.?];
+                    var i: u64 = 0;
+                    while (i < count) : (i += 1) {
+                        const addr: u64 = @intCast(@as(i64, @intCast(seg.vmaddr + offset)));
+                        try bindings.append(.{
+                            .address = addr,
+                            .addend = addend,
+                            .ordinal = dylib_id,
+                            .name = try gpa.dupe(u8, name_buf.items),
+                        });
+                        offset += skip + @sizeOf(u64) + add_addr;
+                    }
+                },
+                else => break,
+            }
+        }
+    }
+
+    fn dumpExportsTrie(
+        gpa: Allocator,
+        data: []const u8,
+        seg: macho.segment_command_64,
+        writer: anytype,
+    ) !void {
+        var arena = std.heap.ArenaAllocator.init(gpa);
+        defer arena.deinit();
+
+        var exports = std.ArrayList(Export).init(arena.allocator());
+        var it = TrieIterator{ .data = data };
+        try parseTrieNode(arena.allocator(), &it, "", &exports);
+
+        mem.sort(Export, exports.items, {}, Export.lessThan);
+
+        for (exports.items) |exp| {
+            switch (exp.tag) {
+                .@"export" => {
+                    const info = exp.data.@"export";
+                    if (info.kind != .regular or info.weak) {
+                        try writer.writeByte('[');
+                    }
+                    switch (info.kind) {
+                        .regular => {},
+                        .absolute => try writer.writeAll("ABS, "),
+                        .tlv => try writer.writeAll("THREAD_LOCAL, "),
+                    }
+                    if (info.weak) try writer.writeAll("WEAK");
+                    if (info.kind != .regular or info.weak) {
+                        try writer.writeAll("] ");
+                    }
+                    try writer.print("{x} ", .{seg.vmaddr + info.vmoffset});
+                },
+                else => {},
+            }
+
+            try writer.print("{s}\n", .{exp.name});
+        }
+    }
+
+    const TrieIterator = struct {
+        data: []const u8,
+        pos: usize = 0,
+
+        fn getStream(it: *TrieIterator) std.io.FixedBufferStream([]const u8) {
+            return std.io.fixedBufferStream(it.data[it.pos..]);
+        }
+
+        fn readULEB128(it: *TrieIterator) !u64 {
+            var stream = it.getStream();
+            var creader = std.io.countingReader(stream.reader());
+            const reader = creader.reader();
+            const value = try std.leb.readULEB128(u64, reader);
+            it.pos += creader.bytes_read;
+            return value;
+        }
+
+        fn readString(it: *TrieIterator) ![:0]const u8 {
+            var stream = it.getStream();
+            const reader = stream.reader();
+
+            var count: usize = 0;
+            while (true) : (count += 1) {
+                const byte = try reader.readByte();
+                if (byte == 0) break;
+            }
+
+            const str = @as([*:0]const u8, @ptrCast(it.data.ptr + it.pos))[0..count :0];
+            it.pos += count + 1;
+            return str;
+        }
+
+        fn readByte(it: *TrieIterator) !u8 {
+            var stream = it.getStream();
+            const value = try stream.reader().readByte();
+            it.pos += 1;
+            return value;
+        }
+    };
+
+    const Export = struct {
+        name: []const u8,
+        tag: enum { @"export", reexport, stub_resolver },
+        data: union {
+            @"export": struct {
+                kind: enum { regular, absolute, tlv },
+                weak: bool = false,
+                vmoffset: u64,
+            },
+            reexport: u64,
+            stub_resolver: struct {
+                stub_offset: u64,
+                resolver_offset: u64,
+            },
+        },
+
+        inline fn rankByTag(self: Export) u3 {
+            return switch (self.tag) {
+                .@"export" => 1,
+                .reexport => 2,
+                .stub_resolver => 3,
+            };
+        }
+
+        fn lessThan(ctx: void, lhs: Export, rhs: Export) bool {
+            _ = ctx;
+            if (lhs.rankByTag() == rhs.rankByTag()) {
+                return switch (lhs.tag) {
+                    .@"export" => lhs.data.@"export".vmoffset < rhs.data.@"export".vmoffset,
+                    .reexport => lhs.data.reexport < rhs.data.reexport,
+                    .stub_resolver => lhs.data.stub_resolver.stub_offset < rhs.data.stub_resolver.stub_offset,
+                };
+            }
+            return lhs.rankByTag() < rhs.rankByTag();
+        }
+    };
+
+    fn parseTrieNode(
+        arena: Allocator,
+        it: *TrieIterator,
+        prefix: []const u8,
+        exports: *std.ArrayList(Export),
+    ) !void {
+        const size = try it.readULEB128();
+        if (size > 0) {
+            const flags = try it.readULEB128();
+            switch (flags) {
+                macho.EXPORT_SYMBOL_FLAGS_REEXPORT => {
+                    const ord = try it.readULEB128();
+                    const name = try arena.dupe(u8, try it.readString());
+                    try exports.append(.{
+                        .name = if (name.len > 0) name else prefix,
+                        .tag = .reexport,
+                        .data = .{ .reexport = ord },
+                    });
+                },
+                macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER => {
+                    const stub_offset = try it.readULEB128();
+                    const resolver_offset = try it.readULEB128();
+                    try exports.append(.{
+                        .name = prefix,
+                        .tag = .stub_resolver,
+                        .data = .{ .stub_resolver = .{
+                            .stub_offset = stub_offset,
+                            .resolver_offset = resolver_offset,
+                        } },
+                    });
+                },
+                else => {
+                    const vmoff = try it.readULEB128();
+                    try exports.append(.{
+                        .name = prefix,
+                        .tag = .@"export",
+                        .data = .{ .@"export" = .{
+                            .kind = switch (flags & macho.EXPORT_SYMBOL_FLAGS_KIND_MASK) {
+                                macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR => .regular,
+                                macho.EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE => .absolute,
+                                macho.EXPORT_SYMBOL_FLAGS_KIND_THREAD_LOCAL => .tlv,
+                                else => unreachable,
+                            },
+                            .weak = flags & macho.EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION != 0,
+                            .vmoffset = vmoff,
+                        } },
+                    });
+                },
+            }
+        }
+
+        const nedges = try it.readByte();
+        for (0..nedges) |_| {
+            const label = try it.readString();
+            const off = try it.readULEB128();
+            const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
+            const curr = it.pos;
+            it.pos = off;
+            try parseTrieNode(arena, it, prefix_label, exports);
+            it.pos = curr;
         }
     }
 };
@@ -884,35 +1427,177 @@ const ElfDumper = struct {
     const symtab_label = "symbol table";
     const dynamic_symtab_label = "dynamic symbol table";
     const dynamic_section_label = "dynamic section";
-
-    const Symtab = struct {
-        symbols: []align(1) const elf.Elf64_Sym,
-        strings: []const u8,
-
-        fn get(st: Symtab, index: usize) ?elf.Elf64_Sym {
-            if (index >= st.symbols.len) return null;
-            return st.symbols[index];
-        }
-
-        fn getName(st: Symtab, index: usize) ?[]const u8 {
-            const sym = st.get(index) orelse return null;
-            return getString(st.strings, sym.st_name);
-        }
-    };
-
-    const Context = struct {
-        gpa: Allocator,
-        data: []const u8,
-        hdr: elf.Elf64_Ehdr,
-        shdrs: []align(1) const elf.Elf64_Shdr,
-        phdrs: []align(1) const elf.Elf64_Phdr,
-        shstrtab: []const u8,
-        symtab: ?Symtab = null,
-        dysymtab: ?Symtab = null,
-    };
+    const archive_symtab_label = "archive symbol table";
 
     fn parseAndDump(step: *Step, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
+        return parseAndDumpArchive(gpa, bytes) catch |err| switch (err) {
+            error.InvalidArchiveMagicNumber => try parseAndDumpObject(gpa, bytes),
+            else => |e| return e,
+        };
+    }
+
+    fn parseAndDumpArchive(gpa: Allocator, bytes: []const u8) ![]const u8 {
+        var stream = std.io.fixedBufferStream(bytes);
+        const reader = stream.reader();
+
+        const magic = try reader.readBytesNoEof(elf.ARMAG.len);
+        if (!mem.eql(u8, &magic, elf.ARMAG)) {
+            return error.InvalidArchiveMagicNumber;
+        }
+
+        var ctx = ArchiveContext{
+            .gpa = gpa,
+            .data = bytes,
+            .strtab = &[0]u8{},
+        };
+        defer {
+            for (ctx.objects.items) |*object| {
+                gpa.free(object.name);
+            }
+            ctx.objects.deinit(gpa);
+        }
+
+        while (true) {
+            if (stream.pos >= ctx.data.len) break;
+            if (!mem.isAligned(stream.pos, 2)) stream.pos += 1;
+
+            const hdr = try reader.readStruct(elf.ar_hdr);
+
+            if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) return error.InvalidArchiveHeaderMagicNumber;
+
+            const size = try hdr.size();
+            defer {
+                _ = stream.seekBy(size) catch {};
+            }
+
+            if (hdr.isSymtab()) {
+                try ctx.parseSymtab(ctx.data[stream.pos..][0..size], .p32);
+                continue;
+            }
+            if (hdr.isSymtab64()) {
+                try ctx.parseSymtab(ctx.data[stream.pos..][0..size], .p64);
+                continue;
+            }
+            if (hdr.isStrtab()) {
+                ctx.strtab = ctx.data[stream.pos..][0..size];
+                continue;
+            }
+            if (hdr.isSymdef() or hdr.isSymdefSorted()) continue;
+
+            const name = if (hdr.name()) |name|
+                try gpa.dupe(u8, name)
+            else if (try hdr.nameOffset()) |off|
+                try gpa.dupe(u8, ctx.getString(off))
+            else
+                unreachable;
+
+            try ctx.objects.append(gpa, .{ .name = name, .off = stream.pos, .len = size });
+        }
+
+        var output = std.ArrayList(u8).init(gpa);
+        const writer = output.writer();
+
+        try ctx.dumpSymtab(writer);
+        try ctx.dumpObjects(writer);
+
+        return output.toOwnedSlice();
+    }
+
+    const ArchiveContext = struct {
+        gpa: Allocator,
+        data: []const u8,
+        symtab: std.ArrayListUnmanaged(ArSymtabEntry) = .{},
+        strtab: []const u8,
+        objects: std.ArrayListUnmanaged(struct { name: []const u8, off: usize, len: usize }) = .{},
+
+        fn parseSymtab(ctx: *ArchiveContext, raw: []const u8, ptr_width: enum { p32, p64 }) !void {
+            var stream = std.io.fixedBufferStream(raw);
+            const reader = stream.reader();
+            const num = switch (ptr_width) {
+                .p32 => try reader.readInt(u32, .big),
+                .p64 => try reader.readInt(u64, .big),
+            };
+            const ptr_size: usize = switch (ptr_width) {
+                .p32 => @sizeOf(u32),
+                .p64 => @sizeOf(u64),
+            };
+            const strtab_off = (num + 1) * ptr_size;
+            const strtab_len = raw.len - strtab_off;
+            const strtab = raw[strtab_off..][0..strtab_len];
+
+            try ctx.symtab.ensureTotalCapacityPrecise(ctx.gpa, num);
+
+            var stroff: usize = 0;
+            for (0..num) |_| {
+                const off = switch (ptr_width) {
+                    .p32 => try reader.readInt(u32, .big),
+                    .p64 => try reader.readInt(u64, .big),
+                };
+                const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + stroff)), 0);
+                stroff += name.len + 1;
+                ctx.symtab.appendAssumeCapacity(.{ .off = off, .name = name });
+            }
+        }
+
+        fn dumpSymtab(ctx: ArchiveContext, writer: anytype) !void {
+            if (ctx.symtab.items.len == 0) return;
+
+            var files = std.AutoHashMap(usize, []const u8).init(ctx.gpa);
+            defer files.deinit();
+            try files.ensureUnusedCapacity(@intCast(ctx.objects.items.len));
+
+            for (ctx.objects.items) |object| {
+                files.putAssumeCapacityNoClobber(object.off - @sizeOf(elf.ar_hdr), object.name);
+            }
+
+            var symbols = std.AutoArrayHashMap(usize, std.ArrayList([]const u8)).init(ctx.gpa);
+            defer {
+                for (symbols.values()) |*value| {
+                    value.deinit();
+                }
+                symbols.deinit();
+            }
+
+            for (ctx.symtab.items) |entry| {
+                const gop = try symbols.getOrPut(@intCast(entry.off));
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = std.ArrayList([]const u8).init(ctx.gpa);
+                }
+                try gop.value_ptr.append(entry.name);
+            }
+
+            try writer.print("{s}\n", .{archive_symtab_label});
+            for (symbols.keys(), symbols.values()) |off, values| {
+                try writer.print("in object {s}\n", .{files.get(off).?});
+                for (values.items) |value| {
+                    try writer.print("{s}\n", .{value});
+                }
+            }
+        }
+
+        fn dumpObjects(ctx: ArchiveContext, writer: anytype) !void {
+            for (ctx.objects.items) |object| {
+                try writer.print("object {s}\n", .{object.name});
+                const output = try parseAndDumpObject(ctx.gpa, ctx.data[object.off..][0..object.len]);
+                defer ctx.gpa.free(output);
+                try writer.print("{s}\n", .{output});
+            }
+        }
+
+        fn getString(ctx: ArchiveContext, off: u32) []const u8 {
+            assert(off < ctx.strtab.len);
+            const name = mem.sliceTo(@as([*:'\n']const u8, @ptrCast(ctx.strtab.ptr + off)), 0);
+            return name[0 .. name.len - 1];
+        }
+
+        const ArSymtabEntry = struct {
+            name: [:0]const u8,
+            off: u64,
+        };
+    };
+
+    fn parseAndDumpObject(gpa: Allocator, bytes: []const u8) ![]const u8 {
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
 
@@ -924,7 +1609,7 @@ const ElfDumper = struct {
         const shdrs = @as([*]align(1) const elf.Elf64_Shdr, @ptrCast(bytes.ptr + hdr.e_shoff))[0..hdr.e_shnum];
         const phdrs = @as([*]align(1) const elf.Elf64_Phdr, @ptrCast(bytes.ptr + hdr.e_phoff))[0..hdr.e_phnum];
 
-        var ctx = Context{
+        var ctx = ObjectContext{
             .gpa = gpa,
             .data = bytes,
             .hdr = hdr,
@@ -932,14 +1617,14 @@ const ElfDumper = struct {
             .phdrs = phdrs,
             .shstrtab = undefined,
         };
-        ctx.shstrtab = getSectionContents(ctx, ctx.hdr.e_shstrndx);
+        ctx.shstrtab = ctx.getSectionContents(ctx.hdr.e_shstrndx);
 
         for (ctx.shdrs, 0..) |shdr, i| switch (shdr.sh_type) {
             elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
-                const raw = getSectionContents(ctx, i);
+                const raw = ctx.getSectionContents(i);
                 const nsyms = @divExact(raw.len, @sizeOf(elf.Elf64_Sym));
                 const symbols = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw.ptr))[0..nsyms];
-                const strings = getSectionContents(ctx, shdr.sh_link);
+                const strings = ctx.getSectionContents(shdr.sh_link);
 
                 switch (shdr.sh_type) {
                     elf.SHT_SYMTAB => {
@@ -964,199 +1649,346 @@ const ElfDumper = struct {
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        try dumpHeader(ctx, writer);
-        try dumpShdrs(ctx, writer);
-        try dumpPhdrs(ctx, writer);
-        try dumpDynamicSection(ctx, writer);
-        try dumpSymtab(ctx, .symtab, writer);
-        try dumpSymtab(ctx, .dysymtab, writer);
+        try ctx.dumpHeader(writer);
+        try ctx.dumpShdrs(writer);
+        try ctx.dumpPhdrs(writer);
+        try ctx.dumpDynamicSection(writer);
+        try ctx.dumpSymtab(.symtab, writer);
+        try ctx.dumpSymtab(.dysymtab, writer);
 
         return output.toOwnedSlice();
     }
 
-    inline fn getSectionName(ctx: Context, shndx: usize) []const u8 {
-        const shdr = ctx.shdrs[shndx];
-        return getString(ctx.shstrtab, shdr.sh_name);
-    }
+    const ObjectContext = struct {
+        gpa: Allocator,
+        data: []const u8,
+        hdr: elf.Elf64_Ehdr,
+        shdrs: []align(1) const elf.Elf64_Shdr,
+        phdrs: []align(1) const elf.Elf64_Phdr,
+        shstrtab: []const u8,
+        symtab: ?Symtab = null,
+        dysymtab: ?Symtab = null,
 
-    fn getSectionContents(ctx: Context, shndx: usize) []const u8 {
-        const shdr = ctx.shdrs[shndx];
-        assert(shdr.sh_offset < ctx.data.len);
-        assert(shdr.sh_offset + shdr.sh_size <= ctx.data.len);
-        return ctx.data[shdr.sh_offset..][0..shdr.sh_size];
-    }
+        fn dumpHeader(ctx: ObjectContext, writer: anytype) !void {
+            try writer.writeAll("header\n");
+            try writer.print("type {s}\n", .{@tagName(ctx.hdr.e_type)});
+            try writer.print("entry {x}\n", .{ctx.hdr.e_entry});
+        }
 
-    fn getSectionByName(ctx: Context, name: []const u8) ?usize {
-        for (0..ctx.shdrs.len) |shndx| {
-            if (mem.eql(u8, getSectionName(ctx, shndx), name)) return shndx;
-        } else return null;
-    }
+        fn dumpPhdrs(ctx: ObjectContext, writer: anytype) !void {
+            if (ctx.phdrs.len == 0) return;
+
+            try writer.writeAll("program headers\n");
+
+            for (ctx.phdrs, 0..) |phdr, phndx| {
+                try writer.print("phdr {d}\n", .{phndx});
+                try writer.print("type {s}\n", .{fmtPhType(phdr.p_type)});
+                try writer.print("vaddr {x}\n", .{phdr.p_vaddr});
+                try writer.print("paddr {x}\n", .{phdr.p_paddr});
+                try writer.print("offset {x}\n", .{phdr.p_offset});
+                try writer.print("memsz {x}\n", .{phdr.p_memsz});
+                try writer.print("filesz {x}\n", .{phdr.p_filesz});
+                try writer.print("align {x}\n", .{phdr.p_align});
+
+                {
+                    const flags = phdr.p_flags;
+                    try writer.writeAll("flags");
+                    if (flags > 0) try writer.writeByte(' ');
+                    if (flags & elf.PF_R != 0) {
+                        try writer.writeByte('R');
+                    }
+                    if (flags & elf.PF_W != 0) {
+                        try writer.writeByte('W');
+                    }
+                    if (flags & elf.PF_X != 0) {
+                        try writer.writeByte('E');
+                    }
+                    if (flags & elf.PF_MASKOS != 0) {
+                        try writer.writeAll("OS");
+                    }
+                    if (flags & elf.PF_MASKPROC != 0) {
+                        try writer.writeAll("PROC");
+                    }
+                    try writer.writeByte('\n');
+                }
+            }
+        }
+
+        fn dumpShdrs(ctx: ObjectContext, writer: anytype) !void {
+            if (ctx.shdrs.len == 0) return;
+
+            try writer.writeAll("section headers\n");
+
+            for (ctx.shdrs, 0..) |shdr, shndx| {
+                try writer.print("shdr {d}\n", .{shndx});
+                try writer.print("name {s}\n", .{ctx.getSectionName(shndx)});
+                try writer.print("type {s}\n", .{fmtShType(shdr.sh_type)});
+                try writer.print("addr {x}\n", .{shdr.sh_addr});
+                try writer.print("offset {x}\n", .{shdr.sh_offset});
+                try writer.print("size {x}\n", .{shdr.sh_size});
+                try writer.print("addralign {x}\n", .{shdr.sh_addralign});
+                // TODO dump formatted sh_flags
+            }
+        }
+
+        fn dumpDynamicSection(ctx: ObjectContext, writer: anytype) !void {
+            const shndx = ctx.getSectionByName(".dynamic") orelse return;
+            const shdr = ctx.shdrs[shndx];
+            const strtab = ctx.getSectionContents(shdr.sh_link);
+            const data = ctx.getSectionContents(shndx);
+            const nentries = @divExact(data.len, @sizeOf(elf.Elf64_Dyn));
+            const entries = @as([*]align(1) const elf.Elf64_Dyn, @ptrCast(data.ptr))[0..nentries];
+
+            try writer.writeAll(ElfDumper.dynamic_section_label ++ "\n");
+
+            for (entries) |entry| {
+                const key = @as(u64, @bitCast(entry.d_tag));
+                const value = entry.d_val;
+
+                const key_str = switch (key) {
+                    elf.DT_NEEDED => "NEEDED",
+                    elf.DT_SONAME => "SONAME",
+                    elf.DT_INIT_ARRAY => "INIT_ARRAY",
+                    elf.DT_INIT_ARRAYSZ => "INIT_ARRAYSZ",
+                    elf.DT_FINI_ARRAY => "FINI_ARRAY",
+                    elf.DT_FINI_ARRAYSZ => "FINI_ARRAYSZ",
+                    elf.DT_HASH => "HASH",
+                    elf.DT_GNU_HASH => "GNU_HASH",
+                    elf.DT_STRTAB => "STRTAB",
+                    elf.DT_SYMTAB => "SYMTAB",
+                    elf.DT_STRSZ => "STRSZ",
+                    elf.DT_SYMENT => "SYMENT",
+                    elf.DT_PLTGOT => "PLTGOT",
+                    elf.DT_PLTRELSZ => "PLTRELSZ",
+                    elf.DT_PLTREL => "PLTREL",
+                    elf.DT_JMPREL => "JMPREL",
+                    elf.DT_RELA => "RELA",
+                    elf.DT_RELASZ => "RELASZ",
+                    elf.DT_RELAENT => "RELAENT",
+                    elf.DT_VERDEF => "VERDEF",
+                    elf.DT_VERDEFNUM => "VERDEFNUM",
+                    elf.DT_FLAGS => "FLAGS",
+                    elf.DT_FLAGS_1 => "FLAGS_1",
+                    elf.DT_VERNEED => "VERNEED",
+                    elf.DT_VERNEEDNUM => "VERNEEDNUM",
+                    elf.DT_VERSYM => "VERSYM",
+                    elf.DT_RELACOUNT => "RELACOUNT",
+                    elf.DT_RPATH => "RPATH",
+                    elf.DT_RUNPATH => "RUNPATH",
+                    elf.DT_INIT => "INIT",
+                    elf.DT_FINI => "FINI",
+                    elf.DT_NULL => "NULL",
+                    else => "UNKNOWN",
+                };
+                try writer.print("{s}", .{key_str});
+
+                switch (key) {
+                    elf.DT_NEEDED,
+                    elf.DT_SONAME,
+                    elf.DT_RPATH,
+                    elf.DT_RUNPATH,
+                    => {
+                        const name = getString(strtab, @intCast(value));
+                        try writer.print(" {s}", .{name});
+                    },
+
+                    elf.DT_INIT_ARRAY,
+                    elf.DT_FINI_ARRAY,
+                    elf.DT_HASH,
+                    elf.DT_GNU_HASH,
+                    elf.DT_STRTAB,
+                    elf.DT_SYMTAB,
+                    elf.DT_PLTGOT,
+                    elf.DT_JMPREL,
+                    elf.DT_RELA,
+                    elf.DT_VERDEF,
+                    elf.DT_VERNEED,
+                    elf.DT_VERSYM,
+                    elf.DT_INIT,
+                    elf.DT_FINI,
+                    elf.DT_NULL,
+                    => try writer.print(" {x}", .{value}),
+
+                    elf.DT_INIT_ARRAYSZ,
+                    elf.DT_FINI_ARRAYSZ,
+                    elf.DT_STRSZ,
+                    elf.DT_SYMENT,
+                    elf.DT_PLTRELSZ,
+                    elf.DT_RELASZ,
+                    elf.DT_RELAENT,
+                    elf.DT_RELACOUNT,
+                    => try writer.print(" {d}", .{value}),
+
+                    elf.DT_PLTREL => try writer.writeAll(switch (value) {
+                        elf.DT_REL => " REL",
+                        elf.DT_RELA => " RELA",
+                        else => " UNKNOWN",
+                    }),
+
+                    elf.DT_FLAGS => if (value > 0) {
+                        if (value & elf.DF_ORIGIN != 0) try writer.writeAll(" ORIGIN");
+                        if (value & elf.DF_SYMBOLIC != 0) try writer.writeAll(" SYMBOLIC");
+                        if (value & elf.DF_TEXTREL != 0) try writer.writeAll(" TEXTREL");
+                        if (value & elf.DF_BIND_NOW != 0) try writer.writeAll(" BIND_NOW");
+                        if (value & elf.DF_STATIC_TLS != 0) try writer.writeAll(" STATIC_TLS");
+                    },
+
+                    elf.DT_FLAGS_1 => if (value > 0) {
+                        if (value & elf.DF_1_NOW != 0) try writer.writeAll(" NOW");
+                        if (value & elf.DF_1_GLOBAL != 0) try writer.writeAll(" GLOBAL");
+                        if (value & elf.DF_1_GROUP != 0) try writer.writeAll(" GROUP");
+                        if (value & elf.DF_1_NODELETE != 0) try writer.writeAll(" NODELETE");
+                        if (value & elf.DF_1_LOADFLTR != 0) try writer.writeAll(" LOADFLTR");
+                        if (value & elf.DF_1_INITFIRST != 0) try writer.writeAll(" INITFIRST");
+                        if (value & elf.DF_1_NOOPEN != 0) try writer.writeAll(" NOOPEN");
+                        if (value & elf.DF_1_ORIGIN != 0) try writer.writeAll(" ORIGIN");
+                        if (value & elf.DF_1_DIRECT != 0) try writer.writeAll(" DIRECT");
+                        if (value & elf.DF_1_TRANS != 0) try writer.writeAll(" TRANS");
+                        if (value & elf.DF_1_INTERPOSE != 0) try writer.writeAll(" INTERPOSE");
+                        if (value & elf.DF_1_NODEFLIB != 0) try writer.writeAll(" NODEFLIB");
+                        if (value & elf.DF_1_NODUMP != 0) try writer.writeAll(" NODUMP");
+                        if (value & elf.DF_1_CONFALT != 0) try writer.writeAll(" CONFALT");
+                        if (value & elf.DF_1_ENDFILTEE != 0) try writer.writeAll(" ENDFILTEE");
+                        if (value & elf.DF_1_DISPRELDNE != 0) try writer.writeAll(" DISPRELDNE");
+                        if (value & elf.DF_1_DISPRELPND != 0) try writer.writeAll(" DISPRELPND");
+                        if (value & elf.DF_1_NODIRECT != 0) try writer.writeAll(" NODIRECT");
+                        if (value & elf.DF_1_IGNMULDEF != 0) try writer.writeAll(" IGNMULDEF");
+                        if (value & elf.DF_1_NOKSYMS != 0) try writer.writeAll(" NOKSYMS");
+                        if (value & elf.DF_1_NOHDR != 0) try writer.writeAll(" NOHDR");
+                        if (value & elf.DF_1_EDITED != 0) try writer.writeAll(" EDITED");
+                        if (value & elf.DF_1_NORELOC != 0) try writer.writeAll(" NORELOC");
+                        if (value & elf.DF_1_SYMINTPOSE != 0) try writer.writeAll(" SYMINTPOSE");
+                        if (value & elf.DF_1_GLOBAUDIT != 0) try writer.writeAll(" GLOBAUDIT");
+                        if (value & elf.DF_1_SINGLETON != 0) try writer.writeAll(" SINGLETON");
+                        if (value & elf.DF_1_STUB != 0) try writer.writeAll(" STUB");
+                        if (value & elf.DF_1_PIE != 0) try writer.writeAll(" PIE");
+                    },
+
+                    else => try writer.print(" {x}", .{value}),
+                }
+                try writer.writeByte('\n');
+            }
+        }
+
+        fn dumpSymtab(ctx: ObjectContext, comptime @"type": enum { symtab, dysymtab }, writer: anytype) !void {
+            const symtab = switch (@"type") {
+                .symtab => ctx.symtab,
+                .dysymtab => ctx.dysymtab,
+            } orelse return;
+
+            try writer.writeAll(switch (@"type") {
+                .symtab => symtab_label,
+                .dysymtab => dynamic_symtab_label,
+            } ++ "\n");
+
+            for (symtab.symbols, 0..) |sym, index| {
+                try writer.print("{x} {x}", .{ sym.st_value, sym.st_size });
+
+                {
+                    if (elf.SHN_LORESERVE <= sym.st_shndx and sym.st_shndx < elf.SHN_HIRESERVE) {
+                        if (elf.SHN_LOPROC <= sym.st_shndx and sym.st_shndx < elf.SHN_HIPROC) {
+                            try writer.print(" LO+{d}", .{sym.st_shndx - elf.SHN_LOPROC});
+                        } else {
+                            const sym_ndx = switch (sym.st_shndx) {
+                                elf.SHN_ABS => "ABS",
+                                elf.SHN_COMMON => "COM",
+                                elf.SHN_LIVEPATCH => "LIV",
+                                else => "UNK",
+                            };
+                            try writer.print(" {s}", .{sym_ndx});
+                        }
+                    } else if (sym.st_shndx == elf.SHN_UNDEF) {
+                        try writer.writeAll(" UND");
+                    } else {
+                        try writer.print(" {x}", .{sym.st_shndx});
+                    }
+                }
+
+                blk: {
+                    const tt = sym.st_type();
+                    const sym_type = switch (tt) {
+                        elf.STT_NOTYPE => "NOTYPE",
+                        elf.STT_OBJECT => "OBJECT",
+                        elf.STT_FUNC => "FUNC",
+                        elf.STT_SECTION => "SECTION",
+                        elf.STT_FILE => "FILE",
+                        elf.STT_COMMON => "COMMON",
+                        elf.STT_TLS => "TLS",
+                        elf.STT_NUM => "NUM",
+                        elf.STT_GNU_IFUNC => "IFUNC",
+                        else => if (elf.STT_LOPROC <= tt and tt < elf.STT_HIPROC) {
+                            break :blk try writer.print(" LOPROC+{d}", .{tt - elf.STT_LOPROC});
+                        } else if (elf.STT_LOOS <= tt and tt < elf.STT_HIOS) {
+                            break :blk try writer.print(" LOOS+{d}", .{tt - elf.STT_LOOS});
+                        } else "UNK",
+                    };
+                    try writer.print(" {s}", .{sym_type});
+                }
+
+                blk: {
+                    const bind = sym.st_bind();
+                    const sym_bind = switch (bind) {
+                        elf.STB_LOCAL => "LOCAL",
+                        elf.STB_GLOBAL => "GLOBAL",
+                        elf.STB_WEAK => "WEAK",
+                        elf.STB_NUM => "NUM",
+                        else => if (elf.STB_LOPROC <= bind and bind < elf.STB_HIPROC) {
+                            break :blk try writer.print(" LOPROC+{d}", .{bind - elf.STB_LOPROC});
+                        } else if (elf.STB_LOOS <= bind and bind < elf.STB_HIOS) {
+                            break :blk try writer.print(" LOOS+{d}", .{bind - elf.STB_LOOS});
+                        } else "UNKNOWN",
+                    };
+                    try writer.print(" {s}", .{sym_bind});
+                }
+
+                const sym_vis = @as(elf.STV, @enumFromInt(sym.st_other));
+                try writer.print(" {s}", .{@tagName(sym_vis)});
+
+                const sym_name = switch (sym.st_type()) {
+                    elf.STT_SECTION => ctx.getSectionName(sym.st_shndx),
+                    else => symtab.getName(index).?,
+                };
+                try writer.print(" {s}\n", .{sym_name});
+            }
+        }
+
+        inline fn getSectionName(ctx: ObjectContext, shndx: usize) []const u8 {
+            const shdr = ctx.shdrs[shndx];
+            return getString(ctx.shstrtab, shdr.sh_name);
+        }
+
+        fn getSectionContents(ctx: ObjectContext, shndx: usize) []const u8 {
+            const shdr = ctx.shdrs[shndx];
+            assert(shdr.sh_offset < ctx.data.len);
+            assert(shdr.sh_offset + shdr.sh_size <= ctx.data.len);
+            return ctx.data[shdr.sh_offset..][0..shdr.sh_size];
+        }
+
+        fn getSectionByName(ctx: ObjectContext, name: []const u8) ?usize {
+            for (0..ctx.shdrs.len) |shndx| {
+                if (mem.eql(u8, ctx.getSectionName(shndx), name)) return shndx;
+            } else return null;
+        }
+    };
+
+    const Symtab = struct {
+        symbols: []align(1) const elf.Elf64_Sym,
+        strings: []const u8,
+
+        fn get(st: Symtab, index: usize) ?elf.Elf64_Sym {
+            if (index >= st.symbols.len) return null;
+            return st.symbols[index];
+        }
+
+        fn getName(st: Symtab, index: usize) ?[]const u8 {
+            const sym = st.get(index) orelse return null;
+            return getString(st.strings, sym.st_name);
+        }
+    };
 
     fn getString(strtab: []const u8, off: u32) []const u8 {
         assert(off < strtab.len);
         return mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + off)), 0);
-    }
-
-    fn dumpHeader(ctx: Context, writer: anytype) !void {
-        try writer.writeAll("header\n");
-        try writer.print("type {s}\n", .{@tagName(ctx.hdr.e_type)});
-        try writer.print("entry {x}\n", .{ctx.hdr.e_entry});
-    }
-
-    fn dumpShdrs(ctx: Context, writer: anytype) !void {
-        if (ctx.shdrs.len == 0) return;
-
-        try writer.writeAll("section headers\n");
-
-        for (ctx.shdrs, 0..) |shdr, shndx| {
-            try writer.print("shdr {d}\n", .{shndx});
-            try writer.print("name {s}\n", .{getSectionName(ctx, shndx)});
-            try writer.print("type {s}\n", .{fmtShType(shdr.sh_type)});
-            try writer.print("addr {x}\n", .{shdr.sh_addr});
-            try writer.print("offset {x}\n", .{shdr.sh_offset});
-            try writer.print("size {x}\n", .{shdr.sh_size});
-            try writer.print("addralign {x}\n", .{shdr.sh_addralign});
-            // TODO dump formatted sh_flags
-        }
-    }
-
-    fn dumpDynamicSection(ctx: Context, writer: anytype) !void {
-        const shndx = getSectionByName(ctx, ".dynamic") orelse return;
-        const shdr = ctx.shdrs[shndx];
-        const strtab = getSectionContents(ctx, shdr.sh_link);
-        const data = getSectionContents(ctx, shndx);
-        const nentries = @divExact(data.len, @sizeOf(elf.Elf64_Dyn));
-        const entries = @as([*]align(1) const elf.Elf64_Dyn, @ptrCast(data.ptr))[0..nentries];
-
-        try writer.writeAll(ElfDumper.dynamic_section_label ++ "\n");
-
-        for (entries) |entry| {
-            const key = @as(u64, @bitCast(entry.d_tag));
-            const value = entry.d_val;
-
-            const key_str = switch (key) {
-                elf.DT_NEEDED => "NEEDED",
-                elf.DT_SONAME => "SONAME",
-                elf.DT_INIT_ARRAY => "INIT_ARRAY",
-                elf.DT_INIT_ARRAYSZ => "INIT_ARRAYSZ",
-                elf.DT_FINI_ARRAY => "FINI_ARRAY",
-                elf.DT_FINI_ARRAYSZ => "FINI_ARRAYSZ",
-                elf.DT_HASH => "HASH",
-                elf.DT_GNU_HASH => "GNU_HASH",
-                elf.DT_STRTAB => "STRTAB",
-                elf.DT_SYMTAB => "SYMTAB",
-                elf.DT_STRSZ => "STRSZ",
-                elf.DT_SYMENT => "SYMENT",
-                elf.DT_PLTGOT => "PLTGOT",
-                elf.DT_PLTRELSZ => "PLTRELSZ",
-                elf.DT_PLTREL => "PLTREL",
-                elf.DT_JMPREL => "JMPREL",
-                elf.DT_RELA => "RELA",
-                elf.DT_RELASZ => "RELASZ",
-                elf.DT_RELAENT => "RELAENT",
-                elf.DT_VERDEF => "VERDEF",
-                elf.DT_VERDEFNUM => "VERDEFNUM",
-                elf.DT_FLAGS => "FLAGS",
-                elf.DT_FLAGS_1 => "FLAGS_1",
-                elf.DT_VERNEED => "VERNEED",
-                elf.DT_VERNEEDNUM => "VERNEEDNUM",
-                elf.DT_VERSYM => "VERSYM",
-                elf.DT_RELACOUNT => "RELACOUNT",
-                elf.DT_RPATH => "RPATH",
-                elf.DT_RUNPATH => "RUNPATH",
-                elf.DT_INIT => "INIT",
-                elf.DT_FINI => "FINI",
-                elf.DT_NULL => "NULL",
-                else => "UNKNOWN",
-            };
-            try writer.print("{s}", .{key_str});
-
-            switch (key) {
-                elf.DT_NEEDED,
-                elf.DT_SONAME,
-                elf.DT_RPATH,
-                elf.DT_RUNPATH,
-                => {
-                    const name = getString(strtab, @intCast(value));
-                    try writer.print(" {s}", .{name});
-                },
-
-                elf.DT_INIT_ARRAY,
-                elf.DT_FINI_ARRAY,
-                elf.DT_HASH,
-                elf.DT_GNU_HASH,
-                elf.DT_STRTAB,
-                elf.DT_SYMTAB,
-                elf.DT_PLTGOT,
-                elf.DT_JMPREL,
-                elf.DT_RELA,
-                elf.DT_VERDEF,
-                elf.DT_VERNEED,
-                elf.DT_VERSYM,
-                elf.DT_INIT,
-                elf.DT_FINI,
-                elf.DT_NULL,
-                => try writer.print(" {x}", .{value}),
-
-                elf.DT_INIT_ARRAYSZ,
-                elf.DT_FINI_ARRAYSZ,
-                elf.DT_STRSZ,
-                elf.DT_SYMENT,
-                elf.DT_PLTRELSZ,
-                elf.DT_RELASZ,
-                elf.DT_RELAENT,
-                elf.DT_RELACOUNT,
-                => try writer.print(" {d}", .{value}),
-
-                elf.DT_PLTREL => try writer.writeAll(switch (value) {
-                    elf.DT_REL => " REL",
-                    elf.DT_RELA => " RELA",
-                    else => " UNKNOWN",
-                }),
-
-                elf.DT_FLAGS => if (value > 0) {
-                    if (value & elf.DF_ORIGIN != 0) try writer.writeAll(" ORIGIN");
-                    if (value & elf.DF_SYMBOLIC != 0) try writer.writeAll(" SYMBOLIC");
-                    if (value & elf.DF_TEXTREL != 0) try writer.writeAll(" TEXTREL");
-                    if (value & elf.DF_BIND_NOW != 0) try writer.writeAll(" BIND_NOW");
-                    if (value & elf.DF_STATIC_TLS != 0) try writer.writeAll(" STATIC_TLS");
-                },
-
-                elf.DT_FLAGS_1 => if (value > 0) {
-                    if (value & elf.DF_1_NOW != 0) try writer.writeAll(" NOW");
-                    if (value & elf.DF_1_GLOBAL != 0) try writer.writeAll(" GLOBAL");
-                    if (value & elf.DF_1_GROUP != 0) try writer.writeAll(" GROUP");
-                    if (value & elf.DF_1_NODELETE != 0) try writer.writeAll(" NODELETE");
-                    if (value & elf.DF_1_LOADFLTR != 0) try writer.writeAll(" LOADFLTR");
-                    if (value & elf.DF_1_INITFIRST != 0) try writer.writeAll(" INITFIRST");
-                    if (value & elf.DF_1_NOOPEN != 0) try writer.writeAll(" NOOPEN");
-                    if (value & elf.DF_1_ORIGIN != 0) try writer.writeAll(" ORIGIN");
-                    if (value & elf.DF_1_DIRECT != 0) try writer.writeAll(" DIRECT");
-                    if (value & elf.DF_1_TRANS != 0) try writer.writeAll(" TRANS");
-                    if (value & elf.DF_1_INTERPOSE != 0) try writer.writeAll(" INTERPOSE");
-                    if (value & elf.DF_1_NODEFLIB != 0) try writer.writeAll(" NODEFLIB");
-                    if (value & elf.DF_1_NODUMP != 0) try writer.writeAll(" NODUMP");
-                    if (value & elf.DF_1_CONFALT != 0) try writer.writeAll(" CONFALT");
-                    if (value & elf.DF_1_ENDFILTEE != 0) try writer.writeAll(" ENDFILTEE");
-                    if (value & elf.DF_1_DISPRELDNE != 0) try writer.writeAll(" DISPRELDNE");
-                    if (value & elf.DF_1_DISPRELPND != 0) try writer.writeAll(" DISPRELPND");
-                    if (value & elf.DF_1_NODIRECT != 0) try writer.writeAll(" NODIRECT");
-                    if (value & elf.DF_1_IGNMULDEF != 0) try writer.writeAll(" IGNMULDEF");
-                    if (value & elf.DF_1_NOKSYMS != 0) try writer.writeAll(" NOKSYMS");
-                    if (value & elf.DF_1_NOHDR != 0) try writer.writeAll(" NOHDR");
-                    if (value & elf.DF_1_EDITED != 0) try writer.writeAll(" EDITED");
-                    if (value & elf.DF_1_NORELOC != 0) try writer.writeAll(" NORELOC");
-                    if (value & elf.DF_1_SYMINTPOSE != 0) try writer.writeAll(" SYMINTPOSE");
-                    if (value & elf.DF_1_GLOBAUDIT != 0) try writer.writeAll(" GLOBAUDIT");
-                    if (value & elf.DF_1_SINGLETON != 0) try writer.writeAll(" SINGLETON");
-                    if (value & elf.DF_1_STUB != 0) try writer.writeAll(" STUB");
-                    if (value & elf.DF_1_PIE != 0) try writer.writeAll(" PIE");
-                },
-
-                else => try writer.print(" {x}", .{value}),
-            }
-            try writer.writeByte('\n');
-        }
     }
 
     fn fmtShType(sh_type: u32) std.fmt.Formatter(formatShType) {
@@ -1206,45 +2038,6 @@ const ElfDumper = struct {
         try writer.writeAll(name);
     }
 
-    fn dumpPhdrs(ctx: Context, writer: anytype) !void {
-        if (ctx.phdrs.len == 0) return;
-
-        try writer.writeAll("program headers\n");
-
-        for (ctx.phdrs, 0..) |phdr, phndx| {
-            try writer.print("phdr {d}\n", .{phndx});
-            try writer.print("type {s}\n", .{fmtPhType(phdr.p_type)});
-            try writer.print("vaddr {x}\n", .{phdr.p_vaddr});
-            try writer.print("paddr {x}\n", .{phdr.p_paddr});
-            try writer.print("offset {x}\n", .{phdr.p_offset});
-            try writer.print("memsz {x}\n", .{phdr.p_memsz});
-            try writer.print("filesz {x}\n", .{phdr.p_filesz});
-            try writer.print("align {x}\n", .{phdr.p_align});
-
-            {
-                const flags = phdr.p_flags;
-                try writer.writeAll("flags");
-                if (flags > 0) try writer.writeByte(' ');
-                if (flags & elf.PF_R != 0) {
-                    try writer.writeByte('R');
-                }
-                if (flags & elf.PF_W != 0) {
-                    try writer.writeByte('W');
-                }
-                if (flags & elf.PF_X != 0) {
-                    try writer.writeByte('E');
-                }
-                if (flags & elf.PF_MASKOS != 0) {
-                    try writer.writeAll("OS");
-                }
-                if (flags & elf.PF_MASKPROC != 0) {
-                    try writer.writeAll("PROC");
-                }
-                try writer.writeByte('\n');
-            }
-        }
-    }
-
     fn fmtPhType(ph_type: u32) std.fmt.Formatter(formatPhType) {
         return .{ .data = ph_type };
     }
@@ -1277,88 +2070,6 @@ const ElfDumper = struct {
             } else "UNKNOWN",
         };
         try writer.writeAll(p_type);
-    }
-
-    fn dumpSymtab(ctx: Context, comptime @"type": enum { symtab, dysymtab }, writer: anytype) !void {
-        const symtab = switch (@"type") {
-            .symtab => ctx.symtab,
-            .dysymtab => ctx.dysymtab,
-        } orelse return;
-
-        try writer.writeAll(switch (@"type") {
-            .symtab => symtab_label,
-            .dysymtab => dynamic_symtab_label,
-        } ++ "\n");
-
-        for (symtab.symbols, 0..) |sym, index| {
-            try writer.print("{x} {x}", .{ sym.st_value, sym.st_size });
-
-            {
-                if (elf.SHN_LORESERVE <= sym.st_shndx and sym.st_shndx < elf.SHN_HIRESERVE) {
-                    if (elf.SHN_LOPROC <= sym.st_shndx and sym.st_shndx < elf.SHN_HIPROC) {
-                        try writer.print(" LO+{d}", .{sym.st_shndx - elf.SHN_LOPROC});
-                    } else {
-                        const sym_ndx = &switch (sym.st_shndx) {
-                            elf.SHN_ABS => "ABS",
-                            elf.SHN_COMMON => "COM",
-                            elf.SHN_LIVEPATCH => "LIV",
-                            else => "UNK",
-                        };
-                        try writer.print(" {s}", .{sym_ndx});
-                    }
-                } else if (sym.st_shndx == elf.SHN_UNDEF) {
-                    try writer.writeAll(" UND");
-                } else {
-                    try writer.print(" {x}", .{sym.st_shndx});
-                }
-            }
-
-            blk: {
-                const tt = sym.st_type();
-                const sym_type = switch (tt) {
-                    elf.STT_NOTYPE => "NOTYPE",
-                    elf.STT_OBJECT => "OBJECT",
-                    elf.STT_FUNC => "FUNC",
-                    elf.STT_SECTION => "SECTION",
-                    elf.STT_FILE => "FILE",
-                    elf.STT_COMMON => "COMMON",
-                    elf.STT_TLS => "TLS",
-                    elf.STT_NUM => "NUM",
-                    elf.STT_GNU_IFUNC => "IFUNC",
-                    else => if (elf.STT_LOPROC <= tt and tt < elf.STT_HIPROC) {
-                        break :blk try writer.print(" LOPROC+{d}", .{tt - elf.STT_LOPROC});
-                    } else if (elf.STT_LOOS <= tt and tt < elf.STT_HIOS) {
-                        break :blk try writer.print(" LOOS+{d}", .{tt - elf.STT_LOOS});
-                    } else "UNK",
-                };
-                try writer.print(" {s}", .{sym_type});
-            }
-
-            blk: {
-                const bind = sym.st_bind();
-                const sym_bind = switch (bind) {
-                    elf.STB_LOCAL => "LOCAL",
-                    elf.STB_GLOBAL => "GLOBAL",
-                    elf.STB_WEAK => "WEAK",
-                    elf.STB_NUM => "NUM",
-                    else => if (elf.STB_LOPROC <= bind and bind < elf.STB_HIPROC) {
-                        break :blk try writer.print(" LOPROC+{d}", .{bind - elf.STB_LOPROC});
-                    } else if (elf.STB_LOOS <= bind and bind < elf.STB_HIOS) {
-                        break :blk try writer.print(" LOOS+{d}", .{bind - elf.STB_LOOS});
-                    } else "UNKNOWN",
-                };
-                try writer.print(" {s}", .{sym_bind});
-            }
-
-            const sym_vis = @as(elf.STV, @enumFromInt(sym.st_other));
-            try writer.print(" {s}", .{@tagName(sym_vis)});
-
-            const sym_name = switch (sym.st_type()) {
-                elf.STT_SECTION => getSectionName(ctx, sym.st_shndx),
-                else => symtab.getName(index).?,
-            };
-            try writer.print(" {s}\n", .{sym_name});
-        }
     }
 };
 

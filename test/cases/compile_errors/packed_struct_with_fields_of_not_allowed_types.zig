@@ -65,6 +65,11 @@ export fn entry12() void {
         x: packed struct { a: []u8 },
     });
 }
+export fn entry13() void {
+    _ = @sizeOf(packed struct {
+        x: *type,
+    });
+}
 
 // error
 // backend=llvm
@@ -89,3 +94,6 @@ export fn entry12() void {
 // :38:12: note: use '*const ' to make a function pointer type
 // :65:31: error: packed structs cannot contain fields of type '[]u8'
 // :65:31: note: slices have no guaranteed in-memory representation
+// :70:12: error: packed structs cannot contain fields of type '*type'
+// :70:12: note: comptime-only pointer has no guaranteed in-memory representation
+// :70:12: note: types are not available at runtime

@@ -33,10 +33,10 @@ need_got_table: std.AutoHashMapUnmanaged(u32, void) = .{},
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 
-strtab: StringTable(.strtab) = .{},
+strtab: StringTable = .{},
 strtab_offset: ?u32 = null,
 
-temp_strtab: StringTable(.temp_strtab) = .{},
+temp_strtab: StringTable = .{},
 
 got_table: TableSection(SymbolWithLoc) = .{},
 
@@ -109,11 +109,11 @@ const HotUpdateState = struct {
     loaded_base_address: ?std.os.windows.HMODULE = null,
 };
 
-const DeclTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata);
+const DeclTable = std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, DeclMetadata);
 const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, DeclMetadata);
 const RelocTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
 const BaseRelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
-const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
+const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, std.ArrayListUnmanaged(Atom.Index));
 
 const default_file_alignment: u16 = 0x200;
 const default_size_of_stack_reserve: u32 = 0x1000000;
@@ -144,7 +144,7 @@ const Section = struct {
     free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
 };
 
-const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
+const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.OptionalDeclIndex, LazySymbolMetadata);
 
 const LazySymbolMetadata = struct {
     const State = enum { unused, pending_flush, flushed };
@@ -316,6 +316,8 @@ pub fn deinit(self: *Coff) void {
     }
     self.import_tables.deinit(gpa);
 
+    self.lazy_syms.deinit(gpa);
+
     for (self.decls.values()) |*metadata| {
         metadata.deinit(gpa);
     }
@@ -418,7 +420,7 @@ fn populateMissingMetadata(self: *Coff) !void {
     }
 
     if (self.strtab_offset == null) {
-        const file_size = @as(u32, @intCast(self.strtab.len()));
+        const file_size = @as(u32, @intCast(self.strtab.buffer.items.len));
         self.strtab_offset = self.findFreeSpace(file_size, @alignOf(u32)); // 4bytes aligned seems like a good idea here
         log.debug("found strtab free space 0x{x} to 0x{x}", .{ self.strtab_offset.?, self.strtab_offset.? + file_size });
     }
@@ -563,7 +565,7 @@ fn allocateAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignme
 
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
-    var vaddr = blk: {
+    const vaddr = blk: {
         var i: usize = 0;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
@@ -815,7 +817,7 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
 }
 
 fn debugMem(allocator: Allocator, handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
-    var buffer = try allocator.alloc(u8, code.len);
+    const buffer = try allocator.alloc(u8, code.len);
     defer allocator.free(buffer);
     const memread = try std.os.windows.ReadProcessMemory(handle, pvaddr, buffer);
     log.debug("to write: {x}", .{std.fmt.fmtSliceHexLower(code)});
@@ -919,7 +921,7 @@ fn markRelocsDirtyByTarget(self: *Coff, target: SymbolWithLoc) void {
 fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
     const got_moved = blk: {
         const sect_id = self.got_section_index orelse break :blk false;
-        break :blk self.sections.items(.header)[sect_id].virtual_address > addr;
+        break :blk self.sections.items(.header)[sect_id].virtual_address >= addr;
     };
 
     // TODO: dirty relocations targeting import table if that got moved in memory
@@ -930,7 +932,7 @@ fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
                 reloc.dirty = reloc.dirty or got_moved;
             } else {
                 const target_vaddr = reloc.getTargetAddress(self) orelse continue;
-                if (target_vaddr > addr) reloc.dirty = true;
+                if (target_vaddr >= addr) reloc.dirty = true;
             }
         }
     }
@@ -938,7 +940,7 @@ fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
     // TODO: dirty only really affected GOT cells
     for (self.got_table.entries.items) |entry| {
         const target_addr = self.getSymbol(entry).value;
-        if (target_addr > addr) {
+        if (target_addr >= addr) {
             self.got_table_contents_dirty = true;
             break;
         }
@@ -1071,7 +1073,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
         &code_buffer,
         .none,
     );
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1087,7 +1089,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
     return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
-pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
+pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
@@ -1132,7 +1134,7 @@ fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, required_alignment:
     const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| return .{ .fail = em },
     };
@@ -1157,7 +1159,7 @@ fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, required_alignment:
 pub fn updateDecl(
     self: *Coff,
     mod: *Module,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
 ) link.File.UpdateDeclError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -1189,14 +1191,14 @@ pub fn updateDecl(
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    const decl_val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
+    const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
         .ty = decl.ty,
         .val = decl_val,
     }, &code_buffer, .none, .{
         .parent_atom_index = atom.getSymbolIndex().?,
     });
-    var code = switch (res) {
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1302,7 +1304,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *Coff, sym: link.File.LazySymbol) !Ato
     return atom;
 }
 
-pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: Module.Decl.Index) !Atom.Index {
+pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: InternPool.DeclIndex) !Atom.Index {
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{
@@ -1314,7 +1316,7 @@ pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: Module.Decl.Index) !Atom.
     return gop.value_ptr.atom;
 }
 
-fn getDeclOutputSection(self: *Coff, decl_index: Module.Decl.Index) u16 {
+fn getDeclOutputSection(self: *Coff, decl_index: InternPool.DeclIndex) u16 {
     const decl = self.base.options.module.?.declPtr(decl_index);
     const ty = decl.ty;
     const mod = self.base.options.module.?;
@@ -1340,7 +1342,7 @@ fn getDeclOutputSection(self: *Coff, decl_index: Module.Decl.Index) u16 {
     return index;
 }
 
-fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, complex_type: coff.ComplexType) !void {
+fn updateDeclCode(self: *Coff, decl_index: InternPool.DeclIndex, code: []u8, complex_type: coff.ComplexType) !void {
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
 
@@ -1398,7 +1400,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, comple
     try self.writeAtom(atom_index, code);
 }
 
-fn freeUnnamedConsts(self: *Coff, decl_index: Module.Decl.Index) void {
+fn freeUnnamedConsts(self: *Coff, decl_index: InternPool.DeclIndex) void {
     const gpa = self.base.allocator;
     const unnamed_consts = self.unnamed_const_atoms.getPtr(decl_index) orelse return;
     for (unnamed_consts.items) |atom_index| {
@@ -1407,7 +1409,7 @@ fn freeUnnamedConsts(self: *Coff, decl_index: Module.Decl.Index) void {
     unnamed_consts.clearAndFree(gpa);
 }
 
-pub fn freeDecl(self: *Coff, decl_index: Module.Decl.Index) void {
+pub fn freeDecl(self: *Coff, decl_index: InternPool.DeclIndex) void {
     if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
 
     const mod = self.base.options.module.?;
@@ -1563,7 +1565,7 @@ pub fn updateExports(
 
 pub fn deleteDeclExport(
     self: *Coff,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
     name_ip: InternPool.NullTerminatedString,
 ) void {
     if (self.llvm_object) |_| return;
@@ -1721,6 +1723,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         var code = std.ArrayList(u8).init(gpa);
         defer code.deinit();
         try code.resize(math.cast(usize, atom.size) orelse return error.Overflow);
+        assert(atom.size > 0);
 
         const amt = try self.base.file.?.preadAll(code.items, file_offset);
         if (amt != code.items.len) return error.InputOutput;
@@ -1765,7 +1768,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     assert(!self.imports_count_dirty);
 }
 
-pub fn getDeclVAddr(self: *Coff, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getDeclVAddr(self: *Coff, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
 
     const this_atom_index = try self.getOrCreateAtomForDecl(decl_index);
@@ -1793,7 +1796,7 @@ pub fn lowerAnonDecl(
 ) !codegen.Result {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
-    const ty = mod.intern_pool.typeOf(decl_val).toType();
+    const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
     const decl_alignment = switch (explicit_alignment) {
         .none => ty.abiAlignment(mod),
         else => explicit_alignment,
@@ -1804,7 +1807,7 @@ pub fn lowerAnonDecl(
             return .ok;
     }
 
-    const val = decl_val.toValue();
+    const val = Value.fromInterned(decl_val);
     const tv = TypedValue{ .ty = ty, .val = val };
     var name_buf: [32]u8 = undefined;
     const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
@@ -1881,7 +1884,7 @@ pub fn getGlobalSymbol(self: *Coff, name: []const u8, lib_name_name: ?[]const u8
     return global_index;
 }
 
-pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl_index: InternPool.DeclIndex) !void {
     _ = self;
     _ = module;
     _ = decl_index;
@@ -2142,7 +2145,7 @@ fn writeStrtab(self: *Coff) !void {
     if (self.strtab_offset == null) return;
 
     const allocated_size = self.allocatedSize(self.strtab_offset.?);
-    const needed_size = @as(u32, @intCast(self.strtab.len()));
+    const needed_size = @as(u32, @intCast(self.strtab.buffer.items.len));
 
     if (needed_size > allocated_size) {
         self.strtab_offset = null;
@@ -2154,10 +2157,10 @@ fn writeStrtab(self: *Coff) !void {
     var buffer = std.ArrayList(u8).init(self.base.allocator);
     defer buffer.deinit();
     try buffer.ensureTotalCapacityPrecise(needed_size);
-    buffer.appendSliceAssumeCapacity(self.strtab.items());
+    buffer.appendSliceAssumeCapacity(self.strtab.buffer.items);
     // Here, we do a trick in that we do not commit the size of the strtab to strtab buffer, instead
     // we write the length of the strtab to a temporary buffer that goes to file.
-    mem.writeInt(u32, buffer.items[0..4], @as(u32, @intCast(self.strtab.len())), .little);
+    mem.writeInt(u32, buffer.items[0..4], @as(u32, @intCast(self.strtab.buffer.items.len)), .little);
 
     try self.base.file.?.pwriteAll(buffer.items, self.strtab_offset.?);
 }
@@ -2325,7 +2328,7 @@ fn detectAllocCollision(self: *Coff, start: u32, size: u32) ?u32 {
     const end = start + padToIdeal(size);
 
     if (self.strtab_offset) |off| {
-        const tight_size = @as(u32, @intCast(self.strtab.len()));
+        const tight_size = @as(u32, @intCast(self.strtab.buffer.items.len));
         const increased_size = padToIdeal(tight_size);
         const test_end = off + increased_size;
         if (end > off and start < test_end) {
@@ -2666,8 +2669,9 @@ const InternPool = @import("../InternPool.zig");
 const Object = @import("Coff/Object.zig");
 const Relocation = @import("Coff/Relocation.zig");
 const TableSection = @import("table_section.zig").TableSection;
-const StringTable = @import("strtab.zig").StringTable;
+const StringTable = @import("StringTable.zig");
 const Type = @import("../type.zig").Type;
+const Value = @import("../value.zig").Value;
 const TypedValue = @import("../TypedValue.zig");
 
 pub const base_tag: link.File.Tag = .coff;

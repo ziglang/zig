@@ -24,7 +24,7 @@ pub fn main() !void {
     };
     const arena = thread_safe_arena.allocator();
 
-    var args = try process.argsAlloc(arena);
+    const args = try process.argsAlloc(arena);
 
     // skip my own exe name
     var arg_idx: usize = 1;
@@ -203,7 +203,7 @@ pub fn main() !void {
                     usageAndErr(builder, false, stderr_stream);
                 };
                 seed = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err| {
-                    std.debug.print("unable to parse seed '{s}' as 32-bit integer: {s}", .{
+                    std.debug.print("unable to parse seed '{s}' as 32-bit integer: {s}\n", .{
                         next_arg, @errorName(err),
                     });
                     process.exit(1);
