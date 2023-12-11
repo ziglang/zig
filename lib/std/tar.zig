@@ -1,4 +1,3 @@
-const std = @import("std.zig");
 /// Tar archive is single ordinary file which can contain many files (or
 /// directories, symlinks, ...). It's build by series of blocks each size of 512
 /// bytes. First block of each entry is header which defines type, name, size
@@ -15,7 +14,9 @@ const std = @import("std.zig");
 ///
 /// GNU tar reference: https://www.gnu.org/software/tar/manual/html_node/Standard.html
 /// pax reference: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html#tag_20_92_13
-
+///
+//const std = @import("std.zig");
+const std = @import("std");
 const assert = std.debug.assert;
 
 pub const Options = struct {
@@ -224,338 +225,6 @@ inline fn blockPadding(size: usize) usize {
     return block_rounded - size;
 }
 
-fn BufferedReader(comptime ReaderType: type) type {
-    return struct {
-        underlying_reader: ReaderType,
-        buffer: [BLOCK_SIZE * 8]u8 = undefined,
-        start: usize = 0,
-        end: usize = 0,
-
-        const Self = @This();
-
-        // Fills buffer from underlying unbuffered reader.
-        fn fillBuffer(self: *Self) !void {
-            self.removeUsed();
-            self.end += try self.underlying_reader.read(self.buffer[self.end..]);
-        }
-
-        // Returns slice of size count or how much fits into buffer.
-        pub fn readSlice(self: *Self, count: usize) ![]const u8 {
-            if (count <= self.end - self.start) {
-                return self.buffer[self.start .. self.start + count];
-            }
-            try self.fillBuffer();
-            const buf = self.buffer[self.start..self.end];
-            if (buf.len == 0) return error.UnexpectedEndOfStream;
-            return buf[0..@min(count, buf.len)];
-        }
-
-        // Returns tar header block, 512 bytes, or null if eof. Before reading
-        // advances buffer for padding of the previous block, to position reader
-        // at the start of new block. After reading advances for block size, to
-        // position reader at the start of the file content.
-        pub fn readHeader(self: *Self, padding: usize) !?[]const u8 {
-            try self.skip(padding);
-            const buf = self.readSlice(BLOCK_SIZE) catch return null;
-            if (buf.len < BLOCK_SIZE) return error.UnexpectedEndOfStream;
-            self.advance(BLOCK_SIZE);
-            return buf[0..BLOCK_SIZE];
-        }
-
-        // Returns byte at current position in buffer.
-        pub fn readByte(self: *@This()) u8 {
-            assert(self.start < self.end);
-            return self.buffer[self.start];
-        }
-
-        // Advances reader for count bytes, assumes that we have that number of
-        // bytes in buffer.
-        pub fn advance(self: *Self, count: usize) void {
-            self.start += count;
-            assert(self.start <= self.end);
-        }
-
-        // Advances reader without assuming that count bytes are in the buffer.
-        pub fn skip(self: *Self, count: usize) !void {
-            if (self.start + count > self.end) {
-                try self.underlying_reader.skipBytes(self.start + count - self.end, .{});
-                self.start = self.end;
-            } else {
-                self.advance(count);
-            }
-        }
-
-        // Removes used part of the buffer.
-        inline fn removeUsed(self: *Self) void {
-            const dest_end = self.end - self.start;
-            if (self.start == 0 or dest_end > self.start) return;
-            @memcpy(self.buffer[0..dest_end], self.buffer[self.start..self.end]);
-            self.end = dest_end;
-            self.start = 0;
-        }
-
-        // Writes count bytes to the writer. Advances reader.
-        pub fn write(self: *Self, writer: anytype, count: usize) !void {
-            var pos: usize = 0;
-            while (pos < count) {
-                const slice = try self.readSlice(count - pos);
-                try writer.writeAll(slice);
-                self.advance(slice.len);
-                pos += slice.len;
-            }
-        }
-
-        // Copies dst.len bytes into dst buffer. Advances reader.
-        pub fn copy(self: *Self, dst: []u8) ![]const u8 {
-            var pos: usize = 0;
-            while (pos < dst.len) {
-                const slice = try self.readSlice(dst.len - pos);
-                @memcpy(dst[pos .. pos + slice.len], slice);
-                self.advance(slice.len);
-                pos += slice.len;
-            }
-            return dst;
-        }
-
-        pub fn paxFileReader(self: *Self, size: usize) PaxFileReader {
-            return .{
-                .size = size,
-                .reader = self,
-                .offset = 0,
-            };
-        }
-
-        const PaxFileReader = struct {
-            size: usize,
-            offset: usize = 0,
-            reader: *Self,
-
-            const PaxKeyKind = enum {
-                path,
-                linkpath,
-                size,
-            };
-
-            const PaxAttribute = struct {
-                key: PaxKeyKind,
-                value_len: usize,
-                parent: *PaxFileReader,
-
-                // Copies pax attribute value into destination buffer.
-                // Must be called with destination buffer of size at least value_len.
-                pub fn value(self: PaxAttribute, dst: []u8) ![]u8 {
-                    assert(dst.len >= self.value_len);
-                    const buf = dst[0..self.value_len];
-                    _ = try self.parent.reader.copy(buf);
-                    self.parent.offset += buf.len;
-                    try self.parent.checkAttributeEnding();
-                    return buf;
-                }
-            };
-
-            // Caller of the next has to call value in PaxAttribute, to advance
-            // reader across value.
-            pub fn next(self: *PaxFileReader) !?PaxAttribute {
-                while (true) {
-                    const remaining_size = self.size - self.offset;
-                    if (remaining_size == 0) return null;
-
-                    const inf = try parsePaxAttribute(
-                        try self.reader.readSlice(remaining_size),
-                        remaining_size,
-                    );
-                    const key: PaxKeyKind = if (inf.is("path"))
-                        .path
-                    else if (inf.is("linkpath"))
-                        .linkpath
-                    else if (inf.is("size"))
-                        .size
-                    else {
-                        try self.advance(inf.value_off + inf.value_len);
-                        try self.checkAttributeEnding();
-                        continue;
-                    };
-                    try self.advance(inf.value_off); // position reader at the start of the value
-                    return PaxAttribute{ .key = key, .value_len = inf.value_len, .parent = self };
-                }
-            }
-
-            fn checkAttributeEnding(self: *PaxFileReader) !void {
-                if (self.reader.readByte() != '\n') return error.InvalidPaxAttribute;
-                try self.advance(1);
-            }
-
-            fn advance(self: *PaxFileReader, len: usize) !void {
-                self.offset += len;
-                try self.reader.skip(len);
-            }
-        };
-    };
-}
-
-fn Iterator(comptime BufferedReaderType: type) type {
-    return struct {
-        // scratch buffer for file attributes
-        scratch: struct {
-            // size: two paths (name and link_name) and files size bytes (24 in pax attribute)
-            buffer: [std.fs.MAX_PATH_BYTES * 2 + 24]u8 = undefined,
-            tail: usize = 0,
-
-            name: []const u8 = undefined,
-            link_name: []const u8 = undefined,
-            size: usize = 0,
-
-            // Allocate size of the buffer for some attribute.
-            fn alloc(self: *@This(), size: usize) ![]u8 {
-                const free_size = self.buffer.len - self.tail;
-                if (size > free_size) return error.TarScratchBufferOverflow;
-                const head = self.tail;
-                self.tail += size;
-                assert(self.tail <= self.buffer.len);
-                return self.buffer[head..self.tail];
-            }
-
-            // Reset buffer and all fields.
-            fn reset(self: *@This()) void {
-                self.tail = 0;
-                self.name = self.buffer[0..0];
-                self.link_name = self.buffer[0..0];
-                self.size = 0;
-            }
-
-            fn append(self: *@This(), header: Header) !void {
-                if (self.size == 0) self.size = try header.fileSize();
-                if (self.link_name.len == 0) {
-                    const link_name = header.linkName();
-                    if (link_name.len > 0) {
-                        const buf = try self.alloc(link_name.len);
-                        @memcpy(buf, link_name);
-                        self.link_name = buf;
-                    }
-                }
-                if (self.name.len == 0) {
-                    self.name = try header.fullName((try self.alloc(MAX_HEADER_NAME_SIZE))[0..MAX_HEADER_NAME_SIZE]);
-                }
-            }
-        } = .{},
-
-        reader: BufferedReaderType,
-        diagnostics: ?*Options.Diagnostics,
-        padding: usize = 0, // bytes of padding to the end of the block
-
-        const Self = @This();
-
-        pub const File = struct {
-            name: []const u8, // name of file, symlink or directory
-            link_name: []const u8, // target name of symlink
-            size: usize, // size of the file in bytes
-            mode: u32,
-            file_type: Header.FileType,
-
-            reader: *BufferedReaderType,
-
-            // Writes file content to writer.
-            pub fn write(self: File, writer: anytype) !void {
-                try self.reader.write(writer, self.size);
-            }
-
-            // Skips file content. Advances reader.
-            pub fn skip(self: File) !void {
-                try self.reader.skip(self.size);
-            }
-        };
-
-        // Externally, `next` iterates through the tar archive as if it is a
-        // series of files. Internally, the tar format often uses fake "files"
-        // to add meta data that describes the next file. These meta data
-        // "files" should not normally be visible to the outside. As such, this
-        // loop iterates through one or more "header files" until it finds a
-        // "normal file".
-        pub fn next(self: *Self) !?File {
-            self.scratch.reset();
-
-            while (try self.reader.readHeader(self.padding)) |block_bytes| {
-                const header = Header{ .bytes = block_bytes[0..BLOCK_SIZE] };
-                if (try header.checkChksum() == 0) return null; // zero block found
-
-                const file_type = header.fileType();
-                const size: usize = @intCast(try header.fileSize());
-                self.padding = blockPadding(size);
-
-                switch (file_type) {
-                    // File types to retrun upstream
-                    .directory, .normal, .symbolic_link => {
-                        try self.scratch.append(header);
-                        const file = File{
-                            .file_type = file_type,
-                            .name = self.scratch.name,
-                            .link_name = self.scratch.link_name,
-                            .size = self.scratch.size,
-                            .reader = &self.reader,
-                            .mode = try header.mode(),
-                        };
-                        self.padding = blockPadding(file.size);
-                        return file;
-                    },
-                    // Prefix header types
-                    .gnu_long_name => {
-                        self.scratch.name = nullStr(try self.reader.copy(try self.scratch.alloc(size)));
-                    },
-                    .gnu_long_link => {
-                        self.scratch.link_name = nullStr(try self.reader.copy(try self.scratch.alloc(size)));
-                    },
-                    .extended_header => {
-                        if (size == 0) continue;
-                        // Use just attributes from last extended header.
-                        self.scratch.reset();
-
-                        var rdr = self.reader.paxFileReader(size);
-                        while (try rdr.next()) |attr| {
-                            switch (attr.key) {
-                                .path => {
-                                    self.scratch.name = try noNull(try attr.value(try self.scratch.alloc(attr.value_len)));
-                                },
-                                .linkpath => {
-                                    self.scratch.link_name = try noNull(try attr.value(try self.scratch.alloc(attr.value_len)));
-                                },
-                                .size => {
-                                    self.scratch.size = try std.fmt.parseInt(usize, try attr.value(try self.scratch.alloc(attr.value_len)), 10);
-                                },
-                            }
-                        }
-                    },
-                    // Ignored header type
-                    .global_extended_header => {
-                        self.reader.skip(size) catch return error.TarHeadersTooBig;
-                    },
-                    // All other are unsupported header types
-                    else => {
-                        const d = self.diagnostics orelse return error.TarUnsupportedFileType;
-                        try d.errors.append(d.allocator, .{ .unsupported_file_type = .{
-                            .file_name = try d.allocator.dupe(u8, header.name()),
-                            .file_type = file_type,
-                        } });
-                    },
-                }
-            }
-            return null;
-        }
-    };
-}
-
-pub fn iterator(underlying_reader: anytype, diagnostics: ?*Options.Diagnostics) Iterator(BufferedReader(@TypeOf(underlying_reader))) {
-    return .{
-        .reader = bufferedReader(underlying_reader),
-        .diagnostics = diagnostics,
-    };
-}
-
-fn bufferedReader(underlying_reader: anytype) BufferedReader(@TypeOf(underlying_reader)) {
-    return BufferedReader(@TypeOf(underlying_reader)){
-        .underlying_reader = underlying_reader,
-    };
-}
-
 pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !void {
     switch (options.mode_mode) {
         .ignore => {},
@@ -569,7 +238,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
         },
     }
 
-    var iter = iterator(reader, options.diagnostics);
+    var iter = tarReader(reader, options.diagnostics);
 
     while (try iter.next()) |file| {
         switch (file.file_type) {
@@ -662,82 +331,37 @@ test "tar stripComponents" {
     try expectEqualStrings("c", try stripComponents("a/b/c", 2));
 }
 
-const PaxAttributeInfo = struct {
-    size: usize,
-    key: []const u8,
-    value_off: usize,
-    value_len: usize,
-
-    inline fn is(self: @This(), key: []const u8) bool {
-        return (std.mem.eql(u8, self.key, key));
-    }
-};
-
-fn parsePaxAttribute(data: []const u8, max_size: usize) !PaxAttributeInfo {
-    const pos_space = std.mem.indexOfScalar(u8, data, ' ') orelse return error.InvalidPaxAttribute;
-    const pos_equals = std.mem.indexOfScalarPos(u8, data, pos_space, '=') orelse return error.InvalidPaxAttribute;
-    const kv_size = try std.fmt.parseInt(usize, data[0..pos_space], 10);
-    if (kv_size > max_size or kv_size < pos_equals + 2) {
-        return error.InvalidPaxAttribute;
-    }
-    const key = data[pos_space + 1 .. pos_equals];
-    return .{
-        .size = kv_size,
-        .key = try noNull(key),
-        .value_off = pos_equals + 1,
-        .value_len = kv_size - pos_equals - 2,
-    };
-}
-
 fn noNull(str: []const u8) ![]const u8 {
     if (std.mem.indexOfScalar(u8, str, 0)) |_| return error.InvalidPaxAttribute;
     return str;
 }
 
-test "tar parsePaxAttribute" {
-    const expectEqual = std.testing.expectEqual;
-    const expectEqualStrings = std.testing.expectEqualStrings;
-    const expectError = std.testing.expectError;
-    const prefix = "1011 path=";
-    const file_name = "0123456789" ** 100;
-    const header = prefix ++ file_name ++ "\n";
-    const attr_info = try parsePaxAttribute(header, 1011);
-    try expectEqual(@as(usize, 1011), attr_info.size);
-    try expectEqualStrings("path", attr_info.key);
-    try expectEqual(prefix.len, attr_info.value_off);
-    try expectEqual(file_name.len, attr_info.value_len);
-    try expectEqual(attr_info, try parsePaxAttribute(header, 1012));
-    try expectError(error.InvalidPaxAttribute, parsePaxAttribute(header, 1010));
-    try expectError(error.InvalidPaxAttribute, parsePaxAttribute("", 0));
-    try expectError(error.InvalidPaxAttribute, parsePaxAttribute("13 pa\x00th=abc\n", 1024)); // null in key
-}
+test "tar run Go test cases" {
+    const Case = struct {
+        const File = struct {
+            name: []const u8,
+            size: usize = 0,
+            mode: u32 = 0,
+            link_name: []const u8 = &[0]u8{},
+            file_type: Header.FileType = .normal,
+            truncated: bool = false, // when there is no file body, just header, usefull for huge files
+        };
 
-const TestCase = struct {
-    const File = struct {
-        name: []const u8,
-        size: usize = 0,
-        mode: u32 = 0,
-        link_name: []const u8 = &[0]u8{},
-        file_type: Header.FileType = .normal,
-        truncated: bool = false, // when there is no file body, just header, usefull for huge files
+        path: []const u8, // path to the tar archive file on dis
+        files: []const File = &[_]@This().File{}, // expected files to found in archive
+        chksums: []const []const u8 = &[_][]const u8{}, // chksums of files content
+        err: ?anyerror = null, // parsing should fail with this error
     };
 
-    path: []const u8, // path to the tar archive file on dis
-    files: []const File = &[_]TestCase.File{}, // expected files to found in archive
-    chksums: []const []const u8 = &[_][]const u8{}, // chksums of files content
-    err: ?anyerror = null, // parsing should fail with this error
-};
-
-test "tar run Go test cases" {
     const test_dir = if (std.os.getenv("GO_TAR_TESTDATA_PATH")) |path|
         try std.fs.openDirAbsolute(path, .{})
     else
         return error.SkipZigTest;
 
-    const cases = [_]TestCase{
+    const cases = [_]Case{
         .{
             .path = "gnu.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "small.txt",
                     .size = 5,
@@ -760,7 +384,7 @@ test "tar run Go test cases" {
         },
         .{
             .path = "star.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "small.txt",
                     .size = 5,
@@ -779,7 +403,7 @@ test "tar run Go test cases" {
         },
         .{
             .path = "v7.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "small.txt",
                     .size = 5,
@@ -798,7 +422,7 @@ test "tar run Go test cases" {
         },
         .{
             .path = "pax.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "a/123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100",
                     .size = 7,
@@ -824,7 +448,7 @@ test "tar run Go test cases" {
         .{
             // size is in pax attribute
             .path = "pax-pos-size-file.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "foo",
                     .size = 999,
@@ -839,7 +463,7 @@ test "tar run Go test cases" {
         .{
             // has pax records which we are not interested in
             .path = "pax-records.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "file",
                 },
@@ -848,7 +472,7 @@ test "tar run Go test cases" {
         .{
             // has global records which we are ignoring
             .path = "pax-global-records.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "file1",
                 },
@@ -865,7 +489,7 @@ test "tar run Go test cases" {
         },
         .{
             .path = "nil-uid.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "P1050238.JPG.log",
                     .size = 14,
@@ -880,7 +504,7 @@ test "tar run Go test cases" {
         .{
             // has xattrs and pax records which we are ignoring
             .path = "xattrs.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "small.txt",
                     .size = 5,
@@ -901,7 +525,7 @@ test "tar run Go test cases" {
         },
         .{
             .path = "gnu-multi-hdrs.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "GNU2/GNU2/long-path-name",
                     .link_name = "GNU4/GNU4/long-linkpath-name",
@@ -917,7 +541,7 @@ test "tar run Go test cases" {
         .{
             // should use values only from last pax header
             .path = "pax-multi-hdrs.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "bar",
                     .link_name = "PAX4/PAX4/long-linkpath-name",
@@ -927,7 +551,7 @@ test "tar run Go test cases" {
         },
         .{
             .path = "gnu-long-nul.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "0123456789",
                     .mode = 0o644,
@@ -936,7 +560,7 @@ test "tar run Go test cases" {
         },
         .{
             .path = "gnu-utf8.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹",
                     .mode = 0o644,
@@ -945,7 +569,7 @@ test "tar run Go test cases" {
         },
         .{
             .path = "gnu-not-utf8.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "hi\x80\x81\x82\x83bye",
                     .mode = 0o644,
@@ -980,7 +604,7 @@ test "tar run Go test cases" {
         .{
             // has magic with space at end instead of null
             .path = "invalid-go17.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/foo",
                 },
@@ -988,7 +612,7 @@ test "tar run Go test cases" {
         },
         .{
             .path = "ustar-file-devs.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "file",
                     .mode = 0o644,
@@ -997,7 +621,7 @@ test "tar run Go test cases" {
         },
         .{
             .path = "trailing-slash.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "123456789/" ** 30,
                     .file_type = .directory,
@@ -1007,7 +631,7 @@ test "tar run Go test cases" {
         .{
             // Has size in gnu extended format. To represent size bigger than 8 GB.
             .path = "writer-big.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "tmp/16gig.txt",
                     .size = 16 * 1024 * 1024 * 1024,
@@ -1019,7 +643,7 @@ test "tar run Go test cases" {
         .{
             // Size in gnu extended format, and name in pax attribute.
             .path = "writer-big-long.tar",
-            .files = &[_]TestCase.File{
+            .files = &[_]Case.File{
                 .{
                     .name = "longname/" ** 15 ++ "16gig.txt",
                     .size = 16 * 1024 * 1024 * 1024,
@@ -1034,7 +658,8 @@ test "tar run Go test cases" {
         var fs_file = try test_dir.openFile(case.path, .{});
         defer fs_file.close();
 
-        var iter = iterator(fs_file.reader(), null);
+        //var iter = iterator(fs_file.reader(), null);
+        var iter = tarReader(fs_file.reader(), null);
         var i: usize = 0;
         while (iter.next() catch |err| {
             if (case.err) |e| {
@@ -1072,6 +697,10 @@ const Md5Writer = struct {
         self.h.update(buf);
     }
 
+    pub fn writeByte(self: *Md5Writer, byte: u8) !void {
+        self.h.update(&[_]u8{byte});
+    }
+
     pub fn chksum(self: *Md5Writer) [32]u8 {
         var s = [_]u8{0} ** 16;
         self.h.final(&s);
@@ -1079,19 +708,113 @@ const Md5Writer = struct {
     }
 };
 
-test "tar PaxFileReader" {
-    const Attribute = struct {
-        const PaxKeyKind = enum {
-            path,
-            linkpath,
-            size,
+fn paxReader(reader: anytype, size: usize) PaxReader(@TypeOf(reader)) {
+    return PaxReader(@TypeOf(reader)){
+        .reader = reader,
+        .size = size,
+    };
+}
+
+const PaxAttrKind = enum {
+    path,
+    linkpath,
+    size,
+};
+
+fn PaxReader(comptime ReaderType: type) type {
+    return struct {
+        size: usize,
+        reader: ReaderType,
+
+        const Self = @This();
+
+        const Attr = struct {
+            kind: PaxAttrKind,
+            len: usize,
+            reader: ReaderType,
+
+            // Copies pax attribute value into destination buffer.
+            // Must be called with destination buffer of size at least value_len.
+            pub fn value(self: Attr, dst: []u8) ![]const u8 {
+                assert(self.len <= dst.len);
+                const buf = dst[0..self.len];
+                const n = try self.reader.readAll(buf);
+                if (n < self.len) return error.UnexpectedEndOfStream;
+                try checkRecordEnd(self.reader);
+                return noNull(buf);
+            }
         };
-        key: PaxKeyKind,
-        value: []const u8,
+
+        // Iterates over pax records. Returns known records. Caller has to call
+        // value in Record, to advance reader across value.
+        pub fn next(self: *Self) !?Attr {
+            var buf: [128]u8 = undefined;
+            var fbs = std.io.fixedBufferStream(&buf);
+
+            // An extended header consists of one or more records, each constructed as follows:
+            // "%d %s=%s\n", <length>, <keyword>, <value>
+            while (self.size > 0) {
+                fbs.reset();
+                // read length
+                try self.reader.streamUntilDelimiter(fbs.writer(), ' ', null);
+                const rec_len = try std.fmt.parseInt(usize, fbs.getWritten(), 10); // record len in bytes
+                var pos = try fbs.getPos() + 1; // bytes used for record len + separator
+                fbs.reset();
+                // read keyword
+                try self.reader.streamUntilDelimiter(fbs.writer(), '=', null);
+                const keyword = fbs.getWritten();
+                pos += try fbs.getPos() + 1; // keyword bytes + separator
+                try checkKeyword(keyword);
+                // get value_len
+                if (rec_len < pos + 1) return error.InvalidPaxAttribute;
+                const value_len = rec_len - pos - 1; // pos = start of value, -1 => without \n record terminator
+
+                self.size -= rec_len;
+                const kind: PaxAttrKind = if (eql(keyword, "path"))
+                    .path
+                else if (eql(keyword, "linkpath"))
+                    .linkpath
+                else if (eql(keyword, "size"))
+                    .size
+                else {
+                    try self.reader.skipBytes(value_len, .{});
+                    try checkRecordEnd(self.reader);
+                    continue;
+                };
+                return Attr{
+                    .kind = kind,
+                    .len = value_len,
+                    .reader = self.reader,
+                };
+            }
+
+            return null;
+        }
+
+        inline fn eql(a: []const u8, b: []const u8) bool {
+            return std.mem.eql(u8, a, b);
+        }
+
+        fn checkKeyword(keyword: []const u8) !void {
+            if (std.mem.indexOfScalar(u8, keyword, 0)) |_| return error.InvalidPaxAttribute;
+        }
+
+        // Checks that each record ends with new line.
+        fn checkRecordEnd(reader: ReaderType) !void {
+            if (try reader.readByte() != '\n') return error.InvalidPaxAttribute;
+        }
+    };
+}
+
+test "tar PaxReader" {
+    const Attr = struct {
+        kind: PaxAttrKind,
+        value: []const u8 = undefined,
+        err: ?anyerror = null,
     };
     const cases = [_]struct {
         data: []const u8,
-        attrs: []const Attribute,
+        attrs: []const Attr,
         err: ?anyerror = null,
     }{
         .{ // valid but unknown keys
@@ -1103,7 +826,7 @@ test "tar PaxFileReader" {
             \\9 a=name
             \\
             ,
-            .attrs = &[_]Attribute{},
+            .attrs = &[_]Attr{},
         },
         .{ // mix of known and unknown keys
             .data =
@@ -1115,10 +838,10 @@ test "tar PaxFileReader" {
             \\13 key2=val2
             \\
             ,
-            .attrs = &[_]Attribute{
-                .{ .key = .path, .value = "name" },
-                .{ .key = .linkpath, .value = "link" },
-                .{ .key = .size, .value = "123" },
+            .attrs = &[_]Attr{
+                .{ .kind = .path, .value = "name" },
+                .{ .kind = .linkpath, .value = "link" },
+                .{ .kind = .size, .value = "123" },
             },
         },
         .{ // too short size of the second key-value pair
@@ -1127,8 +850,8 @@ test "tar PaxFileReader" {
             \\10 linkpath=value
             \\
             ,
-            .attrs = &[_]Attribute{
-                .{ .key = .path, .value = "name" },
+            .attrs = &[_]Attr{
+                .{ .kind = .path, .value = "name" },
             },
             .err = error.InvalidPaxAttribute,
         },
@@ -1136,36 +859,237 @@ test "tar PaxFileReader" {
             .data =
             \\13 path=name
             \\19 linkpath=value
+            \\6 k=1
             \\
             ,
-            .attrs = &[_]Attribute{
-                .{ .key = .path, .value = "name" },
+            .attrs = &[_]Attr{
+                .{ .kind = .path, .value = "name" },
+                .{ .kind = .linkpath, .err = error.InvalidPaxAttribute },
+            },
+        },
+        .{ // null in keyword is not valid
+            .data = "13 path=name\n" ++ "7 k\x00b=1\n",
+            .attrs = &[_]Attr{
+                .{ .kind = .path, .value = "name" },
             },
             .err = error.InvalidPaxAttribute,
+        },
+        .{ // null in value is not valid
+            .data = "23 path=name\x00with null\n",
+            .attrs = &[_]Attr{
+                .{ .kind = .path, .err = error.InvalidPaxAttribute },
+            },
+        },
+        .{ // 1000 characters path
+            .data = "1011 path=" ++ "0123456789" ** 100 ++ "\n",
+            .attrs = &[_]Attr{
+                .{ .kind = .path, .value = "0123456789" ** 100 },
+            },
         },
     };
     var buffer: [1024]u8 = undefined;
 
-    for (cases) |case| {
+    outer: for (cases) |case| {
         var stream = std.io.fixedBufferStream(case.data);
-        var brdr = bufferedReader(stream.reader());
+        var rdr = paxReader(stream.reader(), case.data.len);
 
-        var rdr = brdr.paxFileReader(case.data.len);
         var i: usize = 0;
         while (rdr.next() catch |err| {
             if (case.err) |e| {
                 try std.testing.expectEqual(e, err);
                 continue;
-            } else {
-                return err;
             }
+            return err;
         }) |attr| : (i += 1) {
-            try std.testing.expectEqualStrings(
-                case.attrs[i].value,
-                try attr.value(&buffer),
-            );
+            const exp = case.attrs[i];
+            try std.testing.expectEqual(exp.kind, attr.kind);
+            const value = attr.value(&buffer) catch |err| {
+                if (exp.err) |e| {
+                    try std.testing.expectEqual(e, err);
+                    break :outer;
+                }
+                return err;
+            };
+            try std.testing.expectEqualStrings(exp.value, value);
         }
         try std.testing.expectEqual(case.attrs.len, i);
         try std.testing.expect(case.err == null);
     }
+}
+
+pub fn tarReader(reader: anytype, diagnostics: ?*Options.Diagnostics) TarReader(@TypeOf(reader)) {
+    return .{
+        .reader = reader,
+        .diagnostics = diagnostics,
+    };
+}
+
+fn TarReader(comptime ReaderType: type) type {
+    return struct {
+        // scratch buffer for file attributes
+        scratch: struct {
+            // size: two paths (name and link_name) and files size bytes (24 in pax attribute)
+            buffer: [std.fs.MAX_PATH_BYTES * 2 + 24]u8 = undefined,
+            tail: usize = 0,
+
+            name: []const u8 = undefined,
+            link_name: []const u8 = undefined,
+            size: usize = 0,
+
+            // Allocate size of the buffer for some attribute.
+            fn alloc(self: *@This(), size: usize) ![]u8 {
+                const free_size = self.buffer.len - self.tail;
+                if (size > free_size) return error.TarScratchBufferOverflow;
+                const head = self.tail;
+                self.tail += size;
+                assert(self.tail <= self.buffer.len);
+                return self.buffer[head..self.tail];
+            }
+
+            // Reset buffer and all fields.
+            fn reset(self: *@This()) void {
+                self.tail = 0;
+                self.name = self.buffer[0..0];
+                self.link_name = self.buffer[0..0];
+                self.size = 0;
+            }
+
+            fn append(self: *@This(), header: Header) !void {
+                if (self.size == 0) self.size = try header.fileSize();
+                if (self.link_name.len == 0) {
+                    const link_name = header.linkName();
+                    if (link_name.len > 0) {
+                        const buf = try self.alloc(link_name.len);
+                        @memcpy(buf, link_name);
+                        self.link_name = buf;
+                    }
+                }
+                if (self.name.len == 0) {
+                    self.name = try header.fullName((try self.alloc(MAX_HEADER_NAME_SIZE))[0..MAX_HEADER_NAME_SIZE]);
+                }
+            }
+        } = .{},
+
+        reader: ReaderType,
+        diagnostics: ?*Options.Diagnostics,
+        padding: usize = 0, // bytes of padding to the end of the block
+        header_buffer: [BLOCK_SIZE]u8 = undefined,
+
+        const Self = @This();
+
+        pub const File = struct {
+            name: []const u8, // name of file, symlink or directory
+            link_name: []const u8, // target name of symlink
+            size: usize, // size of the file in bytes
+            mode: u32,
+            file_type: Header.FileType,
+
+            reader: *ReaderType,
+
+            // Writes file content to writer.
+            pub fn write(self: File, writer: anytype) !void {
+                var n = self.size;
+                while (n > 0) : (n -= 1) {
+                    const byte: u8 = try self.reader.readByte();
+                    try writer.writeByte(byte);
+                }
+            }
+
+            // Skips file content. Advances reader.
+            pub fn skip(self: File) !void {
+                try self.reader.skipBytes(self.size, .{});
+            }
+        };
+
+        fn readHeader(self: *Self) !?Header {
+            if (self.padding > 0) {
+                try self.reader.skipBytes(self.padding, .{});
+            }
+            const n = try self.reader.readAll(&self.header_buffer);
+            if (n == 0) return null;
+            if (n < BLOCK_SIZE) return error.UnexpectedEndOfStream;
+            const header = Header{ .bytes = self.header_buffer[0..BLOCK_SIZE] };
+            if (try header.checkChksum() == 0) return null;
+            return header;
+        }
+
+        fn readString(self: *Self, size: usize) ![]const u8 {
+            const buf = try self.scratch.alloc(size);
+            try self.reader.readNoEof(buf);
+            return nullStr(buf);
+        }
+
+        // Externally, `next` iterates through the tar archive as if it is a
+        // series of files. Internally, the tar format often uses fake "files"
+        // to add meta data that describes the next file. These meta data
+        // "files" should not normally be visible to the outside. As such, this
+        // loop iterates through one or more "header files" until it finds a
+        // "normal file".
+        pub fn next(self: *Self) !?File {
+            self.scratch.reset();
+
+            while (try self.readHeader()) |header| {
+                const file_type = header.fileType();
+                const size: usize = @intCast(try header.fileSize());
+                self.padding = blockPadding(size);
+
+                switch (file_type) {
+                    // File types to retrun upstream
+                    .directory, .normal, .symbolic_link => {
+                        try self.scratch.append(header);
+                        const file = File{
+                            .file_type = file_type,
+                            .name = self.scratch.name,
+                            .link_name = self.scratch.link_name,
+                            .size = self.scratch.size,
+                            .reader = &self.reader,
+                            .mode = try header.mode(),
+                        };
+                        self.padding = blockPadding(file.size);
+                        return file;
+                    },
+                    // Prefix header types
+                    .gnu_long_name => {
+                        self.scratch.name = try self.readString(size);
+                    },
+                    .gnu_long_link => {
+                        self.scratch.link_name = try self.readString(size);
+                    },
+                    .extended_header => {
+                        if (size == 0) continue;
+                        // Use just attributes from last extended header.
+                        self.scratch.reset();
+
+                        var rdr = paxReader(self.reader, size);
+                        while (try rdr.next()) |attr| {
+                            switch (attr.kind) {
+                                .path => {
+                                    self.scratch.name = try attr.value(try self.scratch.alloc(attr.len));
+                                },
+                                .linkpath => {
+                                    self.scratch.link_name = try attr.value(try self.scratch.alloc(attr.len));
+                                },
+                                .size => {
+                                    self.scratch.size = try std.fmt.parseInt(usize, try attr.value(try self.scratch.alloc(attr.len)), 10);
+                                },
+                            }
+                        }
+                    },
+                    // Ignored header type
+                    .global_extended_header => {
+                        self.reader.skipBytes(size, .{}) catch return error.TarHeadersTooBig;
+                    },
+                    // All other are unsupported header types
+                    else => {
+                        const d = self.diagnostics orelse return error.TarUnsupportedFileType;
+                        try d.errors.append(d.allocator, .{ .unsupported_file_type = .{
+                            .file_name = try d.allocator.dupe(u8, header.name()),
+                            .file_type = file_type,
+                        } });
+                    },
+                }
+            }
+            return null;
+        }
+    };
 }
