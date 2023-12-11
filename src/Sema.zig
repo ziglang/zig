@@ -23862,6 +23862,9 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             };
 
             if (block.is_comptime) {
+                if (modifier == .compile_time) {
+                    return sema.fail(block, modifier_src, "'.compile_time' call modifier is redundant in a comptime scope", .{});
+                }
                 modifier = .compile_time;
             }
         },
