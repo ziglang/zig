@@ -618,10 +618,8 @@ test "tar run Go test cases" {
         err: ?anyerror = null, // parsing should fail with this error
     };
 
-    const test_dir = if (std.os.getenv("GO_TAR_TESTDATA_PATH")) |path|
-        try std.fs.openDirAbsolute(path, .{})
-    else
-        return error.SkipZigTest;
+    const src_path = comptime std.fs.path.dirname(@src().file) orelse ".";
+    const test_dir = try std.fs.cwd().openDir(src_path ++ "/../../test/cases/tar", .{});
 
     const cases = [_]Case{
         .{
@@ -921,9 +919,9 @@ test "tar run Go test cases" {
 
     for (cases) |case| {
         var fs_file = try test_dir.openFile(case.path, .{});
+
         defer fs_file.close();
 
-        //var iter = iterator(fs_file.reader(), null);
         var iter = tarReader(fs_file.reader(), null);
         var i: usize = 0;
         while (iter.next() catch |err| {
