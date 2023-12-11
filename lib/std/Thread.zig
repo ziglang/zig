@@ -829,7 +829,7 @@ const WasiThreadImpl = struct {
                 \\ memory.atomic.wait32 0
                 \\ local.set %[ret]
                 : [ret] "=r" (-> u32),
-                : [ptr] "r" (&self.thread.tid.value),
+                : [ptr] "r" (&self.thread.tid.raw),
                   [expected] "r" (tid),
             );
             switch (result) {
@@ -849,7 +849,7 @@ const WasiThreadImpl = struct {
             args: @TypeOf(args),
             fn entry(ptr: usize) void {
                 const w: *@This() = @ptrFromInt(ptr);
-                @call(.auto, f, w.args);
+                @call(.auto, f, w.args) catch unreachable;
             }
         };
 
@@ -937,7 +937,7 @@ const WasiThreadImpl = struct {
                     \\ i32.const 0
                     \\ i32.atomic.store 0
                     :
-                    : [ptr] "r" (&arg.thread.tid.value),
+                    : [ptr] "r" (&arg.thread.tid.raw),
                 );
 
                 // Wake the main thread listening to this thread
@@ -947,7 +947,7 @@ const WasiThreadImpl = struct {
                     \\ memory.atomic.notify 0
                     \\ drop # no need to know the waiters
                     :
-                    : [ptr] "r" (&arg.thread.tid.value),
+                    : [ptr] "r" (&arg.thread.tid.raw),
                 );
             },
             .completed => unreachable,
