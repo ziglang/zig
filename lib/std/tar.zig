@@ -83,11 +83,12 @@ pub const Options = struct {
     };
 };
 
-const BLOCK_SIZE = 512;
-const MAX_HEADER_NAME_SIZE = 100 + 1 + 155; // name(100) + separator(1) + prefix(155)
-
 pub const Header = struct {
-    bytes: *const [BLOCK_SIZE]u8,
+    const SIZE = 512;
+    const MAX_NAME_SIZE = 100 + 1 + 155; // name(100) + separator(1) + prefix(155)
+    const LINK_NAME_SIZE = 100;
+
+    bytes: *const [SIZE]u8,
 
     pub const FileType = enum(u8) {
         normal_alias = 0,
@@ -110,7 +111,7 @@ pub const Header = struct {
 
     /// Includes prefix concatenated, if any.
     /// TODO: check against "../" and other nefarious things
-    pub fn fullName(header: Header, buffer: *[MAX_HEADER_NAME_SIZE]u8) ![]const u8 {
+    pub fn fullName(header: Header, buffer: *[MAX_NAME_SIZE]u8) ![]const u8 {
         const n = name(header);
         const p = prefix(header);
         if (!is_ustar(header) or p.len == 0) {
@@ -121,6 +122,16 @@ pub const Header = struct {
         buffer[p.len] = '/';
         @memcpy(buffer[p.len + 1 ..][0..n.len], n);
         return buffer[0 .. p.len + 1 + n.len];
+    }
+
+    pub fn linkName(header: Header, buffer: *[LINK_NAME_SIZE]u8) []const u8 {
+        const link_name = header.str(157, 100);
+        if (link_name.len == 0) {
+            return buffer[0..0];
+        }
+        const buf = buffer[0..link_name.len];
+        @memcpy(buf, link_name);
+        return buf;
     }
 
     pub fn name(header: Header) []const u8 {
@@ -137,10 +148,6 @@ pub const Header = struct {
 
     pub fn chksum(header: Header) !u64 {
         return header.octal(148, 8);
-    }
-
-    pub fn linkName(header: Header) []const u8 {
-        return header.str(157, 100);
     }
 
     pub fn is_ustar(header: Header) bool {
@@ -217,12 +224,6 @@ fn nullStr(str: []const u8) []const u8 {
         if (c == 0) return str[0..i];
     }
     return str;
-}
-
-// Number of padding bytes in the last file block.
-inline fn blockPadding(size: usize) usize {
-    const block_rounded = std.mem.alignForward(usize, size, BLOCK_SIZE); // size rounded to te block boundary
-    return block_rounded - size;
 }
 
 pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !void {
@@ -936,56 +937,18 @@ pub fn tarReader(reader: anytype, diagnostics: ?*Options.Diagnostics) TarReader(
 
 fn TarReader(comptime ReaderType: type) type {
     return struct {
-        // scratch buffer for file attributes
-        scratch: struct {
-            // size: two paths (name and link_name) and files size bytes (24 in pax attribute)
-            buffer: [std.fs.MAX_PATH_BYTES * 2 + 24]u8 = undefined,
-            tail: usize = 0,
-
-            name: []const u8 = undefined,
-            link_name: []const u8 = undefined,
-            size: usize = 0,
-
-            // Allocate size of the buffer for some attribute.
-            fn alloc(self: *@This(), size: usize) ![]u8 {
-                const free_size = self.buffer.len - self.tail;
-                if (size > free_size) return error.TarScratchBufferOverflow;
-                const head = self.tail;
-                self.tail += size;
-                assert(self.tail <= self.buffer.len);
-                return self.buffer[head..self.tail];
-            }
-
-            // Reset buffer and all fields.
-            fn reset(self: *@This()) void {
-                self.tail = 0;
-                self.name = self.buffer[0..0];
-                self.link_name = self.buffer[0..0];
-                self.size = 0;
-            }
-
-            fn append(self: *@This(), header: Header) !void {
-                if (self.size == 0) self.size = try header.fileSize();
-                if (self.link_name.len == 0) {
-                    const link_name = header.linkName();
-                    if (link_name.len > 0) {
-                        const buf = try self.alloc(link_name.len);
-                        @memcpy(buf, link_name);
-                        self.link_name = buf;
-                    }
-                }
-                if (self.name.len == 0) {
-                    self.name = try header.fullName((try self.alloc(MAX_HEADER_NAME_SIZE))[0..MAX_HEADER_NAME_SIZE]);
-                }
-            }
-        } = .{},
-
         reader: ReaderType,
         diagnostics: ?*Options.Diagnostics,
-        padding: usize = 0, // bytes of padding to the end of the block
-        header_buffer: [BLOCK_SIZE]u8 = undefined,
 
-        const Self = @This();
+        // buffers for heeader and file attributes
+        header_buffer: [Header.SIZE]u8 = undefined,
+        file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined,
+        link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined,
+
+        // bytes of padding to the end of the block
+        padding: usize = 0,
+        // current tar file
+        file: File = undefined,
 
         pub const File = struct {
             name: []const u8, // name of file, symlink or directory
@@ -994,14 +957,18 @@ fn TarReader(comptime ReaderType: type) type {
             mode: u32,
             file_type: Header.FileType,
 
-            reader: *ReaderType,
+            reader: ReaderType,
 
             // Writes file content to writer.
             pub fn write(self: File, writer: anytype) !void {
-                var n = self.size;
-                while (n > 0) : (n -= 1) {
-                    const byte: u8 = try self.reader.readByte();
-                    try writer.writeByte(byte);
+                var buffer: [4096]u8 = undefined;
+
+                var n: usize = 0;
+                while (n < self.size) {
+                    const buf = buffer[0..@min(buffer.len, self.size - n)];
+                    try self.reader.readNoEof(buf);
+                    try writer.writeAll(buf);
+                    n += buf.len;
                 }
             }
 
@@ -1011,32 +978,42 @@ fn TarReader(comptime ReaderType: type) type {
             }
         };
 
+        const Self = @This();
+
         fn readHeader(self: *Self) !?Header {
             if (self.padding > 0) {
                 try self.reader.skipBytes(self.padding, .{});
             }
             const n = try self.reader.readAll(&self.header_buffer);
             if (n == 0) return null;
-            if (n < BLOCK_SIZE) return error.UnexpectedEndOfStream;
-            const header = Header{ .bytes = self.header_buffer[0..BLOCK_SIZE] };
+            if (n < Header.SIZE) return error.UnexpectedEndOfStream;
+            const header = Header{ .bytes = self.header_buffer[0..Header.SIZE] };
             if (try header.checkChksum() == 0) return null;
             return header;
         }
 
-        fn readString(self: *Self, size: usize) ![]const u8 {
-            const buf = try self.scratch.alloc(size);
+        inline fn readString(self: *Self, size: usize, buffer: []u8) ![]const u8 {
+            assert(buffer.len >= size);
+            const buf = buffer[0..size];
             try self.reader.readNoEof(buf);
             return nullStr(buf);
         }
 
-        fn reset(self: *Self) void {
+        inline fn initFile(self: *Self) void {
             self.file = File{
                 .name = self.file_name_buffer[0..0],
                 .link_name = self.link_name_buffer[0..0],
                 .size = 0,
-                .file_type = 0xff,
+                .file_type = .normal,
                 .mode = 0,
+                .reader = self.reader,
             };
+        }
+
+        // Number of padding bytes in the last file block.
+        inline fn blockPadding(size: usize) usize {
+            const block_rounded = std.mem.alignForward(usize, size, Header.SIZE); // size rounded to te block boundary
+            return block_rounded - size;
         }
 
         // Externally, `next` iterates through the tar archive as if it is a
@@ -1046,7 +1023,7 @@ fn TarReader(comptime ReaderType: type) type {
         // loop iterates through one or more "header files" until it finds a
         // "normal file".
         pub fn next(self: *Self) !?File {
-            self.scratch.reset();
+            self.initFile();
 
             while (try self.readHeader()) |header| {
                 const file_type = header.fileType();
@@ -1056,41 +1033,46 @@ fn TarReader(comptime ReaderType: type) type {
                 switch (file_type) {
                     // File types to retrun upstream
                     .directory, .normal, .symbolic_link => {
-                        try self.scratch.append(header);
-                        const file = File{
-                            .file_type = file_type,
-                            .name = self.scratch.name,
-                            .link_name = self.scratch.link_name,
-                            .size = self.scratch.size,
-                            .reader = &self.reader,
-                            .mode = try header.mode(),
-                        };
-                        self.padding = blockPadding(file.size);
-                        return file;
+                        self.file.file_type = file_type;
+                        self.file.mode = try header.mode();
+
+                        // set file attributes if not already set by prefix/extended headers
+                        if (self.file.size == 0) {
+                            self.file.size = size;
+                        }
+                        if (self.file.link_name.len == 0) {
+                            self.file.link_name = header.linkName(self.link_name_buffer[0..Header.LINK_NAME_SIZE]);
+                        }
+                        if (self.file.name.len == 0) {
+                            self.file.name = try header.fullName(self.file_name_buffer[0..Header.MAX_NAME_SIZE]);
+                        }
+
+                        self.padding = blockPadding(self.file.size);
+                        return self.file;
                     },
                     // Prefix header types
                     .gnu_long_name => {
-                        self.scratch.name = try self.readString(size);
+                        self.file.name = try self.readString(size, &self.file_name_buffer);
                     },
                     .gnu_long_link => {
-                        self.scratch.link_name = try self.readString(size);
+                        self.file.link_name = try self.readString(size, &self.link_name_buffer);
                     },
                     .extended_header => {
-                        if (size == 0) continue;
                         // Use just attributes from last extended header.
-                        self.scratch.reset();
+                        self.initFile();
 
                         var rdr = paxReader(self.reader, size);
                         while (try rdr.next()) |attr| {
                             switch (attr.kind) {
                                 .path => {
-                                    self.scratch.name = try attr.value(try self.scratch.alloc(attr.len));
+                                    self.file.name = try attr.value(&self.file_name_buffer);
                                 },
                                 .linkpath => {
-                                    self.scratch.link_name = try attr.value(try self.scratch.alloc(attr.len));
+                                    self.file.link_name = try attr.value(&self.link_name_buffer);
                                 },
                                 .size => {
-                                    self.scratch.size = try std.fmt.parseInt(usize, try attr.value(try self.scratch.alloc(attr.len)), 10);
+                                    var buf: [64]u8 = undefined;
+                                    self.file.size = try std.fmt.parseInt(usize, try attr.value(&buf), 10);
                                 },
                             }
                         }
