@@ -254,7 +254,7 @@ fn offset(self: Emit) u32 {
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
     std.debug.assert(emit.error_msg == null);
-    const mod = emit.bin_file.base.options.module.?;
+    const mod = emit.bin_file.base.comp.module.?;
     emit.error_msg = try Module.ErrorMsg.create(emit.bin_file.base.allocator, mod.declPtr(emit.decl_index).srcLoc(mod), format, args);
     return error.EmitFail;
 }

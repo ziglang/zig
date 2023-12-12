@@ -632,7 +632,7 @@ pub fn getOrCreateAtomForDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex) !At
         gop.value_ptr.* = atom_index;
         const atom = wasm.getAtom(atom_index);
         const symbol = atom.symbolLoc().getSymbol(wasm);
-        const mod = wasm.base.options.module.?;
+        const mod = wasm.base.comp.module.?;
         const decl = mod.declPtr(decl_index);
         const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
         symbol.name = try wasm.string_table.put(gpa, full_name);
@@ -1568,7 +1568,7 @@ pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: InternPool.De
 
 fn finishUpdateDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex, code: []const u8, symbol_tag: Symbol.Tag) !void {
     const gpa = wasm.base.comp.gpa;
-    const mod = wasm.base.options.module.?;
+    const mod = wasm.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const atom_index = wasm.decls.get(decl_index).?;
     const atom = wasm.getAtomPtr(atom_index);
@@ -1632,7 +1632,7 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
 /// The given `decl` is the parent decl whom owns the constant.
 pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
     const gpa = wasm.base.comp.gpa;
-    const mod = wasm.base.options.module.?;
+    const mod = wasm.base.comp.module.?;
     assert(tv.ty.zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
     const decl = mod.declPtr(decl_index);
 
@@ -1665,7 +1665,7 @@ const LowerConstResult = union(enum) {
 
 fn lowerConst(wasm: *Wasm, name: []const u8, tv: TypedValue, src_loc: Module.SrcLoc) !LowerConstResult {
     const gpa = wasm.base.comp.gpa;
-    const mod = wasm.base.options.module.?;
+    const mod = wasm.base.comp.module.?;
 
     // Create and initialize a new local symbol and atom
     const atom_index = try wasm.createAtom();
@@ -1753,7 +1753,7 @@ pub fn getDeclVAddr(
     reloc_info: link.File.RelocInfo,
 ) !u64 {
     const gpa = wasm.base.comp.gpa;
-    const mod = wasm.base.options.module.?;
+    const mod = wasm.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
 
     const target_atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
@@ -1798,7 +1798,7 @@ pub fn lowerAnonDecl(
     const gpa = wasm.base.comp.gpa;
     const gop = try wasm.anon_decls.getOrPut(gpa, decl_val);
     if (!gop.found_existing) {
-        const mod = wasm.base.options.module.?;
+        const mod = wasm.base.comp.module.?;
         const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
         const tv: TypedValue = .{ .ty = ty, .val = Value.fromInterned(decl_val) };
         var name_buf: [32]u8 = undefined;
@@ -1831,7 +1831,7 @@ pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: lin
     const parent_atom_index = wasm.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
     const parent_atom = wasm.getAtomPtr(parent_atom_index);
     const is_wasm32 = wasm.base.options.target.cpu.arch == .wasm32;
-    const mod = wasm.base.options.module.?;
+    const mod = wasm.base.comp.module.?;
     const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
     if (ty.zigTypeTag(mod) == .Fn) {
         assert(reloc_info.addend == 0); // addend not allowed for function relocations
@@ -2004,7 +2004,7 @@ pub fn updateExports(
 pub fn freeDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex) void {
     if (wasm.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     const gpa = wasm.base.comp.gpa;
-    const mod = wasm.base.options.module.?;
+    const mod = wasm.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const atom_index = wasm.decls.get(decl_index).?;
     const atom = wasm.getAtomPtr(atom_index);
@@ -2492,7 +2492,7 @@ fn setupErrorsLen(wasm: *Wasm) !void {
     const gpa = wasm.base.comp.gpa;
     const loc = wasm.findGlobalSymbol("__zig_errors_len") orelse return;
 
-    const errors_len = wasm.base.options.module.?.global_error_set.count();
+    const errors_len = wasm.base.comp.module.?.global_error_set.count();
     // overwrite existing atom if it already exists (maybe the error set has increased)
     // if not, allcoate a new atom.
     const atom_index = if (wasm.symbol_atom.get(loc)) |index| blk: {
@@ -3268,7 +3268,7 @@ pub fn getErrorTableSymbol(wasm: *Wasm) !u32 {
     const atom_index = try wasm.createAtom();
     const atom = wasm.getAtomPtr(atom_index);
     const slice_ty = Type.slice_const_u8_sentinel_0;
-    const mod = wasm.base.options.module.?;
+    const mod = wasm.base.comp.module.?;
     atom.alignment = slice_ty.abiAlignment(mod);
     const sym_index = atom.sym_index;
 
@@ -3322,7 +3322,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
 
     // Addend for each relocation to the table
     var addend: u32 = 0;
-    const mod = wasm.base.options.module.?;
+    const mod = wasm.base.comp.module.?;
     for (mod.global_error_set.keys()) |error_name_nts| {
         const atom = wasm.getAtomPtr(atom_index);
 
@@ -3708,7 +3708,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     try wasm.markReferences();
     try wasm.setupErrorsLen();
     try wasm.setupImports();
-    if (wasm.base.options.module) |mod| {
+    if (wasm.base.comp.module) |mod| {
         var decl_it = wasm.decls.iterator();
         while (decl_it.next()) |entry| {
             const decl = mod.declPtr(entry.key_ptr.*);
@@ -3759,7 +3759,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
 
         if (wasm.dwarf) |*dwarf| {
-            try dwarf.flushModule(wasm.base.options.module.?);
+            try dwarf.flushModule(wasm.base.comp.module.?);
         }
     }
 
@@ -4190,7 +4190,7 @@ fn writeToFile(
         }
 
         // if (wasm.dwarf) |*dwarf| {
-        //     const mod = wasm.base.options.module.?;
+        //     const mod = wasm.base.comp.module.?;
         //     try dwarf.writeDbgAbbrev();
         //     // for debug info and ranges, the address is always 0,
         //     // as locations are always offsets relative to 'code' section.
@@ -4535,7 +4535,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (wasm.base.options.module != null) blk: {
+    const module_obj_path: ?[]const u8 = if (wasm.base.comp.module != null) blk: {
         try wasm.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {

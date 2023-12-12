@@ -1118,7 +1118,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
 
 pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const gop = try self.unnamed_const_atoms.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
@@ -1249,7 +1249,7 @@ fn updateLazySymbolAtom(
     section_index: u16,
 ) !void {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
 
     var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1310,7 +1310,7 @@ fn updateLazySymbolAtom(
 
 pub fn getOrCreateAtomForLazySymbol(self: *Coff, sym: link.File.LazySymbol) !Atom.Index {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const gop = try self.lazy_syms.getOrPut(gpa, sym.getDecl(mod));
     errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
     if (!gop.found_existing) gop.value_ptr.* = .{};
@@ -1347,9 +1347,9 @@ pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: InternPool.DeclIndex) !At
 }
 
 fn getDeclOutputSection(self: *Coff, decl_index: InternPool.DeclIndex) u16 {
-    const decl = self.base.options.module.?.declPtr(decl_index);
+    const decl = self.base.comp.module.?.declPtr(decl_index);
     const ty = decl.ty;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const zig_ty = ty.zigTypeTag(mod);
     const val = decl.val;
     const index: u16 = blk: {
@@ -1373,7 +1373,7 @@ fn getDeclOutputSection(self: *Coff, decl_index: InternPool.DeclIndex) u16 {
 }
 
 fn updateDeclCode(self: *Coff, decl_index: InternPool.DeclIndex, code: []u8, complex_type: coff.ComplexType) !void {
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
 
     const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
@@ -1443,7 +1443,7 @@ pub fn freeDecl(self: *Coff, decl_index: InternPool.DeclIndex) void {
     if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
 
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
 
     log.debug("freeDecl {*}", .{decl});
@@ -1599,7 +1599,7 @@ pub fn deleteDeclExport(
 ) void {
     if (self.llvm_object) |_| return;
     const metadata = self.decls.getPtr(decl_index) orelse return;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const name = mod.intern_pool.stringToSlice(name_ip);
     const sym_index = metadata.getExportPtr(self, name) orelse return;
 
@@ -1678,7 +1678,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
     const gpa = self.base.comp.gpa;
 
-    const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    const module = self.base.comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     if (self.lazy_syms.getPtr(.none)) |metadata| {
         // Most lazy symbols can be updated on first use, but
@@ -1818,7 +1818,7 @@ pub fn lowerAnonDecl(
     src_loc: Module.SrcLoc,
 ) !codegen.Result {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
     const decl_alignment = switch (explicit_alignment) {
         .none => ty.abiAlignment(mod),

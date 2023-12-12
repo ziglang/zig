@@ -174,7 +174,7 @@ pub const Atom = struct {
             return .{ .code_ptr = slice.ptr, .other = .{ .code_len = slice.len } };
         }
         fn getCode(self: CodePtr, plan9: *const Plan9) []u8 {
-            const mod = plan9.base.options.module.?;
+            const mod = plan9.base.comp.module.?;
             return if (self.code_ptr) |p| p[0..self.other.code_len] else blk: {
                 const decl_index = self.other.decl_index;
                 const decl = mod.declPtr(decl_index);
@@ -324,7 +324,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Plan9 {
 
 fn putFn(self: *Plan9, decl_index: InternPool.DeclIndex, out: FnDeclOutput) !void {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const fn_map_res = try self.fn_decl_table.getOrPut(gpa, decl.getFileScope(mod));
     if (fn_map_res.found_existing) {
@@ -455,7 +455,7 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: InternPool.De
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
 
     const gop = try self.unnamed_const_atoms.getOrPut(gpa, decl_index);
@@ -550,7 +550,7 @@ pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: InternPool.DeclIndex) 
 /// called at the end of update{Decl,Func}
 fn updateFinish(self: *Plan9, decl_index: InternPool.DeclIndex) !void {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const is_fn = (decl.ty.zigTypeTag(mod) == .Fn);
     const sym_t: aout.Sym.Type = if (is_fn) .t else .d;
@@ -670,7 +670,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
 
     defer assert(self.hdr.entry != 0x0);
 
-    const mod = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    const mod = self.base.comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     // finish up the lazy syms
     if (self.lazy_syms.getPtr(.none)) |metadata| {
@@ -1032,7 +1032,7 @@ pub fn freeDecl(self: *Plan9, decl_index: InternPool.DeclIndex) void {
     // freeDecl without any updateDecl in between.
     // However that is planned to change, see the TODO comment in Module.zig
     // in the deleteUnusedDecl function.
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const is_fn = decl.val.isFuncBody(mod);
     if (is_fn) {
@@ -1112,7 +1112,7 @@ pub fn seeDecl(self: *Plan9, decl_index: InternPool.DeclIndex) !Atom.Index {
     }
     const atom_idx = gop.value_ptr.index;
     // handle externs here because they might not get updateDecl called on them
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const name = mod.intern_pool.stringToSlice(decl.name);
     if (decl.isExtern(mod)) {
@@ -1147,7 +1147,7 @@ pub fn updateExports(
 
 pub fn getOrCreateAtomForLazySymbol(self: *Plan9, sym: File.LazySymbol) !Atom.Index {
     const gpa = self.base.comp.gpa;
-    const gop = try self.lazy_syms.getOrPut(gpa, sym.getDecl(self.base.options.module.?));
+    const gop = try self.lazy_syms.getOrPut(gpa, sym.getDecl(self.base.comp.module.?));
     errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
 
     if (!gop.found_existing) gop.value_ptr.* = .{};
@@ -1166,7 +1166,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *Plan9, sym: File.LazySymbol) !Atom.In
     _ = try self.getAtomPtr(atom).getOrCreateSymbolTableEntry(self);
     _ = self.getAtomPtr(atom).getOrCreateOffsetTableEntry(self);
     // anyerror needs to be deferred until flushModule
-    if (sym.getDecl(self.base.options.module.?) != .none) {
+    if (sym.getDecl(self.base.comp.module.?) != .none) {
         try self.updateLazySymbolAtom(sym, atom);
     }
     return atom;
@@ -1174,7 +1174,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *Plan9, sym: File.LazySymbol) !Atom.In
 
 fn updateLazySymbolAtom(self: *Plan9, sym: File.LazySymbol, atom_index: Atom.Index) !void {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
 
     var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1348,7 +1348,7 @@ pub fn writeSym(self: *Plan9, w: anytype, sym: aout.Sym) !void {
 }
 
 pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const ip = &mod.intern_pool;
     const writer = buf.writer();
     // write __GOT
@@ -1374,7 +1374,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
             const atom = self.getAtom(decl_metadata.index);
             const sym = self.syms.items[atom.sym_index.?];
             try self.writeSym(writer, sym);
-            if (self.base.options.module.?.decl_exports.get(decl_index)) |exports| {
+            if (self.base.comp.module.?.decl_exports.get(decl_index)) |exports| {
                 for (exports.items) |e| if (decl_metadata.getExport(self, ip.stringToSlice(e.opts.name))) |exp_i| {
                     try self.writeSym(writer, self.syms.items[exp_i]);
                 };
@@ -1421,7 +1421,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
                 const atom = self.getAtom(decl_metadata.index);
                 const sym = self.syms.items[atom.sym_index.?];
                 try self.writeSym(writer, sym);
-                if (self.base.options.module.?.decl_exports.get(decl_index)) |exports| {
+                if (self.base.comp.module.?.decl_exports.get(decl_index)) |exports| {
                     for (exports.items) |e| if (decl_metadata.getExport(self, ip.stringToSlice(e.opts.name))) |exp_i| {
                         const s = self.syms.items[exp_i];
                         if (mem.eql(u8, s.name, "_start"))
@@ -1464,7 +1464,7 @@ pub fn getDeclVAddr(
     decl_index: InternPool.DeclIndex,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     log.debug("getDeclVAddr for {s}", .{mod.intern_pool.stringToSlice(decl.name)});
     if (decl.isExtern(mod)) {
@@ -1517,7 +1517,7 @@ pub fn lowerAnonDecl(self: *Plan9, decl_val: InternPool.Index, src_loc: Module.S
     // ...
     const gpa = self.base.comp.gpa;
     const gop = try self.anon_decls.getOrPut(gpa, decl_val);
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     if (!gop.found_existing) {
         const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
         const val = Value.fromInterned(decl_val);

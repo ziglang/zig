@@ -356,7 +356,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     defer sub_prog_node.end();
 
     const output_mode = self.base.comp.config.output_mode;
-    const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    const module = self.base.comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     if (self.lazy_syms.getPtr(.none)) |metadata| {
         // Most lazy symbols can be updated on first use, but
@@ -2333,7 +2333,7 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
 
 pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const gop = try self.unnamed_const_atoms.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
@@ -2504,7 +2504,7 @@ fn updateLazySymbolAtom(
     section_index: u8,
 ) !void {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
 
     var required_alignment: Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -2568,7 +2568,7 @@ fn updateLazySymbolAtom(
 }
 
 pub fn getOrCreateAtomForLazySymbol(self: *MachO, sym: File.LazySymbol) !Atom.Index {
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const gpa = self.base.comp.gpa;
     const gop = try self.lazy_syms.getOrPut(gpa, sym.getDecl(mod));
     errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
@@ -2600,7 +2600,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *MachO, sym: File.LazySymbol) !Atom.In
 }
 
 fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: InternPool.DeclIndex) !void {
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     // Lowering a TLV on macOS involves two stages:
     // 1. first we lower the initializer into appopriate section (__thread_data or __thread_bss)
     // 2. next, we create a corresponding threadlocal variable descriptor in __thread_vars
@@ -2711,10 +2711,10 @@ pub fn getOrCreateAtomForDecl(self: *MachO, decl_index: InternPool.DeclIndex) !A
 }
 
 fn getDeclOutputSection(self: *MachO, decl_index: InternPool.DeclIndex) u8 {
-    const decl = self.base.options.module.?.declPtr(decl_index);
+    const decl = self.base.comp.module.?.declPtr(decl_index);
     const ty = decl.ty;
     const val = decl.val;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const zig_ty = ty.zigTypeTag(mod);
     const any_non_single_threaded = self.base.comp.config.any_non_single_threaded;
     const optimize_mode = self.base.comp.root_mod.optimize_mode;
@@ -2751,7 +2751,7 @@ fn getDeclOutputSection(self: *MachO, decl_index: InternPool.DeclIndex) u8 {
 
 fn updateDeclCode(self: *MachO, decl_index: InternPool.DeclIndex, code: []u8) !u64 {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
 
     const required_alignment = decl.getAlignment(mod);
@@ -2967,7 +2967,7 @@ pub fn deleteDeclExport(
     const metadata = self.decls.getPtr(decl_index) orelse return;
 
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const exp_name = try std.fmt.allocPrint(gpa, "_{s}", .{mod.intern_pool.stringToSlice(name)});
     defer gpa.free(exp_name);
     const sym_index = metadata.getExportPtr(self, exp_name) orelse return;
@@ -3006,7 +3006,7 @@ fn freeUnnamedConsts(self: *MachO, decl_index: InternPool.DeclIndex) void {
 pub fn freeDecl(self: *MachO, decl_index: InternPool.DeclIndex) void {
     if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
 
     log.debug("freeDecl {*}", .{decl});
@@ -3049,7 +3049,7 @@ pub fn lowerAnonDecl(
     src_loc: Module.SrcLoc,
 ) !codegen.Result {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
     const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
     const decl_alignment = switch (explicit_alignment) {
         .none => ty.abiAlignment(mod),

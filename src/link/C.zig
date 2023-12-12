@@ -386,7 +386,7 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
     defer sub_prog_node.end();
 
     const gpa = self.base.comp.gpa;
-    const module = self.base.options.module.?;
+    const module = self.base.comp.module.?;
 
     {
         var i: usize = 0;
@@ -535,7 +535,7 @@ fn flushCTypes(
     decl_ctypes: codegen.CType.Store,
 ) FlushDeclError!void {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.options.module.?;
+    const mod = self.base.comp.module.?;
 
     const decl_ctypes_len = decl_ctypes.count();
     f.ctypes_map.clearRetainingCapacity();
@@ -623,7 +623,7 @@ fn flushErrDecls(self: *C, ctypes: *codegen.CType.Store) FlushDeclError!void {
     var object = codegen.Object{
         .dg = .{
             .gpa = gpa,
-            .module = self.base.options.module.?,
+            .module = self.base.comp.module.?,
             .error_msg = null,
             .pass = .flush,
             .is_naked_fn = false,
@@ -665,7 +665,7 @@ fn flushLazyFn(
     var object = codegen.Object{
         .dg = .{
             .gpa = gpa,
-            .module = self.base.options.module.?,
+            .module = self.base.comp.module.?,
             .error_msg = null,
             .pass = .flush,
             .is_naked_fn = false,
