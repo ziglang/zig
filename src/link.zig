@@ -1098,7 +1098,7 @@ pub const File = struct {
     }
 
     pub fn isStatic(self: File) bool {
-        return self.base.options.link_mode == .Static;
+        return self.base.comp.config.link_mode == .Static;
     }
 
     pub fn isObject(self: File) bool {

@@ -4750,7 +4750,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append("--allow-undefined");
         }
 
-        if (wasm.base.comp.config.output_mode == .Lib and wasm.base.options.link_mode == .Dynamic) {
+        if (wasm.base.comp.config.output_mode == .Lib and wasm.base.comp.config.link_mode == .Dynamic) {
             try argv.append("--shared");
         }
         if (wasm.base.options.pie) {
@@ -4770,7 +4770,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 
         if (target.os.tag == .wasi) {
             const is_exe_or_dyn_lib = wasm.base.comp.config.output_mode == .Exe or
-                (wasm.base.comp.config.output_mode == .Lib and wasm.base.options.link_mode == .Dynamic);
+                (wasm.base.comp.config.output_mode == .Lib and wasm.base.comp.config.link_mode == .Dynamic);
             if (is_exe_or_dyn_lib) {
                 for (wasm.wasi_emulated_libs) |crt_file| {
                     try argv.append(try comp.get_libc_crt_file(

@@ -46,7 +46,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     defer sub_prog_node.end();
 
     const is_lib = self.base.comp.config.output_mode == .Lib;
-    const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
+    const is_dyn_lib = self.base.comp.config.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.comp.config.output_mode == .Exe;
     const link_in_crt = self.base.options.link_libc and is_exe_or_dyn_lib;
     const target = self.base.options.target;
@@ -423,7 +423,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                             }
                         }
                     } else {
-                        const lib_str = switch (self.base.options.link_mode) {
+                        const lib_str = switch (self.base.comp.config.link_mode) {
                             .Dynamic => "",
                             .Static => "lib",
                         };
@@ -431,7 +431,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                             .Debug => "d",
                             else => "",
                         };
-                        switch (self.base.options.link_mode) {
+                        switch (self.base.comp.config.link_mode) {
                             .Static => try argv.append(try allocPrint(arena, "libcmt{s}.lib", .{d_str})),
                             .Dynamic => try argv.append(try allocPrint(arena, "msvcrt{s}.lib", .{d_str})),
                         }

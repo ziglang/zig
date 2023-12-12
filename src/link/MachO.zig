@@ -320,7 +320,7 @@ pub fn flush(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) li
     const gpa = self.base.comp.gpa;
     const output_mode = self.base.comp.config.output_mode;
 
-    if (output_mode == .Lib and self.base.options.link_mode == .Static) {
+    if (output_mode == .Lib and self.base.comp.config.link_mode == .Static) {
         if (build_options.have_llvm) {
             return self.base.linkAsArchive(comp, prog_node);
         } else {
@@ -608,7 +608,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                 .stacksize = self.base.stack_size,
             });
         },
-        .Lib => if (self.base.options.link_mode == .Dynamic) {
+        .Lib => if (self.base.comp.config.link_mode == .Dynamic) {
             try load_commands.writeDylibIdLC(gpa, &self.base.options, lc_writer);
         },
         else => {},
@@ -1910,7 +1910,7 @@ fn resolveSymbolsInDylibs(self: *MachO) !void {
 fn resolveSymbolsAtLoading(self: *MachO) !void {
     const output_mode = self.base.comp.config.output_mode;
     const is_lib = output_mode == .Lib;
-    const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
+    const is_dyn_lib = self.base.comp.config.link_mode == .Dynamic and is_lib;
     const allow_undef = is_dyn_lib and self.base.allow_shlib_undefined;
 
     var next_sym: usize = 0;
