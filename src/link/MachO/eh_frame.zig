@@ -35,7 +35,8 @@ pub fn calcSectionSize(macho_file: *MachO, unwind_info: *const UnwindInfo) error
     sect.@"align" = 3;
     sect.size = 0;
 
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     const gpa = macho_file.base.allocator;
     var size: u32 = 0;
 
@@ -86,7 +87,8 @@ pub fn write(macho_file: *MachO, unwind_info: *UnwindInfo) !void {
     const seg_id = macho_file.sections.items(.segment_index)[sect_id];
     const seg = macho_file.segments.items[seg_id];
 
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     const gpa = macho_file.base.allocator;
 
     var eh_records = std.AutoArrayHashMap(u32, EhFrameRecord(true)).init(gpa);
@@ -109,11 +111,11 @@ pub fn write(macho_file: *MachO, unwind_info: *UnwindInfo) !void {
 
         for (object.exec_atoms.items) |atom_index| {
             var inner_syms_it = Atom.getInnerSymbolsIterator(macho_file, atom_index);
-            while (inner_syms_it.next()) |target| {
-                const fde_record_offset = object.eh_frame_records_lookup.get(target) orelse continue;
+            while (inner_syms_it.next()) |reloc_target| {
+                const fde_record_offset = object.eh_frame_records_lookup.get(reloc_target) orelse continue;
                 if (object.eh_frame_relocs_lookup.get(fde_record_offset).?.dead) continue;
 
-                const record_id = unwind_info.records_lookup.get(target) orelse continue;
+                const record_id = unwind_info.records_lookup.get(reloc_target) orelse continue;
                 const record = &unwind_info.records.items[record_id];
 
                 // TODO skip this check if no __compact_unwind is present
@@ -153,7 +155,7 @@ pub fn write(macho_file: *MachO, unwind_info: *UnwindInfo) !void {
                     .aarch64 => {}, // relocs take care of LSDA pointers
                     .x86_64 => {
                         // We need to relocate target symbol address ourselves.
-                        const atom_sym = macho_file.getSymbol(target);
+                        const atom_sym = macho_file.getSymbol(reloc_target);
                         try fde_record.setTargetSymbolAddress(atom_sym.n_value, .{
                             .base_addr = sect.addr,
                             .base_offset = eh_frame_offset,
@@ -278,7 +280,8 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
             object_id: u32,
             source_offset: u32,
         ) ?SymbolWithLoc {
-            const cpu_arch = macho_file.base.options.target.cpu.arch;
+            const target = macho_file.base.comp.root_mod.resolved_target.result;
+            const cpu_arch = target.cpu.arch;
             const relocs = getRelocs(macho_file, object_id, source_offset);
             for (relocs) |rel| {
                 switch (cpu_arch) {
@@ -301,13 +304,13 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
                     },
                     else => unreachable,
                 }
-                const target = Atom.parseRelocTarget(macho_file, .{
+                const reloc_target = Atom.parseRelocTarget(macho_file, .{
                     .object_id = object_id,
                     .rel = rel,
                     .code = rec.data,
                     .base_offset = @as(i32, @intCast(source_offset)) + 4,
                 });
-                return target;
+                return reloc_target;
             }
             return null;
         }
@@ -319,11 +322,12 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
         }) !void {
             comptime assert(is_mutable);
 
-            const cpu_arch = macho_file.base.options.target.cpu.arch;
+            const target = macho_file.base.comp.root_mod.resolved_target.result;
+            const cpu_arch = target.cpu.arch;
             const relocs = getRelocs(macho_file, object_id, ctx.source_offset);
 
             for (relocs) |rel| {
-                const target = Atom.parseRelocTarget(macho_file, .{
+                const reloc_target = Atom.parseRelocTarget(macho_file, .{
                     .object_id = object_id,
                     .rel = rel,
                     .code = rec.data,
@@ -340,14 +344,14 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
                                 // Address of the __eh_frame in the source object file
                             },
                             .ARM64_RELOC_POINTER_TO_GOT => {
-                                const target_addr = macho_file.getGotEntryAddress(target).?;
+                                const target_addr = macho_file.getGotEntryAddress(reloc_target).?;
                                 const result = math.cast(i32, @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr))) orelse
                                     return error.Overflow;
                                 mem.writeInt(i32, rec.data[rel_offset..][0..4], result, .little);
                             },
                             .ARM64_RELOC_UNSIGNED => {
                                 assert(rel.r_extern == 1);
-                                const target_addr = Atom.getRelocTargetAddress(macho_file, target, false);
+                                const target_addr = Atom.getRelocTargetAddress(macho_file, reloc_target, false);
                                 const result = @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr));
                                 mem.writeInt(i64, rec.data[rel_offset..][0..8], @as(i64, @intCast(result)), .little);
                             },
@@ -358,7 +362,7 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
                         const rel_type = @as(macho.reloc_type_x86_64, @enumFromInt(rel.r_type));
                         switch (rel_type) {
                             .X86_64_RELOC_GOT => {
-                                const target_addr = macho_file.getGotEntryAddress(target).?;
+                                const target_addr = macho_file.getGotEntryAddress(reloc_target).?;
                                 const addend = mem.readInt(i32, rec.data[rel_offset..][0..4], .little);
                                 const adjusted_target_addr = @as(u64, @intCast(@as(i64, @intCast(target_addr)) + addend));
                                 const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
@@ -374,7 +378,8 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
 
         pub fn getCiePointerSource(rec: Record, object_id: u32, macho_file: *MachO, offset: u32) u32 {
             assert(rec.tag == .fde);
-            const cpu_arch = macho_file.base.options.target.cpu.arch;
+            const target = macho_file.base.comp.root_mod.resolved_target.result;
+            const cpu_arch = target.cpu.arch;
             const addend = mem.readInt(u32, rec.data[0..4], .little);
             switch (cpu_arch) {
                 .aarch64 => {

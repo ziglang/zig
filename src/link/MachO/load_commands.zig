@@ -472,11 +472,11 @@ pub fn inferSdkVersion(gpa: Allocator, comp: *const Compilation) ?std.SemanticVe
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const options = comp.bin_file.options;
+    const macho_file = comp.bin_file.cast(MachO).?;
 
-    const sdk_layout = options.darwin_sdk_layout orelse return null;
+    const sdk_layout = macho_file.sdk_layout orelse return null;
     const sdk_dir = switch (sdk_layout) {
-        .sdk => options.sysroot.?,
+        .sdk => macho_file.sysroot.?,
         .vendored => std.fs.path.join(arena, &.{ comp.zig_lib_directory.path.?, "libc", "darwin" }) catch return null,
     };
     if (readSdkVersionFromSettings(arena, sdk_dir)) |ver| {

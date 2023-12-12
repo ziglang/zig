@@ -54,7 +54,8 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
 
     self.header = try reader.readStruct(elf.Elf64_Ehdr);
 
-    if (elf_file.base.options.target.cpu.arch != self.header.?.e_machine.toTargetCpuArch().?) {
+    const target = elf_file.base.comp.root_mod.resolved_target.result;
+    if (target.cpu.arch != self.header.?.e_machine.toTargetCpuArch().?) {
         try elf_file.reportParseError2(
             self.index,
             "invalid cpu architecture: {s}",

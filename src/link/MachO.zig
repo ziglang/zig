@@ -143,7 +143,7 @@ tlv_table: TlvSymbolTable = .{},
 /// Hot-code swapping state.
 hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
 
-darwin_sdk_layout: ?SdkLayout,
+sdk_layout: ?SdkLayout,
 /// Size of the __PAGEZERO segment.
 pagezero_vmsize: u64,
 /// Minimum space for future expansion of the load commands.
@@ -184,20 +184,21 @@ pub const SdkLayout = enum {
 
 pub fn open(arena: Allocator, options: link.File.OpenOptions) !*MachO {
     if (build_options.only_c) unreachable;
-    const target = options.comp.root_mod.resolved_target.result;
-    const use_lld = build_options.have_llvm and options.comp.config.use_lld;
-    const use_llvm = options.comp.config.use_llvm;
+    const comp = options.comp;
+    const target = comp.root_mod.resolved_target.result;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
     assert(target.ofmt == .macho);
 
-    const gpa = options.comp.gpa;
+    const gpa = comp.gpa;
     const emit = options.emit;
     const mode: Mode = mode: {
-        if (use_llvm or options.module == null or options.cache_mode == .whole)
+        if (use_llvm or comp.module == null or comp.cache_mode == .whole)
             break :mode .zld;
         break :mode .incremental;
     };
     const sub_path = if (mode == .zld) blk: {
-        if (options.module == null) {
+        if (comp.module == null) {
             // No point in opening a file, we would not write anything to it.
             // Initialize with empty.
             return createEmpty(arena, options);
@@ -225,13 +226,13 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*MachO {
         .read = true,
         .mode = link.File.determineMode(
             use_lld,
-            options.comp.config.output_mode,
-            options.comp.config.link_mode,
+            comp.config.output_mode,
+            comp.config.link_mode,
         ),
     });
     self.base.file = file;
 
-    if (!options.strip and options.module != null) {
+    if (self.base.debug_format != .strip and comp.module != null) {
         // Create dSYM bundle.
         log.debug("creating {s}.dSYM bundle", .{sub_path});
 
@@ -276,14 +277,15 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*MachO {
 }
 
 pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*MachO {
-    const self = try arena.create(MachO);
-    const optimize_mode = options.comp.root_mod.optimize_mode;
-    const use_llvm = options.comp.config.use_llvm;
+    const comp = options.comp;
+    const optimize_mode = comp.root_mod.optimize_mode;
+    const use_llvm = comp.config.use_llvm;
 
+    const self = try arena.create(MachO);
     self.* = .{
         .base = .{
             .tag = .macho,
-            .comp = options.comp,
+            .comp = comp,
             .emit = options.emit,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
             .stack_size = options.stack_size orelse 16777216,
@@ -297,7 +299,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*MachO {
             .function_sections = options.function_sections,
             .data_sections = options.data_sections,
         },
-        .mode = if (use_llvm or options.module == null or options.cache_mode == .whole)
+        .mode = if (use_llvm or comp.module == null or comp.cache_mode == .whole)
             .zld
         else
             .incremental,
@@ -305,9 +307,13 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*MachO {
         .headerpad_size = options.headerpad_size orelse default_headerpad_size,
         .headerpad_max_install_names = options.headerpad_max_install_names,
         .dead_strip_dylibs = options.dead_strip_dylibs,
+        .sdk_layout = options.darwin_sdk_layout,
+        .frameworks = options.frameworks,
+        .install_name = options.install_name,
+        .entitlements = options.entitlements,
     };
 
-    if (use_llvm and options.module != null) {
+    if (use_llvm and comp.module != null) {
         self.llvm_object = try LlvmObject.create(arena, options);
     }
 
@@ -357,6 +363,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     const output_mode = self.base.comp.config.output_mode;
     const module = self.base.comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    const target = self.base.comp.root_mod.resolved_target.result;
 
     if (self.lazy_syms.getPtr(.none)) |metadata| {
         // Most lazy symbols can be updated on first use, but
@@ -569,7 +576,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         // written out to the file.
         // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
         // where the code signature goes into.
-        var codesig = CodeSignature.init(getPageSize(self.base.options.target.cpu.arch));
+        var codesig = CodeSignature.init(getPageSize(target.cpu.arch));
         codesig.code_directory.ident = self.base.emit.sub_path;
         if (self.entitlements) |path| {
             try codesig.addEntitlements(gpa, path);
@@ -619,7 +626,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         .version = 0,
     });
     {
-        const platform = Platform.fromTarget(self.base.options.target);
+        const platform = Platform.fromTarget(target);
         const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(arena, comp);
         if (platform.isBuildVersionCompatible()) {
             try load_commands.writeBuildVersionLC(platform, sdk_version, lc_writer);
@@ -701,7 +708,7 @@ pub fn resolveLibSystem(
     var checked_paths = std.ArrayList([]const u8).init(arena);
 
     success: {
-        if (self.base.options.darwin_sdk_layout) |sdk_layout| switch (sdk_layout) {
+        if (self.sdk_layout) |sdk_layout| switch (sdk_layout) {
             .sdk => {
                 const dir = try fs.path.join(arena, &[_][]const u8{ self.base.options.sysroot.?, "usr", "lib" });
                 if (try accessLibPath(arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
@@ -817,6 +824,7 @@ fn parseObject(
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
+    const target = self.base.comp.root_mod.resolved_target.result;
     const mtime: u64 = mtime: {
         const stat = file.stat() catch break :mtime 0;
         break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
@@ -839,8 +847,8 @@ fn parseObject(
         else => unreachable,
     };
     const detected_platform = object.getPlatform();
-    const this_cpu_arch = self.base.options.target.cpu.arch;
-    const this_platform = Platform.fromTarget(self.base.options.target);
+    const this_cpu_arch = target.cpu.arch;
+    const this_platform = Platform.fromTarget(target);
 
     if (this_cpu_arch != detected_cpu_arch or
         (detected_platform != null and !detected_platform.?.eqlTarget(this_platform)))
@@ -867,8 +875,10 @@ pub fn parseLibrary(
     const tracy = trace(@src());
     defer tracy.end();
 
+    const target = self.base.comp.root_mod.resolved_target.result;
+
     if (fat.isFatLibrary(file)) {
-        const offset = try self.parseFatLibrary(file, self.base.options.target.cpu.arch, ctx);
+        const offset = try self.parseFatLibrary(file, target.cpu.arch, ctx);
         try file.seekTo(offset);
 
         if (Archive.isArchive(file, offset)) {
@@ -934,6 +944,7 @@ fn parseArchive(
     ctx: *ParseErrorCtx,
 ) ParseError!void {
     const gpa = self.base.comp.gpa;
+    const target = self.base.comp.root_mod.resolved_target.result;
 
     // We take ownership of the file so that we can store it for the duration of symbol resolution.
     // TODO we shouldn't need to do that and could pre-parse the archive like we do for zld/ELF?
@@ -963,8 +974,8 @@ fn parseArchive(
             else => unreachable,
         };
         const detected_platform = object.getPlatform();
-        const this_cpu_arch = self.base.options.target.cpu.arch;
-        const this_platform = Platform.fromTarget(self.base.options.target);
+        const this_cpu_arch = target.cpu.arch;
+        const this_platform = Platform.fromTarget(target);
 
         if (this_cpu_arch != detected_cpu_arch or
             (detected_platform != null and !detected_platform.?.eqlTarget(this_platform)))
@@ -1015,6 +1026,7 @@ fn parseDylib(
     ctx: *ParseErrorCtx,
 ) ParseError!void {
     const gpa = self.base.comp.gpa;
+    const target = self.base.comp.root_mod.resolved_target.result;
     const file_stat = try file.stat();
     const file_size = math.cast(usize, file_stat.size - offset) orelse return error.Overflow;
 
@@ -1038,8 +1050,8 @@ fn parseDylib(
         else => unreachable,
     };
     const detected_platform = dylib.getPlatform(contents);
-    const this_cpu_arch = self.base.options.target.cpu.arch;
-    const this_platform = Platform.fromTarget(self.base.options.target);
+    const this_cpu_arch = target.cpu.arch;
+    const this_platform = Platform.fromTarget(target);
 
     if (this_cpu_arch != detected_cpu_arch or
         (detected_platform != null and !detected_platform.?.eqlTarget(this_platform)))
@@ -1061,6 +1073,8 @@ fn parseLibStub(
     ctx: *ParseErrorCtx,
 ) ParseError!void {
     const gpa = self.base.comp.gpa;
+    const target = self.base.comp.root_mod.resolved_target.result;
+
     var lib_stub = try LibStub.loadFromFile(gpa, file);
     defer lib_stub.deinit();
 
@@ -1068,7 +1082,7 @@ fn parseLibStub(
 
     // Verify target
     {
-        var matcher = try Dylib.TargetMatcher.init(gpa, self.base.options.target);
+        var matcher = try Dylib.TargetMatcher.init(gpa, target);
         defer matcher.deinit();
 
         const first_tbd = lib_stub.inner[0];
@@ -1091,7 +1105,7 @@ fn parseLibStub(
 
     try dylib.parseFromStub(
         gpa,
-        self.base.options.target,
+        target,
         lib_stub,
         @intCast(self.dylibs.items.len), // TODO defer it till later
         dependent_libs,
@@ -1236,7 +1250,8 @@ pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
 
 fn writeToMemory(self: *MachO, task: std.os.darwin.MachTask, segment_index: u8, addr: u64, code: []const u8) !void {
     const segment = self.segments.items[segment_index];
-    const cpu_arch = self.base.options.target.cpu.arch;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     const nwritten = if (!segment.isWriteable())
         try task.writeMemProtected(addr, code, cpu_arch)
     else
@@ -1280,7 +1295,8 @@ fn writeStubHelperPreamble(self: *MachO) !void {
     if (self.stub_helper_preamble_allocated) return;
 
     const gpa = self.base.comp.gpa;
-    const cpu_arch = self.base.options.target.cpu.arch;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     const size = stubs.stubHelperPreambleSize(cpu_arch);
 
     var buf = try std.ArrayList(u8).initCapacity(gpa, size);
@@ -1306,11 +1322,12 @@ fn writeStubHelperPreamble(self: *MachO) !void {
 }
 
 fn writeStubTableEntry(self: *MachO, index: usize) !void {
+    const target = self.base.comp.root_mod.resolved_target.result;
     const stubs_sect_id = self.stubs_section_index.?;
     const stub_helper_sect_id = self.stub_helper_section_index.?;
     const laptr_sect_id = self.la_symbol_ptr_section_index.?;
 
-    const cpu_arch = self.base.options.target.cpu.arch;
+    const cpu_arch = target.cpu.arch;
     const stub_entry_size = stubs.stubSize(cpu_arch);
     const stub_helper_entry_size = stubs.stubHelperSize(cpu_arch);
     const stub_helper_preamble_size = stubs.stubHelperPreambleSize(cpu_arch);
@@ -2243,7 +2260,7 @@ pub fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
             .flags = macho.S_SYMBOL_STUBS |
                 macho.S_ATTR_PURE_INSTRUCTIONS |
                 macho.S_ATTR_SOME_INSTRUCTIONS,
-            .reserved2 = stubs.stubSize(self.base.options.target.cpu.arch),
+            .reserved2 = stubs.stubSize(target.cpu.arch),
         });
         self.stub_helper_section_index = try self.initSection("__TEXT", "__stub_helper", .{
             .flags = macho.S_REGULAR |
@@ -3116,7 +3133,8 @@ fn populateMissingMetadata(self: *MachO) !void {
     assert(self.mode == .incremental);
 
     const gpa = self.base.comp.gpa;
-    const cpu_arch = self.base.options.target.cpu.arch;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     const pagezero_vmsize = self.calcPagezeroSize();
 
     if (self.pagezero_segment_cmd_index == null) {
@@ -3263,7 +3281,8 @@ fn populateMissingMetadata(self: *MachO) !void {
 
 fn calcPagezeroSize(self: *MachO) u64 {
     const output_mode = self.base.comp.config.output_mode;
-    const page_size = getPageSize(self.base.options.target.cpu.arch);
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const page_size = getPageSize(target.cpu.arch);
     const aligned_pagezero_vmsize = mem.alignBackward(u64, self.pagezero_vmsize, page_size);
     if (output_mode == .Lib) return 0;
     if (aligned_pagezero_vmsize == 0) return 0;
@@ -3305,7 +3324,8 @@ fn allocateSection(self: *MachO, segname: []const u8, sectname: []const u8, opts
     reserved2: u32 = 0,
 }) !u8 {
     const gpa = self.base.comp.gpa;
-    const page_size = getPageSize(self.base.options.target.cpu.arch);
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const page_size = getPageSize(target.cpu.arch);
     // In incremental context, we create one section per segment pairing. This way,
     // we can move the segment in raw file as we please.
     const segment_id = @as(u8, @intCast(self.segments.items.len));
@@ -3360,7 +3380,8 @@ fn growSection(self: *MachO, sect_id: u8, needed_size: u64) !void {
     const segment = &self.segments.items[segment_index];
     const maybe_last_atom_index = self.sections.items(.last_atom_index)[sect_id];
     const sect_capacity = self.allocatedSize(header.offset);
-    const page_size = getPageSize(self.base.options.target.cpu.arch);
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const page_size = getPageSize(target.cpu.arch);
 
     if (needed_size > sect_capacity) {
         const new_offset = self.findFreeSpace(needed_size, page_size);
@@ -3400,7 +3421,8 @@ fn growSection(self: *MachO, sect_id: u8, needed_size: u64) !void {
 }
 
 fn growSectionVirtualMemory(self: *MachO, sect_id: u8, needed_size: u64) !void {
-    const page_size = getPageSize(self.base.options.target.cpu.arch);
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const page_size = getPageSize(target.cpu.arch);
     const header = &self.sections.items(.header)[sect_id];
     const segment = self.getSegmentPtr(sect_id);
     const increased_size = padToIdeal(needed_size);
@@ -3611,7 +3633,8 @@ pub fn writeSegmentHeaders(self: *MachO, writer: anytype) !void {
 }
 
 pub fn writeLinkeditSegmentData(self: *MachO) !void {
-    const page_size = getPageSize(self.base.options.target.cpu.arch);
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const page_size = getPageSize(target.cpu.arch);
     const seg = self.getLinkeditSegmentPtr();
     seg.filesize = 0;
     seg.vmsize = 0;
@@ -3698,7 +3721,8 @@ fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
     }
 
     // Finally, unpack the rest.
-    const cpu_arch = self.base.options.target.cpu.arch;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     for (self.objects.items) |*object| {
         for (object.atoms.items) |atom_index| {
             const atom = self.getAtom(atom_index);
@@ -3744,14 +3768,14 @@ fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
                     },
                     else => unreachable,
                 }
-                const target = Atom.parseRelocTarget(self, .{
+                const reloc_target = Atom.parseRelocTarget(self, .{
                     .object_id = atom.getFile().?,
                     .rel = rel,
                     .code = code,
                     .base_offset = ctx.base_offset,
                     .base_addr = ctx.base_addr,
                 });
-                const target_sym = self.getSymbol(target);
+                const target_sym = self.getSymbol(reloc_target);
                 if (target_sym.undf()) continue;
 
                 const base_offset = @as(i32, @intCast(sym.n_value - segment.vmaddr));
@@ -3853,7 +3877,8 @@ fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
     }
 
     // Finally, unpack the rest.
-    const cpu_arch = self.base.options.target.cpu.arch;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     for (self.objects.items) |*object| {
         for (object.atoms.items) |atom_index| {
             const atom = self.getAtom(atom_index);
@@ -4072,7 +4097,8 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, lazy_bind: anytype) !void {
 
     const header = self.sections.items(.header)[stub_helper_section_index];
 
-    const cpu_arch = self.base.options.target.cpu.arch;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     const preamble_size = stubs.stubHelperPreambleSize(cpu_arch);
     const stub_size = stubs.stubHelperSize(cpu_arch);
     const stub_offset = stubs.stubOffsetInStubHelper(cpu_arch);
@@ -4708,13 +4734,14 @@ pub fn writeUuid(self: *MachO, comp: *const Compilation, uuid_cmd_offset: u32, h
 }
 
 pub fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {
+    const target = self.base.comp.root_mod.resolved_target.result;
     const seg = self.getLinkeditSegmentPtr();
     // Code signature data has to be 16-bytes aligned for Apple tools to recognize the file
     // https://github.com/opensource-apple/cctools/blob/fdb4825f303fd5c0751be524babd32958181b3ed/libstuff/checkout.c#L271
     const offset = mem.alignForward(u64, seg.fileoff + seg.filesize, 16);
     const needed_size = code_sig.estimateSize(offset);
     seg.filesize = offset + needed_size - seg.fileoff;
-    seg.vmsize = mem.alignForward(u64, seg.filesize, getPageSize(self.base.options.target.cpu.arch));
+    seg.vmsize = mem.alignForward(u64, seg.filesize, getPageSize(target.cpu.arch));
     log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
     // Pad out the space. We need to do this to calculate valid hashes for everything in the file
     // except for code signature data.
@@ -4758,7 +4785,8 @@ pub fn writeHeader(self: *MachO, ncmds: u32, sizeofcmds: u32) !void {
     var header: macho.mach_header_64 = .{};
     header.flags = macho.MH_NOUNDEFS | macho.MH_DYLDLINK | macho.MH_PIE | macho.MH_TWOLEVEL;
 
-    switch (self.base.options.target.cpu.arch) {
+    const target = self.base.comp.root_mod.resolved_target.result;
+    switch (target.cpu.arch) {
         .aarch64 => {
             header.cputype = macho.CPU_TYPE_ARM64;
             header.cpusubtype = macho.CPU_SUBTYPE_ARM_ALL;
@@ -5123,9 +5151,10 @@ pub fn getTlvPtrEntryAddress(self: *MachO, sym_with_loc: SymbolWithLoc) ?u64 {
 }
 
 pub fn getStubsEntryAddress(self: *MachO, sym_with_loc: SymbolWithLoc) ?u64 {
+    const target = self.base.comp.root_mod.resolved_target.result;
     const index = self.stub_table.lookup.get(sym_with_loc) orelse return null;
     const header = self.sections.items(.header)[self.stubs_section_index.?];
-    return header.addr + stubs.stubSize(self.base.options.target.cpu.arch) * index;
+    return header.addr + stubs.stubSize(target.cpu.arch) * index;
 }
 
 /// Returns symbol location corresponding to the set entrypoint if any.
@@ -5234,8 +5263,9 @@ pub fn handleAndReportParseError(
     err: ParseError,
     ctx: *const ParseErrorCtx,
 ) error{OutOfMemory}!void {
+    const target = self.base.comp.root_mod.resolved_target.result;
     const gpa = self.base.comp.gpa;
-    const cpu_arch = self.base.options.target.cpu.arch;
+    const cpu_arch = target.cpu.arch;
     switch (err) {
         error.DylibAlreadyExists => {},
         error.IncompatibleDylibVersion => {
@@ -5270,7 +5300,7 @@ pub fn handleAndReportParseError(
                 error.InvalidTarget => try self.reportParseError(
                     path,
                     "invalid target: expected '{}', but found '{s}'",
-                    .{ Platform.fromTarget(self.base.options.target).fmtTarget(cpu_arch), targets_string.items },
+                    .{ Platform.fromTarget(target).fmtTarget(cpu_arch), targets_string.items },
                 ),
                 error.InvalidTargetFatLibrary => try self.reportParseError(
                     path,

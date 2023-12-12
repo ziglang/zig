@@ -206,7 +206,8 @@ pub const Atom = struct {
 
     // asserts that self.got_index != null
     pub fn getOffsetTableAddress(self: Atom, plan9: *Plan9) u64 {
-        const ptr_bytes = @divExact(plan9.base.options.target.ptrBitWidth(), 8);
+        const target = plan9.base.comp.root_mod.resolved_target.result;
+        const ptr_bytes = @divExact(target.ptrBitWidth(), 8);
         const got_addr = plan9.bases.data;
         const got_index = self.got_index.?;
         return got_addr + got_index * ptr_bytes;
@@ -293,9 +294,11 @@ pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
     };
 }
 
-pub fn createEmpty(gpa: Allocator, options: link.Options) !*Plan9 {
-    if (options.use_llvm)
-        return error.LLVMBackendDoesNotSupportPlan9;
+pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Plan9 {
+    _ = arena;
+    const target = options.comp.root_mod.resolved_target.result;
+    const gpa = options.comp.gpa;
+
     const sixtyfour_bit: bool = switch (options.target.ptrBitWidth()) {
         0...32 => false,
         33...64 => true,
@@ -315,7 +318,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Plan9 {
         },
         .sixtyfour_bit = sixtyfour_bit,
         .bases = undefined,
-        .magic = try aout.magicFromArch(self.base.options.target.cpu.arch),
+        .magic = try aout.magicFromArch(target.cpu.arch),
     };
     // a / will always be in a file path
     try self.file_segments.put(gpa, "/", 1);
@@ -399,6 +402,7 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
     }
 
     const gpa = self.base.comp.gpa;
+    const target = self.base.comp.root_mod.resolved_target.result;
     const func = mod.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
@@ -414,7 +418,7 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
         .end_line = undefined,
         .pcop_change_index = null,
         // we have already checked the target in the linker to make sure it is compatable
-        .pc_quanta = aout.getPCQuant(self.base.options.target.cpu.arch) catch unreachable,
+        .pc_quanta = aout.getPCQuant(target.cpu.arch) catch unreachable,
     };
     defer dbg_info_output.dbg_line.deinit();
 
@@ -658,6 +662,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
     }
 
     const gpa = comp.gpa;
+    const target = comp.root_mod.resolved_target.result;
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -749,9 +754,9 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 atom.offset = off;
                 log.debug("write text decl {*} ({}), lines {d} to {d}.;__GOT+0x{x} vaddr: 0x{x}", .{ decl, decl.name.fmt(&mod.intern_pool), out.start_line + 1, out.end_line, atom.got_index.? * 8, off });
                 if (!self.sixtyfour_bit) {
-                    mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), self.base.options.target.cpu.arch.endian());
+                    mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), target.cpu.arch.endian());
                 } else {
-                    mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                    mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, target.cpu.arch.endian());
                 }
                 self.syms.items[atom.sym_index.?].value = off;
                 if (mod.decl_exports.get(decl_index)) |exports| {
@@ -778,9 +783,9 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             text_i += code.len;
             text_atom.offset = off;
             if (!self.sixtyfour_bit) {
-                mem.writeInt(u32, got_table[text_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u32, got_table[text_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), target.cpu.arch.endian());
             } else {
-                mem.writeInt(u64, got_table[text_atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u64, got_table[text_atom.got_index.? * 8 ..][0..8], off, target.cpu.arch.endian());
             }
             self.syms.items[text_atom.sym_index.?].value = off;
         }
@@ -791,9 +796,9 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
         const val = self.getAddr(text_i, .t);
         self.syms.items[etext_atom.sym_index.?].value = val;
         if (!self.sixtyfour_bit) {
-            mem.writeInt(u32, got_table[etext_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(val)), self.base.options.target.cpu.arch.endian());
+            mem.writeInt(u32, got_table[etext_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(val)), target.cpu.arch.endian());
         } else {
-            mem.writeInt(u64, got_table[etext_atom.got_index.? * 8 ..][0..8], val, self.base.options.target.cpu.arch.endian());
+            mem.writeInt(u64, got_table[etext_atom.got_index.? * 8 ..][0..8], val, target.cpu.arch.endian());
         }
     }
     // global offset table is in data
@@ -815,9 +820,9 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             data_i += code.len;
             atom.offset = off;
             if (!self.sixtyfour_bit) {
-                mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), target.cpu.arch.endian());
             } else {
-                mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, target.cpu.arch.endian());
             }
             self.syms.items[atom.sym_index.?].value = off;
             if (mod.decl_exports.get(decl_index)) |exports| {
@@ -838,9 +843,9 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 data_i += code.len;
                 atom.offset = off;
                 if (!self.sixtyfour_bit) {
-                    mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), self.base.options.target.cpu.arch.endian());
+                    mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), target.cpu.arch.endian());
                 } else {
-                    mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                    mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, target.cpu.arch.endian());
                 }
                 self.syms.items[atom.sym_index.?].value = off;
             }
@@ -859,9 +864,9 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 data_i += code.len;
                 atom.offset = off;
                 if (!self.sixtyfour_bit) {
-                    mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), self.base.options.target.cpu.arch.endian());
+                    mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), target.cpu.arch.endian());
                 } else {
-                    mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                    mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, target.cpu.arch.endian());
                 }
                 self.syms.items[atom.sym_index.?].value = off;
             }
@@ -879,9 +884,9 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             data_i += code.len;
             data_atom.offset = off;
             if (!self.sixtyfour_bit) {
-                mem.writeInt(u32, got_table[data_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u32, got_table[data_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(off)), target.cpu.arch.endian());
             } else {
-                mem.writeInt(u64, got_table[data_atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u64, got_table[data_atom.got_index.? * 8 ..][0..8], off, target.cpu.arch.endian());
             }
             self.syms.items[data_atom.sym_index.?].value = off;
         }
@@ -891,9 +896,9 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             const val = self.getAddr(data_i, .b);
             self.syms.items[edata_atom.sym_index.?].value = val;
             if (!self.sixtyfour_bit) {
-                mem.writeInt(u32, got_table[edata_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(val)), self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u32, got_table[edata_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(val)), target.cpu.arch.endian());
             } else {
-                mem.writeInt(u64, got_table[edata_atom.got_index.? * 8 ..][0..8], val, self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u64, got_table[edata_atom.got_index.? * 8 ..][0..8], val, target.cpu.arch.endian());
             }
         }
         // end symbol (same as edata because native backends don't do .bss yet)
@@ -902,10 +907,10 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             const val = self.getAddr(data_i, .b);
             self.syms.items[end_atom.sym_index.?].value = val;
             if (!self.sixtyfour_bit) {
-                mem.writeInt(u32, got_table[end_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(val)), self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u32, got_table[end_atom.got_index.? * 4 ..][0..4], @as(u32, @intCast(val)), target.cpu.arch.endian());
             } else {
                 log.debug("write end (got_table[0x{x}] = 0x{x})", .{ end_atom.got_index.? * 8, val });
-                mem.writeInt(u64, got_table[end_atom.got_index.? * 8 ..][0..8], val, self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u64, got_table[end_atom.got_index.? * 8 ..][0..8], val, target.cpu.arch.endian());
             }
         }
     }
@@ -942,7 +947,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             const source_atom = self.getAtom(source_atom_index);
             const source_atom_symbol = self.syms.items[source_atom.sym_index.?];
             const code = source_atom.code.getCode(self);
-            const endian = self.base.options.target.cpu.arch.endian();
+            const endian = target.cpu.arch.endian();
             for (kv.value_ptr.items) |reloc| {
                 const offset = reloc.offset;
                 const addend = reloc.addend;

@@ -355,6 +355,7 @@ pub fn splitIntoAtoms(self: *Object, macho_file: *MachO, object_id: u32) SplitIn
 /// into subsections where each subsection then represents an Atom.
 pub fn splitRegularSections(self: *Object, macho_file: *MachO, object_id: u32) !void {
     const gpa = macho_file.base.allocator;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
 
     const sections = self.getSourceSections();
     for (sections, 0..) |sect, id| {
@@ -448,7 +449,7 @@ pub fn splitRegularSections(self: *Object, macho_file: *MachO, object_id: u32) !
 
         try self.parseRelocs(gpa, section.id);
 
-        const cpu_arch = macho_file.base.options.target.cpu.arch;
+        const cpu_arch = target.cpu.arch;
         const sect_loc = filterSymbolsBySection(symtab[sect_sym_index..], sect_id + 1);
         const sect_start_index = sect_sym_index + sect_loc.index;
 
@@ -676,7 +677,8 @@ fn parseEhFrameSection(self: *Object, macho_file: *MachO, object_id: u32) !void 
         macho_file.eh_frame_section_index = try macho_file.initSection("__TEXT", "__eh_frame", .{});
     }
 
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     try self.parseRelocs(gpa, sect_id);
     const relocs = self.getRelocs(sect_id);
 
@@ -704,7 +706,7 @@ fn parseEhFrameSection(self: *Object, macho_file: *MachO, object_id: u32) !void 
         });
 
         if (record.tag == .fde) {
-            const target = blk: {
+            const reloc_target = blk: {
                 switch (cpu_arch) {
                     .aarch64 => {
                         assert(rel_pos.len > 0); // TODO convert to an error as the FDE eh frame is malformed
@@ -714,13 +716,13 @@ fn parseEhFrameSection(self: *Object, macho_file: *MachO, object_id: u32) !void 
                                 @as(macho.reloc_type_arm64, @enumFromInt(rel.r_type)) == .ARM64_RELOC_UNSIGNED)
                                 break rel;
                         } else unreachable;
-                        const target = Atom.parseRelocTarget(macho_file, .{
+                        const reloc_target = Atom.parseRelocTarget(macho_file, .{
                             .object_id = object_id,
                             .rel = rel,
                             .code = it.data[offset..],
                             .base_offset = @as(i32, @intCast(offset)),
                         });
-                        break :blk target;
+                        break :blk reloc_target;
                     },
                     .x86_64 => {
                         const target_address = record.getTargetSymbolAddress(.{
@@ -728,16 +730,16 @@ fn parseEhFrameSection(self: *Object, macho_file: *MachO, object_id: u32) !void 
                             .base_offset = offset,
                         });
                         const target_sym_index = self.getSymbolByAddress(target_address, null);
-                        const target = if (self.getGlobal(target_sym_index)) |global_index|
+                        const reloc_target = if (self.getGlobal(target_sym_index)) |global_index|
                             macho_file.globals.items[global_index]
                         else
                             SymbolWithLoc{ .sym_index = target_sym_index, .file = object_id + 1 };
-                        break :blk target;
+                        break :blk reloc_target;
                     },
                     else => unreachable,
                 }
             };
-            if (target.getFile() != object_id) {
+            if (reloc_target.getFile() != object_id) {
                 log.debug("FDE at offset {x} marked DEAD", .{offset});
                 self.eh_frame_relocs_lookup.getPtr(offset).?.dead = true;
             } else {
@@ -746,12 +748,12 @@ fn parseEhFrameSection(self: *Object, macho_file: *MachO, object_id: u32) !void 
                 // very problematic when using Zig's @export feature to re-export symbols under
                 // additional names. For that reason, we need to ensure we record aliases here
                 // too so that we can tie them with their matching unwind records and vice versa.
-                const aliases = self.getSymbolAliases(target.sym_index);
+                const aliases = self.getSymbolAliases(reloc_target.sym_index);
                 var i: u32 = 0;
                 while (i < aliases.len) : (i += 1) {
                     const actual_target = SymbolWithLoc{
                         .sym_index = i + aliases.start,
-                        .file = target.file,
+                        .file = reloc_target.file,
                     };
                     log.debug("FDE at offset {x} tracks {s}", .{
                         offset,
@@ -766,7 +768,8 @@ fn parseEhFrameSection(self: *Object, macho_file: *MachO, object_id: u32) !void 
 
 fn parseUnwindInfo(self: *Object, macho_file: *MachO, object_id: u32) !void {
     const gpa = macho_file.base.allocator;
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     const sect_id = self.unwind_info_sect_id orelse {
         // If it so happens that the object had `__eh_frame` section defined but no `__compact_unwind`,
         // we will try fully synthesising unwind info records to somewhat match Apple ld's
@@ -818,13 +821,13 @@ fn parseUnwindInfo(self: *Object, macho_file: *MachO, object_id: u32) !void {
 
         // Find function symbol that this record describes
         const rel = relocs[rel_pos.start..][rel_pos.len - 1];
-        const target = Atom.parseRelocTarget(macho_file, .{
+        const reloc_target = Atom.parseRelocTarget(macho_file, .{
             .object_id = object_id,
             .rel = rel,
             .code = mem.asBytes(&record),
             .base_offset = @as(i32, @intCast(offset)),
         });
-        if (target.getFile() != object_id) {
+        if (reloc_target.getFile() != object_id) {
             log.debug("unwind record {d} marked DEAD", .{record_id});
             self.unwind_relocs_lookup[record_id].dead = true;
         } else {
@@ -833,12 +836,12 @@ fn parseUnwindInfo(self: *Object, macho_file: *MachO, object_id: u32) !void {
             // very problematic when using Zig's @export feature to re-export symbols under
             // additional names. For that reason, we need to ensure we record aliases here
             // too so that we can tie them with their matching unwind records and vice versa.
-            const aliases = self.getSymbolAliases(target.sym_index);
+            const aliases = self.getSymbolAliases(reloc_target.sym_index);
             var i: u32 = 0;
             while (i < aliases.len) : (i += 1) {
                 const actual_target = SymbolWithLoc{
                     .sym_index = i + aliases.start,
-                    .file = target.file,
+                    .file = reloc_target.file,
                 };
                 log.debug("unwind record {d} tracks {s}", .{
                     record_id,

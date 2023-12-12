@@ -49,7 +49,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     const is_dyn_lib = self.base.comp.config.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.comp.config.output_mode == .Exe;
     const link_in_crt = self.base.options.link_libc and is_exe_or_dyn_lib;
-    const target = self.base.options.target;
+    const target = self.base.comp.root_mod.resolved_target.result;
     const optimize_mode = self.base.comp.root_mod.optimize_mode;
 
     // See link/Elf.zig for comments on how this mechanism works.

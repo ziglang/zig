@@ -1119,7 +1119,8 @@ fn validateFeatures(
     to_emit: *[@typeInfo(types.Feature.Tag).Enum.fields.len]bool,
     emit_features_count: *u32,
 ) !void {
-    const cpu_features = wasm.base.options.target.cpu.features;
+    const target = wasm.base.comp.root_mod.resolved_target.result;
+    const cpu_features = target.cpu.features;
     const infer = cpu_features.isEmpty(); // when the user did not define any features, we infer them from linked objects.
     const known_features_count = @typeInfo(types.Feature.Tag).Enum.fields.len;
 
@@ -1752,6 +1753,7 @@ pub fn getDeclVAddr(
     decl_index: InternPool.DeclIndex,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
+    const target = wasm.base.comp.root_mod.resolved_target.result;
     const gpa = wasm.base.comp.gpa;
     const mod = wasm.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
@@ -1762,7 +1764,7 @@ pub fn getDeclVAddr(
     assert(reloc_info.parent_atom_index != 0);
     const atom_index = wasm.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
     const atom = wasm.getAtomPtr(atom_index);
-    const is_wasm32 = wasm.base.options.target.cpu.arch == .wasm32;
+    const is_wasm32 = target.cpu.arch == .wasm32;
     if (decl.ty.zigTypeTag(mod) == .Fn) {
         assert(reloc_info.addend == 0); // addend not allowed for function relocations
         // We found a function pointer, so add it to our table,
@@ -1825,12 +1827,13 @@ pub fn lowerAnonDecl(
 
 pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     const gpa = wasm.base.comp.gpa;
+    const target = wasm.base.comp.root_mod.resolved_target.result;
     const atom_index = wasm.anon_decls.get(decl_val).?;
     const target_symbol_index = wasm.getAtom(atom_index).getSymbolIndex().?;
 
     const parent_atom_index = wasm.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
     const parent_atom = wasm.getAtomPtr(parent_atom_index);
-    const is_wasm32 = wasm.base.options.target.cpu.arch == .wasm32;
+    const is_wasm32 = target.cpu.arch == .wasm32;
     const mod = wasm.base.comp.module.?;
     const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
     if (ty.zigTypeTag(mod) == .Fn) {
@@ -4557,7 +4560,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         break :blk null;
     };
 
-    const target = wasm.base.options.target;
+    const target = wasm.base.comp.root_mod.resolved_target.result;
 
     const id_symlink_basename = "lld.id";
 

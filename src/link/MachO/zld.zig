@@ -458,7 +458,7 @@ pub fn linkWithZld(
         }
 
         try writeAtoms(macho_file);
-        if (macho_file.base.options.target.cpu.arch == .aarch64) try writeThunks(macho_file);
+        if (target.cpu.arch == .aarch64) try writeThunks(macho_file);
         try writeDyldPrivateAtom(macho_file);
 
         if (macho_file.stubs_section_index) |_| {
@@ -557,7 +557,7 @@ pub fn linkWithZld(
             .version = 0,
         });
         {
-            const platform = Platform.fromTarget(macho_file.base.options.target);
+            const platform = Platform.fromTarget(target);
             const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(arena, comp);
             if (platform.isBuildVersionCompatible()) {
                 try load_commands.writeBuildVersionLC(platform, sdk_version, lc_writer);
@@ -610,7 +610,8 @@ pub fn linkWithZld(
 
 fn createSegments(macho_file: *MachO) !void {
     const gpa = macho_file.base.allocator;
-    const page_size = MachO.getPageSize(macho_file.base.options.target.cpu.arch);
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const page_size = MachO.getPageSize(target.cpu.arch);
     const aligned_pagezero_vmsize = mem.alignBackward(u64, macho_file.pagezero_vmsize, page_size);
     if (macho_file.base.comp.config.output_mode != .Lib and aligned_pagezero_vmsize > 0) {
         if (aligned_pagezero_vmsize != macho_file.pagezero_vmsize) {
@@ -755,7 +756,8 @@ fn writeDyldPrivateAtom(macho_file: *MachO) !void {
 }
 
 fn writeThunks(macho_file: *MachO) !void {
-    assert(macho_file.base.options.target.cpu.arch == .aarch64);
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    assert(target.cpu.arch == .aarch64);
     const gpa = macho_file.base.allocator;
 
     const sect_id = macho_file.text_section_index orelse return;
@@ -791,7 +793,8 @@ fn writePointerEntries(macho_file: *MachO, sect_id: u8, table: anytype) !void {
 
 fn writeStubs(macho_file: *MachO) !void {
     const gpa = macho_file.base.allocator;
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     const stubs_header = macho_file.sections.items(.header)[macho_file.stubs_section_index.?];
     const la_symbol_ptr_header = macho_file.sections.items(.header)[macho_file.la_symbol_ptr_section_index.?];
 
@@ -813,7 +816,8 @@ fn writeStubs(macho_file: *MachO) !void {
 
 fn writeStubHelpers(macho_file: *MachO) !void {
     const gpa = macho_file.base.allocator;
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     const stub_helper_header = macho_file.sections.items(.header)[macho_file.stub_helper_section_index.?];
 
     const capacity = math.cast(usize, stub_helper_header.size) orelse return error.Overflow;
@@ -856,7 +860,8 @@ fn writeStubHelpers(macho_file: *MachO) !void {
 
 fn writeLaSymbolPtrs(macho_file: *MachO) !void {
     const gpa = macho_file.base.allocator;
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     const la_symbol_ptr_header = macho_file.sections.items(.header)[macho_file.la_symbol_ptr_section_index.?];
     const stub_helper_header = macho_file.sections.items(.header)[macho_file.stub_helper_section_index.?];
 
@@ -964,11 +969,12 @@ fn pruneAndSortSections(macho_file: *MachO) !void {
 }
 
 fn calcSectionSizes(macho_file: *MachO) !void {
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
     const slice = macho_file.sections.slice();
     for (slice.items(.header), 0..) |*header, sect_id| {
         if (header.size == 0) continue;
         if (macho_file.text_section_index) |txt| {
-            if (txt == sect_id and macho_file.base.options.target.cpu.arch == .aarch64) continue;
+            if (txt == sect_id and target.cpu.arch == .aarch64) continue;
         }
 
         var atom_index = slice.items(.first_atom_index)[sect_id] orelse continue;
@@ -991,7 +997,7 @@ fn calcSectionSizes(macho_file: *MachO) !void {
         }
     }
 
-    if (macho_file.text_section_index != null and macho_file.base.options.target.cpu.arch == .aarch64) {
+    if (macho_file.text_section_index != null and target.cpu.arch == .aarch64) {
         // Create jump/branch range extenders if needed.
         try thunks.createThunks(macho_file, macho_file.text_section_index.?);
     }
@@ -1043,7 +1049,7 @@ fn calcSectionSizes(macho_file: *MachO) !void {
         header.@"align" = 3;
     }
 
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const cpu_arch = target.cpu.arch;
 
     if (macho_file.stubs_section_index) |sect_id| {
         const header = &macho_file.sections.items(.header)[sect_id];
@@ -1093,6 +1099,7 @@ fn getSegmentAllocBase(macho_file: *MachO, segment_index: u8) struct { vmaddr: u
 }
 
 fn allocateSegment(macho_file: *MachO, segment_index: u8, init_size: u64) !void {
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
     const segment = &macho_file.segments.items[segment_index];
 
     if (mem.eql(u8, segment.segName(), "__PAGEZERO")) return; // allocated upon creation
@@ -1175,7 +1182,7 @@ fn allocateSegment(macho_file: *MachO, segment_index: u8, init_size: u64) !void 
         segment.vmsize = start;
     }
 
-    const page_size = MachO.getPageSize(macho_file.base.options.target.cpu.arch);
+    const page_size = MachO.getPageSize(target.cpu.arch);
     segment.filesize = mem.alignForward(u64, segment.filesize, page_size);
     segment.vmsize = mem.alignForward(u64, segment.vmsize, page_size);
 }

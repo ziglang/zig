@@ -118,7 +118,8 @@ fn markLive(macho_file: *MachO, atom_index: Atom.Index, alive: *AtomTable) void 
 
     alive.putAssumeCapacityNoClobber(atom_index, {});
 
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
 
     const sym = macho_file.getSymbol(atom.getSymbolWithLoc());
     const header = macho_file.sections.items(.header)[sym.n_sect - 1];
@@ -129,7 +130,7 @@ fn markLive(macho_file: *MachO, atom_index: Atom.Index, alive: *AtomTable) void 
     const ctx = Atom.getRelocContext(macho_file, atom_index);
 
     for (relocs) |rel| {
-        const target = switch (cpu_arch) {
+        const reloc_target = switch (cpu_arch) {
             .aarch64 => switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
                 .ARM64_RELOC_ADDEND => continue,
                 else => Atom.parseRelocTarget(macho_file, .{
@@ -149,19 +150,19 @@ fn markLive(macho_file: *MachO, atom_index: Atom.Index, alive: *AtomTable) void 
             }),
             else => unreachable,
         };
-        const target_sym = macho_file.getSymbol(target);
+        const target_sym = macho_file.getSymbol(reloc_target);
 
         if (target_sym.undf()) continue;
-        if (target.getFile() == null) {
-            const target_sym_name = macho_file.getSymbolName(target);
+        if (reloc_target.getFile() == null) {
+            const target_sym_name = macho_file.getSymbolName(reloc_target);
             if (mem.eql(u8, "__mh_execute_header", target_sym_name)) continue;
             if (mem.eql(u8, "___dso_handle", target_sym_name)) continue;
 
             unreachable; // referenced symbol not found
         }
 
-        const object = macho_file.objects.items[target.getFile().?];
-        const target_atom_index = object.getAtomIndexForSymbol(target.sym_index).?;
+        const object = macho_file.objects.items[reloc_target.getFile().?];
+        const target_atom_index = object.getAtomIndexForSymbol(reloc_target.sym_index).?;
         log.debug("  following ATOM({d}, %{d}, {?d})", .{
             target_atom_index,
             macho_file.getAtom(target_atom_index).sym_index,
@@ -178,7 +179,8 @@ fn refersLive(macho_file: *MachO, atom_index: Atom.Index, alive: AtomTable) bool
 
     log.debug("refersLive(ATOM({d}, %{d}, {?d}))", .{ atom_index, sym_loc.sym_index, sym_loc.getFile() });
 
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
 
     const sym = macho_file.getSymbol(sym_loc);
     const header = macho_file.sections.items(.header)[sym.n_sect - 1];
@@ -189,7 +191,7 @@ fn refersLive(macho_file: *MachO, atom_index: Atom.Index, alive: AtomTable) bool
     const ctx = Atom.getRelocContext(macho_file, atom_index);
 
     for (relocs) |rel| {
-        const target = switch (cpu_arch) {
+        const reloc_target = switch (cpu_arch) {
             .aarch64 => switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
                 .ARM64_RELOC_ADDEND => continue,
                 else => Atom.parseRelocTarget(macho_file, .{
@@ -210,9 +212,9 @@ fn refersLive(macho_file: *MachO, atom_index: Atom.Index, alive: AtomTable) bool
             else => unreachable,
         };
 
-        const object = macho_file.objects.items[target.getFile().?];
-        const target_atom_index = object.getAtomIndexForSymbol(target.sym_index) orelse {
-            log.debug("atom for symbol '{s}' not found; skipping...", .{macho_file.getSymbolName(target)});
+        const object = macho_file.objects.items[reloc_target.getFile().?];
+        const target_atom_index = object.getAtomIndexForSymbol(reloc_target.sym_index) orelse {
+            log.debug("atom for symbol '{s}' not found; skipping...", .{macho_file.getSymbolName(reloc_target)});
             continue;
         };
         if (alive.contains(target_atom_index)) {
@@ -271,7 +273,8 @@ fn mark(macho_file: *MachO, roots: AtomTable, alive: *AtomTable) void {
 
 fn markUnwindRecords(macho_file: *MachO, object_id: u32, alive: *AtomTable) void {
     const object = &macho_file.objects.items[object_id];
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
 
     const unwind_records = object.getUnwindRecords();
 
@@ -310,29 +313,29 @@ fn markUnwindRecords(macho_file: *MachO, object_id: u32, alive: *AtomTable) void
                 markEhFrameRecords(macho_file, object_id, atom_index, alive);
             } else {
                 if (UnwindInfo.getPersonalityFunctionReloc(macho_file, object_id, record_id)) |rel| {
-                    const target = Atom.parseRelocTarget(macho_file, .{
+                    const reloc_target = Atom.parseRelocTarget(macho_file, .{
                         .object_id = object_id,
                         .rel = rel,
                         .code = mem.asBytes(&record),
                         .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
                     });
-                    const target_sym = macho_file.getSymbol(target);
+                    const target_sym = macho_file.getSymbol(reloc_target);
                     if (!target_sym.undf()) {
-                        const target_object = macho_file.objects.items[target.getFile().?];
-                        const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index).?;
+                        const target_object = macho_file.objects.items[reloc_target.getFile().?];
+                        const target_atom_index = target_object.getAtomIndexForSymbol(reloc_target.sym_index).?;
                         markLive(macho_file, target_atom_index, alive);
                     }
                 }
 
                 if (UnwindInfo.getLsdaReloc(macho_file, object_id, record_id)) |rel| {
-                    const target = Atom.parseRelocTarget(macho_file, .{
+                    const reloc_target = Atom.parseRelocTarget(macho_file, .{
                         .object_id = object_id,
                         .rel = rel,
                         .code = mem.asBytes(&record),
                         .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
                     });
-                    const target_object = macho_file.objects.items[target.getFile().?];
-                    const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index).?;
+                    const target_object = macho_file.objects.items[reloc_target.getFile().?];
+                    const target_atom_index = target_object.getAtomIndexForSymbol(reloc_target.sym_index).?;
                     markLive(macho_file, target_atom_index, alive);
                 }
             }
@@ -341,7 +344,8 @@ fn markUnwindRecords(macho_file: *MachO, object_id: u32, alive: *AtomTable) void
 }
 
 fn markEhFrameRecords(macho_file: *MachO, object_id: u32, atom_index: Atom.Index, alive: *AtomTable) void {
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     const object = &macho_file.objects.items[object_id];
     var it = object.getEhFrameRecordsIterator();
     var inner_syms_it = Atom.getInnerSymbolsIterator(macho_file, atom_index);
@@ -361,16 +365,16 @@ fn markEhFrameRecords(macho_file: *MachO, object_id: u32, atom_index: Atom.Index
                 // Mark FDE references which should include any referenced LSDA record
                 const relocs = eh_frame.getRelocs(macho_file, object_id, fde_offset);
                 for (relocs) |rel| {
-                    const target = Atom.parseRelocTarget(macho_file, .{
+                    const reloc_target = Atom.parseRelocTarget(macho_file, .{
                         .object_id = object_id,
                         .rel = rel,
                         .code = fde.data,
                         .base_offset = @as(i32, @intCast(fde_offset)) + 4,
                     });
-                    const target_sym = macho_file.getSymbol(target);
+                    const target_sym = macho_file.getSymbol(reloc_target);
                     if (!target_sym.undf()) blk: {
-                        const target_object = macho_file.objects.items[target.getFile().?];
-                        const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index) orelse
+                        const target_object = macho_file.objects.items[reloc_target.getFile().?];
+                        const target_atom_index = target_object.getAtomIndexForSymbol(reloc_target.sym_index) orelse
                             break :blk;
                         markLive(macho_file, target_atom_index, alive);
                     }
@@ -394,11 +398,11 @@ fn markEhFrameRecords(macho_file: *MachO, object_id: u32, atom_index: Atom.Index
 
         // Mark CIE references which should include any referenced personalities
         // that are defined locally.
-        if (cie.getPersonalityPointerReloc(macho_file, object_id, cie_offset)) |target| {
-            const target_sym = macho_file.getSymbol(target);
+        if (cie.getPersonalityPointerReloc(macho_file, object_id, cie_offset)) |reloc_target| {
+            const target_sym = macho_file.getSymbol(reloc_target);
             if (!target_sym.undf()) {
-                const target_object = macho_file.objects.items[target.getFile().?];
-                const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index).?;
+                const target_object = macho_file.objects.items[reloc_target.getFile().?];
+                const target_atom_index = target_object.getAtomIndexForSymbol(reloc_target.sym_index).?;
                 markLive(macho_file, target_atom_index, alive);
             }
         }

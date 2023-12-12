@@ -406,7 +406,8 @@ fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const mem = emit.mir.extraData(Mir.Memory, extra_index).data;
     const mem_offset = emit.offset() + 1;
-    const is_wasm32 = emit.bin_file.base.options.target.cpu.arch == .wasm32;
+    const target = emit.bin_file.comp.root_mod.resolved_target.result;
+    const is_wasm32 = target.cpu.arch == .wasm32;
     if (is_wasm32) {
         try emit.code.append(std.wasm.opcode(.i32_const));
         var buf: [5]u8 = undefined;

@@ -39,10 +39,12 @@ pub const Reloc = struct {
 /// You must call this function *after* `MachO.populateMissingMetadata()`
 /// has been called to get a viable debug symbols output.
 pub fn populateMissingMetadata(self: *DebugSymbols, macho_file: *MachO) !void {
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+
     if (self.dwarf_segment_cmd_index == null) {
         self.dwarf_segment_cmd_index = @as(u8, @intCast(self.segments.items.len));
 
-        const page_size = MachO.getPageSize(macho_file.base.options.target.cpu.arch);
+        const page_size = MachO.getPageSize(target.cpu.arch);
         const off = @as(u64, @intCast(page_size));
         const ideal_size: u16 = 200 + 128 + 160 + 250;
         const needed_size = mem.alignForward(u64, padToIdeal(ideal_size), page_size);
@@ -332,7 +334,8 @@ fn finalizeDwarfSegment(self: *DebugSymbols, macho_file: *MachO) void {
         file_size = @max(file_size, header.offset + header.size);
     }
 
-    const page_size = MachO.getPageSize(macho_file.base.options.target.cpu.arch);
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const page_size = MachO.getPageSize(target.cpu.arch);
     const aligned_size = mem.alignForward(u64, file_size, page_size);
     dwarf_segment.vmaddr = base_vmaddr;
     dwarf_segment.filesize = aligned_size;
@@ -394,10 +397,12 @@ fn writeSegmentHeaders(self: *DebugSymbols, macho_file: *MachO, writer: anytype)
 }
 
 fn writeHeader(self: *DebugSymbols, macho_file: *MachO, ncmds: u32, sizeofcmds: u32) !void {
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+
     var header: macho.mach_header_64 = .{};
     header.filetype = macho.MH_DSYM;
 
-    switch (macho_file.base.options.target.cpu.arch) {
+    switch (target.cpu.arch) {
         .aarch64 => {
             header.cputype = macho.CPU_TYPE_ARM64;
             header.cpusubtype = macho.CPU_SUBTYPE_ARM_ALL;
@@ -435,7 +440,8 @@ fn writeLinkeditSegmentData(self: *DebugSymbols, macho_file: *MachO) !void {
     try self.writeSymtab(macho_file);
     try self.writeStrtab();
 
-    const page_size = MachO.getPageSize(macho_file.base.options.target.cpu.arch);
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const page_size = MachO.getPageSize(target.cpu.arch);
     const seg = &self.segments.items[self.linkedit_segment_cmd_index.?];
     const aligned_size = mem.alignForward(u64, seg.filesize, page_size);
     seg.vmsize = aligned_size;

@@ -1467,6 +1467,7 @@ pub fn updateExports(
     }
 
     const ip = &mod.intern_pool;
+    const target = self.base.comp.root_mod.resolved_target.result;
 
     if (self.base.options.use_llvm) {
         // Even in the case of LLVM, we need to notice certain exported symbols in order to
@@ -1478,7 +1479,7 @@ pub fn updateExports(
             };
             const exported_decl = mod.declPtr(exported_decl_index);
             if (exported_decl.getOwnedFunction(mod) == null) continue;
-            const winapi_cc = switch (self.base.options.target.cpu.arch) {
+            const winapi_cc = switch (target.cpu.arch) {
                 .x86 => std.builtin.CallingConvention.Stdcall,
                 else => std.builtin.CallingConvention.C,
             };
@@ -1487,7 +1488,7 @@ pub fn updateExports(
                 self.base.options.link_libc)
             {
                 mod.stage1_flags.have_c_main = true;
-            } else if (decl_cc == winapi_cc and self.base.options.target.os.tag == .windows) {
+            } else if (decl_cc == winapi_cc and target.os.tag == .windows) {
                 if (ip.stringEqlSlice(exp.opts.name, "WinMain")) {
                     mod.stage1_flags.have_winmain = true;
                 } else if (ip.stringEqlSlice(exp.opts.name, "wWinMain")) {
@@ -2200,6 +2201,7 @@ fn writeDataDirectoriesHeaders(self: *Coff) !void {
 }
 
 fn writeHeader(self: *Coff) !void {
+    const target = self.base.comp.root_mod.resolved_target.result;
     const gpa = self.base.comp.gpa;
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
@@ -2225,7 +2227,7 @@ fn writeHeader(self: *Coff) !void {
     const timestamp = std.time.timestamp();
     const size_of_optional_header = @as(u16, @intCast(self.getOptionalHeaderSize() + self.getDataDirectoryHeadersSize()));
     var coff_header = coff.CoffHeader{
-        .machine = coff.MachineType.fromTargetCpuArch(self.base.options.target.cpu.arch),
+        .machine = coff.MachineType.fromTargetCpuArch(target.cpu.arch),
         .number_of_sections = @as(u16, @intCast(self.sections.slice().len)), // TODO what if we prune a section
         .time_date_stamp = @as(u32, @truncate(@as(u64, @bitCast(timestamp)))),
         .pointer_to_symbol_table = self.strtab_offset orelse 0,
@@ -2451,8 +2453,9 @@ pub fn getEntryPoint(self: Coff) ?SymbolWithLoc {
 }
 
 pub fn getImageBase(self: Coff) u64 {
+    const target = self.base.comp.root_mod.resolved_target.result;
     const image_base: u64 = self.base.options.image_base_override orelse switch (self.base.comp.config.output_mode) {
-        .Exe => switch (self.base.options.target.cpu.arch) {
+        .Exe => switch (target.cpu.arch) {
             .aarch64 => @as(u64, 0x140000000),
             .x86_64, .x86 => 0x400000,
             else => unreachable, // unsupported target architecture

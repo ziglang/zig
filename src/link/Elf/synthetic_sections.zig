@@ -287,7 +287,8 @@ pub const ZigGotSection = struct {
             zig_got.flags.dirty = false;
         }
         const entry_size: u16 = elf_file.archPtrWidthBytes();
-        const endian = elf_file.base.options.target.cpu.arch.endian();
+        const target = elf_file.base.comp.root_mod.resolved_target.result;
+        const endian = target.cpu.arch.endian();
         const off = zig_got.entryOffset(index, elf_file);
         const vaddr = zig_got.entryAddress(index, elf_file);
         const entry = zig_got.entries.items[index];
@@ -1575,7 +1576,8 @@ pub const ComdatGroupSection = struct {
 
 fn writeInt(value: anytype, elf_file: *Elf, writer: anytype) !void {
     const entry_size = elf_file.archPtrWidthBytes();
-    const endian = elf_file.base.options.target.cpu.arch.endian();
+    const target = elf_file.base.comp.root_mod.resolved_target.result;
+    const endian = target.cpu.arch.endian();
     switch (entry_size) {
         2 => try writer.writeInt(u16, @intCast(value), endian),
         4 => try writer.writeInt(u32, @intCast(value), endian),
