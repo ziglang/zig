@@ -226,7 +226,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 .is_native_abi = false,
                 .self_exe_path = comp.self_exe_path,
                 .verbose_cc = comp.verbose_cc,
-                .verbose_link = comp.bin_file.options.verbose_link,
+                .verbose_link = comp.verbose_link,
                 .verbose_air = comp.verbose_air,
                 .verbose_llvm_ir = comp.verbose_llvm_ir,
                 .verbose_cimport = comp.verbose_cimport,

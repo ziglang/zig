@@ -854,15 +854,21 @@ pub const Object = struct {
     pub const DITypeMap = std.AutoArrayHashMapUnmanaged(InternPool.Index, AnnotatedDITypePtr);
 
     pub fn create(arena: Allocator, options: link.File.OpenOptions) !*Object {
-        const gpa = options.comp.gpa;
-        const llvm_target_triple = try targetTriple(arena, options.target);
+        if (build_options.only_c) unreachable;
+        const comp = options.comp;
+        const gpa = comp.gpa;
+        const target = comp.root_mod.resolved_target.result;
+        const llvm_target_triple = try targetTriple(arena, target);
+        const strip = comp.root_mod.strip;
+        const optimize_mode = comp.root_mod.optimize_mode;
+        const pic = comp.root_mod.pic;
 
         var builder = try Builder.init(.{
             .allocator = gpa,
-            .use_lib_llvm = options.use_lib_llvm,
-            .strip = options.strip or !options.use_lib_llvm, // TODO
-            .name = options.root_name,
-            .target = options.target,
+            .use_lib_llvm = comp.config.use_lib_llvm,
+            .strip = strip or !comp.config.use_lib_llvm, // TODO
+            .name = comp.root_name,
+            .target = target,
             .triple = llvm_target_triple,
         });
         errdefer builder.deinit();
@@ -870,10 +876,18 @@ pub const Object = struct {
         var target_machine: if (build_options.have_llvm) *llvm.TargetMachine else void = undefined;
         var target_data: if (build_options.have_llvm) *llvm.TargetData else void = undefined;
         if (builder.useLibLlvm()) {
-            if (!options.strip) {
-                switch (options.target.ofmt) {
-                    .coff => builder.llvm.module.?.addModuleCodeViewFlag(),
-                    else => builder.llvm.module.?.addModuleDebugInfoFlag(options.dwarf_format == std.dwarf.Format.@"64"),
+            debug_info: {
+                const debug_format = options.debug_format orelse b: {
+                    if (strip) break :b .strip;
+                    break :b switch (target.ofmt) {
+                        .coff => .code_view,
+                        else => .{ .dwarf = .@"32" },
+                    };
+                };
+                switch (debug_format) {
+                    .strip => break :debug_info,
+                    .code_view => builder.llvm.module.?.addModuleCodeViewFlag(),
+                    .dwarf => |f| builder.llvm.module.?.addModuleDebugInfoFlag(f == .@"64"),
                 }
                 builder.llvm.di_builder = builder.llvm.module.?.createDIBuilder(true);
 
@@ -892,8 +906,8 @@ pub const Object = struct {
                 // TODO: the only concern I have with this is WASI as either host or target, should
                 // we leave the paths as relative then?
                 const compile_unit_dir_z = blk: {
-                    if (options.module) |mod| m: {
-                        const d = try mod.root_mod.root.joinStringZ(arena, "");
+                    if (comp.module) |zcu| m: {
+                        const d = try zcu.root_mod.root.joinStringZ(arena, "");
                         if (d.len == 0) break :m;
                         if (std.fs.path.isAbsolute(d)) break :blk d;
                         break :blk std.fs.realpathAlloc(arena, d) catch d;
@@ -903,9 +917,9 @@ pub const Object = struct {
 
                 builder.llvm.di_compile_unit = builder.llvm.di_builder.?.createCompileUnit(
                     DW.LANG.C99,
-                    builder.llvm.di_builder.?.createFile(options.root_name, compile_unit_dir_z),
+                    builder.llvm.di_builder.?.createFile(comp.root_name, compile_unit_dir_z),
                     producer.slice(&builder).?,
-                    options.optimize_mode != .Debug,
+                    optimize_mode != .Debug,
                     "", // flags
                     0, // runtime version
                     "", // split name
@@ -914,19 +928,19 @@ pub const Object = struct {
                 );
             }
 
-            const opt_level: llvm.CodeGenOptLevel = if (options.optimize_mode == .Debug)
+            const opt_level: llvm.CodeGenOptLevel = if (optimize_mode == .Debug)
                 .None
             else
                 .Aggressive;
 
-            const reloc_mode: llvm.RelocMode = if (options.pic)
+            const reloc_mode: llvm.RelocMode = if (pic)
                 .PIC
-            else if (options.link_mode == .Dynamic)
+            else if (comp.config.link_mode == .Dynamic)
                 llvm.RelocMode.DynamicNoPIC
             else
                 .Static;
 
-            const code_model: llvm.CodeModel = switch (options.machine_code_model) {
+            const code_model: llvm.CodeModel = switch (comp.root_mod.code_model) {
                 .default => .Default,
                 .tiny => .Tiny,
                 .small => .Small,
@@ -941,15 +955,15 @@ pub const Object = struct {
             target_machine = llvm.TargetMachine.create(
                 builder.llvm.target.?,
                 builder.target_triple.slice(&builder).?,
-                if (options.target.cpu.model.llvm_name) |s| s.ptr else null,
-                options.llvm_cpu_features,
+                if (target.cpu.model.llvm_name) |s| s.ptr else null,
+                comp.root_mod.resolved_target.llvm_cpu_features.?,
                 opt_level,
                 reloc_mode,
                 code_model,
-                options.function_sections,
-                options.data_sections,
+                options.function_sections orelse false,
+                options.data_sections orelse false,
                 float_abi,
-                if (target_util.llvmMachineAbi(options.target)) |s| s.ptr else null,
+                if (target_util.llvmMachineAbi(target)) |s| s.ptr else null,
             );
             errdefer target_machine.dispose();
 
@@ -958,15 +972,15 @@ pub const Object = struct {
 
             builder.llvm.module.?.setModuleDataLayout(target_data);
 
-            if (options.pic) builder.llvm.module.?.setModulePICLevel();
-            if (options.pie) builder.llvm.module.?.setModulePIELevel();
+            if (pic) builder.llvm.module.?.setModulePICLevel();
+            if (comp.config.pie) builder.llvm.module.?.setModulePIELevel();
             if (code_model != .Default) builder.llvm.module.?.setModuleCodeModel(code_model);
 
-            if (options.opt_bisect_limit >= 0) {
-                builder.llvm.context.setOptBisectLimit(std.math.lossyCast(c_int, options.opt_bisect_limit));
+            if (comp.llvm_opt_bisect_limit >= 0) {
+                builder.llvm.context.setOptBisectLimit(comp.llvm_opt_bisect_limit);
             }
 
-            builder.data_layout = try builder.fmt("{}", .{DataLayoutBuilder{ .target = options.target }});
+            builder.data_layout = try builder.fmt("{}", .{DataLayoutBuilder{ .target = target }});
             if (std.debug.runtime_safety) {
                 const rep = target_data.stringRep();
                 defer llvm.disposeMessage(rep);
@@ -981,13 +995,13 @@ pub const Object = struct {
         obj.* = .{
             .gpa = gpa,
             .builder = builder,
-            .module = options.module.?,
+            .module = comp.module.?,
             .di_map = .{},
             .di_builder = if (builder.useLibLlvm()) builder.llvm.di_builder else null, // TODO
             .di_compile_unit = if (builder.useLibLlvm()) builder.llvm.di_compile_unit else null,
             .target_machine = target_machine,
             .target_data = target_data,
-            .target = options.target,
+            .target = target,
             .decl_map = .{},
             .anon_decl_map = .{},
             .named_enum_map = .{},

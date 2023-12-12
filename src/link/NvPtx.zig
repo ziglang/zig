@@ -24,46 +24,56 @@ const LlvmObject = @import("../codegen/llvm.zig").Object;
 
 base: link.File,
 llvm_object: *LlvmObject,
-ptx_file_name: []const u8,
 
-pub fn createEmpty(gpa: Allocator, options: link.Options) !*NvPtx {
-    if (!options.use_llvm) return error.PtxArchNotSupported;
+pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*NvPtx {
+    if (build_options.only_c) unreachable;
 
-    if (!options.target.cpu.arch.isNvptx()) return error.PtxArchNotSupported;
+    const target = options.comp.root_mod.resolved_target.result;
+    const use_lld = build_options.have_llvm and options.comp.config.use_lld;
+    const use_llvm = options.comp.config.use_llvm;
 
-    switch (options.target.os.tag) {
+    assert(use_llvm); // Caught by Compilation.Config.resolve.
+    assert(!use_lld); // Caught by Compilation.Config.resolve.
+    assert(target.cpu.arch.isNvptx()); // Caught by Compilation.Config.resolve.
+
+    switch (target.os.tag) {
         // TODO: does it also work with nvcl ?
         .cuda => {},
         else => return error.PtxArchNotSupported,
     }
 
-    const llvm_object = try LlvmObject.create(gpa, options);
-    const nvptx = try gpa.create(NvPtx);
+    const llvm_object = try LlvmObject.create(arena, options);
+    const nvptx = try arena.create(NvPtx);
     nvptx.* = .{
         .base = .{
             .tag = .nvptx,
-            .options = options,
+            .comp = options.comp,
+            .emit = options.emit,
+            .gc_sections = options.gc_sections orelse false,
+            .stack_size = options.stack_size orelse 0,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
-            .allocator = gpa,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
+            .force_undefined_symbols = options.force_undefined_symbols,
+            .function_sections = options.function_sections,
+            .data_sections = options.data_sections,
         },
         .llvm_object = llvm_object,
-        .ptx_file_name = try std.mem.join(gpa, "", &[_][]const u8{ options.root_name, ".ptx" }),
     };
 
     return nvptx;
 }
 
-pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*NvPtx {
-    if (!options.use_llvm) return error.PtxArchNotSupported;
-    assert(options.target.ofmt == .nvptx);
-
-    log.debug("Opening .ptx target file {s}", .{sub_path});
-    return createEmpty(allocator, options);
+pub fn open(arena: Allocator, options: link.FileOpenOptions) !*NvPtx {
+    const target = options.comp.root_mod.resolved_target.result;
+    assert(target.ofmt == .nvptx);
+    return createEmpty(arena, options);
 }
 
 pub fn deinit(self: *NvPtx) void {
-    self.llvm_object.destroy(self.base.allocator);
-    self.base.allocator.free(self.ptx_file_name);
+    self.llvm_object.deinit();
 }
 
 pub fn updateFunc(self: *NvPtx, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
@@ -110,7 +120,7 @@ pub fn flushModule(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.No
     comp.emit_asm = .{
         // 'null' means using the default cache dir: zig-cache/o/...
         .directory = null,
-        .basename = self.ptx_file_name,
+        .basename = self.base.emit.sub_path,
     };
     defer {
         comp.bin_file.options.emit = outfile;

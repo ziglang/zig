@@ -842,7 +842,7 @@ fn buildOutputType(
     var linker_print_gc_sections: bool = false;
     var linker_print_icf_sections: bool = false;
     var linker_print_map: bool = false;
-    var linker_opt_bisect_limit: i32 = -1;
+    var llvm_opt_bisect_limit: c_int = -1;
     var linker_z_nocopyreloc = false;
     var linker_z_nodelete = false;
     var linker_z_notext = false;
@@ -859,7 +859,7 @@ fn buildOutputType(
     var linker_module_definition_file: ?[]const u8 = null;
     var test_no_exec = false;
     var force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{};
-    var stack_size_override: ?u64 = null;
+    var stack_size: ?u64 = null;
     var image_base_override: ?u64 = null;
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
@@ -892,7 +892,7 @@ fn buildOutputType(
     var contains_res_file: bool = false;
     var reference_trace: ?u32 = null;
     var pdb_out_path: ?[]const u8 = null;
-    var dwarf_format: ?std.dwarf.Format = null;
+    var debug_format: ?link.File.DebugFormat = null;
     var error_limit: ?Module.ErrorInt = null;
     var want_structured_cfg: ?bool = null;
     // These are before resolving sysroot.
@@ -1129,10 +1129,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--force_undefined")) {
                         try force_undefined_symbols.put(arena, args_iter.nextOrFatal(), {});
                     } else if (mem.eql(u8, arg, "--stack")) {
-                        const next_arg = args_iter.nextOrFatal();
-                        stack_size_override = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
-                            fatal("unable to parse stack size '{s}': {s}", .{ next_arg, @errorName(err) });
-                        };
+                        stack_size = parseStackSize(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--image-base")) {
                         const next_arg = args_iter.nextOrFatal();
                         image_base_override = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
@@ -1487,9 +1484,9 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-strip")) {
                         mod_opts.strip = false;
                     } else if (mem.eql(u8, arg, "-gdwarf32")) {
-                        dwarf_format = .@"32";
+                        debug_format = .{ .dwarf = .@"32" };
                     } else if (mem.eql(u8, arg, "-gdwarf64")) {
-                        dwarf_format = .@"64";
+                        debug_format = .{ .dwarf = .@"64" };
                     } else if (mem.eql(u8, arg, "-fformatted-panics")) {
                         formatted_panics = true;
                     } else if (mem.eql(u8, arg, "-fno-formatted-panics")) {
@@ -1511,7 +1508,9 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-builtin")) {
                         no_builtin = true;
                     } else if (mem.startsWith(u8, arg, "-fopt-bisect-limit=")) {
-                        linker_opt_bisect_limit = std.math.lossyCast(i32, parseIntSuffix(arg, "-fopt-bisect-limit=".len));
+                        const next_arg = arg["-fopt-bisect-limit=".len..];
+                        llvm_opt_bisect_limit = std.fmt.parseInt(c_int, next_arg, 0) catch |err|
+                            fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
                     } else if (mem.eql(u8, arg, "--dynamicbase")) {
@@ -1994,11 +1993,11 @@ fn buildOutputType(
                     },
                     .gdwarf32 => {
                         mod_opts.strip = false;
-                        dwarf_format = .@"32";
+                        debug_format = .{ .dwarf = .@"32" };
                     },
                     .gdwarf64 => {
                         mod_opts.strip = false;
-                        dwarf_format = .@"64";
+                        debug_format = .{ .dwarf = .@"64" };
                     },
                     .sanitize => {
                         if (mem.eql(u8, it.only_arg, "undefined")) {
@@ -2257,10 +2256,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, z_arg, "norelro")) {
                         linker_z_relro = false;
                     } else if (mem.startsWith(u8, z_arg, "stack-size=")) {
-                        const next_arg = z_arg["stack-size=".len..];
-                        stack_size_override = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
-                            fatal("unable to parse stack size '{s}': {s}", .{ next_arg, @errorName(err) });
-                        };
+                        stack_size = parseStackSize(z_arg["stack-size=".len..]);
                     } else if (mem.startsWith(u8, z_arg, "common-page-size=")) {
                         linker_z_common_page_size = parseIntSuffix(z_arg, "common-page-size=".len);
                     } else if (mem.startsWith(u8, z_arg, "max-page-size=")) {
@@ -2285,10 +2281,7 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "-u")) {
                     try force_undefined_symbols.put(arena, linker_args_it.nextOrFatal(), {});
                 } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack_size")) {
-                    const stack_size = linker_args_it.nextOrFatal();
-                    stack_size_override = std.fmt.parseUnsigned(u64, stack_size, 0) catch |err| {
-                        fatal("unable to parse stack size override '{s}': {s}", .{ stack_size, @errorName(err) });
-                    };
+                    stack_size = parseStackSize(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--image-base")) {
                     const image_base = linker_args_it.nextOrFatal();
                     image_base_override = std.fmt.parseUnsigned(u64, image_base, 0) catch |err| {
@@ -3407,7 +3400,7 @@ fn buildOutputType(
         .linker_print_gc_sections = linker_print_gc_sections,
         .linker_print_icf_sections = linker_print_icf_sections,
         .linker_print_map = linker_print_map,
-        .linker_opt_bisect_limit = linker_opt_bisect_limit,
+        .llvm_opt_bisect_limit = llvm_opt_bisect_limit,
         .linker_global_base = linker_global_base,
         .linker_export_symbol_names = linker_export_symbol_names.items,
         .linker_z_nocopyreloc = linker_z_nocopyreloc,
@@ -3430,7 +3423,7 @@ fn buildOutputType(
         .link_eh_frame_hdr = link_eh_frame_hdr,
         .link_emit_relocs = link_emit_relocs,
         .force_undefined_symbols = force_undefined_symbols,
-        .stack_size_override = stack_size_override,
+        .stack_size = stack_size,
         .image_base_override = image_base_override,
         .formatted_panics = formatted_panics,
         .function_sections = function_sections,
@@ -3459,7 +3452,7 @@ fn buildOutputType(
         .test_runner_path = test_runner_path,
         .disable_lld_caching = !output_to_cache,
         .subsystem = subsystem,
-        .dwarf_format = dwarf_format,
+        .debug_format = debug_format,
         .debug_compile_errors = debug_compile_errors,
         .enable_link_snapshots = enable_link_snapshots,
         .install_name = install_name,
@@ -7687,4 +7680,9 @@ fn parseWasiExecModel(s: []const u8) std.builtin.WasiExecModel {
 fn resolveTargetQueryOrFatal(target_query: std.Target.Query) std.Target {
     return std.zig.system.resolveTargetQuery(target_query) catch |err|
         fatal("unable to resolve target: {s}", .{@errorName(err)});
+}
+
+fn parseStackSize(s: []const u8) u64 {
+    return std.fmt.parseUnsigned(u64, s, 0) catch |err|
+        fatal("unable to parse stack size '{s}': {s}", .{ s, @errorName(err) });
 }

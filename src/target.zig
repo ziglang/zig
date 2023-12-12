@@ -323,6 +323,14 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
     };
 }
 
+/// The set of targets that Zig supports using LLD to link for.
+pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
+    return switch (ofmt) {
+        .elf, .coff, .wasm => true,
+        else => false,
+    };
+}
+
 /// The set of targets that our own self-hosted backends have robust support for.
 /// Used to select between LLVM backend and self-hosted backend when compiling in
 /// debug mode. A given target should only return true here if it is passing greater

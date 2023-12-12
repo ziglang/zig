@@ -47,48 +47,65 @@ base: link.File,
 
 object: codegen.Object,
 
-pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
-    const self = try gpa.create(SpirV);
+pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*SpirV {
+    const gpa = options.comp.gpa;
+    const target = options.comp.root_mod.resolved_target.result;
+
+    const self = try arena.create(SpirV);
     self.* = .{
         .base = .{
             .tag = .spirv,
-            .options = options,
+            .comp = options.comp,
+            .emit = options.emit,
+            .gc_sections = options.gc_sections orelse false,
+            .stack_size = options.stack_size orelse 0,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
-            .allocator = gpa,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
+            .force_undefined_symbols = options.force_undefined_symbols,
+            .function_sections = options.function_sections,
+            .data_sections = options.data_sections,
         },
         .object = codegen.Object.init(gpa),
     };
     errdefer self.deinit();
 
-    // TODO: Figure out where to put all of these
-    switch (options.target.cpu.arch) {
+    switch (target.cpu.arch) {
         .spirv32, .spirv64 => {},
-        else => return error.TODOArchNotSupported,
+        else => unreachable, // Caught by Compilation.Config.resolve.
     }
 
-    switch (options.target.os.tag) {
+    switch (target.os.tag) {
         .opencl, .glsl450, .vulkan => {},
-        else => return error.TODOOsNotSupported,
+        else => unreachable, // Caught by Compilation.Config.resolve.
     }
 
-    if (options.target.abi != .none) {
-        return error.TODOAbiNotSupported;
-    }
+    assert(target.abi != .none); // Caught by Compilation.Config.resolve.
 
     return self;
 }
 
-pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*SpirV {
-    assert(options.target.ofmt == .spirv);
+pub fn open(arena: Allocator, options: link.File.OpenOptions) !*SpirV {
+    if (build_options.only_c) unreachable;
 
-    if (options.use_llvm) return error.LLVM_BackendIsTODO_ForSpirV; // TODO: LLVM Doesn't support SpirV at all.
-    if (options.use_lld) return error.LLD_LinkingIsTODO_ForSpirV; // TODO: LLD Doesn't support SpirV at all.
+    const target = options.comp.root_mod.resolved_target.result;
+    const use_lld = build_options.have_llvm and options.comp.config.use_lld;
+    const use_llvm = options.comp.config.use_llvm;
 
-    const spirv = try createEmpty(allocator, options);
+    assert(!use_llvm); // Caught by Compilation.Config.resolve.
+    assert(!use_lld); // Caught by Compilation.Config.resolve.
+    assert(target.ofmt == .spirv); // Caught by Compilation.Config.resolve.
+
+    const spirv = try createEmpty(arena, options);
     errdefer spirv.base.destroy();
 
     // TODO: read the file and keep valid parts instead of truncating
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
+    const file = try options.emit.?.directory.handle.createFile(options.emit.sub_path, .{
+        .truncate = true,
+        .read = true,
+    });
     spirv.base.file = file;
     return spirv;
 }
@@ -150,11 +167,7 @@ pub fn freeDecl(self: *SpirV, decl_index: InternPool.DeclIndex) void {
 }
 
 pub fn flush(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    if (build_options.have_llvm and self.base.options.use_lld) {
-        return error.LLD_LinkingIsTODO_ForSpirV; // TODO: LLD Doesn't support SpirV at all.
-    } else {
-        return self.flushModule(comp, prog_node);
-    }
+    return self.flushModule(comp, prog_node);
 }
 
 pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {

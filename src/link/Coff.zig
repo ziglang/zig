@@ -232,7 +232,7 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Coff {
     errdefer self.base.destroy();
 
     const use_lld = build_options.have_llvm and options.comp.config.use_lld;
-    const use_llvm = build_options.have_llvm and options.comp.config.use_llvm;
+    const use_llvm = options.comp.config.use_llvm;
 
     if (use_lld and use_llvm) {
         // LLVM emits the object file; LLD links it into the final product.
@@ -353,6 +353,7 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Coff {
 
 pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Coff {
     const target = options.comp.root_mod.resolved_target.result;
+    const optimize_mode = options.comp.root_mod.optimize_mode;
     const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
@@ -367,14 +368,24 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Coff {
             .tag = .coff,
             .comp = options.comp,
             .emit = options.emit,
+            .stack_size = options.stack_size orelse 16777216,
+            .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
+            .force_undefined_symbols = options.force_undefined_symbols,
+            .debug_format = options.debug_format orelse .code_view,
+            .function_sections = options.function_sections,
+            .data_sections = options.data_sections,
         },
         .ptr_width = ptr_width,
         .page_size = page_size,
         .data_directories = comptime mem.zeroes([coff.IMAGE_NUMBEROF_DIRECTORY_ENTRIES]coff.ImageDataDirectory),
     };
 
-    const use_llvm = build_options.have_llvm and options.comp.config.use_llvm;
+    const use_llvm = options.comp.config.use_llvm;
     if (use_llvm and options.comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, options);
     }
@@ -1494,8 +1505,6 @@ pub fn updateExports(
 
     if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
 
-    if (self.base.options.emit == null) return;
-
     const gpa = self.base.comp.gpa;
 
     const metadata = switch (exported) {
@@ -1645,13 +1654,7 @@ fn resolveGlobalSymbol(self: *Coff, current: SymbolWithLoc) !void {
 }
 
 pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    if (self.base.options.emit == null) {
-        if (self.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp, prog_node);
-        }
-        return;
-    }
-    const use_lld = build_options.have_llvm and self.base.options.use_lld;
+    const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
     if (use_lld) {
         return lld.linkWithLLD(self, comp, prog_node);
     }

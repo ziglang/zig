@@ -32,13 +32,6 @@ pub const SystemLib = struct {
     path: ?[]const u8,
 };
 
-/// When adding a new field, remember to update `hashAddFrameworks`.
-pub const Framework = struct {
-    needed: bool = false,
-    weak: bool = false,
-    path: []const u8,
-};
-
 pub const SortSection = enum { name, alignment };
 
 pub const CacheMode = enum { incremental, whole };
@@ -53,14 +46,6 @@ pub fn hashAddSystemLibs(
         man.hash.add(value.needed);
         man.hash.add(value.weak);
         if (value.path) |p| _ = try man.addFile(p, null);
-    }
-}
-
-pub fn hashAddFrameworks(man: *Cache.Manifest, hm: []const Framework) !void {
-    for (hm) |value| {
-        man.hash.add(value.needed);
-        man.hash.add(value.weak);
-        _ = try man.addFile(value.path, null);
     }
 }
 
@@ -81,12 +66,31 @@ pub const File = struct {
     /// When linking with LLD, this linker code will output an object file only at
     /// this location, and then this path can be placed on the LLD linker line.
     intermediary_basename: ?[]const u8 = null,
+    disable_lld_caching: bool,
+    gc_sections: bool,
+    build_id: std.zig.BuildId,
+    rpath_list: []const []const u8,
+    /// List of symbols forced as undefined in the symbol table
+    /// thus forcing their resolution by the linker.
+    /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
+    force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
+    allow_shlib_undefined: bool,
+    stack_size: u64,
+    debug_format: DebugFormat,
+    function_sections: bool,
+    data_sections: bool,
 
     /// Prevents other processes from clobbering files in the output directory
     /// of this linking operation.
     lock: ?Cache.Lock = null,
 
     child_pid: ?std.ChildProcess.Id = null,
+
+    pub const DebugFormat = union(enum) {
+        strip,
+        dwarf: std.dwarf.Format,
+        code_view,
+    };
 
     pub const OpenOptions = struct {
         comp: *Compilation,
@@ -97,7 +101,7 @@ pub const File = struct {
 
         /// Virtual address of the entry point procedure relative to image base.
         entry_addr: ?u64,
-        stack_size_override: ?u64,
+        stack_size: ?u64,
         image_base_override: ?u64,
         function_sections: bool,
         data_sections: bool,
@@ -128,7 +132,6 @@ pub const File = struct {
         max_memory: ?u64,
         export_symbol_names: []const []const u8,
         global_base: ?u64,
-        verbose_link: bool,
         dll_export_fns: bool,
         skip_linker_dependencies: bool,
         parent_compilation_link_libc: bool,
@@ -139,7 +142,7 @@ pub const File = struct {
         sort_section: ?SortSection,
         major_subsystem_version: ?u32,
         minor_subsystem_version: ?u32,
-        gc_sections: ?bool = null,
+        gc_sections: ?bool,
         allow_shlib_undefined: ?bool,
         subsystem: ?std.Target.SubSystem,
         version_script: ?[]const u8,
@@ -147,11 +150,7 @@ pub const File = struct {
         print_gc_sections: bool,
         print_icf_sections: bool,
         print_map: bool,
-        opt_bisect_limit: i32,
 
-        /// List of symbols forced as undefined in the symbol table
-        /// thus forcing their resolution by the linker.
-        /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
         force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
         /// Use a wrapper function for symbol. Any undefined reference to symbol
         /// will be resolved to __wrap_symbol. Any undefined reference to
@@ -163,7 +162,7 @@ pub const File = struct {
 
         compatibility_version: ?std.SemanticVersion,
 
-        dwarf_format: ?std.dwarf.Format,
+        debug_format: ?DebugFormat,
 
         // TODO: remove this. libraries are resolved by the frontend.
         lib_dirs: []const []const u8,
@@ -184,8 +183,7 @@ pub const File = struct {
         headerpad_max_install_names: bool,
         /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
         dead_strip_dylibs: bool,
-        framework_dirs: []const []const u8,
-        frameworks: []const Framework,
+        frameworks: []const MachO.Framework,
         darwin_sdk_layout: ?MachO.SdkLayout,
 
         /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
@@ -228,7 +226,7 @@ pub const File = struct {
             .coff, .elf, .macho, .plan9, .wasm => {
                 if (build_options.only_c) unreachable;
                 if (base.file != null) return;
-                const emit = base.options.emit orelse return;
+                const emit = base.emit;
                 if (base.child_pid) |pid| {
                     if (builtin.os.tag == .windows) {
                         base.cast(Coff).?.ptraceAttach(pid) catch |err| {
@@ -256,10 +254,13 @@ pub const File = struct {
                         }
                     }
                 }
+                const use_lld = build_options.have_llvm and base.comp.config.use_lld;
+                const output_mode = base.comp.config.output_mode;
+                const link_mode = base.comp.config.link_mode;
                 base.file = try emit.directory.handle.createFile(emit.sub_path, .{
                     .truncate = false,
                     .read = true,
-                    .mode = determineMode(base.options),
+                    .mode = determineMode(use_lld, output_mode, link_mode),
                 });
             },
             .c, .spirv, .nvptx => {},
@@ -267,9 +268,13 @@ pub const File = struct {
     }
 
     pub fn makeExecutable(base: *File) !void {
-        switch (base.options.output_mode) {
+        const output_mode = base.comp.config.output_mode;
+        const link_mode = base.comp.config.link_mode;
+        const use_lld = build_options.have_llvm and base.comp.config.use_lld;
+
+        switch (output_mode) {
             .Obj => return,
-            .Lib => switch (base.options.link_mode) {
+            .Lib => switch (link_mode) {
                 .Static => return,
                 .Dynamic => {},
             },
@@ -278,7 +283,6 @@ pub const File = struct {
         switch (base.tag) {
             .elf => if (base.file) |f| {
                 if (build_options.only_c) unreachable;
-                const use_lld = build_options.have_llvm and base.options.use_lld;
                 if (base.intermediary_basename != null and use_lld) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
@@ -596,7 +600,7 @@ pub const File = struct {
             return @fieldParentPtr(C, "base", base).flush(comp, prog_node);
         }
         if (comp.clang_preprocessor_mode == .yes) {
-            const emit = base.options.emit orelse return; // -fno-emit-bin
+            const emit = base.emit;
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
             // Until then, we do `lld -r -o output.o input.o` even though the output is the same
             // as the input. For the preprocessing case (`zig cc -E -o foo`) we copy the file
@@ -610,8 +614,10 @@ pub const File = struct {
             return;
         }
 
-        const use_lld = build_options.have_llvm and base.options.use_lld;
-        if (use_lld and base.options.output_mode == .Lib and base.options.link_mode == .Static) {
+        const use_lld = build_options.have_llvm and base.comp.config.use_lld;
+        const output_mode = base.comp.config.output_mode;
+        const link_mode = base.comp.config.link_mode;
+        if (use_lld and output_mode == .Lib and link_mode == .Static) {
             return base.linkAsArchive(comp, prog_node);
         }
         switch (base.tag) {
@@ -845,8 +851,6 @@ pub const File = struct {
     }
 
     pub fn linkAsArchive(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) FlushError!void {
-        const emit = base.options.emit orelse return;
-
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -854,22 +858,23 @@ pub const File = struct {
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const directory = emit.directory; // Just an alias to make it shorter to type.
-        const full_out_path = try directory.join(arena, &[_][]const u8{emit.sub_path});
+        const directory = base.emit.directory; // Just an alias to make it shorter to type.
+        const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
         const full_out_path_z = try arena.dupeZ(u8, full_out_path);
+        const opt_zcu = base.comp.module;
 
         // If there is no Zig code to compile, then we should skip flushing the output file
         // because it will not be part of the linker line anyway.
-        const module_obj_path: ?[]const u8 = if (base.options.module != null) blk: {
+        const zcu_obj_path: ?[]const u8 = if (opt_zcu != null) blk: {
             try base.flushModule(comp, prog_node);
 
             const dirname = fs.path.dirname(full_out_path_z) orelse ".";
             break :blk try fs.path.join(arena, &.{ dirname, base.intermediary_basename.? });
         } else null;
 
-        log.debug("module_obj_path={s}", .{if (module_obj_path) |s| s else "(null)"});
+        log.debug("zcu_obj_path={s}", .{if (zcu_obj_path) |s| s else "(null)"});
 
-        const compiler_rt_path: ?[]const u8 = if (base.options.include_compiler_rt)
+        const compiler_rt_path: ?[]const u8 = if (base.comp.include_compiler_rt)
             comp.compiler_rt_obj.?.full_object_path
         else
             null;
@@ -881,17 +886,19 @@ pub const File = struct {
         const id_symlink_basename = "llvm-ar.id";
 
         var man: Cache.Manifest = undefined;
-        defer if (!base.options.disable_lld_caching) man.deinit();
+        defer if (!base.disable_lld_caching) man.deinit();
+
+        const objects = base.comp.objects;
 
         var digest: [Cache.hex_digest_len]u8 = undefined;
 
-        if (!base.options.disable_lld_caching) {
+        if (!base.disable_lld_caching) {
             man = comp.cache_parent.obtain();
 
             // We are about to obtain this lock, so here we give other processes a chance first.
             base.releaseLock();
 
-            for (base.options.objects) |obj| {
+            for (objects) |obj| {
                 _ = try man.addFile(obj.path, null);
                 man.hash.add(obj.must_link);
                 man.hash.add(obj.loption);
@@ -904,7 +911,7 @@ pub const File = struct {
                     _ = try man.addFile(key.status.success.res_path, null);
                 }
             }
-            try man.addOptionalFile(module_obj_path);
+            try man.addOptionalFile(zcu_obj_path);
             try man.addOptionalFile(compiler_rt_path);
 
             // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
@@ -934,11 +941,11 @@ pub const File = struct {
         }
 
         const win32_resource_table_len = if (build_options.only_core_functionality) 0 else comp.win32_resource_table.count();
-        const num_object_files = base.options.objects.len + comp.c_object_table.count() + win32_resource_table_len + 2;
+        const num_object_files = objects.len + comp.c_object_table.count() + win32_resource_table_len + 2;
         var object_files = try std.ArrayList([*:0]const u8).initCapacity(base.allocator, num_object_files);
         defer object_files.deinit();
 
-        for (base.options.objects) |obj| {
+        for (objects) |obj| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, obj.path));
         }
         for (comp.c_object_table.keys()) |key| {
@@ -949,14 +956,14 @@ pub const File = struct {
                 object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.res_path));
             }
         }
-        if (module_obj_path) |p| {
+        if (zcu_obj_path) |p| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
         }
         if (compiler_rt_path) |p| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
         }
 
-        if (base.options.verbose_link) {
+        if (comp.verbose_link) {
             std.debug.print("ar rcs {s}", .{full_out_path_z});
             for (object_files.items) |arg| {
                 std.debug.print(" {s}", .{arg});
@@ -972,7 +979,7 @@ pub const File = struct {
         const bad = llvm_bindings.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_tag);
         if (bad) return error.UnableToWriteArchive;
 
-        if (!base.options.disable_lld_caching) {
+        if (!base.disable_lld_caching) {
             Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
                 log.warn("failed to save archive hash digest file: {s}", .{@errorName(err)});
             };
@@ -1088,6 +1095,34 @@ pub const File = struct {
             .Exe => return executable_mode,
             .Obj => return fs.File.default_mode,
         }
+    }
+
+    pub fn isStatic(self: File) bool {
+        return self.base.options.link_mode == .Static;
+    }
+
+    pub fn isObject(self: File) bool {
+        const output_mode = self.comp.config.output_mode;
+        return output_mode == .Obj;
+    }
+
+    pub fn isExe(self: File) bool {
+        const output_mode = self.comp.config.output_mode;
+        return output_mode == .Exe;
+    }
+
+    pub fn isStaticLib(self: File) bool {
+        const output_mode = self.comp.config.output_mode;
+        return output_mode == .Lib and self.isStatic();
+    }
+
+    pub fn isRelocatable(self: File) bool {
+        return self.isObject() or self.isStaticLib();
+    }
+
+    pub fn isDynLib(self: File) bool {
+        const output_mode = self.comp.config.output_mode;
+        return output_mode == .Lib and !self.isStatic();
     }
 
     pub const C = @import("link/C.zig");

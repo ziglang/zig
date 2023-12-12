@@ -69,6 +69,8 @@ root_name: [:0]const u8,
 cache_mode: CacheMode,
 include_compiler_rt: bool,
 objects: []Compilation.LinkObject,
+/// Needed only for passing -F args to clang.
+framework_dirs: []const []const u8,
 /// These are *always* dynamically linked. Static libraries will be
 /// provided as positional arguments.
 system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
@@ -133,6 +135,7 @@ verbose_llvm_ir: ?[]const u8,
 verbose_llvm_bc: ?[]const u8,
 verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
+verbose_link: bool,
 disable_c_depfile: bool,
 time_report: bool,
 stack_report: bool,
@@ -219,6 +222,8 @@ emit_llvm_bc: ?EmitLoc,
 
 work_queue_wait_group: WaitGroup = .{},
 astgen_wait_group: WaitGroup = .{},
+
+llvm_opt_bisect_limit: c_int,
 
 pub const Emit = struct {
     /// Where the output will go.
@@ -340,7 +345,7 @@ const Job = union(enum) {
     /// one of WASI libc static objects
     wasi_libc_crt_file: wasi_libc.CRTFile,
 
-    /// The value is the index into `link.File.Options.system_libs`.
+    /// The value is the index into `system_libs`.
     windows_import_lib: usize,
 };
 
@@ -819,6 +824,20 @@ pub const cache_helpers = struct {
         addEmitLoc(hh, optional_emit_loc orelse return);
     }
 
+    pub fn addOptionalDebugFormat(hh: *Cache.HashHelper, x: ?link.File.DebugFormat) void {
+        hh.add(x != null);
+        addDebugFormat(hh, x orelse return);
+    }
+
+    pub fn addDebugFormat(hh: *Cache.HashHelper, x: link.File.DebugFormat) void {
+        const tag: @typeInfo(link.File.DebugFormat).Union.tag_type.? = x;
+        hh.add(tag);
+        switch (x) {
+            .strip, .code_view => {},
+            .dwarf => |f| hh.add(f),
+        }
+    }
+
     pub fn hashCSource(self: *Cache.Manifest, c_source: CSourceFile) !void {
         _ = try self.addFile(c_source.src_path, null);
         // Hash the extra flags, with special care to call addFile for file parameters.
@@ -846,7 +865,7 @@ pub const ClangPreprocessorMode = enum {
     stdout,
 };
 
-pub const Framework = link.Framework;
+pub const Framework = link.File.MachO.Framework;
 pub const SystemLib = link.SystemLib;
 pub const CacheMode = link.CacheMode;
 
@@ -952,7 +971,7 @@ pub const InitOptions = struct {
     linker_print_gc_sections: bool = false,
     linker_print_icf_sections: bool = false,
     linker_print_map: bool = false,
-    linker_opt_bisect_limit: i32 = -1,
+    llvm_opt_bisect_limit: i32 = -1,
     each_lib_rpath: ?bool = null,
     build_id: ?std.zig.BuildId = null,
     disable_c_depfile: bool = false,
@@ -994,7 +1013,7 @@ pub const InitOptions = struct {
     hash_style: link.HashStyle = .both,
     entry: ?[]const u8 = null,
     force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{},
-    stack_size_override: ?u64 = null,
+    stack_size: ?u64 = null,
     image_base_override: ?u64 = null,
     version: ?std.SemanticVersion = null,
     compatibility_version: ?std.SemanticVersion = null,
@@ -1007,7 +1026,7 @@ pub const InitOptions = struct {
     test_name_prefix: ?[]const u8 = null,
     test_runner_path: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
-    dwarf_format: ?std.dwarf.Format = null,
+    debug_format: ?link.File.DebugFormat = null,
     /// (Zig compiler development) Enable dumping linker's state as JSON.
     enable_link_snapshots: bool = false,
     /// (Darwin) Install name of the dylib
@@ -1297,7 +1316,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.config.link_libcpp);
         cache.hash.add(options.config.link_libunwind);
         cache.hash.add(output_mode);
-        cache.hash.addOptional(options.dwarf_format);
+        cache_helpers.addOptionalDebugFormat(&cache.hash, options.debug_format);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_bin);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_implib);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_docs);
@@ -1596,6 +1615,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .verbose_llvm_bc = options.verbose_llvm_bc,
             .verbose_cimport = options.verbose_cimport,
             .verbose_llvm_cpu_features = options.verbose_llvm_cpu_features,
+            .verbose_link = options.verbose_link,
             .disable_c_depfile = options.disable_c_depfile,
             .owned_link_dir = owned_link_dir,
             .color = options.color,
@@ -1617,6 +1637,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .libc_installation = libc_dirs.libc_installation,
             .include_compiler_rt = include_compiler_rt,
             .objects = options.link_objects,
+            .framework_dirs = options.framework_dirs,
+            .llvm_opt_bisect_limit = options.llvm_opt_bisect_limit,
         };
 
         if (bin_file_emit) |emit| {
@@ -1636,7 +1658,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .z_max_page_size = options.linker_z_max_page_size,
                 .darwin_sdk_layout = libc_dirs.darwin_sdk_layout,
                 .frameworks = options.frameworks,
-                .framework_dirs = options.framework_dirs,
                 .wasi_emulated_libs = options.wasi_emulated_libs,
                 .lib_dirs = options.lib_dirs,
                 .rpath_list = options.rpath_list,
@@ -1659,13 +1680,12 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .print_gc_sections = options.linker_print_gc_sections,
                 .print_icf_sections = options.linker_print_icf_sections,
                 .print_map = options.linker_print_map,
-                .opt_bisect_limit = options.linker_opt_bisect_limit,
                 .tsaware = options.linker_tsaware,
                 .nxcompat = options.linker_nxcompat,
                 .dynamicbase = options.linker_dynamicbase,
                 .major_subsystem_version = options.major_subsystem_version,
                 .minor_subsystem_version = options.minor_subsystem_version,
-                .stack_size_override = options.stack_size_override,
+                .stack_size = options.stack_size,
                 .image_base_override = options.image_base_override,
                 .version_script = options.version_script,
                 .gc_sections = options.linker_gc_sections,
@@ -1674,7 +1694,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .rdynamic = options.rdynamic,
                 .soname = options.soname,
                 .compatibility_version = options.compatibility_version,
-                .verbose_link = options.verbose_link,
                 .dll_export_fns = dll_export_fns,
                 .skip_linker_dependencies = options.skip_linker_dependencies,
                 .parent_compilation_link_libc = options.parent_compilation_link_libc,
@@ -1682,7 +1701,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .build_id = build_id,
                 .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
                 .subsystem = options.subsystem,
-                .dwarf_format = options.dwarf_format,
+                .debug_format = options.debug_format,
                 .hash_style = options.hash_style,
                 .enable_link_snapshots = options.enable_link_snapshots,
                 .install_name = options.install_name,
@@ -1826,7 +1845,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             // When linking mingw-w64 there are some import libs we always need.
             for (mingw.always_link_libs) |name| {
-                try comp.bin_file.options.system_libs.put(comp.gpa, name, .{
+                try comp.system_libs.put(comp.gpa, name, .{
                     .needed = false,
                     .weak = false,
                     .path = null,
@@ -1835,7 +1854,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         }
         // Generate Windows import libs.
         if (target.os.tag == .windows) {
-            const count = comp.bin_file.options.system_libs.count();
+            const count = comp.system_libs.count();
             try comp.work_queue.ensureUnusedCapacity(count);
             for (0..count) |i| {
                 comp.work_queue.writeItemAssumeCapacity(.{ .windows_import_lib = i });
@@ -2450,7 +2469,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_bc);
 
-    man.hash.addOptional(comp.bin_file.options.stack_size_override);
+    man.hash.add(comp.bin_file.stack_size);
     man.hash.addOptional(comp.bin_file.options.image_base_override);
     man.hash.addOptional(comp.bin_file.options.gc_sections);
     man.hash.add(comp.bin_file.options.eh_frame_hdr);
@@ -2460,7 +2479,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.addListOfBytes(comp.bin_file.options.rpath_list);
     man.hash.addListOfBytes(comp.bin_file.options.symbol_wrap_set.keys());
     man.hash.add(comp.bin_file.options.each_lib_rpath);
-    man.hash.add(comp.bin_file.options.build_id);
+    man.hash.add(comp.bin_file.build_id);
     man.hash.add(comp.bin_file.options.skip_linker_dependencies);
     man.hash.add(comp.bin_file.options.z_nodelete);
     man.hash.add(comp.bin_file.options.z_notext);
@@ -2488,9 +2507,9 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     }
     man.hash.addOptionalBytes(comp.bin_file.options.soname);
     man.hash.addOptional(comp.bin_file.options.version);
-    try link.hashAddSystemLibs(man, comp.bin_file.options.system_libs);
+    try link.hashAddSystemLibs(man, comp.system_libs);
     man.hash.addListOfBytes(comp.bin_file.options.force_undefined_symbols.keys());
-    man.hash.addOptional(comp.bin_file.options.allow_shlib_undefined);
+    man.hash.addOptional(comp.bin_file.allow_shlib_undefined);
     man.hash.add(comp.bin_file.options.bind_global_refs_locally);
     man.hash.add(comp.bin_file.options.tsan);
     man.hash.addOptionalBytes(comp.bin_file.options.sysroot);
@@ -2505,7 +2524,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.addOptional(comp.bin_file.options.global_base);
 
     // Mach-O specific stuff
-    man.hash.addListOfBytes(comp.bin_file.options.framework_dirs);
+    man.hash.addListOfBytes(comp.framework_dirs);
     try link.hashAddFrameworks(man, comp.bin_file.options.frameworks);
     try man.addOptionalFile(comp.bin_file.options.entitlements);
     man.hash.addOptional(comp.bin_file.options.pagezero_size);
@@ -3561,7 +3580,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
             const named_frame = tracy.namedFrame("windows_import_lib");
             defer named_frame.end();
 
-            const link_lib = comp.bin_file.options.system_libs.keys()[index];
+            const link_lib = comp.system_libs.keys()[index];
             mingw.buildImportLib(comp, link_lib) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
@@ -4964,7 +4983,7 @@ pub fn addCCArgs(
                 try argv.appendSlice(&.{ "-iframework", framework_dir });
             }
 
-            for (comp.bin_file.options.framework_dirs) |framework_dir| {
+            for (comp.framework_dirs) |framework_dir| {
                 try argv.appendSlice(&.{ "-F", framework_dir });
             }
 
@@ -5219,22 +5238,21 @@ pub fn addCCArgs(
         },
     }
 
-    if (!comp.bin_file.options.strip) {
-        switch (target.ofmt) {
-            .coff => {
-                // -g is required here because -gcodeview doesn't trigger debug info
-                // generation, it only changes the type of information generated.
-                try argv.appendSlice(&.{ "-g", "-gcodeview" });
-            },
-            .elf, .macho => {
-                try argv.append("-gdwarf-4");
-                if (comp.bin_file.options.dwarf_format) |f| switch (f) {
-                    .@"32" => try argv.append("-gdwarf32"),
-                    .@"64" => try argv.append("-gdwarf64"),
-                };
-            },
-            else => try argv.append("-g"),
-        }
+    try argv.ensureUnusedCapacity(2);
+    switch (comp.bin_file.debug_format) {
+        .strip => {},
+        .code_view => {
+            // -g is required here because -gcodeview doesn't trigger debug info
+            // generation, it only changes the type of information generated.
+            argv.appendSliceAssumeCapacity(&.{ "-g", "-gcodeview" });
+        },
+        .dwarf => |f| {
+            argv.appendAssumeCapacity("-gdwarf-4");
+            switch (f) {
+                .@"32" => argv.appendAssumeCapacity("-gdwarf32"),
+                .@"64" => argv.appendAssumeCapacity("-gdwarf64"),
+            }
+        },
     }
 
     if (target_util.llvmMachineAbi(target)) |mabi| {
@@ -6306,7 +6324,7 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     // This happens when an `extern "foo"` function is referenced.
     // If we haven't seen this library yet and we're targeting Windows, we need
     // to queue up a work item to produce the DLL import library for this.
-    const gop = try comp.bin_file.options.system_libs.getOrPut(comp.gpa, lib_name);
+    const gop = try comp.system_libs.getOrPut(comp.gpa, lib_name);
     if (!gop.found_existing and comp.getTarget().os.tag == .windows) {
         gop.value_ptr.* = .{
             .needed = true,
@@ -6314,7 +6332,7 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
             .path = null,
         };
         try comp.work_queue.writeItem(.{
-            .windows_import_lib = comp.bin_file.options.system_libs.count() - 1,
+            .windows_import_lib = comp.system_libs.count() - 1,
         });
     }
 }

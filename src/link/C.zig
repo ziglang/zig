@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const fs = std.fs;
 
 const C = @This();
+const build_options = @import("build_options");
 const Module = @import("../Module.zig");
 const InternPool = @import("../InternPool.zig");
 const Alignment = InternPool.Alignment;
@@ -91,28 +92,40 @@ pub fn addString(this: *C, s: []const u8) Allocator.Error!String {
     };
 }
 
-pub fn openPath(gpa: Allocator, sub_path: []const u8, options: link.Options) !*C {
+pub fn open(arena: Allocator, options: link.File.OpenOptions) !*C {
     assert(options.target.ofmt == .c);
+    const optimize_mode = options.comp.root_mod.optimize_mode;
+    const use_lld = build_options.have_llvm and options.comp.config.use_lld;
+    const use_llvm = options.comp.config.use_llvm;
 
-    if (options.use_llvm) return error.LLVMHasNoCBackend;
-    if (options.use_lld) return error.LLDHasNoCBackend;
+    // These are caught by `Compilation.Config.resolve`.
+    assert(!use_lld);
+    assert(!use_llvm);
 
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{
+    const emit = options.emit;
+
+    const file = try emit.directory.handle.createFile(emit.sub_path, .{
         // Truncation is done on `flush`.
         .truncate = false,
         .mode = link.determineMode(options),
     });
     errdefer file.close();
 
-    const c_file = try gpa.create(C);
-    errdefer gpa.destroy(c_file);
+    const c_file = try arena.create(C);
 
     c_file.* = .{
         .base = .{
             .tag = .c,
-            .options = options,
+            .comp = options.comp,
+            .emit = emit,
+            .gc_sections = options.gc_sections orelse optimize_mode != .Debug,
+            .stack_size = options.stack_size orelse 16777216,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = file,
-            .allocator = gpa,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
+            .force_undefined_symbols = options.force_undefined_symbols,
         },
     };
 
@@ -120,7 +133,7 @@ pub fn openPath(gpa: Allocator, sub_path: []const u8, options: link.Options) !*C
 }
 
 pub fn deinit(self: *C) void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     for (self.decl_table.values()) |*db| {
         db.deinit(gpa);
@@ -141,7 +154,7 @@ pub fn deinit(self: *C) void {
 }
 
 pub fn freeDecl(self: *C, decl_index: InternPool.DeclIndex) void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     if (self.decl_table.fetchSwapRemove(decl_index)) |kv| {
         var decl_block = kv.value;
         decl_block.deinit(gpa);
@@ -155,7 +168,7 @@ pub fn updateFunc(
     air: Air,
     liveness: Liveness,
 ) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     const func = module.funcInfo(func_index);
     const decl_index = func.owner_decl;
@@ -223,7 +236,7 @@ pub fn updateFunc(
 }
 
 fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const anon_decl = self.anon_decls.keys()[i];
 
     const fwd_decl = &self.fwd_decl_buf;
@@ -285,7 +298,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: InternPool.DeclIndex) !
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     const gop = try self.decl_table.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
@@ -352,7 +365,8 @@ pub fn flush(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) !void 
 }
 
 fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
-    var defines = std.ArrayList(u8).init(self.base.allocator);
+    const gpa = self.base.comp.gpa;
+    var defines = std.ArrayList(u8).init(gpa);
     errdefer defines.deinit();
     const writer = defines.writer();
     switch (target.abi) {
@@ -371,7 +385,7 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const module = self.base.options.module.?;
 
     {
@@ -520,7 +534,7 @@ fn flushCTypes(
     pass: codegen.DeclGen.Pass,
     decl_ctypes: codegen.CType.Store,
 ) FlushDeclError!void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const mod = self.base.options.module.?;
 
     const decl_ctypes_len = decl_ctypes.count();
@@ -601,7 +615,7 @@ fn flushCTypes(
 }
 
 fn flushErrDecls(self: *C, ctypes: *codegen.CType.Store) FlushDeclError!void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     const fwd_decl = &self.lazy_fwd_decl_buf;
     const code = &self.lazy_code_buf;
@@ -643,7 +657,7 @@ fn flushLazyFn(
     ctypes: *codegen.CType.Store,
     lazy_fn: codegen.LazyFnMap.Entry,
 ) FlushDeclError!void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     const fwd_decl = &self.lazy_fwd_decl_buf;
     const code = &self.lazy_code_buf;
@@ -683,7 +697,7 @@ fn flushLazyFn(
 }
 
 fn flushLazyFns(self: *C, f: *Flush, lazy_fns: codegen.LazyFnMap) FlushDeclError!void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     try f.lazy_fns.ensureUnusedCapacity(gpa, @intCast(lazy_fns.count()));
 
     var it = lazy_fns.iterator();
@@ -702,7 +716,7 @@ fn flushDeclBlock(
     export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void),
     extern_symbol_name: InternPool.OptionalNullTerminatedString,
 ) FlushDeclError!void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     try self.flushLazyFns(f, decl_block.lazy_fns);
     try f.all_buffers.ensureUnusedCapacity(gpa, 1);
     fwd_decl: {

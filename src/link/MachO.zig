@@ -144,6 +144,35 @@ tlv_table: TlvSymbolTable = .{},
 hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
 
 darwin_sdk_layout: ?SdkLayout,
+/// Size of the __PAGEZERO segment.
+pagezero_vmsize: u64,
+/// Minimum space for future expansion of the load commands.
+headerpad_size: u32,
+/// Set enough space as if all paths were MATPATHLEN.
+headerpad_max_install_names: bool,
+/// Remove dylibs that are unreachable by the entry point or exported symbols.
+dead_strip_dylibs: bool,
+frameworks: []const Framework,
+/// Install name for the dylib.
+/// TODO: unify with soname
+install_name: ?[]const u8,
+/// Path to entitlements file.
+entitlements: ?[]const u8,
+
+/// When adding a new field, remember to update `hashAddFrameworks`.
+pub const Framework = struct {
+    needed: bool = false,
+    weak: bool = false,
+    path: []const u8,
+};
+
+pub fn hashAddFrameworks(man: *Cache.Manifest, hm: []const Framework) !void {
+    for (hm) |value| {
+        man.hash.add(value.needed);
+        man.hash.add(value.weak);
+        _ = try man.addFile(value.path, null);
+    }
+}
 
 /// The filesystem layout of darwin SDK elements.
 pub const SdkLayout = enum {
@@ -156,12 +185,14 @@ pub const SdkLayout = enum {
 pub fn open(arena: Allocator, options: link.File.OpenOptions) !*MachO {
     if (build_options.only_c) unreachable;
     const target = options.comp.root_mod.resolved_target.result;
+    const use_lld = build_options.have_llvm and options.comp.config.use_lld;
+    const use_llvm = options.comp.config.use_llvm;
     assert(target.ofmt == .macho);
 
     const gpa = options.comp.gpa;
     const emit = options.emit;
     const mode: Mode = mode: {
-        if (options.use_llvm or options.module == null or options.cache_mode == .whole)
+        if (use_llvm or options.module == null or options.cache_mode == .whole)
             break :mode .zld;
         break :mode .incremental;
     };
@@ -192,7 +223,11 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*MachO {
     const file = try emit.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
-        .mode = link.determineMode(options),
+        .mode = link.File.determineMode(
+            use_lld,
+            options.comp.config.output_mode,
+            options.comp.config.link_mode,
+        ),
     });
     self.base.file = file;
 
@@ -242,21 +277,37 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*MachO {
 
 pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*MachO {
     const self = try arena.create(MachO);
+    const optimize_mode = options.comp.root_mod.optimize_mode;
+    const use_llvm = options.comp.config.use_llvm;
 
     self.* = .{
         .base = .{
             .tag = .macho,
             .comp = options.comp,
             .emit = options.emit,
+            .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
+            .stack_size = options.stack_size orelse 16777216,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
+            .force_undefined_symbols = options.force_undefined_symbols,
+            .debug_format = options.debug_format orelse .{ .dwarf = .@"32" },
+            .function_sections = options.function_sections,
+            .data_sections = options.data_sections,
         },
-        .mode = if (options.use_llvm or options.module == null or options.cache_mode == .whole)
+        .mode = if (use_llvm or options.module == null or options.cache_mode == .whole)
             .zld
         else
             .incremental,
+        .pagezero_vmsize = options.pagezero_size orelse default_pagezero_vmsize,
+        .headerpad_size = options.headerpad_size orelse default_headerpad_size,
+        .headerpad_max_install_names = options.headerpad_max_install_names,
+        .dead_strip_dylibs = options.dead_strip_dylibs,
     };
 
-    if (options.use_llvm and options.module != null) {
+    if (use_llvm and options.module != null) {
         self.llvm_object = try LlvmObject.create(arena, options);
     }
 
@@ -267,8 +318,9 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*MachO {
 
 pub fn flush(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const gpa = self.base.comp.gpa;
+    const output_mode = self.base.comp.config.output_mode;
 
-    if (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Static) {
+    if (output_mode == .Lib and self.base.options.link_mode == .Static) {
         if (build_options.have_llvm) {
             return self.base.linkAsArchive(comp, prog_node);
         } else {
@@ -303,6 +355,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
+    const output_mode = self.base.comp.config.output_mode;
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     if (self.lazy_syms.getPtr(.none)) |metadata| {
@@ -335,7 +388,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     }
 
     var libs = std.StringArrayHashMap(link.SystemLib).init(arena);
-    try self.resolveLibSystem(arena, comp, &.{}, &libs);
+    try self.resolveLibSystem(arena, comp, &libs);
 
     const id_symlink_basename = "link.id";
 
@@ -446,7 +499,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     try self.createDyldPrivateAtom();
     try self.writeStubHelperPreamble();
 
-    if (self.base.options.output_mode == .Exe and self.getEntryPoint() != null) {
+    if (output_mode == .Exe and self.getEntryPoint() != null) {
         const global = self.getEntryPoint().?;
         if (self.getSymbol(global).undf()) {
             // We do one additional check here in case the entry point was found in one of the dylibs.
@@ -517,8 +570,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
         // where the code signature goes into.
         var codesig = CodeSignature.init(getPageSize(self.base.options.target.cpu.arch));
-        codesig.code_directory.ident = self.base.options.emit.?.sub_path;
-        if (self.base.options.entitlements) |path| {
+        codesig.code_directory.ident = self.base.emit.sub_path;
+        if (self.entitlements) |path| {
             try codesig.addEntitlements(gpa, path);
         }
         try self.writeCodeSignaturePadding(&codesig);
@@ -536,7 +589,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     try lc_writer.writeStruct(self.dysymtab_cmd);
     try load_commands.writeDylinkerLC(lc_writer);
 
-    switch (self.base.options.output_mode) {
+    switch (output_mode) {
         .Exe => blk: {
             const seg_id = self.header_segment_cmd_index.?;
             const seg = self.segments.items[seg_id];
@@ -552,7 +605,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
             try lc_writer.writeStruct(macho.entry_point_command{
                 .entryoff = @as(u32, @intCast(addr - seg.vmaddr)),
-                .stacksize = self.base.options.stack_size_override orelse 0,
+                .stacksize = self.base.stack_size,
             });
         },
         .Lib => if (self.base.options.link_mode == .Dynamic) {
@@ -591,7 +644,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     if (codesig) |*csig| {
         try self.writeCodeSignature(comp, csig); // code signing always comes last
-        const emit = self.base.options.emit.?;
+        const emit = self.base.emit;
         try invalidateKernelCache(emit.directory.handle, emit.sub_path);
     }
 
@@ -642,34 +695,20 @@ pub fn resolveLibSystem(
     self: *MachO,
     arena: Allocator,
     comp: *Compilation,
-    search_dirs: []const []const u8,
     out_libs: anytype,
 ) !void {
-    const gpa = self.base.comp.gpa;
-    var tmp_arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    defer tmp_arena_allocator.deinit();
-    const tmp_arena = tmp_arena_allocator.allocator();
-
-    var test_path = std.ArrayList(u8).init(tmp_arena);
-    var checked_paths = std.ArrayList([]const u8).init(tmp_arena);
+    var test_path = std.ArrayList(u8).init(arena);
+    var checked_paths = std.ArrayList([]const u8).init(arena);
 
     success: {
-        for (search_dirs) |dir| if (try accessLibPath(
-            tmp_arena,
-            &test_path,
-            &checked_paths,
-            dir,
-            "libSystem",
-        )) break :success;
-
         if (self.base.options.darwin_sdk_layout) |sdk_layout| switch (sdk_layout) {
             .sdk => {
-                const dir = try fs.path.join(tmp_arena, &[_][]const u8{ self.base.options.sysroot.?, "usr", "lib" });
-                if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
+                const dir = try fs.path.join(arena, &[_][]const u8{ self.base.options.sysroot.?, "usr", "lib" });
+                if (try accessLibPath(arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
             },
             .vendored => {
-                const dir = try comp.zig_lib_directory.join(tmp_arena, &[_][]const u8{ "libc", "darwin" });
-                if (try accessLibPath(tmp_arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
+                const dir = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "darwin" });
+                if (try accessLibPath(arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
             },
         };
 
@@ -1082,7 +1121,7 @@ fn addDylib(self: *MachO, dylib: Dylib, dylib_options: DylibOpts, ctx: *ParseErr
     try self.dylibs.append(gpa, dylib);
 
     const should_link_dylib_even_if_unreachable = blk: {
-        if (self.base.options.dead_strip_dylibs and !dylib_options.needed) break :blk false;
+        if (self.dead_strip_dylibs and !dylib_options.needed) break :blk false;
         break :blk !(dylib_options.dependent or self.referenced_dylibs.contains(gop.value_ptr.*));
     };
 
@@ -1597,7 +1636,8 @@ fn createThreadLocalDescriptorAtom(self: *MachO, sym_name: []const u8, target: S
 }
 
 pub fn createMhExecuteHeaderSymbol(self: *MachO) !void {
-    if (self.base.options.output_mode != .Exe) return;
+    const output_mode = self.base.comp.config.output_mode;
+    if (output_mode != .Exe) return;
 
     const gpa = self.base.comp.gpa;
     const sym_index = try self.allocateSymbol();
@@ -1647,10 +1687,11 @@ pub fn createDsoHandleSymbol(self: *MachO) !void {
 }
 
 pub fn resolveSymbols(self: *MachO) !void {
+    const output_mode = self.base.comp.config.output_mode;
     // We add the specified entrypoint as the first unresolved symbols so that
     // we search for it in libraries should there be no object files specified
     // on the linker line.
-    if (self.base.options.output_mode == .Exe) {
+    if (output_mode == .Exe) {
         const entry_name = self.base.options.entry orelse load_commands.default_entry_point;
         _ = try self.addUndefined(entry_name, .{});
     }
@@ -1867,9 +1908,10 @@ fn resolveSymbolsInDylibs(self: *MachO) !void {
 }
 
 fn resolveSymbolsAtLoading(self: *MachO) !void {
-    const is_lib = self.base.options.output_mode == .Lib;
+    const output_mode = self.base.comp.config.output_mode;
+    const is_lib = output_mode == .Lib;
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
-    const allow_undef = is_dyn_lib and (self.base.options.allow_shlib_undefined orelse false);
+    const allow_undef = is_dyn_lib and self.base.allow_shlib_undefined;
 
     var next_sym: usize = 0;
     while (next_sym < self.unresolved.count()) {
@@ -2674,12 +2716,12 @@ fn getDeclOutputSection(self: *MachO, decl_index: InternPool.DeclIndex) u8 {
     const val = decl.val;
     const mod = self.base.options.module.?;
     const zig_ty = ty.zigTypeTag(mod);
-    const mode = self.base.options.optimize_mode;
-    const single_threaded = self.base.options.single_threaded;
+    const any_non_single_threaded = self.base.comp.config.any_non_single_threaded;
+    const optimize_mode = self.base.comp.root_mod.optimize_mode;
     const sect_id: u8 = blk: {
         // TODO finish and audit this function
         if (val.isUndefDeep(mod)) {
-            if (mode == .ReleaseFast or mode == .ReleaseSmall) {
+            if (optimize_mode == .ReleaseFast or optimize_mode == .ReleaseSmall) {
                 @panic("TODO __DATA,__bss");
             } else {
                 break :blk self.data_section_index.?;
@@ -2687,7 +2729,7 @@ fn getDeclOutputSection(self: *MachO, decl_index: InternPool.DeclIndex) u8 {
         }
 
         if (val.getVariable(mod)) |variable| {
-            if (variable.is_threadlocal and !single_threaded) {
+            if (variable.is_threadlocal and any_non_single_threaded) {
                 break :blk self.thread_data_section_index.?;
             }
             break :blk self.data_section_index.?;
@@ -2795,8 +2837,6 @@ pub fn updateExports(
     }
     if (self.llvm_object) |llvm_object|
         return llvm_object.updateExports(mod, exported, exports);
-
-    if (self.base.options.emit == null) return;
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -3093,7 +3133,7 @@ fn populateMissingMetadata(self: *MachO) !void {
     if (self.header_segment_cmd_index == null) {
         // The first __TEXT segment is immovable and covers MachO header and load commands.
         self.header_segment_cmd_index = @as(u8, @intCast(self.segments.items.len));
-        const ideal_size = @max(self.base.options.headerpad_size orelse 0, default_headerpad_size);
+        const ideal_size = self.headerpad_size;
         const needed_size = mem.alignForward(u64, padToIdeal(ideal_size), getPageSize(cpu_arch));
 
         log.debug("found __TEXT segment (header-only) free space 0x{x} to 0x{x}", .{ 0, needed_size });
@@ -3222,13 +3262,13 @@ fn populateMissingMetadata(self: *MachO) !void {
 }
 
 fn calcPagezeroSize(self: *MachO) u64 {
-    const pagezero_vmsize = self.base.options.pagezero_size orelse default_pagezero_vmsize;
+    const output_mode = self.base.comp.config.output_mode;
     const page_size = getPageSize(self.base.options.target.cpu.arch);
-    const aligned_pagezero_vmsize = mem.alignBackward(u64, pagezero_vmsize, page_size);
-    if (self.base.options.output_mode == .Lib) return 0;
+    const aligned_pagezero_vmsize = mem.alignBackward(u64, self.pagezero_vmsize, page_size);
+    if (output_mode == .Lib) return 0;
     if (aligned_pagezero_vmsize == 0) return 0;
-    if (aligned_pagezero_vmsize != pagezero_vmsize) {
-        log.warn("requested __PAGEZERO size (0x{x}) is not page aligned", .{pagezero_vmsize});
+    if (aligned_pagezero_vmsize != self.pagezero_vmsize) {
+        log.warn("requested __PAGEZERO size (0x{x}) is not page aligned", .{self.pagezero_vmsize});
         log.warn("  rounding down to 0x{x}", .{aligned_pagezero_vmsize});
     }
     return aligned_pagezero_vmsize;
@@ -4685,6 +4725,7 @@ pub fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {
 }
 
 pub fn writeCodeSignature(self: *MachO, comp: *const Compilation, code_sig: *CodeSignature) !void {
+    const output_mode = self.base.comp.config.output_mode;
     const seg_id = self.header_segment_cmd_index.?;
     const seg = self.segments.items[seg_id];
     const offset = self.codesig_cmd.dataoff;
@@ -4698,7 +4739,7 @@ pub fn writeCodeSignature(self: *MachO, comp: *const Compilation, code_sig: *Cod
         .exec_seg_base = seg.fileoff,
         .exec_seg_limit = seg.filesize,
         .file_size = offset,
-        .output_mode = self.base.options.output_mode,
+        .output_mode = output_mode,
     }, buffer.writer());
     assert(buffer.items.len == code_sig.size());
 
@@ -4712,6 +4753,8 @@ pub fn writeCodeSignature(self: *MachO, comp: *const Compilation, code_sig: *Cod
 
 /// Writes Mach-O file header.
 pub fn writeHeader(self: *MachO, ncmds: u32, sizeofcmds: u32) !void {
+    const output_mode = self.base.comp.config.output_mode;
+
     var header: macho.mach_header_64 = .{};
     header.flags = macho.MH_NOUNDEFS | macho.MH_DYLDLINK | macho.MH_PIE | macho.MH_TWOLEVEL;
 
@@ -4727,7 +4770,7 @@ pub fn writeHeader(self: *MachO, ncmds: u32, sizeofcmds: u32) !void {
         else => unreachable,
     }
 
-    switch (self.base.options.output_mode) {
+    switch (output_mode) {
         .Exe => {
             header.filetype = macho.MH_EXECUTE;
         },

@@ -206,7 +206,10 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Elf {
     assert(target.ofmt == .elf);
 
     const use_lld = build_options.have_llvm and options.comp.config.use_lld;
-    const use_llvm = build_options.have_llvm and options.comp.config.use_llvm;
+    const use_llvm = options.comp.config.use_llvm;
+    const opt_zcu = options.comp.module;
+    const output_mode = options.comp.config.output_mode;
+    const link_mode = options.comp.config.link_mode;
 
     const self = try createEmpty(arena, options);
     errdefer self.base.destroy();
@@ -216,8 +219,8 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Elf {
         return self;
     }
 
-    const is_obj = options.output_mode == .Obj;
-    const is_obj_or_ar = is_obj or (options.output_mode == .Lib and options.link_mode == .Static);
+    const is_obj = output_mode == .Obj;
+    const is_obj_or_ar = is_obj or (output_mode == .Lib and link_mode == .Static);
 
     const sub_path = if (!use_lld) options.emit.sub_path else p: {
         // Open a temporary object file, not the final output file because we
@@ -229,10 +232,10 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Elf {
         break :p o_file_path;
     };
 
-    self.base.file = try options.emit.?.directory.handle.createFile(sub_path, .{
+    self.base.file = try options.emit.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
-        .mode = link.determineMode(options),
+        .mode = link.File.determineMode(use_lld, output_mode, link_mode),
     });
 
     const gpa = options.comp.gpa;
@@ -292,24 +295,34 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Elf {
         });
     }
 
-    if (options.module != null and !options.use_llvm) {
-        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-        self.files.set(index, .{ .zig_object = .{
-            .index = index,
-            .path = try std.fmt.allocPrint(arena, "{s}.o", .{std.fs.path.stem(
-                options.module.?.main_mod.root_src_path,
-            )}),
-        } });
-        self.zig_object_index = index;
-        try self.zigObjectPtr().?.init(self);
-        try self.initMetadata();
+    if (opt_zcu) |zcu| {
+        if (!use_llvm) {
+            const index: File.Index = @intCast(try self.files.addOne(gpa));
+            self.files.set(index, .{ .zig_object = .{
+                .index = index,
+                .path = try std.fmt.allocPrint(arena, "{s}.o", .{std.fs.path.stem(
+                    zcu.main_mod.root_src_path,
+                )}),
+            } });
+            self.zig_object_index = index;
+            try self.zigObjectPtr().?.init(self);
+            try self.initMetadata(.{
+                .symbol_count_hint = options.symbol_count_hint,
+                .program_code_size_hint = options.program_code_size_hint,
+            });
+        }
     }
 
     return self;
 }
 
 pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Elf {
+    const use_llvm = options.comp.config.use_llvm;
+    const optimize_mode = options.comp.root_mod.optimize_mode;
     const target = options.comp.root_mod.resolved_target.result;
+    const output_mode = options.comp.config.output_mode;
+    const link_mode = options.comp.config.link_mode;
+    const is_native_os = options.comp.root_mod.resolved_target.is_native_os;
     const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
@@ -322,7 +335,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Elf {
         .sparc64 => 0x2000,
         else => 0x1000,
     };
-    const is_dyn_lib = options.output_mode == .Lib and options.link_mode == .Dynamic;
+    const is_dyn_lib = output_mode == .Lib and link_mode == .Dynamic;
     const default_sym_version: elf.Elf64_Versym = if (is_dyn_lib or options.rdynamic)
         elf.VER_NDX_GLOBAL
     else
@@ -333,13 +346,23 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Elf {
             .tag = .elf,
             .comp = options.comp,
             .emit = options.emit,
+            .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
+            .stack_size = options.stack_size orelse 16777216,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse !is_native_os,
             .file = null,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
+            .force_undefined_symbols = options.force_undefined_symbols,
+            .debug_format = options.debug_format orelse .{ .dwarf = .@"32" },
+            .function_sections = options.function_sections,
+            .data_sections = options.data_sections,
         },
         .ptr_width = ptr_width,
         .page_size = page_size,
         .default_sym_version = default_sym_version,
     };
-    if (options.use_llvm and options.comp.config.have_zcu) {
+    if (use_llvm and options.comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, options);
     }
 
@@ -504,8 +527,13 @@ fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) u64 {
     return start;
 }
 
+pub const InitMetadataOptions = struct {
+    symbol_count_hint: u64,
+    program_code_size_hint: u64,
+};
+
 /// TODO move to ZigObject
-pub fn initMetadata(self: *Elf) !void {
+pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
     const gpa = self.base.comp.gpa;
     const ptr_size = self.ptrWidthBytes();
     const target = self.base.comp.root_mod.resolved_target.result;
@@ -515,7 +543,7 @@ pub fn initMetadata(self: *Elf) !void {
 
     const fillSection = struct {
         fn fillSection(elf_file: *Elf, shdr: *elf.Elf64_Shdr, size: u64, phndx: ?u16) void {
-            if (elf_file.isRelocatable()) {
+            if (elf_file.base.isRelocatable()) {
                 const off = elf_file.findFreeSpace(size, shdr.sh_addralign);
                 shdr.sh_offset = off;
                 shdr.sh_size = size;
@@ -530,9 +558,9 @@ pub fn initMetadata(self: *Elf) !void {
 
     comptime assert(number_of_zig_segments == 5);
 
-    if (!self.isRelocatable()) {
+    if (!self.base.isRelocatable()) {
         if (self.phdr_zig_load_re_index == null) {
-            const filesz = self.base.options.program_code_size_hint;
+            const filesz = options.program_code_size_hint;
             const off = self.findFreeSpace(filesz, self.page_size);
             self.phdr_zig_load_re_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
@@ -549,7 +577,7 @@ pub fn initMetadata(self: *Elf) !void {
             // We really only need ptr alignment but since we are using PROGBITS, linux requires
             // page align.
             const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-            const filesz = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
+            const filesz = @as(u64, ptr_size) * options.symbol_count_hint;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_got_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
@@ -613,8 +641,8 @@ pub fn initMetadata(self: *Elf) !void {
             .offset = std.math.maxInt(u64),
         });
         const shdr = &self.shdrs.items[self.zig_text_section_index.?];
-        fillSection(self, shdr, self.base.options.program_code_size_hint, self.phdr_zig_load_re_index);
-        if (self.isRelocatable()) {
+        fillSection(self, shdr, options.program_code_size_hint, self.phdr_zig_load_re_index);
+        if (self.base.isRelocatable()) {
             const rela_shndx = try self.addRelaShdr(".rela.text.zig", self.zig_text_section_index.?);
             try self.output_rela_sections.putNoClobber(gpa, self.zig_text_section_index.?, .{
                 .shndx = rela_shndx,
@@ -630,7 +658,7 @@ pub fn initMetadata(self: *Elf) !void {
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_text_section_index.?, .{});
     }
 
-    if (self.zig_got_section_index == null and !self.isRelocatable()) {
+    if (self.zig_got_section_index == null and !self.base.isRelocatable()) {
         self.zig_got_section_index = try self.addSection(.{
             .name = ".got.zig",
             .type = elf.SHT_PROGBITS,
@@ -661,7 +689,7 @@ pub fn initMetadata(self: *Elf) !void {
         });
         const shdr = &self.shdrs.items[self.zig_data_rel_ro_section_index.?];
         fillSection(self, shdr, 1024, self.phdr_zig_load_ro_index);
-        if (self.isRelocatable()) {
+        if (self.base.isRelocatable()) {
             const rela_shndx = try self.addRelaShdr(
                 ".rela.data.rel.ro.zig",
                 self.zig_data_rel_ro_section_index.?,
@@ -690,7 +718,7 @@ pub fn initMetadata(self: *Elf) !void {
         });
         const shdr = &self.shdrs.items[self.zig_data_section_index.?];
         fillSection(self, shdr, 1024, self.phdr_zig_load_rw_index);
-        if (self.isRelocatable()) {
+        if (self.base.isRelocatable()) {
             const rela_shndx = try self.addRelaShdr(
                 ".rela.data.zig",
                 self.zig_data_section_index.?,
@@ -930,13 +958,7 @@ pub fn markDirty(self: *Elf, shdr_index: u16) void {
 }
 
 pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    if (self.base.options.emit == null) {
-        if (self.llvm_object) |llvm_object| {
-            try llvm_object.flushModule(comp, prog_node);
-        }
-        return;
-    }
-    const use_lld = build_options.have_llvm and self.base.options.use_lld;
+    const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
     if (use_lld) {
         return self.linkWithLLD(comp, prog_node);
     }
@@ -950,7 +972,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (self.llvm_object) |llvm_object| {
         try llvm_object.flushModule(comp, prog_node);
 
-        const use_lld = build_options.have_llvm and self.base.options.use_lld;
+        const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
         if (use_lld) return;
     }
 
@@ -959,13 +981,14 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
     const target = self.base.comp.root_mod.resolved_target.result;
-    const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
+    const link_mode = self.base.comp.config.link_mode;
+    const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
     const module_obj_path: ?[]const u8 = if (self.base.intermediary_basename) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, path });
@@ -973,10 +996,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             break :blk path;
         }
     } else null;
-    const gc_sections = self.base.options.gc_sections orelse false;
+    const gc_sections = self.base.gc_sections;
 
     // --verbose-link
-    if (self.base.options.verbose_link) try self.dumpArgv(comp);
+    if (self.base.comp.verbose_link) try self.dumpArgv(comp);
 
     const csu = try CsuObjects.init(arena, self.base.options, comp);
     const compiler_rt_path: ?[]const u8 = blk: {
@@ -986,8 +1009,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     };
 
     if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
-    if (self.isStaticLib()) return self.flushStaticLib(comp, module_obj_path);
-    if (self.isObject()) return self.flushObject(comp, module_obj_path);
+    if (self.base.isStaticLib()) return self.flushStaticLib(comp, module_obj_path);
+    if (self.base.isObject()) return self.flushObject(comp, module_obj_path);
 
     // Here we will parse input positional and library files (if referenced).
     // This will roughly match in any linker backend we support.
@@ -1011,7 +1034,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
     // rpaths
-    var rpath_table = std.StringArrayHashMap(void).init(self.base.allocator);
+    var rpath_table = std.StringArrayHashMap(void).init(gpa);
     defer rpath_table.deinit();
 
     for (self.base.options.rpath_list) |rpath| {
@@ -1019,10 +1042,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     if (self.base.options.each_lib_rpath) {
-        var test_path = std.ArrayList(u8).init(self.base.allocator);
+        var test_path = std.ArrayList(u8).init(gpa);
         defer test_path.deinit();
         for (self.base.options.lib_dirs) |lib_dir_path| {
-            for (self.base.options.system_libs.keys()) |link_lib| {
+            for (self.base.comp.system_libs.keys()) |link_lib| {
                 if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
                     continue;
                 _ = try rpath_table.put(lib_dir_path, {});
@@ -1064,8 +1087,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     var system_libs = std.ArrayList(SystemLib).init(arena);
 
-    try system_libs.ensureUnusedCapacity(self.base.options.system_libs.values().len);
-    for (self.base.options.system_libs.values()) |lib_info| {
+    try system_libs.ensureUnusedCapacity(self.base.comp.system_libs.values().len);
+    for (self.base.comp.system_libs.values()) |lib_info| {
         system_libs.appendAssumeCapacity(.{ .needed = lib_info.needed, .path = lib_info.path.? });
     }
 
@@ -1127,7 +1150,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 .path = try comp.get_libc_crt_file(arena, "libc_nonshared.a"),
             });
         } else if (target.isMusl()) {
-            const path = try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
+            const path = try comp.get_libc_crt_file(arena, switch (link_mode) {
                 .Static => "libc.a",
                 .Dynamic => "libc.so",
             });
@@ -1224,7 +1247,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (self.entry_index == null) {
         const entry: ?[]const u8 = entry: {
             if (self.base.options.entry) |entry| break :entry entry;
-            if (!self.isDynLib()) break :entry "_start";
+            if (!self.base.isDynLib()) break :entry "_start";
             break :entry null;
         };
         self.entry_index = if (entry) |name| self.globalByName(name) else null;
@@ -1301,7 +1324,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     try self.writeAtoms();
     try self.writeSyntheticSections();
 
-    if (self.entry_index == null and self.isExe()) {
+    if (self.entry_index == null and self.base.isExe()) {
         log.debug("flushing. no_entry_point_found = true", .{});
         self.error_flags.no_entry_point_found = true;
     } else {
@@ -1531,13 +1554,15 @@ pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8)
 
 /// --verbose-link output
 fn dumpArgv(self: *Elf, comp: *Compilation) !void {
-    var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
+    const gpa = self.base.comp.gpa;
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
     const target = self.base.comp.root_mod.resolved_target.result;
-    const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
+    const link_mode = self.base.comp.config.link_mode;
+    const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
     const module_obj_path: ?[]const u8 = if (self.base.intermediary_basename) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, path });
@@ -1545,7 +1570,6 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             break :blk path;
         }
     } else null;
-    const gc_sections = self.base.options.gc_sections orelse false;
 
     const csu = try CsuObjects.init(arena, self.base.options, comp);
     const compiler_rt_path: ?[]const u8 = blk: {
@@ -1558,20 +1582,20 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 
     try argv.append("zig");
 
-    if (self.isStaticLib()) {
+    if (self.base.isStaticLib()) {
         try argv.append("ar");
     } else {
         try argv.append("ld");
     }
 
-    if (self.isObject()) {
+    if (self.base.isObject()) {
         try argv.append("-r");
     }
 
     try argv.append("-o");
     try argv.append(full_out_path);
 
-    if (self.isRelocatable()) {
+    if (self.base.isRelocatable()) {
         for (self.base.options.objects) |obj| {
             try argv.append(obj.path);
         }
@@ -1591,7 +1615,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             }
         }
 
-        if (self.isDynLib()) {
+        if (self.base.isDynLib()) {
             if (self.base.options.soname) |name| {
                 try argv.append("-soname");
                 try argv.append(name);
@@ -1624,16 +1648,16 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             }
         }
 
-        if (self.base.options.stack_size_override) |ss| {
-            try argv.append("-z");
-            try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{ss}));
-        }
+        try argv.appendSlice(&.{
+            "-z",
+            try std.fmt.allocPrint(arena, "stack-size={d}", .{self.base.stack_size}),
+        });
 
         if (self.base.options.image_base_override) |image_base| {
             try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{image_base}));
         }
 
-        if (gc_sections) {
+        if (self.base.gc_sections) {
             try argv.append("--gc-sections");
         }
 
@@ -1666,11 +1690,11 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 
         if (self.isStatic()) {
             try argv.append("-static");
-        } else if (self.isDynLib()) {
+        } else if (self.base.isDynLib()) {
             try argv.append("-shared");
         }
 
-        if (self.base.options.pie and self.isExe()) {
+        if (self.base.options.pie and self.base.isExe()) {
             try argv.append("-pie");
         }
 
@@ -1741,11 +1765,11 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         // Shared libraries.
         // Worst-case, we need an --as-needed argument for every lib, as well
         // as one before and one after.
-        try argv.ensureUnusedCapacity(self.base.options.system_libs.keys().len * 2 + 2);
+        try argv.ensureUnusedCapacity(self.base.comp.system_libs.keys().len * 2 + 2);
         argv.appendAssumeCapacity("--as-needed");
         var as_needed = true;
 
-        for (self.base.options.system_libs.values()) |lib_info| {
+        for (self.base.comp.system_libs.values()) |lib_info| {
             const lib_as_needed = !lib_info.needed;
             switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
                 0b00, 0b11 => {},
@@ -1780,7 +1804,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         // libc dep
         if (self.base.options.link_libc) {
             if (self.base.options.libc_installation != null) {
-                const needs_grouping = self.base.options.link_mode == .Static;
+                const needs_grouping = link_mode == .Static;
                 if (needs_grouping) try argv.append("--start-group");
                 try argv.appendSlice(target_util.libcFullLinkFlags(target));
                 if (needs_grouping) try argv.append("--end-group");
@@ -1793,7 +1817,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
                 }
                 try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
             } else if (target.isMusl()) {
-                try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
+                try argv.append(try comp.get_libc_crt_file(arena, switch (link_mode) {
                     .Static => "libc.a",
                     .Dynamic => "libc.so",
                 }));
@@ -2006,6 +2030,7 @@ fn accessLibPath(
     lib_name: []const u8,
     link_mode: ?std.builtin.LinkMode,
 ) !bool {
+    const gpa = self.base.comp.gpa;
     const sep = fs.path.sep_str;
     const target = self.base.comp.root_mod.resolved_target.result;
     test_path.clearRetainingCapacity();
@@ -2021,7 +2046,7 @@ fn accessLibPath(
         suffix,
     });
     if (checked_paths) |cpaths| {
-        try cpaths.append(try self.base.allocator.dupe(u8, test_path.items));
+        try cpaths.append(try gpa.dupe(u8, test_path.items));
     }
     fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
@@ -2150,7 +2175,7 @@ fn markImportsExports(self: *Elf) void {
                 }
                 if (file_ptr.index() == file_index) {
                     global.flags.@"export" = true;
-                    if (elf_file.isDynLib() and vis != .PROTECTED) {
+                    if (elf_file.base.isDynLib() and vis != .PROTECTED) {
                         global.flags.import = true;
                     }
                 }
@@ -2158,7 +2183,7 @@ fn markImportsExports(self: *Elf) void {
         }
     }.mark;
 
-    if (!self.isDynLib()) {
+    if (!self.base.isDynLib()) {
         for (self.shared_objects.items) |index| {
             for (self.file(index).?.globals()) |global_index| {
                 const global = self.symbol(global_index);
@@ -2274,12 +2299,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     const tracy = trace(@src());
     defer tracy.end();
 
-    var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
+    const gpa = self.base.comp.gpa;
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
+    const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
@@ -2298,16 +2324,15 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     sub_prog_node.context.refresh();
     defer sub_prog_node.end();
 
-    const is_obj = self.base.options.output_mode == .Obj;
-    const is_lib = self.base.options.output_mode == .Lib;
-    const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
-    const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
+    const output_mode = self.base.comp.config.output_mode;
+    const is_obj = output_mode == .Obj;
+    const is_lib = output_mode == .Lib;
+    const link_mode = self.base.comp.config.link_mode;
+    const is_dyn_lib = link_mode == .Dynamic and is_lib;
+    const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
     const have_dynamic_linker = self.base.options.link_libc and
-        self.base.options.link_mode == .Dynamic and is_exe_or_dyn_lib;
+        link_mode == .Dynamic and is_exe_or_dyn_lib;
     const target = self.base.comp.root_mod.resolved_target.result;
-    const gc_sections = self.base.options.gc_sections orelse !is_obj;
-    const stack_size = self.base.options.stack_size_override orelse 16777216;
-    const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
@@ -2354,7 +2379,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.addOptionalBytes(self.base.options.entry);
         man.hash.addOptional(self.base.options.image_base_override);
-        man.hash.add(gc_sections);
+        man.hash.add(self.base.gc_sections);
         man.hash.addOptional(self.base.options.sort_section);
         man.hash.add(self.base.options.eh_frame_hdr);
         man.hash.add(self.base.options.emit_relocs);
@@ -2362,9 +2387,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.rpath_list);
         man.hash.add(self.base.options.each_lib_rpath);
-        if (self.base.options.output_mode == .Exe) {
-            man.hash.add(stack_size);
-            man.hash.add(self.base.options.build_id);
+        if (output_mode == .Exe) {
+            man.hash.add(self.base.stack_size);
+            man.hash.add(self.base.build_id);
         }
         man.hash.addListOfBytes(self.base.options.symbol_wrap_set.keys());
         man.hash.add(self.base.options.skip_linker_dependencies);
@@ -2390,9 +2415,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
         man.hash.addOptionalBytes(self.base.options.soname);
         man.hash.addOptional(self.base.options.version);
-        try link.hashAddSystemLibs(&man, self.base.options.system_libs);
+        try link.hashAddSystemLibs(&man, self.base.comp.system_libs);
         man.hash.addListOfBytes(self.base.options.force_undefined_symbols.keys());
-        man.hash.add(allow_shlib_undefined);
+        man.hash.add(self.base.allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
         man.hash.add(self.base.options.compress_debug_sections);
         man.hash.add(self.base.options.tsan);
@@ -2432,7 +2457,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     // copy when generating relocatables. Normally, we would expect `lld -r` to work.
     // However, because LLD wants to resolve BPF relocations which it shouldn't, it fails
     // before even generating the relocatable.
-    if (self.base.options.output_mode == .Obj and
+    if (output_mode == .Obj and
         (self.base.options.lto or target.isBpfFreestanding()))
     {
         // In this case we must do a simple file copy
@@ -2459,7 +2484,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
     } else {
         // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(self.base.allocator);
+        var argv = std.ArrayList([]const u8).init(gpa);
         defer argv.deinit();
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
@@ -2503,15 +2528,17 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             .both => {}, // this is the default
         }
 
-        if (self.base.options.output_mode == .Exe) {
-            try argv.append("-z");
-            try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
+        if (output_mode == .Exe) {
+            try argv.appendSlice(&.{
+                "-z",
+                try std.fmt.allocPrint(arena, "stack-size={d}", .{self.base.stack_size}),
+            });
 
-            switch (self.base.options.build_id) {
+            switch (self.base.build_id) {
                 .none => {},
                 .fast, .uuid, .sha1, .md5 => {
                     try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
-                        @tagName(self.base.options.build_id),
+                        @tagName(self.base.build_id),
                     }));
                 },
                 .hexstring => |hs| {
@@ -2536,7 +2563,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append(arg);
         }
 
-        if (gc_sections) {
+        if (self.base.gc_sections) {
             try argv.append("--gc-sections");
         }
 
@@ -2615,7 +2642,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append(arg);
         }
 
-        if (self.base.options.link_mode == .Static) {
+        if (link_mode == .Static) {
             if (target.cpu.arch.isArmOrThumb()) {
                 try argv.append("-Bstatic");
             } else {
@@ -2625,7 +2652,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-shared");
         }
 
-        if (self.base.options.pie and self.base.options.output_mode == .Exe) {
+        if (self.base.options.pie and output_mode == .Exe) {
             try argv.append("-pie");
         }
 
@@ -2648,7 +2675,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (csu.crtbegin) |v| try argv.append(v);
 
         // rpaths
-        var rpath_table = std.StringHashMap(void).init(self.base.allocator);
+        var rpath_table = std.StringHashMap(void).init(gpa);
         defer rpath_table.deinit();
         for (self.base.options.rpath_list) |rpath| {
             if ((try rpath_table.fetchPut(rpath, {})) == null) {
@@ -2664,7 +2691,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (self.base.options.each_lib_rpath) {
             var test_path = std.ArrayList(u8).init(arena);
             for (self.base.options.lib_dirs) |lib_dir_path| {
-                for (self.base.options.system_libs.keys()) |link_lib| {
+                for (self.base.comp.system_libs.keys()) |link_lib| {
                     if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
                         continue;
                     if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
@@ -2763,8 +2790,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
-            const system_libs = self.base.options.system_libs.keys();
-            const system_libs_values = self.base.options.system_libs.values();
+            const system_libs = self.base.comp.system_libs.keys();
+            const system_libs_values = self.base.comp.system_libs.values();
 
             // Worst-case, we need an --as-needed argument for every lib, as well
             // as one before and one after.
@@ -2813,7 +2840,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             self.error_flags.missing_libc = false;
             if (self.base.options.link_libc) {
                 if (self.base.options.libc_installation != null) {
-                    const needs_grouping = self.base.options.link_mode == .Static;
+                    const needs_grouping = link_mode == .Static;
                     if (needs_grouping) try argv.append("--start-group");
                     try argv.appendSlice(target_util.libcFullLinkFlags(target));
                     if (needs_grouping) try argv.append("--end-group");
@@ -2826,7 +2853,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                     }
                     try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
                 } else if (target.isMusl()) {
-                    try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
+                    try argv.append(try comp.get_libc_crt_file(arena, switch (link_mode) {
                         .Static => "libc.a",
                         .Dynamic => "libc.so",
                     }));
@@ -2847,7 +2874,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (csu.crtend) |v| try argv.append(v);
         if (csu.crtn) |v| try argv.append(v);
 
-        if (allow_shlib_undefined) {
+        if (self.base.allow_shlib_undefined) {
             try argv.append("--allow-shlib-undefined");
         }
 
@@ -2861,7 +2888,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-Bsymbolic");
         }
 
-        if (self.base.options.verbose_link) {
+        if (self.base.comp.verbose_link) {
             // Skip over our own name so that the LLD linker name is the first argv item.
             Compilation.dump_argv(argv.items[1..]);
         }
@@ -3087,10 +3114,12 @@ fn writeElfHeader(self: *Elf) !void {
 
     assert(index == 16);
 
-    const elf_type: elf.ET = switch (self.base.options.output_mode) {
+    const output_mode = self.base.comp.config.output_mode;
+    const link_mode = self.base.comp.config.link_mode;
+    const elf_type: elf.ET = switch (output_mode) {
         .Exe => if (self.base.options.pie) .DYN else .EXEC,
         .Obj => .REL,
-        .Lib => switch (self.base.options.link_mode) {
+        .Lib => switch (link_mode) {
             .Static => @as(elf.ET, .REL),
             .Dynamic => .DYN,
         },
@@ -3216,7 +3245,6 @@ pub fn updateExports(
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
-    if (self.base.options.emit == null) return;
     return self.zigObjectPtr().?.updateExports(self, mod, exported, exports);
 }
 
@@ -3280,6 +3308,8 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
 }
 
 fn allocateLinkerDefinedSymbols(self: *Elf) void {
+    const link_mode = self.base.comp.config.link_mode;
+
     // _DYNAMIC
     if (self.dynamic_section_index) |shndx| {
         const shdr = &self.shdrs.items[shndx];
@@ -3362,7 +3392,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
 
     // __rela_iplt_start, __rela_iplt_end
     if (self.rela_dyn_section_index) |shndx| blk: {
-        if (self.base.options.link_mode != .Static or self.base.options.pie) break :blk;
+        if (link_mode != .Static or self.base.options.pie) break :blk;
         const shdr = &self.shdrs.items[shndx];
         const end_addr = shdr.sh_addr + shdr.sh_size;
         const start_addr = end_addr - self.calcNumIRelativeRelocs() * @sizeOf(elf.Elf64_Rela);
@@ -3531,7 +3561,7 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.isDynLib() or self.shared_objects.items.len > 0 or self.base.options.pie) {
+    if (self.base.isDynLib() or self.shared_objects.items.len > 0 or self.base.options.pie) {
         self.dynstrtab_section_index = try self.addSection(.{
             .name = ".dynstr",
             .flags = elf.SHF_ALLOC,
@@ -3716,7 +3746,7 @@ fn initSpecialPhdrs(self: *Elf) !void {
     self.phdr_gnu_stack_index = try self.addPhdr(.{
         .type = elf.PT_GNU_STACK,
         .flags = elf.PF_W | elf.PF_R,
-        .memsz = self.base.options.stack_size_override orelse 0,
+        .memsz = self.base.stack_size,
         .@"align" = 1,
     });
 
@@ -3822,7 +3852,7 @@ fn setDynamicSection(self: *Elf, rpaths: []const []const u8) !void {
         try self.dynamic.addNeeded(shared_object, self);
     }
 
-    if (self.isDynLib()) {
+    if (self.base.isDynLib()) {
         if (self.base.options.soname) |soname| {
             try self.dynamic.setSoname(soname, self);
         }
@@ -3837,8 +3867,9 @@ fn sortDynamicSymtab(self: *Elf) void {
 }
 
 fn setVersionSymtab(self: *Elf) !void {
+    const gpa = self.base.comp.gpa;
     if (self.versym_section_index == null) return;
-    try self.versym.resize(self.base.allocator, self.dynsym.count());
+    try self.versym.resize(gpa, self.dynsym.count());
     self.versym.items[0] = elf.VER_NDX_LOCAL;
     for (self.dynsym.entries.items, 1..) |entry, i| {
         const sym = self.symbol(entry.symbol_index);
@@ -5597,36 +5628,12 @@ const CsuObjects = struct {
 };
 
 pub fn calcImageBase(self: Elf) u64 {
-    if (self.isDynLib()) return 0;
-    if (self.isExe() and self.base.options.pie) return 0;
+    if (self.base.isDynLib()) return 0;
+    if (self.base.isExe() and self.base.options.pie) return 0;
     return self.base.options.image_base_override orelse switch (self.ptr_width) {
         .p32 => 0x1000,
         .p64 => 0x1000000,
     };
-}
-
-pub fn isStatic(self: Elf) bool {
-    return self.base.options.link_mode == .Static;
-}
-
-pub fn isObject(self: Elf) bool {
-    return self.base.options.output_mode == .Obj;
-}
-
-pub fn isExe(self: Elf) bool {
-    return self.base.options.output_mode == .Exe;
-}
-
-pub fn isStaticLib(self: Elf) bool {
-    return self.base.options.output_mode == .Lib and self.isStatic();
-}
-
-pub fn isRelocatable(self: Elf) bool {
-    return self.isObject() or self.isStaticLib();
-}
-
-pub fn isDynLib(self: Elf) bool {
-    return self.base.options.output_mode == .Lib and !self.isStatic();
 }
 
 pub fn isZigSection(self: Elf, shndx: u16) bool {
@@ -5668,8 +5675,9 @@ fn addPhdr(self: *Elf, opts: struct {
     filesz: u64 = 0,
     memsz: u64 = 0,
 }) error{OutOfMemory}!u16 {
+    const gpa = self.base.comp.gpa;
     const index = @as(u16, @intCast(self.phdrs.items.len));
-    try self.phdrs.append(self.base.allocator, .{
+    try self.phdrs.append(gpa, .{
         .p_type = opts.type,
         .p_flags = opts.flags,
         .p_offset = opts.offset,
@@ -5818,8 +5826,9 @@ pub fn atom(self: *Elf, atom_index: Atom.Index) ?*Atom {
 }
 
 pub fn addAtom(self: *Elf) !Atom.Index {
+    const gpa = self.base.comp.gpa;
     const index = @as(Atom.Index, @intCast(self.atoms.items.len));
-    const atom_ptr = try self.atoms.addOne(self.base.allocator);
+    const atom_ptr = try self.atoms.addOne(gpa);
     atom_ptr.* = .{ .atom_index = index };
     return index;
 }
@@ -5841,7 +5850,8 @@ pub fn symbol(self: *Elf, sym_index: Symbol.Index) *Symbol {
 }
 
 pub fn addSymbol(self: *Elf) !Symbol.Index {
-    try self.symbols.ensureUnusedCapacity(self.base.allocator, 1);
+    const gpa = self.base.comp.gpa;
+    try self.symbols.ensureUnusedCapacity(gpa, 1);
     const index = blk: {
         if (self.symbols_free_list.popOrNull()) |index| {
             log.debug("  (reusing symbol index {d})", .{index});
@@ -5858,8 +5868,9 @@ pub fn addSymbol(self: *Elf) !Symbol.Index {
 }
 
 pub fn addSymbolExtra(self: *Elf, extra: Symbol.Extra) !u32 {
+    const gpa = self.base.comp.gpa;
     const fields = @typeInfo(Symbol.Extra).Struct.fields;
-    try self.symbols_extra.ensureUnusedCapacity(self.base.allocator, fields.len);
+    try self.symbols_extra.ensureUnusedCapacity(gpa, fields.len);
     return self.addSymbolExtraAssumeCapacity(extra);
 }
 
@@ -5959,8 +5970,9 @@ pub fn getOrCreateComdatGroupOwner(self: *Elf, name: [:0]const u8) !GetOrCreateC
 }
 
 pub fn addComdatGroup(self: *Elf) !ComdatGroup.Index {
+    const gpa = self.base.comp.gpa;
     const index = @as(ComdatGroup.Index, @intCast(self.comdat_groups.items.len));
-    _ = try self.comdat_groups.addOne(self.base.allocator);
+    _ = try self.comdat_groups.addOne(gpa);
     return index;
 }
 
@@ -6023,14 +6035,16 @@ const ErrorWithNotes = struct {
 };
 
 pub fn addErrorWithNotes(self: *Elf, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
-    try self.misc_errors.ensureUnusedCapacity(self.base.allocator, 1);
+    const gpa = self.base.comp.gpa;
+    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
     return self.addErrorWithNotesAssumeCapacity(note_count);
 }
 
 fn addErrorWithNotesAssumeCapacity(self: *Elf, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
+    const gpa = self.base.comp.gpa;
     const index = self.misc_errors.items.len;
     const err = self.misc_errors.addOneAssumeCapacity();
-    err.* = .{ .msg = undefined, .notes = try self.base.allocator.alloc(link.File.ErrorMsg, note_count) };
+    err.* = .{ .msg = undefined, .notes = try gpa.alloc(link.File.ErrorMsg, note_count) };
     return .{ .index = index };
 }
 
@@ -6040,9 +6054,10 @@ pub fn getShString(self: Elf, off: u32) [:0]const u8 {
 }
 
 pub fn insertShString(self: *Elf, name: [:0]const u8) error{OutOfMemory}!u32 {
+    const gpa = self.base.comp.gpa;
     const off = @as(u32, @intCast(self.shstrtab.items.len));
-    try self.shstrtab.ensureUnusedCapacity(self.base.allocator, name.len + 1);
-    self.shstrtab.writer(self.base.allocator).print("{s}\x00", .{name}) catch unreachable;
+    try self.shstrtab.ensureUnusedCapacity(gpa, name.len + 1);
+    self.shstrtab.writer(gpa).print("{s}\x00", .{name}) catch unreachable;
     return off;
 }
 
@@ -6052,9 +6067,10 @@ pub fn getDynString(self: Elf, off: u32) [:0]const u8 {
 }
 
 pub fn insertDynString(self: *Elf, name: []const u8) error{OutOfMemory}!u32 {
+    const gpa = self.base.comp.gpa;
     const off = @as(u32, @intCast(self.dynstrtab.items.len));
-    try self.dynstrtab.ensureUnusedCapacity(self.base.allocator, name.len + 1);
-    self.dynstrtab.writer(self.base.allocator).print("{s}\x00", .{name}) catch unreachable;
+    try self.dynstrtab.ensureUnusedCapacity(gpa, name.len + 1);
+    self.dynstrtab.writer(gpa).print("{s}\x00", .{name}) catch unreachable;
     return off;
 }
 

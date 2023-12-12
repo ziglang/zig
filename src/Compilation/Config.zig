@@ -137,7 +137,11 @@ pub fn resolve(options: Options) !Config {
     const use_llvm = b: {
         // If emitting to LLVM bitcode object format, must use LLVM backend.
         if (options.emit_llvm_ir or options.emit_llvm_bc) {
-            if (options.use_llvm == false) return error.EmittingLlvmModuleRequiresLlvmBackend;
+            if (options.use_llvm == false)
+                return error.EmittingLlvmModuleRequiresLlvmBackend;
+            if (!target_util.hasLlvmSupport(target, target.ofmt))
+                return error.LlvmLacksTargetSupport;
+
             break :b true;
         }
 
@@ -145,6 +149,12 @@ pub fn resolve(options: Options) !Config {
         if (!target_util.hasLlvmSupport(target, target.ofmt)) {
             if (options.use_llvm == true) return error.LlvmLacksTargetSupport;
             break :b false;
+        }
+
+        // If Zig does not support the target, then we can't use it.
+        if (target_util.zigBackend(target, false) == .other) {
+            if (options.use_llvm == false) return error.ZigLacksTargetSupport;
+            break :b true;
         }
 
         if (options.use_llvm) |x| break :b x;
@@ -166,26 +176,28 @@ pub fn resolve(options: Options) !Config {
         break :b !target_util.selfHostedBackendIsAsRobustAsLlvm(target);
     };
 
-    if (!use_lib_llvm and use_llvm and options.emit_bin) {
-        // Explicit request to use LLVM to produce an object file, but without
-        // using LLVM libraries. Impossible.
-        return error.EmittingBinaryRequiresLlvmLibrary;
+    if (options.emit_bin) {
+        if (!use_lib_llvm and use_llvm) {
+            // Explicit request to use LLVM to produce an object file, but without
+            // using LLVM libraries. Impossible.
+            return error.EmittingBinaryRequiresLlvmLibrary;
+        }
+
+        if (target_util.zigBackend(target, use_llvm) == .other) {
+            // There is no compiler backend available for this target.
+            return error.ZigLacksTargetSupport;
+        }
     }
 
     // Make a decision on whether to use LLD or our own linker.
     const use_lld = b: {
-        if (target.isDarwin()) {
-            if (options.use_lld == true) return error.LldIncompatibleOs;
+        if (!target_util.hasLldSupport(target.ofmt)) {
+            if (options.use_lld == true) return error.LldIncompatibleObjectFormat;
             break :b false;
         }
 
         if (!build_options.have_llvm) {
             if (options.use_lld == true) return error.LldUnavailable;
-            break :b false;
-        }
-
-        if (target.ofmt == .c) {
-            if (options.use_lld == true) return error.LldIncompatibleObjectFormat;
             break :b false;
         }
 
