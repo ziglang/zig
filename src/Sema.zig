@@ -8899,7 +8899,7 @@ fn analyzeErrUnionCode(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air
                 .name = err_name,
             } }))),
             .payload => |payload| {
-                assert(payload.toValue().isUndef(mod));
+                assert(Value.fromInterned(payload).isUndef(mod));
                 return mod.undefRef(result_ty);
             },
         }
@@ -38025,7 +38025,7 @@ fn compareVector(
         const rhs_elem = try rhs.elemValue(sema.mod, i);
         const res_bool = try sema.compareScalar(lhs_elem, op, rhs_elem, ty.scalarType(mod));
         scalar.* = if (lhs_elem.isUndef(mod) or rhs_elem.isUndef(mod))
-            Air.refToInterned(try mod.undefRef(Type.bool)).?
+            (try mod.undefRef(Type.bool)).toInterned().?
         else
             try Value.makeBool(res_bool).intern(Type.bool, mod);
     }
