@@ -4,8 +4,6 @@ const tar = std.tar;
 const assert = std.debug.assert;
 
 test "tar run Go test cases" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
     const Case = struct {
         const File = struct {
             name: []const u8,
@@ -16,18 +14,15 @@ test "tar run Go test cases" {
             truncated: bool = false, // when there is no file body, just header, usefull for huge files
         };
 
-        path: []const u8, // path to the tar archive file on dis
+        data: []const u8, // testdata file content
         files: []const File = &[_]@This().File{}, // expected files to found in archive
-        chksums: []const []const u8 = &[_][]const u8{}, // chksums of files content
+        chksums: []const []const u8 = &[_][]const u8{}, // chksums of each file content
         err: ?anyerror = null, // parsing should fail with this error
     };
 
-    const src_path = comptime std.fs.path.dirname(@src().file) orelse ".";
-    const test_dir = try std.fs.cwd().openDir(src_path ++ "/testdata", .{});
-
     const cases = [_]Case{
         .{
-            .path = "gnu.tar",
+            .data = @embedFile("testdata/gnu.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "small.txt",
@@ -46,11 +41,11 @@ test "tar run Go test cases" {
             },
         },
         .{
-            .path = "sparse-formats.tar",
+            .data = @embedFile("testdata/sparse-formats.tar"),
             .err = error.TarUnsupportedHeader,
         },
         .{
-            .path = "star.tar",
+            .data = @embedFile("testdata/star.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "small.txt",
@@ -69,7 +64,7 @@ test "tar run Go test cases" {
             },
         },
         .{
-            .path = "v7.tar",
+            .data = @embedFile("testdata/v7.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "small.txt",
@@ -88,7 +83,7 @@ test "tar run Go test cases" {
             },
         },
         .{
-            .path = "pax.tar",
+            .data = @embedFile("testdata/pax.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "a/123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100",
@@ -109,12 +104,12 @@ test "tar run Go test cases" {
         },
         .{
             // pax attribute don't end with \n
-            .path = "pax-bad-hdr-file.tar",
+            .data = @embedFile("testdata/pax-bad-hdr-file.tar"),
             .err = error.PaxInvalidAttributeEnd,
         },
         .{
             // size is in pax attribute
-            .path = "pax-pos-size-file.tar",
+            .data = @embedFile("testdata/pax-pos-size-file.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "foo",
@@ -129,7 +124,7 @@ test "tar run Go test cases" {
         },
         .{
             // has pax records which we are not interested in
-            .path = "pax-records.tar",
+            .data = @embedFile("testdata/pax-records.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "file",
@@ -138,7 +133,7 @@ test "tar run Go test cases" {
         },
         .{
             // has global records which we are ignoring
-            .path = "pax-global-records.tar",
+            .data = @embedFile("testdata/pax-global-records.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "file1",
@@ -155,7 +150,7 @@ test "tar run Go test cases" {
             },
         },
         .{
-            .path = "nil-uid.tar",
+            .data = @embedFile("testdata/nil-uid.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "P1050238.JPG.log",
@@ -170,7 +165,7 @@ test "tar run Go test cases" {
         },
         .{
             // has xattrs and pax records which we are ignoring
-            .path = "xattrs.tar",
+            .data = @embedFile("testdata/xattrs.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "small.txt",
@@ -191,7 +186,7 @@ test "tar run Go test cases" {
             },
         },
         .{
-            .path = "gnu-multi-hdrs.tar",
+            .data = @embedFile("testdata/gnu-multi-hdrs.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "GNU2/GNU2/long-path-name",
@@ -202,12 +197,12 @@ test "tar run Go test cases" {
         },
         .{
             // has gnu type D (directory) and S (sparse) blocks
-            .path = "gnu-incremental.tar",
+            .data = @embedFile("testdata/gnu-incremental.tar"),
             .err = error.TarUnsupportedHeader,
         },
         .{
             // should use values only from last pax header
-            .path = "pax-multi-hdrs.tar",
+            .data = @embedFile("testdata/pax-multi-hdrs.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "bar",
@@ -217,7 +212,7 @@ test "tar run Go test cases" {
             },
         },
         .{
-            .path = "gnu-long-nul.tar",
+            .data = @embedFile("testdata/gnu-long-nul.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "0123456789",
@@ -226,7 +221,7 @@ test "tar run Go test cases" {
             },
         },
         .{
-            .path = "gnu-utf8.tar",
+            .data = @embedFile("testdata/gnu-utf8.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹",
@@ -235,7 +230,7 @@ test "tar run Go test cases" {
             },
         },
         .{
-            .path = "gnu-not-utf8.tar",
+            .data = @embedFile("testdata/gnu-not-utf8.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "hi\x80\x81\x82\x83bye",
@@ -245,32 +240,32 @@ test "tar run Go test cases" {
         },
         .{
             // null in pax key
-            .path = "pax-nul-xattrs.tar",
+            .data = @embedFile("testdata/pax-nul-xattrs.tar"),
             .err = error.PaxNullInKeyword,
         },
         .{
-            .path = "pax-nul-path.tar",
+            .data = @embedFile("testdata/pax-nul-path.tar"),
             .err = error.PaxNullInValue,
         },
         .{
-            .path = "neg-size.tar",
+            .data = @embedFile("testdata/neg-size.tar"),
             .err = error.TarHeader,
         },
         .{
-            .path = "issue10968.tar",
+            .data = @embedFile("testdata/issue10968.tar"),
             .err = error.TarHeader,
         },
         .{
-            .path = "issue11169.tar",
+            .data = @embedFile("testdata/issue11169.tar"),
             .err = error.TarHeader,
         },
         .{
-            .path = "issue12435.tar",
+            .data = @embedFile("testdata/issue12435.tar"),
             .err = error.TarHeaderChksum,
         },
         .{
             // has magic with space at end instead of null
-            .path = "invalid-go17.tar",
+            .data = @embedFile("testdata/invalid-go17.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/foo",
@@ -278,7 +273,7 @@ test "tar run Go test cases" {
             },
         },
         .{
-            .path = "ustar-file-devs.tar",
+            .data = @embedFile("testdata/ustar-file-devs.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "file",
@@ -287,7 +282,7 @@ test "tar run Go test cases" {
             },
         },
         .{
-            .path = "trailing-slash.tar",
+            .data = @embedFile("testdata/trailing-slash.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "123456789/" ** 30,
@@ -297,7 +292,7 @@ test "tar run Go test cases" {
         },
         .{
             // Has size in gnu extended format. To represent size bigger than 8 GB.
-            .path = "writer-big.tar",
+            .data = @embedFile("testdata/writer-big.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "tmp/16gig.txt",
@@ -309,7 +304,7 @@ test "tar run Go test cases" {
         },
         .{
             // Size in gnu extended format, and name in pax attribute.
-            .path = "writer-big-long.tar",
+            .data = @embedFile("testdata/writer-big-long.tar"),
             .files = &[_]Case.File{
                 .{
                     .name = "longname/" ** 15 ++ "16gig.txt",
@@ -322,11 +317,8 @@ test "tar run Go test cases" {
     };
 
     for (cases) |case| {
-        var fs_file = try test_dir.openFile(case.path, .{});
-
-        defer fs_file.close();
-
-        var iter = tar.tarReader(fs_file.reader(), null);
+        var fsb = std.io.fixedBufferStream(case.data);
+        var iter = tar.tarReader(fsb.reader(), null);
         var i: usize = 0;
         while (iter.next() catch |err| {
             if (case.err) |e| {
