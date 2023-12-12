@@ -1,5 +1,6 @@
 base: link.File,
 image_base: u64,
+rdynamic: bool,
 
 ptr_width: PtrWidth,
 
@@ -358,19 +359,21 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Elf {
             .debug_format = options.debug_format orelse .{ .dwarf = .@"32" },
             .function_sections = options.function_sections,
             .data_sections = options.data_sections,
-
-            .image_base = b: {
-                if (is_dyn_lib) break :b 0;
-                if (output_mode == .Exe and comp.config.pie) return 0;
-                return options.image_base orelse switch (ptr_width) {
-                    .p32 => 0x1000,
-                    .p64 => 0x1000000,
-                };
-            },
         },
         .ptr_width = ptr_width,
         .page_size = page_size,
         .default_sym_version = default_sym_version,
+
+        .image_base = b: {
+            if (is_dyn_lib) break :b 0;
+            if (output_mode == .Exe and comp.config.pie) break :b 0;
+            break :b options.image_base orelse switch (ptr_width) {
+                .p32 => 0x1000,
+                .p64 => 0x1000000,
+            };
+        },
+
+        .rdynamic = options.rdynamic,
     };
     if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, options);
@@ -1006,7 +1009,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             break :blk path;
         }
     } else null;
-    const gc_sections = self.base.gc_sections;
 
     // --verbose-link
     if (self.base.comp.verbose_link) try self.dumpArgv(comp);
@@ -1047,14 +1049,14 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     var rpath_table = std.StringArrayHashMap(void).init(gpa);
     defer rpath_table.deinit();
 
-    for (self.base.options.rpath_list) |rpath| {
+    for (self.base.rpath_list) |rpath| {
         _ = try rpath_table.put(rpath, {});
     }
 
-    if (self.base.options.each_lib_rpath) {
+    if (self.each_lib_rpath) {
         var test_path = std.ArrayList(u8).init(gpa);
         defer test_path.deinit();
-        for (self.base.options.lib_dirs) |lib_dir_path| {
+        for (self.lib_dirs) |lib_dir_path| {
             for (self.base.comp.system_libs.keys()) |link_lib| {
                 if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
                     continue;
@@ -1076,9 +1078,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     // libc
-    if (!self.base.options.skip_linker_dependencies and
-        !self.base.options.link_libc)
-    {
+    if (!comp.skip_linker_dependencies and !comp.config.link_libc) {
         if (comp.libc_static_lib) |lib| {
             try positionals.append(.{ .path = lib.full_object_path });
         }
@@ -1263,10 +1263,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         self.entry_index = if (entry) |name| self.globalByName(name) else null;
     }
 
-    if (gc_sections) {
+    if (self.base.gc_sections) {
         try gc.gcAtoms(self);
 
-        if (self.base.options.print_gc_sections) {
+        if (self.base.print_gc_sections) {
             try gc.dumpPrunedAtoms(self);
         }
     }
@@ -1347,13 +1347,13 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 }
 
 pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
-    const gpa = self.base.comp.gpa;
+    const gpa = comp.gpa;
 
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
     defer positionals.deinit();
 
-    try positionals.ensureUnusedCapacity(self.base.options.objects.len);
-    positionals.appendSliceAssumeCapacity(self.base.options.objects);
+    try positionals.ensureUnusedCapacity(comp.objects.len);
+    positionals.appendSliceAssumeCapacity(comp.objects);
 
     // This is a set of object files emitted by clang in a single `build-exe` invocation.
     // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
@@ -1495,8 +1495,8 @@ pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8)
 
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
     defer positionals.deinit();
-    try positionals.ensureUnusedCapacity(self.base.options.objects.len);
-    positionals.appendSliceAssumeCapacity(self.base.options.objects);
+    try positionals.ensureUnusedCapacity(comp.objects.len);
+    positionals.appendSliceAssumeCapacity(comp.objects);
 
     // This is a set of object files emitted by clang in a single `build-exe` invocation.
     // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
@@ -1606,7 +1606,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
     try argv.append(full_out_path);
 
     if (self.base.isRelocatable()) {
-        for (self.base.options.objects) |obj| {
+        for (comp.objects) |obj| {
             try argv.append(obj.path);
         }
 
@@ -1626,28 +1626,28 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
 
         if (self.base.isDynLib()) {
-            if (self.base.options.soname) |name| {
+            if (self.soname) |name| {
                 try argv.append("-soname");
                 try argv.append(name);
             }
         }
 
-        if (self.base.options.entry) |entry| {
+        if (comp.config.entry) |entry| {
             try argv.append("--entry");
             try argv.append(entry);
         }
 
-        for (self.base.options.rpath_list) |rpath| {
+        for (self.base.rpath_list) |rpath| {
             try argv.append("-rpath");
             try argv.append(rpath);
         }
 
-        if (self.base.options.each_lib_rpath) {
-            for (self.base.options.lib_dirs) |lib_dir_path| {
+        if (self.each_lib_rpath) {
+            for (self.lib_dirs) |lib_dir_path| {
                 try argv.append("-rpath");
                 try argv.append(lib_dir_path);
             }
-            for (self.base.options.objects) |obj| {
+            for (comp.objects) |obj| {
                 if (Compilation.classifyFileExt(obj.path) == .shared_library) {
                     const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
                     if (obj.loption) continue;
@@ -1669,29 +1669,29 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try argv.append("--gc-sections");
         }
 
-        if (self.base.options.print_gc_sections) {
+        if (self.base.print_gc_sections) {
             try argv.append("--print-gc-sections");
         }
 
-        if (self.base.options.eh_frame_hdr) {
+        if (self.eh_frame_hdr) {
             try argv.append("--eh-frame-hdr");
         }
 
-        if (self.base.options.rdynamic) {
+        if (self.rdynamic) {
             try argv.append("--export-dynamic");
         }
 
-        if (self.base.options.z_notext) {
+        if (self.z_notext) {
             try argv.append("-z");
             try argv.append("notext");
         }
 
-        if (self.base.options.z_nocopyreloc) {
+        if (self.z_nocopyreloc) {
             try argv.append("-z");
             try argv.append("nocopyreloc");
         }
 
-        if (self.base.options.z_now) {
+        if (self.z_now) {
             try argv.append("-z");
             try argv.append("now");
         }
@@ -1702,11 +1702,11 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try argv.append("-shared");
         }
 
-        if (self.base.options.pie and self.base.isExe()) {
+        if (comp.config.pie and self.base.isExe()) {
             try argv.append("-pie");
         }
 
-        if (self.base.options.strip) {
+        if (self.base.debug_format == .strip) {
             try argv.append("-s");
         }
 
@@ -1715,12 +1715,12 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         if (csu.crti) |v| try argv.append(v);
         if (csu.crtbegin) |v| try argv.append(v);
 
-        for (self.base.options.lib_dirs) |lib_dir| {
+        for (self.lib_dirs) |lib_dir| {
             try argv.append("-L");
             try argv.append(lib_dir);
         }
 
-        if (self.base.options.link_libc) {
+        if (comp.config.link_libc) {
             if (self.base.comp.libc_installation) |libc_installation| {
                 try argv.append("-L");
                 try argv.append(libc_installation.crt_dir.?);
@@ -1728,7 +1728,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
 
         var whole_archive = false;
-        for (self.base.options.objects) |obj| {
+        for (comp.objects) |obj| {
             if (obj.must_link and !whole_archive) {
                 try argv.append("-whole-archive");
                 whole_archive = true;
@@ -1756,15 +1756,12 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try argv.append(p);
         }
 
-        // TSAN
-        if (self.base.options.tsan) {
+        if (comp.config.any_sanitize_thread) {
             try argv.append(comp.tsan_static_lib.?.full_object_path);
         }
 
         // libc
-        if (!self.base.options.skip_linker_dependencies and
-            !self.base.options.link_libc)
-        {
+        if (!comp.skip_linker_dependencies and !comp.config.link_libc) {
             if (comp.libc_static_lib) |lib| {
                 try argv.append(lib.full_object_path);
             }
@@ -1799,18 +1796,18 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
 
         // libc++ dep
-        if (self.base.options.link_libcpp) {
+        if (comp.config.link_libcpp) {
             try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
             try argv.append(comp.libcxx_static_lib.?.full_object_path);
         }
 
         // libunwind dep
-        if (self.base.options.link_libunwind) {
+        if (comp.config.link_libunwind) {
             try argv.append(comp.libunwind_static_lib.?.full_object_path);
         }
 
         // libc dep
-        if (self.base.options.link_libc) {
+        if (comp.config.link_libc) {
             if (self.base.comp.libc_installation != null) {
                 const needs_grouping = link_mode == .Static;
                 if (needs_grouping) try argv.append("--start-group");
@@ -1963,8 +1960,6 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
     defer script.deinit(gpa);
     try script.parse(data, self);
 
-    const lib_dirs = self.base.options.lib_dirs;
-
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
@@ -1981,7 +1976,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
 
                 // TODO I think technically we should re-use the mechanism used by the frontend here.
                 // Maybe we should hoist search-strategy all the way here?
-                for (lib_dirs) |lib_dir| {
+                for (self.lib_dirs) |lib_dir| {
                     if (!self.isStatic()) {
                         if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, lib_name, .Dynamic))
                             break :success;
@@ -1998,7 +1993,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
                 } else |_| {}
 
                 try checked_paths.append(try gpa.dupe(u8, scr_obj.path));
-                for (lib_dirs) |lib_dir| {
+                for (self.lib_dirs) |lib_dir| {
                     if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, scr_obj.path, null))
                         break :success;
                 }
@@ -2338,7 +2333,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     const link_mode = self.base.comp.config.link_mode;
     const is_dyn_lib = link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
-    const have_dynamic_linker = self.base.options.link_libc and
+    const have_dynamic_linker = comp.config.link_libc and
         link_mode == .Dynamic and is_exe_or_dyn_lib;
     const target = self.base.comp.root_mod.resolved_target.result;
     const compiler_rt_path: ?[]const u8 = blk: {
@@ -2358,11 +2353,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     const id_symlink_basename = "lld.id";
 
     var man: Cache.Manifest = undefined;
-    defer if (!self.base.options.disable_lld_caching) man.deinit();
+    defer if (!self.base.disable_lld_caching) man.deinit();
 
     var digest: [Cache.hex_digest_len]u8 = undefined;
 
-    if (!self.base.options.disable_lld_caching) {
+    if (!self.base.disable_lld_caching) {
         man = comp.cache_parent.obtain();
 
         // We are about to obtain this lock, so here we give other processes a chance first.
@@ -2370,9 +2365,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         comptime assert(Compilation.link_hash_implementation_version == 10);
 
-        try man.addOptionalFile(self.base.options.linker_script);
-        try man.addOptionalFile(self.base.options.version_script);
-        for (self.base.options.objects) |obj| {
+        try man.addOptionalFile(self.linker_script);
+        try man.addOptionalFile(self.version_script);
+        for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);
             man.hash.add(obj.must_link);
             man.hash.add(obj.loption);
@@ -2385,34 +2380,34 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
-        man.hash.addOptionalBytes(self.base.options.entry);
+        man.hash.addOptionalBytes(comp.config.entry);
         man.hash.addOptional(self.image_base);
         man.hash.add(self.base.gc_sections);
-        man.hash.addOptional(self.base.options.sort_section);
-        man.hash.add(self.base.options.eh_frame_hdr);
-        man.hash.add(self.base.options.emit_relocs);
-        man.hash.add(self.base.options.rdynamic);
-        man.hash.addListOfBytes(self.base.options.lib_dirs);
-        man.hash.addListOfBytes(self.base.options.rpath_list);
-        man.hash.add(self.base.options.each_lib_rpath);
+        man.hash.addOptional(self.sort_section);
+        man.hash.add(self.eh_frame_hdr);
+        man.hash.add(self.emit_relocs);
+        man.hash.add(self.rdynamic);
+        man.hash.addListOfBytes(self.lib_dirs);
+        man.hash.addListOfBytes(self.base.rpath_list);
+        man.hash.add(self.each_lib_rpath);
         if (output_mode == .Exe) {
             man.hash.add(self.base.stack_size);
             man.hash.add(self.base.build_id);
         }
-        man.hash.addListOfBytes(self.base.options.symbol_wrap_set.keys());
-        man.hash.add(self.base.options.skip_linker_dependencies);
-        man.hash.add(self.base.options.z_nodelete);
-        man.hash.add(self.base.options.z_notext);
-        man.hash.add(self.base.options.z_defs);
-        man.hash.add(self.base.options.z_origin);
-        man.hash.add(self.base.options.z_nocopyreloc);
-        man.hash.add(self.base.options.z_now);
-        man.hash.add(self.base.options.z_relro);
-        man.hash.add(self.base.options.z_common_page_size orelse 0);
-        man.hash.add(self.base.options.z_max_page_size orelse 0);
-        man.hash.add(self.base.options.hash_style);
+        man.hash.addListOfBytes(self.symbol_wrap_set.keys());
+        man.hash.add(comp.skip_linker_dependencies);
+        man.hash.add(self.z_nodelete);
+        man.hash.add(self.z_notext);
+        man.hash.add(self.z_defs);
+        man.hash.add(self.z_origin);
+        man.hash.add(self.z_nocopyreloc);
+        man.hash.add(self.z_now);
+        man.hash.add(self.z_relro);
+        man.hash.add(self.z_common_page_size orelse 0);
+        man.hash.add(self.z_max_page_size orelse 0);
+        man.hash.add(self.hash_style);
         // strip does not need to go into the linker hash because it is part of the hash namespace
-        if (self.base.options.link_libc) {
+        if (comp.config.link_libc) {
             man.hash.add(self.base.comp.libc_installation != null);
             if (self.base.comp.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
@@ -2421,16 +2416,16 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                 man.hash.addOptionalBytes(target.dynamic_linker.get());
             }
         }
-        man.hash.addOptionalBytes(self.base.options.soname);
-        man.hash.addOptional(self.base.options.version);
+        man.hash.addOptionalBytes(self.soname);
+        man.hash.addOptional(comp.version);
         try link.hashAddSystemLibs(&man, self.base.comp.system_libs);
-        man.hash.addListOfBytes(self.base.options.force_undefined_symbols.keys());
+        man.hash.addListOfBytes(self.base.force_undefined_symbols.keys());
         man.hash.add(self.base.allow_shlib_undefined);
-        man.hash.add(self.base.options.bind_global_refs_locally);
-        man.hash.add(self.base.options.compress_debug_sections);
-        man.hash.add(self.base.options.tsan);
-        man.hash.addOptionalBytes(self.base.options.sysroot);
-        man.hash.add(self.base.options.linker_optimization);
+        man.hash.add(self.bind_global_refs_locally);
+        man.hash.add(self.compress_debug_sections);
+        man.hash.add(comp.config.any_sanitize_thread);
+        man.hash.addOptionalBytes(self.sysroot);
+        man.hash.add(self.optimization);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -2466,14 +2461,14 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     // However, because LLD wants to resolve BPF relocations which it shouldn't, it fails
     // before even generating the relocatable.
     if (output_mode == .Obj and
-        (self.base.options.lto or target.isBpfFreestanding()))
+        (comp.config.lto or target.isBpfFreestanding()))
     {
         // In this case we must do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
-            if (self.base.options.objects.len != 0)
-                break :blk self.base.options.objects[0].path;
+            if (comp.objects.len != 0)
+                break :blk comp.objects[0].path;
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -2505,32 +2500,32 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         try argv.append("--error-limit=0");
 
-        if (self.base.options.sysroot) |sysroot| {
+        if (self.sysroot) |sysroot| {
             try argv.append(try std.fmt.allocPrint(arena, "--sysroot={s}", .{sysroot}));
         }
 
-        if (self.base.options.lto) {
-            switch (self.base.options.optimize_mode) {
+        if (comp.config.lto) {
+            switch (comp.root_mod.optimize_mode) {
                 .Debug => {},
                 .ReleaseSmall => try argv.append("--lto-O2"),
                 .ReleaseFast, .ReleaseSafe => try argv.append("--lto-O3"),
             }
         }
         try argv.append(try std.fmt.allocPrint(arena, "-O{d}", .{
-            self.base.options.linker_optimization,
+            self.optimization,
         }));
 
-        if (self.base.options.entry) |entry| {
+        if (comp.config.entry) |entry| {
             try argv.append("--entry");
             try argv.append(entry);
         }
 
-        for (self.base.options.force_undefined_symbols.keys()) |sym| {
+        for (self.base.force_undefined_symbols.keys()) |sym| {
             try argv.append("-u");
             try argv.append(sym);
         }
 
-        switch (self.base.options.hash_style) {
+        switch (self.hash_style) {
             .gnu => try argv.append("--hash-style=gnu"),
             .sysv => try argv.append("--hash-style=sysv"),
             .both => {}, // this is the default
@@ -2559,12 +2554,12 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{self.image_base}));
 
-        if (self.base.options.linker_script) |linker_script| {
+        if (self.linker_script) |linker_script| {
             try argv.append("-T");
             try argv.append(linker_script);
         }
 
-        if (self.base.options.sort_section) |how| {
+        if (self.sort_section) |how| {
             const arg = try std.fmt.allocPrint(arena, "--sort-section={s}", .{@tagName(how)});
             try argv.append(arg);
         }
@@ -2573,67 +2568,67 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("--gc-sections");
         }
 
-        if (self.base.options.print_gc_sections) {
+        if (self.base.print_gc_sections) {
             try argv.append("--print-gc-sections");
         }
 
-        if (self.base.options.print_icf_sections) {
+        if (self.print_icf_sections) {
             try argv.append("--print-icf-sections");
         }
 
-        if (self.base.options.print_map) {
+        if (self.print_map) {
             try argv.append("--print-map");
         }
 
-        if (self.base.options.eh_frame_hdr) {
+        if (self.eh_frame_hdr) {
             try argv.append("--eh-frame-hdr");
         }
 
-        if (self.base.options.emit_relocs) {
+        if (self.emit_relocs) {
             try argv.append("--emit-relocs");
         }
 
-        if (self.base.options.rdynamic) {
+        if (self.rdynamic) {
             try argv.append("--export-dynamic");
         }
 
-        if (self.base.options.strip) {
+        if (self.base.debug_format == .strip) {
             try argv.append("-s");
         }
 
-        if (self.base.options.z_nodelete) {
+        if (self.z_nodelete) {
             try argv.append("-z");
             try argv.append("nodelete");
         }
-        if (self.base.options.z_notext) {
+        if (self.z_notext) {
             try argv.append("-z");
             try argv.append("notext");
         }
-        if (self.base.options.z_defs) {
+        if (self.z_defs) {
             try argv.append("-z");
             try argv.append("defs");
         }
-        if (self.base.options.z_origin) {
+        if (self.z_origin) {
             try argv.append("-z");
             try argv.append("origin");
         }
-        if (self.base.options.z_nocopyreloc) {
+        if (self.z_nocopyreloc) {
             try argv.append("-z");
             try argv.append("nocopyreloc");
         }
-        if (self.base.options.z_now) {
+        if (self.z_now) {
             // LLD defaults to -zlazy
             try argv.append("-znow");
         }
-        if (!self.base.options.z_relro) {
+        if (!self.z_relro) {
             // LLD defaults to -zrelro
             try argv.append("-znorelro");
         }
-        if (self.base.options.z_common_page_size) |size| {
+        if (self.z_common_page_size) |size| {
             try argv.append("-z");
             try argv.append(try std.fmt.allocPrint(arena, "common-page-size={d}", .{size}));
         }
-        if (self.base.options.z_max_page_size) |size| {
+        if (self.z_max_page_size) |size| {
             try argv.append("-z");
             try argv.append(try std.fmt.allocPrint(arena, "max-page-size={d}", .{size}));
         }
@@ -2658,7 +2653,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-shared");
         }
 
-        if (self.base.options.pie and output_mode == .Exe) {
+        if (comp.config.pie and output_mode == .Exe) {
             try argv.append("-pie");
         }
 
@@ -2683,20 +2678,20 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // rpaths
         var rpath_table = std.StringHashMap(void).init(gpa);
         defer rpath_table.deinit();
-        for (self.base.options.rpath_list) |rpath| {
+        for (self.base.rpath_list) |rpath| {
             if ((try rpath_table.fetchPut(rpath, {})) == null) {
                 try argv.append("-rpath");
                 try argv.append(rpath);
             }
         }
 
-        for (self.base.options.symbol_wrap_set.keys()) |symbol_name| {
+        for (self.symbol_wrap_set.keys()) |symbol_name| {
             try argv.appendSlice(&.{ "-wrap", symbol_name });
         }
 
-        if (self.base.options.each_lib_rpath) {
+        if (self.each_lib_rpath) {
             var test_path = std.ArrayList(u8).init(arena);
-            for (self.base.options.lib_dirs) |lib_dir_path| {
+            for (self.lib_dirs) |lib_dir_path| {
                 for (self.base.comp.system_libs.keys()) |link_lib| {
                     if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
                         continue;
@@ -2706,7 +2701,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                     }
                 }
             }
-            for (self.base.options.objects) |obj| {
+            for (comp.objects) |obj| {
                 if (Compilation.classifyFileExt(obj.path) == .shared_library) {
                     const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
                     if (obj.loption) continue;
@@ -2719,12 +2714,12 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             }
         }
 
-        for (self.base.options.lib_dirs) |lib_dir| {
+        for (self.lib_dirs) |lib_dir| {
             try argv.append("-L");
             try argv.append(lib_dir);
         }
 
-        if (self.base.options.link_libc) {
+        if (comp.config.link_libc) {
             if (self.base.comp.libc_installation) |libc_installation| {
                 try argv.append("-L");
                 try argv.append(libc_installation.crt_dir.?);
@@ -2739,11 +2734,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
 
         if (is_dyn_lib) {
-            if (self.base.options.soname) |soname| {
+            if (self.soname) |soname| {
                 try argv.append("-soname");
                 try argv.append(soname);
             }
-            if (self.base.options.version_script) |version_script| {
+            if (self.version_script) |version_script| {
                 try argv.append("-version-script");
                 try argv.append(version_script);
             }
@@ -2751,7 +2746,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         // Positional arguments to the linker such as object files.
         var whole_archive = false;
-        for (self.base.options.objects) |obj| {
+        for (comp.objects) |obj| {
             if (obj.must_link and !whole_archive) {
                 try argv.append("-whole-archive");
                 whole_archive = true;
@@ -2779,15 +2774,14 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append(p);
         }
 
-        // TSAN
-        if (self.base.options.tsan) {
+        if (comp.config.any_sanitize_thread) {
             try argv.append(comp.tsan_static_lib.?.full_object_path);
         }
 
         // libc
         if (is_exe_or_dyn_lib and
-            !self.base.options.skip_linker_dependencies and
-            !self.base.options.link_libc)
+            !comp.skip_linker_dependencies and
+            !comp.config.link_libc)
         {
             if (comp.libc_static_lib) |lib| {
                 try argv.append(lib.full_object_path);
@@ -2832,19 +2826,19 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             }
 
             // libc++ dep
-            if (self.base.options.link_libcpp) {
+            if (comp.config.link_libcpp) {
                 try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
                 try argv.append(comp.libcxx_static_lib.?.full_object_path);
             }
 
             // libunwind dep
-            if (self.base.options.link_libunwind) {
+            if (comp.config.link_libunwind) {
                 try argv.append(comp.libunwind_static_lib.?.full_object_path);
             }
 
             // libc dep
             self.error_flags.missing_libc = false;
-            if (self.base.options.link_libc) {
+            if (comp.config.link_libc) {
                 if (self.base.comp.libc_installation != null) {
                     const needs_grouping = link_mode == .Static;
                     if (needs_grouping) try argv.append("--start-group");
@@ -2884,13 +2878,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("--allow-shlib-undefined");
         }
 
-        switch (self.base.options.compress_debug_sections) {
+        switch (self.compress_debug_sections) {
             .none => {},
             .zlib => try argv.append("--compress-debug-sections=zlib"),
             .zstd => try argv.append("--compress-debug-sections=zstd"),
         }
 
-        if (self.base.options.bind_global_refs_locally) {
+        if (self.bind_global_refs_locally) {
             try argv.append("-Bsymbolic");
         }
 
@@ -2964,7 +2958,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
     }
 
-    if (!self.base.options.disable_lld_caching) {
+    if (!self.base.disable_lld_caching) {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
@@ -3101,7 +3095,8 @@ fn writeElfHeader(self: *Elf) !void {
     };
     index += 1;
 
-    const target = self.base.comp.root_mod.resolved_target.result;
+    const comp = self.base.comp;
+    const target = comp.root_mod.resolved_target.result;
     const endian = target.cpu.arch.endian();
     hdr_buf[index] = switch (endian) {
         .little => elf.ELFDATA2LSB,
@@ -3120,10 +3115,10 @@ fn writeElfHeader(self: *Elf) !void {
 
     assert(index == 16);
 
-    const output_mode = self.base.comp.config.output_mode;
-    const link_mode = self.base.comp.config.link_mode;
+    const output_mode = comp.config.output_mode;
+    const link_mode = comp.config.link_mode;
     const elf_type: elf.ET = switch (output_mode) {
-        .Exe => if (self.base.options.pie) .DYN else .EXEC,
+        .Exe => if (comp.config.pie) .DYN else .EXEC,
         .Obj => .REL,
         .Lib => switch (link_mode) {
             .Static => @as(elf.ET, .REL),
@@ -3283,7 +3278,7 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
     self.plt_index = try linker_defined.addGlobal("_PROCEDURE_LINKAGE_TABLE_", self);
     self.end_index = try linker_defined.addGlobal("_end", self);
 
-    if (self.base.options.eh_frame_hdr) {
+    if (self.eh_frame_hdr) {
         self.gnu_eh_frame_hdr_index = try linker_defined.addGlobal("__GNU_EH_FRAME_HDR", self);
     }
 
@@ -3314,7 +3309,8 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
 }
 
 fn allocateLinkerDefinedSymbols(self: *Elf) void {
-    const link_mode = self.base.comp.config.link_mode;
+    const comp = self.base.comp;
+    const link_mode = comp.config.link_mode;
 
     // _DYNAMIC
     if (self.dynamic_section_index) |shndx| {
@@ -3398,7 +3394,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
 
     // __rela_iplt_start, __rela_iplt_end
     if (self.rela_dyn_section_index) |shndx| blk: {
-        if (link_mode != .Static or self.base.options.pie) break :blk;
+        if (link_mode != .Static or comp.config.pie) break :blk;
         const shdr = &self.shdrs.items[shndx];
         const end_addr = shdr.sh_addr + shdr.sh_size;
         const start_addr = end_addr - self.calcNumIRelativeRelocs() * @sizeOf(elf.Elf64_Rela);
@@ -3445,7 +3441,8 @@ fn initOutputSections(self: *Elf) !void {
 }
 
 fn initSyntheticSections(self: *Elf) !void {
-    const target = self.base.comp.root_mod.resolved_target.result;
+    const comp = self.base.comp;
+    const target = comp.root_mod.resolved_target.result;
     const ptr_size = self.ptrWidthBytes();
 
     const needs_eh_frame = for (self.objects.items) |index| {
@@ -3460,7 +3457,7 @@ fn initSyntheticSections(self: *Elf) !void {
             .offset = std.math.maxInt(u64),
         });
 
-        if (self.base.options.eh_frame_hdr) {
+        if (self.eh_frame_hdr) {
             self.eh_frame_hdr_section_index = try self.addSection(.{
                 .name = ".eh_frame_hdr",
                 .type = elf.SHT_PROGBITS,
@@ -3554,7 +3551,7 @@ fn initSyntheticSections(self: *Elf) !void {
         // In this case, if we do generate .interp section and segment, we will get
         // a segfault in the dynamic linker trying to load a binary that is static
         // and doesn't contain .dynamic section.
-        if (self.isStatic() and !self.base.options.pie) break :blk false;
+        if (self.isStatic() and !comp.config.pie) break :blk false;
         break :blk target.dynamic_linker.get() != null;
     };
     if (needs_interp) {
@@ -3567,7 +3564,7 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.base.isDynLib() or self.shared_objects.items.len > 0 or self.base.options.pie) {
+    if (self.base.isDynLib() or self.shared_objects.items.len > 0 or comp.config.pie) {
         self.dynstrtab_section_index = try self.addSection(.{
             .name = ".dynstr",
             .flags = elf.SHF_ALLOC,
@@ -3859,7 +3856,7 @@ fn setDynamicSection(self: *Elf, rpaths: []const []const u8) !void {
     }
 
     if (self.base.isDynLib()) {
-        if (self.base.options.soname) |soname| {
+        if (self.soname) |soname| {
             try self.dynamic.setSoname(soname, self);
         }
     }

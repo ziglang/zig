@@ -198,10 +198,10 @@ fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) u64 
 }
 
 pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
+    const comp = macho_file.base.comp;
     // TODO This linker code currently assumes there is only 1 compilation unit
     // and it corresponds to the Zig source code.
-    const options = macho_file.base.options;
-    const module = options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    const zcu = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     for (self.relocs.items) |*reloc| {
         const sym = switch (reloc.type) {
@@ -245,7 +245,7 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
         const text_section = macho_file.sections.items(.header)[macho_file.text_section_index.?];
         const low_pc = text_section.addr;
         const high_pc = text_section.addr + text_section.size;
-        try self.dwarf.writeDbgInfoHeader(module, low_pc, high_pc);
+        try self.dwarf.writeDbgInfoHeader(zcu, low_pc, high_pc);
         self.debug_info_header_dirty = false;
     }
 
@@ -572,6 +572,5 @@ const trace = @import("../../tracy.zig").trace;
 const Allocator = mem.Allocator;
 const Dwarf = @import("../Dwarf.zig");
 const MachO = @import("../MachO.zig");
-const Module = @import("../../Module.zig");
 const StringTable = @import("../StringTable.zig");
 const Type = @import("../../type.zig").Type;

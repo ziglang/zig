@@ -60,7 +60,7 @@ fn collectRoots(macho_file: *MachO, roots: *AtomTable) !void {
     }
 
     // Add all symbols force-defined by the user.
-    for (macho_file.base.options.force_undefined_symbols.keys()) |sym_name| {
+    for (macho_file.base.force_undefined_symbols.keys()) |sym_name| {
         const global_index = macho_file.resolver.get(sym_name).?;
         const global = macho_file.globals.items[global_index];
         const sym = macho_file.getSymbol(global);

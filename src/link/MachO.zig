@@ -252,7 +252,7 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*MachO {
 
         self.d_sym = .{
             .allocator = gpa,
-            .dwarf = link.File.Dwarf.init(gpa, &self.base, .dwarf32),
+            .dwarf = link.File.Dwarf.init(&self.base, .dwarf32),
             .file = d_sym_file,
         };
     }
@@ -573,7 +573,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     try self.writeLinkeditSegmentData();
 
-    var codesig: ?CodeSignature = if (requiresCodeSignature(&self.base.options)) blk: {
+    var codesig: ?CodeSignature = if (self.requiresCodeSignature()) blk: {
         // Preallocate space for the code signature.
         // We need to do this at this stage so that we have the load commands with proper values
         // written out to the file.
@@ -619,12 +619,12 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
             });
         },
         .Lib => if (self.base.comp.config.link_mode == .Dynamic) {
-            try load_commands.writeDylibIdLC(gpa, &self.base.options, lc_writer);
+            try load_commands.writeDylibIdLC(self, lc_writer);
         },
         else => {},
     }
 
-    try load_commands.writeRpathLCs(gpa, &self.base.options, lc_writer);
+    try load_commands.writeRpathLCs(self, lc_writer);
     try lc_writer.writeStruct(macho.source_version_command{
         .version = 0,
     });
@@ -713,7 +713,7 @@ pub fn resolveLibSystem(
     success: {
         if (self.sdk_layout) |sdk_layout| switch (sdk_layout) {
             .sdk => {
-                const dir = try fs.path.join(arena, &[_][]const u8{ self.base.options.sysroot.?, "usr", "lib" });
+                const dir = try fs.path.join(arena, &[_][]const u8{ comp.sysroot.?, "usr", "lib" });
                 if (try accessLibPath(arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
             },
             .vendored => {
@@ -1156,7 +1156,8 @@ pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype) !void {
     // 2) afterwards, we parse dependents of the included dylibs
     // TODO this should not be performed if the user specifies `-flat_namespace` flag.
     // See ld64 manpages.
-    const gpa = self.base.comp.gpa;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
 
     while (dependent_libs.readItem()) |dep_id| {
         defer dep_id.id.deinit(gpa);
@@ -1176,7 +1177,7 @@ pub fn parseDependentLibs(self: *MachO, dependent_libs: anytype) !void {
         var checked_paths = std.ArrayList([]const u8).init(arena);
 
         success: {
-            if (self.base.options.sysroot) |root| {
+            if (comp.sysroot) |root| {
                 const dir = try fs.path.join(arena, &[_][]const u8{ root, dirname });
                 if (try accessLibPath(gpa, &test_path, &checked_paths, dir, stem)) break :success;
             }
@@ -1713,12 +1714,12 @@ pub fn resolveSymbols(self: *MachO) !void {
     // we search for it in libraries should there be no object files specified
     // on the linker line.
     if (output_mode == .Exe) {
-        const entry_name = self.base.options.entry orelse load_commands.default_entry_point;
+        const entry_name = comp.config.entry.?;
         _ = try self.addUndefined(entry_name, .{});
     }
 
     // Force resolution of any symbols requested by the user.
-    for (self.base.options.force_undefined_symbols.keys()) |sym_name| {
+    for (self.base.force_undefined_symbols.keys()) |sym_name| {
         _ = try self.addUndefined(sym_name, .{});
     }
 
@@ -4367,7 +4368,7 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
 
     // We generate stabs last in order to ensure that the strtab always has debug info
     // strings trailing
-    if (!self.base.options.strip) {
+    if (self.base.debug_format != .strip) {
         for (self.objects.items) |object| {
             assert(self.d_sym == null); // TODO
             try self.generateSymbolStabs(object, &locals);
@@ -5171,7 +5172,8 @@ pub fn getStubsEntryAddress(self: *MachO, sym_with_loc: SymbolWithLoc) ?u64 {
 /// Returns symbol location corresponding to the set entrypoint if any.
 /// Asserts output mode is executable.
 pub fn getEntryPoint(self: MachO) ?SymbolWithLoc {
-    const entry_name = self.base.options.entry orelse load_commands.default_entry_point;
+    const comp = self.base.comp;
+    const entry_name = comp.config.entry orelse return null;
     const global = self.getGlobal(entry_name) orelse return null;
     return global;
 }
@@ -5189,11 +5191,13 @@ pub inline fn getPageSize(cpu_arch: std.Target.Cpu.Arch) u16 {
     };
 }
 
-pub fn requiresCodeSignature(options: *const link.Options) bool {
-    if (options.entitlements) |_| return true;
-    const cpu_arch = options.target.cpu.arch;
-    const os_tag = options.target.os.tag;
-    const abi = options.target.abi;
+pub fn requiresCodeSignature(m: *MachO) bool {
+    if (m.entitlements) |_| return true;
+    const comp = m.base.comp;
+    const target = comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
+    const os_tag = target.os.tag;
+    const abi = target.abi;
     if (cpu_arch == .aarch64 and (os_tag == .macos or abi == .simulator)) return true;
     return false;
 }

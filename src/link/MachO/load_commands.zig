@@ -1,6 +1,3 @@
-/// Default implicit entrypoint symbol name.
-pub const default_entry_point: []const u8 = "_main";
-
 /// Default path to dyld.
 pub const default_dyld_path: [*:0]const u8 = "/usr/lib/dyld";
 
@@ -17,7 +14,9 @@ const CalcLCsSizeCtx = struct {
     wants_function_starts: bool = true,
 };
 
-fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx, assume_max_path_len: bool) !u32 {
+fn calcLCsSize(m: *MachO, ctx: CalcLCsSizeCtx, assume_max_path_len: bool) !u32 {
+    const comp = m.base.comp;
+    const gpa = comp.gpa;
     var has_text_segment: bool = false;
     var sizeofcmds: u64 = 0;
     for (ctx.segments) |seg| {
@@ -46,15 +45,15 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
         false,
     );
     // LC_MAIN
-    if (options.output_mode == .Exe) {
+    if (comp.config.output_mode == .Exe) {
         sizeofcmds += @sizeOf(macho.entry_point_command);
     }
     // LC_ID_DYLIB
-    if (options.output_mode == .Lib and options.link_mode == .Dynamic) {
+    if (comp.config.output_mode == .Lib and comp.config.link_mode == .Dynamic) {
         sizeofcmds += blk: {
-            const emit = options.emit.?;
-            const install_name = options.install_name orelse try emit.directory.join(gpa, &.{emit.sub_path});
-            defer if (options.install_name == null) gpa.free(install_name);
+            const emit = m.base.emit;
+            const install_name = m.install_name orelse try emit.directory.join(gpa, &.{emit.sub_path});
+            defer if (m.install_name == null) gpa.free(install_name);
             break :blk calcInstallNameLen(
                 @sizeOf(macho.dylib_command),
                 install_name,
@@ -64,7 +63,7 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
     }
     // LC_RPATH
     {
-        var it = RpathIterator.init(gpa, options.rpath_list);
+        var it = RpathIterator.init(gpa, m.rpath_list);
         defer it.deinit();
         while (try it.next()) |rpath| {
             sizeofcmds += calcInstallNameLen(
@@ -78,7 +77,8 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
     sizeofcmds += @sizeOf(macho.source_version_command);
     // LC_BUILD_VERSION or LC_VERSION_MIN_ or nothing
     {
-        const platform = Platform.fromTarget(options.target);
+        const target = comp.root_mod.resolved_target.result;
+        const platform = Platform.fromTarget(target);
         if (platform.isBuildVersionCompatible()) {
             // LC_BUILD_VERSION
             sizeofcmds += @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
@@ -100,19 +100,19 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
         );
     }
     // LC_CODE_SIGNATURE
-    if (MachO.requiresCodeSignature(options)) {
+    if (m.requiresCodeSignature()) {
         sizeofcmds += @sizeOf(macho.linkedit_data_command);
     }
 
-    return @as(u32, @intCast(sizeofcmds));
+    return @intCast(sizeofcmds);
 }
 
-pub fn calcMinHeaderPad(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx) !u64 {
-    var padding: u32 = (try calcLCsSize(gpa, options, ctx, false)) + (options.headerpad_size orelse 0);
+pub fn calcMinHeaderPad(m: *MachO, ctx: CalcLCsSizeCtx) !u64 {
+    var padding: u32 = (try calcLCsSize(m, ctx, false)) + m.headerpad_size;
     log.debug("minimum requested headerpad size 0x{x}", .{padding + @sizeOf(macho.mach_header_64)});
 
-    if (options.headerpad_max_install_names) {
-        const min_headerpad_size: u32 = try calcLCsSize(gpa, options, ctx, true);
+    if (m.headerpad_max_install_names) {
+        const min_headerpad_size: u32 = try calcLCsSize(m, ctx, true);
         log.debug("headerpad_max_install_names minimum headerpad size 0x{x}", .{
             min_headerpad_size + @sizeOf(macho.mach_header_64),
         });

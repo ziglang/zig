@@ -32,7 +32,7 @@ pub const DynamicSection = struct {
     fn getFlags(dt: DynamicSection, elf_file: *Elf) ?u64 {
         _ = dt;
         var flags: u64 = 0;
-        if (elf_file.base.options.z_now) {
+        if (elf_file.z_now) {
             flags |= elf.DF_BIND_NOW;
         }
         for (elf_file.got.entries.items) |entry| switch (entry.tag) {
@@ -49,15 +49,16 @@ pub const DynamicSection = struct {
     }
 
     fn getFlags1(dt: DynamicSection, elf_file: *Elf) ?u64 {
+        const comp = elf_file.base.comp;
         _ = dt;
         var flags_1: u64 = 0;
-        if (elf_file.base.options.z_now) {
+        if (elf_file.z_now) {
             flags_1 |= elf.DF_1_NOW;
         }
-        if (elf_file.isExe() and elf_file.base.options.pie) {
+        if (elf_file.isExe() and comp.config.pie) {
             flags_1 |= elf.DF_1_PIE;
         }
-        // if (elf_file.base.options.z_nodlopen) {
+        // if (elf_file.z_nodlopen) {
         //     flags_1 |= elf.DF_1_NOOPEN;
         // }
         return if (flags_1 > 0) flags_1 else null;
@@ -246,12 +247,13 @@ pub const ZigGotSection = struct {
     }
 
     pub fn addSymbol(zig_got: *ZigGotSection, sym_index: Symbol.Index, elf_file: *Elf) !Index {
+        const comp = elf_file.base.comp;
         const index = try zig_got.allocateEntry(elf_file.base.allocator);
         const entry = &zig_got.entries.items[index];
         entry.* = sym_index;
         const symbol = elf_file.symbol(sym_index);
         symbol.flags.has_zig_got = true;
-        if (elf_file.isDynLib() or (elf_file.isExe() and elf_file.base.options.pie)) {
+        if (elf_file.isDynLib() or (elf_file.isExe() and comp.config.pie)) {
             zig_got.flags.needs_rela = true;
         }
         if (symbol.extra(elf_file)) |extra| {
@@ -478,6 +480,7 @@ pub const GotSection = struct {
     }
 
     pub fn addGotSymbol(got: *GotSection, sym_index: Symbol.Index, elf_file: *Elf) !Index {
+        const comp = elf_file.base.comp;
         const index = try got.allocateEntry(elf_file.base.allocator);
         const entry = &got.entries.items[index];
         entry.tag = .got;
@@ -485,7 +488,7 @@ pub const GotSection = struct {
         const symbol = elf_file.symbol(sym_index);
         symbol.flags.has_got = true;
         if (symbol.flags.import or symbol.isIFunc(elf_file) or
-            ((elf_file.isDynLib() or (elf_file.isExe() and elf_file.base.options.pie)) and !symbol.isAbs(elf_file)))
+            ((elf_file.isDynLib() or (elf_file.isExe() and comp.config.pie)) and !symbol.isAbs(elf_file)))
         {
             got.flags.needs_rela = true;
         }
@@ -561,6 +564,7 @@ pub const GotSection = struct {
     }
 
     pub fn write(got: GotSection, elf_file: *Elf, writer: anytype) !void {
+        const comp = elf_file.base.comp;
         const is_dyn_lib = elf_file.isDynLib();
         const apply_relocs = true; // TODO add user option for this
 
@@ -576,7 +580,7 @@ pub const GotSection = struct {
                         if (symbol.?.flags.import) break :blk 0;
                         if (symbol.?.isIFunc(elf_file))
                             break :blk if (apply_relocs) value else 0;
-                        if ((elf_file.isDynLib() or (elf_file.isExe() and elf_file.base.options.pie)) and
+                        if ((elf_file.isDynLib() or (elf_file.isExe() and comp.config.pie)) and
                             !symbol.?.isAbs(elf_file))
                         {
                             break :blk if (apply_relocs) value else 0;
@@ -623,6 +627,7 @@ pub const GotSection = struct {
     }
 
     pub fn addRela(got: GotSection, elf_file: *Elf) !void {
+        const comp = elf_file.base.comp;
         const is_dyn_lib = elf_file.isDynLib();
         try elf_file.rela_dyn.ensureUnusedCapacity(elf_file.base.allocator, got.numRela(elf_file));
 
@@ -652,7 +657,7 @@ pub const GotSection = struct {
                         });
                         continue;
                     }
-                    if ((elf_file.isDynLib() or (elf_file.isExe() and elf_file.base.options.pie)) and
+                    if ((elf_file.isDynLib() or (elf_file.isExe() and comp.config.pie)) and
                         !symbol.?.isAbs(elf_file))
                     {
                         elf_file.addRelaDynAssumeCapacity(.{
@@ -725,6 +730,7 @@ pub const GotSection = struct {
     }
 
     pub fn numRela(got: GotSection, elf_file: *Elf) usize {
+        const comp = elf_file.base.comp;
         const is_dyn_lib = elf_file.isDynLib();
         var num: usize = 0;
         for (got.entries.items) |entry| {
@@ -734,7 +740,7 @@ pub const GotSection = struct {
             };
             switch (entry.tag) {
                 .got => if (symbol.?.flags.import or symbol.?.isIFunc(elf_file) or
-                    ((elf_file.isDynLib() or (elf_file.isExe() and elf_file.base.options.pie)) and
+                    ((elf_file.isDynLib() or (elf_file.isExe() and comp.config.pie)) and
                     !symbol.?.isAbs(elf_file)))
                 {
                     num += 1;

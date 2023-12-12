@@ -37,6 +37,13 @@ pub const Relocation = types.Relocation;
 pub const base_tag: link.File.Tag = .wasm;
 
 base: link.File,
+import_symbols: bool,
+export_symbol_names: []const []const u8,
+rdynamic: bool,
+global_base: ?u64,
+initial_memory: ?u64,
+max_memory: ?u64,
+wasi_emulated_libs: []const wasi_libc.CRTFile,
 /// Output name of the file
 name: []const u8,
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
@@ -368,13 +375,15 @@ pub const StringTable = struct {
 
 pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
     if (build_options.only_c) unreachable;
-    const gpa = options.comp.gpa;
-    const target = options.comp.root_mod.resolved_target.result;
+    const comp = options.comp;
+    const gpa = comp.gpa;
+    const target = comp.root_mod.resolved_target.result;
     assert(target.ofmt == .wasm);
 
-    const use_lld = build_options.have_llvm and options.comp.config.use_lld;
-    const use_llvm = options.comp.config.use_llvm;
-    const output_mode = options.comp.config.output_mode;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
+    const output_mode = comp.config.output_mode;
+    const shared_memory = comp.config.shared_memory;
 
     const wasm = try createEmpty(arena, options);
     errdefer wasm.base.destroy();
@@ -395,7 +404,7 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
     };
 
     // TODO: read the file and keep valid parts instead of truncating
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{
+    const file = try options.emit.directory.handle.createFile(sub_path, .{
         .truncate = true,
         .read = true,
         .mode = if (fs.has_executable_bit)
@@ -480,7 +489,7 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
     }
 
     // shared-memory symbols for TLS support
-    if (wasm.base.options.shared_memory) {
+    if (shared_memory) {
         {
             const loc = try wasm.createSyntheticSymbol("__tls_base", .global);
             const symbol = loc.getSymbol(wasm);
@@ -522,14 +531,15 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
 }
 
 pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
-    const use_llvm = options.comp.config.use_llvm;
-    const output_mode = options.comp.config.output_mode;
+    const comp = options.comp;
+    const use_llvm = comp.config.use_llvm;
+    const output_mode = comp.config.output_mode;
 
     const wasm = try arena.create(Wasm);
     wasm.* = .{
         .base = .{
             .tag = .wasm,
-            .comp = options.comp,
+            .comp = comp,
             .emit = options.emit,
             .gc_sections = options.gc_sections orelse (output_mode != .Obj),
             .stack_size = options.stack_size orelse std.wasm.page_size * 16, // 1MB
@@ -546,6 +556,13 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
         .name = undefined,
         .import_table = options.import_table,
         .export_table = options.export_table,
+        .import_symbols = options.import_symbols,
+        .export_symbol_names = options.export_symbol_names,
+        .rdynamic = options.rdynamic,
+        .global_base = options.global_base,
+        .initial_memory = options.initial_memory,
+        .max_memory = options.max_memory,
+        .wasi_emulated_libs = options.wasi_emulated_libs,
     };
 
     if (use_llvm) {
@@ -909,7 +926,10 @@ fn writeI32Const(writer: anytype, val: u32) !void {
 }
 
 fn setupInitMemoryFunction(wasm: *Wasm) !void {
-    const gpa = wasm.base.comp.gpa;
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const shared_memory = comp.config.shared_memory;
+    const import_memory = comp.config.import_memory;
 
     // Passive segments are used to avoid memory being reinitialized on each
     // thread's instantiation. These passive segments are initialized and
@@ -920,7 +940,7 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
         return;
     }
 
-    const flag_address: u32 = if (wasm.base.options.shared_memory) address: {
+    const flag_address: u32 = if (shared_memory) address: {
         // when we have passive initialization segments and shared memory
         // `setupMemory` will create this symbol and set its virtual address.
         const loc = wasm.findGlobalSymbol("__wasm_init_memory_flag").?;
@@ -934,7 +954,7 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
     // we have 0 locals
     try leb.writeULEB128(writer, @as(u32, 0));
 
-    if (wasm.base.options.shared_memory) {
+    if (shared_memory) {
         // destination blocks
         // based on values we jump to corresponding label
         try writer.writeByte(std.wasm.opcode(.block)); // $drop
@@ -968,14 +988,14 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
     var segment_index: u32 = 0;
     while (it.next()) |entry| : (segment_index += 1) {
         const segment: Segment = wasm.segments.items[entry.value_ptr.*];
-        if (segment.needsPassiveInitialization(wasm.base.options.import_memory, entry.key_ptr.*)) {
+        if (segment.needsPassiveInitialization(import_memory, entry.key_ptr.*)) {
             // For passive BSS segments we can simple issue a memory.fill(0).
             // For non-BSS segments we do a memory.init.  Both these
             // instructions take as their first argument the destination
             // address.
             try writeI32Const(writer, segment.offset);
 
-            if (wasm.base.options.shared_memory and std.mem.eql(u8, entry.key_ptr.*, ".tdata")) {
+            if (shared_memory and std.mem.eql(u8, entry.key_ptr.*, ".tdata")) {
                 // When we initialize the TLS segment we also set the `__tls_base`
                 // global.  This allows the runtime to use this static copy of the
                 // TLS data for the first/main thread.
@@ -1000,7 +1020,7 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
         }
     }
 
-    if (wasm.base.options.shared_memory) {
+    if (shared_memory) {
         // we set the init memory flag to value '2'
         try writeI32Const(writer, flag_address);
         try writeI32Const(writer, 2);
@@ -1043,12 +1063,12 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
     while (it.next()) |entry| : (segment_index += 1) {
         const name = entry.key_ptr.*;
         const segment: Segment = wasm.segments.items[entry.value_ptr.*];
-        if (segment.needsPassiveInitialization(wasm.base.options.import_memory, name) and
+        if (segment.needsPassiveInitialization(import_memory, name) and
             !std.mem.eql(u8, name, ".bss"))
         {
             // The TLS region should not be dropped since its is needed
             // during the initialization of each thread (__wasm_init_tls).
-            if (wasm.base.options.shared_memory and std.mem.eql(u8, name, ".tdata")) {
+            if (shared_memory and std.mem.eql(u8, name, ".tdata")) {
                 continue;
             }
 
@@ -1071,11 +1091,13 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
 /// Constructs a synthetic function that performs runtime relocations for
 /// TLS symbols. This function is called by `__wasm_init_tls`.
 fn setupTLSRelocationsFunction(wasm: *Wasm) !void {
-    const gpa = wasm.base.comp.gpa;
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const shared_memory = comp.config.shared_memory;
 
     // When we have TLS GOT entries and shared memory is enabled,
     // we must perform runtime relocations or else we don't create the function.
-    if (!wasm.base.options.shared_memory or !wasm.requiresTLSReloc()) {
+    if (!shared_memory or !wasm.requiresTLSReloc()) {
         return;
     }
 
@@ -1119,7 +1141,9 @@ fn validateFeatures(
     to_emit: *[@typeInfo(types.Feature.Tag).Enum.fields.len]bool,
     emit_features_count: *u32,
 ) !void {
-    const target = wasm.base.comp.root_mod.resolved_target.result;
+    const comp = wasm.base.comp;
+    const target = comp.root_mod.resolved_target.result;
+    const shared_memory = comp.config.shared_memory;
     const cpu_features = target.cpu.features;
     const infer = cpu_features.isEmpty(); // when the user did not define any features, we infer them from linked objects.
     const known_features_count = @typeInfo(types.Feature.Tag).Enum.fields.len;
@@ -1190,7 +1214,7 @@ fn validateFeatures(
         return error.InvalidFeatureSet;
     }
 
-    if (wasm.base.options.shared_memory) {
+    if (shared_memory) {
         const disallowed_feature = disallowed[@intFromEnum(types.Feature.Tag.shared_mem)];
         if (@as(u1, @truncate(disallowed_feature)) != 0) {
             log.err(
@@ -1255,7 +1279,9 @@ fn validateFeatures(
 /// if one or multiple undefined references exist. When none exist, the symbol will
 /// not be created, ensuring we don't unneccesarily emit unreferenced symbols.
 fn resolveLazySymbols(wasm: *Wasm) !void {
-    const gpa = wasm.base.comp.gpa;
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const shared_memory = comp.config.shared_memory;
 
     if (wasm.string_table.getOffset("__heap_base")) |name_offset| {
         if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
@@ -1273,7 +1299,7 @@ fn resolveLazySymbols(wasm: *Wasm) !void {
         }
     }
 
-    if (!wasm.base.options.shared_memory) {
+    if (!shared_memory) {
         if (wasm.string_table.getOffset("__tls_base")) |name_offset| {
             if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
                 const loc = try wasm.createSyntheticSymbolOffset(name_offset, .global);
@@ -1306,8 +1332,9 @@ pub fn findGlobalSymbol(wasm: *Wasm, name: []const u8) ?SymbolLoc {
 }
 
 fn checkUndefinedSymbols(wasm: *const Wasm) !void {
-    if (wasm.base.comp.config.output_mode == .Obj) return;
-    if (wasm.base.options.import_symbols) return;
+    const comp = wasm.base.comp;
+    if (comp.config.output_mode == .Obj) return;
+    if (wasm.import_symbols) return;
 
     var found_undefined_symbols = false;
     for (wasm.undefs.values()) |undef| {
@@ -2182,7 +2209,10 @@ const Kind = union(enum) {
 
 /// Parses an Atom and inserts its metadata into the corresponding sections.
 fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
-    const gpa = wasm.base.comp.gpa;
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const shared_memory = comp.config.shared_memory;
+    const import_memory = comp.config.import_memory;
     const atom = wasm.getAtomPtr(atom_index);
     const symbol = (SymbolLoc{ .file = null, .index = atom.sym_index }).getSymbol(wasm);
     const do_garbage_collect = wasm.base.gc_sections;
@@ -2233,7 +2263,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
             // we set the entire region of it to zeroes.
             // We do not have to do this when exporting the memory (the default) because the runtime
             // will do it for us, and we do not emit the bss segment at all.
-            if ((wasm.base.comp.config.output_mode == .Obj or wasm.base.options.import_memory) and kind.data == .uninitialized) {
+            if ((wasm.base.comp.config.output_mode == .Obj or import_memory) and kind.data == .uninitialized) {
                 @memset(atom.code.items, 0);
             }
 
@@ -2250,7 +2280,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
             } else {
                 const index: u32 = @intCast(wasm.segments.items.len);
                 var flags: u32 = 0;
-                if (wasm.base.options.shared_memory) {
+                if (shared_memory) {
                     flags |= @intFromEnum(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
                 }
                 try wasm.segments.append(gpa, .{
@@ -2679,9 +2709,11 @@ fn setupStartSection(wasm: *Wasm) !void {
 }
 
 fn initializeTLSFunction(wasm: *Wasm) !void {
-    const gpa = wasm.base.comp.gpa;
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const shared_memory = comp.config.shared_memory;
 
-    if (!wasm.base.options.shared_memory) return;
+    if (!shared_memory) return;
 
     var function_body = std.ArrayList(u8).init(gpa);
     defer function_body.deinit();
@@ -2940,7 +2972,7 @@ fn setupExports(wasm: *Wasm) !void {
     if (wasm.base.comp.config.output_mode == .Obj) return;
     log.debug("Building exports from symbols", .{});
 
-    const force_exp_names = wasm.base.options.export_symbol_names;
+    const force_exp_names = wasm.export_symbol_names;
     if (force_exp_names.len > 0) {
         var failed_exports = false;
 
@@ -2962,7 +2994,7 @@ fn setupExports(wasm: *Wasm) !void {
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const symbol = sym_loc.getSymbol(wasm);
-        if (!symbol.isExported(wasm.base.options.rdynamic)) continue;
+        if (!symbol.isExported(wasm.rdynamic)) continue;
 
         const sym_name = sym_loc.getName(wasm);
         const export_name = if (wasm.export_names.get(sym_loc)) |name| name else blk: {
@@ -2997,8 +3029,9 @@ fn setupExports(wasm: *Wasm) !void {
 }
 
 fn setupStart(wasm: *Wasm) !void {
+    const comp = wasm.base.comp;
     // do not export entry point if user set none or no default was set.
-    const entry_name = wasm.base.options.entry orelse return;
+    const entry_name = comp.config.entry orelse return;
 
     const symbol_loc = wasm.findGlobalSymbol(entry_name) orelse {
         log.err("Entry symbol '{s}' missing, use '-fno-entry' to suppress", .{entry_name});
@@ -3012,13 +3045,15 @@ fn setupStart(wasm: *Wasm) !void {
     }
 
     // Ensure the symbol is exported so host environment can access it
-    if (wasm.base.comp.config.output_mode != .Obj) {
+    if (comp.config.output_mode != .Obj) {
         symbol.setFlag(.WASM_SYM_EXPORTED);
     }
 }
 
 /// Sets up the memory section of the wasm module, as well as the stack.
 fn setupMemory(wasm: *Wasm) !void {
+    const comp = wasm.base.comp;
+    const shared_memory = comp.config.shared_memory;
     log.debug("Setting up memory layout", .{});
     const page_size = std.wasm.page_size; // 64kb
     const stack_alignment: Alignment = .@"16"; // wasm's stack alignment as specified by tool-convention
@@ -3027,12 +3062,12 @@ fn setupMemory(wasm: *Wasm) !void {
     // Always place the stack at the start by default
     // unless the user specified the global-base flag
     var place_stack_first = true;
-    var memory_ptr: u64 = if (wasm.base.options.global_base) |base| blk: {
+    var memory_ptr: u64 = if (wasm.global_base) |base| blk: {
         place_stack_first = false;
         break :blk base;
     } else 0;
 
-    const is_obj = wasm.base.comp.config.output_mode == .Obj;
+    const is_obj = comp.config.output_mode == .Obj;
 
     if (place_stack_first and !is_obj) {
         memory_ptr = stack_alignment.forward(memory_ptr);
@@ -3059,7 +3094,7 @@ fn setupMemory(wasm: *Wasm) !void {
             }
             if (wasm.findGlobalSymbol("__tls_base")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = if (wasm.base.options.shared_memory)
+                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = if (shared_memory)
                     @as(i32, 0)
                 else
                     @as(i32, @intCast(memory_ptr));
@@ -3072,7 +3107,7 @@ fn setupMemory(wasm: *Wasm) !void {
     }
 
     // create the memory init flag which is used by the init memory function
-    if (wasm.base.options.shared_memory and wasm.hasPassiveInitializationSegments()) {
+    if (shared_memory and wasm.hasPassiveInitializationSegments()) {
         // align to pointer size
         memory_ptr = mem.alignForward(u64, memory_ptr, 4);
         const loc = try wasm.createSyntheticSymbol("__wasm_init_memory_flag", .data);
@@ -3098,7 +3133,7 @@ fn setupMemory(wasm: *Wasm) !void {
     // For now we only support wasm32 by setting the maximum allowed memory size 2^32-1
     const max_memory_allowed: u64 = (1 << 32) - 1;
 
-    if (wasm.base.options.initial_memory) |initial_memory| {
+    if (wasm.initial_memory) |initial_memory| {
         if (!std.mem.isAlignedGeneric(u64, initial_memory, page_size)) {
             log.err("Initial memory must be {d}-byte aligned", .{page_size});
             return error.MissAlignment;
@@ -3124,7 +3159,7 @@ fn setupMemory(wasm: *Wasm) !void {
         symbol.virtual_address = @as(u32, @intCast(memory_ptr));
     }
 
-    if (wasm.base.options.max_memory) |max_memory| {
+    if (wasm.max_memory) |max_memory| {
         if (!std.mem.isAlignedGeneric(u64, max_memory, page_size)) {
             log.err("Maximum memory must be {d}-byte aligned", .{page_size});
             return error.MissAlignment;
@@ -3139,7 +3174,7 @@ fn setupMemory(wasm: *Wasm) !void {
         }
         wasm.memories.limits.max = @as(u32, @intCast(max_memory / page_size));
         wasm.memories.limits.setFlag(.WASM_LIMITS_FLAG_HAS_MAX);
-        if (wasm.base.options.shared_memory) {
+        if (shared_memory) {
             wasm.memories.limits.setFlag(.WASM_LIMITS_FLAG_IS_SHARED);
         }
         log.debug("Maximum memory pages: {?d}", .{wasm.memories.limits.max});
@@ -3150,20 +3185,22 @@ fn setupMemory(wasm: *Wasm) !void {
 /// index of the segment within the final data section. When the segment does not yet
 /// exist, a new one will be initialized and appended. The new index will be returned in that case.
 pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, symbol_index: u32) !u32 {
-    const gpa = wasm.base.comp.gpa;
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
     const object: Object = wasm.objects.items[object_index];
     const symbol = object.symtable[symbol_index];
     const index: u32 = @intCast(wasm.segments.items.len);
+    const shared_memory = comp.config.shared_memory;
 
     switch (symbol.tag) {
         .data => {
             const segment_info = object.segment_info[symbol.index];
-            const merge_segment = wasm.base.comp.config.output_mode != .Obj;
+            const merge_segment = comp.config.output_mode != .Obj;
             const result = try wasm.data_segments.getOrPut(gpa, segment_info.outputName(merge_segment));
             if (!result.found_existing) {
                 result.value_ptr.* = index;
                 var flags: u32 = 0;
-                if (wasm.base.options.shared_memory) {
+                if (shared_memory) {
                     flags |= @intFromEnum(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
                 }
                 try wasm.segments.append(gpa, .{
@@ -3445,6 +3482,8 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     defer tracy.end();
 
     const gpa = wasm.base.comp.gpa;
+    const shared_memory = comp.config.shared_memory;
+    const import_memory = comp.config.import_memory;
 
     // Used for all temporary memory allocated during flushin
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
@@ -3509,8 +3548,8 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         man.hash.addOptionalBytes(wasm.base.comp.config.entry);
         man.hash.add(wasm.base.stack_size);
         man.hash.add(wasm.base.build_id);
-        man.hash.add(wasm.base.comp.config.import_memory);
-        man.hash.add(wasm.base.comp.config.shared_memory);
+        man.hash.add(import_memory);
+        man.hash.add(shared_memory);
         man.hash.add(wasm.import_table);
         man.hash.add(wasm.export_table);
         man.hash.addOptional(wasm.initial_memory);
@@ -3726,8 +3765,12 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
                 } else if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
                     // for safe build modes, we store the atom in the data segment,
                     // whereas for unsafe build modes we store it in bss.
-                    const is_initialized = wasm.base.options.optimize_mode == .Debug or
-                        wasm.base.options.optimize_mode == .ReleaseSafe;
+                    const decl_namespace = mod.namespacePtr(decl.src_namespace);
+                    const optimize_mode = decl_namespace.file_scope.mod.optimize_mode;
+                    const is_initialized = switch (optimize_mode) {
+                        .Debug, .ReleaseSafe => true,
+                        .ReleaseFast, .ReleaseSmall => false,
+                    };
                     try wasm.parseAtom(atom_index, .{ .data = if (is_initialized) .initialized else .uninitialized });
                 } else {
                     // when the decl is all zeroes, we store the atom in the bss segment,
@@ -3788,9 +3831,13 @@ fn writeToFile(
     feature_count: u32,
     arena: Allocator,
 ) !void {
-    const gpa = wasm.base.comp.gpa;
-    const use_llvm = wasm.base.comp.config.use_llvm;
-    const use_lld = build_options.have_llvm and wasm.base.comp.config.use_lld;
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const use_llvm = comp.config.use_llvm;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const shared_memory = comp.config.shared_memory;
+    const import_memory = comp.config.import_memory;
+    const export_memory = comp.config.export_memory;
 
     // Size of each section header
     const header_size = 5 + 1;
@@ -3800,7 +3847,7 @@ fn writeToFile(
     var code_section_index: ?u32 = null;
     // Index of the data section. Used to tell relocation table where the section lives.
     var data_section_index: ?u32 = null;
-    const is_obj = wasm.base.comp.config.output_mode == .Obj or (!use_llvm and use_lld);
+    const is_obj = comp.config.output_mode == .Obj or (!use_llvm and use_lld);
 
     var binary_bytes = std.ArrayList(u8).init(gpa);
     defer binary_bytes.deinit();
@@ -3840,8 +3887,6 @@ fn writeToFile(
     }
 
     // Import section
-    const import_memory = wasm.base.options.import_memory or is_obj;
-    const export_memory = wasm.base.options.export_memory;
     if (wasm.imports.count() != 0 or import_memory) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
@@ -4018,7 +4063,7 @@ fn writeToFile(
 
     // When the shared-memory option is enabled, we *must* emit the 'data count' section.
     const data_segments_count = wasm.data_segments.count() - @intFromBool(wasm.data_segments.contains(".bss") and !import_memory);
-    if (data_segments_count != 0 and wasm.base.options.shared_memory) {
+    if (data_segments_count != 0 and shared_memory) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
         try writeVecSectionHeader(
             binary_bytes.items,
@@ -4160,11 +4205,11 @@ fn writeToFile(
         if (data_section_index) |data_index| {
             try wasm.emitDataRelocations(&binary_bytes, data_index, symbol_table);
         }
-    } else if (!wasm.base.options.strip) {
+    } else if (wasm.base.debug_format != .strip) {
         try wasm.emitNameSection(&binary_bytes, arena);
     }
 
-    if (!wasm.base.options.strip) {
+    if (wasm.base.debug_format != .strip) {
         // The build id must be computed on the main sections only,
         // so we have to do it now, before the debug sections.
         switch (wasm.base.build_id) {
@@ -4193,7 +4238,7 @@ fn writeToFile(
         }
 
         // if (wasm.dwarf) |*dwarf| {
-        //     const mod = wasm.base.comp.module.?;
+        //     const mod = comp.module.?;
         //     try dwarf.writeDbgAbbrev();
         //     // for debug info and ranges, the address is always 0,
         //     // as locations are always offsets relative to 'code' section.
@@ -4380,6 +4425,8 @@ fn emitFeaturesSection(binary_bytes: *std.ArrayList(u8), enabled_features: []con
 }
 
 fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem.Allocator) !void {
+    const comp = wasm.base.comp;
+    const import_memory = comp.config.import_memory;
     const Name = struct {
         index: u32,
         name: []const u8,
@@ -4418,7 +4465,7 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem
     for (wasm.data_segments.keys()) |key| {
         // bss section is not emitted when this condition holds true, so we also
         // do not output a name for it.
-        if (!wasm.base.options.import_memory and std.mem.eql(u8, key, ".bss")) continue;
+        if (!import_memory and std.mem.eql(u8, key, ".bss")) continue;
         segments.appendAssumeCapacity(.{ .index = data_segment_index, .name = key });
         data_segment_index += 1;
     }
@@ -4528,6 +4575,11 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
     const tracy = trace(@src());
     defer tracy.end();
 
+    const shared_memory = comp.config.shared_memory;
+    const export_memory = comp.config.export_memory;
+    const import_memory = comp.config.import_memory;
+    const target = comp.root_mod.resolved_target.result;
+
     const gpa = wasm.base.comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
@@ -4560,8 +4612,6 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         break :blk null;
     };
 
-    const target = wasm.base.comp.root_mod.resolved_target.result;
-
     const id_symlink_basename = "lld.id";
 
     var man: Cache.Manifest = undefined;
@@ -4577,7 +4627,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 
         comptime assert(Compilation.link_hash_implementation_version == 10);
 
-        for (wasm.base.options.objects) |obj| {
+        for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);
             man.hash.add(obj.must_link);
         }
@@ -4589,17 +4639,17 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         man.hash.addOptionalBytes(wasm.base.comp.config.entry);
         man.hash.add(wasm.base.stack_size);
         man.hash.add(wasm.base.build_id);
-        man.hash.add(wasm.base.options.import_memory);
-        man.hash.add(wasm.base.options.export_memory);
+        man.hash.add(import_memory);
+        man.hash.add(export_memory);
         man.hash.add(wasm.import_table);
         man.hash.add(wasm.export_table);
-        man.hash.addOptional(wasm.base.options.initial_memory);
-        man.hash.addOptional(wasm.base.options.max_memory);
-        man.hash.add(wasm.base.options.shared_memory);
-        man.hash.addOptional(wasm.base.options.global_base);
-        man.hash.add(wasm.base.options.export_symbol_names.len);
+        man.hash.addOptional(wasm.initial_memory);
+        man.hash.addOptional(wasm.max_memory);
+        man.hash.add(shared_memory);
+        man.hash.addOptional(wasm.global_base);
+        man.hash.add(wasm.export_symbol_names.len);
         // strip does not need to go into the linker hash because it is part of the hash namespace
-        for (wasm.base.options.export_symbol_names) |symbol_name| {
+        for (wasm.export_symbol_names) |symbol_name| {
             man.hash.addBytes(symbol_name);
         }
 
@@ -4637,8 +4687,8 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
-            if (wasm.base.options.objects.len != 0)
-                break :blk wasm.base.options.objects[0].path;
+            if (comp.objects.len != 0)
+                break :blk comp.objects[0].path;
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -4666,19 +4716,19 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, linker_command });
         try argv.append("--error-limit=0");
 
-        if (wasm.base.options.lto) {
-            switch (wasm.base.options.optimize_mode) {
+        if (comp.config.lto) {
+            switch (comp.root_mod.optimize_mode) {
                 .Debug => {},
                 .ReleaseSmall => try argv.append("-O2"),
                 .ReleaseFast, .ReleaseSafe => try argv.append("-O3"),
             }
         }
 
-        if (wasm.base.options.import_memory) {
+        if (import_memory) {
             try argv.append("--import-memory");
         }
 
-        if (wasm.base.options.export_memory) {
+        if (export_memory) {
             try argv.append("--export-memory");
         }
 
@@ -4698,25 +4748,25 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append("--no-gc-sections");
         }
 
-        if (wasm.base.options.strip) {
+        if (wasm.base.debug_format == .strip) {
             try argv.append("-s");
         }
 
-        if (wasm.base.options.initial_memory) |initial_memory| {
+        if (wasm.initial_memory) |initial_memory| {
             const arg = try std.fmt.allocPrint(arena, "--initial-memory={d}", .{initial_memory});
             try argv.append(arg);
         }
 
-        if (wasm.base.options.max_memory) |max_memory| {
+        if (wasm.max_memory) |max_memory| {
             const arg = try std.fmt.allocPrint(arena, "--max-memory={d}", .{max_memory});
             try argv.append(arg);
         }
 
-        if (wasm.base.options.shared_memory) {
+        if (shared_memory) {
             try argv.append("--shared-memory");
         }
 
-        if (wasm.base.options.global_base) |global_base| {
+        if (wasm.global_base) |global_base| {
             const arg = try std.fmt.allocPrint(arena, "--global-base={d}", .{global_base});
             try argv.append(arg);
         } else {
@@ -4728,16 +4778,16 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         }
 
         // Users are allowed to specify which symbols they want to export to the wasm host.
-        for (wasm.base.options.export_symbol_names) |symbol_name| {
+        for (wasm.export_symbol_names) |symbol_name| {
             const arg = try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name});
             try argv.append(arg);
         }
 
-        if (wasm.base.options.rdynamic) {
+        if (wasm.rdynamic) {
             try argv.append("--export-dynamic");
         }
 
-        if (wasm.base.options.entry) |entry| {
+        if (comp.config.entry) |entry| {
             try argv.append("--entry");
             try argv.append(entry);
         } else {
@@ -4749,14 +4799,14 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try std.fmt.allocPrint(arena, "stack-size={d}", .{wasm.base.stack_size}),
         });
 
-        if (wasm.base.options.import_symbols) {
+        if (wasm.import_symbols) {
             try argv.append("--allow-undefined");
         }
 
         if (wasm.base.comp.config.output_mode == .Lib and wasm.base.comp.config.link_mode == .Dynamic) {
             try argv.append("--shared");
         }
-        if (wasm.base.options.pie) {
+        if (comp.config.pie) {
             try argv.append("--pie");
         }
 
@@ -4782,15 +4832,15 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
                     ));
                 }
 
-                if (wasm.base.options.link_libc) {
+                if (comp.config.link_libc) {
                     try argv.append(try comp.get_libc_crt_file(
                         arena,
-                        wasi_libc.execModelCrtFileFullName(wasm.base.options.wasi_exec_model),
+                        wasi_libc.execModelCrtFileFullName(comp.config.wasi_exec_model),
                     ));
                     try argv.append(try comp.get_libc_crt_file(arena, "libc.a"));
                 }
 
-                if (wasm.base.options.link_libcpp) {
+                if (comp.config.link_libcpp) {
                     try argv.append(comp.libcxx_static_lib.?.full_object_path);
                     try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
                 }
@@ -4799,7 +4849,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 
         // Positional arguments to the linker such as object files.
         var whole_archive = false;
-        for (wasm.base.options.objects) |obj| {
+        for (comp.objects) |obj| {
             if (obj.must_link and !whole_archive) {
                 try argv.append("-whole-archive");
                 whole_archive = true;
@@ -4822,8 +4872,8 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         }
 
         if (wasm.base.comp.config.output_mode != .Obj and
-            !wasm.base.options.skip_linker_dependencies and
-            !wasm.base.options.link_libc)
+            !comp.skip_linker_dependencies and
+            !comp.config.link_libc)
         {
             try argv.append(comp.libc_static_lib.?.full_object_path);
         }
@@ -5168,10 +5218,13 @@ fn emitDataRelocations(
 }
 
 fn hasPassiveInitializationSegments(wasm: *const Wasm) bool {
+    const comp = wasm.base.comp;
+    const import_memory = comp.config.import_memory;
+
     var it = wasm.data_segments.iterator();
     while (it.next()) |entry| {
         const segment: Segment = wasm.segments.items[entry.value_ptr.*];
-        if (segment.needsPassiveInitialization(wasm.base.options.import_memory, entry.key_ptr.*)) {
+        if (segment.needsPassiveInitialization(import_memory, entry.key_ptr.*)) {
             return true;
         }
     }
@@ -5227,14 +5280,14 @@ fn markReferences(wasm: *Wasm) !void {
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const sym = sym_loc.getSymbol(wasm);
-        if (sym.isExported(wasm.base.options.rdynamic) or sym.isNoStrip() or !do_garbage_collect) {
+        if (sym.isExported(wasm.rdynamic) or sym.isNoStrip() or !do_garbage_collect) {
             try wasm.mark(sym_loc);
             continue;
         }
 
         // Debug sections may require to be parsed and marked when it contains
         // relocations to alive symbols.
-        if (sym.tag == .section and !wasm.base.options.strip) {
+        if (sym.tag == .section and wasm.base.debug_format != .strip) {
             const file = sym_loc.file orelse continue; // Incremental debug info is done independently
             const object = &wasm.objects.items[file];
             const atom_index = try Object.parseSymbolIntoAtom(object, file, sym_loc.index, wasm);

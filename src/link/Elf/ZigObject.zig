@@ -97,7 +97,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
     symbol_ptr.esym_index = esym_index;
 
     if (elf_file.base.debug_format != .strip) {
-        self.dwarf = Dwarf.init(gpa, &elf_file.base, .dwarf32);
+        self.dwarf = Dwarf.init(&elf_file.base, .dwarf32);
     }
 }
 

@@ -133,7 +133,6 @@ pub const File = struct {
         export_symbol_names: []const []const u8,
         global_base: ?u64,
         dll_export_fns: bool,
-        skip_linker_dependencies: bool,
         parent_compilation_link_libc: bool,
         each_lib_rpath: bool,
         build_id: std.zig.BuildId,
@@ -1099,7 +1098,7 @@ pub const File = struct {
     }
 
     pub fn isStatic(self: File) bool {
-        return self.base.comp.config.link_mode == .Static;
+        return self.comp.config.link_mode == .Static;
     }
 
     pub fn isObject(self: File) bool {

@@ -3083,9 +3083,7 @@ pub const Object = struct {
         if (comp.unwind_tables) {
             try attributes.addFnAttr(.{ .uwtable = Builder.Attribute.UwTable.default }, &o.builder);
         }
-        if (comp.bin_file.options.skip_linker_dependencies or
-            comp.bin_file.options.no_builtin)
-        {
+        if (comp.skip_linker_dependencies or comp.bin_file.options.no_builtin) {
             // The intent here is for compiler-rt and libc functions to not generate
             // infinite recursion. For example, if we are compiling the memcpy function,
             // and llvm detects that the body is equivalent to memcpy, it may replace the

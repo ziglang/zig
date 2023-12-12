@@ -543,7 +543,7 @@ fn scanReloc(
             try self.reportPicError(symbol, rel, elf_file),
 
         .copyrel => {
-            if (elf_file.base.options.z_nocopyreloc) {
+            if (elf_file.z_nocopyreloc) {
                 if (symbol.isAbs(elf_file))
                     try self.reportNoPicError(symbol, rel, elf_file)
                 else
@@ -553,9 +553,9 @@ fn scanReloc(
         },
 
         .dyn_copyrel => {
-            if (is_writeable or elf_file.base.options.z_nocopyreloc) {
+            if (is_writeable or elf_file.z_nocopyreloc) {
                 if (!is_writeable) {
-                    if (elf_file.base.options.z_notext) {
+                    if (elf_file.z_notext) {
                         elf_file.has_text_reloc = true;
                     } else {
                         try self.reportTextRelocError(symbol, rel, elf_file);
@@ -587,7 +587,7 @@ fn scanReloc(
 
         .dynrel, .baserel, .ifunc => {
             if (!is_writeable) {
-                if (elf_file.base.options.z_notext) {
+                if (elf_file.z_notext) {
                     elf_file.has_text_reloc = true;
                 } else {
                     try self.reportTextRelocError(symbol, rel, elf_file);
@@ -657,11 +657,12 @@ fn dynAbsRelocAction(symbol: *const Symbol, elf_file: *Elf) RelocAction {
 }
 
 fn outputType(elf_file: *Elf) u2 {
+    const comp = elf_file.base.comp;
     assert(!elf_file.isRelocatable());
     return switch (elf_file.base.comp.config.output_mode) {
         .Obj => unreachable,
         .Lib => 0,
-        .Exe => if (elf_file.base.options.pie) 1 else 2,
+        .Exe => if (comp.config.pie) 1 else 2,
     };
 }
 
@@ -979,7 +980,7 @@ fn resolveDynAbsReloc(
         => try writer.writeInt(i32, @as(i32, @truncate(S + A)), .little),
 
         .dyn_copyrel => {
-            if (is_writeable or elf_file.base.options.z_nocopyreloc) {
+            if (is_writeable or elf_file.z_nocopyreloc) {
                 elf_file.addRelaDynAssumeCapacity(.{
                     .offset = P,
                     .sym = target.extra(elf_file).?.dynamic,

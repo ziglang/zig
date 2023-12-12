@@ -57,6 +57,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*NvPtx {
             .build_id = options.build_id,
             .rpath_list = options.rpath_list,
             .force_undefined_symbols = options.force_undefined_symbols,
+            .debug_format = options.debug_format orelse .{ .dwarf = .@"32" },
             .function_sections = options.function_sections,
             .data_sections = options.data_sections,
         },
@@ -66,7 +67,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*NvPtx {
     return nvptx;
 }
 
-pub fn open(arena: Allocator, options: link.FileOpenOptions) !*NvPtx {
+pub fn open(arena: Allocator, options: link.File.OpenOptions) !*NvPtx {
     const target = options.comp.root_mod.resolved_target.result;
     assert(target.ofmt == .nvptx);
     return createEmpty(arena, options);

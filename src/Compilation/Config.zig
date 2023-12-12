@@ -335,7 +335,7 @@ pub fn resolve(options: Options) !Config {
         break :b .Static;
     };
 
-    const import_memory = options.import_memory orelse false;
+    const import_memory = options.import_memory orelse (options.output_mode == .Obj);
     const export_memory = b: {
         if (link_mode == .Dynamic) {
             if (options.export_memory == true) return error.ExportMemoryAndDynamicIncompatible;

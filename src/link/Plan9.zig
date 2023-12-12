@@ -295,26 +295,36 @@ pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
 }
 
 pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Plan9 {
-    _ = arena;
-    const target = options.comp.root_mod.resolved_target.result;
-    const gpa = options.comp.gpa;
+    const comp = options.comp;
+    const target = comp.root_mod.resolved_target.result;
+    const gpa = comp.gpa;
+    const optimize_mode = comp.root_mod.optimize_mode;
+    const output_mode = comp.config.output_mode;
 
-    const sixtyfour_bit: bool = switch (options.target.ptrBitWidth()) {
+    const sixtyfour_bit: bool = switch (target.ptrBitWidth()) {
         0...32 => false,
         33...64 => true,
         else => return error.UnsupportedP9Architecture,
     };
 
-    const arena_allocator = std.heap.ArenaAllocator.init(gpa);
-
-    const self = try gpa.create(Plan9);
+    const self = try arena.create(Plan9);
     self.* = .{
-        .path_arena = arena_allocator,
+        .path_arena = std.heap.ArenaAllocator.init(gpa),
         .base = .{
             .tag = .plan9,
-            .options = options,
-            .allocator = gpa,
+            .comp = comp,
+            .emit = options.emit,
+            .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
+            .stack_size = options.stack_size orelse 16777216,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
+            .force_undefined_symbols = options.force_undefined_symbols,
+            .debug_format = options.debug_format orelse .{ .dwarf = .@"32" },
+            .function_sections = options.function_sections,
+            .data_sections = options.data_sections,
         },
         .sixtyfour_bit = sixtyfour_bit,
         .bases = undefined,
@@ -602,7 +612,7 @@ pub fn flush(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) li
     const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
     assert(!use_lld);
 
-    switch (self.base.options.effectiveOutputMode()) {
+    switch (link.File.effectiveOutputMode(use_lld, comp.config.output_mode)) {
         .Exe => {},
         // plan9 object files are totally different
         .Obj => return error.TODOImplementPlan9Objs,

@@ -119,7 +119,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         });
     }
 
-    const to_c_or_not_to_c_sources = if (comp.bin_file.options.link_libc)
+    const to_c_or_not_to_c_sources = if (comp.config.link_libc)
         &sanitizer_libcdep_sources
     else
         &sanitizer_nolibc_sources;

@@ -5742,7 +5742,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
             const msg = try sema.errMsg(&child_block, src, "C import failed", .{});
             errdefer msg.destroy(gpa);
 
-            if (!comp.bin_file.options.link_libc)
+            if (!comp.config.link_libc)
                 try sema.errNote(&child_block, src, msg, "libc headers not available; compilation does not link against libc", .{});
 
             const gop = try mod.cimport_errors.getOrPut(gpa, sema.owner_decl_index);
@@ -9058,7 +9058,7 @@ fn resolveGenericBody(
 
 /// Given a library name, examines if the library name should end up in
 /// `link.File.Options.system_libs` table (for example, libc is always
-/// specified via dedicated flag `link.File.Options.link_libc` instead),
+/// specified via dedicated flag `link_libc` instead),
 /// and puts it there if it doesn't exist.
 /// It also dupes the library name which can then be saved as part of the
 /// respective `Decl` (either `ExternFn` or `Var`).
@@ -9076,7 +9076,7 @@ fn handleExternLibName(
         const target = mod.getTarget();
         log.debug("extern fn symbol expected in lib '{s}'", .{lib_name});
         if (target.is_libc_lib_name(lib_name)) {
-            if (!comp.bin_file.options.link_libc) {
+            if (!comp.config.link_libc) {
                 return sema.fail(
                     block,
                     src_loc,
@@ -9087,18 +9087,21 @@ fn handleExternLibName(
             break :blk;
         }
         if (target.is_libcpp_lib_name(lib_name)) {
-            if (!comp.bin_file.options.link_libcpp) {
-                return sema.fail(
-                    block,
-                    src_loc,
-                    "dependency on libc++ must be explicitly specified in the build command",
-                    .{},
-                );
-            }
+            if (!comp.config.link_libcpp) return sema.fail(
+                block,
+                src_loc,
+                "dependency on libc++ must be explicitly specified in the build command",
+                .{},
+            );
             break :blk;
         }
         if (mem.eql(u8, lib_name, "unwind")) {
-            comp.bin_file.options.link_libunwind = true;
+            if (!comp.config.link_libunwind) return sema.fail(
+                block,
+                src_loc,
+                "dependency on libunwind must be explicitly specified in the build command",
+                .{},
+            );
             break :blk;
         }
         if (!target.isWasm() and !comp.bin_file.options.pic) {

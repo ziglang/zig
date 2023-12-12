@@ -48,7 +48,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     const is_lib = self.base.comp.config.output_mode == .Lib;
     const is_dyn_lib = self.base.comp.config.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.comp.config.output_mode == .Exe;
-    const link_in_crt = self.base.options.link_libc and is_exe_or_dyn_lib;
+    const link_in_crt = comp.config.link_libc and is_exe_or_dyn_lib;
     const target = self.base.comp.root_mod.resolved_target.result;
     const optimize_mode = self.base.comp.root_mod.optimize_mode;
 
@@ -56,17 +56,17 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     const id_symlink_basename = "lld.id";
 
     var man: Cache.Manifest = undefined;
-    defer if (!self.base.options.disable_lld_caching) man.deinit();
+    defer if (!self.base.disable_lld_caching) man.deinit();
 
     var digest: [Cache.hex_digest_len]u8 = undefined;
 
-    if (!self.base.options.disable_lld_caching) {
+    if (!self.base.disable_lld_caching) {
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
         comptime assert(Compilation.link_hash_implementation_version == 10);
 
-        for (self.base.options.objects) |obj| {
+        for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);
             man.hash.add(obj.must_link);
         }
@@ -79,12 +79,12 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             }
         }
         try man.addOptionalFile(module_obj_path);
-        man.hash.addOptionalBytes(self.base.options.entry);
+        man.hash.addOptionalBytes(comp.config.entry);
         man.hash.add(self.base.stack_size);
         man.hash.addOptional(self.image_base);
-        man.hash.addListOfBytes(self.base.options.lib_dirs);
-        man.hash.add(self.base.options.skip_linker_dependencies);
-        if (self.base.options.link_libc) {
+        man.hash.addListOfBytes(self.lib_dirs);
+        man.hash.add(comp.skip_linker_dependencies);
+        if (comp.config.link_libc) {
             man.hash.add(self.base.comp.libc_installation != null);
             if (self.base.comp.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
@@ -95,18 +95,18 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             }
         }
         try link.hashAddSystemLibs(&man, self.base.comp.system_libs);
-        man.hash.addListOfBytes(self.base.options.force_undefined_symbols.keys());
-        man.hash.addOptional(self.base.options.subsystem);
-        man.hash.add(self.base.options.is_test);
-        man.hash.add(self.base.options.tsaware);
-        man.hash.add(self.base.options.nxcompat);
-        man.hash.add(self.base.options.dynamicbase);
+        man.hash.addListOfBytes(self.base.force_undefined_symbols.keys());
+        man.hash.addOptional(self.subsystem);
+        man.hash.add(comp.config.is_test);
+        man.hash.add(self.tsaware);
+        man.hash.add(self.nxcompat);
+        man.hash.add(self.dynamicbase);
         man.hash.addOptional(self.base.allow_shlib_undefined);
         // strip does not need to go into the linker hash because it is part of the hash namespace
-        man.hash.addOptional(self.base.options.major_subsystem_version);
-        man.hash.addOptional(self.base.options.minor_subsystem_version);
-        man.hash.addOptional(self.base.options.version);
-        try man.addOptionalFile(self.base.options.module_definition_file);
+        man.hash.addOptional(self.major_subsystem_version);
+        man.hash.addOptional(self.minor_subsystem_version);
+        man.hash.addOptional(comp.version);
+        try man.addOptionalFile(self.module_definition_file);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -141,8 +141,8 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
-            if (self.base.options.objects.len != 0)
-                break :blk self.base.options.objects[0].path;
+            if (comp.objects.len != 0)
+                break :blk comp.objects[0].path;
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -171,21 +171,21 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
         try argv.append("-ERRORLIMIT:0");
         try argv.append("-NOLOGO");
-        if (!self.base.options.strip) {
+        if (self.base.debug_format != .strip) {
             try argv.append("-DEBUG");
 
             const out_ext = std.fs.path.extension(full_out_path);
-            const out_pdb = self.base.options.pdb_out_path orelse try allocPrint(arena, "{s}.pdb", .{
+            const out_pdb = self.pdb_out_path orelse try allocPrint(arena, "{s}.pdb", .{
                 full_out_path[0 .. full_out_path.len - out_ext.len],
             });
 
             try argv.append(try allocPrint(arena, "-PDB:{s}", .{out_pdb}));
             try argv.append(try allocPrint(arena, "-PDBALTPATH:{s}", .{out_pdb}));
         }
-        if (self.base.options.version) |version| {
+        if (comp.version) |version| {
             try argv.append(try allocPrint(arena, "-VERSION:{}.{}", .{ version.major, version.minor }));
         }
-        if (self.base.options.lto) {
+        if (comp.config.lto) {
             switch (optimize_mode) {
                 .Debug => {},
                 .ReleaseSmall => try argv.append("-OPT:lldlto=2"),
@@ -209,7 +209,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             }
         }
 
-        for (self.base.options.force_undefined_symbols.keys()) |symbol| {
+        for (self.base.force_undefined_symbols.keys()) |symbol| {
             try argv.append(try allocPrint(arena, "-INCLUDE:{s}", .{symbol}));
         }
 
@@ -217,17 +217,17 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             try argv.append("-DLL");
         }
 
-        if (self.base.options.entry) |entry| {
+        if (comp.config.entry) |entry| {
             try argv.append(try allocPrint(arena, "-ENTRY:{s}", .{entry}));
         }
 
-        if (self.base.options.tsaware) {
+        if (self.tsaware) {
             try argv.append("-tsaware");
         }
-        if (self.base.options.nxcompat) {
+        if (self.nxcompat) {
             try argv.append("-nxcompat");
         }
-        if (!self.base.options.dynamicbase) {
+        if (!self.dynamicbase) {
             try argv.append("-dynamicbase:NO");
         }
         if (self.base.allow_shlib_undefined) {
@@ -236,12 +236,12 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
-        if (self.base.options.implib_emit) |emit| {
+        if (self.implib_emit) |emit| {
             const implib_out_path = try emit.directory.join(arena, &[_][]const u8{emit.sub_path});
             try argv.append(try allocPrint(arena, "-IMPLIB:{s}", .{implib_out_path}));
         }
 
-        if (self.base.options.link_libc) {
+        if (comp.config.link_libc) {
             if (self.base.comp.libc_installation) |libc_installation| {
                 try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.crt_dir.?}));
 
@@ -252,12 +252,12 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             }
         }
 
-        for (self.base.options.lib_dirs) |lib_dir| {
+        for (self.lib_dirs) |lib_dir| {
             try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{lib_dir}));
         }
 
-        try argv.ensureUnusedCapacity(self.base.options.objects.len);
-        for (self.base.options.objects) |obj| {
+        try argv.ensureUnusedCapacity(comp.objects.len);
+        for (comp.objects) |obj| {
             if (obj.must_link) {
                 argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{s}", .{obj.path}));
             } else {
@@ -279,18 +279,18 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             try argv.append(p);
         }
 
-        if (self.base.options.module_definition_file) |def| {
+        if (self.module_definition_file) |def| {
             try argv.append(try allocPrint(arena, "-DEF:{s}", .{def}));
         }
 
         const resolved_subsystem: ?std.Target.SubSystem = blk: {
-            if (self.base.options.subsystem) |explicit| break :blk explicit;
+            if (self.subsystem) |explicit| break :blk explicit;
             switch (target.os.tag) {
                 .windows => {
                     if (self.base.comp.module) |module| {
                         if (module.stage1_flags.have_dllmain_crt_startup or is_dyn_lib)
                             break :blk null;
-                        if (module.stage1_flags.have_c_main or self.base.options.is_test or
+                        if (module.stage1_flags.have_c_main or comp.config.is_test or
                             module.stage1_flags.have_winmain_crt_startup or
                             module.stage1_flags.have_wwinmain_crt_startup)
                         {
@@ -310,8 +310,8 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         const mode: Mode = mode: {
             if (resolved_subsystem) |subsystem| {
                 const subsystem_suffix = ss: {
-                    if (self.base.options.major_subsystem_version) |major| {
-                        if (self.base.options.minor_subsystem_version) |minor| {
+                    if (self.major_subsystem_version) |major| {
+                        if (self.minor_subsystem_version) |minor| {
                             break :ss try allocPrint(arena, ",{d}.{d}", .{ major, minor });
                         } else {
                             break :ss try allocPrint(arena, ",{d}", .{major});
@@ -447,7 +447,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                     }
                 } else {
                     try argv.append("-NODEFAULTLIB");
-                    if (!is_lib and self.base.options.entry == null) {
+                    if (!is_lib and comp.config.entry == null) {
                         if (self.base.comp.module) |module| {
                             if (module.stage1_flags.have_winmain_crt_startup) {
                                 try argv.append("-ENTRY:WinMainCRTStartup");
@@ -463,18 +463,18 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         }
 
         // libc++ dep
-        if (self.base.options.link_libcpp) {
+        if (comp.config.link_libcpp) {
             try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
             try argv.append(comp.libcxx_static_lib.?.full_object_path);
         }
 
         // libunwind dep
-        if (self.base.options.link_libunwind) {
+        if (comp.config.link_libunwind) {
             try argv.append(comp.libunwind_static_lib.?.full_object_path);
         }
 
-        if (is_exe_or_dyn_lib and !self.base.options.skip_linker_dependencies) {
-            if (!self.base.options.link_libc) {
+        if (is_exe_or_dyn_lib and !comp.skip_linker_dependencies) {
+            if (!comp.config.link_libc) {
                 if (comp.libc_static_lib) |lib| {
                     try argv.append(lib.full_object_path);
                 }
@@ -492,13 +492,13 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                 argv.appendAssumeCapacity(crt_file.full_object_path);
                 continue;
             }
-            if (try findLib(arena, lib_basename, self.base.options.lib_dirs)) |full_path| {
+            if (try findLib(arena, lib_basename, self.lib_dirs)) |full_path| {
                 argv.appendAssumeCapacity(full_path);
                 continue;
             }
             if (target.abi.isGnu()) {
                 const fallback_name = try allocPrint(arena, "lib{s}.dll.a", .{key});
-                if (try findLib(arena, fallback_name, self.base.options.lib_dirs)) |full_path| {
+                if (try findLib(arena, fallback_name, self.lib_dirs)) |full_path| {
                     argv.appendAssumeCapacity(full_path);
                     continue;
                 }
@@ -582,7 +582,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         }
     }
 
-    if (!self.base.options.disable_lld_caching) {
+    if (!self.base.disable_lld_caching) {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {

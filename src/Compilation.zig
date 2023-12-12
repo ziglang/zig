@@ -76,6 +76,7 @@ framework_dirs: []const []const u8,
 system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
 version: ?std.SemanticVersion,
 libc_installation: ?*const LibCInstallation,
+skip_linker_dependencies: bool,
 
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
 win32_resource_table: if (build_options.only_core_functionality) void else std.AutoArrayHashMapUnmanaged(*Win32Resource, void) =
@@ -940,7 +941,7 @@ pub const InitOptions = struct {
     /// * getpid
     /// * mman
     /// * signal
-    wasi_emulated_libs: []const wasi_libc.CRTFile = &[0]wasi_libc.CRTFile{},
+    wasi_emulated_libs: []const wasi_libc.CRTFile = &.{},
     /// This means that if the output mode is an executable it will be a
     /// Position Independent Executable. If the output mode is not an
     /// executable this field is ignored.
@@ -1238,7 +1239,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const sysroot = options.sysroot orelse libc_dirs.sysroot;
 
         const include_compiler_rt = options.want_compiler_rt orelse
-            (!options.skip_linker_dependencies and is_exe_or_dyn_lib);
+            (!comp.skip_linker_dependencies and is_exe_or_dyn_lib);
 
         if (include_compiler_rt and output_mode == .Obj) {
             // For objects, this mechanism relies on essentially `_ = @import("compiler-rt");`
@@ -1639,6 +1640,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .objects = options.link_objects,
             .framework_dirs = options.framework_dirs,
             .llvm_opt_bisect_limit = options.llvm_opt_bisect_limit,
+            .skip_linker_dependencies = options.skip_linker_dependencies,
         };
 
         if (bin_file_emit) |emit| {
@@ -1695,7 +1697,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .soname = options.soname,
                 .compatibility_version = options.compatibility_version,
                 .dll_export_fns = dll_export_fns,
-                .skip_linker_dependencies = options.skip_linker_dependencies,
                 .parent_compilation_link_libc = options.parent_compilation_link_libc,
                 .each_lib_rpath = each_lib_rpath,
                 .build_id = build_id,
@@ -1765,9 +1766,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         }
     }
 
-    const have_bin_emit = comp.bin_file.options.emit != null or comp.whole_bin_sub_path != null;
+    const have_bin_emit = comp.bin_file != null or comp.whole_bin_sub_path != null;
 
-    if (have_bin_emit and !comp.bin_file.options.skip_linker_dependencies and target.ofmt != .c) {
+    if (have_bin_emit and !comp.skip_linker_dependencies and target.ofmt != .c) {
         if (target.isDarwin()) {
             switch (target.abi) {
                 .none,
@@ -1808,27 +1809,34 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .{ .musl_crt_file = .crt1_o },
                 .{ .musl_crt_file = .scrt1_o },
                 .{ .musl_crt_file = .rcrt1_o },
-                switch (comp.bin_file.options.link_mode) {
+                switch (comp.config.link_mode) {
                     .Static => .{ .musl_crt_file = .libc_a },
                     .Dynamic => .{ .musl_crt_file = .libc_so },
                 },
             });
         }
-        if (comp.wantBuildWasiLibcFromSource()) {
-            if (!target_util.canBuildLibC(target)) return error.LibCUnavailable;
 
-            const wasi_emulated_libs = comp.bin_file.options.wasi_emulated_libs;
-            try comp.work_queue.ensureUnusedCapacity(wasi_emulated_libs.len + 2); // worst-case we need all components
-            for (wasi_emulated_libs) |crt_file| {
-                comp.work_queue.writeItemAssumeCapacity(.{
-                    .wasi_libc_crt_file = crt_file,
-                });
+        if (comp.bin_file) |lf| {
+            if (lf.cast(link.File.Wasm)) |wasm| {
+                if (comp.wantBuildWasiLibcFromSource()) {
+                    if (!target_util.canBuildLibC(target)) return error.LibCUnavailable;
+
+                    // worst-case we need all components
+                    try comp.work_queue.ensureUnusedCapacity(wasm.wasi_emulated_libs.len + 2);
+
+                    for (wasm.wasi_emulated_libs) |crt_file| {
+                        comp.work_queue.writeItemAssumeCapacity(.{
+                            .wasi_libc_crt_file = crt_file,
+                        });
+                    }
+                    comp.work_queue.writeAssumeCapacity(&[_]Job{
+                        .{ .wasi_libc_crt_file = wasi_libc.execModelCrtFile(options.config.wasi_exec_model) },
+                        .{ .wasi_libc_crt_file = .libc_a },
+                    });
+                }
             }
-            comp.work_queue.writeAssumeCapacity(&[_]Job{
-                .{ .wasi_libc_crt_file = wasi_libc.execModelCrtFile(options.config.wasi_exec_model) },
-                .{ .wasi_libc_crt_file = .libc_a },
-            });
         }
+
         if (comp.wantBuildMinGWFromSource()) {
             if (!target_util.canBuildLibC(target)) return error.LibCUnavailable;
 
@@ -1863,27 +1871,29 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         if (comp.wantBuildLibUnwindFromSource()) {
             try comp.work_queue.writeItem(.{ .libunwind = {} });
         }
-        if (build_options.have_llvm and is_exe_or_dyn_lib and comp.bin_file.options.link_libcpp) {
+        if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.link_libcpp) {
             try comp.work_queue.writeItem(.libcxx);
             try comp.work_queue.writeItem(.libcxxabi);
         }
-        if (build_options.have_llvm and comp.bin_file.options.tsan) {
+        if (build_options.have_llvm and comp.config.any_sanitize_thread) {
             try comp.work_queue.writeItem(.libtsan);
         }
 
-        if (comp.getTarget().isMinGW() and comp.config.any_non_single_threaded) {
-            // LLD might drop some symbols as unused during LTO and GCing, therefore,
-            // we force mark them for resolution here.
+        if (comp.bin_file) |lf| {
+            if (comp.getTarget().isMinGW() and comp.config.any_non_single_threaded) {
+                // LLD might drop some symbols as unused during LTO and GCing, therefore,
+                // we force mark them for resolution here.
 
-            const tls_index_sym = switch (comp.getTarget().cpu.arch) {
-                .x86 => "__tls_index",
-                else => "_tls_index",
-            };
+                const tls_index_sym = switch (comp.getTarget().cpu.arch) {
+                    .x86 => "__tls_index",
+                    else => "_tls_index",
+                };
 
-            try comp.bin_file.options.force_undefined_symbols.put(comp.gpa, tls_index_sym, {});
+                try lf.force_undefined_symbols.put(comp.gpa, tls_index_sym, {});
+            }
         }
 
-        if (comp.bin_file.options.include_compiler_rt and capable_of_building_compiler_rt) {
+        if (comp.include_compiler_rt and capable_of_building_compiler_rt) {
             if (is_exe_or_dyn_lib) {
                 log.debug("queuing a job to build compiler_rt_lib", .{});
                 comp.job_queued_compiler_rt_lib = true;
@@ -1895,8 +1905,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             }
         }
 
-        if (!comp.bin_file.options.skip_linker_dependencies and is_exe_or_dyn_lib and
-            !comp.bin_file.options.link_libc and capable_of_building_zig_libc)
+        if (!comp.skip_linker_dependencies and is_exe_or_dyn_lib and
+            !comp.config.link_libc and capable_of_building_zig_libc)
         {
             try comp.work_queue.writeItem(.{ .zig_libc = {} });
         }
@@ -2425,7 +2435,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.add(comp.test_evented_io);
         man.hash.addOptionalBytes(comp.test_filter);
         man.hash.addOptionalBytes(comp.test_name_prefix);
-        man.hash.add(comp.bin_file.options.skip_linker_dependencies);
+        man.hash.add(comp.skip_linker_dependencies);
         man.hash.add(comp.formatted_panics);
         man.hash.add(mod.emit_h != null);
         man.hash.add(mod.error_limit);
@@ -2477,7 +2487,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.addListOfBytes(comp.bin_file.options.symbol_wrap_set.keys());
     man.hash.add(comp.bin_file.options.each_lib_rpath);
     man.hash.add(comp.bin_file.build_id);
-    man.hash.add(comp.bin_file.options.skip_linker_dependencies);
+    man.hash.add(comp.skip_linker_dependencies);
     man.hash.add(comp.bin_file.options.z_nodelete);
     man.hash.add(comp.bin_file.options.z_notext);
     man.hash.add(comp.bin_file.options.z_defs);
@@ -2489,7 +2499,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.z_max_page_size orelse 0);
     man.hash.add(comp.bin_file.options.hash_style);
     man.hash.add(comp.bin_file.options.compress_debug_sections);
-    man.hash.add(comp.bin_file.options.include_compiler_rt);
+    man.hash.add(comp.include_compiler_rt);
     man.hash.add(comp.bin_file.options.sort_section);
     if (comp.config.link_libc) {
         man.hash.add(comp.bin_file.options.libc_installation != null);
@@ -3836,7 +3846,7 @@ pub fn obtainCObjectCacheManifest(comp: *const Compilation) Cache.Manifest {
     // Also nothing that applies only to compiling .zig code.
     man.hash.add(comp.sanitize_c);
     man.hash.addListOfBytes(comp.clang_argv);
-    man.hash.add(comp.bin_file.options.link_libcpp);
+    man.hash.add(comp.config.link_libcpp);
 
     // When libc_installation is null it means that Zig generated this dir list
     // based on the zig library directory alone. The zig lib directory file
@@ -4909,7 +4919,7 @@ pub fn addCCArgs(
         try argv.append("-fno-builtin");
     }
 
-    if (comp.bin_file.options.link_libcpp) {
+    if (comp.config.link_libcpp) {
         const libcxx_include_path = try std.fs.path.join(arena, &[_][]const u8{
             comp.zig_lib_directory.path.?, "libcxx", "include",
         });
@@ -4954,7 +4964,7 @@ pub fn addCCArgs(
         try argv.append(libunwind_include_path);
     }
 
-    if (comp.bin_file.options.link_libc and target.isGnuLibC()) {
+    if (comp.config.link_libc and target.isGnuLibC()) {
         const target_version = target.os.version_range.linux.glibc;
         const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
             target_version.minor,
@@ -5944,7 +5954,7 @@ fn wantBuildLibCFromSource(comp: Compilation) bool {
         .Lib => comp.bin_file.options.link_mode == .Dynamic,
         .Exe => true,
     };
-    return comp.bin_file.options.link_libc and is_exe_or_dyn_lib and
+    return comp.config.link_libc and is_exe_or_dyn_lib and
         comp.bin_file.options.libc_installation == null and
         comp.bin_file.options.target.ofmt != .c;
 }
@@ -6164,6 +6174,7 @@ fn buildOutputFromZig(
         .have_zcu = true,
         .emit_bin = true,
         .root_optimize_mode = comp.compilerRtOptMode(),
+        .link_libc = comp.config.link_libc,
     });
 
     const root_mod = Package.Module.create(.{
@@ -6224,7 +6235,6 @@ fn buildOutputFromZig(
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-        .link_libc = comp.bin_file.options.link_libc,
         .want_structured_cfg = comp.bin_file.options.want_structured_cfg,
     });
     defer sub_compilation.destroy();
@@ -6305,7 +6315,6 @@ pub fn build_crt_file(
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-        .link_libc = comp.bin_file.options.link_libc,
         .want_structured_cfg = comp.bin_file.options.want_structured_cfg,
     });
     defer sub_compilation.destroy();
@@ -6327,7 +6336,7 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     // This can happen when the user uses `build-exe foo.obj -lkernel32` and
     // then when we create a sub-Compilation for zig libc, it also tries to
     // build kernel32.lib.
-    if (comp.bin_file.options.skip_linker_dependencies) return;
+    if (comp.skip_linker_dependencies) return;
 
     // This happens when an `extern "foo"` function is referenced.
     // If we haven't seen this library yet and we're targeting Windows, we need

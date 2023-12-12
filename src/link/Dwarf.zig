@@ -1022,16 +1022,18 @@ const min_nop_size = 2;
 /// actual_capacity + (actual_capacity / ideal_factor)
 const ideal_factor = 3;
 
-pub fn init(allocator: Allocator, bin_file: *File, format: Format) Dwarf {
-    const target = &bin_file.options.target;
+pub fn init(lf: *File, format: Format) Dwarf {
+    const comp = lf.comp;
+    const gpa = comp.gpa;
+    const target = comp.root_mod.resolved_target.result;
     const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
         else => unreachable,
     };
     return .{
-        .allocator = allocator,
-        .bin_file = bin_file,
+        .allocator = gpa,
+        .bin_file = lf,
         .format = format,
         .ptr_width = ptr_width,
         .dbg_line_header = switch (target.cpu.arch) {

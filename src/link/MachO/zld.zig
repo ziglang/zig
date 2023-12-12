@@ -499,7 +499,7 @@ pub fn linkWithZld(
         }
 
         // Write code signature padding if required
-        var codesig: ?CodeSignature = if (MachO.requiresCodeSignature(&macho_file.base.options)) blk: {
+        var codesig: ?CodeSignature = if (macho_file.requiresCodeSignature()) blk: {
             // Preallocate space for the code signature.
             // We need to do this at this stage so that we have the load commands with proper values
             // written out to the file.
@@ -547,12 +547,12 @@ pub fn linkWithZld(
                 });
             },
             .Lib => if (link_mode == .Dynamic) {
-                try load_commands.writeDylibIdLC(gpa, &macho_file.base.options, lc_writer);
+                try load_commands.writeDylibIdLC(macho_file, lc_writer);
             },
             else => {},
         }
 
-        try load_commands.writeRpathLCs(gpa, &macho_file.base.options, lc_writer);
+        try load_commands.writeRpathLCs(macho_file, lc_writer);
         try lc_writer.writeStruct(macho.source_version_command{
             .version = 0,
         });
@@ -1072,11 +1072,10 @@ fn calcSectionSizes(macho_file: *MachO) !void {
 }
 
 fn allocateSegments(macho_file: *MachO) !void {
-    const gpa = macho_file.base.allocator;
     for (macho_file.segments.items, 0..) |*segment, segment_index| {
         const is_text_segment = mem.eql(u8, segment.segName(), "__TEXT");
         const base_size = if (is_text_segment)
-            try load_commands.calcMinHeaderPad(gpa, &macho_file.base.options, .{
+            try load_commands.calcMinHeaderPad(macho_file, .{
                 .segments = macho_file.segments.items,
                 .dylibs = macho_file.dylibs.items,
                 .referenced_dylibs = macho_file.referenced_dylibs.keys(),

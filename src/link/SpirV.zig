@@ -67,6 +67,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*SpirV {
             .force_undefined_symbols = options.force_undefined_symbols,
             .function_sections = options.function_sections,
             .data_sections = options.data_sections,
+            .debug_format = options.debug_format orelse .{ .dwarf = .@"32" },
         },
         .object = codegen.Object.init(gpa),
     };
@@ -102,7 +103,7 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*SpirV {
     errdefer spirv.base.destroy();
 
     // TODO: read the file and keep valid parts instead of truncating
-    const file = try options.emit.?.directory.handle.createFile(options.emit.sub_path, .{
+    const file = try options.emit.directory.handle.createFile(options.emit.sub_path, .{
         .truncate = true,
         .read = true,
     });
