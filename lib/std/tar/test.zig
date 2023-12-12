@@ -1,7 +1,6 @@
 const std = @import("../std.zig");
-const builtin = @import("builtin");
 const tar = std.tar;
-const assert = std.debug.assert;
+const testing = std.testing;
 
 test "tar run Go test cases" {
     const Case = struct {
@@ -318,33 +317,33 @@ test "tar run Go test cases" {
 
     for (cases) |case| {
         var fsb = std.io.fixedBufferStream(case.data);
-        var iter = tar.tarReader(fsb.reader(), null);
+        var iter = tar.iterator(fsb.reader(), null);
         var i: usize = 0;
         while (iter.next() catch |err| {
             if (case.err) |e| {
-                try std.testing.expectEqual(e, err);
+                try testing.expectEqual(e, err);
                 continue;
             } else {
                 return err;
             }
         }) |actual| : (i += 1) {
             const expected = case.files[i];
-            try std.testing.expectEqualStrings(expected.name, actual.name);
-            try std.testing.expectEqual(expected.size, actual.size);
-            try std.testing.expectEqual(expected.kind, actual.kind);
-            try std.testing.expectEqual(expected.mode, actual.mode);
-            try std.testing.expectEqualStrings(expected.link_name, actual.link_name);
+            try testing.expectEqualStrings(expected.name, actual.name);
+            try testing.expectEqual(expected.size, actual.size);
+            try testing.expectEqual(expected.kind, actual.kind);
+            try testing.expectEqual(expected.mode, actual.mode);
+            try testing.expectEqualStrings(expected.link_name, actual.link_name);
 
             if (case.chksums.len > i) {
                 var md5writer = Md5Writer{};
                 try actual.write(&md5writer);
                 const chksum = md5writer.chksum();
-                try std.testing.expectEqualStrings(case.chksums[i], &chksum);
+                try testing.expectEqualStrings(case.chksums[i], &chksum);
             } else {
                 if (!expected.truncated) try actual.skip(); // skip file content
             }
         }
-        try std.testing.expectEqual(case.files.len, i);
+        try testing.expectEqual(case.files.len, i);
     }
 }
 

@@ -225,14 +225,16 @@ fn nullStr(str: []const u8) []const u8 {
     return str;
 }
 
-pub fn tarReader(reader: anytype, diagnostics: ?*Options.Diagnostics) TarReader(@TypeOf(reader)) {
+/// Iterates over files in tar archive.
+/// `next` returns each file in `reader` tar archive.
+pub fn iterator(reader: anytype, diagnostics: ?*Options.Diagnostics) Iterator(@TypeOf(reader)) {
     return .{
         .reader = reader,
         .diagnostics = diagnostics,
     };
 }
 
-fn TarReader(comptime ReaderType: type) type {
+fn Iterator(comptime ReaderType: type) type {
     return struct {
         reader: ReaderType,
         diagnostics: ?*Options.Diagnostics,
@@ -358,7 +360,7 @@ fn TarReader(comptime ReaderType: type) type {
                         // Use just attributes from last extended header.
                         self.initFile();
 
-                        var rdr = paxReader(self.reader, @intCast(size));
+                        var rdr = paxIterator(self.reader, @intCast(size));
                         while (try rdr.next()) |attr| {
                             switch (attr.kind) {
                                 .path => {
@@ -393,10 +395,10 @@ fn TarReader(comptime ReaderType: type) type {
     };
 }
 
-// Pax attributes reader.
-// Size is length of pax extended header in reader.
-fn paxReader(reader: anytype, size: usize) PaxReader(@TypeOf(reader)) {
-    return PaxReader(@TypeOf(reader)){
+/// Pax attributes iterator.
+/// Size is length of pax extended header in reader.
+fn paxIterator(reader: anytype, size: usize) PaxIterator(@TypeOf(reader)) {
+    return PaxIterator(@TypeOf(reader)){
         .reader = reader,
         .size = size,
     };
@@ -408,7 +410,7 @@ const PaxAttributeKind = enum {
     size,
 };
 
-fn PaxReader(comptime ReaderType: type) type {
+fn PaxIterator(comptime ReaderType: type) type {
     return struct {
         size: usize, // cumulative size of all pax attributes
         reader: ReaderType,
@@ -508,8 +510,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
         },
     }
 
-    var iter = tarReader(reader, options.diagnostics);
-
+    var iter = iterator(reader, options.diagnostics);
     while (try iter.next()) |file| {
         switch (file.kind) {
             .directory => {
@@ -601,7 +602,7 @@ test "tar stripComponents" {
     try expectEqualStrings("c", try stripComponents("a/b/c", 2));
 }
 
-test "tar PaxReader" {
+test "tar PaxIterator" {
     const Attr = struct {
         kind: PaxAttributeKind,
         value: []const u8 = undefined,
@@ -699,10 +700,10 @@ test "tar PaxReader" {
 
     outer: for (cases) |case| {
         var stream = std.io.fixedBufferStream(case.data);
-        var rdr = paxReader(stream.reader(), case.data.len);
+        var iter = paxIterator(stream.reader(), case.data.len);
 
         var i: usize = 0;
-        while (rdr.next() catch |err| {
+        while (iter.next() catch |err| {
             if (case.err) |e| {
                 try std.testing.expectEqual(e, err);
                 continue;
