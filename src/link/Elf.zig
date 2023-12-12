@@ -1,4 +1,5 @@
 base: link.File,
+image_base: u64,
 
 ptr_width: PtrWidth,
 
@@ -264,7 +265,6 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Elf {
             .p32 => @alignOf(elf.Elf32_Phdr),
             .p64 => @alignOf(elf.Elf64_Phdr),
         };
-        const image_base = self.calcImageBase();
         const ehsize: u64 = switch (self.ptr_width) {
             .p32 => @sizeOf(elf.Elf32_Ehdr),
             .p64 => @sizeOf(elf.Elf64_Ehdr),
@@ -279,7 +279,7 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Elf {
             .type = elf.PT_PHDR,
             .flags = elf.PF_R,
             .@"align" = p_align,
-            .addr = image_base + ehsize,
+            .addr = self.image_base + ehsize,
             .offset = ehsize,
             .filesz = reserved,
             .memsz = reserved,
@@ -288,7 +288,7 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Elf {
             .type = elf.PT_LOAD,
             .flags = elf.PF_R,
             .@"align" = self.page_size,
-            .addr = image_base,
+            .addr = self.image_base,
             .offset = 0,
             .filesz = reserved + ehsize,
             .memsz = reserved + ehsize,
@@ -317,12 +317,13 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Elf {
 }
 
 pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Elf {
-    const use_llvm = options.comp.config.use_llvm;
-    const optimize_mode = options.comp.root_mod.optimize_mode;
-    const target = options.comp.root_mod.resolved_target.result;
-    const output_mode = options.comp.config.output_mode;
-    const link_mode = options.comp.config.link_mode;
-    const is_native_os = options.comp.root_mod.resolved_target.is_native_os;
+    const comp = options.comp;
+    const use_llvm = comp.config.use_llvm;
+    const optimize_mode = comp.root_mod.optimize_mode;
+    const target = comp.root_mod.resolved_target.result;
+    const output_mode = comp.config.output_mode;
+    const link_mode = comp.config.link_mode;
+    const is_native_os = comp.root_mod.resolved_target.is_native_os;
     const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
@@ -344,7 +345,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Elf {
     self.* = .{
         .base = .{
             .tag = .elf,
-            .comp = options.comp,
+            .comp = comp,
             .emit = options.emit,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
             .stack_size = options.stack_size orelse 16777216,
@@ -357,12 +358,21 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Elf {
             .debug_format = options.debug_format orelse .{ .dwarf = .@"32" },
             .function_sections = options.function_sections,
             .data_sections = options.data_sections,
+
+            .image_base = b: {
+                if (is_dyn_lib) break :b 0;
+                if (output_mode == .Exe and comp.config.pie) return 0;
+                return options.image_base orelse switch (ptr_width) {
+                    .p32 => 0x1000,
+                    .p64 => 0x1000000,
+                };
+            },
         },
         .ptr_width = ptr_width,
         .page_size = page_size,
         .default_sym_version = default_sym_version,
     };
-    if (use_llvm and options.comp.config.have_zcu) {
+    if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, options);
     }
 
@@ -1653,9 +1663,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try std.fmt.allocPrint(arena, "stack-size={d}", .{self.base.stack_size}),
         });
 
-        if (self.base.options.image_base_override) |image_base| {
-            try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{image_base}));
-        }
+        try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{self.image_base}));
 
         if (self.base.gc_sections) {
             try argv.append("--gc-sections");
@@ -2378,7 +2386,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.addOptionalBytes(self.base.options.entry);
-        man.hash.addOptional(self.base.options.image_base_override);
+        man.hash.addOptional(self.image_base);
         man.hash.add(self.base.gc_sections);
         man.hash.addOptional(self.base.options.sort_section);
         man.hash.add(self.base.options.eh_frame_hdr);
@@ -2549,9 +2557,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             }
         }
 
-        if (self.base.options.image_base_override) |image_base| {
-            try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{image_base}));
-        }
+        try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{self.image_base}));
 
         if (self.base.options.linker_script) |linker_script| {
             try argv.append("-T");
@@ -3321,7 +3327,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     // __ehdr_start
     {
         const symbol_ptr = self.symbol(self.ehdr_start_index.?);
-        symbol_ptr.value = self.calcImageBase();
+        symbol_ptr.value = self.image_base;
         symbol_ptr.output_section_index = 1;
     }
 
@@ -5630,15 +5636,6 @@ const CsuObjects = struct {
         self.crtn = crtn;
     }
 };
-
-pub fn calcImageBase(self: Elf) u64 {
-    if (self.base.isDynLib()) return 0;
-    if (self.base.isExe() and self.base.options.pie) return 0;
-    return self.base.options.image_base_override orelse switch (self.ptr_width) {
-        .p32 => 0x1000,
-        .p64 => 0x1000000,
-    };
-}
 
 pub fn isZigSection(self: Elf, shndx: u16) bool {
     inline for (&[_]?u16{

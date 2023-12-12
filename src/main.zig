@@ -860,7 +860,7 @@ fn buildOutputType(
     var test_no_exec = false;
     var force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{};
     var stack_size: ?u64 = null;
-    var image_base_override: ?u64 = null;
+    var image_base: ?u64 = null;
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
@@ -1131,10 +1131,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--stack")) {
                         stack_size = parseStackSize(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--image-base")) {
-                        const next_arg = args_iter.nextOrFatal();
-                        image_base_override = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
-                            fatal("unable to parse image base override '{s}': {s}", .{ next_arg, @errorName(err) });
-                        };
+                        image_base = parseImageBase(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--name")) {
                         provided_name = args_iter.nextOrFatal();
                         if (!mem.eql(u8, provided_name.?, fs.path.basename(provided_name.?)))
@@ -2283,10 +2280,7 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack_size")) {
                     stack_size = parseStackSize(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--image-base")) {
-                    const image_base = linker_args_it.nextOrFatal();
-                    image_base_override = std.fmt.parseUnsigned(u64, image_base, 0) catch |err| {
-                        fatal("unable to parse image base override '{s}': {s}", .{ image_base, @errorName(err) });
-                    };
+                    image_base = parseImageBase(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                     linker_script = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
@@ -3424,7 +3418,7 @@ fn buildOutputType(
         .link_emit_relocs = link_emit_relocs,
         .force_undefined_symbols = force_undefined_symbols,
         .stack_size = stack_size,
-        .image_base_override = image_base_override,
+        .image_base = image_base,
         .formatted_panics = formatted_panics,
         .function_sections = function_sections,
         .data_sections = data_sections,
@@ -7685,4 +7679,9 @@ fn resolveTargetQueryOrFatal(target_query: std.Target.Query) std.Target {
 fn parseStackSize(s: []const u8) u64 {
     return std.fmt.parseUnsigned(u64, s, 0) catch |err|
         fatal("unable to parse stack size '{s}': {s}", .{ s, @errorName(err) });
+}
+
+fn parseImageBase(s: []const u8) u64 {
+    return std.fmt.parseUnsigned(u64, s, 0) catch |err|
+        fatal("unable to parse image base '{s}': {s}", .{ s, @errorName(err) });
 }

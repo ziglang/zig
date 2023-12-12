@@ -7,6 +7,7 @@
 llvm_object: ?*LlvmObject = null,
 
 base: link.File,
+image_base: u64,
 error_flags: link.File.ErrorFlags = .{},
 
 ptr_width: PtrWidth,
@@ -352,8 +353,10 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Coff {
 }
 
 pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Coff {
-    const target = options.comp.root_mod.resolved_target.result;
-    const optimize_mode = options.comp.root_mod.optimize_mode;
+    const comp = options.comp;
+    const target = comp.root_mod.resolved_target.result;
+    const optimize_mode = comp.root_mod.optimize_mode;
+    const output_mode = comp.config.output_mode;
     const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
@@ -366,7 +369,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Coff {
     self.* = .{
         .base = .{
             .tag = .coff,
-            .comp = options.comp,
+            .comp = comp,
             .emit = options.emit,
             .stack_size = options.stack_size orelse 16777216,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
@@ -382,11 +385,25 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Coff {
         },
         .ptr_width = ptr_width,
         .page_size = page_size,
-        .data_directories = comptime mem.zeroes([coff.IMAGE_NUMBEROF_DIRECTORY_ENTRIES]coff.ImageDataDirectory),
+
+        .data_directories = [1]coff.ImageDataDirectory{.{
+            .virtual_address = 0,
+            .size = 0,
+        }} ** coff.IMAGE_NUMBEROF_DIRECTORY_ENTRIES,
+
+        .image_base = options.image_base orelse switch (output_mode) {
+            .Exe => switch (target.cpu.arch) {
+                .aarch64 => 0x140000000,
+                .x86_64, .x86 => 0x400000,
+                else => unreachable,
+            },
+            .Lib => 0x10000000,
+            .Obj => 0,
+        },
     };
 
-    const use_llvm = options.comp.config.use_llvm;
-    if (use_llvm and options.comp.config.have_zcu) {
+    const use_llvm = comp.config.use_llvm;
+    if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, options);
     }
     return self;
@@ -833,7 +850,7 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
         }
     }
 
-    self.resolveRelocs(atom_index, relocs.items, code, self.getImageBase());
+    self.resolveRelocs(atom_index, relocs.items, code, self.image_base);
     try self.base.file.?.pwriteAll(code, file_offset);
 
     // Now we can mark the relocs as resolved.
@@ -879,17 +896,17 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
     const file_offset = header.pointer_to_raw_data + entry_offset;
     const vmaddr = header.virtual_address + entry_offset;
 
-    log.debug("writing GOT entry {d}: @{x} => {x}", .{ index, vmaddr, entry_value + self.getImageBase() });
+    log.debug("writing GOT entry {d}: @{x} => {x}", .{ index, vmaddr, entry_value + self.image_base });
 
     switch (self.ptr_width) {
         .p32 => {
             var buf: [4]u8 = undefined;
-            mem.writeInt(u32, &buf, @as(u32, @intCast(entry_value + self.getImageBase())), .little);
+            mem.writeInt(u32, &buf, @as(u32, @intCast(entry_value + self.image_base)), .little);
             try self.base.file.?.pwriteAll(&buf, file_offset);
         },
         .p64 => {
             var buf: [8]u8 = undefined;
-            mem.writeInt(u64, &buf, entry_value + self.getImageBase(), .little);
+            mem.writeInt(u64, &buf, entry_value + self.image_base, .little);
             try self.base.file.?.pwriteAll(&buf, file_offset);
         },
     }
@@ -1467,9 +1484,10 @@ pub fn updateExports(
     }
 
     const ip = &mod.intern_pool;
-    const target = self.base.comp.root_mod.resolved_target.result;
+    const comp = self.base.comp;
+    const target = comp.root_mod.resolved_target.result;
 
-    if (self.base.options.use_llvm) {
+    if (comp.config.use_llvm) {
         // Even in the case of LLVM, we need to notice certain exported symbols in order to
         // detect the default subsystem.
         for (exports) |exp| {
@@ -1485,7 +1503,7 @@ pub fn updateExports(
             };
             const decl_cc = exported_decl.ty.fnCallingConvention(mod);
             if (decl_cc == .C and ip.stringEqlSlice(exp.opts.name, "main") and
-                self.base.options.link_libc)
+                comp.config.link_libc)
             {
                 mod.stage1_flags.have_c_main = true;
             } else if (decl_cc == winapi_cc and target.os.tag == .windows) {
@@ -1506,7 +1524,7 @@ pub fn updateExports(
 
     if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
 
-    const gpa = self.base.comp.gpa;
+    const gpa = comp.gpa;
 
     const metadata = switch (exported) {
         .decl_index => |decl_index| blk: {
@@ -2247,8 +2265,6 @@ fn writeHeader(self: *Coff) !void {
     const subsystem: coff.Subsystem = .WINDOWS_CUI;
     const size_of_image: u32 = self.getSizeOfImage();
     const size_of_headers: u32 = mem.alignForward(u32, self.getSizeOfHeaders(), default_file_alignment);
-    const image_base = self.getImageBase();
-
     const base_of_code = self.sections.get(self.text_section_index.?).header.virtual_address;
     const base_of_data = self.sections.get(self.data_section_index.?).header.virtual_address;
 
@@ -2279,7 +2295,7 @@ fn writeHeader(self: *Coff) !void {
                 .address_of_entry_point = self.entry_addr orelse 0,
                 .base_of_code = base_of_code,
                 .base_of_data = base_of_data,
-                .image_base = @as(u32, @intCast(image_base)),
+                .image_base = @intCast(self.image_base),
                 .section_alignment = self.page_size,
                 .file_alignment = default_file_alignment,
                 .major_operating_system_version = 6,
@@ -2313,7 +2329,7 @@ fn writeHeader(self: *Coff) !void {
                 .size_of_uninitialized_data = size_of_uninitialized_data,
                 .address_of_entry_point = self.entry_addr orelse 0,
                 .base_of_code = base_of_code,
-                .image_base = image_base,
+                .image_base = self.image_base,
                 .section_alignment = self.page_size,
                 .file_alignment = default_file_alignment,
                 .major_operating_system_version = 6,
@@ -2333,7 +2349,7 @@ fn writeHeader(self: *Coff) !void {
                 .size_of_heap_reserve = default_size_of_heap_reserve,
                 .size_of_heap_commit = default_size_of_heap_commit,
                 .loader_flags = 0,
-                .number_of_rva_and_sizes = @as(u32, @intCast(self.data_directories.len)),
+                .number_of_rva_and_sizes = @intCast(self.data_directories.len),
             };
             writer.writeAll(mem.asBytes(&opt_header)) catch unreachable;
         },
@@ -2447,23 +2463,10 @@ inline fn getSizeOfImage(self: Coff) u32 {
 
 /// Returns symbol location corresponding to the set entrypoint (if any).
 pub fn getEntryPoint(self: Coff) ?SymbolWithLoc {
-    const entry_name = self.base.options.entry orelse "wWinMainCRTStartup"; // TODO this is incomplete
+    const comp = self.base.comp;
+    const entry_name = comp.config.entry orelse return null;
     const global_index = self.resolver.get(entry_name) orelse return null;
     return self.globals.items[global_index];
-}
-
-pub fn getImageBase(self: Coff) u64 {
-    const target = self.base.comp.root_mod.resolved_target.result;
-    const image_base: u64 = self.base.options.image_base_override orelse switch (self.base.comp.config.output_mode) {
-        .Exe => switch (target.cpu.arch) {
-            .aarch64 => @as(u64, 0x140000000),
-            .x86_64, .x86 => 0x400000,
-            else => unreachable, // unsupported target architecture
-        },
-        .Lib => 0x10000000,
-        .Obj => 0,
-    };
-    return image_base;
 }
 
 /// Returns pointer-to-symbol described by `sym_loc` descriptor.

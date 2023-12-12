@@ -81,7 +81,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         try man.addOptionalFile(module_obj_path);
         man.hash.addOptionalBytes(self.base.options.entry);
         man.hash.add(self.base.stack_size);
-        man.hash.addOptional(self.base.options.image_base_override);
+        man.hash.addOptional(self.image_base);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.add(self.base.options.skip_linker_dependencies);
         if (self.base.options.link_libc) {
@@ -195,9 +195,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         if (self.base.comp.config.output_mode == .Exe) {
             try argv.append(try allocPrint(arena, "-STACK:{d}", .{self.base.stack_size}));
         }
-        if (self.base.options.image_base_override) |image_base| {
-            try argv.append(try std.fmt.allocPrint(arena, "-BASE:{d}", .{image_base}));
-        }
+        try argv.append(try std.fmt.allocPrint(arena, "-BASE:{d}", .{self.image_base}));
 
         if (target.cpu.arch == .x86) {
             try argv.append("-MACHINE:X86");

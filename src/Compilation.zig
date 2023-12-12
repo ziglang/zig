@@ -1014,7 +1014,7 @@ pub const InitOptions = struct {
     entry: ?[]const u8 = null,
     force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{},
     stack_size: ?u64 = null,
-    image_base_override: ?u64 = null,
+    image_base: ?u64 = null,
     version: ?std.SemanticVersion = null,
     compatibility_version: ?std.SemanticVersion = null,
     libc_installation: ?*const LibCInstallation = null,
@@ -1686,7 +1686,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .major_subsystem_version = options.major_subsystem_version,
                 .minor_subsystem_version = options.minor_subsystem_version,
                 .stack_size = options.stack_size,
-                .image_base_override = options.image_base_override,
+                .image_base = options.image_base,
                 .version_script = options.version_script,
                 .gc_sections = options.linker_gc_sections,
                 .eh_frame_hdr = link_eh_frame_hdr,
@@ -2429,7 +2429,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.add(comp.formatted_panics);
         man.hash.add(mod.emit_h != null);
         man.hash.add(mod.error_limit);
-        man.hash.addOptional(comp.bin_file.options.want_structured_cfg);
+        man.hash.add(comp.bin_file.options.want_structured_cfg);
     }
 
     try man.addOptionalFile(comp.bin_file.options.linker_script);
@@ -2468,8 +2468,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_bc);
 
     man.hash.add(comp.bin_file.stack_size);
-    man.hash.addOptional(comp.bin_file.options.image_base_override);
-    man.hash.addOptional(comp.bin_file.options.gc_sections);
+    man.hash.add(comp.bin_file.options.gc_sections);
     man.hash.add(comp.bin_file.options.eh_frame_hdr);
     man.hash.add(comp.bin_file.options.emit_relocs);
     man.hash.add(comp.bin_file.options.rdynamic);
@@ -2491,8 +2490,8 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.hash_style);
     man.hash.add(comp.bin_file.options.compress_debug_sections);
     man.hash.add(comp.bin_file.options.include_compiler_rt);
-    man.hash.addOptional(comp.bin_file.options.sort_section);
-    if (comp.bin_file.options.link_libc) {
+    man.hash.add(comp.bin_file.options.sort_section);
+    if (comp.config.link_libc) {
         man.hash.add(comp.bin_file.options.libc_installation != null);
         if (comp.bin_file.options.libc_installation) |libc_installation| {
             man.hash.addOptionalBytes(libc_installation.crt_dir);
@@ -2504,39 +2503,50 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.addOptionalBytes(target.dynamic_linker.get());
     }
     man.hash.addOptionalBytes(comp.bin_file.options.soname);
-    man.hash.addOptional(comp.bin_file.options.version);
+    man.hash.add(comp.bin_file.options.version);
     try link.hashAddSystemLibs(man, comp.system_libs);
     man.hash.addListOfBytes(comp.bin_file.options.force_undefined_symbols.keys());
-    man.hash.addOptional(comp.bin_file.allow_shlib_undefined);
+    man.hash.add(comp.bin_file.allow_shlib_undefined);
     man.hash.add(comp.bin_file.options.bind_global_refs_locally);
     man.hash.add(comp.bin_file.options.tsan);
     man.hash.addOptionalBytes(comp.bin_file.options.sysroot);
     man.hash.add(comp.bin_file.options.linker_optimization);
 
-    // WASM specific stuff
-    man.hash.add(comp.bin_file.options.import_memory);
-    man.hash.add(comp.bin_file.options.export_memory);
-    man.hash.addOptional(comp.bin_file.options.initial_memory);
-    man.hash.addOptional(comp.bin_file.options.max_memory);
-    man.hash.add(comp.bin_file.options.shared_memory);
-    man.hash.addOptional(comp.bin_file.options.global_base);
-
-    // Mach-O specific stuff
-    man.hash.addListOfBytes(comp.framework_dirs);
-    try link.hashAddFrameworks(man, comp.bin_file.options.frameworks);
-    try man.addOptionalFile(comp.bin_file.options.entitlements);
-    man.hash.addOptional(comp.bin_file.options.pagezero_size);
-    man.hash.addOptional(comp.bin_file.options.headerpad_size);
-    man.hash.add(comp.bin_file.options.headerpad_max_install_names);
-    man.hash.add(comp.bin_file.options.dead_strip_dylibs);
-
-    // COFF specific stuff
-    man.hash.addOptional(comp.bin_file.options.subsystem);
-    man.hash.add(comp.bin_file.options.tsaware);
-    man.hash.add(comp.bin_file.options.nxcompat);
-    man.hash.add(comp.bin_file.options.dynamicbase);
-    man.hash.addOptional(comp.bin_file.options.major_subsystem_version);
-    man.hash.addOptional(comp.bin_file.options.minor_subsystem_version);
+    switch (comp.bin_file.tag) {
+        .elf => {
+            const elf = comp.bin_file.cast(link.File.Elf).?;
+            man.hash.add(elf.image_base);
+        },
+        .wasm => {
+            const wasm = comp.bin_file.cast(link.File.Wasm).?;
+            man.hash.add(comp.config.import_memory);
+            man.hash.add(comp.config.export_memory);
+            man.hash.add(comp.config.shared_memory);
+            man.hash.add(wasm.initial_memory);
+            man.hash.add(wasm.max_memory);
+            man.hash.add(wasm.global_base);
+        },
+        .macho => {
+            const macho = comp.bin_file.cast(link.File.MachO).?;
+            man.hash.addListOfBytes(comp.framework_dirs);
+            try link.hashAddFrameworks(man, macho.frameworks);
+            try man.addOptionalFile(macho.entitlements);
+            man.hash.add(macho.pagezero_size);
+            man.hash.add(macho.headerpad_size);
+            man.hash.add(macho.headerpad_max_install_names);
+            man.hash.add(macho.dead_strip_dylibs);
+        },
+        .coff => {
+            const coff = comp.bin_file.cast(link.File.Coff).?;
+            man.hash.add(coff.image_base);
+            man.hash.add(coff.subsystem);
+            man.hash.add(coff.tsaware);
+            man.hash.add(coff.nxcompat);
+            man.hash.add(coff.dynamicbase);
+            man.hash.add(coff.major_subsystem_version);
+            man.hash.add(coff.minor_subsystem_version);
+        },
+    }
 }
 
 fn emitOthers(comp: *Compilation) void {
