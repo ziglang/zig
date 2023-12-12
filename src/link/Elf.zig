@@ -1001,7 +1001,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // --verbose-link
     if (self.base.comp.verbose_link) try self.dumpArgv(comp);
 
-    const csu = try CsuObjects.init(arena, self.base.options, comp);
+    const csu = try CsuObjects.init(arena, comp);
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
@@ -1021,8 +1021,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (csu.crti) |v| try positionals.append(.{ .path = v });
     if (csu.crtbegin) |v| try positionals.append(.{ .path = v });
 
-    try positionals.ensureUnusedCapacity(self.base.options.objects.len);
-    positionals.appendSliceAssumeCapacity(self.base.options.objects);
+    try positionals.ensureUnusedCapacity(self.base.comp.objects.len);
+    positionals.appendSliceAssumeCapacity(self.base.comp.objects);
 
     // This is a set of object files emitted by clang in a single `build-exe` invocation.
     // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
@@ -1051,7 +1051,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 _ = try rpath_table.put(lib_dir_path, {});
             }
         }
-        for (self.base.options.objects) |obj| {
+        for (self.base.comp.objects) |obj| {
             if (Compilation.classifyFileExt(obj.path) == .shared_library) {
                 const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
                 if (obj.loption) continue;
@@ -1061,7 +1061,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     // TSAN
-    if (self.base.options.tsan) {
+    if (self.base.comp.config.any_sanitize_thread) {
         try positionals.append(.{ .path = comp.tsan_static_lib.?.full_object_path });
     }
 
@@ -1093,21 +1093,21 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     // libc++ dep
-    if (self.base.options.link_libcpp) {
+    if (self.base.comp.config.link_libcpp) {
         try system_libs.ensureUnusedCapacity(2);
         system_libs.appendAssumeCapacity(.{ .path = comp.libcxxabi_static_lib.?.full_object_path });
         system_libs.appendAssumeCapacity(.{ .path = comp.libcxx_static_lib.?.full_object_path });
     }
 
     // libunwind dep
-    if (self.base.options.link_libunwind) {
+    if (self.base.comp.config.link_libunwind) {
         try system_libs.append(.{ .path = comp.libunwind_static_lib.?.full_object_path });
     }
 
     // libc dep
     self.error_flags.missing_libc = false;
-    if (self.base.options.link_libc) {
-        if (self.base.options.libc_installation) |lc| {
+    if (self.base.comp.config.link_libc) {
+        if (self.base.comp.libc_installation) |lc| {
             const flags = target_util.libcFullLinkFlags(target);
             try system_libs.ensureUnusedCapacity(flags.len);
 
@@ -1246,7 +1246,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Look for entry address in objects if not set by the incremental compiler.
     if (self.entry_index == null) {
         const entry: ?[]const u8 = entry: {
-            if (self.base.options.entry) |entry| break :entry entry;
+            if (self.base.comp.config.entry) |entry| break :entry entry;
             if (!self.base.isDynLib()) break :entry "_start";
             break :entry null;
         };
@@ -1571,7 +1571,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
     } else null;
 
-    const csu = try CsuObjects.init(arena, self.base.options, comp);
+    const csu = try CsuObjects.init(arena, comp);
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
@@ -1713,7 +1713,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
 
         if (self.base.options.link_libc) {
-            if (self.base.options.libc_installation) |libc_installation| {
+            if (self.base.comp.libc_installation) |libc_installation| {
                 try argv.append("-L");
                 try argv.append(libc_installation.crt_dir.?);
             }
@@ -1803,7 +1803,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 
         // libc dep
         if (self.base.options.link_libc) {
-            if (self.base.options.libc_installation != null) {
+            if (self.base.comp.libc_installation != null) {
                 const needs_grouping = link_mode == .Static;
                 if (needs_grouping) try argv.append("--start-group");
                 try argv.appendSlice(target_util.libcFullLinkFlags(target));
@@ -2405,8 +2405,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(self.base.options.hash_style);
         // strip does not need to go into the linker hash because it is part of the hash namespace
         if (self.base.options.link_libc) {
-            man.hash.add(self.base.options.libc_installation != null);
-            if (self.base.options.libc_installation) |libc_installation| {
+            man.hash.add(self.base.comp.libc_installation != null);
+            if (self.base.comp.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
             }
             if (have_dynamic_linker) {
@@ -2669,7 +2669,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         try argv.append(full_out_path);
 
         // csu prelude
-        const csu = try CsuObjects.init(arena, self.base.options, comp);
+        const csu = try CsuObjects.init(arena, comp);
         if (csu.crt0) |v| try argv.append(v);
         if (csu.crti) |v| try argv.append(v);
         if (csu.crtbegin) |v| try argv.append(v);
@@ -2719,7 +2719,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
 
         if (self.base.options.link_libc) {
-            if (self.base.options.libc_installation) |libc_installation| {
+            if (self.base.comp.libc_installation) |libc_installation| {
                 try argv.append("-L");
                 try argv.append(libc_installation.crt_dir.?);
             }
@@ -2839,7 +2839,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             // libc dep
             self.error_flags.missing_libc = false;
             if (self.base.options.link_libc) {
-                if (self.base.options.libc_installation != null) {
+                if (self.base.comp.libc_installation != null) {
                     const needs_grouping = link_mode == .Static;
                     if (needs_grouping) try argv.append("--start-group");
                     try argv.appendSlice(target_util.libcFullLinkFlags(target));
@@ -5444,9 +5444,11 @@ const CsuObjects = struct {
     crtend: ?[]const u8 = null,
     crtn: ?[]const u8 = null,
 
-    fn init(arena: mem.Allocator, link_options: link.Options, comp: *const Compilation) !CsuObjects {
+    const InitArgs = struct {};
+
+    fn init(arena: Allocator, comp: *const Compilation) !CsuObjects {
         // crt objects are only required for libc.
-        if (!link_options.link_libc) return CsuObjects{};
+        if (!comp.config.link_libc) return .{};
 
         var result: CsuObjects = .{};
 
@@ -5457,19 +5459,21 @@ const CsuObjects = struct {
             dynamic_pie,
             static_exe,
             static_pie,
-        } = switch (link_options.output_mode) {
+        } = switch (comp.config.output_mode) {
             .Obj => return CsuObjects{},
-            .Lib => switch (link_options.link_mode) {
+            .Lib => switch (comp.config.link_mode) {
                 .Dynamic => .dynamic_lib,
                 .Static => return CsuObjects{},
             },
-            .Exe => switch (link_options.link_mode) {
-                .Dynamic => if (link_options.pie) .dynamic_pie else .dynamic_exe,
-                .Static => if (link_options.pie) .static_pie else .static_exe,
+            .Exe => switch (comp.config.link_mode) {
+                .Dynamic => if (comp.config.pie) .dynamic_pie else .dynamic_exe,
+                .Static => if (comp.config.pie) .static_pie else .static_exe,
             },
         };
 
-        if (link_options.target.isAndroid()) {
+        const target = comp.root_mod.resolved_target.result;
+
+        if (target.isAndroid()) {
             switch (mode) {
                 // zig fmt: off
                 .dynamic_lib => result.set( null, null, "crtbegin_so.o",      "crtend_so.o",      null ),
@@ -5480,7 +5484,7 @@ const CsuObjects = struct {
                 // zig fmt: on
             }
         } else {
-            switch (link_options.target.os.tag) {
+            switch (target.os.tag) {
                 .linux => {
                     switch (mode) {
                         // zig fmt: off
@@ -5491,7 +5495,7 @@ const CsuObjects = struct {
                         .static_pie  => result.set( "rcrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
                         // zig fmt: on
                     }
-                    if (link_options.libc_installation) |_| {
+                    if (comp.libc_installation) |_| {
                         // hosted-glibc provides crtbegin/end objects in platform/compiler-specific dirs
                         // and they are not known at comptime. For now null-out crtbegin/end objects;
                         // there is no feature loss, zig has never linked those objects in before.
@@ -5499,7 +5503,7 @@ const CsuObjects = struct {
                         result.crtend = null;
                     } else {
                         // Bundled glibc only has Scrt1.o .
-                        if (result.crt0 != null and link_options.target.isGnuLibC()) result.crt0 = "Scrt1.o";
+                        if (result.crt0 != null and target.isGnuLibC()) result.crt0 = "Scrt1.o";
                     }
                 },
                 .dragonfly => switch (mode) {
@@ -5561,16 +5565,16 @@ const CsuObjects = struct {
         }
 
         // Convert each object to a full pathname.
-        if (link_options.libc_installation) |lci| {
+        if (comp.libc_installation) |lci| {
             const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCRTDir;
-            switch (link_options.target.os.tag) {
+            switch (target.os.tag) {
                 .dragonfly => {
                     if (result.crt0) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
                     if (result.crti) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
                     if (result.crtn) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
 
                     var gccv: []const u8 = undefined;
-                    if (link_options.target.os.version_range.semver.isAtLeast(.{ .major = 5, .minor = 4, .patch = 0 }) orelse true) {
+                    if (target.os.version_range.semver.isAtLeast(.{ .major = 5, .minor = 4, .patch = 0 }) orelse true) {
                         gccv = "gcc80";
                     } else {
                         gccv = "gcc54";

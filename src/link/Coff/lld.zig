@@ -85,8 +85,8 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.add(self.base.options.skip_linker_dependencies);
         if (self.base.options.link_libc) {
-            man.hash.add(self.base.options.libc_installation != null);
-            if (self.base.options.libc_installation) |libc_installation| {
+            man.hash.add(self.base.comp.libc_installation != null);
+            if (self.base.comp.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
                 if (target.abi == .msvc) {
                     man.hash.addBytes(libc_installation.msvc_lib_dir.?);
@@ -244,7 +244,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         }
 
         if (self.base.options.link_libc) {
-            if (self.base.options.libc_installation) |libc_installation| {
+            if (self.base.comp.libc_installation) |libc_installation| {
                 try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.crt_dir.?}));
 
                 if (target.abi == .msvc) {
