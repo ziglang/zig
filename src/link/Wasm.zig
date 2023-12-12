@@ -1305,7 +1305,7 @@ pub fn findGlobalSymbol(wasm: *Wasm, name: []const u8) ?SymbolLoc {
 }
 
 fn checkUndefinedSymbols(wasm: *const Wasm) !void {
-    if (wasm.base.options.output_mode == .Obj) return;
+    if (wasm.base.comp.config.output_mode == .Obj) return;
     if (wasm.base.options.import_symbols) return;
 
     var found_undefined_symbols = false;
@@ -2065,7 +2065,7 @@ fn mapFunctionTable(wasm: *Wasm) void {
         }
     }
 
-    if (wasm.import_table or wasm.base.options.output_mode == .Obj) {
+    if (wasm.import_table or wasm.base.comp.config.output_mode == .Obj) {
         const sym_loc = wasm.findGlobalSymbol("__indirect_function_table").?;
         const import = wasm.imports.getPtr(sym_loc).?;
         import.kind.table.limits.min = index - 1; // we start at index 1.
@@ -2230,11 +2230,11 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
             // we set the entire region of it to zeroes.
             // We do not have to do this when exporting the memory (the default) because the runtime
             // will do it for us, and we do not emit the bss segment at all.
-            if ((wasm.base.options.output_mode == .Obj or wasm.base.options.import_memory) and kind.data == .uninitialized) {
+            if ((wasm.base.comp.config.output_mode == .Obj or wasm.base.options.import_memory) and kind.data == .uninitialized) {
                 @memset(atom.code.items, 0);
             }
 
-            const should_merge = wasm.base.options.output_mode != .Obj;
+            const should_merge = wasm.base.comp.config.output_mode != .Obj;
             const gop = try wasm.data_segments.getOrPut(gpa, segment_info.outputName(should_merge));
             if (gop.found_existing) {
                 const index = gop.value_ptr.*;
@@ -2392,7 +2392,7 @@ fn allocateVirtualAddresses(wasm: *Wasm) void {
         };
 
         const atom = wasm.getAtom(atom_index);
-        const merge_segment = wasm.base.options.output_mode != .Obj;
+        const merge_segment = wasm.base.comp.config.output_mode != .Obj;
         const segment_info = if (atom.file) |object_index| blk: {
             break :blk wasm.objects.items[object_index].segment_info;
         } else wasm.segment_info.values();
@@ -2934,7 +2934,7 @@ fn mergeTypes(wasm: *Wasm) !void {
 
 fn setupExports(wasm: *Wasm) !void {
     const gpa = wasm.base.comp.gpa;
-    if (wasm.base.options.output_mode == .Obj) return;
+    if (wasm.base.comp.config.output_mode == .Obj) return;
     log.debug("Building exports from symbols", .{});
 
     const force_exp_names = wasm.base.options.export_symbol_names;
@@ -3009,7 +3009,7 @@ fn setupStart(wasm: *Wasm) !void {
     }
 
     // Ensure the symbol is exported so host environment can access it
-    if (wasm.base.options.output_mode != .Obj) {
+    if (wasm.base.comp.config.output_mode != .Obj) {
         symbol.setFlag(.WASM_SYM_EXPORTED);
     }
 }
@@ -3029,7 +3029,7 @@ fn setupMemory(wasm: *Wasm) !void {
         break :blk base;
     } else 0;
 
-    const is_obj = wasm.base.options.output_mode == .Obj;
+    const is_obj = wasm.base.comp.config.output_mode == .Obj;
 
     if (place_stack_first and !is_obj) {
         memory_ptr = stack_alignment.forward(memory_ptr);
@@ -3155,7 +3155,7 @@ pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, symbol_index: u32) !u3
     switch (symbol.tag) {
         .data => {
             const segment_info = object.segment_info[symbol.index];
-            const merge_segment = wasm.base.options.output_mode != .Obj;
+            const merge_segment = wasm.base.comp.config.output_mode != .Obj;
             const result = try wasm.data_segments.getOrPut(gpa, segment_info.outputName(merge_segment));
             if (!result.found_existing) {
                 result.value_ptr.* = index;
@@ -3797,7 +3797,7 @@ fn writeToFile(
     var code_section_index: ?u32 = null;
     // Index of the data section. Used to tell relocation table where the section lives.
     var data_section_index: ?u32 = null;
-    const is_obj = wasm.base.options.output_mode == .Obj or (!use_llvm and use_lld);
+    const is_obj = wasm.base.comp.config.output_mode == .Obj or (!use_llvm and use_lld);
 
     var binary_bytes = std.ArrayList(u8).init(gpa);
     defer binary_bytes.deinit();
@@ -4550,7 +4550,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
     sub_prog_node.context.refresh();
     defer sub_prog_node.end();
 
-    const is_obj = wasm.base.options.output_mode == .Obj;
+    const is_obj = wasm.base.comp.config.output_mode == .Obj;
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |lib| break :blk lib.full_object_path;
         if (comp.compiler_rt_obj) |obj| break :blk obj.full_object_path;
@@ -4750,7 +4750,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append("--allow-undefined");
         }
 
-        if (wasm.base.options.output_mode == .Lib and wasm.base.options.link_mode == .Dynamic) {
+        if (wasm.base.comp.config.output_mode == .Lib and wasm.base.options.link_mode == .Dynamic) {
             try argv.append("--shared");
         }
         if (wasm.base.options.pie) {
@@ -4769,8 +4769,8 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         }
 
         if (target.os.tag == .wasi) {
-            const is_exe_or_dyn_lib = wasm.base.options.output_mode == .Exe or
-                (wasm.base.options.output_mode == .Lib and wasm.base.options.link_mode == .Dynamic);
+            const is_exe_or_dyn_lib = wasm.base.comp.config.output_mode == .Exe or
+                (wasm.base.comp.config.output_mode == .Lib and wasm.base.options.link_mode == .Dynamic);
             if (is_exe_or_dyn_lib) {
                 for (wasm.wasi_emulated_libs) |crt_file| {
                     try argv.append(try comp.get_libc_crt_file(
@@ -4818,7 +4818,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append(p);
         }
 
-        if (wasm.base.options.output_mode != .Obj and
+        if (wasm.base.comp.config.output_mode != .Obj and
             !wasm.base.options.skip_linker_dependencies and
             !wasm.base.options.link_libc)
         {
@@ -4904,7 +4904,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         // it, and then can react to that in the same way as trying to run an ELF file
         // from a foreign CPU architecture.
         if (fs.has_executable_bit and target.os.tag == .wasi and
-            wasm.base.options.output_mode == .Exe)
+            wasm.base.comp.config.output_mode == .Exe)
         {
             // TODO: what's our strategy for reporting linker errors from this function?
             // report a nice error here with the file path if it fails instead of

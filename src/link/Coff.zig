@@ -1658,7 +1658,7 @@ pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) lin
     if (use_lld) {
         return lld.linkWithLLD(self, comp, prog_node);
     }
-    switch (self.base.options.output_mode) {
+    switch (self.base.comp.config.output_mode) {
         .Exe, .Obj => return self.flushModule(comp, prog_node),
         .Lib => return error.TODOImplementWritingLibFiles,
     }
@@ -1779,7 +1779,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     try self.writeDataDirectoriesHeaders();
     try self.writeSectionHeaders();
 
-    if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
+    if (self.entry_addr == null and self.base.comp.config.output_mode == .Exe) {
         log.debug("flushing. no_entry_point_found = true\n", .{});
         self.error_flags.no_entry_point_found = true;
     } else {
@@ -2218,7 +2218,7 @@ fn writeHeader(self: *Coff) !void {
         .p32 => flags.@"32BIT_MACHINE" = 1,
         .p64 => flags.LARGE_ADDRESS_AWARE = 1,
     }
-    if (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Dynamic) {
+    if (self.base.comp.config.output_mode == .Lib and self.base.options.link_mode == .Dynamic) {
         flags.DLL = 1;
     }
 
@@ -2451,7 +2451,7 @@ pub fn getEntryPoint(self: Coff) ?SymbolWithLoc {
 }
 
 pub fn getImageBase(self: Coff) u64 {
-    const image_base: u64 = self.base.options.image_base_override orelse switch (self.base.options.output_mode) {
+    const image_base: u64 = self.base.options.image_base_override orelse switch (self.base.comp.config.output_mode) {
         .Exe => switch (self.base.options.target.cpu.arch) {
             .aarch64 => @as(u64, 0x140000000),
             .x86_64, .x86 => 0x400000,

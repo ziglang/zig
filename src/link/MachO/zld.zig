@@ -407,7 +407,7 @@ pub fn linkWithZld(
         try macho_file.createDyldPrivateAtom();
         try macho_file.createTentativeDefAtoms();
 
-        if (macho_file.base.options.output_mode == .Exe) {
+        if (macho_file.base.comp.config.output_mode == .Exe) {
             const global = macho_file.getEntryPoint().?;
             if (macho_file.getSymbol(global).undf()) {
                 // We do one additional check here in case the entry point was found in one of the dylibs.
@@ -612,7 +612,7 @@ fn createSegments(macho_file: *MachO) !void {
     const gpa = macho_file.base.allocator;
     const page_size = MachO.getPageSize(macho_file.base.options.target.cpu.arch);
     const aligned_pagezero_vmsize = mem.alignBackward(u64, macho_file.pagezero_vmsize, page_size);
-    if (macho_file.base.options.output_mode != .Lib and aligned_pagezero_vmsize > 0) {
+    if (macho_file.base.comp.config.output_mode != .Lib and aligned_pagezero_vmsize > 0) {
         if (aligned_pagezero_vmsize != macho_file.pagezero_vmsize) {
             log.warn("requested __PAGEZERO size (0x{x}) is not page aligned", .{macho_file.pagezero_vmsize});
             log.warn("  rounding down to 0x{x}", .{aligned_pagezero_vmsize});

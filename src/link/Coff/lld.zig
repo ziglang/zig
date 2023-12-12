@@ -45,9 +45,9 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     sub_prog_node.context.refresh();
     defer sub_prog_node.end();
 
-    const is_lib = self.base.options.output_mode == .Lib;
+    const is_lib = self.base.comp.config.output_mode == .Lib;
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
-    const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
+    const is_exe_or_dyn_lib = is_dyn_lib or self.base.comp.config.output_mode == .Exe;
     const link_in_crt = self.base.options.link_libc and is_exe_or_dyn_lib;
     const target = self.base.options.target;
     const optimize_mode = self.base.comp.root_mod.optimize_mode;
@@ -136,7 +136,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         };
     }
 
-    if (self.base.options.output_mode == .Obj) {
+    if (self.base.comp.config.output_mode == .Obj) {
         // LLD's COFF driver does not support the equivalent of `-r` so we do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
@@ -192,7 +192,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                 .ReleaseFast, .ReleaseSafe => try argv.append("-OPT:lldlto=3"),
             }
         }
-        if (self.base.options.output_mode == .Exe) {
+        if (self.base.comp.config.output_mode == .Exe) {
             try argv.append(try allocPrint(arena, "-STACK:{d}", .{self.base.stack_size}));
         }
         if (self.base.options.image_base_override) |image_base| {

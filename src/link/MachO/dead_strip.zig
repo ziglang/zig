@@ -33,7 +33,7 @@ fn addRoot(macho_file: *MachO, roots: *AtomTable, file: u32, sym_loc: SymbolWith
 fn collectRoots(macho_file: *MachO, roots: *AtomTable) !void {
     log.debug("collecting roots", .{});
 
-    switch (macho_file.base.options.output_mode) {
+    switch (macho_file.base.comp.config.output_mode) {
         .Exe => {
             // Add entrypoint as GC root
             if (macho_file.getEntryPoint()) |global| {
