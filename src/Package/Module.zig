@@ -229,7 +229,18 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     };
 
     const stack_protector: u32 = sp: {
-        if (!target_util.supportsStackProtector(target, zig_backend)) {
+        const use_zig_backend = options.global.have_zcu or
+            (options.global.any_c_source_files and options.global.c_frontend == .aro);
+        if (use_zig_backend and !target_util.supportsStackProtector(target, zig_backend)) {
+            if (options.inherited.stack_protector) |x| {
+                if (x > 0) return error.StackProtectorUnsupportedByTarget;
+            }
+            break :sp 0;
+        }
+
+        if (options.global.any_c_source_files and options.global.c_frontend == .clang and
+            !target_util.clangSupportsStackProtector(target))
+        {
             if (options.inherited.stack_protector) |x| {
                 if (x > 0) return error.StackProtectorUnsupportedByTarget;
             }

@@ -949,7 +949,7 @@ fn buildOutputType(
             // Populated just before the call to `createModule`.
             .emit_bin = undefined,
             // Populated just before the call to `createModule`.
-            .c_source_files_len = undefined,
+            .any_c_source_files = undefined,
         },
         // Populated in the call to `createModule` for the root module.
         .resolved_options = undefined,
@@ -2635,7 +2635,7 @@ fn buildOutputType(
     create_module.opts.emit_llvm_ir = emit_llvm_ir != .no;
     create_module.opts.emit_llvm_bc = emit_llvm_bc != .no;
     create_module.opts.emit_bin = emit_bin != .no;
-    create_module.opts.c_source_files_len = create_module.c_source_files.items.len;
+    create_module.opts.any_c_source_files = create_module.c_source_files.items.len != 0;
 
     const main_mod = try createModule(gpa, arena, &create_module, 0, null, zig_lib_directory);
     for (create_module.modules.keys(), create_module.modules.values()) |key, cli_mod| {

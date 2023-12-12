@@ -31,6 +31,7 @@ shared_memory: bool,
 is_test: bool,
 test_evented_io: bool,
 entry: ?[]const u8,
+any_c_source_files: bool,
 
 pub const CFrontend = enum { clang, aro };
 
@@ -48,7 +49,7 @@ pub const Options = struct {
     any_sanitize_thread: bool = false,
     any_unwind_tables: bool = false,
     any_dyn_libs: bool = false,
-    c_source_files_len: usize = 0,
+    any_c_source_files: bool = false,
     emit_llvm_ir: bool = false,
     emit_llvm_bc: bool = false,
     link_libc: ?bool = null,
@@ -231,7 +232,7 @@ pub fn resolve(options: Options) !Config {
         }
 
         if (options.lto) |x| break :b x;
-        if (options.c_source_files_len == 0) break :b false;
+        if (!options.any_c_source_files) break :b false;
 
         if (target.cpu.arch.isRISCV()) {
             // Clang and LLVM currently don't support RISC-V target-abi for LTO.
@@ -384,6 +385,7 @@ pub fn resolve(options: Options) !Config {
         .use_lld = use_lld,
         .entry = entry,
         .wasi_exec_model = wasi_exec_model,
+        .any_c_source_files = options.any_c_source_files,
     };
 }
 

@@ -360,6 +360,13 @@ pub fn supportsStackProtector(target: std.Target, backend: std.builtin.CompilerB
     };
 }
 
+pub fn clangSupportsStackProtector(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .spirv32, .spirv64 => return false,
+        else => true,
+    };
+}
+
 pub fn libcProvidesStackProtector(target: std.Target) bool {
     return !target.isMinGW() and target.os.tag != .wasi and !target.isSpirV();
 }
