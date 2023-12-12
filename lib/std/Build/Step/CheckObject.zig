@@ -645,17 +645,17 @@ const MachODumper = struct {
             if (lc.bind_size > 0) {
                 const data = bytes[lc.bind_off..][0..lc.bind_size];
                 try writer.writeAll("bind info\n");
-                try dumpBindInfo(gpa, data, segments.items, imports.items, false, writer);
+                try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
             }
             if (lc.weak_bind_size > 0) {
                 const data = bytes[lc.weak_bind_off..][0..lc.weak_bind_size];
                 try writer.writeAll("weak bind info\n");
-                try dumpBindInfo(gpa, data, segments.items, imports.items, false, writer);
+                try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
             }
             if (lc.lazy_bind_size > 0) {
                 const data = bytes[lc.lazy_bind_off..][0..lc.lazy_bind_size];
                 try writer.writeAll("lazy bind info\n");
-                try dumpBindInfo(gpa, data, segments.items, imports.items, true, writer);
+                try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
             }
             if (lc.export_size > 0) {
                 const data = bytes[lc.export_off..][0..lc.export_size];
@@ -993,7 +993,7 @@ const MachODumper = struct {
                 if (sym.ext()) try writer.writeAll(" external");
                 try writer.print(" {s}\n", .{sym_name});
             } else if (sym.undf()) {
-                const ordinal = @divTrunc(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
+                const ordinal = @divFloor(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
                 const import_name = blk: {
                     if (ordinal <= 0) {
                         if (ordinal == macho.BIND_SPECIAL_DYLIB_SELF)
@@ -1108,7 +1108,8 @@ const MachODumper = struct {
     const Binding = struct {
         address: u64,
         addend: i64,
-        ordinal: ?u16,
+        ordinal: u16,
+        tag: Tag,
         name: []const u8,
 
         fn deinit(binding: *Binding, gpa: Allocator) void {
@@ -1119,6 +1120,13 @@ const MachODumper = struct {
             _ = ctx;
             return lhs.address < rhs.address;
         }
+
+        const Tag = enum {
+            ord,
+            self,
+            exe,
+            flat,
+        };
     };
 
     fn dumpBindInfo(
@@ -1126,7 +1134,6 @@ const MachODumper = struct {
         data: []const u8,
         segments: []const macho.segment_command_64,
         dylibs: []const []const u8,
-        is_lazy: bool,
         writer: anytype,
     ) !void {
         var bindings = std.ArrayList(Binding).init(gpa);
@@ -1136,14 +1143,18 @@ const MachODumper = struct {
             }
             bindings.deinit();
         }
-        try parseBindInfo(gpa, data, segments, &bindings, is_lazy);
+        try parseBindInfo(gpa, data, segments, &bindings);
         mem.sort(Binding, bindings.items, {}, Binding.lessThan);
         for (bindings.items) |binding| {
             try writer.print("0x{x} [addend: {d}]", .{ binding.address, binding.addend });
-            if (binding.ordinal) |ord| {
-                try writer.print(" ({s})", .{std.fs.path.basename(dylibs[ord - 1])});
+            try writer.writeAll(" (");
+            switch (binding.tag) {
+                .self => try writer.writeAll("self"),
+                .exe => try writer.writeAll("main executable"),
+                .flat => try writer.writeAll("flat lookup"),
+                .ord => try writer.writeAll(std.fs.path.basename(dylibs[binding.ordinal - 1])),
             }
-            try writer.print(" {s}\n", .{binding.name});
+            try writer.print(") {s}\n", .{binding.name});
         }
     }
 
@@ -1152,14 +1163,14 @@ const MachODumper = struct {
         data: []const u8,
         segments: []const macho.segment_command_64,
         bindings: *std.ArrayList(Binding),
-        lazy_ops: bool,
     ) !void {
         var stream = std.io.fixedBufferStream(data);
         var creader = std.io.countingReader(stream.reader());
         const reader = creader.reader();
 
         var seg_id: ?u8 = null;
-        var dylib_id: ?u16 = null;
+        var tag: Binding.Tag = .self;
+        var ordinal: u16 = 0;
         var offset: u64 = 0;
         var addend: i64 = 0;
 
@@ -1171,14 +1182,20 @@ const MachODumper = struct {
             const opc = byte & macho.BIND_OPCODE_MASK;
             const imm = byte & macho.BIND_IMMEDIATE_MASK;
             switch (opc) {
-                macho.BIND_OPCODE_DONE => {
-                    if (!lazy_ops) break;
-                },
-                macho.BIND_OPCODE_SET_TYPE_IMM => {
-                    if (lazy_ops) break;
-                },
+                macho.BIND_OPCODE_DONE,
+                macho.BIND_OPCODE_SET_TYPE_IMM,
+                => {},
                 macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM => {
-                    dylib_id = imm;
+                    tag = .ord;
+                    ordinal = imm;
+                },
+                macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM => {
+                    switch (imm) {
+                        0 => tag = .self,
+                        0xf => tag = .exe,
+                        0xe => tag = .flat,
+                        else => unreachable,
+                    }
                 },
                 macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
                     seg_id = imm;
@@ -1193,7 +1210,6 @@ const MachODumper = struct {
                     addend = try std.leb.readILEB128(i64, reader);
                 },
                 macho.BIND_OPCODE_ADD_ADDR_ULEB => {
-                    if (lazy_ops) break;
                     const x = try std.leb.readULEB128(u64, reader);
                     offset = @intCast(@as(i64, @intCast(offset)) + @as(i64, @bitCast(x)));
                 },
@@ -1209,15 +1225,12 @@ const MachODumper = struct {
                     switch (opc) {
                         macho.BIND_OPCODE_DO_BIND => {},
                         macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB => {
-                            if (lazy_ops) break;
                             add_addr = try std.leb.readULEB128(u64, reader);
                         },
                         macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED => {
-                            if (lazy_ops) break;
                             add_addr = imm * @sizeOf(u64);
                         },
                         macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB => {
-                            if (lazy_ops) break;
                             count = try std.leb.readULEB128(u64, reader);
                             skip = try std.leb.readULEB128(u64, reader);
                         },
@@ -1231,7 +1244,8 @@ const MachODumper = struct {
                         try bindings.append(.{
                             .address = addr,
                             .addend = addend,
-                            .ordinal = dylib_id,
+                            .tag = tag,
+                            .ordinal = ordinal,
                             .name = try gpa.dupe(u8, name_buf.items),
                         });
                         offset += skip + @sizeOf(u64) + add_addr;
