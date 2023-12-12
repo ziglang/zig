@@ -7,6 +7,8 @@ link_libc: bool,
 link_libcpp: bool,
 link_libunwind: bool,
 any_unwind_tables: bool,
+any_c_source_files: bool,
+any_non_single_threaded: bool,
 pie: bool,
 /// If this is true then linker code is responsible for making an LLVM IR
 /// Module, outputting it to an object file, and then linking that together
@@ -31,7 +33,6 @@ shared_memory: bool,
 is_test: bool,
 test_evented_io: bool,
 entry: ?[]const u8,
-any_c_source_files: bool,
 
 pub const CFrontend = enum { clang, aro };
 
@@ -374,6 +375,8 @@ pub fn resolve(options: Options) !Config {
         .link_libcpp = link_libcpp,
         .link_libunwind = link_libunwind,
         .any_unwind_tables = any_unwind_tables,
+        .any_c_source_files = options.any_c_source_files,
+        .any_non_single_threaded = options.any_non_single_threaded,
         .pie = pie,
         .lto = lto,
         .import_memory = import_memory,
@@ -385,7 +388,6 @@ pub fn resolve(options: Options) !Config {
         .use_lld = use_lld,
         .entry = entry,
         .wasi_exec_model = wasi_exec_model,
-        .any_c_source_files = options.any_c_source_files,
     };
 }
 

@@ -942,7 +942,9 @@ fn genDeclRef(
 
     try mod.markDeclAlive(decl);
 
-    const is_threadlocal = tv.val.isPtrToThreadLocal(mod) and !bin_file.options.single_threaded;
+    const decl_namespace = mod.namespacePtr(decl.namespace_index);
+    const single_threaded = decl_namespace.file_scope.mod.single_threaded;
+    const is_threadlocal = tv.val.isPtrToThreadLocal(mod) and !single_threaded;
     const is_extern = decl.isExtern(mod);
 
     if (bin_file.cast(link.File.Elf)) |elf_file| {

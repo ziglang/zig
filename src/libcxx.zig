@@ -154,7 +154,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             continue;
         if (std.mem.startsWith(u8, cxx_src, "src/support/ibm/") and target.os.tag != .zos)
             continue;
-        if (comp.bin_file.options.single_threaded) {
+        if (!comp.config.any_non_single_threaded) {
             if (std.mem.startsWith(u8, cxx_src, "src/support/win32/thread_win32.cpp")) {
                 continue;
             }
@@ -332,7 +332,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         }
 
         // WASM targets are single threaded.
-        if (comp.bin_file.options.single_threaded) {
+        if (!comp.config.any_non_single_threaded) {
             if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp")) {
                 continue;
             }

@@ -267,7 +267,10 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*MachO {
     });
     try self.strtab.buffer.append(gpa, 0);
 
-    try self.populateMissingMetadata();
+    try self.populateMissingMetadata(.{
+        .symbol_count_hint = options.symbol_count_hint,
+        .program_code_size_hint = options.program_code_size_hint,
+    });
 
     if (self.d_sym) |*d_sym| {
         try d_sym.populateMissingMetadata(self);
@@ -1704,7 +1707,8 @@ pub fn createDsoHandleSymbol(self: *MachO) !void {
 }
 
 pub fn resolveSymbols(self: *MachO) !void {
-    const output_mode = self.base.comp.config.output_mode;
+    const comp = self.base.comp;
+    const output_mode = comp.config.output_mode;
     // We add the specified entrypoint as the first unresolved symbols so that
     // we search for it in libraries should there be no object files specified
     // on the linker line.
@@ -1729,7 +1733,7 @@ pub fn resolveSymbols(self: *MachO) !void {
     if (self.unresolved.count() > 0 and self.dyld_stub_binder_index == null) {
         self.dyld_stub_binder_index = try self.addUndefined("dyld_stub_binder", .{ .add_got = true });
     }
-    if (!self.base.options.single_threaded and self.mode == .incremental) {
+    if (comp.config.any_non_single_threaded and self.mode == .incremental) {
         _ = try self.addUndefined("__tlv_bootstrap", .{});
     }
 
@@ -2436,7 +2440,8 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) 
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.comp.gpa;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
     const decl = mod.declPtr(decl_index);
 
     if (decl.val.getExternFunc(mod)) |_| {
@@ -2453,7 +2458,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) 
     }
 
     const is_threadlocal = if (decl.val.getVariable(mod)) |variable|
-        variable.is_threadlocal and !self.base.options.single_threaded
+        variable.is_threadlocal and comp.config.any_non_single_threaded
     else
         false;
     if (is_threadlocal) return self.updateThreadlocalVariable(mod, decl_index);
@@ -3129,11 +3134,17 @@ pub fn getAnonDeclVAddr(self: *MachO, decl_val: InternPool.Index, reloc_info: li
     return 0;
 }
 
-fn populateMissingMetadata(self: *MachO) !void {
+const PopulateMissingMetadataOptions = struct {
+    symbol_count_hint: u64,
+    program_code_size_hint: u64,
+};
+
+fn populateMissingMetadata(self: *MachO, options: PopulateMissingMetadataOptions) !void {
     assert(self.mode == .incremental);
 
-    const gpa = self.base.comp.gpa;
-    const target = self.base.comp.root_mod.resolved_target.result;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+    const target = comp.root_mod.resolved_target.result;
     const cpu_arch = target.cpu.arch;
     const pagezero_vmsize = self.calcPagezeroSize();
 
@@ -3171,7 +3182,7 @@ fn populateMissingMetadata(self: *MachO) !void {
     if (self.text_section_index == null) {
         // Sadly, segments need unique string identfiers for some reason.
         self.text_section_index = try self.allocateSection("__TEXT1", "__text", .{
-            .size = self.base.options.program_code_size_hint,
+            .size = options.program_code_size_hint,
             .alignment = switch (cpu_arch) {
                 .x86_64 => 1,
                 .aarch64 => @sizeOf(u32),
@@ -3207,7 +3218,7 @@ fn populateMissingMetadata(self: *MachO) !void {
 
     if (self.got_section_index == null) {
         self.got_section_index = try self.allocateSection("__DATA_CONST", "__got", .{
-            .size = @sizeOf(u64) * self.base.options.symbol_count_hint,
+            .size = @sizeOf(u64) * options.symbol_count_hint,
             .alignment = @alignOf(u64),
             .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
             .prot = macho.PROT.READ | macho.PROT.WRITE,
@@ -3245,7 +3256,7 @@ fn populateMissingMetadata(self: *MachO) !void {
         self.segment_table_dirty = true;
     }
 
-    if (!self.base.options.single_threaded) {
+    if (comp.config.any_non_single_threaded) {
         if (self.thread_vars_section_index == null) {
             self.thread_vars_section_index = try self.allocateSection("__DATA2", "__thread_vars", .{
                 .size = @sizeOf(u64) * 3,

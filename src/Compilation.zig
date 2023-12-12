@@ -1871,7 +1871,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             try comp.work_queue.writeItem(.libtsan);
         }
 
-        if (comp.getTarget().isMinGW() and !comp.bin_file.options.single_threaded) {
+        if (comp.getTarget().isMinGW() and comp.config.any_non_single_threaded) {
             // LLD might drop some symbols as unused during LTO and GCing, therefore,
             // we force mark them for resolution here.
 
@@ -2418,10 +2418,8 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.main_mod, .{ .files = man });
 
         // Synchronize with other matching comments: ZigOnlyHashStuff
-        man.hash.add(comp.bin_file.options.valgrind);
-        man.hash.add(comp.bin_file.options.single_threaded);
-        man.hash.add(comp.bin_file.options.use_llvm);
-        man.hash.add(comp.bin_file.options.use_lib_llvm);
+        man.hash.add(comp.config.use_llvm);
+        man.hash.add(comp.config.use_lib_llvm);
         man.hash.add(comp.bin_file.options.dll_export_fns);
         man.hash.add(comp.bin_file.options.is_test);
         man.hash.add(comp.test_evented_io);
@@ -4922,7 +4920,7 @@ pub fn addCCArgs(
         try argv.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
         try argv.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
 
-        if (comp.bin_file.options.single_threaded) {
+        if (!comp.config.any_non_single_threaded) {
             try argv.append("-D_LIBCPP_HAS_NO_THREADS");
         }
 

@@ -67,7 +67,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         if (comp.bin_file.options.optimize_mode == .Debug) {
             try cflags.append("-D_DEBUG");
         }
-        if (comp.bin_file.options.single_threaded) {
+        if (!comp.config.any_non_single_threaded) {
             try cflags.append("-D_LIBUNWIND_HAS_NO_THREADS");
         }
         if (target.cpu.arch.isARM() and target.abi.floatAbi() == .hard) {

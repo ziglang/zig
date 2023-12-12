@@ -1591,8 +1591,10 @@ pub const Object = struct {
         var di_file: ?if (build_options.have_llvm) *llvm.DIFile else noreturn = null;
         var di_scope: ?if (build_options.have_llvm) *llvm.DIScope else noreturn = null;
 
+        const namespace = mod.namespacePtr(decl.src_namespace);
+
         if (o.di_builder) |dib| {
-            di_file = try o.getDIFile(gpa, mod.namespacePtr(decl.src_namespace).file_scope);
+            di_file = try o.getDIFile(gpa, namespace.file_scope);
 
             const line_number = decl.src_line + 1;
             const is_internal_linkage = decl.val.getExternFunc(mod) == null and
@@ -1623,6 +1625,8 @@ pub const Object = struct {
             di_scope = subprogram.toScope();
         }
 
+        const single_threaded = namespace.file_scope.mod.single_threaded;
+
         var fg: FuncGen = .{
             .gpa = gpa,
             .air = air,
@@ -1634,7 +1638,7 @@ pub const Object = struct {
             .arg_index = 0,
             .func_inst_table = .{},
             .blocks = .{},
-            .sync_scope = if (mod.comp.bin_file.options.single_threaded) .singlethread else .system,
+            .sync_scope = if (single_threaded) .singlethread else .system,
             .di_scope = di_scope,
             .di_file = di_file,
             .base_line = dg.decl.src_line,
@@ -1788,8 +1792,10 @@ pub const Object = struct {
             if (mod.wantDllExports()) global_index.setDllStorageClass(.default, &self.builder);
             global_index.setUnnamedAddr(.unnamed_addr, &self.builder);
             if (decl.val.getVariable(mod)) |decl_var| {
+                const decl_namespace = mod.namespacePtr(decl.namespace_index);
+                const single_threaded = decl_namespace.file_scope.mod.single_threaded;
                 global_index.ptrConst(&self.builder).kind.variable.setThreadLocal(
-                    if (decl_var.is_threadlocal and !mod.comp.bin_file.options.single_threaded)
+                    if (decl_var.is_threadlocal and !single_threaded)
                         .generaldynamic
                     else
                         .default,
@@ -3176,7 +3182,8 @@ pub const Object = struct {
             variable_index.setLinkage(.external, &o.builder);
             variable_index.setUnnamedAddr(.default, &o.builder);
             if (decl.val.getVariable(mod)) |decl_var| {
-                const single_threaded = mod.comp.bin_file.options.single_threaded;
+                const decl_namespace = mod.namespacePtr(decl.namespace_index);
+                const single_threaded = decl_namespace.file_scope.mod.single_threaded;
                 variable_index.setThreadLocal(
                     if (decl_var.is_threadlocal and !single_threaded) .generaldynamic else .default,
                     &o.builder,

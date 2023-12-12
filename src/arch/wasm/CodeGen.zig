@@ -7724,10 +7724,13 @@ fn airAtomicRmw(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airFence(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const zcu = func.bin_file.base.comp.module.?;
     // Only when the atomic feature is enabled, and we're not building
     // for a single-threaded build, can we emit the `fence` instruction.
     // In all other cases, we emit no instructions for a fence.
-    if (func.useAtomicFeature() and !func.bin_file.base.options.single_threaded) {
+    const func_namespace = zcu.namespacePtr(zcu.declPtr(func.decl).namespace);
+    const single_threaded = func_namespace.file_scope.mod.single_threaded;
+    if (func.useAtomicFeature() and !single_threaded) {
         try func.addAtomicTag(.atomic_fence);
     }
 
