@@ -280,7 +280,7 @@ fn detectAbiAndDynamicLinker(
         assert(@intFromEnum(Target.Abi.none) == 0);
         const fields = std.meta.fields(Target.Abi)[1..];
         var array: [fields.len]Target.Abi = undefined;
-        inline for (fields, 0..) |field, i| {
+        for (fields, 0..) |field, i| {
             array[i] = @field(Target.Abi, field.name);
         }
         break :blk array;

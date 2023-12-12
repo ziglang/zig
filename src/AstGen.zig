@@ -6306,6 +6306,9 @@ fn whileExpr(
     }
 
     const is_inline = while_full.inline_token != null;
+    if (parent_gz.is_comptime and is_inline) {
+        return astgen.failTok(while_full.inline_token.?, "redundant inline keyword in comptime scope", .{});
+    }
     const loop_tag: Zir.Inst.Tag = if (is_inline) .block_inline else .loop;
     const loop_block = try parent_gz.makeBlockInst(loop_tag, node);
     try parent_gz.instructions.append(astgen.gpa, loop_block);
@@ -6580,6 +6583,9 @@ fn forExpr(
     const need_result_rvalue = @as(LocTag, block_ri.rl) != @as(LocTag, ri.rl);
 
     const is_inline = for_full.inline_token != null;
+    if (parent_gz.is_comptime and is_inline) {
+        return astgen.failTok(for_full.inline_token.?, "redundant inline keyword in comptime scope", .{});
+    }
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
     const node_tags = tree.nodes.items(.tag);

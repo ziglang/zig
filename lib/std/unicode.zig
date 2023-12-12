@@ -330,15 +330,12 @@ pub const Utf8View = struct {
         return Utf8View{ .bytes = s };
     }
 
-    /// TODO: https://github.com/ziglang/zig/issues/425
-    pub fn initComptime(comptime s: []const u8) Utf8View {
-        if (comptime init(s)) |r| {
-            return r;
-        } else |err| switch (err) {
+    pub inline fn initComptime(comptime s: []const u8) Utf8View {
+        return comptime if (init(s)) |r| r else |err| switch (err) {
             error.InvalidUtf8 => {
                 @compileError("invalid utf8");
             },
-        }
+        };
     }
 
     pub fn iterator(s: Utf8View) Utf8Iterator {

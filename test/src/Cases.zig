@@ -908,11 +908,11 @@ const TestManifestConfigDefaults = struct {
                 // TODO we should also specify ABIs explicitly as the backends are
                 // getting more and more complete
                 // Linux
-                inline for (&[_][]const u8{ "x86_64", "arm", "aarch64" }) |arch| {
+                for (&[_][]const u8{ "x86_64", "arm", "aarch64" }) |arch| {
                     defaults = defaults ++ arch ++ "-linux" ++ ",";
                 }
                 // macOS
-                inline for (&[_][]const u8{ "x86_64", "aarch64" }) |arch| {
+                for (&[_][]const u8{ "x86_64", "aarch64" }) |arch| {
                     defaults = defaults ++ arch ++ "-macos" ++ ",";
                 }
                 // Windows

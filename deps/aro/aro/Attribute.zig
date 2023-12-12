@@ -643,7 +643,7 @@ pub const Tag = std.meta.DeclEnum(attributes);
 pub const Arguments = blk: {
     const decls = @typeInfo(attributes).Struct.decls;
     var union_fields: [decls.len]ZigType.UnionField = undefined;
-    inline for (decls, &union_fields) |decl, *field| {
+    for (decls, &union_fields) |decl, *field| {
         field.* = .{
             .name = decl.name,
             .type = @field(attributes, decl.name),

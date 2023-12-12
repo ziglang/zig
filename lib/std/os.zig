@@ -5511,7 +5511,7 @@ pub fn dl_iterate_phdr(
             }
         }.callbackC, @as(?*anyopaque, @ptrFromInt(@intFromPtr(&context))))) {
             0 => return,
-            else => |err| return @as(Error, @errorCast(@errorFromInt(@as(u16, @intCast(err))))), // TODO don't hardcode u16
+            else => |err| return @as(Error, @errorCast(@errorFromInt(@as(std.meta.Int(.unsigned, @bitSizeOf(anyerror)), @intCast(err))))),
         }
     }
 
@@ -7271,7 +7271,7 @@ pub fn perf_event_open(
     group_fd: fd_t,
     flags: usize,
 ) PerfEventOpenError!fd_t {
-    const rc = system.perf_event_open(attr, pid, cpu, group_fd, flags);
+    const rc = linux.perf_event_open(attr, pid, cpu, group_fd, flags);
     switch (errno(rc)) {
         .SUCCESS => return @as(fd_t, @intCast(rc)),
         .@"2BIG" => return error.TooBig,

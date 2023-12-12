@@ -3188,8 +3188,10 @@ fn renderExtraNewlineToken(r: *Render, token_index: Ast.TokenIndex) Error!void {
     else
         token_starts[token_index - 1] + tokenSliceForRender(tree, token_index - 1).len;
 
-    // If there is a comment present, it will handle the empty line
+    // If there is a immediately preceding comment or doc_comment,
+    // skip it because required extra newline has already been rendered.
     if (mem.indexOf(u8, tree.source[prev_token_end..token_start], "//") != null) return;
+    if (token_index > 0 and tree.tokens.items(.tag)[token_index - 1] == .doc_comment) return;
 
     // Iterate backwards to the end of the previous token, stopping if a
     // non-whitespace character is encountered or two newlines have been found.

@@ -21,7 +21,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
         pub const ActiveFields = std.enums.EnumFieldStruct(FieldEnum, bool, false);
         pub const FieldValues = blk: {
             comptime var fields: [bit_count]Type.StructField = undefined;
-            inline for (@typeInfo(Fields).Struct.fields, 0..) |struct_field, i| {
+            for (@typeInfo(Fields).Struct.fields, 0..) |struct_field, i| {
                 fields[i] = Type.StructField{
                     .name = struct_field.name,
                     .type = ?struct_field.type,

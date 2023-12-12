@@ -381,6 +381,18 @@ pub fn checkInSymtab(self: *CheckObject) void {
     self.checkExact(label);
 }
 
+/// Creates a new check checking specifically dyld_info_only contents parsed and dumped
+/// from the object file.
+/// This check is target-dependent and applicable to MachO only.
+pub fn checkInDyldInfo(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .macho => MachODumper.dyld_info_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart();
+    self.checkExact(label);
+}
+
 /// Creates a new check checking specifically dynamic symbol table parsed and dumped from the object
 /// file.
 /// This check is target-dependent and applicable to ELF only.
@@ -543,6 +555,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
 const MachODumper = struct {
     const LoadCommandIterator = macho.LoadCommandIterator;
+    const dyld_info_label = "dyld info data";
     const symtab_label = "symbol table";
 
     const Symtab = struct {
@@ -564,8 +577,16 @@ const MachODumper = struct {
         const writer = output.writer();
 
         var symtab: ?Symtab = null;
+        var segments = std.ArrayList(macho.segment_command_64).init(gpa);
+        defer segments.deinit();
         var sections = std.ArrayList(macho.section_64).init(gpa);
+        defer sections.deinit();
         var imports = std.ArrayList([]const u8).init(gpa);
+        defer imports.deinit();
+        var text_seg: ?u8 = null;
+        var dyld_info_lc: ?macho.dyld_info_command = null;
+
+        try dumpHeader(hdr, writer);
 
         var it: LoadCommandIterator = .{
             .ncmds = hdr.ncmds,
@@ -580,6 +601,11 @@ const MachODumper = struct {
                     for (cmd.getSections()) |sect| {
                         sections.appendAssumeCapacity(sect);
                     }
+                    const seg_id: u8 = @intCast(segments.items.len);
+                    try segments.append(seg);
+                    if (mem.eql(u8, seg.segName(), "__TEXT")) {
+                        text_seg = seg_id;
+                    }
                 },
                 .SYMTAB => {
                     const lc = cmd.cast(macho.symtab_command).?;
@@ -592,6 +618,9 @@ const MachODumper = struct {
                 .REEXPORT_DYLIB,
                 => {
                     try imports.append(cmd.getDylibPathName());
+                },
+                .DYLD_INFO_ONLY => {
+                    dyld_info_lc = cmd.cast(macho.dyld_info_command).?;
                 },
                 else => {},
             }
@@ -606,7 +635,104 @@ const MachODumper = struct {
             try dumpSymtab(sections.items, imports.items, stab, writer);
         }
 
+        if (dyld_info_lc) |lc| {
+            try writer.writeAll(dyld_info_label ++ "\n");
+            if (lc.rebase_size > 0) {
+                const data = bytes[lc.rebase_off..][0..lc.rebase_size];
+                try writer.writeAll("rebase info\n");
+                try dumpRebaseInfo(gpa, data, segments.items, writer);
+            }
+            if (lc.bind_size > 0) {
+                const data = bytes[lc.bind_off..][0..lc.bind_size];
+                try writer.writeAll("bind info\n");
+                try dumpBindInfo(gpa, data, segments.items, imports.items, false, writer);
+            }
+            if (lc.weak_bind_size > 0) {
+                const data = bytes[lc.weak_bind_off..][0..lc.weak_bind_size];
+                try writer.writeAll("weak bind info\n");
+                try dumpBindInfo(gpa, data, segments.items, imports.items, false, writer);
+            }
+            if (lc.lazy_bind_size > 0) {
+                const data = bytes[lc.lazy_bind_off..][0..lc.lazy_bind_size];
+                try writer.writeAll("lazy bind info\n");
+                try dumpBindInfo(gpa, data, segments.items, imports.items, true, writer);
+            }
+            if (lc.export_size > 0) {
+                const data = bytes[lc.export_off..][0..lc.export_size];
+                try writer.writeAll("exports\n");
+                try dumpExportsTrie(gpa, data, segments.items[text_seg.?], writer);
+            }
+        }
+
         return output.toOwnedSlice();
+    }
+
+    fn dumpHeader(hdr: macho.mach_header_64, writer: anytype) !void {
+        const cputype = switch (hdr.cputype) {
+            macho.CPU_TYPE_ARM64 => "ARM64",
+            macho.CPU_TYPE_X86_64 => "X86_64",
+            else => "Unknown",
+        };
+        const filetype = switch (hdr.filetype) {
+            macho.MH_OBJECT => "MH_OBJECT",
+            macho.MH_EXECUTE => "MH_EXECUTE",
+            macho.MH_FVMLIB => "MH_FVMLIB",
+            macho.MH_CORE => "MH_CORE",
+            macho.MH_PRELOAD => "MH_PRELOAD",
+            macho.MH_DYLIB => "MH_DYLIB",
+            macho.MH_DYLINKER => "MH_DYLINKER",
+            macho.MH_BUNDLE => "MH_BUNDLE",
+            macho.MH_DYLIB_STUB => "MH_DYLIB_STUB",
+            macho.MH_DSYM => "MH_DSYM",
+            macho.MH_KEXT_BUNDLE => "MH_KEXT_BUNDLE",
+            else => "Unknown",
+        };
+
+        try writer.print(
+            \\header
+            \\cputype {s}
+            \\filetype {s}
+            \\ncmds {d}
+            \\sizeofcmds {x}
+            \\flags
+        , .{
+            cputype,
+            filetype,
+            hdr.ncmds,
+            hdr.sizeofcmds,
+        });
+
+        if (hdr.flags > 0) {
+            if (hdr.flags & macho.MH_NOUNDEFS != 0) try writer.writeAll(" NOUNDEFS");
+            if (hdr.flags & macho.MH_INCRLINK != 0) try writer.writeAll(" INCRLINK");
+            if (hdr.flags & macho.MH_DYLDLINK != 0) try writer.writeAll(" DYLDLINK");
+            if (hdr.flags & macho.MH_BINDATLOAD != 0) try writer.writeAll(" BINDATLOAD");
+            if (hdr.flags & macho.MH_PREBOUND != 0) try writer.writeAll(" PREBOUND");
+            if (hdr.flags & macho.MH_SPLIT_SEGS != 0) try writer.writeAll(" SPLIT_SEGS");
+            if (hdr.flags & macho.MH_LAZY_INIT != 0) try writer.writeAll(" LAZY_INIT");
+            if (hdr.flags & macho.MH_TWOLEVEL != 0) try writer.writeAll(" TWOLEVEL");
+            if (hdr.flags & macho.MH_FORCE_FLAT != 0) try writer.writeAll(" FORCE_FLAT");
+            if (hdr.flags & macho.MH_NOMULTIDEFS != 0) try writer.writeAll(" NOMULTIDEFS");
+            if (hdr.flags & macho.MH_NOFIXPREBINDING != 0) try writer.writeAll(" NOFIXPREBINDING");
+            if (hdr.flags & macho.MH_PREBINDABLE != 0) try writer.writeAll(" PREBINDABLE");
+            if (hdr.flags & macho.MH_ALLMODSBOUND != 0) try writer.writeAll(" ALLMODSBOUND");
+            if (hdr.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0) try writer.writeAll(" SUBSECTIONS_VIA_SYMBOLS");
+            if (hdr.flags & macho.MH_CANONICAL != 0) try writer.writeAll(" CANONICAL");
+            if (hdr.flags & macho.MH_WEAK_DEFINES != 0) try writer.writeAll(" WEAK_DEFINES");
+            if (hdr.flags & macho.MH_BINDS_TO_WEAK != 0) try writer.writeAll(" BINDS_TO_WEAK");
+            if (hdr.flags & macho.MH_ALLOW_STACK_EXECUTION != 0) try writer.writeAll(" ALLOW_STACK_EXECUTION");
+            if (hdr.flags & macho.MH_ROOT_SAFE != 0) try writer.writeAll(" ROOT_SAFE");
+            if (hdr.flags & macho.MH_SETUID_SAFE != 0) try writer.writeAll(" SETUID_SAFE");
+            if (hdr.flags & macho.MH_NO_REEXPORTED_DYLIBS != 0) try writer.writeAll(" NO_REEXPORTED_DYLIBS");
+            if (hdr.flags & macho.MH_PIE != 0) try writer.writeAll(" PIE");
+            if (hdr.flags & macho.MH_DEAD_STRIPPABLE_DYLIB != 0) try writer.writeAll(" DEAD_STRIPPABLE_DYLIB");
+            if (hdr.flags & macho.MH_HAS_TLV_DESCRIPTORS != 0) try writer.writeAll(" HAS_TLV_DESCRIPTORS");
+            if (hdr.flags & macho.MH_NO_HEAP_EXECUTION != 0) try writer.writeAll(" NO_HEAP_EXECUTION");
+            if (hdr.flags & macho.MH_APP_EXTENSION_SAFE != 0) try writer.writeAll(" APP_EXTENSION_SAFE");
+            if (hdr.flags & macho.MH_NLIST_OUTOFSYNC_WITH_DYLDINFO != 0) try writer.writeAll(" NLIST_OUTOFSYNC_WITH_DYLDINFO");
+        }
+
+        try writer.writeByte('\n');
     }
 
     fn dumpLoadCommand(lc: macho.LoadCommandIterator.LoadCommand, index: usize, writer: anytype) !void {
@@ -853,9 +979,18 @@ const MachODumper = struct {
                     sect.segName(),
                     sect.sectName(),
                 });
+                if (sym.n_desc & macho.REFERENCED_DYNAMICALLY != 0) try writer.writeAll(" [referenced dynamically]");
+                if (sym.weakDef()) try writer.writeAll(" weak");
+                if (sym.weakRef()) try writer.writeAll(" weakref");
                 if (sym.ext()) {
+                    if (sym.pext()) try writer.writeAll(" private");
                     try writer.writeAll(" external");
-                }
+                } else if (sym.pext()) try writer.writeAll(" (was private external)");
+                try writer.print(" {s}\n", .{sym_name});
+            } else if (sym.tentative()) {
+                const alignment = (sym.n_desc >> 8) & 0x0F;
+                try writer.print("  0x{x:0>16} (common) (alignment 2^{d})", .{ sym.n_value, alignment });
+                if (sym.ext()) try writer.writeAll(" external");
                 try writer.print(" {s}\n", .{sym_name});
             } else if (sym.undf()) {
                 const ordinal = @divTrunc(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
@@ -876,17 +1011,414 @@ const MachODumper = struct {
                     break :blk basename[0..ext];
                 };
                 try writer.writeAll("(undefined)");
-                if (sym.weakRef()) {
-                    try writer.writeAll(" weak");
-                }
-                if (sym.ext()) {
-                    try writer.writeAll(" external");
-                }
+                if (sym.weakRef()) try writer.writeAll(" weakref");
+                if (sym.ext()) try writer.writeAll(" external");
                 try writer.print(" {s} (from {s})\n", .{
                     sym_name,
                     import_name,
                 });
-            } else unreachable;
+            }
+        }
+    }
+
+    fn dumpRebaseInfo(
+        gpa: Allocator,
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        writer: anytype,
+    ) !void {
+        var rebases = std.ArrayList(u64).init(gpa);
+        defer rebases.deinit();
+        try parseRebaseInfo(data, segments, &rebases);
+        mem.sort(u64, rebases.items, {}, std.sort.asc(u64));
+        for (rebases.items) |addr| {
+            try writer.print("0x{x}\n", .{addr});
+        }
+    }
+
+    fn parseRebaseInfo(
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        rebases: *std.ArrayList(u64),
+    ) !void {
+        var stream = std.io.fixedBufferStream(data);
+        var creader = std.io.countingReader(stream.reader());
+        const reader = creader.reader();
+
+        var seg_id: ?u8 = null;
+        var offset: u64 = 0;
+        while (true) {
+            const byte = reader.readByte() catch break;
+            const opc = byte & macho.REBASE_OPCODE_MASK;
+            const imm = byte & macho.REBASE_IMMEDIATE_MASK;
+            switch (opc) {
+                macho.REBASE_OPCODE_DONE => break,
+                macho.REBASE_OPCODE_SET_TYPE_IMM => {},
+                macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
+                    seg_id = imm;
+                    offset = try std.leb.readULEB128(u64, reader);
+                },
+                macho.REBASE_OPCODE_ADD_ADDR_IMM_SCALED => {
+                    offset += imm * @sizeOf(u64);
+                },
+                macho.REBASE_OPCODE_ADD_ADDR_ULEB => {
+                    const addend = try std.leb.readULEB128(u64, reader);
+                    offset += addend;
+                },
+                macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB => {
+                    const addend = try std.leb.readULEB128(u64, reader);
+                    const seg = segments[seg_id.?];
+                    const addr = seg.vmaddr + offset;
+                    try rebases.append(addr);
+                    offset += addend + @sizeOf(u64);
+                },
+                macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES,
+                macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES,
+                macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB,
+                => {
+                    var ntimes: u64 = 1;
+                    var skip: u64 = 0;
+                    switch (opc) {
+                        macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES => {
+                            ntimes = imm;
+                        },
+                        macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES => {
+                            ntimes = try std.leb.readULEB128(u64, reader);
+                        },
+                        macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB => {
+                            ntimes = try std.leb.readULEB128(u64, reader);
+                            skip = try std.leb.readULEB128(u64, reader);
+                        },
+                        else => unreachable,
+                    }
+                    const seg = segments[seg_id.?];
+                    const base_addr = seg.vmaddr;
+                    var count: usize = 0;
+                    while (count < ntimes) : (count += 1) {
+                        const addr = base_addr + offset;
+                        try rebases.append(addr);
+                        offset += skip + @sizeOf(u64);
+                    }
+                },
+                else => break,
+            }
+        }
+    }
+
+    const Binding = struct {
+        address: u64,
+        addend: i64,
+        ordinal: ?u16,
+        name: []const u8,
+
+        fn deinit(binding: *Binding, gpa: Allocator) void {
+            gpa.free(binding.name);
+        }
+
+        fn lessThan(ctx: void, lhs: Binding, rhs: Binding) bool {
+            _ = ctx;
+            return lhs.address < rhs.address;
+        }
+    };
+
+    fn dumpBindInfo(
+        gpa: Allocator,
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        dylibs: []const []const u8,
+        is_lazy: bool,
+        writer: anytype,
+    ) !void {
+        var bindings = std.ArrayList(Binding).init(gpa);
+        defer {
+            for (bindings.items) |*b| {
+                b.deinit(gpa);
+            }
+            bindings.deinit();
+        }
+        try parseBindInfo(gpa, data, segments, &bindings, is_lazy);
+        mem.sort(Binding, bindings.items, {}, Binding.lessThan);
+        for (bindings.items) |binding| {
+            try writer.print("0x{x} [addend: {d}]", .{ binding.address, binding.addend });
+            if (binding.ordinal) |ord| {
+                try writer.print(" ({s})", .{std.fs.path.basename(dylibs[ord - 1])});
+            }
+            try writer.print(" {s}\n", .{binding.name});
+        }
+    }
+
+    fn parseBindInfo(
+        gpa: Allocator,
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        bindings: *std.ArrayList(Binding),
+        lazy_ops: bool,
+    ) !void {
+        var stream = std.io.fixedBufferStream(data);
+        var creader = std.io.countingReader(stream.reader());
+        const reader = creader.reader();
+
+        var seg_id: ?u8 = null;
+        var dylib_id: ?u16 = null;
+        var offset: u64 = 0;
+        var addend: i64 = 0;
+
+        var name_buf = std.ArrayList(u8).init(gpa);
+        defer name_buf.deinit();
+
+        while (true) {
+            const byte = reader.readByte() catch break;
+            const opc = byte & macho.BIND_OPCODE_MASK;
+            const imm = byte & macho.BIND_IMMEDIATE_MASK;
+            switch (opc) {
+                macho.BIND_OPCODE_DONE => {
+                    if (!lazy_ops) break;
+                },
+                macho.BIND_OPCODE_SET_TYPE_IMM => {
+                    if (lazy_ops) break;
+                },
+                macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM => {
+                    dylib_id = imm;
+                },
+                macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
+                    seg_id = imm;
+                    offset = try std.leb.readULEB128(u64, reader);
+                },
+                macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
+                    name_buf.clearRetainingCapacity();
+                    try reader.readUntilDelimiterArrayList(&name_buf, 0, std.math.maxInt(u32));
+                    try name_buf.append(0);
+                },
+                macho.BIND_OPCODE_SET_ADDEND_SLEB => {
+                    addend = try std.leb.readILEB128(i64, reader);
+                },
+                macho.BIND_OPCODE_ADD_ADDR_ULEB => {
+                    if (lazy_ops) break;
+                    const x = try std.leb.readULEB128(u64, reader);
+                    offset = @intCast(@as(i64, @intCast(offset)) + @as(i64, @bitCast(x)));
+                },
+                macho.BIND_OPCODE_DO_BIND,
+                macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB,
+                macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED,
+                macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB,
+                => {
+                    var add_addr: u64 = 0;
+                    var count: u64 = 1;
+                    var skip: u64 = 0;
+
+                    switch (opc) {
+                        macho.BIND_OPCODE_DO_BIND => {},
+                        macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB => {
+                            if (lazy_ops) break;
+                            add_addr = try std.leb.readULEB128(u64, reader);
+                        },
+                        macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED => {
+                            if (lazy_ops) break;
+                            add_addr = imm * @sizeOf(u64);
+                        },
+                        macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB => {
+                            if (lazy_ops) break;
+                            count = try std.leb.readULEB128(u64, reader);
+                            skip = try std.leb.readULEB128(u64, reader);
+                        },
+                        else => unreachable,
+                    }
+
+                    const seg = segments[seg_id.?];
+                    var i: u64 = 0;
+                    while (i < count) : (i += 1) {
+                        const addr: u64 = @intCast(@as(i64, @intCast(seg.vmaddr + offset)));
+                        try bindings.append(.{
+                            .address = addr,
+                            .addend = addend,
+                            .ordinal = dylib_id,
+                            .name = try gpa.dupe(u8, name_buf.items),
+                        });
+                        offset += skip + @sizeOf(u64) + add_addr;
+                    }
+                },
+                else => break,
+            }
+        }
+    }
+
+    fn dumpExportsTrie(
+        gpa: Allocator,
+        data: []const u8,
+        seg: macho.segment_command_64,
+        writer: anytype,
+    ) !void {
+        var arena = std.heap.ArenaAllocator.init(gpa);
+        defer arena.deinit();
+
+        var exports = std.ArrayList(Export).init(arena.allocator());
+        var it = TrieIterator{ .data = data };
+        try parseTrieNode(arena.allocator(), &it, "", &exports);
+
+        mem.sort(Export, exports.items, {}, Export.lessThan);
+
+        for (exports.items) |exp| {
+            switch (exp.tag) {
+                .@"export" => {
+                    const info = exp.data.@"export";
+                    if (info.kind != .regular or info.weak) {
+                        try writer.writeByte('[');
+                    }
+                    switch (info.kind) {
+                        .regular => {},
+                        .absolute => try writer.writeAll("ABS, "),
+                        .tlv => try writer.writeAll("THREAD_LOCAL, "),
+                    }
+                    if (info.weak) try writer.writeAll("WEAK");
+                    if (info.kind != .regular or info.weak) {
+                        try writer.writeAll("] ");
+                    }
+                    try writer.print("{x} ", .{seg.vmaddr + info.vmoffset});
+                },
+                else => {},
+            }
+
+            try writer.print("{s}\n", .{exp.name});
+        }
+    }
+
+    const TrieIterator = struct {
+        data: []const u8,
+        pos: usize = 0,
+
+        fn getStream(it: *TrieIterator) std.io.FixedBufferStream([]const u8) {
+            return std.io.fixedBufferStream(it.data[it.pos..]);
+        }
+
+        fn readULEB128(it: *TrieIterator) !u64 {
+            var stream = it.getStream();
+            var creader = std.io.countingReader(stream.reader());
+            const reader = creader.reader();
+            const value = try std.leb.readULEB128(u64, reader);
+            it.pos += creader.bytes_read;
+            return value;
+        }
+
+        fn readString(it: *TrieIterator) ![:0]const u8 {
+            var stream = it.getStream();
+            const reader = stream.reader();
+
+            var count: usize = 0;
+            while (true) : (count += 1) {
+                const byte = try reader.readByte();
+                if (byte == 0) break;
+            }
+
+            const str = @as([*:0]const u8, @ptrCast(it.data.ptr + it.pos))[0..count :0];
+            it.pos += count + 1;
+            return str;
+        }
+
+        fn readByte(it: *TrieIterator) !u8 {
+            var stream = it.getStream();
+            const value = try stream.reader().readByte();
+            it.pos += 1;
+            return value;
+        }
+    };
+
+    const Export = struct {
+        name: []const u8,
+        tag: enum { @"export", reexport, stub_resolver },
+        data: union {
+            @"export": struct {
+                kind: enum { regular, absolute, tlv },
+                weak: bool = false,
+                vmoffset: u64,
+            },
+            reexport: u64,
+            stub_resolver: struct {
+                stub_offset: u64,
+                resolver_offset: u64,
+            },
+        },
+
+        inline fn rankByTag(self: Export) u3 {
+            return switch (self.tag) {
+                .@"export" => 1,
+                .reexport => 2,
+                .stub_resolver => 3,
+            };
+        }
+
+        fn lessThan(ctx: void, lhs: Export, rhs: Export) bool {
+            _ = ctx;
+            if (lhs.rankByTag() == rhs.rankByTag()) {
+                return switch (lhs.tag) {
+                    .@"export" => lhs.data.@"export".vmoffset < rhs.data.@"export".vmoffset,
+                    .reexport => lhs.data.reexport < rhs.data.reexport,
+                    .stub_resolver => lhs.data.stub_resolver.stub_offset < rhs.data.stub_resolver.stub_offset,
+                };
+            }
+            return lhs.rankByTag() < rhs.rankByTag();
+        }
+    };
+
+    fn parseTrieNode(
+        arena: Allocator,
+        it: *TrieIterator,
+        prefix: []const u8,
+        exports: *std.ArrayList(Export),
+    ) !void {
+        const size = try it.readULEB128();
+        if (size > 0) {
+            const flags = try it.readULEB128();
+            switch (flags) {
+                macho.EXPORT_SYMBOL_FLAGS_REEXPORT => {
+                    const ord = try it.readULEB128();
+                    const name = try arena.dupe(u8, try it.readString());
+                    try exports.append(.{
+                        .name = if (name.len > 0) name else prefix,
+                        .tag = .reexport,
+                        .data = .{ .reexport = ord },
+                    });
+                },
+                macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER => {
+                    const stub_offset = try it.readULEB128();
+                    const resolver_offset = try it.readULEB128();
+                    try exports.append(.{
+                        .name = prefix,
+                        .tag = .stub_resolver,
+                        .data = .{ .stub_resolver = .{
+                            .stub_offset = stub_offset,
+                            .resolver_offset = resolver_offset,
+                        } },
+                    });
+                },
+                else => {
+                    const vmoff = try it.readULEB128();
+                    try exports.append(.{
+                        .name = prefix,
+                        .tag = .@"export",
+                        .data = .{ .@"export" = .{
+                            .kind = switch (flags & macho.EXPORT_SYMBOL_FLAGS_KIND_MASK) {
+                                macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR => .regular,
+                                macho.EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE => .absolute,
+                                macho.EXPORT_SYMBOL_FLAGS_KIND_THREAD_LOCAL => .tlv,
+                                else => unreachable,
+                            },
+                            .weak = flags & macho.EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION != 0,
+                            .vmoffset = vmoff,
+                        } },
+                    });
+                },
+            }
+        }
+
+        const nedges = try it.readByte();
+        for (0..nedges) |_| {
+            const label = try it.readString();
+            const off = try it.readULEB128();
+            const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
+            const curr = it.pos;
+            it.pos = off;
+            try parseTrieNode(arena, it, prefix_label, exports);
+            it.pos = curr;
         }
     }
 };

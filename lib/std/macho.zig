@@ -843,15 +843,15 @@ pub const nlist_64 = extern struct {
     n_value: u64,
 
     pub fn stab(sym: nlist_64) bool {
-        return (N_STAB & sym.n_type) != 0;
+        return N_STAB & sym.n_type != 0;
     }
 
     pub fn pext(sym: nlist_64) bool {
-        return (N_PEXT & sym.n_type) != 0;
+        return N_PEXT & sym.n_type != 0;
     }
 
     pub fn ext(sym: nlist_64) bool {
-        return (N_EXT & sym.n_type) != 0;
+        return N_EXT & sym.n_type != 0;
     }
 
     pub fn sect(sym: nlist_64) bool {
@@ -875,15 +875,19 @@ pub const nlist_64 = extern struct {
     }
 
     pub fn weakDef(sym: nlist_64) bool {
-        return (sym.n_desc & N_WEAK_DEF) != 0;
+        return sym.n_desc & N_WEAK_DEF != 0;
     }
 
     pub fn weakRef(sym: nlist_64) bool {
-        return (sym.n_desc & N_WEAK_REF) != 0;
+        return sym.n_desc & N_WEAK_REF != 0;
     }
 
     pub fn discarded(sym: nlist_64) bool {
-        return (sym.n_desc & N_DESC_DISCARDED) != 0;
+        return sym.n_desc & N_DESC_DISCARDED != 0;
+    }
+
+    pub fn noDeadStrip(sym: nlist_64) bool {
+        return sym.n_desc & N_NO_DEAD_STRIP != 0;
     }
 
     pub fn tentative(sym: nlist_64) bool {
@@ -1002,7 +1006,7 @@ pub const LC = enum(u32) {
 
     /// load a dynamically linked shared library that is allowed to be missing
     /// (all symbols are weak imported).
-    LOAD_WEAK_DYLIB = (0x18 | LC_REQ_DYLD),
+    LOAD_WEAK_DYLIB = 0x18 | LC_REQ_DYLD,
 
     /// 64-bit segment of this file to be mapped
     SEGMENT_64 = 0x19,
@@ -1014,7 +1018,7 @@ pub const LC = enum(u32) {
     UUID = 0x1b,
 
     /// runpath additions
-    RPATH = (0x1c | LC_REQ_DYLD),
+    RPATH = 0x1c | LC_REQ_DYLD,
 
     /// local of code signature
     CODE_SIGNATURE = 0x1d,
@@ -1023,7 +1027,7 @@ pub const LC = enum(u32) {
     SEGMENT_SPLIT_INFO = 0x1e,
 
     /// load and re-export dylib
-    REEXPORT_DYLIB = (0x1f | LC_REQ_DYLD),
+    REEXPORT_DYLIB = 0x1f | LC_REQ_DYLD,
 
     /// delay load of dylib until first use
     LAZY_LOAD_DYLIB = 0x20,
@@ -1035,10 +1039,10 @@ pub const LC = enum(u32) {
     DYLD_INFO = 0x22,
 
     /// compressed dyld information only
-    DYLD_INFO_ONLY = (0x22 | LC_REQ_DYLD),
+    DYLD_INFO_ONLY = 0x22 | LC_REQ_DYLD,
 
     /// load upward dylib
-    LOAD_UPWARD_DYLIB = (0x23 | LC_REQ_DYLD),
+    LOAD_UPWARD_DYLIB = 0x23 | LC_REQ_DYLD,
 
     /// build for MacOSX min OS version
     VERSION_MIN_MACOSX = 0x24,
@@ -1053,7 +1057,7 @@ pub const LC = enum(u32) {
     DYLD_ENVIRONMENT = 0x27,
 
     /// replacement for LC_UNIXTHREAD
-    MAIN = (0x28 | LC_REQ_DYLD),
+    MAIN = 0x28 | LC_REQ_DYLD,
 
     /// table of non-instructions in __text
     DATA_IN_CODE = 0x29,
@@ -1084,6 +1088,12 @@ pub const LC = enum(u32) {
 
     /// build for platform min OS version
     BUILD_VERSION = 0x32,
+
+    /// used with linkedit_data_command, payload is trie
+    DYLD_EXPORTS_TRIE = 0x33 | LC_REQ_DYLD,
+
+    /// used with linkedit_data_command
+    DYLD_CHAINED_FIXUPS = 0x34 | LC_REQ_DYLD,
 
     _,
 };
@@ -1629,6 +1639,11 @@ pub const REFERENCE_FLAG_PRIVATE_UNDEFINED_LAZY: u16 = 5;
 /// to avoid removing symbols that must exist: If the symbol has this bit set, strip does not strip it.
 pub const REFERENCED_DYNAMICALLY: u16 = 0x10;
 
+/// The N_NO_DEAD_STRIP bit of the n_desc field only ever appears in a
+/// relocatable .o file (MH_OBJECT filetype). And is used to indicate to the
+/// static link editor it is never to dead strip the symbol.
+pub const N_NO_DEAD_STRIP: u16 = 0x20;
+
 /// Used by the dynamic linker at runtime. Do not set this bit.
 pub const N_DESC_DISCARDED: u16 = 0x20;
 
@@ -1653,7 +1668,7 @@ pub const EXPORT_SYMBOL_FLAGS_KIND_MASK: u8 = 0x03;
 pub const EXPORT_SYMBOL_FLAGS_KIND_REGULAR: u8 = 0x00;
 pub const EXPORT_SYMBOL_FLAGS_KIND_THREAD_LOCAL: u8 = 0x01;
 pub const EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE: u8 = 0x02;
-pub const EXPORT_SYMBOL_FLAGS_KIND_WEAK_DEFINITION: u8 = 0x04;
+pub const EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION: u8 = 0x04;
 pub const EXPORT_SYMBOL_FLAGS_REEXPORT: u8 = 0x08;
 pub const EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER: u8 = 0x10;
 
