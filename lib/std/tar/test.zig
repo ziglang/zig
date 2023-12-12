@@ -1,12 +1,15 @@
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const tar = std.tar;
 const assert = std.debug.assert;
 
 test "tar run Go test cases" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const Case = struct {
         const File = struct {
             name: []const u8,
-            size: usize = 0,
+            size: u64 = 0,
             mode: u32 = 0,
             link_name: []const u8 = &[0]u8{},
             kind: tar.Header.Kind = .normal,

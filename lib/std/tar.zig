@@ -250,7 +250,7 @@ fn TarReader(comptime ReaderType: type) type {
         pub const File = struct {
             name: []const u8, // name of file, symlink or directory
             link_name: []const u8, // target name of symlink
-            size: usize, // size of the file in bytes
+            size: u64, // size of the file in bytes
             mode: u32,
             kind: Header.Kind,
 
@@ -260,7 +260,7 @@ fn TarReader(comptime ReaderType: type) type {
             pub fn write(self: File, writer: anytype) !void {
                 var buffer: [4096]u8 = undefined;
 
-                var n: usize = 0;
+                var n: u64 = 0;
                 while (n < self.size) {
                     const buf = buffer[0..@min(buffer.len, self.size - n)];
                     try self.reader.readNoEof(buf);
@@ -308,9 +308,9 @@ fn TarReader(comptime ReaderType: type) type {
         }
 
         // Number of padding bytes in the last file block.
-        inline fn blockPadding(size: usize) usize {
-            const block_rounded = std.mem.alignForward(usize, size, Header.SIZE); // size rounded to te block boundary
-            return block_rounded - size;
+        inline fn blockPadding(size: u64) usize {
+            const block_rounded = std.mem.alignForward(u64, size, Header.SIZE); // size rounded to te block boundary
+            return @intCast(block_rounded - size);
         }
 
         /// Iterates through the tar archive as if it is a series of files.
@@ -324,7 +324,7 @@ fn TarReader(comptime ReaderType: type) type {
 
             while (try self.readHeader()) |header| {
                 const kind = header.kind();
-                const size: usize = @intCast(try header.size());
+                const size: u64 = try header.size();
                 self.padding = blockPadding(size);
 
                 switch (kind) {
@@ -349,16 +349,16 @@ fn TarReader(comptime ReaderType: type) type {
                     },
                     // Prefix header types
                     .gnu_long_name => {
-                        self.file.name = try self.readString(size, &self.file_name_buffer);
+                        self.file.name = try self.readString(@intCast(size), &self.file_name_buffer);
                     },
                     .gnu_long_link => {
-                        self.file.link_name = try self.readString(size, &self.link_name_buffer);
+                        self.file.link_name = try self.readString(@intCast(size), &self.link_name_buffer);
                     },
                     .extended_header => {
                         // Use just attributes from last extended header.
                         self.initFile();
 
-                        var rdr = paxReader(self.reader, size);
+                        var rdr = paxReader(self.reader, @intCast(size));
                         while (try rdr.next()) |attr| {
                             switch (attr.kind) {
                                 .path => {
@@ -369,7 +369,7 @@ fn TarReader(comptime ReaderType: type) type {
                                 },
                                 .size => {
                                     var buf: [64]u8 = undefined;
-                                    self.file.size = try std.fmt.parseInt(usize, try attr.value(&buf), 10);
+                                    self.file.size = try std.fmt.parseInt(u64, try attr.value(&buf), 10);
                                 },
                             }
                         }
