@@ -246,10 +246,12 @@ const ComputeCompareExpected = struct {
 };
 
 const Check = struct {
+    kind: Kind,
     actions: std.ArrayList(Action),
 
-    fn create(allocator: Allocator) Check {
+    fn create(allocator: Allocator, kind: Kind) Check {
         return .{
+            .kind = kind,
             .actions = std.ArrayList(Action).init(allocator),
         };
     }
@@ -289,15 +291,26 @@ const Check = struct {
             .expected = expected,
         }) catch @panic("OOM");
     }
+
+    const Kind = enum {
+        headers,
+        symtab,
+        indirect_symtab,
+        dynamic_symtab,
+        archive_symtab,
+        dynamic_section,
+        dyld_info,
+        compute_compare,
+    };
 };
 
 /// Creates a new empty sequence of actions.
-pub fn checkStart(self: *CheckObject) void {
-    const new_check = Check.create(self.step.owner.allocator);
+fn checkStart(self: *CheckObject, kind: Check.Kind) void {
+    const new_check = Check.create(self.step.owner.allocator, kind);
     self.checks.append(new_check) catch @panic("OOM");
 }
 
-/// Adds an exact match phrase to the latest created Check with `CheckObject.checkStart()`.
+/// Adds an exact match phrase to the latest created Check.
 pub fn checkExact(self: *CheckObject, phrase: []const u8) void {
     self.checkExactInner(phrase, null);
 }
@@ -314,7 +327,7 @@ fn checkExactInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Bui
     last.exact(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
 }
 
-/// Adds a fuzzy match phrase to the latest created Check with `CheckObject.checkStart()`.
+/// Adds a fuzzy match phrase to the latest created Check.
 pub fn checkContains(self: *CheckObject, phrase: []const u8) void {
     self.checkContainsInner(phrase, null);
 }
@@ -331,8 +344,7 @@ fn checkContainsInner(self: *CheckObject, phrase: []const u8, file_source: ?std.
     last.contains(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
 }
 
-/// Adds an exact match phrase with variable extractor to the latest created Check
-/// with `CheckObject.checkStart()`.
+/// Adds an exact match phrase with variable extractor to the latest created Check.
 pub fn checkExtract(self: *CheckObject, phrase: []const u8) void {
     self.checkExtractInner(phrase, null);
 }
@@ -349,7 +361,7 @@ fn checkExtractInner(self: *CheckObject, phrase: []const u8, file_source: ?std.B
     last.extract(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
 }
 
-/// Adds another searched phrase to the latest created Check with `CheckObject.checkStart(...)`
+/// Adds another searched phrase to the latest created Check
 /// however ensures there is no matching phrase in the output.
 pub fn checkNotPresent(self: *CheckObject, phrase: []const u8) void {
     self.checkNotPresentInner(phrase, null);
@@ -367,6 +379,11 @@ fn checkNotPresentInner(self: *CheckObject, phrase: []const u8, file_source: ?st
     last.notPresent(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
 }
 
+/// Creates a new check checking in the file headers (section, program headers, etc.).
+pub fn checkInHeaders(self: *CheckObject) void {
+    self.checkStart(.headers);
+}
+
 /// Creates a new check checking specifically symbol table parsed and dumped from the object
 /// file.
 pub fn checkInSymtab(self: *CheckObject) void {
@@ -377,7 +394,7 @@ pub fn checkInSymtab(self: *CheckObject) void {
         .coff => @panic("TODO symtab for coff"),
         else => @panic("TODO other file formats"),
     };
-    self.checkStart();
+    self.checkStart(.symtab);
     self.checkExact(label);
 }
 
@@ -389,7 +406,19 @@ pub fn checkInDyldInfo(self: *CheckObject) void {
         .macho => MachODumper.dyld_info_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart();
+    self.checkStart(.dyld_info);
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically indirect symbol table parsed and dumped
+/// from the object file.
+/// This check is target-dependent and applicable to MachO only.
+pub fn checkInIndirectSymtab(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .macho => MachODumper.indirect_symtab_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart(.indirect_symtab);
     self.checkExact(label);
 }
 
@@ -401,7 +430,7 @@ pub fn checkInDynamicSymtab(self: *CheckObject) void {
         .elf => ElfDumper.dynamic_symtab_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart();
+    self.checkStart(.dynamic_symtab);
     self.checkExact(label);
 }
 
@@ -413,7 +442,7 @@ pub fn checkInDynamicSection(self: *CheckObject) void {
         .elf => ElfDumper.dynamic_section_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart();
+    self.checkStart(.dynamic_section);
     self.checkExact(label);
 }
 
@@ -424,7 +453,7 @@ pub fn checkInArchiveSymtab(self: *CheckObject) void {
         .elf => ElfDumper.archive_symtab_label,
         else => @panic("TODO other file formats"),
     };
-    self.checkStart();
+    self.checkStart(.archive_symtab);
     self.checkExact(label);
 }
 
@@ -436,7 +465,7 @@ pub fn checkComputeCompare(
     program: []const u8,
     expected: ComputeCompareExpected,
 ) void {
-    var new_check = Check.create(self.step.owner.allocator);
+    var new_check = Check.create(self.step.owner.allocator, .compute_compare);
     new_check.computeCmp(.{ .string = self.step.owner.dupe(program) }, expected);
     self.checks.append(new_check) catch @panic("OOM");
 }
@@ -457,17 +486,35 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         null,
     ) catch |err| return step.fail("unable to read '{s}': {s}", .{ src_path, @errorName(err) });
 
-    const output = switch (self.obj_format) {
-        .macho => try MachODumper.parseAndDump(step, contents),
-        .elf => try ElfDumper.parseAndDump(step, contents),
-        .coff => @panic("TODO coff parser"),
-        .wasm => try WasmDumper.parseAndDump(step, contents),
-        else => unreachable,
-    };
-
     var vars = std.StringHashMap(u64).init(gpa);
-
     for (self.checks.items) |chk| {
+        if (chk.kind == .compute_compare) {
+            assert(chk.actions.items.len == 1);
+            const act = chk.actions.items[0];
+            assert(act.tag == .compute_cmp);
+            const res = act.computeCmp(b, step, vars) catch |err| switch (err) {
+                error.UnknownVariable => return step.fail("Unknown variable", .{}),
+                else => |e| return e,
+            };
+            if (!res) {
+                return step.fail(
+                    \\
+                    \\========= comparison failed for action: ===========
+                    \\{s} {}
+                    \\===================================================
+                , .{ act.phrase.resolve(b, step), act.expected.? });
+            }
+            continue;
+        }
+
+        const output = switch (self.obj_format) {
+            .macho => try MachODumper.parseAndDump(step, chk.kind, contents),
+            .elf => try ElfDumper.parseAndDump(step, chk.kind, contents),
+            .coff => return step.fail("TODO coff parser", .{}),
+            .wasm => try WasmDumper.parseAndDump(step, chk.kind, contents),
+            else => unreachable,
+        };
+
         var it = mem.tokenizeAny(u8, output, "\r\n");
         for (chk.actions.items) |act| {
             switch (act.tag) {
@@ -485,6 +532,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         , .{ act.phrase.resolve(b, step), output });
                     }
                 },
+
                 .contains => {
                     while (it.next()) |line| {
                         if (act.contains(b, step, line)) break;
@@ -499,6 +547,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         , .{ act.phrase.resolve(b, step), output });
                     }
                 },
+
                 .not_present => {
                     while (it.next()) |line| {
                         if (act.notPresent(b, step, line)) continue;
@@ -512,6 +561,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         , .{ act.phrase.resolve(b, step), output });
                     }
                 },
+
                 .extract => {
                     while (it.next()) |line| {
                         if (try act.extract(b, step, line, &vars)) break;
@@ -526,28 +576,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         , .{ act.phrase.resolve(b, step), output });
                     }
                 },
-                .compute_cmp => {
-                    const res = act.computeCmp(b, step, vars) catch |err| switch (err) {
-                        error.UnknownVariable => {
-                            return step.fail(
-                                \\========= from parsed file: =====================
-                                \\{s}
-                                \\=================================================
-                            , .{output});
-                        },
-                        else => |e| return e,
-                    };
-                    if (!res) {
-                        return step.fail(
-                            \\
-                            \\========= comparison failed for action: ===========
-                            \\{s} {}
-                            \\========= from parsed file: =======================
-                            \\{s}
-                            \\===================================================
-                        , .{ act.phrase.resolve(b, step), act.expected.?, output });
-                    }
-                },
+
+                .compute_cmp => unreachable,
             }
         }
     }
@@ -557,13 +587,20 @@ const MachODumper = struct {
     const LoadCommandIterator = macho.LoadCommandIterator;
     const dyld_info_label = "dyld info data";
     const symtab_label = "symbol table";
+    const indirect_symtab_label = "indirect symbol table";
 
     const Symtab = struct {
-        symbols: []align(1) const macho.nlist_64,
-        strings: []const u8,
+        symbols: []align(1) const macho.nlist_64 = &[0]macho.nlist_64{},
+        strings: []const u8 = &[0]u8{},
+        indirect_symbols: []align(1) const u32 = &[0]u32{},
+
+        fn getString(symtab: Symtab, off: u32) []const u8 {
+            assert(off < symtab.strings.len);
+            return mem.sliceTo(@as([*:0]const u8, @ptrCast(symtab.strings.ptr + off)), 0);
+        }
     };
 
-    fn parseAndDump(step: *Step, bytes: []const u8) ![]const u8 {
+    fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -576,7 +613,7 @@ const MachODumper = struct {
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        var symtab: ?Symtab = null;
+        var symtab: Symtab = .{};
         var segments = std.ArrayList(macho.segment_command_64).init(gpa);
         defer segments.deinit();
         var sections = std.ArrayList(macho.section_64).init(gpa);
@@ -586,82 +623,109 @@ const MachODumper = struct {
         var text_seg: ?u8 = null;
         var dyld_info_lc: ?macho.dyld_info_command = null;
 
-        try dumpHeader(hdr, writer);
+        {
+            var it: LoadCommandIterator = .{
+                .ncmds = hdr.ncmds,
+                .buffer = bytes[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
+            };
+            var i: usize = 0;
+            while (it.next()) |cmd| {
+                switch (cmd.cmd()) {
+                    .SEGMENT_64 => {
+                        const seg = cmd.cast(macho.segment_command_64).?;
+                        try sections.ensureUnusedCapacity(seg.nsects);
+                        for (cmd.getSections()) |sect| {
+                            sections.appendAssumeCapacity(sect);
+                        }
+                        const seg_id: u8 = @intCast(segments.items.len);
+                        try segments.append(seg);
+                        if (mem.eql(u8, seg.segName(), "__TEXT")) {
+                            text_seg = seg_id;
+                        }
+                    },
+                    .SYMTAB => {
+                        const lc = cmd.cast(macho.symtab_command).?;
+                        const symbols = @as([*]align(1) const macho.nlist_64, @ptrCast(bytes.ptr + lc.symoff))[0..lc.nsyms];
+                        const strings = bytes[lc.stroff..][0..lc.strsize];
+                        symtab.symbols = symbols;
+                        symtab.strings = strings;
+                    },
+                    .DYSYMTAB => {
+                        const lc = cmd.cast(macho.dysymtab_command).?;
+                        const indexes = @as([*]align(1) const u32, @ptrCast(bytes.ptr + lc.indirectsymoff))[0..lc.nindirectsyms];
+                        symtab.indirect_symbols = indexes;
+                    },
+                    .LOAD_DYLIB,
+                    .LOAD_WEAK_DYLIB,
+                    .REEXPORT_DYLIB,
+                    => {
+                        try imports.append(cmd.getDylibPathName());
+                    },
+                    .DYLD_INFO_ONLY => {
+                        dyld_info_lc = cmd.cast(macho.dyld_info_command).?;
+                    },
+                    else => {},
+                }
 
-        var it: LoadCommandIterator = .{
-            .ncmds = hdr.ncmds,
-            .buffer = bytes[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
-        };
-        var i: usize = 0;
-        while (it.next()) |cmd| {
-            switch (cmd.cmd()) {
-                .SEGMENT_64 => {
-                    const seg = cmd.cast(macho.segment_command_64).?;
-                    try sections.ensureUnusedCapacity(seg.nsects);
-                    for (cmd.getSections()) |sect| {
-                        sections.appendAssumeCapacity(sect);
-                    }
-                    const seg_id: u8 = @intCast(segments.items.len);
-                    try segments.append(seg);
-                    if (mem.eql(u8, seg.segName(), "__TEXT")) {
-                        text_seg = seg_id;
-                    }
-                },
-                .SYMTAB => {
-                    const lc = cmd.cast(macho.symtab_command).?;
-                    const symbols = @as([*]align(1) const macho.nlist_64, @ptrCast(bytes.ptr + lc.symoff))[0..lc.nsyms];
-                    const strings = bytes[lc.stroff..][0..lc.strsize];
-                    symtab = .{ .symbols = symbols, .strings = strings };
-                },
-                .LOAD_DYLIB,
-                .LOAD_WEAK_DYLIB,
-                .REEXPORT_DYLIB,
-                => {
-                    try imports.append(cmd.getDylibPathName());
-                },
-                .DYLD_INFO_ONLY => {
-                    dyld_info_lc = cmd.cast(macho.dyld_info_command).?;
-                },
-                else => {},
+                i += 1;
             }
-
-            try dumpLoadCommand(cmd, i, writer);
-            try writer.writeByte('\n');
-
-            i += 1;
         }
 
-        if (symtab) |stab| {
-            try dumpSymtab(sections.items, imports.items, stab, writer);
-        }
+        switch (kind) {
+            .headers => {
+                try dumpHeader(hdr, writer);
 
-        if (dyld_info_lc) |lc| {
-            try writer.writeAll(dyld_info_label ++ "\n");
-            if (lc.rebase_size > 0) {
-                const data = bytes[lc.rebase_off..][0..lc.rebase_size];
-                try writer.writeAll("rebase info\n");
-                try dumpRebaseInfo(gpa, data, segments.items, writer);
-            }
-            if (lc.bind_size > 0) {
-                const data = bytes[lc.bind_off..][0..lc.bind_size];
-                try writer.writeAll("bind info\n");
-                try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
-            }
-            if (lc.weak_bind_size > 0) {
-                const data = bytes[lc.weak_bind_off..][0..lc.weak_bind_size];
-                try writer.writeAll("weak bind info\n");
-                try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
-            }
-            if (lc.lazy_bind_size > 0) {
-                const data = bytes[lc.lazy_bind_off..][0..lc.lazy_bind_size];
-                try writer.writeAll("lazy bind info\n");
-                try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
-            }
-            if (lc.export_size > 0) {
-                const data = bytes[lc.export_off..][0..lc.export_size];
-                try writer.writeAll("exports\n");
-                try dumpExportsTrie(gpa, data, segments.items[text_seg.?], writer);
-            }
+                var it: LoadCommandIterator = .{
+                    .ncmds = hdr.ncmds,
+                    .buffer = bytes[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
+                };
+                var i: usize = 0;
+                while (it.next()) |cmd| {
+                    try dumpLoadCommand(cmd, i, writer);
+                    try writer.writeByte('\n');
+
+                    i += 1;
+                }
+            },
+
+            .symtab => if (symtab.symbols.len > 0) {
+                try dumpSymtab(sections.items, imports.items, symtab, writer);
+            } else return step.fail("no symbol table found", .{}),
+
+            .indirect_symtab => if (symtab.symbols.len > 0 and symtab.indirect_symbols.len > 0) {
+                try dumpIndirectSymtab(gpa, sections.items, symtab, writer);
+            } else return step.fail("no indirect symbol table found", .{}),
+
+            .dyld_info => if (dyld_info_lc) |lc| {
+                try writer.writeAll(dyld_info_label ++ "\n");
+                if (lc.rebase_size > 0) {
+                    const data = bytes[lc.rebase_off..][0..lc.rebase_size];
+                    try writer.writeAll("rebase info\n");
+                    try dumpRebaseInfo(gpa, data, segments.items, writer);
+                }
+                if (lc.bind_size > 0) {
+                    const data = bytes[lc.bind_off..][0..lc.bind_size];
+                    try writer.writeAll("bind info\n");
+                    try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
+                }
+                if (lc.weak_bind_size > 0) {
+                    const data = bytes[lc.weak_bind_off..][0..lc.weak_bind_size];
+                    try writer.writeAll("weak bind info\n");
+                    try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
+                }
+                if (lc.lazy_bind_size > 0) {
+                    const data = bytes[lc.lazy_bind_off..][0..lc.lazy_bind_size];
+                    try writer.writeAll("lazy bind info\n");
+                    try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
+                }
+                if (lc.export_size > 0) {
+                    const data = bytes[lc.export_off..][0..lc.export_size];
+                    try writer.writeAll("exports\n");
+                    try dumpExportsTrie(gpa, data, segments.items[text_seg.?], writer);
+                }
+            } else return step.fail("no dyld info found", .{}),
+
+            else => return step.fail("invalid check kind for MachO file format: {s}", .{@tagName(kind)}),
         }
 
         return output.toOwnedSlice();
@@ -971,7 +1035,7 @@ const MachODumper = struct {
 
         for (symtab.symbols) |sym| {
             if (sym.stab()) continue;
-            const sym_name = mem.sliceTo(@as([*:0]const u8, @ptrCast(symtab.strings.ptr + sym.n_strx)), 0);
+            const sym_name = symtab.getString(sym.n_strx);
             if (sym.sect()) {
                 const sect = sections[sym.n_sect - 1];
                 try writer.print("{x} ({s},{s})", .{
@@ -1017,6 +1081,52 @@ const MachODumper = struct {
                     sym_name,
                     import_name,
                 });
+            }
+        }
+    }
+
+    fn dumpIndirectSymtab(
+        gpa: Allocator,
+        sections: []const macho.section_64,
+        symtab: Symtab,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll(indirect_symtab_label ++ "\n");
+
+        var sects = std.ArrayList(macho.section_64).init(gpa);
+        defer sects.deinit();
+        try sects.ensureUnusedCapacity(3);
+
+        for (sections) |sect| {
+            if (mem.eql(u8, sect.sectName(), "__stubs")) sects.appendAssumeCapacity(sect);
+            if (mem.eql(u8, sect.sectName(), "__got")) sects.appendAssumeCapacity(sect);
+            if (mem.eql(u8, sect.sectName(), "__la_symbol_ptr")) sects.appendAssumeCapacity(sect);
+        }
+
+        const sortFn = struct {
+            fn sortFn(ctx: void, lhs: macho.section_64, rhs: macho.section_64) bool {
+                _ = ctx;
+                return lhs.reserved1 < rhs.reserved1;
+            }
+        }.sortFn;
+        mem.sort(macho.section_64, sects.items, {}, sortFn);
+
+        var i: usize = 0;
+        while (i < sects.items.len) : (i += 1) {
+            const sect = sects.items[i];
+            const start = sect.reserved1;
+            const end = if (i + 1 >= sects.items.len) symtab.indirect_symbols.len else sects.items[i + 1].reserved1;
+            const entry_size = blk: {
+                if (mem.eql(u8, sect.sectName(), "__stubs")) break :blk sect.reserved2;
+                break :blk @sizeOf(u64);
+            };
+
+            try writer.print("{s},{s}\n", .{ sect.segName(), sect.sectName() });
+            try writer.print("nentries {d}\n", .{end - start});
+            for (symtab.indirect_symbols[start..end], 0..) |index, j| {
+                const sym = symtab.symbols[index];
+                const addr = sect.addr + entry_size * j;
+                try writer.print("0x{x} {d} {s}\n", .{ addr, index, symtab.getString(sym.n_strx) });
             }
         }
     }
@@ -1443,7 +1553,8 @@ const ElfDumper = struct {
     const dynamic_section_label = "dynamic section";
     const archive_symtab_label = "archive symbol table";
 
-    fn parseAndDump(step: *Step, bytes: []const u8) ![]const u8 {
+    fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+        _ = kind;
         const gpa = step.owner.allocator;
         return parseAndDumpArchive(gpa, bytes) catch |err| switch (err) {
             error.InvalidArchiveMagicNumber => try parseAndDumpObject(gpa, bytes),
@@ -2090,7 +2201,8 @@ const ElfDumper = struct {
 const WasmDumper = struct {
     const symtab_label = "symbols";
 
-    fn parseAndDump(step: *Step, bytes: []const u8) ![]const u8 {
+    fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+        _ = kind;
         const gpa = step.owner.allocator;
         var fbs = std.io.fixedBufferStream(bytes);
         const reader = fbs.reader();
