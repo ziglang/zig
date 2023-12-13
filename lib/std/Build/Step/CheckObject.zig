@@ -299,7 +299,11 @@ const Check = struct {
         dynamic_symtab,
         archive_symtab,
         dynamic_section,
-        dyld_info,
+        dyld_rebase,
+        dyld_bind,
+        dyld_weak_bind,
+        dyld_lazy_bind,
+        exports,
         compute_compare,
     };
 };
@@ -398,15 +402,63 @@ pub fn checkInSymtab(self: *CheckObject) void {
     self.checkExact(label);
 }
 
-/// Creates a new check checking specifically dyld_info_only contents parsed and dumped
+/// Creates a new check checking specifically dyld rebase opcodes contents parsed and dumped
 /// from the object file.
 /// This check is target-dependent and applicable to MachO only.
-pub fn checkInDyldInfo(self: *CheckObject) void {
+pub fn checkInDyldRebase(self: *CheckObject) void {
     const label = switch (self.obj_format) {
-        .macho => MachODumper.dyld_info_label,
+        .macho => MachODumper.dyld_rebase_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.dyld_info);
+    self.checkStart(.dyld_rebase);
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically dyld bind opcodes contents parsed and dumped
+/// from the object file.
+/// This check is target-dependent and applicable to MachO only.
+pub fn checkInDyldBind(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .macho => MachODumper.dyld_bind_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart(.dyld_bind);
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically dyld weak bind opcodes contents parsed and dumped
+/// from the object file.
+/// This check is target-dependent and applicable to MachO only.
+pub fn checkInDyldWeakBind(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .macho => MachODumper.dyld_weak_bind_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart(.dyld_weak_bind);
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically dyld lazy bind opcodes contents parsed and dumped
+/// from the object file.
+/// This check is target-dependent and applicable to MachO only.
+pub fn checkInDyldLazyBind(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .macho => MachODumper.dyld_lazy_bind_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart(.dyld_lazy_bind);
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically exports info contents parsed and dumped
+/// from the object file.
+/// This check is target-dependent and applicable to MachO only.
+pub fn checkInExports(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .macho => MachODumper.exports_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart(.exports);
     self.checkExact(label);
 }
 
@@ -585,7 +637,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
 const MachODumper = struct {
     const LoadCommandIterator = macho.LoadCommandIterator;
-    const dyld_info_label = "dyld info data";
+    const dyld_rebase_label = "dyld rebase data";
+    const dyld_bind_label = "dyld bind data";
+    const dyld_weak_bind_label = "dyld weak bind data";
+    const dyld_lazy_bind_label = "dyld lazy bind data";
+    const exports_label = "exports data";
     const symtab_label = "symbol table";
     const indirect_symtab_label = "indirect symbol table";
 
@@ -696,34 +752,54 @@ const MachODumper = struct {
                 try dumpIndirectSymtab(gpa, sections.items, symtab, writer);
             } else return step.fail("no indirect symbol table found", .{}),
 
-            .dyld_info => if (dyld_info_lc) |lc| {
-                try writer.writeAll(dyld_info_label ++ "\n");
-                if (lc.rebase_size > 0) {
-                    const data = bytes[lc.rebase_off..][0..lc.rebase_size];
-                    try writer.writeAll("rebase info\n");
-                    try dumpRebaseInfo(gpa, data, segments.items, writer);
+            .dyld_rebase,
+            .dyld_bind,
+            .dyld_weak_bind,
+            .dyld_lazy_bind,
+            => {
+                if (dyld_info_lc == null) return step.fail("no dyld info found", .{});
+                const lc = dyld_info_lc.?;
+
+                switch (kind) {
+                    .dyld_rebase => if (lc.rebase_size > 0) {
+                        const data = bytes[lc.rebase_off..][0..lc.rebase_size];
+                        try writer.writeAll(dyld_rebase_label ++ "\n");
+                        try dumpRebaseInfo(gpa, data, segments.items, writer);
+                    } else return step.fail("no rebase data found", .{}),
+
+                    .dyld_bind => if (lc.bind_size > 0) {
+                        const data = bytes[lc.bind_off..][0..lc.bind_size];
+                        try writer.writeAll(dyld_bind_label ++ "\n");
+                        try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
+                    } else return step.fail("no bind data found", .{}),
+
+                    .dyld_weak_bind => if (lc.weak_bind_size > 0) {
+                        const data = bytes[lc.weak_bind_off..][0..lc.weak_bind_size];
+                        try writer.writeAll(dyld_weak_bind_label ++ "\n");
+                        try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
+                    } else return step.fail("no weak bind data found", .{}),
+
+                    .dyld_lazy_bind => if (lc.lazy_bind_size > 0) {
+                        const data = bytes[lc.lazy_bind_off..][0..lc.lazy_bind_size];
+                        try writer.writeAll(dyld_lazy_bind_label ++ "\n");
+                        try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
+                    } else return step.fail("no lazy bind data found", .{}),
+
+                    else => unreachable,
                 }
-                if (lc.bind_size > 0) {
-                    const data = bytes[lc.bind_off..][0..lc.bind_size];
-                    try writer.writeAll("bind info\n");
-                    try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
+            },
+
+            .exports => blk: {
+                if (dyld_info_lc) |lc| {
+                    if (lc.export_size > 0) {
+                        const data = bytes[lc.export_off..][0..lc.export_size];
+                        try writer.writeAll(exports_label ++ "\n");
+                        try dumpExportsTrie(gpa, data, segments.items[text_seg.?], writer);
+                        break :blk;
+                    }
                 }
-                if (lc.weak_bind_size > 0) {
-                    const data = bytes[lc.weak_bind_off..][0..lc.weak_bind_size];
-                    try writer.writeAll("weak bind info\n");
-                    try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
-                }
-                if (lc.lazy_bind_size > 0) {
-                    const data = bytes[lc.lazy_bind_off..][0..lc.lazy_bind_size];
-                    try writer.writeAll("lazy bind info\n");
-                    try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
-                }
-                if (lc.export_size > 0) {
-                    const data = bytes[lc.export_off..][0..lc.export_size];
-                    try writer.writeAll("exports\n");
-                    try dumpExportsTrie(gpa, data, segments.items[text_seg.?], writer);
-                }
-            } else return step.fail("no dyld info found", .{}),
+                return step.fail("no exports data found", .{});
+            },
 
             else => return step.fail("invalid check kind for MachO file format: {s}", .{@tagName(kind)}),
         }
