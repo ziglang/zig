@@ -9,6 +9,7 @@ llvm_object: ?*LlvmObject = null,
 base: link.File,
 image_base: u64,
 error_flags: link.File.ErrorFlags = .{},
+dll_export_fns: bool,
 
 ptr_width: PtrWidth,
 page_size: u32,
@@ -400,6 +401,8 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Coff {
             .Lib => 0x10000000,
             .Obj => 0,
         },
+
+        .dll_export_fns = options.dll_export_fns,
     };
 
     const use_llvm = comp.config.use_llvm;

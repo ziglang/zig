@@ -3335,7 +3335,7 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func_index: InternPool.Index) SemaEr
 
             const comp = mod.comp;
 
-            const no_bin_file = (comp.bin_file.options.emit == null and
+            const no_bin_file = (comp.bin_file == null and
                 comp.emit_asm == null and
                 comp.emit_llvm_ir == null and
                 comp.emit_llvm_bc == null);
@@ -4311,14 +4311,14 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
             1 => blk: {
                 // test decl with no name. Skip the part where we check against
                 // the test name filter.
-                if (!comp.bin_file.options.is_test) break :blk false;
+                if (!comp.config.is_test) break :blk false;
                 if (decl_mod != mod.main_mod) break :blk false;
                 try mod.test_functions.put(gpa, new_decl_index, {});
                 break :blk true;
             },
             else => blk: {
                 if (!is_named_test) break :blk false;
-                if (!comp.bin_file.options.is_test) break :blk false;
+                if (!comp.config.is_test) break :blk false;
                 if (decl_mod != mod.main_mod) break :blk false;
                 if (comp.test_filter) |test_filter| {
                     if (mem.indexOf(u8, ip.stringToSlice(decl_name), test_filter) == null) {
@@ -4627,7 +4627,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
 
     // If we don't get an error return trace from a caller, create our own.
     if (func.analysis(ip).calls_or_awaits_errorable_fn and
-        mod.comp.bin_file.options.error_return_tracing and
+        mod.comp.config.error_tracing and
         !sema.fn_ret_ty.isError(mod))
     {
         sema.setupErrorReturnTrace(&inner_block, last_arg_index) catch |err| switch (err) {
@@ -5475,7 +5475,7 @@ pub fn populateTestFunctions(
 pub fn linkerUpdateDecl(mod: *Module, decl_index: Decl.Index) !void {
     const comp = mod.comp;
 
-    const no_bin_file = (comp.bin_file.options.emit == null and
+    const no_bin_file = (comp.bin_file == null and
         comp.emit_asm == null and
         comp.emit_llvm_ir == null and
         comp.emit_llvm_bc == null);
@@ -5595,10 +5595,6 @@ pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u
     } else {
         gop.value_ptr.* = try mod.gpa.dupe(u8, source);
     }
-}
-
-pub fn wantDllExports(mod: Module) bool {
-    return mod.comp.bin_file.options.dll_export_fns and mod.getTarget().os.tag == .windows;
 }
 
 pub fn getDeclExports(mod: Module, decl_index: Decl.Index) []const *Export {
