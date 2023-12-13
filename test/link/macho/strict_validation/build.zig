@@ -26,13 +26,13 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const check_exe = exe.checkObject();
 
-    check_exe.checkStart();
+    check_exe.checkInHeaders();
     check_exe.checkExact("cmd SEGMENT_64");
     check_exe.checkExact("segname __LINKEDIT");
     check_exe.checkExtract("fileoff {fileoff}");
     check_exe.checkExtract("filesz {filesz}");
 
-    check_exe.checkStart();
+    check_exe.checkInHeaders();
     check_exe.checkExact("cmd DYLD_INFO_ONLY");
     check_exe.checkExtract("rebaseoff {rebaseoff}");
     check_exe.checkExtract("rebasesize {rebasesize}");
@@ -43,31 +43,31 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     check_exe.checkExtract("exportoff {exportoff}");
     check_exe.checkExtract("exportsize {exportsize}");
 
-    check_exe.checkStart();
+    check_exe.checkInHeaders();
     check_exe.checkExact("cmd FUNCTION_STARTS");
     check_exe.checkExtract("dataoff {fstartoff}");
     check_exe.checkExtract("datasize {fstartsize}");
 
-    check_exe.checkStart();
+    check_exe.checkInHeaders();
     check_exe.checkExact("cmd DATA_IN_CODE");
     check_exe.checkExtract("dataoff {diceoff}");
     check_exe.checkExtract("datasize {dicesize}");
 
-    check_exe.checkStart();
+    check_exe.checkInHeaders();
     check_exe.checkExact("cmd SYMTAB");
     check_exe.checkExtract("symoff {symoff}");
     check_exe.checkExtract("nsyms {symnsyms}");
     check_exe.checkExtract("stroff {stroff}");
     check_exe.checkExtract("strsize {strsize}");
 
-    check_exe.checkStart();
+    check_exe.checkInHeaders();
     check_exe.checkExact("cmd DYSYMTAB");
     check_exe.checkExtract("indirectsymoff {dysymoff}");
     check_exe.checkExtract("nindirectsyms {dysymnsyms}");
 
     switch (builtin.cpu.arch) {
         .aarch64 => {
-            check_exe.checkStart();
+            check_exe.checkInHeaders();
             check_exe.checkExact("cmd CODE_SIGNATURE");
             check_exe.checkExtract("dataoff {codesigoff}");
             check_exe.checkExtract("datasize {codesigsize}");

@@ -25,7 +25,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.stack_size = 0x100000000;
 
     const check_exe = exe.checkObject();
-    check_exe.checkStart();
+    check_exe.checkInHeaders();
     check_exe.checkExact("cmd MAIN");
     check_exe.checkExact("stacksize 100000000");
     test_step.dependOn(&check_exe.step);

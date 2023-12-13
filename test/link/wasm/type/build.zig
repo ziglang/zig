@@ -26,7 +26,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     b.installArtifact(lib);
 
     const check_lib = lib.checkObject();
-    check_lib.checkStart();
+    check_lib.checkInHeaders();
     check_lib.checkExact("Section type");
     // only 2 entries, although we have more functions.
     // This is to test functions with the same function signature

@@ -2018,7 +2018,7 @@ const ElfDumper = struct {
             const symtab = switch (@"type") {
                 .symtab => ctx.symtab,
                 .dysymtab => ctx.dysymtab,
-            } orelse return;
+            };
 
             try writer.writeAll(switch (@"type") {
                 .symtab => symtab_label,

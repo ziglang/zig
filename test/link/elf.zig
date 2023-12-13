@@ -506,7 +506,7 @@ fn testCopyrelAlignment(b: *Build, opts: Options) *Step {
         test_step.dependOn(&run.step);
 
         const check = exe.checkObject();
-        check.checkStart();
+        check.checkInHeaders();
         check.checkExact("section headers");
         check.checkExact("name .copyrel");
         check.checkExact("addralign 20");
@@ -525,7 +525,7 @@ fn testCopyrelAlignment(b: *Build, opts: Options) *Step {
         test_step.dependOn(&run.step);
 
         const check = exe.checkObject();
-        check.checkStart();
+        check.checkInHeaders();
         check.checkExact("section headers");
         check.checkExact("name .copyrel");
         check.checkExact("addralign 8");
@@ -544,7 +544,7 @@ fn testCopyrelAlignment(b: *Build, opts: Options) *Step {
         test_step.dependOn(&run.step);
 
         const check = exe.checkObject();
-        check.checkStart();
+        check.checkInHeaders();
         check.checkExact("section headers");
         check.checkExact("name .copyrel");
         check.checkExact("addralign 100");
@@ -815,7 +815,7 @@ fn testEntryPoint(b: *Build, opts: Options) *Step {
         exe.entry = .{ .symbol_name = "foo" };
 
         const check = exe.checkObject();
-        check.checkStart();
+        check.checkInHeaders();
         check.checkExact("header");
         check.checkExact("entry 1000");
         test_step.dependOn(&check.step);
@@ -831,7 +831,7 @@ fn testEntryPoint(b: *Build, opts: Options) *Step {
         exe.entry = .{ .symbol_name = "bar" };
 
         const check = exe.checkObject();
-        check.checkStart();
+        check.checkInHeaders();
         check.checkExact("header");
         check.checkExact("entry 2000");
         test_step.dependOn(&check.step);
@@ -1460,13 +1460,13 @@ fn testIFuncStaticPie(b: *Build, opts: Options) *Step {
     test_step.dependOn(&run.step);
 
     const check = exe.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("header");
     check.checkExact("type DYN");
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("section headers");
     check.checkExact("name .dynamic");
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("section headers");
     check.checkNotPresent("name .interp");
     test_step.dependOn(&check.step);
@@ -1494,7 +1494,7 @@ fn testImageBase(b: *Build, opts: Options) *Step {
         test_step.dependOn(&run.step);
 
         const check = exe.checkObject();
-        check.checkStart();
+        check.checkInHeaders();
         check.checkExact("header");
         check.checkExtract("entry {addr}");
         check.checkComputeCompare("addr", .{ .op = .gte, .value = .{ .literal = 0x8000000 } });
@@ -1507,7 +1507,7 @@ fn testImageBase(b: *Build, opts: Options) *Step {
         exe.image_base = 0xffffffff8000000;
 
         const check = exe.checkObject();
-        check.checkStart();
+        check.checkInHeaders();
         check.checkExact("header");
         check.checkExtract("entry {addr}");
         check.checkComputeCompare("addr", .{ .op = .gte, .value = .{ .literal = 0xffffffff8000000 } });
@@ -1937,10 +1937,10 @@ fn testLinkingC(b: *Build, opts: Options) *Step {
     test_step.dependOn(&run.step);
 
     const check = exe.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("header");
     check.checkExact("type EXEC");
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("section headers");
     check.checkNotPresent("name .dynamic");
     test_step.dependOn(&check.step);
@@ -1967,10 +1967,10 @@ fn testLinkingCpp(b: *Build, opts: Options) *Step {
     test_step.dependOn(&run.step);
 
     const check = exe.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("header");
     check.checkExact("type EXEC");
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("section headers");
     check.checkNotPresent("name .dynamic");
     test_step.dependOn(&check.step);
@@ -2055,10 +2055,10 @@ fn testLinkingZig(b: *Build, opts: Options) *Step {
     test_step.dependOn(&run.step);
 
     const check = exe.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("header");
     check.checkExact("type EXEC");
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("section headers");
     check.checkNotPresent("name .dynamic");
     test_step.dependOn(&check.step);
@@ -2075,7 +2075,7 @@ fn testNoEhFrameHdr(b: *Build, opts: Options) *Step {
     exe.linkLibC();
 
     const check = exe.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("section headers");
     check.checkNotPresent("name .eh_frame_hdr");
     test_step.dependOn(&check.step);
@@ -2103,10 +2103,10 @@ fn testPie(b: *Build, opts: Options) *Step {
     test_step.dependOn(&run.step);
 
     const check = exe.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("header");
     check.checkExact("type DYN");
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("section headers");
     check.checkExact("name .dynamic");
     test_step.dependOn(&check.step);
@@ -2326,13 +2326,13 @@ fn testRelocatableNoEhFrame(b: *Build, opts: Options) *Step {
     obj2.addObject(obj1);
 
     const check1 = obj1.checkObject();
-    check1.checkStart();
+    check1.checkInHeaders();
     check1.checkExact("section headers");
     check1.checkNotPresent(".eh_frame");
     test_step.dependOn(&check1.step);
 
     const check2 = obj2.checkObject();
-    check2.checkStart();
+    check2.checkInHeaders();
     check2.checkExact("section headers");
     check2.checkNotPresent(".eh_frame");
     test_step.dependOn(&check2.step);
@@ -2369,7 +2369,7 @@ fn testSharedAbsSymbol(b: *Build, opts: Options) *Step {
         test_step.dependOn(&run.step);
 
         const check = exe.checkObject();
-        check.checkStart();
+        check.checkInHeaders();
         check.checkExact("header");
         check.checkExact("type DYN");
         // TODO fix/improve in CheckObject
@@ -2390,7 +2390,7 @@ fn testSharedAbsSymbol(b: *Build, opts: Options) *Step {
     //     test_step.dependOn(&run.step);
 
     //     const check = exe.checkObject();
-    //     check.checkStart();
+    //     check.checkInHeaders();
     //     check.checkExact("header");
     //     check.checkExact("type EXEC");
     //     // TODO fix/improve in CheckObject
@@ -2422,7 +2422,7 @@ fn testStrip(b: *Build, opts: Options) *Step {
         exe.linkLibC();
 
         const check = exe.checkObject();
-        check.checkStart();
+        check.checkInHeaders();
         check.checkExact("section headers");
         check.checkExact("name .debug_info");
         test_step.dependOn(&check.step);
@@ -2435,7 +2435,7 @@ fn testStrip(b: *Build, opts: Options) *Step {
         exe.linkLibC();
 
         const check = exe.checkObject();
-        check.checkStart();
+        check.checkInHeaders();
         check.checkExact("section headers");
         check.checkNotPresent("name .debug_info");
         test_step.dependOn(&check.step);
@@ -3521,7 +3521,7 @@ fn testZStackSize(b: *Build, opts: Options) *Step {
     exe.linkLibC();
 
     const check = exe.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("program headers");
     check.checkExact("type GNU_STACK");
     check.checkExact("memsz 800000");

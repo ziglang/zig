@@ -25,7 +25,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     dylib.linkLibC();
 
     const check_dylib = dylib.checkObject();
-    check_dylib.checkStart();
+    check_dylib.checkInHeaders();
     check_dylib.checkExact("cmd ID_DYLIB");
     check_dylib.checkExact("name @rpath/liba.dylib");
     check_dylib.checkExact("timestamp 2");
@@ -46,14 +46,14 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.linkLibC();
 
     const check_exe = exe.checkObject();
-    check_exe.checkStart();
+    check_exe.checkInHeaders();
     check_exe.checkExact("cmd LOAD_DYLIB");
     check_exe.checkExact("name @rpath/liba.dylib");
     check_exe.checkExact("timestamp 2");
     check_exe.checkExact("current version 10000");
     check_exe.checkExact("compatibility version 10000");
 
-    check_exe.checkStart();
+    check_exe.checkInHeaders();
     check_exe.checkExact("cmd RPATH");
     check_exe.checkExactPath("path", dylib.getOutputDirectorySource());
     test_step.dependOn(&check_exe.step);
