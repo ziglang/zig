@@ -133,7 +133,6 @@ pub const File = struct {
         export_symbol_names: []const []const u8,
         global_base: ?u64,
         dll_export_fns: bool,
-        parent_compilation_link_libc: bool,
         each_lib_rpath: bool,
         build_id: std.zig.BuildId,
         disable_lld_caching: bool,
