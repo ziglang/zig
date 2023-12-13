@@ -795,22 +795,20 @@ pub fn generate(
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
 ) CodeGenError!Result {
-    if (build_options.skip_non_native and builtin.cpu.arch != bin_file.options.target.cpu.arch) {
-        @panic("Attempted to compile for architecture that was disabled by build configuration");
-    }
-
     const mod = bin_file.comp.module.?;
     const func = mod.funcInfo(func_index);
     const fn_owner_decl = mod.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
+    const namespace = mod.namespacePtr(fn_owner_decl.src_namespace);
+    const target = namespace.file_scope.mod.target;
 
     const gpa = bin_file.allocator;
     var function = Self{
         .gpa = gpa,
         .air = air,
         .liveness = liveness,
-        .target = &bin_file.options.target,
+        .target = target,
         .bin_file = bin_file,
         .debug_output = debug_output,
         .owner = .{ .func_index = func_index },
@@ -882,7 +880,7 @@ pub fn generate(
         .size = Type.usize.abiSize(mod),
         .alignment = Alignment.min(
             call_info.stack_align,
-            Alignment.fromNonzeroByteUnits(bin_file.options.target.stackAlignment()),
+            Alignment.fromNonzeroByteUnits(target.stackAlignment()),
         ),
     }));
     function.frame_allocs.set(
@@ -967,11 +965,16 @@ pub fn generateLazy(
     debug_output: DebugInfoOutput,
 ) CodeGenError!Result {
     const gpa = bin_file.allocator;
+    const zcu = bin_file.comp.module.?;
+    const decl_index = lazy_sym.ty.getOwnerDecl(zcu);
+    const decl = zcu.declPtr(decl_index);
+    const namespace = zcu.namespacePtr(decl.src_namespace);
+    const target = namespace.file_scope.mod.target;
     var function = Self{
         .gpa = gpa,
         .air = undefined,
         .liveness = undefined,
-        .target = &bin_file.options.target,
+        .target = target,
         .bin_file = bin_file,
         .debug_output = debug_output,
         .owner = .{ .lazy_sym = lazy_sym },

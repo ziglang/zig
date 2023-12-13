@@ -1915,9 +1915,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 }
 
 pub fn destroy(self: *Compilation) void {
-    const optional_module = self.module;
-    self.bin_file.destroy();
-    if (optional_module) |module| module.deinit();
+    if (self.bin_file) |lf| lf.destroy();
+    if (self.module) |zcu| zcu.deinit();
 
     const gpa = self.gpa;
     self.work_queue.deinit();
@@ -2059,9 +2058,9 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
 
     // If using the whole caching strategy, we check for *everything* up front, including
     // C source files.
-    if (comp.bin_file.options.cache_mode == .whole) {
+    if (comp.cache_mode == .whole) {
         // We are about to obtain this lock, so here we give other processes a chance first.
-        comp.bin_file.releaseLock();
+        if (comp.bin_file) |lf| lf.releaseLock();
 
         man = comp.cache_parent.obtain();
         comp.whole_cache_manifest = &man;
@@ -5948,14 +5947,14 @@ pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const
 }
 
 fn wantBuildLibCFromSource(comp: Compilation) bool {
-    const is_exe_or_dyn_lib = switch (comp.bin_file.options.output_mode) {
+    const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
         .Obj => false,
-        .Lib => comp.bin_file.options.link_mode == .Dynamic,
+        .Lib => comp.config.link_mode == .Dynamic,
         .Exe => true,
     };
+    const ofmt = comp.root_mod.resolved_target.result.ofmt;
     return comp.config.link_libc and is_exe_or_dyn_lib and
-        comp.bin_file.options.libc_installation == null and
-        comp.bin_file.options.target.ofmt != .c;
+        comp.libc_installation == null and ofmt != .c;
 }
 
 fn wantBuildGLibCFromSource(comp: Compilation) bool {
@@ -5977,13 +5976,13 @@ fn wantBuildMinGWFromSource(comp: Compilation) bool {
 }
 
 fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
-    const is_exe_or_dyn_lib = switch (comp.bin_file.options.output_mode) {
+    const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
         .Obj => false,
-        .Lib => comp.bin_file.options.link_mode == .Dynamic,
+        .Lib => comp.config.link_mode == .Dynamic,
         .Exe => true,
     };
-    return is_exe_or_dyn_lib and comp.bin_file.options.link_libunwind and
-        comp.bin_file.options.target.ofmt != .c;
+    const ofmt = comp.root_mod.resolved_target.result.ofmt;
+    return is_exe_or_dyn_lib and comp.config.link_libunwind and ofmt != .c;
 }
 
 fn setAllocFailure(comp: *Compilation) void {
@@ -6112,7 +6111,7 @@ fn canBuildZigLibC(target: std.Target, use_llvm: bool) bool {
 }
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
-    const target = comp.bin_file.options.target;
+    const target = comp.root_mod.resolved_target.result;
     return target_util.zigBackend(target, comp.bin_file.options.use_llvm);
 }
 

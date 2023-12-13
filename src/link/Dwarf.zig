@@ -1192,7 +1192,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclInde
 
 pub fn commitDeclState(
     self: *Dwarf,
-    mod: *Module,
+    zcu: *Module,
     decl_index: InternPool.DeclIndex,
     sym_addr: u64,
     sym_size: u64,
@@ -1202,15 +1202,17 @@ pub fn commitDeclState(
     defer tracy.end();
 
     const gpa = self.allocator;
+    const decl = zcu.declPtr(decl_index);
+    const ip = &zcu.intern_pool;
+    const namespace = zcu.namespacePtr(decl.src_namespace);
+    const target = namespace.file_scope.mod.target;
+    const target_endian = target.cpu.arch.endian();
+
     var dbg_line_buffer = &decl_state.dbg_line;
     var dbg_info_buffer = &decl_state.dbg_info;
-    const decl = mod.declPtr(decl_index);
-    const ip = &mod.intern_pool;
-
-    const target_endian = self.bin_file.options.target.cpu.arch.endian();
 
     assert(decl.has_tv);
-    switch (decl.ty.zigTypeTag(mod)) {
+    switch (decl.ty.zigTypeTag(zcu)) {
         .Fn => {
             try decl_state.setInlineFunc(decl.val.toIntern());
 
@@ -1409,18 +1411,18 @@ pub fn commitDeclState(
             if (ip.isErrorSetType(ty.toIntern())) continue;
 
             symbol.offset = @intCast(dbg_info_buffer.items.len);
-            try decl_state.addDbgInfoType(mod, di_atom_index, ty);
+            try decl_state.addDbgInfoType(zcu, di_atom_index, ty);
         }
     }
 
     try self.updateDeclDebugInfoAllocation(di_atom_index, @intCast(dbg_info_buffer.items.len));
 
     while (decl_state.abbrev_relocs.popOrNull()) |reloc| {
-        if (reloc.target) |target| {
-            const symbol = decl_state.abbrev_table.items[target];
+        if (reloc.target) |reloc_target| {
+            const symbol = decl_state.abbrev_table.items[reloc_target];
             const ty = symbol.type;
             if (ip.isErrorSetType(ty.toIntern())) {
-                log.debug("resolving %{d} deferred until flush", .{target});
+                log.debug("resolving %{d} deferred until flush", .{reloc_target});
                 try self.global_abbrev_relocs.append(gpa, .{
                     .target = null,
                     .offset = reloc.offset,
@@ -1433,8 +1435,8 @@ pub fn commitDeclState(
                 log.debug("{x}: [() => {x}] (%{d}, '{}')", .{
                     reloc.offset,
                     value,
-                    target,
-                    ty.fmt(mod),
+                    reloc_target,
+                    ty.fmt(zcu),
                 });
                 mem.writeInt(
                     u32,
@@ -1897,7 +1899,7 @@ fn dbgInfoHeaderBytes(self: *Dwarf) usize {
     return 120;
 }
 
-pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u64) !void {
+pub fn writeDbgInfoHeader(self: *Dwarf, zcu: *Module, low_pc: u64, high_pc: u64) !void {
     // If this value is null it means there is an error in the module;
     // leave debug_info_header_dirty=true.
     const first_dbg_info_off = self.getDebugInfoOff() orelse return;
@@ -1908,7 +1910,9 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
     var di_buf = try std.ArrayList(u8).initCapacity(self.allocator, needed_bytes);
     defer di_buf.deinit();
 
-    const target_endian = self.bin_file.options.target.cpu.arch.endian();
+    const comp = self.bin_file.comp;
+    const target = comp.root_mod.resolved_target.result;
+    const target_endian = target.cpu.arch.endian();
     const init_len_size: usize = switch (self.format) {
         .dwarf32 => 4,
         .dwarf64 => 12,
@@ -1931,9 +1935,9 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
     di_buf.appendAssumeCapacity(self.ptrWidthBytes()); // address size
 
     // Write the form for the compile unit, which must match the abbrev table above.
-    const name_strp = try self.strtab.insert(self.allocator, module.root_mod.root_src_path);
+    const name_strp = try self.strtab.insert(self.allocator, zcu.root_mod.root_src_path);
     var compile_unit_dir_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    const compile_unit_dir = resolveCompilationDir(module, &compile_unit_dir_buffer);
+    const compile_unit_dir = resolveCompilationDir(zcu, &compile_unit_dir_buffer);
     const comp_dir_strp = try self.strtab.insert(self.allocator, compile_unit_dir);
     const producer_strp = try self.strtab.insert(self.allocator, link.producer_string);
 
@@ -1997,7 +2001,9 @@ fn resolveCompilationDir(module: *Module, buffer: *[std.fs.MAX_PATH_BYTES]u8) []
 }
 
 fn writeAddrAssumeCapacity(self: *Dwarf, buf: *std.ArrayList(u8), addr: u64) void {
-    const target_endian = self.bin_file.options.target.cpu.arch.endian();
+    const comp = self.bin_file.comp;
+    const target = comp.root_mod.resolved_target.result;
+    const target_endian = target.cpu.arch.endian();
     switch (self.ptr_width) {
         .p32 => mem.writeInt(u32, buf.addManyAsArrayAssumeCapacity(4), @intCast(addr), target_endian),
         .p64 => mem.writeInt(u64, buf.addManyAsArrayAssumeCapacity(8), addr, target_endian),
@@ -2005,7 +2011,9 @@ fn writeAddrAssumeCapacity(self: *Dwarf, buf: *std.ArrayList(u8), addr: u64) voi
 }
 
 fn writeOffsetAssumeCapacity(self: *Dwarf, buf: *std.ArrayList(u8), off: u64) void {
-    const target_endian = self.bin_file.options.target.cpu.arch.endian();
+    const comp = self.bin_file.comp;
+    const target = comp.root_mod.resolved_target.result;
+    const target_endian = target.cpu.arch.endian();
     switch (self.format) {
         .dwarf32 => mem.writeInt(u32, buf.addManyAsArrayAssumeCapacity(4), @intCast(off), target_endian),
         .dwarf64 => mem.writeInt(u64, buf.addManyAsArrayAssumeCapacity(8), off, target_endian),
@@ -2227,7 +2235,9 @@ fn writeDbgInfoNopsToArrayList(
 }
 
 pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
-    const target_endian = self.bin_file.options.target.cpu.arch.endian();
+    const comp = self.bin_file.comp;
+    const target = comp.root_mod.resolved_target.result;
+    const target_endian = target.cpu.arch.endian();
     const ptr_width_bytes = self.ptrWidthBytes();
 
     // Enough for all the data without resizing. When support for more compilation units
@@ -2299,9 +2309,10 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
 }
 
 pub fn writeDbgLineHeader(self: *Dwarf) !void {
+    const comp = self.bin_file.comp;
     const gpa = self.allocator;
-
-    const target_endian = self.bin_file.options.target.cpu.arch.endian();
+    const target = comp.root_mod.resolved_target.result;
+    const target_endian = target.cpu.arch.endian();
     const init_len_size: usize = switch (self.format) {
         .dwarf32 => 4,
         .dwarf64 => 12,
@@ -2565,7 +2576,8 @@ fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 }
 
 pub fn flushModule(self: *Dwarf, module: *Module) !void {
-    const target = self.bin_file.options.target;
+    const comp = self.bin_file.comp;
+    const target = comp.root_mod.resolved_target.result;
 
     if (self.global_abbrev_relocs.items.len > 0) {
         const gpa = self.allocator;

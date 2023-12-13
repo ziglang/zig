@@ -45,7 +45,7 @@ pub const DebugInfoOutput = union(enum) {
 };
 
 pub fn generateFunction(
-    bin_file: *link.File,
+    lf: *link.File,
     src_loc: Module.SrcLoc,
     func_index: InternPool.Index,
     air: Air,
@@ -53,33 +53,43 @@ pub fn generateFunction(
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
 ) CodeGenError!Result {
-    switch (bin_file.options.target.cpu.arch) {
+    const zcu = lf.comp.module.?;
+    const func = zcu.funcInfo(func_index);
+    const decl = zcu.declPtr(func.owner_decl);
+    const namespace = zcu.namespacePtr(decl.src_namespace);
+    const target = namespace.file_scope.mod.target;
+    switch (target.cpu.arch) {
         .arm,
         .armeb,
-        => return @import("arch/arm/CodeGen.zig").generate(bin_file, src_loc, func_index, air, liveness, code, debug_output),
+        => return @import("arch/arm/CodeGen.zig").generate(lf, src_loc, func_index, air, liveness, code, debug_output),
         .aarch64,
         .aarch64_be,
         .aarch64_32,
-        => return @import("arch/aarch64/CodeGen.zig").generate(bin_file, src_loc, func_index, air, liveness, code, debug_output),
-        .riscv64 => return @import("arch/riscv64/CodeGen.zig").generate(bin_file, src_loc, func_index, air, liveness, code, debug_output),
-        .sparc64 => return @import("arch/sparc64/CodeGen.zig").generate(bin_file, src_loc, func_index, air, liveness, code, debug_output),
-        .x86_64 => return @import("arch/x86_64/CodeGen.zig").generate(bin_file, src_loc, func_index, air, liveness, code, debug_output),
+        => return @import("arch/aarch64/CodeGen.zig").generate(lf, src_loc, func_index, air, liveness, code, debug_output),
+        .riscv64 => return @import("arch/riscv64/CodeGen.zig").generate(lf, src_loc, func_index, air, liveness, code, debug_output),
+        .sparc64 => return @import("arch/sparc64/CodeGen.zig").generate(lf, src_loc, func_index, air, liveness, code, debug_output),
+        .x86_64 => return @import("arch/x86_64/CodeGen.zig").generate(lf, src_loc, func_index, air, liveness, code, debug_output),
         .wasm32,
         .wasm64,
-        => return @import("arch/wasm/CodeGen.zig").generate(bin_file, src_loc, func_index, air, liveness, code, debug_output),
+        => return @import("arch/wasm/CodeGen.zig").generate(lf, src_loc, func_index, air, liveness, code, debug_output),
         else => unreachable,
     }
 }
 
 pub fn generateLazyFunction(
-    bin_file: *link.File,
+    lf: *link.File,
     src_loc: Module.SrcLoc,
     lazy_sym: link.File.LazySymbol,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
 ) CodeGenError!Result {
-    switch (bin_file.options.target.cpu.arch) {
-        .x86_64 => return @import("arch/x86_64/CodeGen.zig").generateLazy(bin_file, src_loc, lazy_sym, code, debug_output),
+    const zcu = lf.comp.module.?;
+    const decl_index = lazy_sym.ty.getOwnerDecl(zcu);
+    const decl = zcu.declPtr(decl_index);
+    const namespace = zcu.namespacePtr(decl.src_namespace);
+    const target = namespace.file_scope.mod.target;
+    switch (target.cpu.arch) {
+        .x86_64 => return @import("arch/x86_64/CodeGen.zig").generateLazy(lf, src_loc, lazy_sym, code, debug_output),
         else => unreachable,
     }
 }
@@ -107,13 +117,16 @@ pub fn generateLazySymbol(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const target = bin_file.options.target;
+    const zcu = bin_file.comp.module.?;
+    const decl_index = lazy_sym.ty.getOwnerDecl(zcu);
+    const decl = zcu.declPtr(decl_index);
+    const namespace = zcu.namespacePtr(decl.src_namespace);
+    const target = namespace.file_scope.mod.target;
     const endian = target.cpu.arch.endian();
 
-    const mod = bin_file.comp.module.?;
     log.debug("generateLazySymbol: kind = {s}, ty = {}", .{
         @tagName(lazy_sym.kind),
-        lazy_sym.ty.fmt(mod),
+        lazy_sym.ty.fmt(zcu),
     });
 
     if (lazy_sym.kind == .code) {
@@ -121,14 +134,14 @@ pub fn generateLazySymbol(
         return generateLazyFunction(bin_file, src_loc, lazy_sym, code, debug_output);
     }
 
-    if (lazy_sym.ty.isAnyError(mod)) {
+    if (lazy_sym.ty.isAnyError(zcu)) {
         alignment.* = .@"4";
-        const err_names = mod.global_error_set.keys();
+        const err_names = zcu.global_error_set.keys();
         mem.writeInt(u32, try code.addManyAsArray(4), @as(u32, @intCast(err_names.len)), endian);
         var offset = code.items.len;
         try code.resize((1 + err_names.len + 1) * 4);
         for (err_names) |err_name_nts| {
-            const err_name = mod.intern_pool.stringToSlice(err_name_nts);
+            const err_name = zcu.intern_pool.stringToSlice(err_name_nts);
             mem.writeInt(u32, code.items[offset..][0..4], @as(u32, @intCast(code.items.len)), endian);
             offset += 4;
             try code.ensureUnusedCapacity(err_name.len + 1);
@@ -137,10 +150,10 @@ pub fn generateLazySymbol(
         }
         mem.writeInt(u32, code.items[offset..][0..4], @as(u32, @intCast(code.items.len)), endian);
         return Result.ok;
-    } else if (lazy_sym.ty.zigTypeTag(mod) == .Enum) {
+    } else if (lazy_sym.ty.zigTypeTag(zcu) == .Enum) {
         alignment.* = .@"1";
-        for (lazy_sym.ty.enumFields(mod)) |tag_name_ip| {
-            const tag_name = mod.intern_pool.stringToSlice(tag_name_ip);
+        for (lazy_sym.ty.enumFields(zcu)) |tag_name_ip| {
+            const tag_name = zcu.intern_pool.stringToSlice(tag_name_ip);
             try code.ensureUnusedCapacity(tag_name.len + 1);
             code.appendSliceAssumeCapacity(tag_name);
             code.appendAssumeCapacity(0);
@@ -150,7 +163,7 @@ pub fn generateLazySymbol(
         bin_file.allocator,
         src_loc,
         "TODO implement generateLazySymbol for {s} {}",
-        .{ @tagName(lazy_sym.kind), lazy_sym.ty.fmt(mod) },
+        .{ @tagName(lazy_sym.kind), lazy_sym.ty.fmt(zcu) },
     ) };
 }
 
@@ -757,7 +770,7 @@ const RelocInfo = struct {
 };
 
 fn lowerAnonDeclRef(
-    bin_file: *link.File,
+    lf: *link.File,
     src_loc: Module.SrcLoc,
     anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
     code: *std.ArrayList(u8),
@@ -765,27 +778,27 @@ fn lowerAnonDeclRef(
     reloc_info: RelocInfo,
 ) CodeGenError!Result {
     _ = debug_output;
-    const target = bin_file.options.target;
-    const mod = bin_file.comp.module.?;
+    const zcu = lf.comp.module.?;
+    const target = lf.comp.root_mod.resolved_target.result;
 
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
     const decl_val = anon_decl.val;
-    const decl_ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
-    log.debug("lowerAnonDecl: ty = {}", .{decl_ty.fmt(mod)});
-    const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
-    if (!is_fn_body and !decl_ty.hasRuntimeBits(mod)) {
+    const decl_ty = Type.fromInterned(zcu.intern_pool.typeOf(decl_val));
+    log.debug("lowerAnonDecl: ty = {}", .{decl_ty.fmt(zcu)});
+    const is_fn_body = decl_ty.zigTypeTag(zcu) == .Fn;
+    if (!is_fn_body and !decl_ty.hasRuntimeBits(zcu)) {
         try code.appendNTimes(0xaa, ptr_width_bytes);
         return Result.ok;
     }
 
-    const decl_align = mod.intern_pool.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
-    const res = try bin_file.lowerAnonDecl(decl_val, decl_align, src_loc);
+    const decl_align = zcu.intern_pool.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
+    const res = try lf.lowerAnonDecl(decl_val, decl_align, src_loc);
     switch (res) {
         .ok => {},
         .fail => |em| return .{ .fail = em },
     }
 
-    const vaddr = try bin_file.getAnonDeclVAddr(decl_val, .{
+    const vaddr = try lf.getAnonDeclVAddr(decl_val, .{
         .parent_atom_index = reloc_info.parent_atom_index,
         .offset = code.items.len,
         .addend = reloc_info.addend orelse 0,
@@ -802,7 +815,7 @@ fn lowerAnonDeclRef(
 }
 
 fn lowerDeclRef(
-    bin_file: *link.File,
+    lf: *link.File,
     src_loc: Module.SrcLoc,
     decl_index: InternPool.DeclIndex,
     code: *std.ArrayList(u8),
@@ -811,20 +824,21 @@ fn lowerDeclRef(
 ) CodeGenError!Result {
     _ = src_loc;
     _ = debug_output;
-    const target = bin_file.options.target;
-    const mod = bin_file.comp.module.?;
+    const zcu = lf.comp.module.?;
+    const decl = zcu.declPtr(decl_index);
+    const namespace = zcu.namespacePtr(decl.src_namespace);
+    const target = namespace.file_scope.mod.target;
 
     const ptr_width = target.ptrBitWidth();
-    const decl = mod.declPtr(decl_index);
-    const is_fn_body = decl.ty.zigTypeTag(mod) == .Fn;
-    if (!is_fn_body and !decl.ty.hasRuntimeBits(mod)) {
+    const is_fn_body = decl.ty.zigTypeTag(zcu) == .Fn;
+    if (!is_fn_body and !decl.ty.hasRuntimeBits(zcu)) {
         try code.appendNTimes(0xaa, @divExact(ptr_width, 8));
         return Result.ok;
     }
 
-    try mod.markDeclAlive(decl);
+    try zcu.markDeclAlive(decl);
 
-    const vaddr = try bin_file.getDeclVAddr(decl_index, .{
+    const vaddr = try lf.getDeclVAddr(decl_index, .{
         .parent_atom_index = reloc_info.parent_atom_index,
         .offset = code.items.len,
         .addend = reloc_info.addend orelse 0,
@@ -897,27 +911,29 @@ pub const GenResult = union(enum) {
 };
 
 fn genDeclRef(
-    bin_file: *link.File,
+    lf: *link.File,
     src_loc: Module.SrcLoc,
     tv: TypedValue,
     ptr_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
-    const mod = bin_file.comp.module.?;
-    log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmt(mod), tv.val.fmtValue(tv.ty, mod) });
+    const zcu = lf.comp.module.?;
+    log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmt(zcu), tv.val.fmtValue(tv.ty, zcu) });
 
-    const target = bin_file.options.target;
+    const ptr_decl = zcu.declPtr(ptr_decl_index);
+    const namespace = zcu.namespacePtr(ptr_decl.src_namespace);
+    const target = namespace.file_scope.mod.target;
+
     const ptr_bits = target.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
-    const ptr_decl = mod.declPtr(ptr_decl_index);
-    const decl_index = switch (mod.intern_pool.indexToKey(try ptr_decl.internValue(mod))) {
+    const decl_index = switch (zcu.intern_pool.indexToKey(try ptr_decl.internValue(zcu))) {
         .func => |func| func.owner_decl,
         .extern_func => |extern_func| extern_func.decl,
         else => ptr_decl_index,
     };
-    const decl = mod.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
 
-    if (!decl.ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
+    if (!decl.ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
         const imm: u64 = switch (ptr_bytes) {
             1 => 0xaa,
             2 => 0xaaaa,
@@ -929,30 +945,30 @@ fn genDeclRef(
     }
 
     // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
-    if (tv.ty.castPtrToFn(mod)) |fn_ty| {
-        if (mod.typeToFunc(fn_ty).?.is_generic) {
-            return GenResult.mcv(.{ .immediate = fn_ty.abiAlignment(mod).toByteUnitsOptional().? });
+    if (tv.ty.castPtrToFn(zcu)) |fn_ty| {
+        if (zcu.typeToFunc(fn_ty).?.is_generic) {
+            return GenResult.mcv(.{ .immediate = fn_ty.abiAlignment(zcu).toByteUnitsOptional().? });
         }
-    } else if (tv.ty.zigTypeTag(mod) == .Pointer) {
-        const elem_ty = tv.ty.elemType2(mod);
-        if (!elem_ty.hasRuntimeBits(mod)) {
-            return GenResult.mcv(.{ .immediate = elem_ty.abiAlignment(mod).toByteUnitsOptional().? });
+    } else if (tv.ty.zigTypeTag(zcu) == .Pointer) {
+        const elem_ty = tv.ty.elemType2(zcu);
+        if (!elem_ty.hasRuntimeBits(zcu)) {
+            return GenResult.mcv(.{ .immediate = elem_ty.abiAlignment(zcu).toByteUnitsOptional().? });
         }
     }
 
-    try mod.markDeclAlive(decl);
+    try zcu.markDeclAlive(decl);
 
-    const decl_namespace = mod.namespacePtr(decl.namespace_index);
-    const single_threaded = decl_namespace.file_scope.mod.single_threaded;
-    const is_threadlocal = tv.val.isPtrToThreadLocal(mod) and !single_threaded;
-    const is_extern = decl.isExtern(mod);
+    const decl_namespace = zcu.namespacePtr(decl.namespace_index);
+    const single_threaded = decl_namespace.file_scope.zcu.single_threaded;
+    const is_threadlocal = tv.val.isPtrToThreadLocal(zcu) and !single_threaded;
+    const is_extern = decl.isExtern(zcu);
 
-    if (bin_file.cast(link.File.Elf)) |elf_file| {
+    if (lf.cast(link.File.Elf)) |elf_file| {
         if (is_extern) {
-            const name = mod.intern_pool.stringToSlice(decl.name);
+            const name = zcu.intern_pool.stringToSlice(decl.name);
             // TODO audit this
-            const lib_name = if (decl.getOwnedVariable(mod)) |ov|
-                mod.intern_pool.stringToSliceUnwrap(ov.lib_name)
+            const lib_name = if (decl.getOwnedVariable(zcu)) |ov|
+                zcu.intern_pool.stringToSliceUnwrap(ov.lib_name)
             else
                 null;
             const sym_index = try elf_file.getGlobalSymbol(name, lib_name);
@@ -965,12 +981,12 @@ fn genDeclRef(
             return GenResult.mcv(.{ .load_tlv = sym.esym_index });
         }
         return GenResult.mcv(.{ .load_symbol = sym.esym_index });
-    } else if (bin_file.cast(link.File.MachO)) |macho_file| {
+    } else if (lf.cast(link.File.MachO)) |macho_file| {
         if (is_extern) {
             // TODO make this part of getGlobalSymbol
-            const name = mod.intern_pool.stringToSlice(decl.name);
-            const sym_name = try std.fmt.allocPrint(bin_file.allocator, "_{s}", .{name});
-            defer bin_file.allocator.free(sym_name);
+            const name = zcu.intern_pool.stringToSlice(decl.name);
+            const sym_name = try std.fmt.allocPrint(lf.allocator, "_{s}", .{name});
+            defer lf.allocator.free(sym_name);
             const global_index = try macho_file.addUndefined(sym_name, .{ .add_got = true });
             return GenResult.mcv(.{ .load_got = link.File.MachO.global_symbol_bit | global_index });
         }
@@ -980,110 +996,118 @@ fn genDeclRef(
             return GenResult.mcv(.{ .load_tlv = sym_index });
         }
         return GenResult.mcv(.{ .load_got = sym_index });
-    } else if (bin_file.cast(link.File.Coff)) |coff_file| {
+    } else if (lf.cast(link.File.Coff)) |coff_file| {
         if (is_extern) {
-            const name = mod.intern_pool.stringToSlice(decl.name);
+            const name = zcu.intern_pool.stringToSlice(decl.name);
             // TODO audit this
-            const lib_name = if (decl.getOwnedVariable(mod)) |ov|
-                mod.intern_pool.stringToSliceUnwrap(ov.lib_name)
+            const lib_name = if (decl.getOwnedVariable(zcu)) |ov|
+                zcu.intern_pool.stringToSliceUnwrap(ov.lib_name)
             else
                 null;
             const global_index = try coff_file.getGlobalSymbol(name, lib_name);
-            try coff_file.need_got_table.put(bin_file.allocator, global_index, {}); // needs GOT
+            try coff_file.need_got_table.put(lf.allocator, global_index, {}); // needs GOT
             return GenResult.mcv(.{ .load_got = link.File.Coff.global_symbol_bit | global_index });
         }
         const atom_index = try coff_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
         return GenResult.mcv(.{ .load_got = sym_index });
-    } else if (bin_file.cast(link.File.Plan9)) |p9| {
+    } else if (lf.cast(link.File.Plan9)) |p9| {
         const atom_index = try p9.seeDecl(decl_index);
         const atom = p9.getAtom(atom_index);
         return GenResult.mcv(.{ .memory = atom.getOffsetTableAddress(p9) });
     } else {
-        return GenResult.fail(bin_file.allocator, src_loc, "TODO genDeclRef for target {}", .{target});
+        return GenResult.fail(lf.allocator, src_loc, "TODO genDeclRef for target {}", .{target});
     }
 }
 
 fn genUnnamedConst(
-    bin_file: *link.File,
+    lf: *link.File,
     src_loc: Module.SrcLoc,
     tv: TypedValue,
     owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
-    const mod = bin_file.comp.module.?;
-    log.debug("genUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmt(mod), tv.val.fmtValue(tv.ty, mod) });
+    const zcu = lf.comp.module.?;
+    const gpa = lf.comp.gpa;
+    log.debug("genUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmt(zcu), tv.val.fmtValue(tv.ty, zcu) });
 
-    const target = bin_file.options.target;
-    const local_sym_index = bin_file.lowerUnnamedConst(tv, owner_decl_index) catch |err| {
-        return GenResult.fail(bin_file.allocator, src_loc, "lowering unnamed constant failed: {s}", .{@errorName(err)});
+    const local_sym_index = lf.lowerUnnamedConst(tv, owner_decl_index) catch |err| {
+        return GenResult.fail(gpa, src_loc, "lowering unnamed constant failed: {s}", .{@errorName(err)});
     };
-    if (bin_file.cast(link.File.Elf)) |elf_file| {
-        const local = elf_file.symbol(local_sym_index);
-        return GenResult.mcv(.{ .load_symbol = local.esym_index });
-    } else if (bin_file.cast(link.File.MachO)) |_| {
-        return GenResult.mcv(.{ .load_direct = local_sym_index });
-    } else if (bin_file.cast(link.File.Coff)) |_| {
-        return GenResult.mcv(.{ .load_direct = local_sym_index });
-    } else if (bin_file.cast(link.File.Plan9)) |_| {
-        const atom_index = local_sym_index; // plan9 returns the atom_index
-        return GenResult.mcv(.{ .load_direct = atom_index });
-    } else {
-        return GenResult.fail(bin_file.allocator, src_loc, "TODO genUnnamedConst for target {}", .{target});
+    switch (lf.tag) {
+        .elf => {
+            const elf_file = lf.cast(link.File.Elf).?;
+            const local = elf_file.symbol(local_sym_index);
+            return GenResult.mcv(.{ .load_symbol = local.esym_index });
+        },
+        .macho, .coff => {
+            return GenResult.mcv(.{ .load_direct = local_sym_index });
+        },
+        .plan9 => {
+            const atom_index = local_sym_index; // plan9 returns the atom_index
+            return GenResult.mcv(.{ .load_direct = atom_index });
+        },
+
+        .c => return GenResult.fail(gpa, src_loc, "TODO genUnnamedConst for -ofmt=c", .{}),
+        .wasm => return GenResult.fail(gpa, src_loc, "TODO genUnnamedConst for wasm", .{}),
+        .spirv => return GenResult.fail(gpa, src_loc, "TODO genUnnamedConst for spirv", .{}),
+        .nvptx => return GenResult.fail(gpa, src_loc, "TODO genUnnamedConst for nvptx", .{}),
     }
 }
 
 pub fn genTypedValue(
-    bin_file: *link.File,
+    lf: *link.File,
     src_loc: Module.SrcLoc,
     arg_tv: TypedValue,
     owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
-    const mod = bin_file.comp.module.?;
+    const zcu = lf.comp.module.?;
     const typed_value = arg_tv;
 
     log.debug("genTypedValue: ty = {}, val = {}", .{
-        typed_value.ty.fmt(mod),
-        typed_value.val.fmtValue(typed_value.ty, mod),
+        typed_value.ty.fmt(zcu),
+        typed_value.val.fmtValue(typed_value.ty, zcu),
     });
 
-    if (typed_value.val.isUndef(mod))
+    if (typed_value.val.isUndef(zcu))
         return GenResult.mcv(.undef);
 
-    const target = bin_file.options.target;
+    const owner_decl = zcu.declPtr(owner_decl_index);
+    const namespace = zcu.namespacePtr(owner_decl.src_namespace);
+    const target = namespace.file_scope.mod.target;
     const ptr_bits = target.ptrBitWidth();
 
-    if (!typed_value.ty.isSlice(mod)) switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
+    if (!typed_value.ty.isSlice(zcu)) switch (zcu.intern_pool.indexToKey(typed_value.val.toIntern())) {
         .ptr => |ptr| switch (ptr.addr) {
-            .decl => |decl| return genDeclRef(bin_file, src_loc, typed_value, decl),
-            .mut_decl => |mut_decl| return genDeclRef(bin_file, src_loc, typed_value, mut_decl.decl),
+            .decl => |decl| return genDeclRef(lf, src_loc, typed_value, decl),
+            .mut_decl => |mut_decl| return genDeclRef(lf, src_loc, typed_value, mut_decl.decl),
             else => {},
         },
         else => {},
     };
 
-    switch (typed_value.ty.zigTypeTag(mod)) {
+    switch (typed_value.ty.zigTypeTag(zcu)) {
         .Void => return GenResult.mcv(.none),
-        .Pointer => switch (typed_value.ty.ptrSize(mod)) {
+        .Pointer => switch (typed_value.ty.ptrSize(zcu)) {
             .Slice => {},
             else => switch (typed_value.val.toIntern()) {
                 .null_value => {
                     return GenResult.mcv(.{ .immediate = 0 });
                 },
                 .none => {},
-                else => switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
+                else => switch (zcu.intern_pool.indexToKey(typed_value.val.toIntern())) {
                     .int => {
-                        return GenResult.mcv(.{ .immediate = typed_value.val.toUnsignedInt(mod) });
+                        return GenResult.mcv(.{ .immediate = typed_value.val.toUnsignedInt(zcu) });
                     },
                     else => {},
                 },
             },
         },
         .Int => {
-            const info = typed_value.ty.intInfo(mod);
+            const info = typed_value.ty.intInfo(zcu);
             if (info.bits <= ptr_bits) {
                 const unsigned = switch (info.signedness) {
-                    .signed => @as(u64, @bitCast(typed_value.val.toSignedInt(mod))),
-                    .unsigned => typed_value.val.toUnsignedInt(mod),
+                    .signed => @as(u64, @bitCast(typed_value.val.toSignedInt(zcu))),
+                    .unsigned => typed_value.val.toUnsignedInt(zcu),
                 };
                 return GenResult.mcv(.{ .immediate = unsigned });
             }
@@ -1092,45 +1116,45 @@ pub fn genTypedValue(
             return GenResult.mcv(.{ .immediate = @intFromBool(typed_value.val.toBool()) });
         },
         .Optional => {
-            if (typed_value.ty.isPtrLikeOptional(mod)) {
-                return genTypedValue(bin_file, src_loc, .{
-                    .ty = typed_value.ty.optionalChild(mod),
-                    .val = typed_value.val.optionalValue(mod) orelse return GenResult.mcv(.{ .immediate = 0 }),
+            if (typed_value.ty.isPtrLikeOptional(zcu)) {
+                return genTypedValue(lf, src_loc, .{
+                    .ty = typed_value.ty.optionalChild(zcu),
+                    .val = typed_value.val.optionalValue(zcu) orelse return GenResult.mcv(.{ .immediate = 0 }),
                 }, owner_decl_index);
-            } else if (typed_value.ty.abiSize(mod) == 1) {
-                return GenResult.mcv(.{ .immediate = @intFromBool(!typed_value.val.isNull(mod)) });
+            } else if (typed_value.ty.abiSize(zcu) == 1) {
+                return GenResult.mcv(.{ .immediate = @intFromBool(!typed_value.val.isNull(zcu)) });
             }
         },
         .Enum => {
-            const enum_tag = mod.intern_pool.indexToKey(typed_value.val.toIntern()).enum_tag;
-            const int_tag_ty = mod.intern_pool.typeOf(enum_tag.int);
-            return genTypedValue(bin_file, src_loc, .{
+            const enum_tag = zcu.intern_pool.indexToKey(typed_value.val.toIntern()).enum_tag;
+            const int_tag_ty = zcu.intern_pool.typeOf(enum_tag.int);
+            return genTypedValue(lf, src_loc, .{
                 .ty = Type.fromInterned(int_tag_ty),
                 .val = Value.fromInterned(enum_tag.int),
             }, owner_decl_index);
         },
         .ErrorSet => {
-            const err_name = mod.intern_pool.indexToKey(typed_value.val.toIntern()).err.name;
-            const error_index = mod.global_error_set.getIndex(err_name).?;
+            const err_name = zcu.intern_pool.indexToKey(typed_value.val.toIntern()).err.name;
+            const error_index = zcu.global_error_set.getIndex(err_name).?;
             return GenResult.mcv(.{ .immediate = error_index });
         },
         .ErrorUnion => {
-            const err_type = typed_value.ty.errorUnionSet(mod);
-            const payload_type = typed_value.ty.errorUnionPayload(mod);
-            if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
+            const err_type = typed_value.ty.errorUnionSet(zcu);
+            const payload_type = typed_value.ty.errorUnionPayload(zcu);
+            if (!payload_type.hasRuntimeBitsIgnoreComptime(zcu)) {
                 // We use the error type directly as the type.
-                const err_int_ty = try mod.errorIntType();
-                switch (mod.intern_pool.indexToKey(typed_value.val.toIntern()).error_union.val) {
-                    .err_name => |err_name| return genTypedValue(bin_file, src_loc, .{
+                const err_int_ty = try zcu.errorIntType();
+                switch (zcu.intern_pool.indexToKey(typed_value.val.toIntern()).error_union.val) {
+                    .err_name => |err_name| return genTypedValue(lf, src_loc, .{
                         .ty = err_type,
-                        .val = Value.fromInterned((try mod.intern(.{ .err = .{
+                        .val = Value.fromInterned((try zcu.intern(.{ .err = .{
                             .ty = err_type.toIntern(),
                             .name = err_name,
                         } }))),
                     }, owner_decl_index),
-                    .payload => return genTypedValue(bin_file, src_loc, .{
+                    .payload => return genTypedValue(lf, src_loc, .{
                         .ty = err_int_ty,
-                        .val = try mod.intValue(err_int_ty, 0),
+                        .val = try zcu.intValue(err_int_ty, 0),
                     }, owner_decl_index),
                 }
             }
@@ -1148,7 +1172,7 @@ pub fn genTypedValue(
         else => {},
     }
 
-    return genUnnamedConst(bin_file, src_loc, typed_value, owner_decl_index);
+    return genUnnamedConst(lf, src_loc, typed_value, owner_decl_index);
 }
 
 pub fn errUnionPayloadOffset(payload_ty: Type, mod: *Module) u64 {

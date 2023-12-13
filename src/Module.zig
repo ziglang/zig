@@ -623,7 +623,8 @@ pub const Decl = struct {
         // Sanitize the name for nvptx which is more restrictive.
         // TODO This should be handled by the backend, not the frontend. Have a
         // look at how the C backend does it for inspiration.
-        if (mod.comp.bin_file.options.target.cpu.arch.isNvptx()) {
+        const cpu_arch = mod.root_mod.resolved_target.cpu.arch;
+        if (cpu_arch.isNvptx()) {
             for (ip.string_bytes.items[start..]) |*byte| switch (byte.*) {
                 '{', '}', '*', '[', ']', '(', ')', ',', ' ', '\'' => byte.* = '_',
                 else => {},
@@ -4873,12 +4874,18 @@ pub fn errNoteNonLazy(
     };
 }
 
-pub fn getTarget(mod: Module) Target {
-    return mod.comp.bin_file.options.target;
+/// Deprecated. There is no global target for a Zig Compilation Unit. Instead,
+/// look up the target based on the Module that contains the source code being
+/// analyzed.
+pub fn getTarget(zcu: Module) Target {
+    return zcu.root_mod.resolved_target.result;
 }
 
-pub fn optimizeMode(mod: Module) std.builtin.OptimizeMode {
-    return mod.comp.bin_file.options.optimize_mode;
+/// Deprecated. There is no global optimization mode for a Zig Compilation
+/// Unit. Instead, look up the optimization mode based on the Module that
+/// contains the source code being analyzed.
+pub fn optimizeMode(zcu: Module) std.builtin.OptimizeMode {
+    return zcu.root_mod.optimize_mode;
 }
 
 fn lockAndClearFileCompileError(mod: *Module, file: *File) void {
@@ -5620,20 +5627,19 @@ pub const Feature = enum {
     safety_checked_instructions,
 };
 
-pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
+pub fn backendSupportsFeature(zcu: Module, feature: Feature) bool {
+    const cpu_arch = zcu.root_mod.resolved_target.cpu.arch;
+    const ofmt = zcu.root_mod.resolved_target.ofmt;
+    const use_llvm = zcu.comp.config.use_llvm;
     return switch (feature) {
-        .panic_fn => mod.comp.bin_file.options.target.ofmt == .c or
-            mod.comp.bin_file.options.use_llvm or
-            mod.comp.bin_file.options.target.cpu.arch == .x86_64,
-        .panic_unwrap_error => mod.comp.bin_file.options.target.ofmt == .c or
-            mod.comp.bin_file.options.use_llvm,
-        .safety_check_formatted => mod.comp.bin_file.options.target.ofmt == .c or
-            mod.comp.bin_file.options.use_llvm,
-        .error_return_trace => mod.comp.bin_file.options.use_llvm,
-        .is_named_enum_value => mod.comp.bin_file.options.use_llvm,
-        .error_set_has_value => mod.comp.bin_file.options.use_llvm or mod.comp.bin_file.options.target.isWasm(),
-        .field_reordering => mod.comp.bin_file.options.use_llvm,
-        .safety_checked_instructions => mod.comp.bin_file.options.use_llvm,
+        .panic_fn => ofmt == .c or use_llvm or cpu_arch == .x86_64,
+        .panic_unwrap_error => ofmt == .c or use_llvm,
+        .safety_check_formatted => ofmt == .c or use_llvm,
+        .error_return_trace => use_llvm,
+        .is_named_enum_value => use_llvm,
+        .error_set_has_value => use_llvm or cpu_arch.isWasm(),
+        .field_reordering => use_llvm,
+        .safety_checked_instructions => use_llvm,
     };
 }
 

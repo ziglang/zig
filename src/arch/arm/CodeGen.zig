@@ -336,7 +336,7 @@ const DbgInfoReloc = struct {
 const Self = @This();
 
 pub fn generate(
-    bin_file: *link.File,
+    lf: *link.File,
     src_loc: Module.SrcLoc,
     func_index: InternPool.Index,
     air: Air,
@@ -344,30 +344,29 @@ pub fn generate(
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
 ) CodeGenError!Result {
-    if (build_options.skip_non_native and builtin.cpu.arch != bin_file.options.target.cpu.arch) {
-        @panic("Attempted to compile for architecture that was disabled by build configuration");
-    }
-
-    const mod = bin_file.comp.module.?;
-    const func = mod.funcInfo(func_index);
-    const fn_owner_decl = mod.declPtr(func.owner_decl);
+    const gpa = lf.comp.gpa;
+    const zcu = lf.comp.module.?;
+    const func = zcu.funcInfo(func_index);
+    const fn_owner_decl = zcu.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
+    const namespace = zcu.namespacePtr(fn_owner_decl.src_namespace);
+    const target = &namespace.file_scope.mod.target;
 
-    var branch_stack = std.ArrayList(Branch).init(bin_file.allocator);
+    var branch_stack = std.ArrayList(Branch).init(gpa);
     defer {
         assert(branch_stack.items.len == 1);
-        branch_stack.items[0].deinit(bin_file.allocator);
+        branch_stack.items[0].deinit(gpa);
         branch_stack.deinit();
     }
     try branch_stack.append(.{});
 
-    var function = Self{
-        .gpa = bin_file.allocator,
+    var function: Self = .{
+        .gpa = gpa,
         .air = air,
         .liveness = liveness,
-        .target = &bin_file.options.target,
-        .bin_file = bin_file,
+        .target = target,
+        .bin_file = lf,
         .debug_output = debug_output,
         .func_index = func_index,
         .err_msg = null,
@@ -381,15 +380,15 @@ pub fn generate(
         .end_di_line = func.rbrace_line,
         .end_di_column = func.rbrace_column,
     };
-    defer function.stack.deinit(bin_file.allocator);
-    defer function.blocks.deinit(bin_file.allocator);
-    defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
-    defer function.dbg_info_relocs.deinit(bin_file.allocator);
+    defer function.stack.deinit(gpa);
+    defer function.blocks.deinit(gpa);
+    defer function.exitlude_jump_relocs.deinit(gpa);
+    defer function.dbg_info_relocs.deinit(gpa);
 
     var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
         error.CodegenFail => return Result{ .fail = function.err_msg.? },
         error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(bin_file.allocator, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
+            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
         },
         else => |e| return e,
     };
@@ -403,7 +402,7 @@ pub fn generate(
     function.gen() catch |err| switch (err) {
         error.CodegenFail => return Result{ .fail = function.err_msg.? },
         error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(bin_file.allocator, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
+            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
         },
         else => |e| return e,
     };
@@ -414,15 +413,15 @@ pub fn generate(
 
     var mir = Mir{
         .instructions = function.mir_instructions.toOwnedSlice(),
-        .extra = try function.mir_extra.toOwnedSlice(bin_file.allocator),
+        .extra = try function.mir_extra.toOwnedSlice(gpa),
     };
-    defer mir.deinit(bin_file.allocator);
+    defer mir.deinit(gpa);
 
     var emit = Emit{
         .mir = mir,
-        .bin_file = bin_file,
+        .bin_file = lf,
         .debug_output = debug_output,
-        .target = &bin_file.options.target,
+        .target = target,
         .src_loc = src_loc,
         .code = code,
         .prev_di_pc = 0,
