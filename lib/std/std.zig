@@ -50,7 +50,6 @@ pub const TailQueue = DoublyLinkedList;
 pub const Target = @import("target.zig").Target;
 pub const Thread = @import("Thread.zig");
 pub const Treap = @import("treap.zig").Treap;
-pub const Tz = tz.Tz;
 pub const Uri = @import("Uri.zig");
 
 pub const array_hash_map = @import("array_hash_map.zig");
@@ -176,9 +175,6 @@ pub const testing = @import("testing.zig");
 
 /// Sleep, obtaining the current time, conversion constants, and more.
 pub const time = @import("time.zig");
-
-/// Time zones.
-pub const tz = @import("tz.zig");
 
 /// UTF-8 and UTF-16LE encoding/decoding.
 pub const unicode = @import("unicode.zig");

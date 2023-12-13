@@ -59,6 +59,8 @@ pub fn sleep(nanoseconds: u64) void {
     std.os.nanosleep(s, ns);
 }
 
+pub const TimeZone = @import("time/TimeZone.zig");
+
 test "sleep" {
     sleep(1);
 }
