@@ -218,6 +218,46 @@ pub fn deinit(self: *TimeZone, allocator: std.mem.Allocator) void {
     allocator.free(self.timetypes);
 }
 
+/// Project UTC timestamp to this time zone.
+pub fn project(self: TimeZone, seconds: i64) i64 {
+    const offset = offset: {
+        var left: usize = 0;
+        var right: usize = self.transitions.len;
+
+        // Adapted from std.sort.binarySearch.
+        var mid: usize = 0;
+        while (left < right) {
+            // Avoid overflowing in the midpoint calculation
+            mid = left + (right - left) / 2;
+            // Compare the key with the midpoint element
+            switch (std.math.order(seconds, self.transitions[mid].ts)) {
+                .eq => break :offset self.transitions[mid].timetype.offset,
+                .gt => left = mid + 1,
+                .lt => right = mid,
+            }
+        }
+        if (self.transitions[mid].ts > seconds) {
+            break :offset self.transitions[mid - 1].timetype.offset;
+        } else {
+            break :offset self.transitions[mid].timetype.offset;
+        }
+    };
+    return seconds + offset;
+}
+
+test project {
+    const data = @embedFile("TimeZone/europe_vatican.tzif");
+    var in_stream = std.io.fixedBufferStream(data);
+
+    var tz = try std.time.TimeZone.parse(std.testing.allocator, in_stream.reader());
+    defer tz.deinit(std.testing.allocator);
+
+    const timestamp: i64 = 1702475641;
+    const expected = timestamp + 3600;
+    const projected = tz.project(timestamp);
+    try std.testing.expectEqual(expected, projected);
+}
+
 test "slim" {
     const data = @embedFile("TimeZone/asia_tokyo.tzif");
     var in_stream = std.io.fixedBufferStream(data);
