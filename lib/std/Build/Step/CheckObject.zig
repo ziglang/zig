@@ -2221,7 +2221,6 @@ const WasmDumper = struct {
     const symtab_label = "symbols";
 
     fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
-        _ = kind;
         const gpa = step.owner.allocator;
         var fbs = std.io.fixedBufferStream(bytes);
         const reader = fbs.reader();
@@ -2238,15 +2237,21 @@ const WasmDumper = struct {
         errdefer output.deinit();
         const writer = output.writer();
 
-        while (reader.readByte()) |current_byte| {
-            const section = std.meta.intToEnum(std.wasm.Section, current_byte) catch {
-                return step.fail("Found invalid section id '{d}'", .{current_byte});
-            };
+        switch (kind) {
+            .headers => {
+                while (reader.readByte()) |current_byte| {
+                    const section = std.meta.intToEnum(std.wasm.Section, current_byte) catch {
+                        return step.fail("Found invalid section id '{d}'", .{current_byte});
+                    };
 
-            const section_length = try std.leb.readULEB128(u32, reader);
-            try parseAndDumpSection(step, section, bytes[fbs.pos..][0..section_length], writer);
-            fbs.pos += section_length;
-        } else |_| {} // reached end of stream
+                    const section_length = try std.leb.readULEB128(u32, reader);
+                    try parseAndDumpSection(step, section, bytes[fbs.pos..][0..section_length], writer);
+                    fbs.pos += section_length;
+                } else |_| {} // reached end of stream
+            },
+
+            else => return step.fail("invalid check kind for Wasm file format: {s}", .{@tagName(kind)}),
+        }
 
         return output.toOwnedSlice();
     }
