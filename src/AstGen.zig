@@ -10834,34 +10834,17 @@ fn strLitAsString(astgen: *AstGen, str_lit_token: Ast.TokenIndex) !IndexSlice {
 }
 
 fn strLitNodeAsString(astgen: *AstGen, node: Ast.Node.Index) !IndexSlice {
-    const tree = astgen.tree;
-    const node_datas = tree.nodes.items(.data);
-
-    const start = node_datas[node].lhs;
-    const end = node_datas[node].rhs;
-
     const gpa = astgen.gpa;
+    const data = astgen.tree.nodes.items(.data);
     const string_bytes = &astgen.string_bytes;
     const str_index = string_bytes.items.len;
 
-    // First line: do not append a newline.
-    var tok_i = start;
-    {
-        const slice = tree.tokenSlice(tok_i);
-        const carriage_return_ending: usize = if (slice[slice.len - 2] == '\r') 2 else 1;
-        const line_bytes = slice[2 .. slice.len - carriage_return_ending];
-        try string_bytes.appendSlice(gpa, line_bytes);
-        tok_i += 1;
+    var parser = std.zig.string_literal.multilineParser(string_bytes.writer(gpa));
+    var tok_i = data[node].lhs;
+    while (tok_i <= data[node].rhs) : (tok_i += 1) {
+        try parser.line(astgen.tree.tokenSlice(tok_i));
     }
-    // Following lines: each line prepends a newline.
-    while (tok_i <= end) : (tok_i += 1) {
-        const slice = tree.tokenSlice(tok_i);
-        const carriage_return_ending: usize = if (slice[slice.len - 2] == '\r') 2 else 1;
-        const line_bytes = slice[2 .. slice.len - carriage_return_ending];
-        try string_bytes.ensureUnusedCapacity(gpa, line_bytes.len + 1);
-        string_bytes.appendAssumeCapacity('\n');
-        string_bytes.appendSliceAssumeCapacity(line_bytes);
-    }
+
     const len = string_bytes.items.len - str_index;
     try string_bytes.append(gpa, 0);
     return IndexSlice{

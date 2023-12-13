@@ -3737,9 +3737,9 @@ const LowerZon = struct {
         const gpa = self.mod.gpa;
         const data = self.file.tree.nodes.items(.data);
         const tags = self.file.tree.nodes.items(.tag);
+        const main_tokens = self.file.tree.nodes.items(.main_token);
         switch (tags[node]) {
             .identifier => {
-                const main_tokens = self.file.tree.nodes.items(.main_token);
                 const token = main_tokens[node];
                 const bytes = self.file.tree.tokenSlice(token);
                 // XXX: make comptime string map or something?
@@ -3757,7 +3757,6 @@ const LowerZon = struct {
             .negation => return self.number(data[node].lhs, true),
             // XXX: make sure works with @""!
             .enum_literal => {
-                const main_tokens = self.file.tree.nodes.items(.main_token);
                 const token = main_tokens[node];
                 const bytes = self.file.tree.tokenSlice(token);
                 return self.mod.intern_pool.get(gpa, .{
@@ -3765,24 +3764,25 @@ const LowerZon = struct {
                 });
             },
             .string_literal => {
-                const main_tokens = self.file.tree.nodes.items(.main_token);
                 const token = main_tokens[node];
                 const raw_string = self.file.tree.tokenSlice(token);
 
                 var bytes = std.ArrayListUnmanaged(u8){};
                 defer bytes.deinit(gpa);
 
-                const offset = self.file.tree.tokens.items(.start)[token];
                 switch (try std.zig.string_literal.parseWrite(bytes.writer(gpa), raw_string)) {
                     .success => {},
-                    .failure => |err| return AstGen.failWithStrLitError(
-                        self,
-                        failWithStrLitError,
-                        err,
-                        token,
-                        raw_string,
-                        offset,
-                    ),
+                    .failure => |err| {
+                        const offset = self.file.tree.tokens.items(.start)[token];
+                        return AstGen.failWithStrLitError(
+                            self,
+                            failWithStrLitError,
+                            err,
+                            token,
+                            raw_string,
+                            offset,
+                        );
+                    }
                 }
 
                 const array_ty = try self.mod.arrayType(.{
@@ -3793,6 +3793,41 @@ const LowerZon = struct {
                 const val = try self.mod.intern(.{ .aggregate = .{
                     .ty = array_ty.toIntern(),
                     .storage = .{ .bytes = bytes.items },
+                } });
+                const ptr_ty = (try self.mod.ptrType(.{
+                    .child = array_ty.toIntern(),
+                    .flags = .{
+                        .alignment = .none,
+                        .is_const = true,
+                        .address_space = .generic,
+                    },
+                })).toIntern();
+                return try self.mod.intern(.{ .ptr = .{
+                    .ty = ptr_ty,
+                    .addr = .{ .anon_decl = .{ .val = val, .orig_ty = ptr_ty } },
+                } });
+            },
+            .multiline_string_literal => {
+                var string_bytes = std.ArrayListUnmanaged(u8){};
+                defer string_bytes.deinit(gpa);
+                
+                var parser = std.zig.string_literal.multilineParser(string_bytes.writer(gpa));
+                var tok_i = data[node].lhs;
+                while (tok_i <= data[node].rhs) : (tok_i += 1) {
+                    try parser.line(self.file.tree.tokenSlice(tok_i));
+                }
+
+                const len = string_bytes.items.len;
+                try string_bytes.append(gpa, 0);
+
+                const array_ty = try self.mod.arrayType(.{
+                    .len = len,
+                    .sentinel = .zero_u8,
+                    .child = .u8_type
+                });
+                const val = try self.mod.intern(.{ .aggregate = .{
+                    .ty = array_ty.toIntern(),
+                    .storage = .{ .bytes = string_bytes.items },
                 } });
                 const ptr_ty = (try self.mod.ptrType(.{
                     .child = array_ty.toIntern(),
@@ -3961,9 +3996,9 @@ const LowerZon = struct {
     fn number(self: *LowerZon, node: Ast.Node.Index, is_negative: bool) !InternPool.Index {
         const gpa = self.mod.gpa;
         const tags = self.file.tree.nodes.items(.tag);
+        const main_tokens = self.file.tree.nodes.items(.main_token);
         switch (tags[node]) {
             .char_literal => {
-                const main_tokens = self.file.tree.nodes.items(.main_token);
                 const token = main_tokens[node];
                 const token_bytes = self.file.tree.tokenSlice(token);
                 const char = switch (std.zig.string_literal.parseCharLiteral(token_bytes)) {
@@ -3983,7 +4018,6 @@ const LowerZon = struct {
                 }});
             },
             .number_literal => {
-                const main_tokens = self.file.tree.nodes.items(.main_token);
                 const token = main_tokens[node];
                 const token_bytes = self.file.tree.tokenSlice(token);
                 const parsed = std.zig.number_literal.parseNumberLiteral(token_bytes);

@@ -3,6 +3,7 @@ const std = @import("std");
 const expectEqual = std.testing.expectEqual;
 const expectEqualDeep = std.testing.expectEqualDeep;
 const expectEqualSlices = std.testing.expectEqualSlices;
+const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "void" {
     try expectEqual({}, @import("zon/void.zon"));
@@ -17,8 +18,10 @@ test "optional" {
     // Coercion
     const some: ?u32 = @import("zon/some.zon");
     const none: ?u32 = @import("zon/none.zon");
+    const @"null": @TypeOf(null) = @import("zon/none.zon");
     try expectEqual(some, 10);
     try expectEqual(none, null);
+    try expectEqual(@"null", null);
 
     // No coercion
     try expectEqual(some, @import("zon/some.zon"));
@@ -86,6 +89,11 @@ test "string literals" {
     try expectEqualDeep("ab\\c", @import("zon/abc-escaped.zon"));
     const zero_terminated: [:0]const u8 = @import("zon/abc.zon");
     try expectEqualDeep(zero_terminated, "abc");
+    try expectEqualStrings(
+        \\Hello, world!
+        \\This is a multiline string!
+        \\ There are no escapes, we can, for example, include \n in the string
+    , @import("zon/multiline_string.zon"));
 }
 
 test "enum literals" {
