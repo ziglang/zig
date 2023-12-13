@@ -52,7 +52,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const check_export = export_table.checkObject();
     const check_regular = regular_table.checkObject();
 
-    check_import.checkStart();
+    check_import.checkInHeaders();
     check_import.checkExact("Section import");
     check_import.checkExact("entries 1");
     check_import.checkExact("module env");
@@ -63,20 +63,20 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     check_import.checkNotPresent("max"); // when importing, we do not provide a max
     check_import.checkNotPresent("Section table"); // we're importing it
 
-    check_export.checkStart();
+    check_export.checkInHeaders();
     check_export.checkExact("Section export");
     check_export.checkExact("entries 2");
     check_export.checkExact("name __indirect_function_table"); // as per linker specification
     check_export.checkExact("kind table");
 
-    check_regular.checkStart();
+    check_regular.checkInHeaders();
     check_regular.checkExact("Section table");
     check_regular.checkExact("entries 1");
     check_regular.checkExact("type funcref");
     check_regular.checkExact("min 2"); // index starts at 1 & 1 function pointer = 2.
     check_regular.checkExact("max 2");
 
-    check_regular.checkStart();
+    check_regular.checkInHeaders();
     check_regular.checkExact("Section element");
     check_regular.checkExact("entries 1");
     check_regular.checkExact("table index 0");

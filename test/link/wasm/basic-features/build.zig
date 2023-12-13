@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
 
     // Verify the result contains the features explicitly set on the target for the library.
     const check = lib.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("name target_features");
     check.checkExact("features 1");
     check.checkExact("+ atomics");
