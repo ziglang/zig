@@ -272,7 +272,7 @@ pub fn generate(
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
-    const mod = bin_file.options.module.?;
+    const mod = bin_file.comp.module.?;
     const func = mod.funcInfo(func_index);
     const fn_owner_decl = mod.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
@@ -364,7 +364,7 @@ pub fn generate(
 }
 
 fn gen(self: *Self) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const cc = self.fn_type.fnCallingConvention(mod);
     if (cc != .Naked) {
         // TODO Finish function prologue and epilogue for sparc64.
@@ -492,7 +492,7 @@ fn gen(self: *Self) !void {
 }
 
 fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const ip = &mod.intern_pool;
     const air_tags = self.air.instructions.items(.tag);
 
@@ -762,7 +762,7 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const lhs = try self.resolveInst(extra.lhs);
         const rhs = try self.resolveInst(extra.rhs);
@@ -840,7 +840,7 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const vector_ty = self.typeOfIndex(inst);
     const len = vector_ty.vectorLen(mod);
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -874,7 +874,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const ptr_ty = self.typeOf(ty_op.operand);
@@ -1011,7 +1011,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const arg_index = self.arg_index;
     self.arg_index += 1;
 
@@ -1206,7 +1206,7 @@ fn airBreakpoint(self: *Self) !void {
 }
 
 fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     // We have hardware byteswapper in SPARCv9, don't let mainstream compilers mislead you.
@@ -1298,7 +1298,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const extra = self.air.extraData(Air.Call, pl_op.payload);
     const args = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra.end .. extra.end + extra.data.args_len]));
     const ty = self.typeOf(callee);
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const fn_ty = switch (ty.zigTypeTag(mod)) {
         .Fn => ty,
         .Pointer => ty.childType(mod),
@@ -1430,7 +1430,7 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
@@ -1662,7 +1662,7 @@ fn airDbgBlock(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
     const ty_fn = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const func = mod.funcInfo(ty_fn.func);
     // TODO emit debug info for function change
     _ = func;
@@ -1758,7 +1758,7 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
 
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const operand_ty = self.typeOf(ty_op.operand);
     const operand = try self.resolveInst(ty_op.operand);
     const info_a = operand_ty.intInfo(mod);
@@ -1819,7 +1819,7 @@ fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const elem_ty = self.typeOfIndex(inst);
     const elem_size = elem_ty.abiSize(mod);
@@ -1903,7 +1903,7 @@ fn airMod(self: *Self, inst: Air.Inst.Index) !void {
     const rhs = try self.resolveInst(bin_op.rhs);
     const lhs_ty = self.typeOf(bin_op.lhs);
     const rhs_ty = self.typeOf(bin_op.rhs);
-    assert(lhs_ty.eql(rhs_ty, self.bin_file.options.module.?));
+    assert(lhs_ty.eql(rhs_ty, self.bin_file.comp.module.?));
 
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -2045,7 +2045,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     //const tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const lhs = try self.resolveInst(extra.lhs);
         const rhs = try self.resolveInst(extra.rhs);
@@ -2109,7 +2109,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airNot(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
@@ -2341,7 +2341,7 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
 fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const lhs = try self.resolveInst(extra.lhs);
         const rhs = try self.resolveInst(extra.rhs);
@@ -2446,7 +2446,7 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const is_volatile = false; // TODO
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
@@ -2571,7 +2571,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const operand = extra.struct_operand;
     const index = extra.field_index;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const mod = self.bin_file.options.module.?;
+        const mod = self.bin_file.comp.module.?;
         const mcv = try self.resolveInst(operand);
         const struct_ty = self.typeOf(operand);
         const struct_field_offset = @as(u32, @intCast(struct_ty.structFieldOffset(index, mod)));
@@ -2704,7 +2704,7 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = self.typeOf(ty_op.operand);
@@ -2718,7 +2718,7 @@ fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = self.typeOf(ty_op.operand);
@@ -2732,7 +2732,7 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
 
 /// E to E!T
 fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = ty_op.ty.toType();
@@ -2753,7 +2753,7 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const optional_ty = self.typeOfIndex(inst);
@@ -2793,7 +2793,7 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: Alignme
 
 /// Use a pointer instruction as the basis for allocating stack memory.
 fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const elem_ty = self.typeOfIndex(inst).childType(mod);
 
     if (!elem_ty.hasRuntimeBits(mod)) {
@@ -2813,7 +2813,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
 }
 
 fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const elem_ty = self.typeOfIndex(inst);
     const abi_size = math.cast(u32, elem_ty.abiSize(mod)) orelse {
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
@@ -2860,7 +2860,7 @@ fn binOp(
     rhs_ty: Type,
     metadata: ?BinOpMetadata,
 ) InnerError!MCValue {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     switch (tag) {
         .add,
         .sub,
@@ -3401,7 +3401,7 @@ fn binOpRegister(
 fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
     const block_data = self.blocks.getPtr(block).?;
 
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     if (self.typeOf(operand).hasRuntimeBits(mod)) {
         const operand_mcv = try self.resolveInst(operand);
         const block_mcv = block_data.mcv;
@@ -3521,7 +3521,7 @@ fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
 
 /// Given an error union, returns the payload
 fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCValue {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const err_ty = error_union_ty.errorUnionSet(mod);
     const payload_ty = error_union_ty.errorUnionPayload(mod);
     if (err_ty.errorSetIsEmpty(mod)) {
@@ -3591,7 +3591,7 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
 }
 
 fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
     const ty = arg.ty.toType();
     const owner_decl = mod.funcOwnerDeclIndex(self.func_index);
@@ -3740,7 +3740,7 @@ fn genLoadASI(self: *Self, value_reg: Register, addr_reg: Register, off_reg: Reg
 }
 
 fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     switch (mcv) {
         .dead => unreachable,
         .unreach, .none => return, // Nothing to do.
@@ -3951,7 +3951,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
 }
 
 fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const abi_size = ty.abiSize(mod);
     switch (mcv) {
         .dead => unreachable,
@@ -4125,7 +4125,7 @@ fn genStoreASI(self: *Self, value_reg: Register, addr_reg: Register, off_reg: Re
 }
 
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const mcv: MCValue = switch (try codegen.genTypedValue(
         self.bin_file,
         self.src_loc,
@@ -4161,7 +4161,7 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
 }
 
 fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const error_type = ty.errorUnionSet(mod);
     const payload_type = ty.errorUnionPayload(mod);
 
@@ -4259,7 +4259,7 @@ fn jump(self: *Self, inst: Mir.Inst.Index) !void {
 }
 
 fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const elem_ty = ptr_ty.childType(mod);
     const elem_size = elem_ty.abiSize(mod);
 
@@ -4330,7 +4330,7 @@ fn minMax(
     lhs_ty: Type,
     rhs_ty: Type,
 ) InnerError!MCValue {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     assert(lhs_ty.eql(rhs_ty, mod));
     switch (lhs_ty.zigTypeTag(mod)) {
         .Float => return self.fail("TODO min/max on floats", .{}),
@@ -4450,7 +4450,7 @@ fn realStackOffset(off: u32) u32 {
 
 /// Caller must call `CallMCValues.deinit`.
 fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) !CallMCValues {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const ip = &mod.intern_pool;
     const fn_info = mod.typeToFunc(fn_ty).?;
     const cc = fn_info.cc;
@@ -4542,7 +4542,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) 
 }
 
 fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const ty = self.typeOf(ref);
 
     // If the type has no codegen bits, no need to store it.
@@ -4559,7 +4559,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
 }
 
 fn ret(self: *Self, mcv: MCValue) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const ret_ty = self.fn_type.fnReturnType(mod);
     try self.setRegOrMem(ret_ty, self.ret_mcv, mcv);
 
@@ -4661,7 +4661,7 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
 }
 
 fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const abi_size = value_ty.abiSize(mod);
 
     switch (ptr) {
@@ -4703,7 +4703,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
 
 fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32) !MCValue {
     return if (self.liveness.isUnused(inst)) .dead else result: {
-        const mod = self.bin_file.options.module.?;
+        const mod = self.bin_file.comp.module.?;
         const mcv = try self.resolveInst(operand);
         const ptr_ty = self.typeOf(operand);
         const struct_ty = ptr_ty.childType(mod);
@@ -4745,7 +4745,7 @@ fn trunc(
     operand_ty: Type,
     dest_ty: Type,
 ) !MCValue {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     const info_a = operand_ty.intInfo(mod);
     const info_b = dest_ty.intInfo(mod);
 
@@ -4866,11 +4866,11 @@ fn wantSafety(self: *Self) bool {
 }
 
 fn typeOf(self: *Self, inst: Air.Inst.Ref) Type {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     return self.air.typeOf(inst, &mod.intern_pool);
 }
 
 fn typeOfIndex(self: *Self, inst: Air.Inst.Index) Type {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
     return self.air.typeOfIndex(inst, &mod.intern_pool);
 }

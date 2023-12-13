@@ -110,7 +110,7 @@ pub fn generateLazySymbol(
     const target = bin_file.options.target;
     const endian = target.cpu.arch.endian();
 
-    const mod = bin_file.options.module.?;
+    const mod = bin_file.comp.module.?;
     log.debug("generateLazySymbol: kind = {s}, ty = {}", .{
         @tagName(lazy_sym.kind),
         lazy_sym.ty.fmt(mod),
@@ -165,7 +165,7 @@ pub fn generateSymbol(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const mod = bin_file.options.module.?;
+    const mod = bin_file.comp.module.?;
     const ip = &mod.intern_pool;
     const typed_value = arg_tv;
 
@@ -662,7 +662,7 @@ fn lowerParentPtr(
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
 ) CodeGenError!Result {
-    const mod = bin_file.options.module.?;
+    const mod = bin_file.comp.module.?;
     const ptr = mod.intern_pool.indexToKey(parent_ptr).ptr;
     assert(ptr.len == .none);
     return switch (ptr.addr) {
@@ -766,7 +766,7 @@ fn lowerAnonDeclRef(
 ) CodeGenError!Result {
     _ = debug_output;
     const target = bin_file.options.target;
-    const mod = bin_file.options.module.?;
+    const mod = bin_file.comp.module.?;
 
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
     const decl_val = anon_decl.val;
@@ -812,7 +812,7 @@ fn lowerDeclRef(
     _ = src_loc;
     _ = debug_output;
     const target = bin_file.options.target;
-    const mod = bin_file.options.module.?;
+    const mod = bin_file.comp.module.?;
 
     const ptr_width = target.ptrBitWidth();
     const decl = mod.declPtr(decl_index);
@@ -902,7 +902,7 @@ fn genDeclRef(
     tv: TypedValue,
     ptr_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
-    const mod = bin_file.options.module.?;
+    const mod = bin_file.comp.module.?;
     log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmt(mod), tv.val.fmtValue(tv.ty, mod) });
 
     const target = bin_file.options.target;
@@ -1010,7 +1010,7 @@ fn genUnnamedConst(
     tv: TypedValue,
     owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
-    const mod = bin_file.options.module.?;
+    const mod = bin_file.comp.module.?;
     log.debug("genUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmt(mod), tv.val.fmtValue(tv.ty, mod) });
 
     const target = bin_file.options.target;
@@ -1038,7 +1038,7 @@ pub fn genTypedValue(
     arg_tv: TypedValue,
     owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
-    const mod = bin_file.options.module.?;
+    const mod = bin_file.comp.module.?;
     const typed_value = arg_tv;
 
     log.debug("genTypedValue: ty = {}, val = {}", .{

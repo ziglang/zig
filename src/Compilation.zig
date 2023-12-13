@@ -1915,7 +1915,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 }
 
 pub fn destroy(self: *Compilation) void {
-    const optional_module = self.bin_file.options.module;
+    const optional_module = self.module;
     self.bin_file.destroy();
     if (optional_module) |module| module.deinit();
 
@@ -2017,7 +2017,7 @@ fn restorePrevZigCacheArtifactDirectory(comp: *Compilation, directory: *Director
     // Restore the Module's previous zig_cache_artifact_directory
     // This is only for cleanup purposes; Module.deinit calls close
     // on the handle of zig_cache_artifact_directory.
-    if (comp.bin_file.options.module) |module| {
+    if (comp.module) |module| {
         const builtin_mod = module.main_mod.deps.get("builtin").?;
         module.zig_cache_artifact_directory = builtin_mod.root.root_dir;
     }
@@ -2109,7 +2109,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         };
 
         // This updates the output directory for linker outputs.
-        if (comp.bin_file.options.module) |module| {
+        if (comp.module) |module| {
             module.zig_cache_artifact_directory = tmp_artifact_directory.?;
         }
 
@@ -2155,7 +2155,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         }
     }
 
-    if (comp.bin_file.options.module) |module| {
+    if (comp.module) |module| {
         module.compile_log_text.shrinkAndFree(module.gpa, 0);
         module.generation += 1;
 
@@ -2206,7 +2206,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
 
     try comp.performAllTheWork(main_progress_node);
 
-    if (comp.bin_file.options.module) |module| {
+    if (comp.module) |module| {
         if (builtin.mode == .Debug and comp.verbose_intern_pool) {
             std.debug.print("intern pool stats for '{s}':\n", .{
                 comp.bin_file.options.root_name,
@@ -2277,7 +2277,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         }
 
         // This is intentionally sandwiched between renameTmpIntoCache() and writeManifest().
-        if (comp.bin_file.options.module) |module| {
+        if (comp.module) |module| {
             // We need to set the zig_cache_artifact_directory for -femit-asm, -femit-llvm-ir,
             // etc to know where to output to.
             var artifact_dir = try comp.local_cache_directory.handle.openDir(o_sub_path, .{});
@@ -2322,7 +2322,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     // to it, and (2) generic instantiations, comptime calls, inline calls will need
     // to reference the ZIR.
     if (!comp.keep_source_files_loaded) {
-        if (comp.bin_file.options.module) |module| {
+        if (comp.module) |module| {
             for (module.import_table.values()) |file| {
                 file.unloadTree(comp.gpa);
                 file.unloadSource(comp.gpa);
@@ -2332,7 +2332,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
 }
 
 fn maybeGenerateAutodocs(comp: *Compilation, prog_node: *std.Progress.Node) !void {
-    const mod = comp.bin_file.options.module orelse return;
+    const mod = comp.module orelse return;
     // TODO: do this in a separate job during performAllTheWork(). The
     // file copies at the end of generate() can also be extracted to
     // separate jobs
@@ -2360,7 +2360,7 @@ fn flush(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     };
     comp.link_error_flags = comp.bin_file.errorFlags();
 
-    if (comp.bin_file.options.module) |module| {
+    if (comp.module) |module| {
         try link.File.C.flushEmitH(module);
     }
 }
@@ -2421,7 +2421,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 
     comptime assert(link_hash_implementation_version == 10);
 
-    if (comp.bin_file.options.module) |mod| {
+    if (comp.module) |mod| {
         const main_zig_file = try mod.main_mod.root.joinString(arena, mod.main_mod.root_src_path);
         _ = try man.addFile(main_zig_file, null);
         try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.main_mod, .{ .files = man });
@@ -2559,7 +2559,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 }
 
 fn emitOthers(comp: *Compilation) void {
-    if (comp.bin_file.options.output_mode != .Obj or comp.bin_file.options.module != null or
+    if (comp.bin_file.options.output_mode != .Obj or comp.module != null or
         comp.c_object_table.count() == 0)
     {
         return;
@@ -2727,7 +2727,7 @@ pub fn saveState(comp: *Compilation) !void {
 
     const emit = comp.bin_file.options.emit orelse return;
 
-    if (comp.bin_file.options.module) |mod| {
+    if (comp.module) |mod| {
         const ip = &mod.intern_pool;
         const header: Header = .{
             .intern_pool = .{
@@ -2792,7 +2792,7 @@ pub fn totalErrorCount(self: *Compilation) u32 {
         }
     }
 
-    if (self.bin_file.options.module) |module| {
+    if (self.module) |module| {
         total += module.failed_exports.count();
         total += module.failed_embed_files.count();
 
@@ -2844,7 +2844,7 @@ pub fn totalErrorCount(self: *Compilation) u32 {
 
     // Compile log errors only count if there are no other errors.
     if (total == 0) {
-        if (self.bin_file.options.module) |module| {
+        if (self.module) |module| {
             total += @intFromBool(module.compile_log_decls.count() != 0);
         }
     }
@@ -2896,7 +2896,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             .msg = try bundle.addString("memory allocation failure"),
         });
     }
-    if (self.bin_file.options.module) |module| {
+    if (self.module) |module| {
         for (module.failed_files.keys(), module.failed_files.values()) |file, error_msg| {
             if (error_msg) |msg| {
                 try addModuleErrorMsg(module, &bundle, msg.*);
@@ -3002,7 +3002,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         }
     }
 
-    if (self.bin_file.options.module) |module| {
+    if (self.module) |module| {
         if (bundle.root_list.items.len == 0 and module.compile_log_decls.count() != 0) {
             const keys = module.compile_log_decls.keys();
             const values = module.compile_log_decls.values();
@@ -3030,7 +3030,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
 
     assert(self.totalErrorCount() == bundle.root_list.items.len);
 
-    const compile_log_text = if (self.bin_file.options.module) |m| m.compile_log_text.items else "";
+    const compile_log_text = if (self.module) |m| m.compile_log_text.items else "";
     return bundle.toOwnedBundle(compile_log_text);
 }
 
@@ -3314,7 +3314,7 @@ pub fn performAllTheWork(
         // 1. to avoid race condition of zig processes truncating each other's builtin.zig files
         // 2. optimization; in the hot path it only incurs a stat() syscall, which happens
         //    in the `astgen_wait_group`.
-        if (comp.bin_file.options.module) |mod| {
+        if (comp.module) |mod| {
             if (mod.job_queued_update_builtin_zig) {
                 mod.job_queued_update_builtin_zig = false;
 
@@ -3356,15 +3356,15 @@ pub fn performAllTheWork(
         }
     }
 
-    if (comp.bin_file.options.module) |mod| {
+    if (comp.module) |mod| {
         try reportMultiModuleErrors(mod);
     }
 
-    if (comp.bin_file.options.module) |mod| {
+    if (comp.module) |mod| {
         mod.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
         mod.sema_prog_node.activate();
     }
-    defer if (comp.bin_file.options.module) |mod| {
+    defer if (comp.module) |mod| {
         mod.sema_prog_node.end();
         mod.sema_prog_node = undefined;
     };
@@ -3398,7 +3398,7 @@ pub fn performAllTheWork(
 fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !void {
     switch (job) {
         .codegen_decl => |decl_index| {
-            const module = comp.bin_file.options.module.?;
+            const module = comp.module.?;
             const decl = module.declPtr(decl_index);
 
             switch (decl.analysis) {
@@ -3436,14 +3436,14 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
             const named_frame = tracy.namedFrame("codegen_func");
             defer named_frame.end();
 
-            const module = comp.bin_file.options.module.?;
+            const module = comp.module.?;
             module.ensureFuncBodyAnalyzed(func) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
         },
         .emit_h_decl => |decl_index| {
-            const module = comp.bin_file.options.module.?;
+            const module = comp.module.?;
             const decl = module.declPtr(decl_index);
 
             switch (decl.analysis) {
@@ -3502,7 +3502,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
             }
         },
         .analyze_decl => |decl_index| {
-            const module = comp.bin_file.options.module.?;
+            const module = comp.module.?;
             module.ensureDeclAnalyzed(decl_index) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
@@ -3520,7 +3520,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
             defer named_frame.end();
 
             const gpa = comp.gpa;
-            const module = comp.bin_file.options.module.?;
+            const module = comp.module.?;
             const decl = module.declPtr(decl_index);
             comp.bin_file.updateDeclLineNumber(module, decl_index) catch |err| {
                 try module.failed_decls.ensureUnusedCapacity(gpa, 1);
@@ -3537,7 +3537,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
             const named_frame = tracy.namedFrame("analyze_mod");
             defer named_frame.end();
 
-            const module = comp.bin_file.options.module.?;
+            const module = comp.module.?;
             module.semaPkg(pkg) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
@@ -3716,7 +3716,7 @@ fn workerAstGenFile(
     child_prog_node.activate();
     defer child_prog_node.end();
 
-    const mod = comp.bin_file.options.module.?;
+    const mod = comp.module.?;
     mod.astGenFile(file) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
@@ -3819,7 +3819,7 @@ fn workerCheckEmbedFile(
 }
 
 fn detectEmbedFileUpdate(comp: *Compilation, embed_file: *Module.EmbedFile) !void {
-    const mod = comp.bin_file.options.module.?;
+    const mod = comp.module.?;
     const ip = &mod.intern_pool;
     const sub_file_path = ip.stringToSlice(embed_file.sub_file_path);
     var file = try embed_file.owner.root.openFile(sub_file_path, .{});
@@ -4142,7 +4142,7 @@ fn reportRetryableAstGenError(
     file: *Module.File,
     err: anyerror,
 ) error{OutOfMemory}!void {
-    const mod = comp.bin_file.options.module.?;
+    const mod = comp.module.?;
     const gpa = mod.gpa;
 
     file.status = .retryable_failure;
@@ -4181,7 +4181,7 @@ fn reportRetryableEmbedFileError(
     embed_file: *Module.EmbedFile,
     err: anyerror,
 ) error{OutOfMemory}!void {
-    const mod = comp.bin_file.options.module.?;
+    const mod = comp.module.?;
     const gpa = mod.gpa;
     const src_loc = embed_file.src_loc;
     const ip = &mod.intern_pool;
@@ -4248,7 +4248,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     // Special case when doing build-obj for just one C file. When there are more than one object
     // file and building an object we need to link them together, but with just one it should go
     // directly to the output file.
-    const direct_o = comp.c_source_files.len == 1 and comp.bin_file.options.module == null and
+    const direct_o = comp.c_source_files.len == 1 and comp.module == null and
         comp.bin_file.options.output_mode == .Obj and comp.bin_file.options.objects.len == 0;
     const o_basename_noext = if (direct_o)
         comp.bin_file.options.root_name

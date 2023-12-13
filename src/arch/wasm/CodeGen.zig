@@ -1210,7 +1210,7 @@ pub fn generate(
     debug_output: codegen.DebugInfoOutput,
 ) codegen.CodeGenError!codegen.Result {
     _ = src_loc;
-    const mod = bin_file.options.module.?;
+    const mod = bin_file.comp.module.?;
     const func = mod.funcInfo(func_index);
     var code_gen: CodeGen = .{
         .gpa = bin_file.allocator,

@@ -1227,7 +1227,7 @@ pub const Object = struct {
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const mod = comp.bin_file.options.module.?;
+        const mod = comp.module.?;
         const cache_dir = mod.zig_cache_artifact_directory;
 
         if (std.debug.runtime_safety and !try self.builder.verify()) {
