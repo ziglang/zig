@@ -61,6 +61,26 @@ pub fn sleep(nanoseconds: u64) void {
 
 pub const TimeZone = @import("time/TimeZone.zig");
 
+pub const LocalTimeError = error{
+    /// The local time zone of the system could not be determined.
+    LocalTimeUnavailable,
+} || std.mem.Allocator.Error;
+
+pub fn localtime(allocator: std.mem.Allocator) LocalTimeError!TimeZone {
+    switch (builtin.os.tag) {
+        .linux => {
+            var tz_file = std.fs.openFileAbsolute("/etc/localtime", .{}) catch
+                return error.LocalTimeUnavailable;
+            defer tz_file.close();
+
+            var buffered = std.io.bufferedReader(tz_file.reader());
+            return TimeZone.parse(allocator, buffered.reader()) catch
+                return error.LocalTimeUnavailable;
+        },
+        else => @compileError("`localtime` has not been implemented for this OS!"),
+    }
+}
+
 test "sleep" {
     sleep(1);
 }
