@@ -3552,7 +3552,7 @@ fn buildOutputType(
     if (test_exec_args.items.len == 0 and target.ofmt == .c) default_exec_args: {
         // Default to using `zig run` to execute the produced .c code from `zig test`.
         const c_code_loc = emit_bin_loc orelse break :default_exec_args;
-        const c_code_directory = c_code_loc.directory orelse comp.bin_file.options.emit.?.directory;
+        const c_code_directory = c_code_loc.directory orelse comp.bin_file.?.emit.directory;
         const c_code_path = try fs.path.join(arena, &[_][]const u8{
             c_code_directory.path orelse ".", c_code_loc.basename,
         });
@@ -3921,7 +3921,7 @@ fn serve(
                     continue;
                 }
 
-                if (comp.bin_file.options.output_mode == .Exe) {
+                if (comp.config.output_mode == .Exe) {
                     try comp.makeBinFileWritable();
                 }
 
@@ -3971,7 +3971,7 @@ fn serve(
                     try comp.hotCodeSwap(main_progress_node, pid);
                     try serveUpdateResults(&server, comp);
                 } else {
-                    if (comp.bin_file.options.output_mode == .Exe) {
+                    if (comp.config.output_mode == .Exe) {
                         try comp.makeBinFileWritable();
                     }
                     try comp.update(main_progress_node);
@@ -4067,13 +4067,14 @@ fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
     // system depends on that fact. So, until the protocol is changed to
     // reflect this, this logic only needs to ensure that emit_bin_path is
     // emitted for at least one thing, if there are any artifacts.
-    if (comp.bin_file.options.emit) |emit| {
+    if (comp.bin_file) |lf| {
+        const emit = lf.emit;
         const full_path = try emit.directory.join(gpa, &.{emit.sub_path});
         defer gpa.free(full_path);
         try s.serveEmitBinPath(full_path, .{
             .flags = .{ .cache_hit = comp.last_update_was_cache_hit },
         });
-    } else if (comp.bin_file.options.docs_emit) |emit| {
+    } else if (comp.docs_emit) |emit| {
         const full_path = try emit.directory.join(gpa, &.{emit.sub_path});
         defer gpa.free(full_path);
         try s.serveEmitBinPath(full_path, .{
@@ -4148,11 +4149,11 @@ fn runOrTest(
     runtime_args_start: ?usize,
     link_libc: bool,
 ) !void {
-    const exe_emit = comp.bin_file.options.emit orelse return;
+    const lf = comp.bin_file orelse return;
     // A naive `directory.join` here will indeed get the correct path to the binary,
     // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
     const exe_path = try fs.path.join(arena, &[_][]const u8{
-        exe_emit.directory.path orelse ".", exe_emit.sub_path,
+        lf.emit.directory.path orelse ".", lf.emit.sub_path,
     });
 
     var argv = std.ArrayList([]const u8).init(gpa);
@@ -4244,7 +4245,7 @@ fn runOrTestHotSwap(
     all_args: []const []const u8,
     runtime_args_start: ?usize,
 ) !std.ChildProcess.Id {
-    const exe_emit = comp.bin_file.options.emit.?;
+    const lf = comp.bin_file.?;
 
     const exe_path = switch (builtin.target.os.tag) {
         // On Windows it seems impossible to perform an atomic rename of a file that is currently
@@ -4252,16 +4253,16 @@ fn runOrTestHotSwap(
         // tmp zig-cache and use it to spawn the child process. This way we are free to update
         // the binary with each requested hot update.
         .windows => blk: {
-            try exe_emit.directory.handle.copyFile(exe_emit.sub_path, comp.local_cache_directory.handle, exe_emit.sub_path, .{});
+            try lf.emit.directory.handle.copyFile(lf.emit.sub_path, comp.local_cache_directory.handle, lf.emit.sub_path, .{});
             break :blk try fs.path.join(gpa, &[_][]const u8{
-                comp.local_cache_directory.path orelse ".", exe_emit.sub_path,
+                comp.local_cache_directory.path orelse ".", lf.emit.sub_path,
             });
         },
 
         // A naive `directory.join` here will indeed get the correct path to the binary,
         // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
         else => try fs.path.join(gpa, &[_][]const u8{
-            exe_emit.directory.path orelse ".", exe_emit.sub_path,
+            lf.emit.directory.path orelse ".", lf.emit.sub_path,
         }),
     };
     defer gpa.free(exe_path);
@@ -4367,7 +4368,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
-    const translated_zig_basename = try std.fmt.allocPrint(arena, "{s}.zig", .{comp.bin_file.options.root_name});
+    const translated_zig_basename = try std.fmt.allocPrint(arena, "{s}.zig", .{comp.root_name});
 
     var man: Cache.Manifest = comp.obtainCObjectCacheManifest();
     man.want_shared_lock = false;
@@ -5450,11 +5451,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         };
         try comp.makeBinFileExecutable();
 
-        const emit = comp.bin_file.options.emit.?;
-        child_argv.items[argv_index_exe] = try emit.directory.join(
-            arena,
-            &[_][]const u8{emit.sub_path},
-        );
+        const emit = comp.bin_file.?.emit;
+        child_argv.items[argv_index_exe] = try emit.directory.join(arena, &.{emit.sub_path});
 
         break :argv child_argv.items;
     };
