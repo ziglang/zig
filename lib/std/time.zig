@@ -110,6 +110,9 @@ pub const Date = struct {
     /// year, year 0000 is equal to 1 BCE
     year: i32,
 
+    utc_timestamp: i64,
+    tt: TimeZone.TimeType,
+
     pub const Weekday = enum(u3) {
         monday = 1,
         tuesday = 2,
@@ -128,6 +131,14 @@ pub const Date = struct {
             "Saturday",
             "Sunday",
         };
+
+        pub fn shortName(w: Weekday) []const u8 {
+            return names[@intFromEnum(w) - 1][0..3];
+        }
+
+        pub fn longName(w: Weekday) []const u8 {
+            return names[@intFromEnum(w) - 1];
+        }
     };
 
     pub const Month = enum(u4) {
@@ -158,6 +169,14 @@ pub const Date = struct {
             "November",
             "December",
         };
+
+        pub fn shortName(m: Month) []const u8 {
+            return names[@intFromEnum(m) - 1][0..3];
+        }
+
+        pub fn longName(m: Month) []const u8 {
+            return names[@intFromEnum(m) - 1];
+        }
     };
 
     /// Get current date in the system's local time.
@@ -168,11 +187,11 @@ pub const Date = struct {
         var tz = try localtime(sf.allocator());
         defer tz.deinit(sf.allocator());
 
-        return fromTimestamp(tz.project(utc_timestamp));
+        return fromTimestamp(utc_timestamp, tz.project(utc_timestamp));
     }
 
     /// Convert timestamp in milliseconds to a Date.
-    pub fn fromTimestamp(milliseconds: i64) Date {
+    pub fn fromTimestamp(utc_timestamp: i64, tt: TimeZone.TimeType) Date {
         // Ported from musl, which is licensed under the MIT license:
         // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 
@@ -183,7 +202,7 @@ pub const Date = struct {
         const days_per_100y = 365 * 100 + 24;
         const days_per_4y = 365 * 4 + 1;
 
-        const seconds = @divTrunc(milliseconds, 1000) - leapoch;
+        const seconds = @divTrunc(utc_timestamp, 1000) + tt.offset - leapoch;
         var days = @divTrunc(seconds, 86400);
         var rem_seconds = @as(i32, @truncate(@rem(seconds, 86400)));
         if (rem_seconds < 0) {
@@ -248,7 +267,9 @@ pub const Date = struct {
             .hour = @intCast(@divTrunc(rem_seconds, 3600)),
             .minute = @intCast(@rem(@divTrunc(rem_seconds, 60), 60)),
             .second = @intCast(@rem(rem_seconds, 60)),
-            .millisecond = @intCast(@rem(milliseconds, 1000)),
+            .millisecond = @intCast(@rem(utc_timestamp, 1000)),
+            .utc_timestamp = utc_timestamp,
+            .tt = tt,
         };
     }
 
@@ -272,7 +293,7 @@ pub const Date = struct {
         return std.math.order(self.millisecond, other.millisecond);
     }
 
-    pub const default_fmt = "%Y-%m-%dT%H%c%M%c%S";
+    pub const default_fmt = "%Y-%m-%dT%H%c%M%c%S%z";
 
     /// %a Abbreviated weekday name (Sun)
     /// %A Full weekday name (Sunday)
@@ -290,6 +311,8 @@ pub const Date = struct {
     /// %S Second (00-60)
     /// %y Year, last two digits (00-99)
     /// %Y Year
+    /// %z UTC offset in the form ±HHMM
+    /// %Z Time zone name.
     /// %% A % sign
     pub fn format(
         date: Date,
@@ -317,10 +340,10 @@ pub const Date = struct {
             fmt_char = false;
 
             switch (c) {
-                'a' => try writer.writeAll(Weekday.names[@intFromEnum(date.week_day) - 1][0..3]),
-                'A' => try writer.writeAll(Weekday.names[@intFromEnum(date.week_day) - 1]),
-                'b' => try writer.writeAll(Month.names[@intFromEnum(date.month) - 1][0..3]),
-                'B' => try writer.writeAll(Month.names[@intFromEnum(date.month) - 1]),
+                'a' => try writer.writeAll(date.week_day.shortName()),
+                'A' => try writer.writeAll(date.week_day.longName()),
+                'b' => try writer.writeAll(date.month.shortName()),
+                'B' => try writer.writeAll(date.month.longName()),
                 'c' => try writer.writeAll(":"),
                 'm' => try std.fmt.formatInt(@intFromEnum(date.month), 10, .lower, .{ .width = 2, .fill = '0' }, writer),
                 'd' => try std.fmt.formatInt(date.day, 10, .lower, .{ .width = 2, .fill = '0' }, writer),
@@ -349,6 +372,16 @@ pub const Date = struct {
                     try writer.writeAll("%");
                     begin = i + 1;
                 },
+                'z' => {
+                    const sign = "+-"[@intFromBool(date.tt.offset < 0)];
+                    try writer.writeByte(sign);
+                    const abs = @abs(date.tt.offset);
+                    const hours = @divFloor(abs, 3600);
+                    const minutes = @rem(@divFloor(abs, 60), 60);
+                    try std.fmt.formatInt(hours, 10, .lower, .{ .width = 2, .fill = '0' }, writer);
+                    try std.fmt.formatInt(minutes, 10, .lower, .{ .width = 2, .fill = '0' }, writer);
+                },
+                'Z' => try writer.writeAll(date.tt.name()),
                 else => @compileError("Unknown format character: " ++ [_]u8{fmt[i]}),
             }
         }
@@ -363,7 +396,7 @@ pub const Date = struct {
 };
 
 test Date {
-    const date = Date.fromTimestamp(1560870105000);
+    const date = Date.fromTimestamp(1560870105000, TimeZone.TimeType.UTC);
 
     try testing.expect(date.millisecond == 0);
     try testing.expect(date.second == 45);
@@ -377,17 +410,22 @@ test Date {
 }
 
 test "Date.format all" {
-    const date = Date.fromTimestamp(1560816105000);
+    const date = Date.fromTimestamp(1560816105000, TimeZone.TimeType.UTC);
     var buf: [100]u8 = undefined;
     const result = try std.fmt.bufPrint(&buf, "{%a %A %b %B %m %d %y %Y %I %p %H%c%M%c%S.%s %j %%}", .{date});
     try testing.expectEqualStrings("Tue Tuesday Jun June 06 18 19 2019 12 AM 00:01:45.000 169 %", result);
 }
 
 test "Date.format no format" {
-    const date = Date.fromTimestamp(1560870105000);
+    const EEST: TimeZone.TimeType = .{
+        .offset = 10800,
+        .flags = 0,
+        .name_data = "EEST\x00\x00".*,
+    };
+    const date = Date.fromTimestamp(1560870105000, EEST);
     var buf: [100]u8 = undefined;
     const result = try std.fmt.bufPrint(&buf, "{}", .{date});
-    try testing.expectEqualStrings("2019-06-18T15:01:45", result);
+    try std.testing.expectEqualStrings("2019-06-18T18:01:45+0300", result);
 }
 
 test "sleep" {
@@ -668,4 +706,5 @@ test "Timer + Instant" {
 
 test {
     _ = epoch;
+    _ = TimeZone;
 }

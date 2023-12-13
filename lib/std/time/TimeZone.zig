@@ -5,29 +5,35 @@ const TimeZone = @This();
 
 pub const Transition = struct {
     ts: i64,
-    timetype: *Timetype,
+    timetype: *TimeType,
 };
 
-pub const Timetype = struct {
+pub const TimeType = struct {
     offset: i32,
     flags: u8,
     name_data: [6:0]u8,
 
-    pub fn name(self: *const Timetype) [:0]const u8 {
+    pub fn name(self: *const TimeType) [:0]const u8 {
         return std.mem.sliceTo(self.name_data[0..], 0);
     }
 
-    pub fn isDst(self: Timetype) bool {
+    pub fn isDst(self: TimeType) bool {
         return (self.flags & 0x01) > 0;
     }
 
-    pub fn standardTimeIndicator(self: Timetype) bool {
+    pub fn standardTimeIndicator(self: TimeType) bool {
         return (self.flags & 0x02) > 0;
     }
 
-    pub fn utIndicator(self: Timetype) bool {
+    pub fn utIndicator(self: TimeType) bool {
         return (self.flags & 0x04) > 0;
     }
+
+    pub const UTC = TimeType{
+        .offset = 0,
+        .flags = 0,
+        .name_data = "UTC\x00\x00\x00".*,
+    };
 };
 
 pub const Leapsecond = struct {
@@ -36,7 +42,7 @@ pub const Leapsecond = struct {
 };
 
 transitions: []const Transition,
-timetypes: []const Timetype,
+timetypes: []const TimeType,
 leapseconds: []const Leapsecond,
 footer: ?[]const u8,
 
@@ -99,7 +105,7 @@ fn parseBlock(allocator: std.mem.Allocator, reader: anytype, header: Header, leg
     errdefer allocator.free(leapseconds);
     var transitions = try allocator.alloc(Transition, header.counts.timecnt);
     errdefer allocator.free(transitions);
-    var timetypes = try allocator.alloc(Timetype, header.counts.typecnt);
+    var timetypes = try allocator.alloc(TimeType, header.counts.typecnt);
     errdefer allocator.free(timetypes);
 
     // Parse transition types
@@ -219,30 +225,27 @@ pub fn deinit(self: *TimeZone, allocator: std.mem.Allocator) void {
 }
 
 /// Project UTC timestamp to this time zone.
-pub fn project(self: TimeZone, seconds: i64) i64 {
-    const offset = offset: {
-        var left: usize = 0;
-        var right: usize = self.transitions.len;
+pub fn project(self: TimeZone, seconds: i64) TimeType {
+    var left: usize = 0;
+    var right: usize = self.transitions.len;
 
-        // Adapted from std.sort.binarySearch.
-        var mid: usize = 0;
-        while (left < right) {
-            // Avoid overflowing in the midpoint calculation
-            mid = left + (right - left) / 2;
-            // Compare the key with the midpoint element
-            switch (std.math.order(seconds, self.transitions[mid].ts)) {
-                .eq => break :offset self.transitions[mid].timetype.offset,
-                .gt => left = mid + 1,
-                .lt => right = mid,
-            }
+    // Adapted from std.sort.binarySearch.
+    var mid: usize = 0;
+    while (left < right) {
+        // Avoid overflowing in the midpoint calculation
+        mid = left + (right - left) / 2;
+        // Compare the key with the midpoint element
+        switch (std.math.order(seconds, self.transitions[mid].ts)) {
+            .eq => return self.transitions[mid].timetype.*,
+            .gt => left = mid + 1,
+            .lt => right = mid,
         }
-        if (self.transitions[mid].ts > seconds) {
-            break :offset self.transitions[mid - 1].timetype.offset;
-        } else {
-            break :offset self.transitions[mid].timetype.offset;
-        }
-    };
-    return seconds + offset;
+    }
+    if (self.transitions[mid].ts > seconds) {
+        return self.transitions[mid - 1].timetype.*;
+    } else {
+        return self.transitions[mid].timetype.*;
+    }
 }
 
 test project {
@@ -253,9 +256,8 @@ test project {
     defer tz.deinit(std.testing.allocator);
 
     const timestamp: i64 = 1702475641;
-    const expected = timestamp + 3600;
-    const projected = tz.project(timestamp);
-    try std.testing.expectEqual(expected, projected);
+    const expected_offset: i32 = 3600;
+    try std.testing.expectEqual(expected_offset, tz.project(timestamp).offset);
 }
 
 test "slim" {
