@@ -1554,15 +1554,14 @@ const ElfDumper = struct {
     const archive_symtab_label = "archive symbol table";
 
     fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
-        _ = kind;
-        const gpa = step.owner.allocator;
-        return parseAndDumpArchive(gpa, bytes) catch |err| switch (err) {
-            error.InvalidArchiveMagicNumber => try parseAndDumpObject(gpa, bytes),
+        return parseAndDumpArchive(step, kind, bytes) catch |err| switch (err) {
+            error.InvalidArchiveMagicNumber => try parseAndDumpObject(step, kind, bytes),
             else => |e| return e,
         };
     }
 
-    fn parseAndDumpArchive(gpa: Allocator, bytes: []const u8) ![]const u8 {
+    fn parseAndDumpArchive(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+        const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
 
@@ -1623,8 +1622,15 @@ const ElfDumper = struct {
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        try ctx.dumpSymtab(writer);
-        try ctx.dumpObjects(writer);
+        switch (kind) {
+            .archive_symtab => if (ctx.symtab.items.len > 0) {
+                try ctx.dumpSymtab(writer);
+            } else return step.fail("no archive symbol table found", .{}),
+
+            else => if (ctx.objects.items.len > 0) {
+                try ctx.dumpObjects(step, kind, writer);
+            } else return step.fail("empty archive", .{}),
+        }
 
         return output.toOwnedSlice();
     }
@@ -1666,8 +1672,6 @@ const ElfDumper = struct {
         }
 
         fn dumpSymtab(ctx: ArchiveContext, writer: anytype) !void {
-            if (ctx.symtab.items.len == 0) return;
-
             var files = std.AutoHashMap(usize, []const u8).init(ctx.gpa);
             defer files.deinit();
             try files.ensureUnusedCapacity(@intCast(ctx.objects.items.len));
@@ -1701,10 +1705,10 @@ const ElfDumper = struct {
             }
         }
 
-        fn dumpObjects(ctx: ArchiveContext, writer: anytype) !void {
+        fn dumpObjects(ctx: ArchiveContext, step: *Step, kind: Check.Kind, writer: anytype) !void {
             for (ctx.objects.items) |object| {
                 try writer.print("object {s}\n", .{object.name});
-                const output = try parseAndDumpObject(ctx.gpa, ctx.data[object.off..][0..object.len]);
+                const output = try parseAndDumpObject(step, kind, ctx.data[object.off..][0..object.len]);
                 defer ctx.gpa.free(output);
                 try writer.print("{s}\n", .{output});
             }
@@ -1722,7 +1726,8 @@ const ElfDumper = struct {
         };
     };
 
-    fn parseAndDumpObject(gpa: Allocator, bytes: []const u8) ![]const u8 {
+    fn parseAndDumpObject(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+        const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
 
@@ -1774,12 +1779,27 @@ const ElfDumper = struct {
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        try ctx.dumpHeader(writer);
-        try ctx.dumpShdrs(writer);
-        try ctx.dumpPhdrs(writer);
-        try ctx.dumpDynamicSection(writer);
-        try ctx.dumpSymtab(.symtab, writer);
-        try ctx.dumpSymtab(.dysymtab, writer);
+        switch (kind) {
+            .headers => {
+                try ctx.dumpHeader(writer);
+                try ctx.dumpShdrs(writer);
+                try ctx.dumpPhdrs(writer);
+            },
+
+            .symtab => if (ctx.symtab.symbols.len > 0) {
+                try ctx.dumpSymtab(.symtab, writer);
+            } else return step.fail("no symbol table found", .{}),
+
+            .dynamic_symtab => if (ctx.dysymtab.symbols.len > 0) {
+                try ctx.dumpSymtab(.dysymtab, writer);
+            } else return step.fail("no dynamic symbol table found", .{}),
+
+            .dynamic_section => if (ctx.getSectionByName(".dynamic")) |shndx| {
+                try ctx.dumpDynamicSection(shndx, writer);
+            } else return step.fail("no .dynamic section found", .{}),
+
+            else => return step.fail("invalid check kind for ELF file format: {s}", .{@tagName(kind)}),
+        }
 
         return output.toOwnedSlice();
     }
@@ -1791,8 +1811,8 @@ const ElfDumper = struct {
         shdrs: []align(1) const elf.Elf64_Shdr,
         phdrs: []align(1) const elf.Elf64_Phdr,
         shstrtab: []const u8,
-        symtab: ?Symtab = null,
-        dysymtab: ?Symtab = null,
+        symtab: Symtab = .{},
+        dysymtab: Symtab = .{},
 
         fn dumpHeader(ctx: ObjectContext, writer: anytype) !void {
             try writer.writeAll("header\n");
@@ -1856,8 +1876,7 @@ const ElfDumper = struct {
             }
         }
 
-        fn dumpDynamicSection(ctx: ObjectContext, writer: anytype) !void {
-            const shndx = ctx.getSectionByName(".dynamic") orelse return;
+        fn dumpDynamicSection(ctx: ObjectContext, shndx: usize, writer: anytype) !void {
             const shdr = ctx.shdrs[shndx];
             const strtab = ctx.getSectionContents(shdr.sh_link);
             const data = ctx.getSectionContents(shndx);
@@ -2097,8 +2116,8 @@ const ElfDumper = struct {
     };
 
     const Symtab = struct {
-        symbols: []align(1) const elf.Elf64_Sym,
-        strings: []const u8,
+        symbols: []align(1) const elf.Elf64_Sym = &[0]elf.Elf64_Sym{},
+        strings: []const u8 = &[0]u8{},
 
         fn get(st: Symtab, index: usize) ?elf.Elf64_Sym {
             if (index >= st.symbols.len) return null;
