@@ -5044,6 +5044,7 @@ pub const SYSTEM_INFORMATION_CLASS = enum(c_int) {
     SystemInterruptInformation = 23,
     SystemExceptionInformation = 33,
     SystemRegistryQuotaInformation = 37,
+    SystemCurrentTimeZoneInformation = 44,
     SystemLookasideInformation = 45,
     SystemCodeIntegrityInformation = 103,
     SystemPolicyInformation = 134,
@@ -5061,6 +5062,27 @@ pub const SYSTEM_BASIC_INFORMATION = extern struct {
     MaximumUserModeAddress: ULONG_PTR,
     ActiveProcessorsAffinityMask: KAFFINITY,
     NumberOfProcessors: UCHAR,
+};
+
+pub const TIME_ZONE_INFORMATION = extern struct {
+    Bias: LONG,
+    StandardName: [32]WCHAR,
+    StandardDate: SYSTEMTIME,
+    StandardBias: LONG,
+    DaylightName: [32]WCHAR,
+    DaylightDate: SYSTEMTIME,
+    DaylightBias: LONG,
+};
+
+pub const SYSTEMTIME = extern struct {
+    wYear: WORD,
+    wMonth: WORD,
+    wDayOfWeek: WORD,
+    wDay: WORD,
+    wHour: WORD,
+    wMinute: WORD,
+    wSecond: WORD,
+    wMilliseconds: WORD,
 };
 
 pub const THREADINFOCLASS = enum(c_int) {

@@ -183,6 +183,29 @@ pub const Date = struct {
     pub fn now(allocator: std.mem.Allocator) LocalTimeError!Date {
         const utc_timestamp = timestamp();
 
+        if (builtin.os.tag == .windows) {
+            var tzi: std.os.windows.TIME_ZONE_INFORMATION = undefined;
+            const rc = std.os.windows.ntdll.NtQuerySystemInformation(
+                .SystemCurrentTimeZoneInformation,
+                &tzi,
+                @sizeOf(std.os.windows.TIME_ZONE_INFORMATION),
+                null,
+            );
+            if (rc != .SUCCESS) return error.LocalTimeUnavailable;
+            return fromTimestamp(utc_timestamp, .{
+                .name_data = .{
+                    @intCast(tzi.StandardName[0]),
+                    @intCast(tzi.StandardName[1]),
+                    @intCast(tzi.StandardName[2]),
+                    @intCast(tzi.StandardName[3]),
+                    @intCast(tzi.StandardName[4]),
+                    @intCast(tzi.StandardName[5]),
+                },
+                .flags = 0,
+                .offset = tzi.Bias,
+            });
+        }
+
         var sf = std.heap.stackFallback(4096, allocator);
         var tz = try localtime(sf.allocator());
         defer tz.deinit(sf.allocator());
