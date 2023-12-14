@@ -854,9 +854,8 @@ pub const Object = struct {
     /// want to iterate over it while adding entries to it.
     pub const DITypeMap = std.AutoArrayHashMapUnmanaged(InternPool.Index, AnnotatedDITypePtr);
 
-    pub fn create(arena: Allocator, options: link.File.OpenOptions) !*Object {
+    pub fn create(arena: Allocator, comp: *Compilation) !*Object {
         if (build_options.only_c) unreachable;
-        const comp = options.comp;
         const gpa = comp.gpa;
         const target = comp.root_mod.resolved_target.result;
         const llvm_target_triple = try targetTriple(arena, target);
@@ -878,14 +877,7 @@ pub const Object = struct {
         var target_data: if (build_options.have_llvm) *llvm.TargetData else void = undefined;
         if (builder.useLibLlvm()) {
             debug_info: {
-                const debug_format = options.debug_format orelse b: {
-                    if (strip) break :b .strip;
-                    break :b switch (target.ofmt) {
-                        .coff => .code_view,
-                        else => .{ .dwarf = .@"32" },
-                    };
-                };
-                switch (debug_format) {
+                switch (comp.config.debug_format) {
                     .strip => break :debug_info,
                     .code_view => builder.llvm.module.?.addModuleCodeViewFlag(),
                     .dwarf => |f| builder.llvm.module.?.addModuleDebugInfoFlag(f == .@"64"),
@@ -961,8 +953,8 @@ pub const Object = struct {
                 opt_level,
                 reloc_mode,
                 code_model,
-                options.function_sections orelse false,
-                options.data_sections orelse false,
+                comp.function_sections,
+                comp.data_sections,
                 float_abi,
                 if (target_util.llvmMachineAbi(target)) |s| s.ptr else null,
             );

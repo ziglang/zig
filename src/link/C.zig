@@ -92,20 +92,23 @@ pub fn addString(this: *C, s: []const u8) Allocator.Error!String {
     };
 }
 
-pub fn open(arena: Allocator, options: link.File.OpenOptions) !*C {
-    const target = options.comp.root_mod.resolved_target.result;
+pub fn open(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*C {
+    const target = comp.root_mod.resolved_target.result;
     assert(target.ofmt == .c);
-    const optimize_mode = options.comp.root_mod.optimize_mode;
-    const use_lld = build_options.have_llvm and options.comp.config.use_lld;
-    const use_llvm = options.comp.config.use_llvm;
-    const output_mode = options.comp.config.output_mode;
-    const link_mode = options.comp.config.link_mode;
+    const optimize_mode = comp.root_mod.optimize_mode;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
+    const output_mode = comp.config.output_mode;
+    const link_mode = comp.config.link_mode;
 
     // These are caught by `Compilation.Config.resolve`.
     assert(!use_lld);
     assert(!use_llvm);
-
-    const emit = options.emit;
 
     const file = try emit.directory.handle.createFile(emit.sub_path, .{
         // Truncation is done on `flush`.
@@ -119,7 +122,7 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*C {
     c_file.* = .{
         .base = .{
             .tag = .c,
-            .comp = options.comp,
+            .comp = comp,
             .emit = emit,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
             .stack_size = options.stack_size orelse 16777216,
@@ -129,9 +132,6 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*C {
             .build_id = options.build_id,
             .rpath_list = options.rpath_list,
             .force_undefined_symbols = options.force_undefined_symbols,
-            .debug_format = options.debug_format orelse .{ .dwarf = .@"32" },
-            .function_sections = options.function_sections,
-            .data_sections = options.data_sections,
         },
     };
 

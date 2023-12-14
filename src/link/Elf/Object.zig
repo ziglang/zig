@@ -293,13 +293,14 @@ fn initOutputSection(self: Object, elf_file: *Elf, shdr: ElfShdr) error{OutOfMem
 }
 
 fn skipShdr(self: *Object, index: u16, elf_file: *Elf) bool {
+    const comp = elf_file.base.comp;
     const shdr = self.shdrs.items[index];
     const name = self.getString(shdr.sh_name);
     const ignore = blk: {
         if (mem.startsWith(u8, name, ".note")) break :blk true;
         if (mem.startsWith(u8, name, ".comment")) break :blk true;
         if (mem.startsWith(u8, name, ".llvm_addrsig")) break :blk true;
-        if (elf_file.base.debug_format == .strip and shdr.sh_flags & elf.SHF_ALLOC == 0 and
+        if (comp.config.debug_format == .strip and shdr.sh_flags & elf.SHF_ALLOC == 0 and
             mem.startsWith(u8, name, ".debug")) break :blk true;
         break :blk false;
     };

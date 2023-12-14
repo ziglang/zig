@@ -784,6 +784,11 @@ pub const Block = struct {
         }
     }
 
+    pub fn ownerModule(block: Block) *Package.Module {
+        const zcu = block.sema.mod;
+        return zcu.namespacePtr(block.namespace).file_scope.mod;
+    }
+
     pub fn startAnonDecl(block: *Block) !WipAnonDecl {
         return WipAnonDecl{
             .block = block,
@@ -5733,7 +5738,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     // Ignore the result, all the relevant operations have written to c_import_buf already.
     _ = try sema.analyzeBodyBreak(&child_block, body);
 
-    var c_import_res = comp.cImport(c_import_buf.items) catch |err|
+    var c_import_res = comp.cImport(c_import_buf.items, parent_block.ownerModule()) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
     defer c_import_res.deinit(gpa);
 

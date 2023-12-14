@@ -49,16 +49,21 @@ object: codegen.Object,
 
 pub const base_tag: link.File.Tag = .spirv;
 
-pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*SpirV {
-    const gpa = options.comp.gpa;
-    const target = options.comp.root_mod.resolved_target.result;
+pub fn createEmpty(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*SpirV {
+    const gpa = comp.gpa;
+    const target = comp.root_mod.resolved_target.result;
 
     const self = try arena.create(SpirV);
     self.* = .{
         .base = .{
             .tag = .spirv,
-            .comp = options.comp,
-            .emit = options.emit,
+            .comp = comp,
+            .emit = emit,
             .gc_sections = options.gc_sections orelse false,
             .stack_size = options.stack_size orelse 0,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
@@ -67,9 +72,6 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*SpirV {
             .build_id = options.build_id,
             .rpath_list = options.rpath_list,
             .force_undefined_symbols = options.force_undefined_symbols,
-            .function_sections = options.function_sections,
-            .data_sections = options.data_sections,
-            .debug_format = options.debug_format orelse .{ .dwarf = .@"32" },
         },
         .object = codegen.Object.init(gpa),
     };
@@ -90,22 +92,27 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*SpirV {
     return self;
 }
 
-pub fn open(arena: Allocator, options: link.File.OpenOptions) !*SpirV {
+pub fn open(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*SpirV {
     if (build_options.only_c) unreachable;
 
-    const target = options.comp.root_mod.resolved_target.result;
-    const use_lld = build_options.have_llvm and options.comp.config.use_lld;
-    const use_llvm = options.comp.config.use_llvm;
+    const target = comp.root_mod.resolved_target.result;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
 
     assert(!use_llvm); // Caught by Compilation.Config.resolve.
     assert(!use_lld); // Caught by Compilation.Config.resolve.
     assert(target.ofmt == .spirv); // Caught by Compilation.Config.resolve.
 
-    const spirv = try createEmpty(arena, options);
+    const spirv = try createEmpty(arena, comp, emit, options);
     errdefer spirv.base.destroy();
 
     // TODO: read the file and keep valid parts instead of truncating
-    const file = try options.emit.directory.handle.createFile(options.emit.sub_path, .{
+    const file = try emit.directory.handle.createFile(emit.sub_path, .{
         .truncate = true,
         .read = true,
     });

@@ -33,10 +33,15 @@ cc_argv: []const []const u8,
 /// (SPIR-V) whether to generate a structured control flow graph or not
 structured_cfg: bool,
 
-/// The contents of `@import("builtin")` for this module.
-generated_builtin_source: []const u8,
+/// If the module is an `@import("builtin")` module, this is the `File` that
+/// is preallocated for it. Otherwise this field is null.
+builtin_file: ?*File,
 
 pub const Deps = std.StringArrayHashMapUnmanaged(*Module);
+
+pub fn isBuiltin(m: Module) bool {
+    return m.file != null;
+}
 
 pub const Tree = struct {
     /// Each `Package` exposes a `Module` with build.zig as its root source file.
@@ -329,6 +334,8 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .wasi_exec_model = options.global.wasi_exec_model,
         }, arena);
 
+        const new_file = try arena.create(File);
+
         const digest = Cache.HashHelper.oneShot(generated_builtin_source);
         const builtin_sub_path = try arena.dupe(u8, "b" ++ std.fs.path.sep_str ++ digest);
         const new = try arena.create(Module);
@@ -359,12 +366,25 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .stack_protector = stack_protector,
             .code_model = code_model,
             .red_zone = red_zone,
-            .generated_builtin_source = generated_builtin_source,
             .sanitize_c = sanitize_c,
             .sanitize_thread = sanitize_thread,
             .unwind_tables = unwind_tables,
             .cc_argv = &.{},
             .structured_cfg = structured_cfg,
+            .builtin_file = new_file,
+        };
+        new_file.* = .{
+            .sub_file_path = "builtin.zig",
+            .source = generated_builtin_source,
+            .source_loaded = true,
+            .tree_loaded = false,
+            .zir_loaded = false,
+            .stat = undefined,
+            .tree = undefined,
+            .zir = undefined,
+            .status = .never_loaded,
+            .mod = new,
+            .root_decl = .none,
         };
         break :b new;
     };
@@ -391,12 +411,12 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         .stack_protector = stack_protector,
         .code_model = code_model,
         .red_zone = red_zone,
-        .generated_builtin_source = builtin_mod.generated_builtin_source,
         .sanitize_c = sanitize_c,
         .sanitize_thread = sanitize_thread,
         .unwind_tables = unwind_tables,
         .cc_argv = options.cc_argv,
         .structured_cfg = structured_cfg,
+        .builtin_file = null,
     };
 
     try mod.deps.ensureUnusedCapacity(arena, 1);
@@ -437,8 +457,8 @@ pub fn createLimited(gpa: Allocator, options: LimitedOptions) Allocator.Error!*P
         .sanitize_thread = undefined,
         .unwind_tables = undefined,
         .cc_argv = undefined,
-        .generated_builtin_source = undefined,
         .structured_cfg = undefined,
+        .builtin_file = null,
     };
     return mod;
 }
@@ -457,3 +477,4 @@ const Cache = std.Build.Cache;
 const Builtin = @import("../Builtin.zig");
 const assert = std.debug.assert;
 const Compilation = @import("../Compilation.zig");
+const File = @import("../Module.zig").File;

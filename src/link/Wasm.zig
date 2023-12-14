@@ -373,9 +373,13 @@ pub const StringTable = struct {
     }
 };
 
-pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
+pub fn open(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*Wasm {
     if (build_options.only_c) unreachable;
-    const comp = options.comp;
     const gpa = comp.gpa;
     const target = comp.root_mod.resolved_target.result;
     assert(target.ofmt == .wasm);
@@ -385,7 +389,7 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
     const output_mode = comp.config.output_mode;
     const shared_memory = comp.config.shared_memory;
 
-    const wasm = try createEmpty(arena, options);
+    const wasm = try createEmpty(arena, comp, emit, options);
     errdefer wasm.base.destroy();
 
     if (use_lld and use_llvm) {
@@ -393,18 +397,18 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
         return wasm;
     }
 
-    const sub_path = if (!use_lld) options.emit.sub_path else p: {
+    const sub_path = if (!use_lld) emit.sub_path else p: {
         // Open a temporary object file, not the final output file because we
         // want to link with LLD.
         const o_file_path = try std.fmt.allocPrint(arena, "{s}{s}", .{
-            options.emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
+            emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
         });
         wasm.base.intermediary_basename = o_file_path;
         break :p o_file_path;
     };
 
     // TODO: read the file and keep valid parts instead of truncating
-    const file = try options.emit.directory.handle.createFile(sub_path, .{
+    const file = try emit.directory.handle.createFile(sub_path, .{
         .truncate = true,
         .read = true,
         .mode = if (fs.has_executable_bit)
@@ -530,8 +534,12 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
     return wasm;
 }
 
-pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
-    const comp = options.comp;
+pub fn createEmpty(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*Wasm {
     const use_llvm = comp.config.use_llvm;
     const output_mode = comp.config.output_mode;
 
@@ -540,7 +548,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
         .base = .{
             .tag = .wasm,
             .comp = comp,
-            .emit = options.emit,
+            .emit = emit,
             .gc_sections = options.gc_sections orelse (output_mode != .Obj),
             .stack_size = options.stack_size orelse std.wasm.page_size * 16, // 1MB
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
@@ -549,9 +557,6 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
             .build_id = options.build_id,
             .rpath_list = options.rpath_list,
             .force_undefined_symbols = options.force_undefined_symbols,
-            .debug_format = options.debug_format orelse .{ .dwarf = .@"32" },
-            .function_sections = options.function_sections,
-            .data_sections = options.data_sections,
         },
         .name = undefined,
         .import_table = options.import_table,
@@ -566,7 +571,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Wasm {
     };
 
     if (use_llvm) {
-        wasm.llvm_object = try LlvmObject.create(arena, options);
+        wasm.llvm_object = try LlvmObject.create(arena, comp);
     }
     return wasm;
 }
@@ -4205,11 +4210,11 @@ fn writeToFile(
         if (data_section_index) |data_index| {
             try wasm.emitDataRelocations(&binary_bytes, data_index, symbol_table);
         }
-    } else if (wasm.base.debug_format != .strip) {
+    } else if (comp.config.debug_format != .strip) {
         try wasm.emitNameSection(&binary_bytes, arena);
     }
 
-    if (wasm.base.debug_format != .strip) {
+    if (comp.config.debug_format != .strip) {
         // The build id must be computed on the main sections only,
         // so we have to do it now, before the debug sections.
         switch (wasm.base.build_id) {
@@ -4748,7 +4753,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append("--no-gc-sections");
         }
 
-        if (wasm.base.debug_format == .strip) {
+        if (comp.config.debug_format == .strip) {
             try argv.append("-s");
         }
 
@@ -5276,7 +5281,9 @@ pub fn storeDeclType(wasm: *Wasm, decl_index: InternPool.DeclIndex, func_type: s
 fn markReferences(wasm: *Wasm) !void {
     const tracy = trace(@src());
     defer tracy.end();
+
     const do_garbage_collect = wasm.base.gc_sections;
+    const comp = wasm.base.comp;
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const sym = sym_loc.getSymbol(wasm);
@@ -5287,7 +5294,7 @@ fn markReferences(wasm: *Wasm) !void {
 
         // Debug sections may require to be parsed and marked when it contains
         // relocations to alive symbols.
-        if (sym.tag == .section and wasm.base.debug_format != .strip) {
+        if (sym.tag == .section and comp.config.debug_format != .strip) {
             const file = sym_loc.file orelse continue; // Incremental debug info is done independently
             const object = &wasm.objects.items[file];
             const atom_index = try Object.parseSymbolIntoAtom(object, file, sym_loc.index, wasm);

@@ -76,7 +76,8 @@ pub const symbol_mask: u32 = 0x7fffffff;
 pub const SHN_ATOM: u16 = 0x100;
 
 pub fn init(self: *ZigObject, elf_file: *Elf) !void {
-    const gpa = elf_file.base.comp.gpa;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
 
     try self.atoms.append(gpa, 0); // null input section
     try self.relocs.append(gpa, .{}); // null relocs section
@@ -96,8 +97,13 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
     esym.st_shndx = elf.SHN_ABS;
     symbol_ptr.esym_index = esym_index;
 
-    if (elf_file.base.debug_format != .strip) {
-        self.dwarf = Dwarf.init(&elf_file.base, .dwarf32);
+    switch (comp.config.debug_format) {
+        .strip => {},
+        .dwarf => |v| {
+            assert(v == .@"32");
+            self.dwarf = Dwarf.init(&elf_file.base, .dwarf32);
+        },
+        .code_view => unreachable,
     }
 }
 

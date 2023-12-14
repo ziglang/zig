@@ -68,9 +68,6 @@ pub const File = struct {
     force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
     allow_shlib_undefined: bool,
     stack_size: u64,
-    debug_format: DebugFormat,
-    function_sections: bool,
-    data_sections: bool,
 
     /// Prevents other processes from clobbering files in the output directory
     /// of this linking operation.
@@ -78,16 +75,7 @@ pub const File = struct {
 
     child_pid: ?std.ChildProcess.Id = null,
 
-    pub const DebugFormat = union(enum) {
-        strip,
-        dwarf: std.dwarf.Format,
-        code_view,
-    };
-
     pub const OpenOptions = struct {
-        comp: *Compilation,
-        emit: Compilation.Emit,
-
         symbol_count_hint: u64 = 32,
         program_code_size_hint: u64 = 256 * 1024,
 
@@ -95,8 +83,6 @@ pub const File = struct {
         entry_addr: ?u64,
         stack_size: ?u64,
         image_base: ?u64,
-        function_sections: bool,
-        data_sections: bool,
         eh_frame_hdr: bool,
         emit_relocs: bool,
         rdynamic: bool,
@@ -150,8 +136,6 @@ pub const File = struct {
 
         compatibility_version: ?std.SemanticVersion,
 
-        debug_format: ?DebugFormat,
-
         // TODO: remove this. libraries are resolved by the frontend.
         lib_dirs: []const []const u8,
         rpath_list: []const []const u8,
@@ -190,10 +174,29 @@ pub const File = struct {
     /// rewriting it. A malicious file is detected as incremental link failure
     /// and does not cause Illegal Behavior. This operation is not atomic.
     /// `arena` is used for allocations with the same lifetime as the created File.
-    pub fn open(arena: Allocator, options: OpenOptions) !*File {
-        switch (Tag.fromObjectFormat(options.comp.root_mod.resolved_target.result.ofmt)) {
+    pub fn open(
+        arena: Allocator,
+        comp: *Compilation,
+        emit: Compilation.Emit,
+        options: OpenOptions,
+    ) !*File {
+        switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt)) {
             inline else => |tag| {
-                const ptr = try tag.Type().open(arena, options);
+                const ptr = try tag.Type().open(arena, comp, emit, options);
+                return &ptr.base;
+            },
+        }
+    }
+
+    pub fn createEmpty(
+        arena: Allocator,
+        comp: *Compilation,
+        emit: Compilation.Emit,
+        options: OpenOptions,
+    ) !*File {
+        switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt)) {
+            inline else => |tag| {
+                const ptr = try tag.Type().createEmpty(arena, comp, emit, options);
                 return &ptr.base;
             },
         }

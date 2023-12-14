@@ -228,18 +228,23 @@ pub const HashStyle = enum { sysv, gnu, both };
 pub const CompressDebugSections = enum { none, zlib, zstd };
 pub const SortSection = enum { name, alignment };
 
-pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Elf {
+pub fn open(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*Elf {
     if (build_options.only_c) unreachable;
-    const target = options.comp.root_mod.resolved_target.result;
+    const target = comp.root_mod.resolved_target.result;
     assert(target.ofmt == .elf);
 
-    const use_lld = build_options.have_llvm and options.comp.config.use_lld;
-    const use_llvm = options.comp.config.use_llvm;
-    const opt_zcu = options.comp.module;
-    const output_mode = options.comp.config.output_mode;
-    const link_mode = options.comp.config.link_mode;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
+    const opt_zcu = comp.module;
+    const output_mode = comp.config.output_mode;
+    const link_mode = comp.config.link_mode;
 
-    const self = try createEmpty(arena, options);
+    const self = try createEmpty(arena, comp, emit, options);
     errdefer self.base.destroy();
 
     if (use_lld and use_llvm) {
@@ -250,23 +255,23 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Elf {
     const is_obj = output_mode == .Obj;
     const is_obj_or_ar = is_obj or (output_mode == .Lib and link_mode == .Static);
 
-    const sub_path = if (!use_lld) options.emit.sub_path else p: {
+    const sub_path = if (!use_lld) emit.sub_path else p: {
         // Open a temporary object file, not the final output file because we
         // want to link with LLD.
         const o_file_path = try std.fmt.allocPrint(arena, "{s}{s}", .{
-            options.emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
+            emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
         });
         self.base.intermediary_basename = o_file_path;
         break :p o_file_path;
     };
 
-    self.base.file = try options.emit.directory.handle.createFile(sub_path, .{
+    self.base.file = try emit.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
         .mode = link.File.determineMode(use_lld, output_mode, link_mode),
     });
 
-    const gpa = options.comp.gpa;
+    const gpa = comp.gpa;
 
     // Index 0 is always a null symbol.
     try self.symbols.append(gpa, .{});
@@ -343,8 +348,12 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Elf {
     return self;
 }
 
-pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Elf {
-    const comp = options.comp;
+pub fn createEmpty(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*Elf {
     const use_llvm = comp.config.use_llvm;
     const optimize_mode = comp.root_mod.optimize_mode;
     const target = comp.root_mod.resolved_target.result;
@@ -373,7 +382,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Elf {
         .base = .{
             .tag = .elf,
             .comp = comp,
-            .emit = options.emit,
+            .emit = emit,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
             .stack_size = options.stack_size orelse 16777216,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse !is_native_os,
@@ -382,9 +391,6 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Elf {
             .build_id = options.build_id,
             .rpath_list = options.rpath_list,
             .force_undefined_symbols = options.force_undefined_symbols,
-            .debug_format = options.debug_format orelse .{ .dwarf = .@"32" },
-            .function_sections = options.function_sections,
-            .data_sections = options.data_sections,
         },
         .ptr_width = ptr_width,
         .page_size = page_size,
@@ -423,7 +429,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Elf {
         .version_script = options.version_script,
     };
     if (use_llvm and comp.config.have_zcu) {
-        self.llvm_object = try LlvmObject.create(arena, options);
+        self.llvm_object = try LlvmObject.create(arena, comp);
     }
 
     return self;
@@ -1753,7 +1759,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try argv.append("-pie");
         }
 
-        if (self.base.debug_format == .strip) {
+        if (comp.config.debug_format == .strip) {
             try argv.append("-s");
         }
 
@@ -2640,7 +2646,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("--export-dynamic");
         }
 
-        if (self.base.debug_format == .strip) {
+        if (comp.config.debug_format == .strip) {
             try argv.append("-s");
         }
 

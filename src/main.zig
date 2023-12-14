@@ -892,7 +892,6 @@ fn buildOutputType(
     var contains_res_file: bool = false;
     var reference_trace: ?u32 = null;
     var pdb_out_path: ?[]const u8 = null;
-    var debug_format: ?link.File.DebugFormat = null;
     var error_limit: ?Module.ErrorInt = null;
     // These are before resolving sysroot.
     var lib_dir_args: std.ArrayListUnmanaged([]const u8) = .{};
@@ -1054,6 +1053,8 @@ fn buildOutputType(
                             create_module.opts.any_sanitize_thread = true;
                         if (mod_opts.unwind_tables == true)
                             create_module.opts.any_unwind_tables = true;
+                        if (mod_opts.strip == false)
+                            create_module.opts.any_non_stripped = true;
 
                         const root_src = try introspect.resolvePath(arena, root_src_orig);
                         try create_module.modules.put(arena, mod_name, .{
@@ -1480,9 +1481,9 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-strip")) {
                         mod_opts.strip = false;
                     } else if (mem.eql(u8, arg, "-gdwarf32")) {
-                        debug_format = .{ .dwarf = .@"32" };
+                        create_module.opts.debug_format = .{ .dwarf = .@"32" };
                     } else if (mem.eql(u8, arg, "-gdwarf64")) {
-                        debug_format = .{ .dwarf = .@"64" };
+                        create_module.opts.debug_format = .{ .dwarf = .@"64" };
                     } else if (mem.eql(u8, arg, "-fformatted-panics")) {
                         formatted_panics = true;
                     } else if (mem.eql(u8, arg, "-fno-formatted-panics")) {
@@ -1989,11 +1990,11 @@ fn buildOutputType(
                     },
                     .gdwarf32 => {
                         mod_opts.strip = false;
-                        debug_format = .{ .dwarf = .@"32" };
+                        create_module.opts.debug_format = .{ .dwarf = .@"32" };
                     },
                     .gdwarf64 => {
                         mod_opts.strip = false;
-                        debug_format = .{ .dwarf = .@"64" };
+                        create_module.opts.debug_format = .{ .dwarf = .@"64" };
                     },
                     .sanitize => {
                         if (mem.eql(u8, it.only_arg, "undefined")) {
@@ -2532,6 +2533,8 @@ fn buildOutputType(
             create_module.opts.any_sanitize_thread = true;
         if (mod_opts.unwind_tables == true)
             create_module.opts.any_unwind_tables = true;
+        if (mod_opts.strip == false)
+            create_module.opts.any_non_stripped = true;
 
         const src_path = try introspect.resolvePath(arena, unresolved_src_path);
         try create_module.modules.put(arena, "main", .{
@@ -3359,7 +3362,6 @@ fn buildOutputType(
         .emit_docs = emit_docs_resolved.data,
         .emit_implib = emit_implib_resolved.data,
         .dll_export_fns = dll_export_fns,
-        .keep_source_files_loaded = false,
         .lib_dirs = lib_dirs.items,
         .rpath_list = rpath_list.items,
         .symbol_wrap_set = symbol_wrap_set,
@@ -3443,7 +3445,6 @@ fn buildOutputType(
         .test_runner_path = test_runner_path,
         .disable_lld_caching = !output_to_cache,
         .subsystem = subsystem,
-        .debug_format = debug_format,
         .debug_compile_errors = debug_compile_errors,
         .enable_link_snapshots = enable_link_snapshots,
         .install_name = install_name,
@@ -3484,7 +3485,9 @@ fn buildOutputType(
     defer if (!comp_destroyed) comp.destroy();
 
     if (show_builtin) {
-        return std.io.getStdOut().writeAll(try comp.generateBuiltinZigSource(arena));
+        const builtin_mod = comp.root_mod.deps.get("builtin").?;
+        const source = builtin_mod.builtin_file.?.source;
+        return std.io.getStdOut().writeAll(source);
     }
     switch (listen) {
         .none => {},
@@ -3737,6 +3740,7 @@ fn createModule(
         const resolved_target = cli_mod.inherited.resolved_target.?;
         create_module.opts.resolved_target = resolved_target;
         create_module.opts.root_optimize_mode = cli_mod.inherited.optimize_mode;
+        create_module.opts.root_strip = cli_mod.inherited.strip;
         const target = resolved_target.result;
 
         // First, remove libc, libc++, and compiler_rt libraries from the system libraries list.
@@ -4366,12 +4370,12 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
 
     const translated_zig_basename = try std.fmt.allocPrint(arena, "{s}.zig", .{comp.root_name});
 
-    var man: Cache.Manifest = comp.obtainCObjectCacheManifest();
+    var man: Cache.Manifest = comp.obtainCObjectCacheManifest(comp.root_mod);
     man.want_shared_lock = false;
     defer man.deinit();
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
-    man.hash.add(comp.c_frontend);
+    man.hash.add(comp.config.c_frontend);
     Compilation.cache_helpers.hashCSource(&man, c_source_file) catch |err| {
         fatal("unable to process '{s}': {s}", .{ c_source_file.src_path, @errorName(err) });
     };
@@ -4380,14 +4384,14 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
     const digest = if (try man.hit()) man.final() else digest: {
         if (fancy_output) |p| p.cache_hit = false;
         var argv = std.ArrayList([]const u8).init(arena);
-        try argv.append(@tagName(comp.c_frontend)); // argv[0] is program name, actual args start at [1]
+        try argv.append(@tagName(comp.config.c_frontend)); // argv[0] is program name, actual args start at [1]
 
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
         const ext = Compilation.classifyFileExt(c_source_file.src_path);
         const out_dep_path: ?[]const u8 = blk: {
-            if (comp.c_frontend == .aro or comp.disable_c_depfile or !ext.clangSupportsDepFile())
+            if (comp.config.c_frontend == .aro or comp.disable_c_depfile or !ext.clangSupportsDepFile())
                 break :blk null;
 
             const c_src_basename = fs.path.basename(c_source_file.src_path);
@@ -4397,14 +4401,15 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
         };
 
         // TODO
-        if (comp.c_frontend != .aro) try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path);
+        if (comp.config.c_frontend != .aro)
+            try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path, comp.root_mod);
         try argv.append(c_source_file.src_path);
 
         if (comp.verbose_cc) {
             Compilation.dump_argv(argv.items);
         }
 
-        var tree = switch (comp.c_frontend) {
+        var tree = switch (comp.config.c_frontend) {
             .aro => tree: {
                 const aro = @import("aro");
                 const translate_c = @import("aro_translate_c.zig");

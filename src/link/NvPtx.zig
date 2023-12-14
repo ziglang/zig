@@ -25,12 +25,17 @@ const LlvmObject = @import("../codegen/llvm.zig").Object;
 base: link.File,
 llvm_object: *LlvmObject,
 
-pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*NvPtx {
+pub fn createEmpty(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*NvPtx {
     if (build_options.only_c) unreachable;
 
-    const target = options.comp.root_mod.resolved_target.result;
-    const use_lld = build_options.have_llvm and options.comp.config.use_lld;
-    const use_llvm = options.comp.config.use_llvm;
+    const target = comp.root_mod.resolved_target.result;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
 
     assert(use_llvm); // Caught by Compilation.Config.resolve.
     assert(!use_lld); // Caught by Compilation.Config.resolve.
@@ -42,13 +47,13 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*NvPtx {
         else => return error.PtxArchNotSupported,
     }
 
-    const llvm_object = try LlvmObject.create(arena, options);
+    const llvm_object = try LlvmObject.create(arena, comp);
     const nvptx = try arena.create(NvPtx);
     nvptx.* = .{
         .base = .{
             .tag = .nvptx,
-            .comp = options.comp,
-            .emit = options.emit,
+            .comp = comp,
+            .emit = emit,
             .gc_sections = options.gc_sections orelse false,
             .stack_size = options.stack_size orelse 0,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
@@ -57,9 +62,6 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*NvPtx {
             .build_id = options.build_id,
             .rpath_list = options.rpath_list,
             .force_undefined_symbols = options.force_undefined_symbols,
-            .debug_format = options.debug_format orelse .{ .dwarf = .@"32" },
-            .function_sections = options.function_sections,
-            .data_sections = options.data_sections,
         },
         .llvm_object = llvm_object,
     };
@@ -67,10 +69,15 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*NvPtx {
     return nvptx;
 }
 
-pub fn open(arena: Allocator, options: link.File.OpenOptions) !*NvPtx {
-    const target = options.comp.root_mod.resolved_target.result;
+pub fn open(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*NvPtx {
+    const target = comp.root_mod.resolved_target.result;
     assert(target.ofmt == .nvptx);
-    return createEmpty(arena, options);
+    return createEmpty(arena, comp, emit, options);
 }
 
 pub fn deinit(self: *NvPtx) void {

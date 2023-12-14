@@ -182,18 +182,21 @@ pub const SdkLayout = enum {
     vendored,
 };
 
-pub fn open(arena: Allocator, options: link.File.OpenOptions) !*MachO {
+pub fn open(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*MachO {
     if (build_options.only_c) unreachable;
-    const comp = options.comp;
     const target = comp.root_mod.resolved_target.result;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const use_llvm = comp.config.use_llvm;
     assert(target.ofmt == .macho);
 
     const gpa = comp.gpa;
-    const emit = options.emit;
     const mode: Mode = mode: {
-        if (use_llvm or comp.module == null or comp.cache_mode == .whole)
+        if (use_llvm or comp.module == null or comp.cache_use == .whole)
             break :mode .zld;
         break :mode .incremental;
     };
@@ -201,7 +204,7 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*MachO {
         if (comp.module == null) {
             // No point in opening a file, we would not write anything to it.
             // Initialize with empty.
-            return createEmpty(arena, options);
+            return createEmpty(arena, comp, emit, options);
         }
         // Open a temporary object file, not the final output file because we
         // want to link with LLD.
@@ -210,7 +213,7 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*MachO {
         });
     } else emit.sub_path;
 
-    const self = try createEmpty(arena, options);
+    const self = try createEmpty(arena, comp, emit, options);
     errdefer self.base.destroy();
 
     if (mode == .zld) {
@@ -232,7 +235,7 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*MachO {
     });
     self.base.file = file;
 
-    if (self.base.debug_format != .strip and comp.module != null) {
+    if (comp.config.debug_format != .strip and comp.module != null) {
         // Create dSYM bundle.
         log.debug("creating {s}.dSYM bundle", .{sub_path});
 
@@ -279,8 +282,12 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*MachO {
     return self;
 }
 
-pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*MachO {
-    const comp = options.comp;
+pub fn createEmpty(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*MachO {
     const optimize_mode = comp.root_mod.optimize_mode;
     const use_llvm = comp.config.use_llvm;
 
@@ -289,7 +296,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*MachO {
         .base = .{
             .tag = .macho,
             .comp = comp,
-            .emit = options.emit,
+            .emit = emit,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
             .stack_size = options.stack_size orelse 16777216,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
@@ -298,11 +305,8 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*MachO {
             .build_id = options.build_id,
             .rpath_list = options.rpath_list,
             .force_undefined_symbols = options.force_undefined_symbols,
-            .debug_format = options.debug_format orelse .{ .dwarf = .@"32" },
-            .function_sections = options.function_sections,
-            .data_sections = options.data_sections,
         },
-        .mode = if (use_llvm or comp.module == null or comp.cache_mode == .whole)
+        .mode = if (use_llvm or comp.module == null or comp.cache_use == .whole)
             .zld
         else
             .incremental,
@@ -317,7 +321,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*MachO {
     };
 
     if (use_llvm and comp.module != null) {
-        self.llvm_object = try LlvmObject.create(arena, options);
+        self.llvm_object = try LlvmObject.create(arena, comp);
     }
 
     log.debug("selected linker mode '{s}'", .{@tagName(self.mode)});
@@ -4313,7 +4317,8 @@ fn addLocalToSymtab(self: *MachO, sym_loc: SymbolWithLoc, locals: *std.ArrayList
 }
 
 fn writeSymtab(self: *MachO) !SymtabCtx {
-    const gpa = self.base.comp.gpa;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
 
     var locals = std.ArrayList(macho.nlist_64).init(gpa);
     defer locals.deinit();
@@ -4368,7 +4373,7 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
 
     // We generate stabs last in order to ensure that the strtab always has debug info
     // strings trailing
-    if (self.base.debug_format != .strip) {
+    if (comp.config.debug_format != .strip) {
         for (self.objects.items) |object| {
             assert(self.d_sym == null); // TODO
             try self.generateSymbolStabs(object, &locals);

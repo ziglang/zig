@@ -152,8 +152,6 @@ stage1_flags: packed struct {
     reserved: u2 = 0,
 } = .{},
 
-job_queued_update_builtin_zig: bool = true,
-
 compile_log_text: ArrayListUnmanaged(u8) = .{},
 
 emit_h: ?*GlobalEmitH,
@@ -2490,7 +2488,6 @@ pub fn deinit(mod: *Module) void {
 
     mod.compile_log_text.deinit(gpa);
 
-    mod.zig_cache_artifact_directory.handle.close();
     mod.local_zir_cache.handle.close();
     mod.global_zir_cache.handle.close();
 
@@ -3073,72 +3070,6 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
             }
         }
     }
-}
-
-pub fn populateBuiltinFile(mod: *Module) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const comp = mod.comp;
-    const builtin_mod, const file = blk: {
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
-
-        const builtin_mod = mod.main_mod.deps.get("builtin").?;
-        const result = try mod.importPkg(builtin_mod);
-        break :blk .{ builtin_mod, result.file };
-    };
-    const gpa = mod.gpa;
-    file.source = try comp.generateBuiltinZigSource(gpa);
-    file.source_loaded = true;
-
-    if (builtin_mod.root.statFile(builtin_mod.root_src_path)) |stat| {
-        if (stat.size != file.source.len) {
-            log.warn(
-                "the cached file '{}{s}' had the wrong size. Expected {d}, found {d}. " ++
-                    "Overwriting with correct file contents now",
-                .{ builtin_mod.root, builtin_mod.root_src_path, file.source.len, stat.size },
-            );
-
-            try writeBuiltinFile(file, builtin_mod);
-        } else {
-            file.stat = .{
-                .size = stat.size,
-                .inode = stat.inode,
-                .mtime = stat.mtime,
-            };
-        }
-    } else |err| switch (err) {
-        error.BadPathName => unreachable, // it's always "builtin.zig"
-        error.NameTooLong => unreachable, // it's always "builtin.zig"
-        error.PipeBusy => unreachable, // it's not a pipe
-        error.WouldBlock => unreachable, // not asking for non-blocking I/O
-
-        error.FileNotFound => try writeBuiltinFile(file, builtin_mod),
-
-        else => |e| return e,
-    }
-
-    file.tree = try Ast.parse(gpa, file.source, .zig);
-    file.tree_loaded = true;
-    assert(file.tree.errors.len == 0); // builtin.zig must parse
-
-    file.zir = try AstGen.generate(gpa, file.tree);
-    file.zir_loaded = true;
-    file.status = .success_zir;
-}
-
-fn writeBuiltinFile(file: *File, builtin_mod: *Package.Module) !void {
-    var af = try builtin_mod.root.atomicFile(builtin_mod.root_src_path, .{});
-    defer af.deinit();
-    try af.file.writeAll(file.source);
-    try af.finish();
-
-    file.stat = .{
-        .size = file.source.len,
-        .inode = 0, // dummy value
-        .mtime = 0, // dummy value
-    };
 }
 
 pub fn mapOldZirToNew(

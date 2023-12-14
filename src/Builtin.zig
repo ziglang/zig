@@ -20,8 +20,11 @@ wasi_exec_model: std.builtin.WasiExecModel,
 
 pub fn generate(opts: @This(), allocator: Allocator) Allocator.Error![:0]u8 {
     var buffer = std.ArrayList(u8).init(allocator);
-    defer buffer.deinit();
+    try append(opts, &buffer);
+    return buffer.toOwnedSliceSentinel(0);
+}
 
+pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
     const target = opts.target;
     const generic_arch_name = target.cpu.arch.genericName();
     const zig_backend = opts.zig_backend;
@@ -231,10 +234,65 @@ pub fn generate(opts: @This(), allocator: Allocator) Allocator.Error![:0]u8 {
             );
         }
     }
+}
 
-    return buffer.toOwnedSliceSentinel(0);
+pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
+    assert(file.source_loaded == true);
+
+    if (mod.root.statFile(mod.root_src_path)) |stat| {
+        if (stat.size != file.source.len) {
+            std.log.warn(
+                "the cached file '{}{s}' had the wrong size. Expected {d}, found {d}. " ++
+                    "Overwriting with correct file contents now",
+                .{ mod.root, mod.root_src_path, file.source.len, stat.size },
+            );
+
+            try writeFile(file, mod);
+        } else {
+            file.stat = .{
+                .size = stat.size,
+                .inode = stat.inode,
+                .mtime = stat.mtime,
+            };
+        }
+    } else |err| switch (err) {
+        error.BadPathName => unreachable, // it's always "builtin.zig"
+        error.NameTooLong => unreachable, // it's always "builtin.zig"
+        error.PipeBusy => unreachable, // it's not a pipe
+        error.WouldBlock => unreachable, // not asking for non-blocking I/O
+
+        error.FileNotFound => try writeFile(file, mod),
+
+        else => |e| return e,
+    }
+
+    file.tree = try std.zig.Ast.parse(comp.gpa, file.source, .zig);
+    file.tree_loaded = true;
+    assert(file.tree.errors.len == 0); // builtin.zig must parse
+
+    file.zir = try AstGen.generate(comp.gpa, file.tree);
+    file.zir_loaded = true;
+    file.status = .success_zir;
+}
+
+fn writeFile(file: *File, mod: *Module) !void {
+    var af = try mod.root.atomicFile(mod.root_src_path, .{});
+    defer af.deinit();
+    try af.file.writeAll(file.source);
+    try af.finish();
+
+    file.stat = .{
+        .size = file.source.len,
+        .inode = 0, // dummy value
+        .mtime = 0, // dummy value
+    };
 }
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const build_options = @import("build_options");
+const Module = @import("Package/Module.zig");
+const assert = std.debug.assert;
+const AstGen = @import("AstGen.zig");
+const File = @import("Module.zig").File;
+const Compilation = @import("Compilation.zig");

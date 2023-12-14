@@ -234,44 +234,49 @@ const ideal_factor = 3;
 const minimum_text_block_size = 64;
 pub const min_text_capacity = padToIdeal(minimum_text_block_size);
 
-pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Coff {
+pub fn open(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*Coff {
     if (build_options.only_c) unreachable;
-    const target = options.comp.root_mod.resolved_target.result;
+    const target = comp.root_mod.resolved_target.result;
     assert(target.ofmt == .coff);
 
-    const self = try createEmpty(arena, options);
+    const self = try createEmpty(arena, comp, emit, options);
     errdefer self.base.destroy();
 
-    const use_lld = build_options.have_llvm and options.comp.config.use_lld;
-    const use_llvm = options.comp.config.use_llvm;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
 
     if (use_lld and use_llvm) {
         // LLVM emits the object file; LLD links it into the final product.
         return self;
     }
 
-    const sub_path = if (!use_lld) options.emit.sub_path else p: {
+    const sub_path = if (!use_lld) emit.sub_path else p: {
         // Open a temporary object file, not the final output file because we
         // want to link with LLD.
         const o_file_path = try std.fmt.allocPrint(arena, "{s}{s}", .{
-            options.emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
+            emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
         });
         self.base.intermediary_basename = o_file_path;
         break :p o_file_path;
     };
 
-    self.base.file = try options.emit.directory.handle.createFile(sub_path, .{
+    self.base.file = try emit.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
         .mode = link.File.determineMode(
             use_lld,
-            options.comp.config.output_mode,
-            options.comp.config.link_mode,
+            comp.config.output_mode,
+            comp.config.link_mode,
         ),
     });
 
     assert(self.llvm_object == null);
-    const gpa = self.base.comp.gpa;
+    const gpa = comp.gpa;
 
     try self.strtab.buffer.ensureUnusedCapacity(gpa, @sizeOf(u32));
     self.strtab.buffer.appendNTimesAssumeCapacity(0, @sizeOf(u32));
@@ -362,8 +367,12 @@ pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Coff {
     return self;
 }
 
-pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Coff {
-    const comp = options.comp;
+pub fn createEmpty(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*Coff {
     const target = comp.root_mod.resolved_target.result;
     const optimize_mode = comp.root_mod.optimize_mode;
     const output_mode = comp.config.output_mode;
@@ -380,7 +389,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Coff {
         .base = .{
             .tag = .coff,
             .comp = comp,
-            .emit = options.emit,
+            .emit = emit,
             .stack_size = options.stack_size orelse 16777216,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
@@ -389,9 +398,6 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Coff {
             .build_id = options.build_id,
             .rpath_list = options.rpath_list,
             .force_undefined_symbols = options.force_undefined_symbols,
-            .debug_format = options.debug_format orelse .code_view,
-            .function_sections = options.function_sections,
-            .data_sections = options.data_sections,
         },
         .ptr_width = ptr_width,
         .page_size = page_size,
@@ -423,7 +429,7 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Coff {
 
     const use_llvm = comp.config.use_llvm;
     if (use_llvm and comp.config.have_zcu) {
-        self.llvm_object = try LlvmObject.create(arena, options);
+        self.llvm_object = try LlvmObject.create(arena, comp);
     }
     return self;
 }

@@ -28,6 +28,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .have_zcu = false,
         .emit_bin = true,
         .root_optimize_mode = comp.compilerRtOptMode(),
+        .root_strip = comp.compilerRtStrip(),
         .link_libc = true,
         // Disable LTO to avoid https://github.com/llvm/llvm-project/issues/56825
         .lto = false,
@@ -131,7 +132,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .libc_installation = comp.libc_installation,
         .emit_bin = emit_bin,
         .link_mode = link_mode,
-        .function_sections = comp.bin_file.function_sections,
+        .function_sections = comp.function_sections,
         .c_source_files = &c_source_files,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,

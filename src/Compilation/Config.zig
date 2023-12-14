@@ -33,8 +33,15 @@ shared_memory: bool,
 is_test: bool,
 test_evented_io: bool,
 entry: ?[]const u8,
+debug_format: DebugFormat,
 
 pub const CFrontend = enum { clang, aro };
+
+pub const DebugFormat = union(enum) {
+    strip,
+    dwarf: std.dwarf.Format,
+    code_view,
+};
 
 pub const Options = struct {
     output_mode: std.builtin.OutputMode,
@@ -43,6 +50,7 @@ pub const Options = struct {
     have_zcu: bool,
     emit_bin: bool,
     root_optimize_mode: ?std.builtin.OptimizeMode = null,
+    root_strip: ?bool = null,
     link_mode: ?std.builtin.LinkMode = null,
     ensure_libc_on_non_freestanding: bool = false,
     ensure_libcpp_on_non_freestanding: bool = false,
@@ -51,6 +59,7 @@ pub const Options = struct {
     any_unwind_tables: bool = false,
     any_dyn_libs: bool = false,
     any_c_source_files: bool = false,
+    any_non_stripped: bool = false,
     emit_llvm_ir: bool = false,
     emit_llvm_bc: bool = false,
     link_libc: ?bool = null,
@@ -74,6 +83,7 @@ pub const Options = struct {
     export_memory: ?bool = null,
     shared_memory: ?bool = null,
     test_evented_io: bool = false,
+    debug_format: ?Config.DebugFormat = null,
 };
 
 pub fn resolve(options: Options) !Config {
@@ -365,6 +375,26 @@ pub fn resolve(options: Options) !Config {
         break :b false;
     };
 
+    const root_strip = b: {
+        if (options.root_strip) |x| break :b x;
+        if (root_optimize_mode == .ReleaseSmall) break :b true;
+        if (!target_util.hasDebugInfo(target)) break :b true;
+        break :b false;
+    };
+
+    const debug_format: DebugFormat = b: {
+        if (root_strip and !options.any_non_stripped) break :b .strip;
+        break :b switch (target.ofmt) {
+            .elf, .macho, .wasm => .{ .dwarf = .@"32" },
+            .coff => .code_view,
+            .c => switch (target.os.tag) {
+                .windows, .uefi => .code_view,
+                else => .{ .dwarf = .@"32" },
+            },
+            .spirv, .nvptx, .dxcontainer, .hex, .raw, .plan9 => .strip,
+        };
+    };
+
     return .{
         .output_mode = options.output_mode,
         .have_zcu = options.have_zcu,
@@ -388,6 +418,7 @@ pub fn resolve(options: Options) !Config {
         .use_lld = use_lld,
         .entry = entry,
         .wasi_exec_model = wasi_exec_model,
+        .debug_format = debug_format,
     };
 }
 

@@ -171,7 +171,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
         try argv.append("-ERRORLIMIT:0");
         try argv.append("-NOLOGO");
-        if (self.base.debug_format != .strip) {
+        if (comp.config.debug_format != .strip) {
             try argv.append("-DEBUG");
 
             const out_ext = std.fs.path.extension(full_out_path);
