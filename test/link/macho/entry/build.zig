@@ -24,11 +24,11 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const check_exe = exe.checkObject();
 
-    check_exe.checkStart();
+    check_exe.checkInHeaders();
     check_exe.checkExact("segname __TEXT");
     check_exe.checkExtract("vmaddr {vmaddr}");
 
-    check_exe.checkStart();
+    check_exe.checkInHeaders();
     check_exe.checkExact("cmd MAIN");
     check_exe.checkExtract("entryoff {entryoff}");
 

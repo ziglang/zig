@@ -32,7 +32,7 @@ fn testUnwindInfo(
     exe.link_gc_sections = dead_strip;
 
     const check = exe.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("segname __TEXT");
     check.checkExact("sectname __gcc_except_tab");
     check.checkExact("sectname __unwind_info");

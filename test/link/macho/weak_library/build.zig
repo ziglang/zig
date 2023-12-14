@@ -37,7 +37,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.addRPath(dylib.getEmittedBinDirectory());
 
     const check = exe.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("cmd LOAD_WEAK_DYLIB");
     check.checkExact("name @rpath/liba.dylib");
 

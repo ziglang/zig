@@ -958,7 +958,6 @@ pub const InitOptions = struct {
     /// building such dependencies themselves, this flag must be set to avoid
     /// infinite recursion.
     skip_linker_dependencies: bool = false,
-    parent_compilation_link_libc: bool = false,
     hash_style: link.HashStyle = .both,
     entry: ?[]const u8 = null,
     force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{},
@@ -1547,7 +1546,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             hash.addOptionalBytes(options.test_filter);
             hash.addOptionalBytes(options.test_name_prefix);
             hash.add(options.skip_linker_dependencies);
-            hash.add(options.parent_compilation_link_libc);
             hash.add(formatted_panics);
             hash.add(options.emit_h != null);
             hash.add(error_limit);
@@ -1945,7 +1943,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .error_return_tracing = error_return_tracing,
             .llvm_cpu_features = llvm_cpu_features,
             .skip_linker_dependencies = options.skip_linker_dependencies,
-            .parent_compilation_link_libc = options.parent_compilation_link_libc,
             .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
             .build_id = build_id,
             .cache_mode = cache_mode,
@@ -2747,7 +2744,6 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.addOptionalBytes(comp.test_filter);
         man.hash.addOptionalBytes(comp.test_name_prefix);
         man.hash.add(comp.bin_file.options.skip_linker_dependencies);
-        man.hash.add(comp.bin_file.options.parent_compilation_link_libc);
         man.hash.add(comp.formatted_panics);
         man.hash.add(mod.emit_h != null);
         man.hash.add(mod.error_limit);
@@ -6654,14 +6650,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
     }
     try buffer.appendSlice("};\n");
 
-    // This is so that compiler_rt and libc.zig libraries know whether they
-    // will eventually be linked with libc. They make different decisions
-    // about what to export depending on whether another libc will be linked
-    // in. For example, compiler_rt will not export the __chkstk symbol if it
-    // knows libc will provide it, and likewise c.zig will not export memcpy.
-    const link_libc = comp.bin_file.options.link_libc or
-        (comp.bin_file.options.skip_linker_dependencies and comp.bin_file.options.parent_compilation_link_libc);
-
     try buffer.writer().print(
         \\pub const target = std.Target{{
         \\    .cpu = cpu,
@@ -6685,7 +6673,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
     , .{
         std.zig.fmtId(@tagName(target.ofmt)),
         std.zig.fmtId(@tagName(comp.bin_file.options.optimize_mode)),
-        link_libc,
+        comp.bin_file.options.link_libc,
         comp.bin_file.options.link_libcpp,
         comp.bin_file.options.error_return_tracing,
         comp.bin_file.options.valgrind,
@@ -6833,7 +6821,7 @@ fn buildOutputFromZig(
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-        .parent_compilation_link_libc = comp.bin_file.options.link_libc,
+        .link_libc = comp.bin_file.options.link_libc,
         .want_structured_cfg = comp.bin_file.options.want_structured_cfg,
     });
     defer sub_compilation.destroy();
@@ -6914,7 +6902,7 @@ pub fn build_crt_file(
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-        .parent_compilation_link_libc = comp.bin_file.options.link_libc,
+        .link_libc = comp.bin_file.options.link_libc,
         .want_structured_cfg = comp.bin_file.options.want_structured_cfg,
     });
     defer sub_compilation.destroy();
