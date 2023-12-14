@@ -476,7 +476,7 @@ pub fn inferSdkVersion(gpa: Allocator, comp: *const Compilation) ?std.SemanticVe
 
     const sdk_layout = macho_file.sdk_layout orelse return null;
     const sdk_dir = switch (sdk_layout) {
-        .sdk => macho_file.sysroot.?,
+        .sdk => comp.sysroot.?,
         .vendored => std.fs.path.join(arena, &.{ comp.zig_lib_directory.path.?, "libc", "darwin" }) catch return null,
     };
     if (readSdkVersionFromSettings(arena, sdk_dir)) |ver| {

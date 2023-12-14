@@ -1,6 +1,29 @@
 base: link.File,
 image_base: u64,
 rdynamic: bool,
+eh_frame_hdr: bool,
+emit_relocs: bool,
+z_nodelete: bool,
+z_notext: bool,
+z_defs: bool,
+z_origin: bool,
+z_nocopyreloc: bool,
+z_now: bool,
+z_relro: bool,
+/// TODO make this non optional and resolve the default in open()
+z_common_page_size: ?u64,
+/// TODO make this non optional and resolve the default in open()
+z_max_page_size: ?u64,
+lib_dirs: []const []const u8,
+hash_style: HashStyle,
+compress_debug_sections: CompressDebugSections,
+symbol_wrap_set: std.StringArrayHashMapUnmanaged(void),
+each_lib_rpath: bool,
+sort_section: ?SortSection,
+soname: ?[]const u8,
+bind_global_refs_locally: bool,
+linker_script: ?[]const u8,
+version_script: ?[]const u8,
 
 ptr_width: PtrWidth,
 
@@ -201,6 +224,9 @@ const minimum_atom_size = 64;
 pub const min_text_capacity = padToIdeal(minimum_atom_size);
 
 pub const PtrWidth = enum { p32, p64 };
+pub const HashStyle = enum { sysv, gnu, both };
+pub const CompressDebugSections = enum { none, zlib, zstd };
+pub const SortSection = enum { name, alignment };
 
 pub fn open(arena: Allocator, options: link.File.OpenOptions) !*Elf {
     if (build_options.only_c) unreachable;
@@ -374,6 +400,27 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Elf {
         },
 
         .rdynamic = options.rdynamic,
+        .eh_frame_hdr = options.eh_frame_hdr,
+        .emit_relocs = options.emit_relocs,
+        .z_nodelete = options.z_nodelete,
+        .z_notext = options.z_notext,
+        .z_defs = options.z_defs,
+        .z_origin = options.z_origin,
+        .z_nocopyreloc = options.z_nocopyreloc,
+        .z_now = options.z_now,
+        .z_relro = options.z_relro,
+        .z_common_page_size = options.z_common_page_size,
+        .z_max_page_size = options.z_max_page_size,
+        .lib_dirs = options.lib_dirs,
+        .hash_style = options.hash_style,
+        .compress_debug_sections = options.compress_debug_sections,
+        .symbol_wrap_set = options.symbol_wrap_set,
+        .each_lib_rpath = options.each_lib_rpath,
+        .sort_section = options.sort_section,
+        .soname = options.soname,
+        .bind_global_refs_locally = options.bind_global_refs_locally,
+        .linker_script = options.linker_script,
+        .version_script = options.version_script,
     };
     if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, options);
@@ -2424,8 +2471,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(self.bind_global_refs_locally);
         man.hash.add(self.compress_debug_sections);
         man.hash.add(comp.config.any_sanitize_thread);
-        man.hash.addOptionalBytes(self.sysroot);
-        man.hash.add(self.optimization);
+        man.hash.addOptionalBytes(comp.sysroot);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -2500,7 +2546,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         try argv.append("--error-limit=0");
 
-        if (self.sysroot) |sysroot| {
+        if (comp.sysroot) |sysroot| {
             try argv.append(try std.fmt.allocPrint(arena, "--sysroot={s}", .{sysroot}));
         }
 
@@ -2511,9 +2557,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                 .ReleaseFast, .ReleaseSafe => try argv.append("--lto-O3"),
             }
         }
-        try argv.append(try std.fmt.allocPrint(arena, "-O{d}", .{
-            self.optimization,
-        }));
+        switch (comp.root_mod.optimize_mode) {
+            .Debug => {},
+            .ReleaseSmall => try argv.append("-O2"),
+            .ReleaseFast, .ReleaseSafe => try argv.append("-O3"),
+        }
 
         if (comp.config.entry) |entry| {
             try argv.append("--entry");

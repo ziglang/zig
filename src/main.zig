@@ -828,9 +828,9 @@ fn buildOutputType(
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
     var disable_c_depfile = false;
-    var linker_sort_section: ?link.SortSection = null;
+    var linker_sort_section: ?link.File.Elf.SortSection = null;
     var linker_gc_sections: ?bool = null;
-    var linker_compress_debug_sections: ?link.CompressDebugSections = null;
+    var linker_compress_debug_sections: ?link.File.Elf.CompressDebugSections = null;
     var linker_allow_shlib_undefined: ?bool = null;
     var linker_bind_global_refs_locally: ?bool = null;
     var linker_import_symbols: bool = false;
@@ -855,7 +855,7 @@ fn buildOutputType(
     var linker_tsaware = false;
     var linker_nxcompat = false;
     var linker_dynamicbase = true;
-    var linker_optimization: ?u8 = null;
+    var linker_optimization: ?[]const u8 = null;
     var linker_module_definition_file: ?[]const u8 = null;
     var test_no_exec = false;
     var force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{};
@@ -881,7 +881,7 @@ fn buildOutputType(
     var enable_link_snapshots: bool = false;
     var debug_incremental: bool = false;
     var install_name: ?[]const u8 = null;
-    var hash_style: link.HashStyle = .both;
+    var hash_style: link.File.Elf.HashStyle = .both;
     var entitlements: ?[]const u8 = null;
     var pagezero_size: ?u64 = null;
     var lib_search_strategy: SystemLib.SearchStrategy = .paths_first;
@@ -894,7 +894,6 @@ fn buildOutputType(
     var pdb_out_path: ?[]const u8 = null;
     var debug_format: ?link.File.DebugFormat = null;
     var error_limit: ?Module.ErrorInt = null;
-    var want_structured_cfg: ?bool = null;
     // These are before resolving sysroot.
     var lib_dir_args: std.ArrayListUnmanaged([]const u8) = .{};
     var extra_cflags: std.ArrayListUnmanaged([]const u8) = .{};
@@ -1110,9 +1109,9 @@ fn buildOutputType(
                             try extra_rcflags.append(arena, next_arg);
                         }
                     } else if (mem.startsWith(u8, arg, "-fstructured-cfg")) {
-                        want_structured_cfg = true;
+                        mod_opts.structured_cfg = true;
                     } else if (mem.startsWith(u8, arg, "-fno-structured-cfg")) {
-                        want_structured_cfg = false;
+                        mod_opts.structured_cfg = false;
                     } else if (mem.eql(u8, arg, "--color")) {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected [auto|on|off] after --color", .{});
@@ -1152,11 +1151,11 @@ fn buildOutputType(
                         install_name = args_iter.nextOrFatal();
                     } else if (mem.startsWith(u8, arg, "--compress-debug-sections=")) {
                         const param = arg["--compress-debug-sections=".len..];
-                        linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, param) orelse {
+                        linker_compress_debug_sections = std.meta.stringToEnum(link.File.Elf.CompressDebugSections, param) orelse {
                             fatal("expected --compress-debug-sections=[none|zlib|zstd], found '{s}'", .{param});
                         };
                     } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
-                        linker_compress_debug_sections = link.CompressDebugSections.zlib;
+                        linker_compress_debug_sections = link.File.Elf.CompressDebugSections.zlib;
                     } else if (mem.eql(u8, arg, "-pagezero_size")) {
                         const next_arg = args_iter.nextOrFatal();
                         pagezero_size = std.fmt.parseUnsigned(u64, eatIntPrefix(next_arg, 16), 16) catch |err| {
@@ -2067,7 +2066,7 @@ fn buildOutputType(
                         if (it.only_arg.len == 0) {
                             linker_compress_debug_sections = .zlib;
                         } else {
-                            linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, it.only_arg) orelse {
+                            linker_compress_debug_sections = std.meta.stringToEnum(link.File.Elf.CompressDebugSections, it.only_arg) orelse {
                                 fatal("expected [none|zlib|zstd] after --compress-debug-sections, found '{s}'", .{it.only_arg});
                             };
                         }
@@ -2138,14 +2137,9 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
                     version_script = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "-O")) {
-                    const opt = linker_args_it.nextOrFatal();
-                    linker_optimization = std.fmt.parseUnsigned(u8, opt, 10) catch |err| {
-                        fatal("unable to parse optimization level '{s}': {s}", .{ opt, @errorName(err) });
-                    };
+                    linker_optimization = linker_args_it.nextOrFatal();
                 } else if (mem.startsWith(u8, arg, "-O")) {
-                    linker_optimization = std.fmt.parseUnsigned(u8, arg["-O".len..], 10) catch |err| {
-                        fatal("unable to parse optimization level '{s}': {s}", .{ arg, @errorName(err) });
-                    };
+                    linker_optimization = arg["-O".len..];
                 } else if (mem.eql(u8, arg, "-pagezero_size")) {
                     const next_arg = linker_args_it.nextOrFatal();
                     pagezero_size = std.fmt.parseUnsigned(u64, eatIntPrefix(next_arg, 16), 16) catch |err| {
@@ -2176,7 +2170,7 @@ fn buildOutputType(
                     linker_print_map = true;
                 } else if (mem.eql(u8, arg, "--sort-section")) {
                     const arg1 = linker_args_it.nextOrFatal();
-                    linker_sort_section = std.meta.stringToEnum(link.SortSection, arg1) orelse {
+                    linker_sort_section = std.meta.stringToEnum(link.File.Elf.SortSection, arg1) orelse {
                         fatal("expected [name|alignment] after --sort-section, found '{s}'", .{arg1});
                     };
                 } else if (mem.eql(u8, arg, "--allow-shlib-undefined") or
@@ -2222,7 +2216,7 @@ fn buildOutputType(
                     try linker_export_symbol_names.append(arena, linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
                     const arg1 = linker_args_it.nextOrFatal();
-                    linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, arg1) orelse {
+                    linker_compress_debug_sections = std.meta.stringToEnum(link.File.Elf.CompressDebugSections, arg1) orelse {
                         fatal("expected [none|zlib|zstd] after --compress-debug-sections, found '{s}'", .{arg1});
                     };
                 } else if (mem.startsWith(u8, arg, "-z")) {
@@ -2405,7 +2399,7 @@ fn buildOutputType(
                     mem.eql(u8, arg, "--hash-style"))
                 {
                     const next_arg = linker_args_it.nextOrFatal();
-                    hash_style = std.meta.stringToEnum(link.HashStyle, next_arg) orelse {
+                    hash_style = std.meta.stringToEnum(link.File.Elf.HashStyle, next_arg) orelse {
                         fatal("expected [sysv|gnu|both] after --hash-style, found '{s}'", .{
                             next_arg,
                         });
@@ -2624,6 +2618,10 @@ fn buildOutputType(
         };
     };
     defer global_cache_directory.handle.close();
+
+    if (linker_optimization) |o| {
+        warn("ignoring deprecated linker optimization setting '{s}'", .{o});
+    }
 
     create_module.global_cache_directory = global_cache_directory;
     create_module.opts.emit_llvm_ir = emit_llvm_ir != .no;
@@ -3409,7 +3407,6 @@ fn buildOutputType(
         .linker_tsaware = linker_tsaware,
         .linker_nxcompat = linker_nxcompat,
         .linker_dynamicbase = linker_dynamicbase,
-        .linker_optimization = linker_optimization,
         .linker_compress_debug_sections = linker_compress_debug_sections,
         .linker_module_definition_file = linker_module_definition_file,
         .major_subsystem_version = major_subsystem_version,
@@ -3458,7 +3455,6 @@ fn buildOutputType(
         .reference_trace = reference_trace,
         .pdb_out_path = pdb_out_path,
         .error_limit = error_limit,
-        .want_structured_cfg = want_structured_cfg,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const triple_name = try target.zigTriple(arena);

@@ -30,6 +30,8 @@ sanitize_c: bool,
 sanitize_thread: bool,
 unwind_tables: bool,
 cc_argv: []const []const u8,
+/// (SPIR-V) whether to generate a structured control flow graph or not
+structured_cfg: bool,
 
 /// The contents of `@import("builtin")` for this module.
 generated_builtin_source: []const u8,
@@ -82,6 +84,7 @@ pub const CreateOptions = struct {
         unwind_tables: ?bool = null,
         sanitize_c: ?bool = null,
         sanitize_thread: ?bool = null,
+        structured_cfg: ?bool = null,
     };
 };
 
@@ -268,6 +271,17 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         break :sp target_util.default_stack_protector_buffer_size;
     };
 
+    const structured_cfg = b: {
+        if (options.inherited.structured_cfg) |x| break :b x;
+        if (options.parent) |p| break :b p.structured_cfg;
+        // We always want a structured control flow in shaders. This option is
+        // only relevant for OpenCL kernels.
+        break :b switch (target.os.tag) {
+            .opencl => false,
+            else => true,
+        };
+    };
+
     const llvm_cpu_features: ?[*:0]const u8 = b: {
         if (resolved_target.llvm_cpu_features) |x| break :b x;
         if (!options.global.use_llvm) break :b null;
@@ -350,6 +364,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .sanitize_thread = sanitize_thread,
             .unwind_tables = unwind_tables,
             .cc_argv = &.{},
+            .structured_cfg = structured_cfg,
         };
         break :b new;
     };
@@ -381,6 +396,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         .sanitize_thread = sanitize_thread,
         .unwind_tables = unwind_tables,
         .cc_argv = options.cc_argv,
+        .structured_cfg = structured_cfg,
     };
 
     try mod.deps.ensureUnusedCapacity(arena, 1);
@@ -422,6 +438,7 @@ pub fn createLimited(gpa: Allocator, options: LimitedOptions) Allocator.Error!*P
         .unwind_tables = undefined,
         .cc_argv = undefined,
         .generated_builtin_source = undefined,
+        .structured_cfg = undefined,
     };
     return mod;
 }

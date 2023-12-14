@@ -77,6 +77,7 @@ system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
 version: ?std.SemanticVersion,
 libc_installation: ?*const LibCInstallation,
 skip_linker_dependencies: bool,
+no_builtin: bool,
 
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
 win32_resource_table: if (build_options.only_core_functionality) void else std.AutoArrayHashMapUnmanaged(*Win32Resource, void) =
@@ -988,10 +989,9 @@ pub const InitOptions = struct {
     linker_tsaware: bool = false,
     linker_nxcompat: bool = false,
     linker_dynamicbase: bool = true,
-    linker_optimization: ?u8 = null,
-    linker_compress_debug_sections: ?link.CompressDebugSections = null,
+    linker_compress_debug_sections: ?link.File.Elf.CompressDebugSections = null,
     linker_module_definition_file: ?[]const u8 = null,
-    linker_sort_section: ?link.SortSection = null,
+    linker_sort_section: ?link.File.Elf.SortSection = null,
     major_subsystem_version: ?u32 = null,
     minor_subsystem_version: ?u32 = null,
     clang_passthrough_mode: bool = false,
@@ -1011,7 +1011,7 @@ pub const InitOptions = struct {
     /// building such dependencies themselves, this flag must be set to avoid
     /// infinite recursion.
     skip_linker_dependencies: bool = false,
-    hash_style: link.HashStyle = .both,
+    hash_style: link.File.Elf.HashStyle = .both,
     entry: ?[]const u8 = null,
     force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{},
     stack_size: ?u64 = null,
@@ -1049,8 +1049,6 @@ pub const InitOptions = struct {
     /// (Windows) PDB output path
     pdb_out_path: ?[]const u8 = null,
     error_limit: ?Compilation.Module.ErrorInt = null,
-    /// (SPIR-V) whether to generate a structured control flow graph or not
-    want_structured_cfg: ?bool = null,
 };
 
 fn addModuleTableToCacheHash(
@@ -1277,10 +1275,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             }
         }
 
-        const linker_optimization: u8 = options.linker_optimization orelse switch (options.root_mod.optimize_mode) {
-            .Debug => @as(u8, 0),
-            else => @as(u8, 3),
-        };
         // TODO: https://github.com/ziglang/zig/issues/17969
         const formatted_panics = options.formatted_panics orelse (options.root_mod.optimize_mode == .Debug);
 
@@ -1359,7 +1353,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             hash.add(formatted_panics);
             hash.add(options.emit_h != null);
             hash.add(error_limit);
-            hash.addOptional(options.want_structured_cfg);
 
             // In the case of incremental cache mode, this `zig_cache_artifact_directory`
             // is computed based on a hash of non-linker inputs, and it is where all
@@ -1641,13 +1634,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .framework_dirs = options.framework_dirs,
             .llvm_opt_bisect_limit = options.llvm_opt_bisect_limit,
             .skip_linker_dependencies = options.skip_linker_dependencies,
+            .no_builtin = options.no_builtin,
         };
 
         if (bin_file_emit) |emit| {
             comp.bin_file = try link.File.open(arena, .{
                 .comp = comp,
                 .emit = emit,
-                .optimization = linker_optimization,
                 .linker_script = options.linker_script,
                 .z_nodelete = options.linker_z_nodelete,
                 .z_notext = options.linker_z_notext,
@@ -1666,7 +1659,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .symbol_wrap_set = options.symbol_wrap_set,
                 .function_sections = options.function_sections,
                 .data_sections = options.data_sections,
-                .no_builtin = options.no_builtin,
                 .allow_shlib_undefined = options.linker_allow_shlib_undefined,
                 .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
                 .compress_debug_sections = options.linker_compress_debug_sections orelse .none,
@@ -1713,7 +1705,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .force_undefined_symbols = options.force_undefined_symbols,
                 .pdb_source_path = options.pdb_source_path,
                 .pdb_out_path = options.pdb_out_path,
-                .want_structured_cfg = options.want_structured_cfg,
                 .entry_addr = null, // CLI does not expose this option (yet?)
             });
         }
@@ -2076,7 +2067,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         };
         if (is_hit) {
             comp.last_update_was_cache_hit = true;
-            log.debug("CacheMode.whole cache hit for {s}", .{comp.bin_file.options.root_name});
+            log.debug("CacheMode.whole cache hit for {s}", .{comp.root_name});
             const digest = man.final();
 
             comp.wholeCacheModeSetBinFilePath(&digest);
@@ -2085,7 +2076,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             comp.bin_file.lock = man.toOwnedLock();
             return;
         }
-        log.debug("CacheMode.whole cache miss for {s}", .{comp.bin_file.options.root_name});
+        log.debug("CacheMode.whole cache miss for {s}", .{comp.root_name});
 
         // Initialize `bin_file.emit` with a temporary Directory so that compilation can
         // continue on the same path as incremental, using the temporary Directory.
@@ -2169,7 +2160,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         // import_table here.
         // Likewise, in the case of `zig test`, the test runner is the root source file,
         // and so there is nothing to import the main file.
-        if (comp.bin_file.options.is_test) {
+        if (comp.config.is_test) {
             _ = try module.importPkg(module.main_mod);
         }
 
@@ -2194,7 +2185,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         }
 
         try comp.work_queue.writeItem(.{ .analyze_mod = std_mod });
-        if (comp.bin_file.options.is_test) {
+        if (comp.config.is_test) {
             try comp.work_queue.writeItem(.{ .analyze_mod = module.main_mod });
         }
 
@@ -2208,20 +2199,20 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     if (comp.module) |module| {
         if (builtin.mode == .Debug and comp.verbose_intern_pool) {
             std.debug.print("intern pool stats for '{s}':\n", .{
-                comp.bin_file.options.root_name,
+                comp.root_name,
             });
             module.intern_pool.dump();
         }
 
         if (builtin.mode == .Debug and comp.verbose_generic_instances) {
             std.debug.print("generic instances for '{s}:0x{x}':\n", .{
-                comp.bin_file.options.root_name,
+                comp.root_name,
                 @as(usize, @intFromPtr(module)),
             });
             module.intern_pool.dumpGenericInstances(comp.gpa);
         }
 
-        if (comp.bin_file.options.is_test and comp.totalErrorCount() == 0) {
+        if (comp.config.is_test and comp.totalErrorCount() == 0) {
             // The `test_functions` decl has been intentionally postponed until now,
             // at which point we must populate it with the list of test functions that
             // have been discovered and not filtered out.
@@ -2336,7 +2327,7 @@ fn maybeGenerateAutodocs(comp: *Compilation, prog_node: *std.Progress.Node) !voi
     // file copies at the end of generate() can also be extracted to
     // separate jobs
     if (!build_options.only_c and !build_options.only_core_functionality) {
-        if (comp.bin_file.options.docs_emit) |emit| {
+        if (comp.docs_emit) |emit| {
             var dir = try emit.directory.handle.makeOpenPath(emit.sub_path, .{});
             defer dir.close();
 
@@ -2426,24 +2417,16 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.main_mod, .{ .files = man });
 
         // Synchronize with other matching comments: ZigOnlyHashStuff
-        man.hash.add(comp.config.use_llvm);
-        man.hash.add(comp.config.use_lib_llvm);
-        man.hash.add(comp.bin_file.options.dll_export_fns);
-        man.hash.add(comp.bin_file.options.is_test);
-        man.hash.add(comp.test_evented_io);
+        man.hash.add(comp.config.test_evented_io);
         man.hash.addOptionalBytes(comp.test_filter);
         man.hash.addOptionalBytes(comp.test_name_prefix);
         man.hash.add(comp.skip_linker_dependencies);
         man.hash.add(comp.formatted_panics);
         man.hash.add(mod.emit_h != null);
         man.hash.add(mod.error_limit);
-        man.hash.add(comp.bin_file.options.want_structured_cfg);
     }
 
-    try man.addOptionalFile(comp.bin_file.options.linker_script);
-    try man.addOptionalFile(comp.bin_file.options.version_script);
-
-    for (comp.bin_file.options.objects) |obj| {
+    for (comp.objects) |obj| {
         _ = try man.addFile(obj.path, null);
         man.hash.add(obj.must_link);
         man.hash.add(obj.loption);
@@ -2469,39 +2452,19 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         }
     }
 
+    man.hash.addOptionalBytes(comp.sysroot);
+    man.hash.addOptional(comp.version);
     man.hash.addListOfBytes(comp.rc_include_dir_list);
 
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_asm);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_bc);
 
-    man.hash.add(comp.bin_file.stack_size);
-    man.hash.add(comp.bin_file.options.gc_sections);
-    man.hash.add(comp.bin_file.options.eh_frame_hdr);
-    man.hash.add(comp.bin_file.options.emit_relocs);
-    man.hash.add(comp.bin_file.options.rdynamic);
-    man.hash.addListOfBytes(comp.bin_file.options.lib_dirs);
-    man.hash.addListOfBytes(comp.bin_file.options.rpath_list);
-    man.hash.addListOfBytes(comp.bin_file.options.symbol_wrap_set.keys());
-    man.hash.add(comp.bin_file.options.each_lib_rpath);
-    man.hash.add(comp.bin_file.build_id);
     man.hash.add(comp.skip_linker_dependencies);
-    man.hash.add(comp.bin_file.options.z_nodelete);
-    man.hash.add(comp.bin_file.options.z_notext);
-    man.hash.add(comp.bin_file.options.z_defs);
-    man.hash.add(comp.bin_file.options.z_origin);
-    man.hash.add(comp.bin_file.options.z_nocopyreloc);
-    man.hash.add(comp.bin_file.options.z_now);
-    man.hash.add(comp.bin_file.options.z_relro);
-    man.hash.add(comp.bin_file.options.z_common_page_size orelse 0);
-    man.hash.add(comp.bin_file.options.z_max_page_size orelse 0);
-    man.hash.add(comp.bin_file.options.hash_style);
-    man.hash.add(comp.bin_file.options.compress_debug_sections);
     man.hash.add(comp.include_compiler_rt);
-    man.hash.add(comp.bin_file.options.sort_section);
     if (comp.config.link_libc) {
-        man.hash.add(comp.bin_file.options.libc_installation != null);
-        if (comp.bin_file.options.libc_installation) |libc_installation| {
+        man.hash.add(comp.libc_installation != null);
+        if (comp.libc_installation) |libc_installation| {
             man.hash.addOptionalBytes(libc_installation.crt_dir);
             if (target.abi == .msvc) {
                 man.hash.addOptionalBytes(libc_installation.msvc_lib_dir);
@@ -2510,55 +2473,93 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         }
         man.hash.addOptionalBytes(target.dynamic_linker.get());
     }
-    man.hash.addOptionalBytes(comp.bin_file.options.soname);
-    man.hash.add(comp.bin_file.options.version);
     try link.hashAddSystemLibs(man, comp.system_libs);
-    man.hash.addListOfBytes(comp.bin_file.options.force_undefined_symbols.keys());
-    man.hash.add(comp.bin_file.allow_shlib_undefined);
-    man.hash.add(comp.bin_file.options.bind_global_refs_locally);
-    man.hash.add(comp.bin_file.options.tsan);
-    man.hash.addOptionalBytes(comp.bin_file.options.sysroot);
-    man.hash.add(comp.bin_file.options.linker_optimization);
 
-    switch (comp.bin_file.tag) {
-        .elf => {
-            const elf = comp.bin_file.cast(link.File.Elf).?;
-            man.hash.add(elf.image_base);
-        },
-        .wasm => {
-            const wasm = comp.bin_file.cast(link.File.Wasm).?;
-            man.hash.add(comp.config.import_memory);
-            man.hash.add(comp.config.export_memory);
-            man.hash.add(comp.config.shared_memory);
-            man.hash.add(wasm.initial_memory);
-            man.hash.add(wasm.max_memory);
-            man.hash.add(wasm.global_base);
-        },
-        .macho => {
-            const macho = comp.bin_file.cast(link.File.MachO).?;
-            man.hash.addListOfBytes(comp.framework_dirs);
-            try link.hashAddFrameworks(man, macho.frameworks);
-            try man.addOptionalFile(macho.entitlements);
-            man.hash.add(macho.pagezero_size);
-            man.hash.add(macho.headerpad_size);
-            man.hash.add(macho.headerpad_max_install_names);
-            man.hash.add(macho.dead_strip_dylibs);
-        },
-        .coff => {
-            const coff = comp.bin_file.cast(link.File.Coff).?;
-            man.hash.add(coff.image_base);
-            man.hash.add(coff.subsystem);
-            man.hash.add(coff.tsaware);
-            man.hash.add(coff.nxcompat);
-            man.hash.add(coff.dynamicbase);
-            man.hash.add(coff.major_subsystem_version);
-            man.hash.add(coff.minor_subsystem_version);
-        },
+    man.hash.add(comp.config.use_llvm);
+    man.hash.add(comp.config.use_lib_llvm);
+    man.hash.add(comp.config.is_test);
+    man.hash.add(comp.config.import_memory);
+    man.hash.add(comp.config.export_memory);
+    man.hash.add(comp.config.shared_memory);
+
+    if (comp.bin_file) |lf| {
+        man.hash.add(lf.stack_size);
+        man.hash.add(lf.gc_sections);
+        man.hash.addListOfBytes(lf.rpath_list);
+        man.hash.add(lf.build_id);
+        man.hash.addListOfBytes(lf.force_undefined_symbols.keys());
+        man.hash.add(lf.allow_shlib_undefined);
+
+        switch (lf.tag) {
+            .elf => {
+                const elf = lf.cast(link.File.Elf).?;
+                man.hash.add(elf.rdynamic);
+                man.hash.add(elf.eh_frame_hdr);
+                man.hash.add(elf.image_base);
+                man.hash.add(elf.emit_relocs);
+                man.hash.add(elf.z_nodelete);
+                man.hash.add(elf.z_notext);
+                man.hash.add(elf.z_defs);
+                man.hash.add(elf.z_origin);
+                man.hash.add(elf.z_nocopyreloc);
+                man.hash.add(elf.z_now);
+                man.hash.add(elf.z_relro);
+                man.hash.add(elf.z_common_page_size orelse 0);
+                man.hash.add(elf.z_max_page_size orelse 0);
+                man.hash.addListOfBytes(elf.lib_dirs);
+                man.hash.add(elf.hash_style);
+                man.hash.add(elf.compress_debug_sections);
+                man.hash.addListOfBytes(elf.symbol_wrap_set.keys());
+                man.hash.add(elf.each_lib_rpath);
+                man.hash.addOptional(elf.sort_section);
+                man.hash.addOptionalBytes(elf.soname);
+                man.hash.add(elf.bind_global_refs_locally);
+                try man.addOptionalFile(elf.linker_script);
+                try man.addOptionalFile(elf.version_script);
+            },
+            .wasm => {
+                const wasm = lf.cast(link.File.Wasm).?;
+                man.hash.add(wasm.rdynamic);
+                man.hash.add(wasm.initial_memory);
+                man.hash.add(wasm.max_memory);
+                man.hash.add(wasm.global_base);
+            },
+            .macho => {
+                const macho = lf.cast(link.File.MachO).?;
+                man.hash.addListOfBytes(comp.framework_dirs);
+                try link.File.MachO.hashAddFrameworks(man, macho.frameworks);
+                try man.addOptionalFile(macho.entitlements);
+                man.hash.add(macho.pagezero_vmsize);
+                man.hash.add(macho.headerpad_size);
+                man.hash.add(macho.headerpad_max_install_names);
+                man.hash.add(macho.dead_strip_dylibs);
+            },
+            .coff => {
+                const coff = lf.cast(link.File.Coff).?;
+                man.hash.add(coff.dll_export_fns);
+                man.hash.add(coff.image_base);
+                man.hash.addOptional(coff.subsystem);
+                man.hash.add(coff.tsaware);
+                man.hash.add(coff.nxcompat);
+                man.hash.add(coff.dynamicbase);
+                man.hash.add(coff.major_subsystem_version);
+                man.hash.add(coff.minor_subsystem_version);
+                man.hash.addListOfBytes(coff.lib_dirs);
+            },
+            .spirv => {
+                const spirv = lf.cast(link.File.SpirV).?;
+                _ = spirv;
+                // TODO
+            },
+            .c => {}, // TODO
+            .plan9 => {}, // TODO
+            .nvptx => {}, // TODO
+        }
     }
 }
 
 fn emitOthers(comp: *Compilation) void {
-    if (comp.bin_file.options.output_mode != .Obj or comp.module != null or
+    if (comp.config.output_mode != .Obj or comp.module != null or
         comp.c_object_table.count() == 0)
     {
         return;
@@ -2724,10 +2725,10 @@ pub fn saveState(comp: *Compilation) !void {
     var bufs_list: [6]std.os.iovec_const = undefined;
     var bufs_len: usize = 0;
 
-    const emit = comp.bin_file.options.emit orelse return;
+    const lf = comp.bin_file orelse return;
 
-    if (comp.module) |mod| {
-        const ip = &mod.intern_pool;
+    if (comp.module) |zcu| {
+        const ip = &zcu.intern_pool;
         const header: Header = .{
             .intern_pool = .{
                 .items_len = @intCast(ip.items.len),
@@ -2751,7 +2752,7 @@ pub fn saveState(comp: *Compilation) !void {
     }
     var basename_buf: [255]u8 = undefined;
     const basename = std.fmt.bufPrint(&basename_buf, "{s}.zcs", .{
-        comp.bin_file.options.root_name,
+        comp.root_name,
     }) catch o: {
         basename_buf[basename_buf.len - 4 ..].* = ".zcs".*;
         break :o &basename_buf;
@@ -2759,7 +2760,7 @@ pub fn saveState(comp: *Compilation) !void {
 
     // Using an atomic file prevents a crash or power failure from corrupting
     // the previous incremental compilation state.
-    var af = try emit.directory.handle.atomicFile(basename, .{});
+    var af = try lf.emit.directory.handle.atomicFile(basename, .{});
     defer af.deinit();
     try af.file.pwritevAll(bufs_list[0..bufs_len], 0);
     try af.finish();
@@ -3507,7 +3508,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                 error.AnalysisFail => return,
             };
             const decl = module.declPtr(decl_index);
-            if (decl.kind == .@"test" and comp.bin_file.options.is_test) {
+            if (decl.kind == .@"test" and comp.config.is_test) {
                 // Tests are always emitted in test binaries. The decl_refs are created by
                 // Module.populateTestFunctions, but this will not queue body analysis, so do
                 // that now.
@@ -3850,7 +3851,7 @@ pub fn obtainCObjectCacheManifest(comp: *const Compilation) Cache.Manifest {
     // based on the zig library directory alone. The zig lib directory file
     // path is purposefully either in the cache or not in the cache. The
     // decision should not be overridden here.
-    if (comp.bin_file.options.libc_installation != null) {
+    if (comp.libc_installation != null) {
         man.hash.addListOfBytes(comp.libc_include_dir_list);
     }
 
@@ -4248,9 +4249,9 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     // file and building an object we need to link them together, but with just one it should go
     // directly to the output file.
     const direct_o = comp.c_source_files.len == 1 and comp.module == null and
-        comp.bin_file.options.output_mode == .Obj and comp.bin_file.options.objects.len == 0;
+        comp.config.output_mode == .Obj and comp.objects.len == 0;
     const o_basename_noext = if (direct_o)
-        comp.bin_file.options.root_name
+        comp.root_name
     else
         c_source_basename[0 .. c_source_basename.len - std.fs.path.extension(c_source_basename).len];
 
@@ -4304,8 +4305,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             try argv.appendSlice(c_object.src.extra_flags);
             try argv.appendSlice(c_object.src.cache_exempt_flags);
 
-            const out_obj_path = if (comp.bin_file.options.emit) |emit|
-                try emit.directory.join(arena, &.{emit.sub_path})
+            const out_obj_path = if (comp.bin_file) |lf|
+                try lf.emit.directory.join(arena, &.{lf.emit.sub_path})
             else
                 "/dev/null";
 
@@ -4883,8 +4884,9 @@ pub fn addCCArgs(
     argv: *std.ArrayList([]const u8),
     ext: FileExt,
     out_dep_path: ?[]const u8,
+    mod: *Package.Module,
 ) !void {
-    const target = comp.getTarget();
+    const target = mod.resolved_target.result;
 
     // As of Clang 16.x, it will by default read extra flags from /etc/clang.
     // I'm sure the person who implemented this means well, but they have a lot
@@ -4905,15 +4907,15 @@ pub fn addCCArgs(
         try argv.append("-fno-caret-diagnostics");
     }
 
-    if (comp.bin_file.options.function_sections) {
+    if (comp.bin_file.function_sections) {
         try argv.append("-ffunction-sections");
     }
 
-    if (comp.bin_file.options.data_sections) {
+    if (comp.bin_file.data_sections) {
         try argv.append("-fdata-sections");
     }
 
-    if (comp.bin_file.options.no_builtin) {
+    if (comp.no_builtin) {
         try argv.append("-fno-builtin");
     }
 
@@ -4953,7 +4955,7 @@ pub fn addCCArgs(
         }));
     }
 
-    if (comp.bin_file.options.link_libunwind) {
+    if (comp.config.link_libunwind) {
         const libunwind_include_path = try std.fs.path.join(arena, &[_][]const u8{
             comp.zig_lib_directory.path.?, "libunwind", "include",
         });
@@ -4987,7 +4989,7 @@ pub fn addCCArgs(
                 "-nostdinc",
                 "-fno-spell-checking",
             });
-            if (comp.bin_file.options.lto) {
+            if (comp.config.lto) {
                 try argv.append("-flto");
             }
 
@@ -5042,9 +5044,8 @@ pub fn addCCArgs(
                     argv.appendAssumeCapacity(arg);
                 }
             }
-            const code_model = comp.bin_file.options.machine_code_model;
-            if (code_model != .default) {
-                try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={s}", .{@tagName(code_model)}));
+            if (mod.code_model != .default) {
+                try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={s}", .{@tagName(mod.code_model)}));
             }
 
             switch (target.os.tag) {
@@ -5093,7 +5094,7 @@ pub fn addCCArgs(
                 try argv.append("-mthumb");
             }
 
-            if (comp.sanitize_c and !comp.bin_file.options.tsan) {
+            if (mod.sanitize_c and !mod.sanitize_thread) {
                 try argv.append("-fsanitize=undefined");
                 try argv.append("-fsanitize-trap=undefined");
                 // It is very common, and well-defined, for a pointer on one side of a C ABI
@@ -5104,27 +5105,27 @@ pub fn addCCArgs(
                 // Without this flag, Clang would invoke UBSAN when such an extern
                 // function was called.
                 try argv.append("-fno-sanitize=function");
-            } else if (comp.sanitize_c and comp.bin_file.options.tsan) {
+            } else if (mod.sanitize_c and mod.sanitize_thread) {
                 try argv.append("-fsanitize=undefined,thread");
                 try argv.append("-fsanitize-trap=undefined");
                 try argv.append("-fno-sanitize=function");
-            } else if (!comp.sanitize_c and comp.bin_file.options.tsan) {
+            } else if (!mod.sanitize_c and mod.sanitize_thread) {
                 try argv.append("-fsanitize=thread");
             }
 
-            if (comp.bin_file.options.red_zone) {
+            if (mod.red_zone) {
                 try argv.append("-mred-zone");
             } else if (target_util.hasRedZone(target)) {
                 try argv.append("-mno-red-zone");
             }
 
-            if (comp.bin_file.options.omit_frame_pointer) {
+            if (mod.omit_frame_pointer) {
                 try argv.append("-fomit-frame-pointer");
             } else {
                 try argv.append("-fno-omit-frame-pointer");
             }
 
-            const ssp_buf_size = comp.bin_file.options.stack_protector;
+            const ssp_buf_size = mod.stack_protector;
             if (ssp_buf_size != 0) {
                 try argv.appendSlice(&[_][]const u8{
                     "-fstack-protector-strong",
@@ -5135,7 +5136,7 @@ pub fn addCCArgs(
                 try argv.append("-fno-stack-protector");
             }
 
-            switch (comp.bin_file.options.optimize_mode) {
+            switch (mod.optimize_mode) {
                 .Debug => {
                     // windows c runtime requires -D_DEBUG if using debug libraries
                     try argv.append("-D_DEBUG");
@@ -5165,7 +5166,7 @@ pub fn addCCArgs(
                 },
             }
 
-            if (target_util.supports_fpic(target) and comp.bin_file.options.pic) {
+            if (target_util.supports_fpic(target) and mod.pic) {
                 try argv.append("-fPIC");
             }
 
@@ -5940,7 +5941,7 @@ pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const
     {
         return comp.crt_files.get(basename).?.full_object_path;
     }
-    const lci = comp.bin_file.options.libc_installation orelse return error.LibCInstallationNotAvailable;
+    const lci = comp.libc_installation orelse return error.LibCInstallationNotAvailable;
     const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCRTDir;
     const full_path = try std.fs.path.join(arena, &[_][]const u8{ crt_dir_path, basename });
     return full_path;
@@ -6112,7 +6113,7 @@ fn canBuildZigLibC(target: std.Target, use_llvm: bool) bool {
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
     const target = comp.root_mod.resolved_target.result;
-    return target_util.zigBackend(target, comp.bin_file.options.use_llvm);
+    return target_util.zigBackend(target, comp.config.use_llvm);
 }
 
 pub fn updateSubCompilation(
@@ -6165,6 +6166,9 @@ fn buildOutputFromZig(
 
     assert(output_mode != .Exe);
 
+    const lf = comp.bin_file.?;
+    const unwind_tables = if (lf.cast(link.File.Elf)) |elf| elf.eh_frame_hdr else false;
+
     const config = try Config.resolve(.{
         .output_mode = output_mode,
         .resolved_target = comp.root_mod.resolved_target,
@@ -6173,6 +6177,7 @@ fn buildOutputFromZig(
         .emit_bin = true,
         .root_optimize_mode = comp.compilerRtOptMode(),
         .link_libc = comp.config.link_libc,
+        .any_unwind_tables = unwind_tables,
     });
 
     const root_mod = Package.Module.create(.{
@@ -6187,9 +6192,10 @@ fn buildOutputFromZig(
             .stack_protector = 0,
             .red_zone = comp.root_mod.red_zone,
             .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
-            .unwind_tables = comp.bin_file.options.eh_frame_hdr,
+            .unwind_tables = unwind_tables,
             .pic = comp.root_mod.pic,
             .optimize_mode = comp.compilerRtOptMode(),
+            .structured_cfg = comp.root_mod.structured_cfg,
         },
         .global = config,
         .cc_argv = &.{},
@@ -6210,21 +6216,21 @@ fn buildOutputFromZig(
         .global_cache_directory = comp.global_cache_directory,
         .local_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
+        .self_exe_path = comp.self_exe_path,
         .resolved = config,
         .root_mod = root_mod,
         .cache_mode = .whole,
         .root_name = root_name,
         .thread_pool = comp.thread_pool,
-        .libc_installation = comp.bin_file.options.libc_installation,
+        .libc_installation = comp.libc_installation,
         .emit_bin = emit_bin,
         .link_mode = .Static,
         .function_sections = true,
         .data_sections = true,
         .no_builtin = true,
         .emit_h = null,
-        .self_exe_path = comp.self_exe_path,
         .verbose_cc = comp.verbose_cc,
-        .verbose_link = comp.bin_file.options.verbose_link,
+        .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,
         .verbose_intern_pool = comp.verbose_intern_pool,
         .verbose_generic_instances = comp.verbose_intern_pool,
@@ -6234,7 +6240,6 @@ fn buildOutputFromZig(
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-        .want_structured_cfg = comp.bin_file.options.want_structured_cfg,
     });
     defer sub_compilation.destroy();
 
@@ -6242,8 +6247,8 @@ fn buildOutputFromZig(
 
     assert(out.* == null);
     out.* = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{
-            sub_compilation.bin_file.options.emit.?.sub_path,
+        .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(comp.gpa, &[_][]const u8{
+            sub_compilation.bin_file.?.emit.sub_path,
         }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
@@ -6260,51 +6265,70 @@ pub fn build_crt_file(
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
-    const target = comp.getTarget();
-    const basename = try std.zig.binNameAlloc(comp.gpa, .{
+    const gpa = comp.gpa;
+    const basename = try std.zig.binNameAlloc(gpa, .{
         .root_name = root_name,
-        .target = target,
+        .target = comp.root_mod.resolved_target.result,
         .output_mode = output_mode,
     });
-    errdefer comp.gpa.free(basename);
+    errdefer gpa.free(basename);
 
-    const sub_compilation = try Compilation.create(comp.gpa, .{
+    const config = try Config.resolve(.{
+        .output_mode = output_mode,
+        .resolved_target = comp.root_mod.resolved_target,
+        .is_test = false,
+        .have_zcu = false,
+        .emit_bin = true,
+        .root_optimize_mode = comp.compilerRtOptMode(),
+        .link_libc = false,
+        .lto = switch (output_mode) {
+            .Lib => comp.config.lto,
+            .Obj, .Exe => false,
+        },
+    });
+    const root_mod = Package.Module.create(.{
+        .paths = .{
+            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root_src_path = "",
+        },
+        .fully_qualified_name = "root",
+        .inherited = .{
+            .strip = comp.compilerRtStrip(),
+            .stack_check = false,
+            .stack_protector = 0,
+            .sanitize_c = false,
+            .sanitize_thread = false,
+            .red_zone = comp.root_mod.red_zone,
+            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            .valgrind = false,
+            .unwind_tables = false,
+            .pic = comp.root_mod.pic,
+            .optimize_mode = comp.compilerRtOptMode(),
+            .structured_cfg = comp.root_mod.structured_cfg,
+        },
+        .global = config,
+        .cc_argv = &.{},
+    });
+
+    const sub_compilation = try Compilation.create(gpa, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
+        .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,
-        .target = target,
+        .resolved = config,
+        .root_mod = root_mod,
         .root_name = root_name,
-        .main_mod = null,
-        .output_mode = output_mode,
         .thread_pool = comp.thread_pool,
-        .libc_installation = comp.bin_file.options.libc_installation,
+        .libc_installation = comp.libc_installation,
         .emit_bin = .{
             .directory = null, // Put it in the cache directory.
             .basename = basename,
         },
-        .optimize_mode = comp.compilerRtOptMode(),
-        .want_sanitize_c = false,
-        .want_stack_check = false,
-        .want_stack_protector = 0,
-        .want_red_zone = comp.bin_file.options.red_zone,
-        .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
-        .want_valgrind = false,
-        .want_tsan = false,
-        .want_pic = comp.bin_file.options.pic,
-        .want_pie = null,
-        .want_lto = switch (output_mode) {
-            .Lib => comp.bin_file.options.lto,
-            .Obj, .Exe => false,
-        },
         .emit_h = null,
-        .strip = comp.compilerRtStrip(),
-        .is_native_os = comp.bin_file.options.is_native_os,
-        .is_native_abi = comp.bin_file.options.is_native_abi,
-        .self_exe_path = comp.self_exe_path,
         .c_source_files = c_source_files,
         .verbose_cc = comp.verbose_cc,
-        .verbose_link = comp.bin_file.options.verbose_link,
+        .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,
         .verbose_intern_pool = comp.verbose_intern_pool,
         .verbose_generic_instances = comp.verbose_generic_instances,
@@ -6314,17 +6338,16 @@ pub fn build_crt_file(
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-        .want_structured_cfg = comp.bin_file.options.want_structured_cfg,
     });
     defer sub_compilation.destroy();
 
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
-    try comp.crt_files.ensureUnusedCapacity(comp.gpa, 1);
+    try comp.crt_files.ensureUnusedCapacity(gpa, 1);
 
     comp.crt_files.putAssumeCapacityNoClobber(basename, .{
-        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{
-            sub_compilation.bin_file.options.emit.?.sub_path,
+        .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(gpa, &[_][]const u8{
+            sub_compilation.bin_file.?.emit.sub_path,
         }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     });
@@ -6357,10 +6380,11 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
 /// compiler-rt, libcxx, libc, libunwind, etc.
 pub fn compilerRtOptMode(comp: Compilation) std.builtin.OptimizeMode {
     if (comp.debug_compiler_runtime_libs) {
-        return comp.bin_file.options.optimize_mode;
+        return comp.root_mod.optimize_mode;
     }
-    switch (comp.bin_file.options.optimize_mode) {
-        .Debug, .ReleaseSafe => return target_util.defaultCompilerRtOptimizeMode(comp.getTarget()),
+    const target = comp.root_mod.resolved_target.result;
+    switch (comp.root_mod.optimize_mode) {
+        .Debug, .ReleaseSafe => return target_util.defaultCompilerRtOptimizeMode(target),
         .ReleaseFast => return .ReleaseFast,
         .ReleaseSmall => return .ReleaseSmall,
     }
@@ -6369,5 +6393,5 @@ pub fn compilerRtOptMode(comp: Compilation) std.builtin.OptimizeMode {
 /// This decides whether to strip debug info for all zig-provided libraries, including
 /// compiler-rt, libcxx, libc, libunwind, etc.
 pub fn compilerRtStrip(comp: Compilation) bool {
-    return comp.bin_file.options.strip;
+    return comp.root_mod.strip;
 }

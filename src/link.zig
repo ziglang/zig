@@ -32,8 +32,6 @@ pub const SystemLib = struct {
     path: ?[]const u8,
 };
 
-pub const SortSection = enum { name, alignment };
-
 pub const CacheMode = enum { incremental, whole };
 
 pub fn hashAddSystemLibs(
@@ -50,10 +48,6 @@ pub fn hashAddSystemLibs(
 }
 
 pub const producer_string = if (builtin.is_test) "zig test" else "zig " ++ build_options.version;
-
-pub const HashStyle = enum { sysv, gnu, both };
-
-pub const CompressDebugSections = enum { none, zlib, zstd };
 
 pub const File = struct {
     tag: Tag,
@@ -105,12 +99,9 @@ pub const File = struct {
         image_base: ?u64,
         function_sections: bool,
         data_sections: bool,
-        no_builtin: bool,
         eh_frame_hdr: bool,
         emit_relocs: bool,
         rdynamic: bool,
-        optimization: u8,
-        linker_script: ?[]const u8,
         z_nodelete: bool,
         z_notext: bool,
         z_defs: bool,
@@ -123,7 +114,7 @@ pub const File = struct {
         tsaware: bool,
         nxcompat: bool,
         dynamicbase: bool,
-        compress_debug_sections: CompressDebugSections,
+        compress_debug_sections: Elf.CompressDebugSections,
         bind_global_refs_locally: bool,
         import_symbols: bool,
         import_table: bool,
@@ -136,13 +127,14 @@ pub const File = struct {
         each_lib_rpath: bool,
         build_id: std.zig.BuildId,
         disable_lld_caching: bool,
-        hash_style: HashStyle,
-        sort_section: ?SortSection,
+        hash_style: Elf.HashStyle,
+        sort_section: ?Elf.SortSection,
         major_subsystem_version: ?u32,
         minor_subsystem_version: ?u32,
         gc_sections: ?bool,
         allow_shlib_undefined: ?bool,
         subsystem: ?std.Target.SubSystem,
+        linker_script: ?[]const u8,
         version_script: ?[]const u8,
         soname: ?[]const u8,
         print_gc_sections: bool,
@@ -191,9 +183,6 @@ pub const File = struct {
         pdb_out_path: ?[]const u8,
         /// (Windows) .def file to specify when linking
         module_definition_file: ?[]const u8,
-
-        /// (SPIR-V) whether to generate a structured control flow graph or not
-        want_structured_cfg: ?bool,
 
         wasi_emulated_libs: []const wasi_libc.CRTFile,
     };

@@ -47,6 +47,8 @@ base: link.File,
 
 object: codegen.Object,
 
+pub const base_tag: link.File.Tag = .spirv;
+
 pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*SpirV {
     const gpa = options.comp.gpa;
     const target = options.comp.root_mod.resolved_target.result;

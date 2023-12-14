@@ -10,6 +10,15 @@ base: link.File,
 image_base: u64,
 error_flags: link.File.ErrorFlags = .{},
 dll_export_fns: bool,
+subsystem: ?std.Target.SubSystem,
+tsaware: bool,
+nxcompat: bool,
+dynamicbase: bool,
+/// TODO this and minor_subsystem_version should be combined into one property and left as
+/// default or populated together. They should not be separate fields.
+major_subsystem_version: u32,
+minor_subsystem_version: u32,
+lib_dirs: []const []const u8,
 
 ptr_width: PtrWidth,
 page_size: u32,
@@ -403,6 +412,13 @@ pub fn createEmpty(arena: Allocator, options: link.File.OpenOptions) !*Coff {
         },
 
         .dll_export_fns = options.dll_export_fns,
+        .subsystem = options.subsystem,
+        .tsaware = options.tsaware,
+        .nxcompat = options.nxcompat,
+        .dynamicbase = options.dynamicbase,
+        .major_subsystem_version = options.major_subsystem_version orelse 6,
+        .minor_subsystem_version = options.minor_subsystem_version orelse 0,
+        .lib_dirs = options.lib_dirs,
     };
 
     const use_llvm = comp.config.use_llvm;
@@ -2305,8 +2321,8 @@ fn writeHeader(self: *Coff) !void {
                 .minor_operating_system_version = 0,
                 .major_image_version = 0,
                 .minor_image_version = 0,
-                .major_subsystem_version = 6,
-                .minor_subsystem_version = 0,
+                .major_subsystem_version = self.major_subsystem_version,
+                .minor_subsystem_version = self.minor_subsystem_version,
                 .win32_version_value = 0,
                 .size_of_image = size_of_image,
                 .size_of_headers = size_of_headers,
@@ -2339,8 +2355,8 @@ fn writeHeader(self: *Coff) !void {
                 .minor_operating_system_version = 0,
                 .major_image_version = 0,
                 .minor_image_version = 0,
-                .major_subsystem_version = 6,
-                .minor_subsystem_version = 0,
+                .major_subsystem_version = self.major_subsystem_version,
+                .minor_subsystem_version = self.minor_subsystem_version,
                 .win32_version_value = 0,
                 .size_of_image = size_of_image,
                 .size_of_headers = size_of_headers,

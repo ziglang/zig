@@ -249,7 +249,7 @@ pub fn linkWithZld(
                 }
             }
 
-            if (macho_file.sysroot) |syslibroot| {
+            if (comp.sysroot) |syslibroot| {
                 try argv.append("-syslibroot");
                 try argv.append(syslibroot);
             }
