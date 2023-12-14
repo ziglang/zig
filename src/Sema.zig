@@ -11174,11 +11174,13 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     const mod = sema.mod;
     const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-    const src = inst_data.src();
-    const src_node_offset = inst_data.src_node;
-    const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = src_node_offset };
-    const else_prong_src: LazySrcLoc = .{ .node_offset_switch_special_prong = src_node_offset };
+    const switch_src = inst_data.src();
+    const switch_src_node_offset = inst_data.src_node;
+    const switch_operand_src: LazySrcLoc = .{ .node_offset_switch_operand = switch_src_node_offset };
+    const else_prong_src: LazySrcLoc = .{ .node_offset_switch_special_prong = switch_src_node_offset };
     const extra = sema.code.extraData(Zir.Inst.SwitchBlockErrUnion, inst_data.payload_index);
+    const main_operand_src: LazySrcLoc = .{ .node_offset_if_cond = extra.data.main_src_node_offset };
+    const main_src: LazySrcLoc = .{ .node_offset_main_token = extra.data.main_src_node_offset };
 
     const raw_operand_val = try sema.resolveInst(extra.data.operand);
 
@@ -11295,9 +11297,9 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     defer child_block.instructions.deinit(gpa);
     defer merges.deinit(gpa);
 
-    const resolved_err_set = try sema.resolveInferredErrorSetTy(block, src, operand_err_set_ty.toIntern());
+    const resolved_err_set = try sema.resolveInferredErrorSetTy(block, main_src, operand_err_set_ty.toIntern());
     if (Type.fromInterned(resolved_err_set).errorSetIsEmpty(mod)) {
-        return sema.resolveBlockBody(block, operand_src, &child_block, non_error_case.body, inst, merges);
+        return sema.resolveBlockBody(block, main_operand_src, &child_block, non_error_case.body, inst, merges);
     }
 
     const else_error_ty: ?Type = try validateErrSetSwitch(
@@ -11324,14 +11326,14 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         .tag_capture_inst = undefined,
     };
 
-    if (try sema.resolveDefinedValue(&child_block, src, raw_operand_val)) |ov| {
+    if (try sema.resolveDefinedValue(&child_block, main_src, raw_operand_val)) |ov| {
         const operand_val = if (extra.data.bits.payload_is_ref)
-            (try sema.pointerDeref(&child_block, src, ov, operand_ty)).?
+            (try sema.pointerDeref(&child_block, main_src, ov, operand_ty)).?
         else
             ov;
 
         if (operand_val.errorUnionIsPayload(mod)) {
-            return sema.resolveBlockBody(block, operand_src, &child_block, non_error_case.body, inst, merges);
+            return sema.resolveBlockBody(block, main_operand_src, &child_block, non_error_case.body, inst, merges);
         } else {
             const err_val = Value.fromInterned(try mod.intern(.{
                 .err = .{
@@ -11340,9 +11342,9 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
                 },
             }));
             spa.operand = if (extra.data.bits.payload_is_ref)
-                try sema.analyzeErrUnionCodePtr(block, operand_src, raw_operand_val)
+                try sema.analyzeErrUnionCodePtr(block, switch_operand_src, raw_operand_val)
             else
-                try sema.analyzeErrUnionCode(block, operand_src, raw_operand_val);
+                try sema.analyzeErrUnionCode(block, switch_operand_src, raw_operand_val);
 
             if (extra.data.bits.any_uses_err_capture) {
                 sema.inst_map.putAssumeCapacity(err_capture_inst, spa.operand);
@@ -11353,7 +11355,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
                 sema,
                 spa,
                 &child_block,
-                try sema.switchCond(block, operand_src, spa.operand),
+                try sema.switchCond(block, switch_operand_src, spa.operand),
                 err_val,
                 operand_err_set_ty,
                 .{
@@ -11374,12 +11376,12 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
 
     if (scalar_cases_len + multi_cases_len == 0) {
         if (else_error_ty) |ty| if (ty.errorSetIsEmpty(mod)) {
-            return sema.resolveBlockBody(block, operand_src, &child_block, non_error_case.body, inst, merges);
+            return sema.resolveBlockBody(block, main_operand_src, &child_block, non_error_case.body, inst, merges);
         };
     }
 
     if (child_block.is_comptime) {
-        _ = try sema.resolveConstDefinedValue(&child_block, operand_src, raw_operand_val, .{
+        _ = try sema.resolveConstDefinedValue(&child_block, main_operand_src, raw_operand_val, .{
             .needed_comptime_reason = "condition in comptime switch must be comptime-known",
             .block_comptime_reason = child_block.comptime_reason,
         });
@@ -11387,17 +11389,17 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     }
 
     const cond = if (extra.data.bits.payload_is_ref) blk: {
-        try sema.checkErrorType(block, src, sema.typeOf(raw_operand_val).elemType2(mod));
-        const loaded = try sema.analyzeLoad(block, src, raw_operand_val, src);
-        break :blk try sema.analyzeIsNonErr(block, src, loaded);
+        try sema.checkErrorType(block, main_src, sema.typeOf(raw_operand_val).elemType2(mod));
+        const loaded = try sema.analyzeLoad(block, main_src, raw_operand_val, main_src);
+        break :blk try sema.analyzeIsNonErr(block, main_src, loaded);
     } else blk: {
-        try sema.checkErrorType(block, src, sema.typeOf(raw_operand_val));
-        break :blk try sema.analyzeIsNonErr(block, src, raw_operand_val);
+        try sema.checkErrorType(block, main_src, sema.typeOf(raw_operand_val));
+        break :blk try sema.analyzeIsNonErr(block, main_src, raw_operand_val);
     };
 
     var sub_block = child_block.makeSubBlock();
     sub_block.runtime_loop = null;
-    sub_block.runtime_cond = operand_src;
+    sub_block.runtime_cond = main_operand_src;
     sub_block.runtime_index.increment();
     defer sub_block.instructions.deinit(gpa);
 
@@ -11406,9 +11408,9 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     defer gpa.free(true_instructions);
 
     spa.operand = if (extra.data.bits.payload_is_ref)
-        try sema.analyzeErrUnionCodePtr(&sub_block, operand_src, raw_operand_val)
+        try sema.analyzeErrUnionCodePtr(&sub_block, switch_operand_src, raw_operand_val)
     else
-        try sema.analyzeErrUnionCode(&sub_block, operand_src, raw_operand_val);
+        try sema.analyzeErrUnionCode(&sub_block, switch_operand_src, raw_operand_val);
 
     if (extra.data.bits.any_uses_err_capture) {
         sema.inst_map.putAssumeCapacity(err_capture_inst, spa.operand);
@@ -11417,10 +11419,10 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     _ = try sema.analyzeSwitchRuntimeBlock(
         spa,
         &sub_block,
-        src,
-        try sema.switchCond(block, operand_src, spa.operand),
+        switch_src,
+        try sema.switchCond(block, switch_operand_src, spa.operand),
         operand_err_set_ty,
-        operand_src,
+        switch_operand_src,
         case_vals,
         .{
             .body = else_case.body,
@@ -11434,7 +11436,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         false,
         undefined,
         true,
-        src_node_offset,
+        switch_src_node_offset,
         else_prong_src,
         undefined,
         seen_errors,
@@ -11461,7 +11463,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(true_instructions));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(sub_block.instructions.items));
 
-    return sema.analyzeBlockBody(block, src, &child_block, merges);
+    return sema.analyzeBlockBody(block, main_src, &child_block, merges);
 }
 
 fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_ref: bool) CompileError!Air.Inst.Ref {

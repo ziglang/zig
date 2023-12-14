@@ -7367,6 +7367,7 @@ fn switchExprErrUnion(
             .any_uses_err_capture = any_uses_err_capture,
             .payload_is_ref = payload_is_ref,
         },
+        .main_src_node_offset = parent_gz.nodeIndexToRelative(catch_or_if_node),
     });
 
     if (multi_cases_len != 0) {

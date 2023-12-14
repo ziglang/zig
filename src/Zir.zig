@@ -2786,6 +2786,7 @@ pub const Inst = struct {
     pub const SwitchBlockErrUnion = struct {
         operand: Ref,
         bits: Bits,
+        main_src_node_offset: i32,
 
         pub const Bits = packed struct(u32) {
             /// If true, one or more prongs have multiple items.
