@@ -83,8 +83,8 @@ pub fn localtime(allocator: std.mem.Allocator) LocalTimeError!TimeZone {
 
 /// ISO 8601 compliant date and time representation.
 pub const DateTime = struct {
-    /// milliseconds, range 0 to 999
-    millisecond: u16,
+    /// nanoseconds, range 0 to 999 999 999
+    nanosecond: u32,
 
     /// seconds, range 0 to 60
     second: u8,
@@ -110,7 +110,8 @@ pub const DateTime = struct {
     /// year, year 0000 is equal to 1 BCE
     year: i32,
 
-    utc_timestamp: i64,
+    /// UNIX timestamp in nanoseconds
+    nano_timestamp: i128,
     tt: TimeZone.TimeType,
 
     pub const Weekday = enum(u3) {
@@ -181,7 +182,7 @@ pub const DateTime = struct {
 
     /// Get current date and time in the system's local time.
     pub fn now(allocator: std.mem.Allocator) LocalTimeError!DateTime {
-        const utc_timestamp = timestamp();
+        const nano_timestamp = nanoTimestamp();
 
         if (builtin.os.tag == .windows) {
             var tzi: std.os.windows.TIME_ZONE_INFORMATION = undefined;
@@ -192,7 +193,7 @@ pub const DateTime = struct {
                 null,
             );
             if (rc != .SUCCESS) return error.LocalTimeUnavailable;
-            return fromTimestamp(utc_timestamp, .{
+            return fromTimestamp(nano_timestamp, .{
                 .name_data = .{
                     @intCast(tzi.StandardName[0]),
                     @intCast(tzi.StandardName[1]),
@@ -207,14 +208,15 @@ pub const DateTime = struct {
         }
 
         var sf = std.heap.stackFallback(4096, allocator);
-        var tz = try localtime(sf.allocator());
-        defer tz.deinit(sf.allocator());
+        const sf_allocator = sf.get();
+        var tz = try localtime(sf_allocator);
+        defer tz.deinit(sf_allocator);
 
-        return fromTimestamp(utc_timestamp, tz.project(utc_timestamp));
+        return fromTimestamp(nano_timestamp, tz.project(@intCast(@divFloor(nano_timestamp, ns_per_s))));
     }
 
-    /// Convert timestamp in milliseconds to a DateTime.
-    pub fn fromTimestamp(utc_timestamp: i64, tt: TimeZone.TimeType) DateTime {
+    /// Convert UNIX timestamp in nanoseconds to a DateTime.
+    pub fn fromTimestamp(nano_timestamp: i128, tt: TimeZone.TimeType) DateTime {
         // Ported from musl, which is licensed under the MIT license:
         // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 
@@ -225,7 +227,8 @@ pub const DateTime = struct {
         const days_per_100y = 365 * 100 + 24;
         const days_per_4y = 365 * 4 + 1;
 
-        const seconds = @divTrunc(utc_timestamp, 1000) + tt.offset - leapoch;
+        const seconds_unadjusted: i64 = @intCast(@divFloor(nano_timestamp, ns_per_s));
+        const seconds = seconds_unadjusted + tt.offset - leapoch;
         var days = @divTrunc(seconds, 86400);
         var rem_seconds = @as(i32, @truncate(@rem(seconds, 86400)));
         if (rem_seconds < 0) {
@@ -290,30 +293,15 @@ pub const DateTime = struct {
             .hour = @intCast(@divTrunc(rem_seconds, 3600)),
             .minute = @intCast(@rem(@divTrunc(rem_seconds, 60), 60)),
             .second = @intCast(@rem(rem_seconds, 60)),
-            .millisecond = @intCast(@rem(utc_timestamp, 1000)),
-            .utc_timestamp = utc_timestamp,
+            .nanosecond = @intCast(@rem(nano_timestamp, ns_per_s)),
+            .nano_timestamp = nano_timestamp,
             .tt = tt,
         };
     }
 
     /// Compare two `DateTime`s.
     pub fn order(self: DateTime, other: DateTime) std.math.Order {
-        var ord = std.math.order(self.year, other.year);
-        if (ord != .eq) return ord;
-
-        ord = std.math.order(self.year_day, other.year_day);
-        if (ord != .eq) return ord;
-
-        ord = std.math.order(self.hour, other.hour);
-        if (ord != .eq) return ord;
-
-        ord = std.math.order(self.minute, other.minute);
-        if (ord != .eq) return ord;
-
-        ord = std.math.order(self.second, other.second);
-        if (ord != .eq) return ord;
-
-        return std.math.order(self.millisecond, other.millisecond);
+        return std.math.order(self.nano_timestamp, other.nano_timestamp);
     }
 
     pub const default_fmt = "%Y-%m-%dT%H%c%M%c%S%z";
@@ -419,7 +407,7 @@ pub const DateTime = struct {
 };
 
 test "DateTime basic usage" {
-    const dt = DateTime.fromTimestamp(1560870105000, TimeZone.TimeType.UTC);
+    const dt = DateTime.fromTimestamp(1560870105 * ns_per_s, TimeZone.TimeType.UTC);
 
     try testing.expect(dt.second == 45);
     try testing.expect(dt.minute == 1);
@@ -432,7 +420,7 @@ test "DateTime basic usage" {
 }
 
 test "DateTime.format all" {
-    const dt = DateTime.fromTimestamp(1560816105000, TimeZone.TimeType.UTC);
+    const dt = DateTime.fromTimestamp(1560816105 * ns_per_s, TimeZone.TimeType.UTC);
     var buf: [100]u8 = undefined;
     const result = try std.fmt.bufPrint(&buf, "{%a %A %b %B %m %d %y %Y %I %p %H%c%M%c%S.%s %j %%}", .{dt});
     try testing.expectEqualStrings("Tue Tuesday Jun June 06 18 19 2019 12 AM 00:01:45.000 169 %", result);
@@ -444,7 +432,7 @@ test "DateTime.format no format" {
         .flags = 0,
         .name_data = "EEST\x00\x00".*,
     };
-    const dt = DateTime.fromTimestamp(1560870105000, EEST);
+    const dt = DateTime.fromTimestamp(1560870105 * ns_per_s, EEST);
     var buf: [100]u8 = undefined;
     const result = try std.fmt.bufPrint(&buf, "{}", .{dt});
     try std.testing.expectEqualStrings("2019-06-18T18:01:45+0300", result);
@@ -469,7 +457,7 @@ pub fn timestamp() i64 {
 /// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
 pub fn milliTimestamp() i64 {
-    return @as(i64, @intCast(@divFloor(nanoTimestamp(), ns_per_ms)));
+    return @intCast(@divFloor(nanoTimestamp(), ns_per_ms));
 }
 
 /// Get a calendar timestamp, in microseconds, relative to UTC 1970-01-01.
@@ -478,7 +466,7 @@ pub fn milliTimestamp() i64 {
 /// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
 pub fn microTimestamp() i64 {
-    return @as(i64, @intCast(@divFloor(nanoTimestamp(), ns_per_us)));
+    return @intCast(@divFloor(nanoTimestamp(), ns_per_us));
 }
 
 /// Get a calendar timestamp, in nanoseconds, relative to UTC 1970-01-01.
