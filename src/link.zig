@@ -32,8 +32,6 @@ pub const SystemLib = struct {
     path: ?[]const u8,
 };
 
-pub const CacheMode = enum { incremental, whole };
-
 pub fn hashAddSystemLibs(
     man: *Cache.Manifest,
     hm: std.StringArrayHashMapUnmanaged(SystemLib),
@@ -773,67 +771,6 @@ pub const File = struct {
             .wasm => return @fieldParentPtr(Wasm, "base", base).deleteDeclExport(decl_index),
             .spirv => {},
             .nvptx => {},
-        }
-    }
-
-    /// This function is called by the frontend before flush(). It communicates that
-    /// `options.bin_file.emit` directory needs to be renamed from
-    /// `[zig-cache]/tmp/[random]` to `[zig-cache]/o/[digest]`.
-    /// The frontend would like to simply perform a file system rename, however,
-    /// some linker backends care about the file paths of the objects they are linking.
-    /// So this function call tells linker backends to rename the paths of object files
-    /// to observe the new directory path.
-    /// Linker backends which do not have this requirement can fall back to the simple
-    /// implementation at the bottom of this function.
-    /// This function is only called when CacheMode is `whole`.
-    pub fn renameTmpIntoCache(
-        base: *File,
-        cache_directory: Compilation.Directory,
-        tmp_dir_sub_path: []const u8,
-        o_sub_path: []const u8,
-    ) !void {
-        // So far, none of the linker backends need to respond to this event, however,
-        // it makes sense that they might want to. So we leave this mechanism here
-        // for now. Once the linker backends get more mature, if it turns out this
-        // is not needed we can refactor this into having the frontend do the rename
-        // directly, and remove this function from link.zig.
-        _ = base;
-        while (true) {
-            if (builtin.os.tag == .windows) {
-                // Work around windows `renameW` can't fail with `PathAlreadyExists`
-                // See https://github.com/ziglang/zig/issues/8362
-                if (cache_directory.handle.access(o_sub_path, .{})) |_| {
-                    try cache_directory.handle.deleteTree(o_sub_path);
-                    continue;
-                } else |err| switch (err) {
-                    error.FileNotFound => {},
-                    else => |e| return e,
-                }
-                std.fs.rename(
-                    cache_directory.handle,
-                    tmp_dir_sub_path,
-                    cache_directory.handle,
-                    o_sub_path,
-                ) catch |err| {
-                    log.err("unable to rename cache dir {s} to {s}: {s}", .{ tmp_dir_sub_path, o_sub_path, @errorName(err) });
-                    return err;
-                };
-                break;
-            } else {
-                std.fs.rename(
-                    cache_directory.handle,
-                    tmp_dir_sub_path,
-                    cache_directory.handle,
-                    o_sub_path,
-                ) catch |err| switch (err) {
-                    error.PathAlreadyExists => {
-                        try cache_directory.handle.deleteTree(o_sub_path);
-                        continue;
-                    },
-                    else => |e| return e,
-                };
-                break;
-            }
         }
     }
 

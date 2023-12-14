@@ -52,8 +52,6 @@ comptime {
 gpa: Allocator,
 comp: *Compilation,
 
-/// Where build artifacts and incremental compilation metadata serialization go.
-zig_cache_artifact_directory: Compilation.Directory,
 /// Pointer to externally managed resource.
 root_mod: *Package.Module,
 /// Normally, `main_mod` and `root_mod` are the same. The exception is `zig test`, in which
@@ -2508,7 +2506,6 @@ pub fn deinit(mod: *Module) void {
         emit_h.failed_decls.deinit(gpa);
         emit_h.decl_table.deinit(gpa);
         emit_h.allocated_emit_h.deinit(gpa);
-        gpa.destroy(emit_h);
     }
 
     for (mod.failed_files.values()) |value| {

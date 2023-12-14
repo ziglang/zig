@@ -48,6 +48,9 @@ arena: std.heap.ArenaAllocator,
 /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
 /// TODO: rename to zcu: ?*Zcu
 module: ?*Module,
+/// Contains different state depending on whether the Compilation uses
+/// incremental or whole cache mode.
+cache_use: CacheUse,
 /// All compilations have a root module because this is where some important
 /// settings are stored, such as target and optimization mode. This module
 /// might not have any .zig code associated with it, however.
@@ -66,7 +69,6 @@ implib_emit: ?Emit,
 /// This is non-null when `-femit-docs` is provided.
 docs_emit: ?Emit,
 root_name: [:0]const u8,
-cache_mode: CacheMode,
 include_compiler_rt: bool,
 objects: []Compilation.LinkObject,
 /// Needed only for passing -F args to clang.
@@ -82,9 +84,6 @@ no_builtin: bool,
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
 win32_resource_table: if (build_options.only_core_functionality) void else std.AutoArrayHashMapUnmanaged(*Win32Resource, void) =
     if (build_options.only_core_functionality) {} else .{},
-/// This is a pointer to a local variable inside `update()`.
-whole_cache_manifest: ?*Cache.Manifest = null,
-whole_cache_manifest_mutex: std.Thread.Mutex = .{},
 
 link_error_flags: link.File.ErrorFlags = .{},
 lld_errors: std.ArrayListUnmanaged(LldError) = .{},
@@ -154,14 +153,6 @@ rc_source_files: []const RcSourceFile,
 cache_parent: *Cache,
 /// Path to own executable for invoking `zig clang`.
 self_exe_path: ?[]const u8,
-/// null means -fno-emit-bin.
-/// This is mutable memory allocated into the Compilation-lifetime arena (`arena`)
-/// of exactly the correct size for "o/[digest]/[basename]".
-/// The basename is of the outputted binary file in case we don't know the directory yet.
-whole_bin_sub_path: ?[]u8,
-/// Same as `whole_bin_sub_path` but for implibs.
-whole_implib_sub_path: ?[]u8,
-whole_docs_sub_path: ?[]u8,
 zig_lib_directory: Directory,
 local_cache_directory: Directory,
 global_cache_directory: Directory,
@@ -198,9 +189,6 @@ glibc_so_files: ?glibc.BuiltSharedObjects = null,
 /// The set of needed CRT (C runtime) files differs depending on the target and compilation settings.
 /// The key is the basename, and the value is the absolute path to the completed build artifact.
 crt_files: std.StringHashMapUnmanaged(CRTFile) = .{},
-
-/// Keeping track of this possibly open resource so we can close it later.
-owned_link_dir: ?std.fs.Dir,
 
 /// This is for stage1 and should be deleted upon completion of self-hosting.
 /// Don't use this for anything other than stage1 compatibility.
@@ -869,7 +857,32 @@ pub const ClangPreprocessorMode = enum {
 
 pub const Framework = link.File.MachO.Framework;
 pub const SystemLib = link.SystemLib;
-pub const CacheMode = link.CacheMode;
+
+pub const CacheMode = enum { incremental, whole };
+
+pub const CacheUse = union(CacheMode) {
+    incremental: *Incremental,
+    whole: *Whole,
+
+    pub const Whole = struct {
+        /// This is a pointer to a local variable inside `update()`.
+        cache_manifest: ?*Cache.Manifest = null,
+        cache_manifest_mutex: std.Thread.Mutex = .{},
+        /// null means -fno-emit-bin.
+        /// This is mutable memory allocated into the Compilation-lifetime arena (`arena`)
+        /// of exactly the correct size for "o/[digest]/[basename]".
+        /// The basename is of the outputted binary file in case we don't know the directory yet.
+        bin_sub_path: ?[]u8,
+        /// Same as `whole_bin_sub_path` but for implibs.
+        implib_sub_path: ?[]u8,
+        docs_sub_path: ?[]u8,
+    };
+
+    pub const Incremental = struct {
+        /// Where build artifacts and incremental compilation metadata serialization go.
+        artifact_directory: Compilation.Directory,
+    };
+};
 
 pub const LinkObject = struct {
     path: []const u8,
@@ -1280,6 +1293,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const error_limit = options.error_limit orelse (std.math.maxInt(u16) - 1);
 
+        const each_lib_rpath = options.each_lib_rpath orelse
+            options.root_mod.resolved_target.is_native_os;
+
         // We put everything into the cache hash that *cannot be modified
         // during an incremental update*. For example, one cannot change the
         // target between updates, but one can change source files, so the
@@ -1319,73 +1335,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.config.wasi_exec_model);
         // TODO audit this and make sure everything is in it
 
-        const zcu: ?*Module = if (have_zcu) blk: {
-            // Options that are specific to zig source files, that cannot be
-            // modified between incremental updates.
-            var hash = cache.hash;
-
-            switch (cache_mode) {
-                .incremental => {
-                    // Here we put the root source file path name, but *not* with addFile.
-                    // We want the hash to be the same regardless of the contents of the
-                    // source file, because incremental compilation will handle it, but we
-                    // do want to namespace different source file names because they are
-                    // likely different compilations and therefore this would be likely to
-                    // cause cache hits.
-                    try addModuleTableToCacheHash(gpa, arena, &hash, options.root_mod, .path_bytes);
-                },
-                .whole => {
-                    // In this case, we postpone adding the input source file until
-                    // we create the cache manifest, in update(), because we want to
-                    // track it and packages as files.
-                },
-            }
-
-            // Synchronize with other matching comments: ZigOnlyHashStuff
-            hash.add(use_llvm);
-            hash.add(options.config.use_lib_llvm);
-            hash.add(dll_export_fns);
-            hash.add(options.config.is_test);
-            hash.add(options.config.test_evented_io);
-            hash.addOptionalBytes(options.test_filter);
-            hash.addOptionalBytes(options.test_name_prefix);
-            hash.add(options.skip_linker_dependencies);
-            hash.add(formatted_panics);
-            hash.add(options.emit_h != null);
-            hash.add(error_limit);
-
-            // In the case of incremental cache mode, this `zig_cache_artifact_directory`
-            // is computed based on a hash of non-linker inputs, and it is where all
-            // build artifacts are stored (even while in-progress).
-            //
-            // For whole cache mode, it is still used for builtin.zig so that the file
-            // path to builtin.zig can remain consistent during a debugging session at
-            // runtime. However, we don't know where to put outputs from the linker
-            // until the final cache hash, which is available after the
-            // compilation is complete.
-            //
-            // Therefore, in whole cache mode, we additionally create a temporary cache
-            // directory for these two kinds of build artifacts, and then rename it
-            // into place after the final hash is known. However, we don't want
-            // to create the temporary directory here, because in the case of a cache hit,
-            // this would have been wasted syscalls to make the directory and then not
-            // use it (or delete it).
-            //
-            // In summary, for whole cache mode, we simulate `-fno-emit-bin` in this
-            // function, and `zig_cache_artifact_directory` is *wrong* except for builtin.zig,
-            // and then at the beginning of `update()` when we find out whether we need
-            // a temporary directory, we patch up all the places that the incorrect
-            // `zig_cache_artifact_directory` was passed to various components of the compiler.
-
-            const digest = hash.final();
-            const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
-            var artifact_dir = try options.local_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
-            errdefer artifact_dir.close();
-            const zig_cache_artifact_directory: Directory = .{
-                .handle = artifact_dir,
-                .path = try options.local_cache_directory.join(arena, &[_][]const u8{artifact_sub_dir}),
-            };
-
+        const opt_zcu: ?*Module = if (have_zcu) blk: {
             // Pre-open the directory handles for cached ZIR code so that it does not need
             // to redundantly happen for each AstGen operation.
             const zir_sub_dir = "z";
@@ -1404,27 +1354,18 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             };
 
             const emit_h: ?*Module.GlobalEmitH = if (options.emit_h) |loc| eh: {
-                const eh = try gpa.create(Module.GlobalEmitH);
+                const eh = try arena.create(Module.GlobalEmitH);
                 eh.* = .{ .loc = loc };
                 break :eh eh;
             } else null;
-            errdefer if (emit_h) |eh| gpa.destroy(eh);
-
-            // TODO when we implement serialization and deserialization of incremental
-            // compilation metadata, this is where we would load it. We have open a handle
-            // to the directory where the output either already is, or will be.
-            // However we currently do not have serialization of such metadata, so for now
-            // we set up an empty Module that does the entire compilation fresh.
 
             const zcu = try arena.create(Module);
-            errdefer zcu.deinit();
             zcu.* = .{
                 .gpa = gpa,
                 .comp = comp,
                 .main_mod = options.main_mod orelse options.root_mod,
                 .root_mod = options.root_mod,
                 .std_mod = options.std_mod,
-                .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .global_zir_cache = global_zir_cache,
                 .local_zir_cache = local_zir_cache,
                 .emit_h = emit_h,
@@ -1432,155 +1373,33 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .error_limit = error_limit,
             };
             try zcu.init();
-
             break :blk zcu;
         } else blk: {
             if (options.emit_h != null) return error.NoZigModuleForCHeader;
             break :blk null;
         };
-        errdefer if (zcu) |u| u.deinit();
+        errdefer if (opt_zcu) |zcu| zcu.deinit();
 
-        // For resource management purposes.
-        var owned_link_dir: ?std.fs.Dir = null;
-        errdefer if (owned_link_dir) |*dir| dir.close();
-
-        const bin_file_emit: ?Emit = blk: {
-            const emit_bin = options.emit_bin orelse break :blk null;
-
-            if (emit_bin.directory) |directory| {
-                break :blk Emit{
-                    .directory = directory,
-                    .sub_path = emit_bin.basename,
-                };
-            }
-
-            // In case of whole cache mode, `whole_bin_sub_path` is used to distinguish
-            // between -femit-bin and -fno-emit-bin.
-            switch (cache_mode) {
-                .whole => break :blk null,
-                .incremental => {},
-            }
-
-            if (zcu) |u| {
-                break :blk Emit{
-                    .directory = u.zig_cache_artifact_directory,
-                    .sub_path = emit_bin.basename,
-                };
-            }
-
-            // We could use the cache hash as is no problem, however, we increase
-            // the likelihood of cache hits by adding the first C source file
-            // path name (not contents) to the hash. This way if the user is compiling
-            // foo.c and bar.c as separate compilations, they get different cache
-            // directories.
-            var hash = cache.hash;
-            if (options.c_source_files.len >= 1) {
-                hash.addBytes(options.c_source_files[0].src_path);
-            } else if (options.link_objects.len >= 1) {
-                hash.addBytes(options.link_objects[0].path);
-            }
-
-            const digest = hash.final();
-            const artifact_sub_dir = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
-            const artifact_dir = try options.local_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
-            owned_link_dir = artifact_dir;
-            const link_artifact_directory: Directory = .{
-                .handle = artifact_dir,
-                .path = try options.local_cache_directory.join(arena, &[_][]const u8{artifact_sub_dir}),
-            };
-            break :blk Emit{
-                .directory = link_artifact_directory,
-                .sub_path = emit_bin.basename,
-            };
-        };
-
-        const implib_emit: ?Emit = blk: {
-            const emit_implib = options.emit_implib orelse break :blk null;
-
-            if (emit_implib.directory) |directory| {
-                break :blk Emit{
-                    .directory = directory,
-                    .sub_path = emit_implib.basename,
-                };
-            }
-
-            // This is here for the same reason as in `bin_file_emit` above.
-            switch (cache_mode) {
-                .whole => break :blk null,
-                .incremental => {},
-            }
-
-            // Use the same directory as the bin. The CLI already emits an
-            // error if -fno-emit-bin is combined with -femit-implib.
-            break :blk Emit{
-                .directory = bin_file_emit.?.directory,
-                .sub_path = emit_implib.basename,
-            };
-        };
-
-        const docs_emit: ?Emit = blk: {
-            const emit_docs = options.emit_docs orelse break :blk null;
-
-            if (emit_docs.directory) |directory| {
-                break :blk .{
-                    .directory = directory,
-                    .sub_path = emit_docs.basename,
-                };
-            }
-
-            // This is here for the same reason as in `bin_file_emit` above.
-            switch (cache_mode) {
-                .whole => break :blk null,
-                .incremental => {},
-            }
-
-            // Use the same directory as the bin, if possible.
-            if (bin_file_emit) |x| break :blk .{
-                .directory = x.directory,
-                .sub_path = emit_docs.basename,
-            };
-
-            break :blk .{
-                .directory = zcu.?.zig_cache_artifact_directory,
-                .sub_path = emit_docs.basename,
-            };
-        };
-
-        // This is so that when doing `CacheMode.whole`, the mechanism in update()
-        // can use it for communicating the result directory via `bin_file.emit`.
-        // This is used to distinguish between -fno-emit-bin and -femit-bin
-        // for `CacheMode.whole`.
-        // This memory will be overwritten with the real digest in update() but
-        // the basename will be preserved.
-        const whole_bin_sub_path: ?[]u8 = try prepareWholeEmitSubPath(arena, options.emit_bin);
-        // Same thing but for implibs.
-        const whole_implib_sub_path: ?[]u8 = try prepareWholeEmitSubPath(arena, options.emit_implib);
-        const whole_docs_sub_path: ?[]u8 = try prepareWholeEmitSubPath(arena, options.emit_docs);
-
-        var system_libs: std.StringArrayHashMapUnmanaged(SystemLib) = .{};
+        const system_libs = try std.StringArrayHashMapUnmanaged(SystemLib).init(
+            gpa,
+            options.system_lib_names,
+            options.system_lib_infos,
+        );
         errdefer system_libs.deinit(gpa);
-        try system_libs.ensureTotalCapacity(gpa, options.system_lib_names.len);
-        for (options.system_lib_names, 0..) |lib_name, i| {
-            system_libs.putAssumeCapacity(lib_name, options.system_lib_infos[i]);
-        }
-
-        const each_lib_rpath = options.each_lib_rpath orelse
-            options.root_mod.resolved_target.is_native_os;
 
         comp.* = .{
             .gpa = gpa,
             .arena = arena_allocator,
-            .module = zcu,
+            .module = opt_zcu,
+            .cache_use = undefined, // populated below
+            .bin_file = null, // populated below
+            .implib_emit = null, // handled below
+            .docs_emit = null, // handled below
             .root_mod = options.root_mod,
             .config = options.config,
-            .bin_file = null,
-            .cache_mode = cache_mode,
             .zig_lib_directory = options.zig_lib_directory,
             .local_cache_directory = options.local_cache_directory,
             .global_cache_directory = options.global_cache_directory,
-            .whole_bin_sub_path = whole_bin_sub_path,
-            .whole_implib_sub_path = whole_implib_sub_path,
-            .whole_docs_sub_path = whole_docs_sub_path,
             .emit_asm = options.emit_asm,
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
@@ -1611,7 +1430,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .verbose_llvm_cpu_features = options.verbose_llvm_cpu_features,
             .verbose_link = options.verbose_link,
             .disable_c_depfile = options.disable_c_depfile,
-            .owned_link_dir = owned_link_dir,
             .color = options.color,
             .reference_trace = options.reference_trace,
             .formatted_panics = formatted_panics,
@@ -1622,8 +1440,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
             .libcxx_abi_version = options.libcxx_abi_version,
-            .implib_emit = implib_emit,
-            .docs_emit = docs_emit,
             .root_name = root_name,
             .sysroot = sysroot,
             .system_libs = system_libs,
@@ -1637,76 +1453,166 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .no_builtin = options.no_builtin,
         };
 
-        if (bin_file_emit) |emit| {
-            comp.bin_file = try link.File.open(arena, .{
-                .comp = comp,
-                .emit = emit,
-                .linker_script = options.linker_script,
-                .z_nodelete = options.linker_z_nodelete,
-                .z_notext = options.linker_z_notext,
-                .z_defs = options.linker_z_defs,
-                .z_origin = options.linker_z_origin,
-                .z_nocopyreloc = options.linker_z_nocopyreloc,
-                .z_now = options.linker_z_now,
-                .z_relro = options.linker_z_relro,
-                .z_common_page_size = options.linker_z_common_page_size,
-                .z_max_page_size = options.linker_z_max_page_size,
-                .darwin_sdk_layout = libc_dirs.darwin_sdk_layout,
-                .frameworks = options.frameworks,
-                .wasi_emulated_libs = options.wasi_emulated_libs,
-                .lib_dirs = options.lib_dirs,
-                .rpath_list = options.rpath_list,
-                .symbol_wrap_set = options.symbol_wrap_set,
-                .function_sections = options.function_sections,
-                .data_sections = options.data_sections,
-                .allow_shlib_undefined = options.linker_allow_shlib_undefined,
-                .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
-                .compress_debug_sections = options.linker_compress_debug_sections orelse .none,
-                .module_definition_file = options.linker_module_definition_file,
-                .sort_section = options.linker_sort_section,
-                .import_symbols = options.linker_import_symbols,
-                .import_table = options.linker_import_table,
-                .export_table = options.linker_export_table,
-                .initial_memory = options.linker_initial_memory,
-                .max_memory = options.linker_max_memory,
-                .global_base = options.linker_global_base,
-                .export_symbol_names = options.linker_export_symbol_names,
-                .print_gc_sections = options.linker_print_gc_sections,
-                .print_icf_sections = options.linker_print_icf_sections,
-                .print_map = options.linker_print_map,
-                .tsaware = options.linker_tsaware,
-                .nxcompat = options.linker_nxcompat,
-                .dynamicbase = options.linker_dynamicbase,
-                .major_subsystem_version = options.major_subsystem_version,
-                .minor_subsystem_version = options.minor_subsystem_version,
-                .stack_size = options.stack_size,
-                .image_base = options.image_base,
-                .version_script = options.version_script,
-                .gc_sections = options.linker_gc_sections,
-                .eh_frame_hdr = link_eh_frame_hdr,
-                .emit_relocs = options.link_emit_relocs,
-                .rdynamic = options.rdynamic,
-                .soname = options.soname,
-                .compatibility_version = options.compatibility_version,
-                .dll_export_fns = dll_export_fns,
-                .each_lib_rpath = each_lib_rpath,
-                .build_id = build_id,
-                .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
-                .subsystem = options.subsystem,
-                .debug_format = options.debug_format,
-                .hash_style = options.hash_style,
-                .enable_link_snapshots = options.enable_link_snapshots,
-                .install_name = options.install_name,
-                .entitlements = options.entitlements,
-                .pagezero_size = options.pagezero_size,
-                .headerpad_size = options.headerpad_size,
-                .headerpad_max_install_names = options.headerpad_max_install_names,
-                .dead_strip_dylibs = options.dead_strip_dylibs,
-                .force_undefined_symbols = options.force_undefined_symbols,
-                .pdb_source_path = options.pdb_source_path,
-                .pdb_out_path = options.pdb_out_path,
-                .entry_addr = null, // CLI does not expose this option (yet?)
-            });
+        const lf_open_opts: link.File.OpenOptions = .{
+            .comp = comp,
+            .linker_script = options.linker_script,
+            .z_nodelete = options.linker_z_nodelete,
+            .z_notext = options.linker_z_notext,
+            .z_defs = options.linker_z_defs,
+            .z_origin = options.linker_z_origin,
+            .z_nocopyreloc = options.linker_z_nocopyreloc,
+            .z_now = options.linker_z_now,
+            .z_relro = options.linker_z_relro,
+            .z_common_page_size = options.linker_z_common_page_size,
+            .z_max_page_size = options.linker_z_max_page_size,
+            .darwin_sdk_layout = libc_dirs.darwin_sdk_layout,
+            .frameworks = options.frameworks,
+            .wasi_emulated_libs = options.wasi_emulated_libs,
+            .lib_dirs = options.lib_dirs,
+            .rpath_list = options.rpath_list,
+            .symbol_wrap_set = options.symbol_wrap_set,
+            .function_sections = options.function_sections,
+            .data_sections = options.data_sections,
+            .allow_shlib_undefined = options.linker_allow_shlib_undefined,
+            .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
+            .compress_debug_sections = options.linker_compress_debug_sections orelse .none,
+            .module_definition_file = options.linker_module_definition_file,
+            .sort_section = options.linker_sort_section,
+            .import_symbols = options.linker_import_symbols,
+            .import_table = options.linker_import_table,
+            .export_table = options.linker_export_table,
+            .initial_memory = options.linker_initial_memory,
+            .max_memory = options.linker_max_memory,
+            .global_base = options.linker_global_base,
+            .export_symbol_names = options.linker_export_symbol_names,
+            .print_gc_sections = options.linker_print_gc_sections,
+            .print_icf_sections = options.linker_print_icf_sections,
+            .print_map = options.linker_print_map,
+            .tsaware = options.linker_tsaware,
+            .nxcompat = options.linker_nxcompat,
+            .dynamicbase = options.linker_dynamicbase,
+            .major_subsystem_version = options.major_subsystem_version,
+            .minor_subsystem_version = options.minor_subsystem_version,
+            .stack_size = options.stack_size,
+            .image_base = options.image_base,
+            .version_script = options.version_script,
+            .gc_sections = options.linker_gc_sections,
+            .eh_frame_hdr = link_eh_frame_hdr,
+            .emit_relocs = options.link_emit_relocs,
+            .rdynamic = options.rdynamic,
+            .soname = options.soname,
+            .compatibility_version = options.compatibility_version,
+            .dll_export_fns = dll_export_fns,
+            .each_lib_rpath = each_lib_rpath,
+            .build_id = build_id,
+            .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
+            .subsystem = options.subsystem,
+            .debug_format = options.debug_format,
+            .hash_style = options.hash_style,
+            .enable_link_snapshots = options.enable_link_snapshots,
+            .install_name = options.install_name,
+            .entitlements = options.entitlements,
+            .pagezero_size = options.pagezero_size,
+            .headerpad_size = options.headerpad_size,
+            .headerpad_max_install_names = options.headerpad_max_install_names,
+            .dead_strip_dylibs = options.dead_strip_dylibs,
+            .force_undefined_symbols = options.force_undefined_symbols,
+            .pdb_source_path = options.pdb_source_path,
+            .pdb_out_path = options.pdb_out_path,
+            .entry_addr = null, // CLI does not expose this option (yet?)
+        };
+
+        switch (cache_mode) {
+            .incremental => {
+                // Options that are specific to zig source files, that cannot be
+                // modified between incremental updates.
+                var hash = cache.hash;
+
+                // Synchronize with other matching comments: ZigOnlyHashStuff
+                hash.add(use_llvm);
+                hash.add(options.config.use_lib_llvm);
+                hash.add(dll_export_fns);
+                hash.add(options.config.is_test);
+                hash.add(options.config.test_evented_io);
+                hash.addOptionalBytes(options.test_filter);
+                hash.addOptionalBytes(options.test_name_prefix);
+                hash.add(options.skip_linker_dependencies);
+                hash.add(formatted_panics);
+                hash.add(options.emit_h != null);
+                hash.add(error_limit);
+
+                // Here we put the root source file path name, but *not* with addFile.
+                // We want the hash to be the same regardless of the contents of the
+                // source file, because incremental compilation will handle it, but we
+                // do want to namespace different source file names because they are
+                // likely different compilations and therefore this would be likely to
+                // cause cache hits.
+                try addModuleTableToCacheHash(gpa, arena, &hash, options.root_mod, .path_bytes);
+
+                // In the case of incremental cache mode, this `artifact_directory`
+                // is computed based on a hash of non-linker inputs, and it is where all
+                // build artifacts are stored (even while in-progress).
+                const digest = hash.final();
+                const artifact_sub_dir = "o" ++ std.fs.path.sep_str ++ digest;
+                var artifact_dir = try options.local_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
+                errdefer artifact_dir.close();
+                const artifact_directory: Directory = .{
+                    .handle = artifact_dir,
+                    .path = try options.local_cache_directory.join(arena, &[_][]const u8{artifact_sub_dir}),
+                };
+
+                const incremental = try arena.create(CacheUse.Incremental);
+                incremental.* = .{
+                    .artifact_directory = artifact_directory,
+                };
+                comp.cache_use = .{ .incremental = incremental };
+
+                if (options.emit_bin) |emit_bin| {
+                    const emit: Emit = .{
+                        .directory = emit_bin.directory orelse artifact_directory,
+                        .sub_path = emit_bin.basename,
+                    };
+                    comp.bin_file = try link.File.open(arena, emit, lf_open_opts);
+                }
+
+                if (options.implib_emit) |emit_implib| {
+                    comp.implib_emit = .{
+                        .directory = emit_implib.directory orelse artifact_directory,
+                        .sub_path = emit_implib.basename,
+                    };
+                }
+
+                if (options.docs_emit) |emit_docs| {
+                    comp.docs_emit = .{
+                        .directory = emit_docs.directory orelse artifact_directory,
+                        .sub_path = emit_docs.basename,
+                    };
+                }
+            },
+            .whole => {
+                // For whole cache mode, we don't know where to put outputs from
+                // the linker until the final cache hash, which is available after
+                // the compilation is complete.
+                //
+                // Therefore, bin_file is left null until the beginning of update(),
+                // where it may find a cache hit, or use a temporary directory to
+                // hold output artifacts.
+                const whole = try arena.create(CacheUse.Whole);
+                whole.* = .{
+                    // This is kept here so that link.File.open can be called later.
+                    .lf_open_opts = lf_open_opts,
+                    // This is so that when doing `CacheMode.whole`, the mechanism in update()
+                    // can use it for communicating the result directory via `bin_file.emit`.
+                    // This is used to distinguish between -fno-emit-bin and -femit-bin
+                    // for `CacheMode.whole`.
+                    // This memory will be overwritten with the real digest in update() but
+                    // the basename will be preserved.
+                    .bin_sub_path = try prepareWholeEmitSubPath(arena, options.emit_bin),
+                    .implib_sub_path = try prepareWholeEmitSubPath(arena, options.emit_implib),
+                    .docs_sub_path = try prepareWholeEmitSubPath(arena, options.emit_docs),
+                };
+                comp.cache_use = .{ .whole = whole };
+            },
         }
 
         break :comp comp;
@@ -1981,7 +1887,6 @@ pub fn destroy(self: *Compilation) void {
     self.clearMiscFailures();
 
     self.cache_parent.manifest_dir.close();
-    if (self.owned_link_dir) |*dir| dir.close();
 
     // This destroys `self`.
     var arena_instance = self.arena;
@@ -2001,35 +1906,32 @@ pub fn getTarget(self: Compilation) Target {
     return self.root_mod.resolved_target.result;
 }
 
-fn restorePrevZigCacheArtifactDirectory(comp: *Compilation, directory: *Directory) void {
-    if (directory.path) |p| comp.gpa.free(p);
-
-    // Restore the Module's previous zig_cache_artifact_directory
-    // This is only for cleanup purposes; Module.deinit calls close
-    // on the handle of zig_cache_artifact_directory.
-    if (comp.module) |module| {
-        const builtin_mod = module.main_mod.deps.get("builtin").?;
-        module.zig_cache_artifact_directory = builtin_mod.root.root_dir;
-    }
-}
-
-fn cleanupTmpArtifactDirectory(
-    comp: *Compilation,
-    tmp_artifact_directory: *?Directory,
-    tmp_dir_sub_path: []const u8,
-) void {
-    comp.gpa.free(tmp_dir_sub_path);
-    if (tmp_artifact_directory.*) |*directory| {
-        directory.handle.close();
-        restorePrevZigCacheArtifactDirectory(comp, directory);
-    }
-}
-
 pub fn hotCodeSwap(comp: *Compilation, prog_node: *std.Progress.Node, pid: std.ChildProcess.Id) !void {
     comp.bin_file.child_pid = pid;
     try comp.makeBinFileWritable();
     try comp.update(prog_node);
     try comp.makeBinFileExecutable();
+}
+
+fn cleanupAfterUpdate(comp: *Compilation) void {
+    switch (comp) {
+        .incremental => return,
+        .whole => |whole| {
+            if (whole.cache_manifest) |man| {
+                man.deinit();
+                whole.cache_manifest = null;
+            }
+            if (comp.bin_file) |lf| {
+                lf.destroy();
+                comp.bin_file = null;
+            }
+            if (whole.tmp_artifact_directory) |directory| {
+                directory.handle.close();
+                if (directory.path) |p| comp.gpa.free(p);
+                whole.tmp_artifact_directory = null;
+            }
+        },
+    }
 }
 
 /// Detect changes to source files, perform semantic analysis, and update the output files.
@@ -2041,92 +1943,91 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     comp.last_update_was_cache_hit = false;
 
     var man: Cache.Manifest = undefined;
-    defer if (comp.whole_cache_manifest != null) man.deinit();
+    defer cleanupAfterUpdate(comp);
 
-    var tmp_dir_sub_path: []const u8 = &.{};
-    var tmp_artifact_directory: ?Directory = null;
-    defer cleanupTmpArtifactDirectory(comp, &tmp_artifact_directory, tmp_dir_sub_path);
+    var tmp_dir_rand_int: u64 = undefined;
 
     // If using the whole caching strategy, we check for *everything* up front, including
     // C source files.
-    if (comp.cache_mode == .whole) {
-        // We are about to obtain this lock, so here we give other processes a chance first.
-        if (comp.bin_file) |lf| lf.releaseLock();
+    switch (comp.cache_use) {
+        .whole => |whole| {
+            // We are about to obtain this lock, so here we give other processes a chance first.
+            assert(comp.bin_file == null);
 
-        man = comp.cache_parent.obtain();
-        comp.whole_cache_manifest = &man;
-        try comp.addNonIncrementalStuffToCacheManifest(&man);
+            man = comp.cache_parent.obtain();
+            whole.cache_manifest = &man;
+            try comp.addNonIncrementalStuffToCacheManifest(&man);
 
-        const is_hit = man.hit() catch |err| {
-            // TODO properly bubble these up instead of emitting a warning
-            const i = man.failed_file_index orelse return err;
-            const pp = man.files.items[i].prefixed_path orelse return err;
-            const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
-            std.log.warn("{s}: {s}{s}", .{ @errorName(err), prefix, pp.sub_path });
-            return err;
-        };
-        if (is_hit) {
-            comp.last_update_was_cache_hit = true;
-            log.debug("CacheMode.whole cache hit for {s}", .{comp.root_name});
-            const digest = man.final();
-
-            comp.wholeCacheModeSetBinFilePath(&digest);
-
-            assert(comp.bin_file.lock == null);
-            comp.bin_file.lock = man.toOwnedLock();
-            return;
-        }
-        log.debug("CacheMode.whole cache miss for {s}", .{comp.root_name});
-
-        // Initialize `bin_file.emit` with a temporary Directory so that compilation can
-        // continue on the same path as incremental, using the temporary Directory.
-        tmp_artifact_directory = d: {
-            const s = std.fs.path.sep_str;
-            const rand_int = std.crypto.random.int(u64);
-
-            tmp_dir_sub_path = try std.fmt.allocPrint(comp.gpa, "tmp" ++ s ++ "{x}", .{rand_int});
-
-            const path = try comp.local_cache_directory.join(comp.gpa, &.{tmp_dir_sub_path});
-            errdefer comp.gpa.free(path);
-
-            const handle = try comp.local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
-            errdefer handle.close();
-
-            break :d .{
-                .path = path,
-                .handle = handle,
+            const is_hit = man.hit() catch |err| {
+                // TODO properly bubble these up instead of emitting a warning
+                const i = man.failed_file_index orelse return err;
+                const pp = man.files.items[i].prefixed_path orelse return err;
+                const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
+                std.log.warn("{s}: {s}{s}", .{ @errorName(err), prefix, pp.sub_path });
+                return err;
             };
-        };
+            if (is_hit) {
+                comp.last_update_was_cache_hit = true;
+                log.debug("CacheMode.whole cache hit for {s}", .{comp.root_name});
+                const digest = man.final();
 
-        // This updates the output directory for linker outputs.
-        if (comp.module) |module| {
-            module.zig_cache_artifact_directory = tmp_artifact_directory.?;
-        }
+                comp.wholeCacheModeSetBinFilePath(&digest);
 
-        // This resets the link.File to operate as if we called openPath() in create()
-        // instead of simulating -fno-emit-bin.
-        var options = comp.bin_file.options.move();
-        if (comp.whole_bin_sub_path) |sub_path| {
-            options.emit = .{
-                .directory = tmp_artifact_directory.?,
-                .sub_path = std.fs.path.basename(sub_path),
+                assert(comp.bin_file.lock == null);
+                comp.bin_file.lock = man.toOwnedLock();
+                return;
+            }
+            log.debug("CacheMode.whole cache miss for {s}", .{comp.root_name});
+
+            // Compile the artifacts to a temporary directory.
+            const tmp_artifact_directory = d: {
+                const s = std.fs.path.sep_str;
+                tmp_dir_rand_int = std.crypto.random.int(u64);
+                const tmp_dir_sub_path = "tmp" ++ s ++ Package.Manifest.hex64(tmp_dir_rand_int);
+
+                const path = try comp.local_cache_directory.join(comp.gpa, &.{tmp_dir_sub_path});
+                errdefer comp.gpa.free(path);
+
+                const handle = try comp.local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
+                errdefer handle.close();
+
+                break :d .{
+                    .path = path,
+                    .handle = handle,
+                };
             };
-        }
-        if (comp.whole_implib_sub_path) |sub_path| {
-            options.implib_emit = .{
-                .directory = tmp_artifact_directory.?,
-                .sub_path = std.fs.path.basename(sub_path),
-            };
-        }
-        if (comp.whole_docs_sub_path) |sub_path| {
-            options.docs_emit = .{
-                .directory = tmp_artifact_directory.?,
-                .sub_path = std.fs.path.basename(sub_path),
-            };
-        }
-        var old_bin_file = comp.bin_file;
-        comp.bin_file = try link.File.openPath(comp.gpa, options);
-        old_bin_file.destroy();
+            whole.tmp_artifact_directory = tmp_artifact_directory;
+
+            // Now that the directory is known, it is time to create the Emit
+            // objects and call link.File.open.
+
+            if (comp.whole_implib_sub_path) |sub_path| {
+                comp.implib_emit = .{
+                    .directory = tmp_artifact_directory,
+                    .sub_path = std.fs.path.basename(sub_path),
+                };
+            }
+
+            if (comp.whole_docs_sub_path) |sub_path| {
+                comp.docs_emit = .{
+                    .directory = tmp_artifact_directory,
+                    .sub_path = std.fs.path.basename(sub_path),
+                };
+            }
+
+            if (comp.whole_bin_sub_path) |sub_path| {
+                const emit: Emit = .{
+                    .directory = tmp_artifact_directory,
+                    .sub_path = std.fs.path.basename(sub_path),
+                };
+                // It's a bit strange to use the Compilation arena allocator here
+                // but in practice it won't leak much and usually whole cache mode
+                // will be combined with exactly one call to update().
+                const arena = comp.arena.allocator();
+                comp.bin_file = try link.File.open(arena, emit, whole.lf_open_opts);
+            }
+        },
+        .incremental => {},
     }
 
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
@@ -2231,80 +2132,43 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     // Flush takes care of -femit-bin, but we still have -femit-llvm-ir, -femit-llvm-bc, and
     // -femit-asm to handle, in the case of C objects.
     comp.emitOthers();
+    try comp.flush(main_progress_node);
+    if (comp.totalErrorCount() != 0) return;
+    try maybeGenerateAutodocs(comp, main_progress_node);
 
-    if (comp.whole_cache_manifest != null) {
-        const digest = man.final();
+    switch (comp.cache_use) {
+        .whole => |whole| {
+            const digest = man.final();
 
-        // Rename the temporary directory into place.
-        var directory = tmp_artifact_directory.?;
-        tmp_artifact_directory = null;
+            // Rename the temporary directory into place.
+            // Close tmp dir and link.File to avoid open handle during rename.
+            if (whole.tmp_artifact_directory) |tmp_directory| {
+                tmp_directory.handle.close();
+                if (tmp_directory.path) |p| comp.gpa.free(p);
+                whole.tmp_artifact_directory = null;
+            } else unreachable;
 
-        directory.handle.close();
-        defer restorePrevZigCacheArtifactDirectory(comp, &directory);
+            if (comp.bin_file) |lf| {
+                lf.destroy();
+                comp.bin_file = null;
+            }
 
-        const o_sub_path = try std.fs.path.join(comp.gpa, &[_][]const u8{ "o", &digest });
-        defer comp.gpa.free(o_sub_path);
+            const s = std.fs.path.sep_str;
+            const tmp_dir_sub_path = "tmp" ++ s ++ Package.Manifest.hex64(tmp_dir_rand_int);
+            const o_sub_path = "o" ++ s ++ digest;
 
-        // Work around windows `AccessDenied` if any files within this directory are open
-        // by closing and reopening the file handles.
-        const need_writable_dance = builtin.os.tag == .windows and comp.bin_file.file != null;
-        if (need_writable_dance) {
-            // We cannot just call `makeExecutable` as it makes a false assumption that we have a
-            // file handle open only when linking an executable file. This used to be true when
-            // our linkers were incapable of emitting relocatables and static archive. Now that
-            // they are capable, we need to unconditionally close the file handle and re-open it
-            // in the follow up call to `makeWritable`.
-            comp.bin_file.file.?.close();
-            comp.bin_file.file = null;
-        }
+            try renameTmpIntoCache(comp.local_cache_directory, tmp_dir_sub_path, o_sub_path);
+            comp.wholeCacheModeSetBinFilePath(&digest);
 
-        try comp.bin_file.renameTmpIntoCache(comp.local_cache_directory, tmp_dir_sub_path, o_sub_path);
-        comp.wholeCacheModeSetBinFilePath(&digest);
-
-        // Has to be after the `wholeCacheModeSetBinFilePath` above.
-        if (need_writable_dance) {
-            try comp.bin_file.makeWritable();
-        }
-
-        // This is intentionally sandwiched between renameTmpIntoCache() and writeManifest().
-        if (comp.module) |module| {
-            // We need to set the zig_cache_artifact_directory for -femit-asm, -femit-llvm-ir,
-            // etc to know where to output to.
-            var artifact_dir = try comp.local_cache_directory.handle.openDir(o_sub_path, .{});
-            defer artifact_dir.close();
-
-            const dir_path = try comp.local_cache_directory.join(comp.gpa, &.{o_sub_path});
-            defer comp.gpa.free(dir_path);
-
-            module.zig_cache_artifact_directory = .{
-                .handle = artifact_dir,
-                .path = dir_path,
+            // Failure here only means an unnecessary cache miss.
+            man.writeManifest() catch |err| {
+                log.warn("failed to write cache manifest: {s}", .{@errorName(err)});
             };
 
-            try comp.flush(main_progress_node);
-            if (comp.totalErrorCount() != 0) return;
-
-            // Note the placement of this logic is relying on the call to
-            // `wholeCacheModeSetBinFilePath` above.
-            try maybeGenerateAutodocs(comp, main_progress_node);
-        } else {
-            try comp.flush(main_progress_node);
-            if (comp.totalErrorCount() != 0) return;
-        }
-
-        // Failure here only means an unnecessary cache miss.
-        man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest: {s}", .{@errorName(err)});
-        };
-
-        assert(comp.bin_file.lock == null);
-        comp.bin_file.lock = man.toOwnedLock();
-    } else {
-        try comp.flush(main_progress_node);
-
-        if (comp.totalErrorCount() == 0) {
-            try maybeGenerateAutodocs(comp, main_progress_node);
-        }
+            assert(comp.bin_file.lock == null);
+            comp.bin_file.lock = man.toOwnedLock();
+        },
+        .incremental => {},
     }
 
     // Unload all source files to save memory.
@@ -2317,6 +2181,60 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                 file.unloadTree(comp.gpa);
                 file.unloadSource(comp.gpa);
             }
+        }
+    }
+}
+
+/// This function is called by the frontend before flush(). It communicates that
+/// `options.bin_file.emit` directory needs to be renamed from
+/// `[zig-cache]/tmp/[random]` to `[zig-cache]/o/[digest]`.
+/// The frontend would like to simply perform a file system rename, however,
+/// some linker backends care about the file paths of the objects they are linking.
+/// So this function call tells linker backends to rename the paths of object files
+/// to observe the new directory path.
+/// Linker backends which do not have this requirement can fall back to the simple
+/// implementation at the bottom of this function.
+/// This function is only called when CacheMode is `whole`.
+fn renameTmpIntoCache(
+    cache_directory: Compilation.Directory,
+    tmp_dir_sub_path: []const u8,
+    o_sub_path: []const u8,
+) !void {
+    while (true) {
+        if (builtin.os.tag == .windows) {
+            // Work around windows `renameW` can't fail with `PathAlreadyExists`
+            // See https://github.com/ziglang/zig/issues/8362
+            if (cache_directory.handle.access(o_sub_path, .{})) |_| {
+                try cache_directory.handle.deleteTree(o_sub_path);
+                continue;
+            } else |err| switch (err) {
+                error.FileNotFound => {},
+                else => |e| return e,
+            }
+            std.fs.rename(
+                cache_directory.handle,
+                tmp_dir_sub_path,
+                cache_directory.handle,
+                o_sub_path,
+            ) catch |err| {
+                log.err("unable to rename cache dir {s} to {s}: {s}", .{ tmp_dir_sub_path, o_sub_path, @errorName(err) });
+                return err;
+            };
+            break;
+        } else {
+            std.fs.rename(
+                cache_directory.handle,
+                tmp_dir_sub_path,
+                cache_directory.handle,
+                o_sub_path,
+            ) catch |err| switch (err) {
+                error.PathAlreadyExists => {
+                    try cache_directory.handle.deleteTree(o_sub_path);
+                    continue;
+                },
+                else => |e| return e,
+            };
+            break;
         }
     }
 }
@@ -2362,7 +2280,7 @@ fn wholeCacheModeSetBinFilePath(comp: *Compilation, digest: *const [Cache.hex_di
     if (comp.whole_bin_sub_path) |sub_path| {
         @memcpy(sub_path[digest_start..][0..digest.len], digest);
 
-        comp.bin_file.options.emit = .{
+        comp.bin_file.?.emit = .{
             .directory = comp.local_cache_directory,
             .sub_path = sub_path,
         };
@@ -2371,7 +2289,7 @@ fn wholeCacheModeSetBinFilePath(comp: *Compilation, digest: *const [Cache.hex_di
     if (comp.whole_implib_sub_path) |sub_path| {
         @memcpy(sub_path[digest_start..][0..digest.len], digest);
 
-        comp.bin_file.options.implib_emit = .{
+        comp.implib_emit = .{
             .directory = comp.local_cache_directory,
             .sub_path = sub_path,
         };
@@ -2380,7 +2298,7 @@ fn wholeCacheModeSetBinFilePath(comp: *Compilation, digest: *const [Cache.hex_di
     if (comp.whole_docs_sub_path) |sub_path| {
         @memcpy(sub_path[digest_start..][0..digest.len], digest);
 
-        comp.bin_file.options.docs_emit = .{
+        comp.docs_emit = .{
             .directory = comp.local_cache_directory,
             .sub_path = sub_path,
         };
