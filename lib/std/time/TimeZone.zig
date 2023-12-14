@@ -28,12 +28,6 @@ pub const TimeType = struct {
     pub fn utIndicator(self: TimeType) bool {
         return (self.flags & 0x04) > 0;
     }
-
-    pub const UTC = TimeType{
-        .offset = 0,
-        .flags = 0,
-        .name_data = "UTC\x00\x00\x00".*,
-    };
 };
 
 pub const Leapsecond = struct {
@@ -224,28 +218,50 @@ pub fn deinit(self: *TimeZone, allocator: std.mem.Allocator) void {
     allocator.free(self.timetypes);
 }
 
-/// Project UTC timestamp to this time zone.
-pub fn project(self: TimeZone, seconds: i64) TimeType {
-    var left: usize = 0;
-    var right: usize = self.transitions.len;
+pub const Projection = struct {
+    /// Offset from UNIX timestamp including leap seconds.
+    offset: i32,
+    name_data: [6:0]u8,
 
-    // Adapted from std.sort.binarySearch.
-    var mid: usize = 0;
-    while (left < right) {
-        // Avoid overflowing in the midpoint calculation
-        mid = left + (right - left) / 2;
-        // Compare the key with the midpoint element
-        switch (std.math.order(seconds, self.transitions[mid].ts)) {
-            .eq => return self.transitions[mid].timetype.*,
-            .gt => left = mid + 1,
-            .lt => right = mid,
+    pub fn name(self: *const TimeType) [:0]const u8 {
+        return std.mem.sliceTo(&self.name_data, 0);
+    }
+};
+
+/// Project UTC timestamp to this time zone.
+pub fn project(self: TimeZone, seconds: i64) Projection {
+    const index = index: {
+        var left: usize = 0;
+        var right: usize = self.transitions.len;
+
+        // Adapted from std.sort.binarySearch.
+        var mid: usize = 0;
+        while (left < right) {
+            // Avoid overflowing in the midpoint calculation
+            mid = left + (right - left) / 2;
+            // Compare the key with the midpoint element
+            switch (std.math.order(seconds, self.transitions[mid].ts)) {
+                .eq => break :index mid,
+                .gt => left = mid + 1,
+                .lt => right = mid,
+            }
         }
-    }
-    if (self.transitions[mid].ts > seconds) {
-        return self.transitions[mid - 1].timetype.*;
-    } else {
-        return self.transitions[mid].timetype.*;
-    }
+        break :index mid - @intFromBool(self.transitions[mid].ts > seconds);
+    };
+    const leap_adjustment = leap: {
+        var i = self.leapseconds.len;
+        if (i == 0) break :leap 0;
+        while (i > 0) {
+            i -= 1;
+            if (self.leapseconds[i].occurrence < seconds) break;
+        }
+        break :leap self.leapseconds[i].correction;
+    };
+    const tt = self.transitions[index].timetype;
+    return .{
+        .offset = tt.offset + leap_adjustment,
+        .name_data = tt.name_data,
+    };
 }
 
 test project {

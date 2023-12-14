@@ -112,7 +112,9 @@ pub const DateTime = struct {
 
     /// UNIX timestamp in nanoseconds
     nano_timestamp: i128,
-    tt: TimeZone.TimeType,
+
+    /// The time zone to which `nano_timestamp` was projected to.
+    tz_projection: TimeZone.Projection,
 
     pub const Weekday = enum(u3) {
         monday = 1,
@@ -181,6 +183,9 @@ pub const DateTime = struct {
     };
 
     /// Get current date and time in the system's local time.
+    /// On non-Windows systems this loads the system's local time
+    /// time zone database from the filesystem and may allocate
+    /// so when called repeated `nowTz` should be preferred.
     pub fn now(allocator: std.mem.Allocator) LocalTimeError!DateTime {
         const nano_timestamp = nanoTimestamp();
 
@@ -202,7 +207,6 @@ pub const DateTime = struct {
                     @intCast(tzi.StandardName[4]),
                     @intCast(tzi.StandardName[5]),
                 },
-                .flags = 0,
                 .offset = tzi.Bias,
             });
         }
@@ -215,8 +219,13 @@ pub const DateTime = struct {
         return fromTimestamp(nano_timestamp, tz.project(@intCast(@divFloor(nano_timestamp, ns_per_s))));
     }
 
+    pub fn nowTz(tz: *const TimeZone) DateTime {
+        const nano_timestamp = nanoTimestamp();
+        return fromTimestamp(nano_timestamp, tz.project(@intCast(@divFloor(nano_timestamp, ns_per_s))));
+    }
+
     /// Convert UNIX timestamp in nanoseconds to a DateTime.
-    pub fn fromTimestamp(nano_timestamp: i128, tt: TimeZone.TimeType) DateTime {
+    pub fn fromTimestamp(nano_timestamp: i128, tz_projection: TimeZone.Projection) DateTime {
         // Ported from musl, which is licensed under the MIT license:
         // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 
@@ -228,7 +237,7 @@ pub const DateTime = struct {
         const days_per_4y = 365 * 4 + 1;
 
         const seconds_unadjusted: i64 = @intCast(@divFloor(nano_timestamp, ns_per_s));
-        const seconds = seconds_unadjusted + tt.offset - leapoch;
+        const seconds = seconds_unadjusted + tz_projection.offset - leapoch;
         var days = @divTrunc(seconds, 86400);
         var rem_seconds = @as(i32, @truncate(@rem(seconds, 86400)));
         if (rem_seconds < 0) {
@@ -295,7 +304,7 @@ pub const DateTime = struct {
             .second = @intCast(@rem(rem_seconds, 60)),
             .nanosecond = @intCast(@rem(nano_timestamp, ns_per_s)),
             .nano_timestamp = nano_timestamp,
-            .tt = tt,
+            .tz_projection = tz_projection,
         };
     }
 
@@ -372,7 +381,7 @@ pub const DateTime = struct {
                 'H' => try std.fmt.formatInt(date.hour, 10, .lower, .{ .width = 2, .fill = '0' }, writer),
                 'M' => try std.fmt.formatInt(date.minute, 10, .lower, .{ .width = 2, .fill = '0' }, writer),
                 'S' => try std.fmt.formatInt(date.second, 10, .lower, .{ .width = 2, .fill = '0' }, writer),
-                's' => try std.fmt.formatInt(date.millisecond, 10, .lower, .{ .width = 3, .fill = '0' }, writer),
+                's' => try std.fmt.formatInt(@divFloor(date.nanosecond, ns_per_ms), 10, .lower, .{ .width = 3, .fill = '0' }, writer),
                 'j' => try std.fmt.formatInt(date.year_day, 10, .lower, .{ .width = 3, .fill = '0' }, writer),
                 'p' => if (date.hour < 12) {
                     try writer.writeAll("AM");
@@ -384,15 +393,15 @@ pub const DateTime = struct {
                     begin = i + 1;
                 },
                 'z' => {
-                    const sign = "+-"[@intFromBool(date.tt.offset < 0)];
+                    const sign = "+-"[@intFromBool(date.tz_projection.offset < 0)];
                     try writer.writeByte(sign);
-                    const abs = @abs(date.tt.offset);
+                    const abs = @abs(date.tz_projection.offset);
                     const hours = @divFloor(abs, 3600);
                     const minutes = @rem(@divFloor(abs, 60), 60);
                     try std.fmt.formatInt(hours, 10, .lower, .{ .width = 2, .fill = '0' }, writer);
                     try std.fmt.formatInt(minutes, 10, .lower, .{ .width = 2, .fill = '0' }, writer);
                 },
-                'Z' => try writer.writeAll(date.tt.name()),
+                'Z' => try writer.writeAll(date.tz_projection.name()),
                 else => @compileError("Unknown format character: " ++ [_]u8{fmt[i]}),
             }
         }
@@ -406,8 +415,13 @@ pub const DateTime = struct {
     }
 };
 
+const null_projection: TimeZone.Projection = .{
+    .offset = 0,
+    .name_data = "TEST\x00\x00".*,
+};
+
 test "DateTime basic usage" {
-    const dt = DateTime.fromTimestamp(1560870105 * ns_per_s, TimeZone.TimeType.UTC);
+    const dt = DateTime.fromTimestamp(1560870105 * ns_per_s, null_projection);
 
     try testing.expect(dt.second == 45);
     try testing.expect(dt.minute == 1);
@@ -420,16 +434,15 @@ test "DateTime basic usage" {
 }
 
 test "DateTime.format all" {
-    const dt = DateTime.fromTimestamp(1560816105 * ns_per_s, TimeZone.TimeType.UTC);
+    const dt = DateTime.fromTimestamp(1560816105 * ns_per_s, null_projection);
     var buf: [100]u8 = undefined;
     const result = try std.fmt.bufPrint(&buf, "{%a %A %b %B %m %d %y %Y %I %p %H%c%M%c%S.%s %j %%}", .{dt});
     try testing.expectEqualStrings("Tue Tuesday Jun June 06 18 19 2019 12 AM 00:01:45.000 169 %", result);
 }
 
 test "DateTime.format no format" {
-    const EEST: TimeZone.TimeType = .{
+    const EEST: TimeZone.Projection = .{
         .offset = 10800,
-        .flags = 0,
         .name_data = "EEST\x00\x00".*,
     };
     const dt = DateTime.fromTimestamp(1560870105 * ns_per_s, EEST);
