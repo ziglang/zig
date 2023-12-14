@@ -356,6 +356,7 @@ test "non-blocking tcp server" {
     defer socket_file.close();
 
     var client = try server.accept();
+    defer client.stream.close();
     const stream = client.stream.writer();
     try stream.print("hello from server\n", .{});
 
