@@ -81,8 +81,8 @@ pub fn localtime(allocator: std.mem.Allocator) LocalTimeError!TimeZone {
     }
 }
 
-/// ISO 8601 compliant date representation.
-pub const Date = struct {
+/// ISO 8601 compliant date and time representation.
+pub const DateTime = struct {
     /// milliseconds, range 0 to 999
     millisecond: u16,
 
@@ -179,8 +179,8 @@ pub const Date = struct {
         }
     };
 
-    /// Get current date in the system's local time.
-    pub fn now(allocator: std.mem.Allocator) LocalTimeError!Date {
+    /// Get current date and time in the system's local time.
+    pub fn now(allocator: std.mem.Allocator) LocalTimeError!DateTime {
         const utc_timestamp = timestamp();
 
         if (builtin.os.tag == .windows) {
@@ -213,8 +213,8 @@ pub const Date = struct {
         return fromTimestamp(utc_timestamp, tz.project(utc_timestamp));
     }
 
-    /// Convert timestamp in milliseconds to a Date.
-    pub fn fromTimestamp(utc_timestamp: i64, tt: TimeZone.TimeType) Date {
+    /// Convert timestamp in milliseconds to a DateTime.
+    pub fn fromTimestamp(utc_timestamp: i64, tt: TimeZone.TimeType) DateTime {
         // Ported from musl, which is licensed under the MIT license:
         // https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
 
@@ -296,8 +296,8 @@ pub const Date = struct {
         };
     }
 
-    /// Compare two `Date`s.
-    pub fn order(self: Date, other: Date) std.math.Order {
+    /// Compare two `DateTime`s.
+    pub fn order(self: DateTime, other: DateTime) std.math.Order {
         var ord = std.math.order(self.year, other.year);
         if (ord != .eq) return ord;
 
@@ -338,7 +338,7 @@ pub const Date = struct {
     /// %Z Time zone name.
     /// %% A % sign
     pub fn format(
-        date: Date,
+        date: DateTime,
         comptime user_fmt: []const u8,
         _: std.fmt.FormatOptions,
         writer: anytype,
@@ -418,36 +418,35 @@ pub const Date = struct {
     }
 };
 
-test Date {
-    const date = Date.fromTimestamp(1560870105000, TimeZone.TimeType.UTC);
+test "DateTime basic usage" {
+    const dt = DateTime.fromTimestamp(1560870105000, TimeZone.TimeType.UTC);
 
-    try testing.expect(date.millisecond == 0);
-    try testing.expect(date.second == 45);
-    try testing.expect(date.minute == 1);
-    try testing.expect(date.hour == 15);
-    try testing.expect(date.day == 18);
-    try testing.expect(date.year_day == 169);
-    try testing.expect(date.week_day == .tuesday);
-    try testing.expect(date.month == .june);
-    try testing.expect(date.year == 2019);
+    try testing.expect(dt.second == 45);
+    try testing.expect(dt.minute == 1);
+    try testing.expect(dt.hour == 15);
+    try testing.expect(dt.day == 18);
+    try testing.expect(dt.year_day == 169);
+    try testing.expect(dt.week_day == .tuesday);
+    try testing.expect(dt.month == .june);
+    try testing.expect(dt.year == 2019);
 }
 
-test "Date.format all" {
-    const date = Date.fromTimestamp(1560816105000, TimeZone.TimeType.UTC);
+test "DateTime.format all" {
+    const dt = DateTime.fromTimestamp(1560816105000, TimeZone.TimeType.UTC);
     var buf: [100]u8 = undefined;
-    const result = try std.fmt.bufPrint(&buf, "{%a %A %b %B %m %d %y %Y %I %p %H%c%M%c%S.%s %j %%}", .{date});
+    const result = try std.fmt.bufPrint(&buf, "{%a %A %b %B %m %d %y %Y %I %p %H%c%M%c%S.%s %j %%}", .{dt});
     try testing.expectEqualStrings("Tue Tuesday Jun June 06 18 19 2019 12 AM 00:01:45.000 169 %", result);
 }
 
-test "Date.format no format" {
+test "DateTime.format no format" {
     const EEST: TimeZone.TimeType = .{
         .offset = 10800,
         .flags = 0,
         .name_data = "EEST\x00\x00".*,
     };
-    const date = Date.fromTimestamp(1560870105000, EEST);
+    const dt = DateTime.fromTimestamp(1560870105000, EEST);
     var buf: [100]u8 = undefined;
-    const result = try std.fmt.bufPrint(&buf, "{}", .{date});
+    const result = try std.fmt.bufPrint(&buf, "{}", .{dt});
     try std.testing.expectEqualStrings("2019-06-18T18:01:45+0300", result);
 }
 
