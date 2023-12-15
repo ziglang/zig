@@ -8939,10 +8939,14 @@ fn zirErrUnionCodePtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const tracy = trace(@src());
     defer tracy.end();
 
-    const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
+    return sema.analyzeErrUnionCodePtr(block, src, operand);
+}
+
+fn analyzeErrUnionCodePtr(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Inst.Ref) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
     const operand_ty = sema.typeOf(operand);
     assert(operand_ty.zigTypeTag(mod) == .Pointer);
 
@@ -8957,7 +8961,10 @@ fn zirErrUnionCodePtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     if (try sema.resolveDefinedValue(block, src, operand)) |pointer_val| {
         if (try sema.pointerDeref(block, src, pointer_val, operand_ty)) |val| {
             assert(val.getErrorName(mod) != .none);
-            return Air.internedToRef(val.toIntern());
+            return Air.internedToRef((try mod.intern(.{ .err = .{
+                .ty = result_ty.toIntern(),
+                .name = mod.intern_pool.indexToKey(val.toIntern()).error_union.val.err_name,
+            } })));
         }
     }
 
@@ -11174,7 +11181,6 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     const extra = sema.code.extraData(Zir.Inst.SwitchBlockErrUnion, inst_data.payload_index);
 
     const raw_operand_val = try sema.resolveInst(extra.data.operand);
-    assert(sema.typeOf(raw_operand_val).zigTypeTag(mod) == .ErrorUnion);
 
     // AstGen guarantees that the instruction immediately preceding
     // switch_block_err_union is a dbg_stmt
@@ -11205,6 +11211,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     const NonError = struct {
         body: []const Zir.Inst.Index,
         end: usize,
+        capture: Zir.Inst.SwitchBlock.ProngInfo.Capture,
     };
 
     const non_error_case: NonError = non_error: {
@@ -11213,6 +11220,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         break :non_error .{
             .body = sema.code.bodySlice(extra_body_start, info.body_len),
             .end = extra_body_start + info.body_len,
+            .capture = info.capture,
         };
     };
 
@@ -11237,7 +11245,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
             .body = sema.code.bodySlice(extra_body_start, info.body_len),
             .end = extra_body_start + info.body_len,
             .is_inline = info.is_inline,
-            .has_capture = info.capture == .by_val,
+            .has_capture = info.capture != .none,
         };
     };
 
@@ -11245,7 +11253,10 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     defer seen_errors.deinit();
 
     const operand_ty = sema.typeOf(raw_operand_val);
-    const operand_err_set_ty = operand_ty.errorUnionSet(mod);
+    const operand_err_set_ty = if (extra.data.bits.payload_is_ref)
+        operand_ty.childType(mod).errorUnionSet(mod)
+    else
+        operand_ty.errorUnionSet(mod);
 
     const block_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
     try sema.air_instructions.append(gpa, .{
@@ -11313,7 +11324,12 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         .tag_capture_inst = undefined,
     };
 
-    if (try sema.resolveDefinedValue(&child_block, src, raw_operand_val)) |operand_val| {
+    if (try sema.resolveDefinedValue(&child_block, src, raw_operand_val)) |ov| {
+        const operand_val = if (extra.data.bits.payload_is_ref)
+            (try sema.pointerDeref(&child_block, src, ov, operand_ty)).?
+        else
+            ov;
+
         if (operand_val.errorUnionIsPayload(mod)) {
             return sema.resolveBlockBody(block, operand_src, &child_block, non_error_case.body, inst, merges);
         } else {
@@ -11323,7 +11339,10 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
                     .name = operand_val.getErrorName(mod).unwrap().?,
                 },
             }));
-            spa.operand = try sema.analyzeErrUnionCode(block, operand_src, raw_operand_val);
+            spa.operand = if (extra.data.bits.payload_is_ref)
+                try sema.analyzeErrUnionCodePtr(block, operand_src, raw_operand_val)
+            else
+                try sema.analyzeErrUnionCode(block, operand_src, raw_operand_val);
 
             if (extra.data.bits.any_uses_err_capture) {
                 sema.inst_map.putAssumeCapacity(err_capture_inst, spa.operand);
@@ -11367,7 +11386,14 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         unreachable;
     }
 
-    const cond = try sema.analyzeIsNonErr(block, src, raw_operand_val);
+    const cond = if (extra.data.bits.payload_is_ref) blk: {
+        try sema.checkErrorType(block, src, sema.typeOf(raw_operand_val).elemType2(mod));
+        const loaded = try sema.analyzeLoad(block, src, raw_operand_val, src);
+        break :blk try sema.analyzeIsNonErr(block, src, loaded);
+    } else blk: {
+        try sema.checkErrorType(block, src, sema.typeOf(raw_operand_val));
+        break :blk try sema.analyzeIsNonErr(block, src, raw_operand_val);
+    };
 
     var sub_block = child_block.makeSubBlock();
     sub_block.runtime_loop = null;
@@ -11379,7 +11405,11 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     const true_instructions = try sub_block.instructions.toOwnedSlice(gpa);
     defer gpa.free(true_instructions);
 
-    spa.operand = try sema.analyzeErrUnionCode(&sub_block, operand_src, raw_operand_val);
+    spa.operand = if (extra.data.bits.payload_is_ref)
+        try sema.analyzeErrUnionCodePtr(&sub_block, operand_src, raw_operand_val)
+    else
+        try sema.analyzeErrUnionCode(&sub_block, operand_src, raw_operand_val);
+
     if (extra.data.bits.any_uses_err_capture) {
         sema.inst_map.putAssumeCapacity(err_capture_inst, spa.operand);
     }

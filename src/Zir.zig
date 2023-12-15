@@ -2793,9 +2793,10 @@ pub const Inst = struct {
             /// If true, there is an else prong. This is mutually exclusive with `has_under`.
             has_else: bool,
             any_uses_err_capture: bool,
+            payload_is_ref: bool,
             scalar_cases_len: ScalarCasesLen,
 
-            pub const ScalarCasesLen = u29;
+            pub const ScalarCasesLen = u28;
         };
 
         pub const MultiProng = struct {

@@ -839,7 +839,18 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .if_simple,
         .@"if",
-        => return ifExpr(gz, scope, ri.br(), node, tree.fullIf(node).?),
+        => {
+            const if_full = tree.fullIf(node).?;
+            if (if_full.error_token) |error_token| {
+                const tag = node_tags[if_full.ast.else_expr];
+                if ((tag == .@"switch" or tag == .switch_comma) and
+                    std.mem.eql(u8, tree.tokenSlice(error_token), tree.tokenSlice(error_token + 4)))
+                {
+                    return switchExprErrUnion(gz, scope, ri.br(), node, .@"if");
+                }
+            }
+            return ifExpr(gz, scope, ri.br(), node, if_full);
+        },
 
         .while_simple,
         .while_cont,
@@ -1020,7 +1031,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                     token_tags[catch_token + 4] == .keyword_switch)
                 {
                     if (std.mem.eql(u8, tree.tokenSlice(catch_token + 2), tree.tokenSlice(catch_token + 6))) {
-                        return switchExprErrUnion(gz, scope, ri.br(), node);
+                        return switchExprErrUnion(gz, scope, ri.br(), node, .@"catch");
                     }
                 }
                 break :blk catch_token + 2;
@@ -6869,7 +6880,8 @@ fn switchExprErrUnion(
     parent_gz: *GenZir,
     scope: *Scope,
     ri: ResultInfo,
-    catch_node: Ast.Node.Index,
+    catch_or_if_node: Ast.Node.Index,
+    node_ty: enum { @"catch", @"if" },
 ) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
     const gpa = astgen.gpa;
@@ -6878,20 +6890,41 @@ fn switchExprErrUnion(
     const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
-    const operand_node = node_datas[catch_node].lhs;
-    const switch_node = node_datas[catch_node].rhs;
+
+    const if_full = switch (node_ty) {
+        .@"catch" => undefined,
+        .@"if" => tree.fullIf(catch_or_if_node).?,
+    };
+
+    const switch_node, const operand_node, const error_payload = switch (node_ty) {
+        .@"catch" => .{
+            node_datas[catch_or_if_node].rhs,
+            node_datas[catch_or_if_node].lhs,
+            main_tokens[catch_or_if_node] + 2,
+        },
+        .@"if" => .{
+            if_full.ast.else_expr,
+            if_full.ast.cond_expr,
+            if_full.error_token.?,
+        },
+    };
+    assert(node_tags[switch_node] == .@"switch" or node_tags[switch_node] == .switch_comma);
+
     const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
     const case_nodes = tree.extra_data[extra.start..extra.end];
 
-    const need_rl = astgen.nodes_need_rl.contains(catch_node);
+    const need_rl = astgen.nodes_need_rl.contains(catch_or_if_node);
     const block_ri: ResultInfo = if (need_rl) ri else .{
         .rl = switch (ri.rl) {
-            .ptr => .{ .ty = (try ri.rl.resultType(parent_gz, catch_node)).? },
+            .ptr => .{ .ty = (try ri.rl.resultType(parent_gz, catch_or_if_node)).? },
             .inferred_ptr => .none,
             else => ri.rl,
         },
         .ctx = ri.ctx,
     };
+
+    const payload_is_ref = node_ty == .@"if" and
+        if_full.payload_token != null and token_tags[if_full.payload_token.?] == .asterisk;
 
     // We need to call `rvalue` to write through to the pointer only if we had a
     // result pointer and aren't forwarding it.
@@ -6960,12 +6993,15 @@ fn switchExprErrUnion(
         }
     }
 
-    const operand_ri: ResultInfo = .{ .rl = .none, .ctx = .error_handling_expr };
+    const operand_ri: ResultInfo = .{
+        .rl = if (payload_is_ref) .ref else .none,
+        .ctx = .error_handling_expr,
+    };
 
     astgen.advanceSourceCursorToNode(operand_node);
     const operand_lc = LineColumn{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
 
-    const raw_operand = try reachableExpr(parent_gz, scope, operand_ri, operand_node, node_datas[catch_node].rhs);
+    const raw_operand = try reachableExpr(parent_gz, scope, operand_ri, operand_node, switch_node);
     const item_ri: ResultInfo = .{ .rl = .none };
 
     // This contains the data that goes into the `extra` array for the SwitchBlockErrUnion, except
@@ -7006,13 +7042,93 @@ fn switchExprErrUnion(
 
         try case_scope.addDbgBlockBegin();
 
-        const unwrapped_payload = try case_scope.addUnNode(.err_union_payload_unsafe, raw_operand, catch_node);
-        const case_result = switch (ri.rl) {
-            .ref, .ref_coerced_ty => unwrapped_payload,
-            else => try rvalue(&case_scope, block_scope.break_result_info, unwrapped_payload, catch_node),
-        };
-        try case_scope.addDbgBlockEnd();
-        _ = try case_scope.addBreakWithSrcNode(.@"break", switch_block, case_result, catch_node);
+        const unwrap_payload_tag: Zir.Inst.Tag = if (payload_is_ref)
+            .err_union_payload_unsafe_ptr
+        else
+            .err_union_payload_unsafe;
+
+        const unwrapped_payload = try case_scope.addUnNode(
+            unwrap_payload_tag,
+            raw_operand,
+            catch_or_if_node,
+        );
+
+        switch (node_ty) {
+            .@"catch" => {
+                const case_result = switch (ri.rl) {
+                    .ref, .ref_coerced_ty => unwrapped_payload,
+                    else => try rvalue(
+                        &case_scope,
+                        block_scope.break_result_info,
+                        unwrapped_payload,
+                        catch_or_if_node,
+                    ),
+                };
+                try case_scope.addDbgBlockEnd();
+                _ = try case_scope.addBreakWithSrcNode(
+                    .@"break",
+                    switch_block,
+                    case_result,
+                    catch_or_if_node,
+                );
+            },
+            .@"if" => {
+                var payload_val_scope: Scope.LocalVal = undefined;
+
+                try case_scope.addDbgBlockBegin();
+                const then_node = if_full.ast.then_expr;
+                const then_sub_scope = s: {
+                    assert(if_full.error_token != null);
+                    if (if_full.payload_token) |payload_token| {
+                        const token_name_index = payload_token + @intFromBool(payload_is_ref);
+                        const ident_name = try astgen.identAsString(token_name_index);
+                        const token_name_str = tree.tokenSlice(token_name_index);
+                        if (mem.eql(u8, "_", token_name_str))
+                            break :s &case_scope.base;
+                        try astgen.detectLocalShadowing(
+                            &case_scope.base,
+                            ident_name,
+                            token_name_index,
+                            token_name_str,
+                            .capture,
+                        );
+                        payload_val_scope = .{
+                            .parent = &case_scope.base,
+                            .gen_zir = &case_scope,
+                            .name = ident_name,
+                            .inst = unwrapped_payload,
+                            .token_src = payload_token,
+                            .id_cat = .capture,
+                        };
+                        try case_scope.addDbgVar(.dbg_var_val, ident_name, unwrapped_payload);
+                        break :s &payload_val_scope.base;
+                    } else {
+                        _ = try case_scope.addUnNode(
+                            .ensure_err_union_payload_void,
+                            raw_operand,
+                            catch_or_if_node,
+                        );
+                        break :s &case_scope.base;
+                    }
+                };
+                const then_result = try expr(
+                    &case_scope,
+                    then_sub_scope,
+                    block_scope.break_result_info,
+                    then_node,
+                );
+                try checkUsed(parent_gz, &case_scope.base, then_sub_scope);
+                if (!case_scope.endsWithNoReturn()) {
+                    try case_scope.addDbgBlockEnd();
+                    _ = try case_scope.addBreakWithSrcNode(
+                        .@"break",
+                        switch_block,
+                        then_result,
+                        then_node,
+                    );
+                }
+            },
+        }
 
         const case_slice = case_scope.instructionsSlice();
         // Since we use the switch_block_err_union instruction itself to refer
@@ -7029,9 +7145,18 @@ fn switchExprErrUnion(
         };
         const body_len = refs_len + astgen.countBodyLenAfterFixups(case_slice);
         try payloads.ensureUnusedCapacity(gpa, body_len);
+        const capture: Zir.Inst.SwitchBlock.ProngInfo.Capture = switch (node_ty) {
+            .@"catch" => .none,
+            .@"if" => if (if_full.payload_token == null)
+                .none
+            else if (payload_is_ref)
+                .by_ref
+            else
+                .by_val,
+        };
         payloads.items[body_len_index] = @bitCast(Zir.Inst.SwitchBlock.ProngInfo{
             .body_len = @intCast(body_len),
-            .capture = .none,
+            .capture = capture,
             .is_inline = false,
             .has_tag_capture = false,
         });
@@ -7041,8 +7166,7 @@ fn switchExprErrUnion(
         appendBodyWithFixupsArrayList(astgen, payloads, case_slice);
     }
 
-    const err_name, const error_payload = blk: {
-        const error_payload = main_tokens[catch_node] + 2;
+    const err_name = blk: {
         const err_str = tree.tokenSlice(error_payload);
         if (mem.eql(u8, err_str, "_")) {
             return astgen.failTok(error_payload, "discard of error capture; omit it instead", .{});
@@ -7050,7 +7174,7 @@ fn switchExprErrUnion(
         const err_name = try astgen.identAsString(error_payload);
         try astgen.detectLocalShadowing(scope, err_name, error_payload, err_str, .capture);
 
-        break :blk .{ err_name, error_payload };
+        break :blk err_name;
     };
 
     // allocate a shared dummy instruction for the error capture
@@ -7241,6 +7365,7 @@ fn switchExprErrUnion(
             .has_else = has_else,
             .scalar_cases_len = @intCast(scalar_cases_len),
             .any_uses_err_capture = any_uses_err_capture,
+            .payload_is_ref = payload_is_ref,
         },
     });
 
