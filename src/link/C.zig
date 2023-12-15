@@ -84,7 +84,8 @@ pub fn getString(this: C, s: String) []const u8 {
 }
 
 pub fn addString(this: *C, s: []const u8) Allocator.Error!String {
-    const gpa = this.base.allocator;
+    const comp = this.base.comp;
+    const gpa = comp.gpa;
     try this.string_bytes.appendSlice(gpa, s);
     return .{
         .start = @intCast(this.string_bytes.items.len - s.len),
@@ -93,6 +94,15 @@ pub fn addString(this: *C, s: []const u8) Allocator.Error!String {
 }
 
 pub fn open(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*C {
+    return createEmpty(arena, comp, emit, options);
+}
+
+pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
     emit: Compilation.Emit,

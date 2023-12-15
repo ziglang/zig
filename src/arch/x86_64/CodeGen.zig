@@ -795,15 +795,16 @@ pub fn generate(
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
 ) CodeGenError!Result {
-    const mod = bin_file.comp.module.?;
+    const comp = bin_file.comp;
+    const gpa = comp.gpa;
+    const mod = comp.module.?;
     const func = mod.funcInfo(func_index);
     const fn_owner_decl = mod.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
     const namespace = mod.namespacePtr(fn_owner_decl.src_namespace);
-    const target = namespace.file_scope.mod.target;
+    const target = namespace.file_scope.mod.resolved_target.result;
 
-    const gpa = bin_file.allocator;
     var function = Self{
         .gpa = gpa,
         .air = air,
@@ -860,7 +861,7 @@ pub fn generate(
         error.CodegenFail => return Result{ .fail = function.err_msg.? },
         error.OutOfRegisters => return Result{
             .fail = try ErrorMsg.create(
-                bin_file.allocator,
+                gpa,
                 src_loc,
                 "CodeGen ran out of registers. This is a bug in the Zig compiler.",
                 .{},
@@ -904,22 +905,22 @@ pub fn generate(
     function.gen() catch |err| switch (err) {
         error.CodegenFail => return Result{ .fail = function.err_msg.? },
         error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(bin_file.allocator, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
+            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
         },
         else => |e| return e,
     };
 
     var mir = Mir{
         .instructions = function.mir_instructions.toOwnedSlice(),
-        .extra = try function.mir_extra.toOwnedSlice(bin_file.allocator),
+        .extra = try function.mir_extra.toOwnedSlice(gpa),
         .frame_locs = function.frame_locs.toOwnedSlice(),
     };
-    defer mir.deinit(bin_file.allocator);
+    defer mir.deinit(gpa);
 
     var emit = Emit{
         .lower = .{
             .bin_file = bin_file,
-            .allocator = bin_file.allocator,
+            .allocator = gpa,
             .mir = mir,
             .cc = cc,
             .src_loc = src_loc,
@@ -940,7 +941,7 @@ pub fn generate(
             };
             return Result{
                 .fail = try ErrorMsg.create(
-                    bin_file.allocator,
+                    gpa,
                     src_loc,
                     "{s} This is a bug in the Zig compiler.",
                     .{msg},
@@ -964,12 +965,13 @@ pub fn generateLazy(
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
 ) CodeGenError!Result {
-    const gpa = bin_file.allocator;
-    const zcu = bin_file.comp.module.?;
+    const comp = bin_file.comp;
+    const gpa = comp.gpa;
+    const zcu = comp.module.?;
     const decl_index = lazy_sym.ty.getOwnerDecl(zcu);
     const decl = zcu.declPtr(decl_index);
     const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.target;
+    const target = namespace.file_scope.mod.resolved_target.result;
     var function = Self{
         .gpa = gpa,
         .air = undefined,
@@ -996,22 +998,22 @@ pub fn generateLazy(
     function.genLazy(lazy_sym) catch |err| switch (err) {
         error.CodegenFail => return Result{ .fail = function.err_msg.? },
         error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(bin_file.allocator, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
+            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
         },
         else => |e| return e,
     };
 
     var mir = Mir{
         .instructions = function.mir_instructions.toOwnedSlice(),
-        .extra = try function.mir_extra.toOwnedSlice(bin_file.allocator),
+        .extra = try function.mir_extra.toOwnedSlice(gpa),
         .frame_locs = function.frame_locs.toOwnedSlice(),
     };
-    defer mir.deinit(bin_file.allocator);
+    defer mir.deinit(gpa);
 
     var emit = Emit{
         .lower = .{
             .bin_file = bin_file,
-            .allocator = bin_file.allocator,
+            .allocator = gpa,
             .mir = mir,
             .cc = abi.resolveCallingConvention(.Unspecified, function.target.*),
             .src_loc = src_loc,
@@ -1032,7 +1034,7 @@ pub fn generateLazy(
             };
             return Result{
                 .fail = try ErrorMsg.create(
-                    bin_file.allocator,
+                    gpa,
                     src_loc,
                     "{s} This is a bug in the Zig compiler.",
                     .{msg},
@@ -16416,14 +16418,16 @@ fn resolveCallingConventionValues(
 fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
     assert(self.err_msg == null);
-    self.err_msg = try ErrorMsg.create(self.bin_file.allocator, self.src_loc, format, args);
+    const gpa = self.gpa;
+    self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);
     return error.CodegenFail;
 }
 
 fn failSymbol(self: *Self, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
     assert(self.err_msg == null);
-    self.err_msg = try ErrorMsg.create(self.bin_file.allocator, self.src_loc, format, args);
+    const gpa = self.gpa;
+    self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);
     return error.CodegenFail;
 }
 

@@ -253,7 +253,8 @@ pub fn addRelocation(macho_file: *MachO, atom_index: Index, reloc: Relocation) !
 }
 
 pub fn addRelocations(macho_file: *MachO, atom_index: Index, relocs: []const Relocation) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const gop = try macho_file.relocs.getOrPut(gpa, atom_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
@@ -269,7 +270,8 @@ pub fn addRelocations(macho_file: *MachO, atom_index: Index, relocs: []const Rel
 }
 
 pub fn addRebase(macho_file: *MachO, atom_index: Index, offset: u32) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const atom = macho_file.getAtom(atom_index);
     log.debug("  (adding rebase at offset 0x{x} in %{?d})", .{ offset, atom.getSymbolIndex() });
     const gop = try macho_file.rebases.getOrPut(gpa, atom_index);
@@ -280,7 +282,8 @@ pub fn addRebase(macho_file: *MachO, atom_index: Index, offset: u32) !void {
 }
 
 pub fn addBinding(macho_file: *MachO, atom_index: Index, binding: Binding) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const atom = macho_file.getAtom(atom_index);
     log.debug("  (adding binding to symbol {s} at offset 0x{x} in %{?d})", .{
         macho_file.getSymbolName(binding.target),
@@ -307,7 +310,8 @@ pub fn resolveRelocations(
 }
 
 pub fn freeRelocations(macho_file: *MachO, atom_index: Index) void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     var removed_relocs = macho_file.relocs.fetchOrderedRemove(atom_index);
     if (removed_relocs) |*relocs| relocs.value.deinit(gpa);
     var removed_rebases = macho_file.rebases.fetchOrderedRemove(atom_index);

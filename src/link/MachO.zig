@@ -67,9 +67,6 @@ tlv_ptr_table: TableSection(SymbolWithLoc) = .{},
 thunk_table: std.AutoHashMapUnmanaged(Atom.Index, thunks.Thunk.Index) = .{},
 thunks: std.ArrayListUnmanaged(thunks.Thunk) = .{},
 
-error_flags: File.ErrorFlags = File.ErrorFlags{},
-misc_errors: std.ArrayListUnmanaged(File.ErrorMsg) = .{},
-
 segment_table_dirty: bool = false,
 got_table_count_dirty: bool = false,
 got_table_contents_dirty: bool = false,
@@ -337,8 +334,8 @@ pub fn flush(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) li
         if (build_options.have_llvm) {
             return self.base.linkAsArchive(comp, prog_node);
         } else {
-            try self.misc_errors.ensureUnusedCapacity(gpa, 1);
-            self.misc_errors.appendAssumeCapacity(.{
+            try self.base.misc_errors.ensureUnusedCapacity(gpa, 1);
+            self.base.misc_errors.appendAssumeCapacity(.{
                 .msg = try gpa.dupe(u8, "TODO: non-LLVM archiver for MachO object files"),
             });
             return error.FlushFailure;
@@ -492,7 +489,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     try self.resolveSymbols();
 
     if (self.getEntryPoint() == null) {
-        self.error_flags.no_entry_point_found = true;
+        self.base.error_flags.no_entry_point_found = true;
     }
     if (self.unresolved.count() > 0) {
         try self.reportUndefined();
@@ -2097,11 +2094,6 @@ pub fn deinit(self: *MachO) void {
         bindings.deinit(gpa);
     }
     self.bindings.deinit(gpa);
-
-    for (self.misc_errors.items) |*err| {
-        err.deinit(gpa);
-    }
-    self.misc_errors.deinit(gpa);
 }
 
 fn freeAtom(self: *MachO, atom_index: Atom.Index) void {
@@ -5341,13 +5333,13 @@ fn reportMissingLibraryError(
     args: anytype,
 ) error{OutOfMemory}!void {
     const gpa = self.base.comp.gpa;
-    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+    try self.base.misc_errors.ensureUnusedCapacity(gpa, 1);
     const notes = try gpa.alloc(File.ErrorMsg, checked_paths.len);
     errdefer gpa.free(notes);
     for (checked_paths, notes) |path, *note| {
         note.* = .{ .msg = try std.fmt.allocPrint(gpa, "tried {s}", .{path}) };
     }
-    self.misc_errors.appendAssumeCapacity(.{
+    self.base.misc_errors.appendAssumeCapacity(.{
         .msg = try std.fmt.allocPrint(gpa, format, args),
         .notes = notes,
     });
@@ -5361,14 +5353,14 @@ fn reportDependencyError(
     args: anytype,
 ) error{OutOfMemory}!void {
     const gpa = self.base.comp.gpa;
-    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+    try self.base.misc_errors.ensureUnusedCapacity(gpa, 1);
     var notes = try std.ArrayList(File.ErrorMsg).initCapacity(gpa, 2);
     defer notes.deinit();
     if (path) |p| {
         notes.appendAssumeCapacity(.{ .msg = try std.fmt.allocPrint(gpa, "while parsing {s}", .{p}) });
     }
     notes.appendAssumeCapacity(.{ .msg = try std.fmt.allocPrint(gpa, "a dependency of {s}", .{parent}) });
-    self.misc_errors.appendAssumeCapacity(.{
+    self.base.misc_errors.appendAssumeCapacity(.{
         .msg = try std.fmt.allocPrint(gpa, format, args),
         .notes = try notes.toOwnedSlice(),
     });
@@ -5381,11 +5373,11 @@ pub fn reportParseError(
     args: anytype,
 ) error{OutOfMemory}!void {
     const gpa = self.base.comp.gpa;
-    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+    try self.base.misc_errors.ensureUnusedCapacity(gpa, 1);
     var notes = try gpa.alloc(File.ErrorMsg, 1);
     errdefer gpa.free(notes);
     notes[0] = .{ .msg = try std.fmt.allocPrint(gpa, "while parsing {s}", .{path}) };
-    self.misc_errors.appendAssumeCapacity(.{
+    self.base.misc_errors.appendAssumeCapacity(.{
         .msg = try std.fmt.allocPrint(gpa, format, args),
         .notes = notes,
     });
@@ -5398,11 +5390,11 @@ pub fn reportUnresolvedBoundarySymbol(
     args: anytype,
 ) error{OutOfMemory}!void {
     const gpa = self.base.comp.gpa;
-    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+    try self.base.misc_errors.ensureUnusedCapacity(gpa, 1);
     var notes = try gpa.alloc(File.ErrorMsg, 1);
     errdefer gpa.free(notes);
     notes[0] = .{ .msg = try std.fmt.allocPrint(gpa, "while resolving {s}", .{sym_name}) };
-    self.misc_errors.appendAssumeCapacity(.{
+    self.base.misc_errors.appendAssumeCapacity(.{
         .msg = try std.fmt.allocPrint(gpa, format, args),
         .notes = notes,
     });
@@ -5411,7 +5403,7 @@ pub fn reportUnresolvedBoundarySymbol(
 pub fn reportUndefined(self: *MachO) error{OutOfMemory}!void {
     const gpa = self.base.comp.gpa;
     const count = self.unresolved.count();
-    try self.misc_errors.ensureUnusedCapacity(gpa, count);
+    try self.base.misc_errors.ensureUnusedCapacity(gpa, count);
 
     for (self.unresolved.keys()) |global_index| {
         const global = self.globals.items[global_index];
@@ -5432,7 +5424,7 @@ pub fn reportUndefined(self: *MachO) error{OutOfMemory}!void {
         };
         err_msg.notes = try notes.toOwnedSlice();
 
-        self.misc_errors.appendAssumeCapacity(err_msg);
+        self.base.misc_errors.appendAssumeCapacity(err_msg);
     }
 }
 
@@ -5442,7 +5434,7 @@ fn reportSymbolCollision(
     other: SymbolWithLoc,
 ) error{OutOfMemory}!void {
     const gpa = self.base.comp.gpa;
-    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+    try self.base.misc_errors.ensureUnusedCapacity(gpa, 1);
 
     var notes = try std.ArrayList(File.ErrorMsg).initCapacity(gpa, 2);
     defer notes.deinit();
@@ -5465,12 +5457,12 @@ fn reportSymbolCollision(
     }) };
     err_msg.notes = try notes.toOwnedSlice();
 
-    self.misc_errors.appendAssumeCapacity(err_msg);
+    self.base.misc_errors.appendAssumeCapacity(err_msg);
 }
 
 fn reportUnhandledSymbolType(self: *MachO, sym_with_loc: SymbolWithLoc) error{OutOfMemory}!void {
     const gpa = self.base.comp.gpa;
-    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+    try self.base.misc_errors.ensureUnusedCapacity(gpa, 1);
 
     const notes = try gpa.alloc(File.ErrorMsg, 1);
     errdefer gpa.free(notes);
@@ -5488,7 +5480,7 @@ fn reportUnhandledSymbolType(self: *MachO, sym_with_loc: SymbolWithLoc) error{Ou
     else
         unreachable;
 
-    self.misc_errors.appendAssumeCapacity(.{
+    self.base.misc_errors.appendAssumeCapacity(.{
         .msg = try std.fmt.allocPrint(gpa, "unhandled symbol type: '{s}' has type {s}", .{
             self.getSymbolName(sym_with_loc),
             sym_type,

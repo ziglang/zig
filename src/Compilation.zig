@@ -884,12 +884,32 @@ const CacheUse = union(CacheMode) {
         docs_sub_path: ?[]u8,
         lf_open_opts: link.File.OpenOptions,
         tmp_artifact_directory: ?Cache.Directory,
+        /// Prevents other processes from clobbering files in the output directory.
+        lock: ?Cache.Lock,
+
+        fn releaseLock(whole: *Whole) void {
+            if (whole.lock) |*lock| {
+                lock.release();
+                whole.lock = null;
+            }
+        }
     };
 
     const Incremental = struct {
         /// Where build artifacts and incremental compilation metadata serialization go.
         artifact_directory: Compilation.Directory,
     };
+
+    fn deinit(cu: CacheUse) void {
+        switch (cu) {
+            .incremental => |incremental| {
+                incremental.artifact_directory.handle.close();
+            },
+            .whole => |whole| {
+                whole.releaseLock();
+            },
+        }
+    }
 };
 
 pub const LinkObject = struct {
@@ -916,7 +936,7 @@ pub const InitOptions = struct {
     /// Normally, `main_mod` and `root_mod` are the same. The exception is `zig
     /// test`, in which `root_mod` is the test runner, and `main_mod` is the
     /// user's source file which has the tests.
-    main_mod: ?*Package.Module,
+    main_mod: ?*Package.Module = null,
     /// This is provided so that the API user has a chance to tweak the
     /// per-module settings of the standard library.
     std_mod: *Package.Module,
@@ -1615,6 +1635,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                     .implib_sub_path = try prepareWholeEmitSubPath(arena, options.emit_implib),
                     .docs_sub_path = try prepareWholeEmitSubPath(arena, options.emit_docs),
                     .tmp_artifact_directory = null,
+                    .lock = null,
                 };
                 comp.cache_use = .{ .whole = whole };
             },
@@ -1822,13 +1843,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 pub fn destroy(self: *Compilation) void {
     if (self.bin_file) |lf| lf.destroy();
     if (self.module) |zcu| zcu.deinit();
-    switch (self.cache_use) {
-        .incremental => |incremental| {
-            incremental.artifact_directory.handle.close();
-        },
-        .whole => {},
-    }
-
+    self.cache_use.deinit();
     self.work_queue.deinit();
     self.anon_work_queue.deinit();
     self.c_object_work_queue.deinit();
@@ -1922,11 +1937,17 @@ pub fn getTarget(self: Compilation) Target {
     return self.root_mod.resolved_target.result;
 }
 
-pub fn hotCodeSwap(comp: *Compilation, prog_node: *std.Progress.Node, pid: std.ChildProcess.Id) !void {
-    comp.bin_file.child_pid = pid;
-    try comp.makeBinFileWritable();
+/// Only legal to call when cache mode is incremental and a link file is present.
+pub fn hotCodeSwap(
+    comp: *Compilation,
+    prog_node: *std.Progress.Node,
+    pid: std.ChildProcess.Id,
+) !void {
+    const lf = comp.bin_file.?;
+    lf.child_pid = pid;
+    try lf.makeWritable();
     try comp.update(prog_node);
-    try comp.makeBinFileExecutable();
+    try lf.makeExecutable();
 }
 
 fn cleanupAfterUpdate(comp: *Compilation) void {
@@ -1941,7 +1962,7 @@ fn cleanupAfterUpdate(comp: *Compilation) void {
                 lf.destroy();
                 comp.bin_file = null;
             }
-            if (whole.tmp_artifact_directory) |directory| {
+            if (whole.tmp_artifact_directory) |*directory| {
                 directory.handle.close();
                 if (directory.path) |p| comp.gpa.free(p);
                 whole.tmp_artifact_directory = null;
@@ -1967,8 +1988,9 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     // C source files.
     switch (comp.cache_use) {
         .whole => |whole| {
-            // We are about to obtain this lock, so here we give other processes a chance first.
             assert(comp.bin_file == null);
+            // We are about to obtain this lock, so here we give other processes a chance first.
+            whole.releaseLock();
 
             man = comp.cache_parent.obtain();
             whole.cache_manifest = &man;
@@ -1989,8 +2011,8 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
 
                 comp.wholeCacheModeSetBinFilePath(whole, &digest);
 
-                assert(comp.bin_file.lock == null);
-                comp.bin_file.lock = man.toOwnedLock();
+                assert(whole.lock == null);
+                whole.lock = man.toOwnedLock();
                 return;
             }
             log.debug("CacheMode.whole cache miss for {s}", .{comp.root_name});
@@ -2158,7 +2180,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
 
             // Rename the temporary directory into place.
             // Close tmp dir and link.File to avoid open handle during rename.
-            if (whole.tmp_artifact_directory) |tmp_directory| {
+            if (whole.tmp_artifact_directory) |*tmp_directory| {
                 tmp_directory.handle.close();
                 if (tmp_directory.path) |p| comp.gpa.free(p);
                 whole.tmp_artifact_directory = null;
@@ -2181,8 +2203,8 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                 log.warn("failed to write cache manifest: {s}", .{@errorName(err)});
             };
 
-            assert(comp.bin_file.lock == null);
-            comp.bin_file.lock = man.toOwnedLock();
+            assert(whole.lock == null);
+            whole.lock = man.toOwnedLock();
         },
         .incremental => {},
     }
@@ -2263,13 +2285,15 @@ fn maybeGenerateAutodocs(comp: *Compilation, prog_node: *std.Progress.Node) !voi
 }
 
 fn flush(comp: *Compilation, prog_node: *std.Progress.Node) !void {
-    // This is needed before reading the error flags.
-    comp.bin_file.flush(comp, prog_node) catch |err| switch (err) {
-        error.FlushFailure => {}, // error reported through link_error_flags
-        error.LLDReportedFailure => {}, // error reported via lockAndParseLldStderr
-        else => |e| return e,
-    };
-    comp.link_error_flags = comp.bin_file.errorFlags();
+    if (comp.bin_file) |lf| {
+        // This is needed before reading the error flags.
+        lf.flush(comp, prog_node) catch |err| switch (err) {
+            error.FlushFailure => {}, // error reported through link_error_flags
+            error.LLDReportedFailure => {}, // error reported via lockAndParseLldStderr
+            else => |e| return e,
+        };
+        comp.link_error_flags = lf.error_flags;
+    }
 
     if (comp.module) |module| {
         try link.File.C.flushEmitH(module);
@@ -2445,9 +2469,9 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
             .wasm => {
                 const wasm = lf.cast(link.File.Wasm).?;
                 man.hash.add(wasm.rdynamic);
-                man.hash.add(wasm.initial_memory);
-                man.hash.add(wasm.max_memory);
-                man.hash.add(wasm.global_base);
+                man.hash.addOptional(wasm.initial_memory);
+                man.hash.addOptional(wasm.max_memory);
+                man.hash.addOptional(wasm.global_base);
             },
             .macho => {
                 const macho = lf.cast(link.File.MachO).?;
@@ -2626,12 +2650,14 @@ fn reportMultiModuleErrors(mod: *Module) !void {
 /// binary is concerned. This will remove the write flag, or close the file,
 /// or whatever is needed so that it can be executed.
 /// After this, one must call` makeFileWritable` before calling `update`.
-pub fn makeBinFileExecutable(self: *Compilation) !void {
-    return self.bin_file.makeExecutable();
+pub fn makeBinFileExecutable(comp: *Compilation) !void {
+    const lf = comp.bin_file orelse return;
+    return lf.makeExecutable();
 }
 
-pub fn makeBinFileWritable(self: *Compilation) !void {
-    return self.bin_file.makeWritable();
+pub fn makeBinFileWritable(comp: *Compilation) !void {
+    const lf = comp.bin_file orelse return;
+    return lf.makeWritable();
 }
 
 const Header = extern struct {
@@ -2764,8 +2790,9 @@ pub fn totalErrorCount(self: *Compilation) u32 {
     }
     total += @intFromBool(self.link_error_flags.missing_libc);
 
-    // Misc linker errors
-    total += self.bin_file.miscErrors().len;
+    if (self.bin_file) |lf| {
+        total += lf.misc_errors.items.len;
+    }
 
     // Compile log errors only count if there are no other errors.
     if (total == 0) {
@@ -2914,7 +2941,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         }));
     }
 
-    for (self.bin_file.miscErrors()) |link_err| {
+    if (self.bin_file) |lf| for (lf.misc_errors.items) |link_err| {
         try bundle.addRootErrorMessage(.{
             .msg = try bundle.addString(link_err.msg),
             .notes_len = @intCast(link_err.notes.len),
@@ -2925,7 +2952,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
                 .msg = try bundle.addString(note.msg),
             }));
         }
-    }
+    };
 
     if (self.module) |module| {
         if (bundle.root_list.items.len == 0 and module.compile_log_decls.count() != 0) {
@@ -3246,12 +3273,12 @@ pub fn performAllTheWork(
             // TODO put all the modules in a flat array to make them easy to iterate.
             var seen: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .{};
             defer seen.deinit(comp.gpa);
-            try seen.put(comp.gpa, comp.root_mod);
+            try seen.put(comp.gpa, comp.root_mod, {});
             var i: usize = 0;
             while (i < seen.count()) : (i += 1) {
                 const mod = seen.keys()[i];
                 for (mod.deps.values()) |dep|
-                    try seen.put(comp.gpa, dep);
+                    try seen.put(comp.gpa, dep, {});
 
                 const file = mod.builtin_file orelse continue;
 
@@ -3459,7 +3486,8 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
             const gpa = comp.gpa;
             const module = comp.module.?;
             const decl = module.declPtr(decl_index);
-            comp.bin_file.updateDeclLineNumber(module, decl_index) catch |err| {
+            const lf = comp.bin_file.?;
+            lf.updateDeclLineNumber(module, decl_index) catch |err| {
                 try module.failed_decls.ensureUnusedCapacity(gpa, 1);
                 module.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
                     gpa,
@@ -3782,7 +3810,7 @@ pub fn obtainCObjectCacheManifest(
     // that apply both to @cImport and compiling C objects. No linking stuff here!
     // Also nothing that applies only to compiling .zig code.
     man.hash.add(owner_mod.sanitize_c);
-    man.hash.addListOfBytes(owner_mod.clang_argv);
+    man.hash.addListOfBytes(owner_mod.cc_argv);
     man.hash.add(comp.config.link_libcpp);
 
     // When libc_installation is null it means that Zig generated this dir list
@@ -6099,7 +6127,8 @@ fn buildOutputFromZig(
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
-    var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+    const gpa = comp.gpa;
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
@@ -6110,6 +6139,7 @@ fn buildOutputFromZig(
 
     const config = try Config.resolve(.{
         .output_mode = output_mode,
+        .link_mode = .Static,
         .resolved_target = comp.root_mod.resolved_target,
         .is_test = false,
         .have_zcu = true,
@@ -6120,7 +6150,8 @@ fn buildOutputFromZig(
         .any_unwind_tables = unwind_tables,
     });
 
-    const root_mod = Package.Module.create(.{
+    const root_mod = try Package.Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{ .root_dir = comp.zig_lib_directory },
             .root_src_path = src_basename,
@@ -6139,6 +6170,8 @@ fn buildOutputFromZig(
         },
         .global = config,
         .cc_argv = &.{},
+        .parent = null,
+        .builtin_mod = null,
     });
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();
@@ -6148,23 +6181,21 @@ fn buildOutputFromZig(
         .output_mode = output_mode,
     });
 
-    const emit_bin = Compilation.EmitLoc{
-        .directory = null, // Put it in the cache directory.
-        .basename = bin_basename,
-    };
-    const sub_compilation = try Compilation.create(comp.gpa, .{
+    const sub_compilation = try Compilation.create(gpa, .{
         .global_cache_directory = comp.global_cache_directory,
         .local_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
         .self_exe_path = comp.self_exe_path,
-        .resolved = config,
+        .config = config,
         .root_mod = root_mod,
         .cache_mode = .whole,
         .root_name = root_name,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
-        .emit_bin = emit_bin,
-        .link_mode = .Static,
+        .emit_bin = .{
+            .directory = null, // Put it in the cache directory.
+            .basename = bin_basename,
+        },
         .function_sections = true,
         .data_sections = true,
         .no_builtin = true,
@@ -6186,8 +6217,8 @@ fn buildOutputFromZig(
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
     assert(out.* == null);
-    out.* = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(comp.gpa, &[_][]const u8{
+    out.* = .{
+        .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(gpa, &.{
             sub_compilation.bin_file.?.emit.sub_path,
         }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
@@ -6206,12 +6237,15 @@ pub fn build_crt_file(
     defer tracy_trace.end();
 
     const gpa = comp.gpa;
-    const basename = try std.zig.binNameAlloc(gpa, .{
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
         .target = comp.root_mod.resolved_target.result,
         .output_mode = output_mode,
     });
-    errdefer gpa.free(basename);
 
     const config = try Config.resolve(.{
         .output_mode = output_mode,
@@ -6227,7 +6261,8 @@ pub fn build_crt_file(
             .Obj, .Exe => false,
         },
     });
-    const root_mod = Package.Module.create(.{
+    const root_mod = try Package.Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{ .root_dir = comp.zig_lib_directory },
             .root_src_path = "",
@@ -6249,6 +6284,8 @@ pub fn build_crt_file(
         },
         .global = config,
         .cc_argv = &.{},
+        .parent = null,
+        .builtin_mod = null,
     });
 
     const sub_compilation = try Compilation.create(gpa, .{
@@ -6257,7 +6294,7 @@ pub fn build_crt_file(
         .zig_lib_directory = comp.zig_lib_directory,
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,
-        .resolved = config,
+        .config = config,
         .root_mod = root_mod,
         .root_name = root_name,
         .thread_pool = comp.thread_pool,
@@ -6287,7 +6324,7 @@ pub fn build_crt_file(
     try comp.crt_files.ensureUnusedCapacity(gpa, 1);
 
     comp.crt_files.putAssumeCapacityNoClobber(basename, .{
-        .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(gpa, &[_][]const u8{
+        .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(gpa, &.{
             sub_compilation.bin_file.?.emit.sub_path,
         }),
         .lock = sub_compilation.bin_file.toOwnedLock(),

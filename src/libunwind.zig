@@ -123,7 +123,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
-        .resolved = config,
+        .config = config,
         .root_mod = root_mod,
         .cache_mode = .whole,
         .root_name = root_name,

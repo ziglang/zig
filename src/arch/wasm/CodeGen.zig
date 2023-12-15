@@ -1210,13 +1210,15 @@ pub fn generate(
     debug_output: codegen.DebugInfoOutput,
 ) codegen.CodeGenError!codegen.Result {
     _ = src_loc;
-    const mod = bin_file.comp.module.?;
+    const comp = bin_file.comp;
+    const gpa = comp.gpa;
+    const mod = comp.module.?;
     const func = mod.funcInfo(func_index);
     const decl = mod.declPtr(func.owner_decl);
     const namespace = mod.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.target;
+    const target = namespace.file_scope.mod.resolved_target.result;
     var code_gen: CodeGen = .{
-        .gpa = bin_file.allocator,
+        .gpa = gpa,
         .air = air,
         .liveness = liveness,
         .code = code,
@@ -7731,7 +7733,7 @@ fn airFence(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // Only when the atomic feature is enabled, and we're not building
     // for a single-threaded build, can we emit the `fence` instruction.
     // In all other cases, we emit no instructions for a fence.
-    const func_namespace = zcu.namespacePtr(zcu.declPtr(func.decl).namespace);
+    const func_namespace = zcu.namespacePtr(func.decl.src_namespace);
     const single_threaded = func_namespace.file_scope.mod.single_threaded;
     if (func.useAtomicFeature() and !single_threaded) {
         try func.addAtomicTag(.atomic_fence);

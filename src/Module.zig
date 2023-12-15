@@ -619,7 +619,7 @@ pub const Decl = struct {
         // Sanitize the name for nvptx which is more restrictive.
         // TODO This should be handled by the backend, not the frontend. Have a
         // look at how the C backend does it for inspiration.
-        const cpu_arch = mod.root_mod.resolved_target.cpu.arch;
+        const cpu_arch = mod.root_mod.resolved_target.result.cpu.arch;
         if (cpu_arch.isNvptx()) {
             for (ip.string_bytes.items[start..]) |*byte| switch (byte.*) {
                 '{', '}', '*', '[', ']', '(', ')', ',', ' ', '\'' => byte.* = '_',
@@ -3313,7 +3313,8 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func_index: InternPool.Index) SemaEr
 
             if (no_bin_file and !dump_llvm_ir) return;
 
-            comp.bin_file.updateFunc(mod, func_index, air, liveness) catch |err| switch (err) {
+            const lf = comp.bin_file.?;
+            lf.updateFunc(mod, func_index, air, liveness) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => {
                     decl.analysis = .codegen_failure;
@@ -3488,25 +3489,29 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     new_decl.owns_tv = true;
     new_decl.analysis = .complete;
 
-    if (mod.comp.whole_cache_manifest) |whole_cache_manifest| {
-        const source = file.getSource(gpa) catch |err| {
-            try reportRetryableFileError(mod, file, "unable to load source: {s}", .{@errorName(err)});
-            return error.AnalysisFail;
-        };
+    const comp = mod.comp;
+    switch (comp.cache_use) {
+        .whole => |whole| if (whole.cache_manifest) |man| {
+            const source = file.getSource(gpa) catch |err| {
+                try reportRetryableFileError(mod, file, "unable to load source: {s}", .{@errorName(err)});
+                return error.AnalysisFail;
+            };
 
-        const resolved_path = std.fs.path.resolve(gpa, &.{
-            file.mod.root.root_dir.path orelse ".",
-            file.mod.root.sub_path,
-            file.sub_file_path,
-        }) catch |err| {
-            try reportRetryableFileError(mod, file, "unable to resolve path: {s}", .{@errorName(err)});
-            return error.AnalysisFail;
-        };
-        errdefer gpa.free(resolved_path);
+            const resolved_path = std.fs.path.resolve(gpa, &.{
+                file.mod.root.root_dir.path orelse ".",
+                file.mod.root.sub_path,
+                file.sub_file_path,
+            }) catch |err| {
+                try reportRetryableFileError(mod, file, "unable to resolve path: {s}", .{@errorName(err)});
+                return error.AnalysisFail;
+            };
+            errdefer gpa.free(resolved_path);
 
-        mod.comp.whole_cache_manifest_mutex.lock();
-        defer mod.comp.whole_cache_manifest_mutex.unlock();
-        try whole_cache_manifest.addFilePostContents(resolved_path, source.bytes, source.stat);
+            whole.cache_manifest_mutex.lock();
+            defer whole.cache_manifest_mutex.unlock();
+            try man.addFilePostContents(resolved_path, source.bytes, source.stat);
+        },
+        .incremental => {},
     }
 }
 
@@ -4045,12 +4050,16 @@ fn newEmbedFile(
     const actual_read = try file.readAll(ptr);
     if (actual_read != size) return error.UnexpectedEndOfFile;
 
-    if (mod.comp.whole_cache_manifest) |whole_cache_manifest| {
-        const copied_resolved_path = try gpa.dupe(u8, resolved_path);
-        errdefer gpa.free(copied_resolved_path);
-        mod.comp.whole_cache_manifest_mutex.lock();
-        defer mod.comp.whole_cache_manifest_mutex.unlock();
-        try whole_cache_manifest.addFilePostContents(copied_resolved_path, ptr, stat);
+    const comp = mod.comp;
+    switch (comp.cache_use) {
+        .whole => |whole| if (whole.cache_manifest) |man| {
+            const copied_resolved_path = try gpa.dupe(u8, resolved_path);
+            errdefer gpa.free(copied_resolved_path);
+            whole.cache_manifest_mutex.lock();
+            defer whole.cache_manifest_mutex.unlock();
+            try man.addFilePostContents(copied_resolved_path, ptr, stat);
+        },
+        .incremental => {},
     }
 
     const array_ty = try ip.get(gpa, .{ .array_type = .{
@@ -4393,7 +4402,9 @@ fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) Allocator.Error!void 
                 }
             },
         }
-        try mod.comp.bin_file.deleteDeclExport(decl_index, exp.opts.name);
+        if (mod.comp.bin_file) |lf| {
+            try lf.deleteDeclExport(decl_index, exp.opts.name);
+        }
         if (mod.failed_exports.fetchSwapRemove(exp)) |failed_kv| {
             failed_kv.value.destroy(mod.gpa);
         }
@@ -5247,7 +5258,8 @@ fn processExportsInner(
             gop.value_ptr.* = new_export;
         }
     }
-    mod.comp.bin_file.updateExports(mod, exported, exports) catch |err| switch (err) {
+    const lf = mod.comp.bin_file orelse return;
+    lf.updateExports(mod, exported, exports) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => {
             const new_export = exports[0];
@@ -5403,36 +5415,39 @@ pub fn populateTestFunctions(
 pub fn linkerUpdateDecl(mod: *Module, decl_index: Decl.Index) !void {
     const comp = mod.comp;
 
-    const no_bin_file = (comp.bin_file == null and
-        comp.emit_asm == null and
-        comp.emit_llvm_ir == null and
-        comp.emit_llvm_bc == null);
+    if (comp.bin_file) |lf| {
+        const decl = mod.declPtr(decl_index);
+        lf.updateDecl(mod, decl_index) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.AnalysisFail => {
+                decl.analysis = .codegen_failure;
+                return;
+            },
+            else => {
+                const gpa = mod.gpa;
+                try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
+                mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
+                    gpa,
+                    decl.srcLoc(mod),
+                    "unable to codegen: {s}",
+                    .{@errorName(err)},
+                ));
+                decl.analysis = .codegen_failure_retryable;
+                return;
+            },
+        };
+    } else {
+        const dump_llvm_ir = builtin.mode == .Debug and
+            (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
 
-    const dump_llvm_ir = builtin.mode == .Debug and (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
-
-    if (no_bin_file and !dump_llvm_ir) return;
-
-    const decl = mod.declPtr(decl_index);
-
-    comp.bin_file.updateDecl(mod, decl_index) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.AnalysisFail => {
-            decl.analysis = .codegen_failure;
-            return;
-        },
-        else => {
-            const gpa = mod.gpa;
-            try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
-            mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
-                gpa,
-                decl.srcLoc(mod),
-                "unable to codegen: {s}",
-                .{@errorName(err)},
-            ));
-            decl.analysis = .codegen_failure_retryable;
-            return;
-        },
-    };
+        if (comp.emit_asm != null or
+            comp.emit_llvm_ir != null or
+            comp.emit_llvm_bc != null or
+            dump_llvm_ir)
+        {
+            @panic("TODO handle emit_asm, emit_llvm_ir, and emit_llvm_bc along with -fno-emit-bin");
+        }
+    }
 }
 
 fn reportRetryableFileError(

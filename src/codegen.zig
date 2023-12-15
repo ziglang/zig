@@ -57,7 +57,7 @@ pub fn generateFunction(
     const func = zcu.funcInfo(func_index);
     const decl = zcu.declPtr(func.owner_decl);
     const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.target;
+    const target = namespace.file_scope.mod.resolved_target.result;
     switch (target.cpu.arch) {
         .arm,
         .armeb,
@@ -87,7 +87,7 @@ pub fn generateLazyFunction(
     const decl_index = lazy_sym.ty.getOwnerDecl(zcu);
     const decl = zcu.declPtr(decl_index);
     const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.target;
+    const target = namespace.file_scope.mod.resolved_target.result;
     switch (target.cpu.arch) {
         .x86_64 => return @import("arch/x86_64/CodeGen.zig").generateLazy(lf, src_loc, lazy_sym, code, debug_output),
         else => unreachable,
@@ -117,12 +117,14 @@ pub fn generateLazySymbol(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const zcu = bin_file.comp.module.?;
+    const comp = bin_file.comp;
+    const zcu = comp.module.?;
     const decl_index = lazy_sym.ty.getOwnerDecl(zcu);
     const decl = zcu.declPtr(decl_index);
     const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.target;
+    const target = namespace.file_scope.mod.resolved_target.result;
     const endian = target.cpu.arch.endian();
+    const gpa = comp.gpa;
 
     log.debug("generateLazySymbol: kind = {s}, ty = {}", .{
         @tagName(lazy_sym.kind),
@@ -160,7 +162,7 @@ pub fn generateLazySymbol(
         }
         return Result.ok;
     } else return .{ .fail = try ErrorMsg.create(
-        bin_file.allocator,
+        gpa,
         src_loc,
         "TODO implement generateLazySymbol for {s} {}",
         .{ @tagName(lazy_sym.kind), lazy_sym.ty.fmt(zcu) },
@@ -827,7 +829,7 @@ fn lowerDeclRef(
     const zcu = lf.comp.module.?;
     const decl = zcu.declPtr(decl_index);
     const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.target;
+    const target = namespace.file_scope.mod.resolved_target.result;
 
     const ptr_width = target.ptrBitWidth();
     const is_fn_body = decl.ty.zigTypeTag(zcu) == .Fn;
@@ -921,7 +923,7 @@ fn genDeclRef(
 
     const ptr_decl = zcu.declPtr(ptr_decl_index);
     const namespace = zcu.namespacePtr(ptr_decl.src_namespace);
-    const target = namespace.file_scope.mod.target;
+    const target = namespace.file_scope.mod.resolved_target.result;
 
     const ptr_bits = target.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
@@ -944,6 +946,9 @@ fn genDeclRef(
         return GenResult.mcv(.{ .immediate = imm });
     }
 
+    const comp = lf.comp;
+    const gpa = comp.gpa;
+
     // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
     if (tv.ty.castPtrToFn(zcu)) |fn_ty| {
         if (zcu.typeToFunc(fn_ty).?.is_generic) {
@@ -958,8 +963,8 @@ fn genDeclRef(
 
     try zcu.markDeclAlive(decl);
 
-    const decl_namespace = zcu.namespacePtr(decl.namespace_index);
-    const single_threaded = decl_namespace.file_scope.zcu.single_threaded;
+    const decl_namespace = zcu.namespacePtr(decl.src_namespace);
+    const single_threaded = decl_namespace.file_scope.mod.single_threaded;
     const is_threadlocal = tv.val.isPtrToThreadLocal(zcu) and !single_threaded;
     const is_extern = decl.isExtern(zcu);
 
@@ -985,8 +990,8 @@ fn genDeclRef(
         if (is_extern) {
             // TODO make this part of getGlobalSymbol
             const name = zcu.intern_pool.stringToSlice(decl.name);
-            const sym_name = try std.fmt.allocPrint(lf.allocator, "_{s}", .{name});
-            defer lf.allocator.free(sym_name);
+            const sym_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
+            defer gpa.free(sym_name);
             const global_index = try macho_file.addUndefined(sym_name, .{ .add_got = true });
             return GenResult.mcv(.{ .load_got = link.File.MachO.global_symbol_bit | global_index });
         }
@@ -1005,7 +1010,7 @@ fn genDeclRef(
             else
                 null;
             const global_index = try coff_file.getGlobalSymbol(name, lib_name);
-            try coff_file.need_got_table.put(lf.allocator, global_index, {}); // needs GOT
+            try coff_file.need_got_table.put(gpa, global_index, {}); // needs GOT
             return GenResult.mcv(.{ .load_got = link.File.Coff.global_symbol_bit | global_index });
         }
         const atom_index = try coff_file.getOrCreateAtomForDecl(decl_index);
@@ -1016,7 +1021,7 @@ fn genDeclRef(
         const atom = p9.getAtom(atom_index);
         return GenResult.mcv(.{ .memory = atom.getOffsetTableAddress(p9) });
     } else {
-        return GenResult.fail(lf.allocator, src_loc, "TODO genDeclRef for target {}", .{target});
+        return GenResult.fail(gpa, src_loc, "TODO genDeclRef for target {}", .{target});
     }
 }
 
@@ -1073,7 +1078,7 @@ pub fn genTypedValue(
 
     const owner_decl = zcu.declPtr(owner_decl_index);
     const namespace = zcu.namespacePtr(owner_decl.src_namespace);
-    const target = namespace.file_scope.mod.target;
+    const target = namespace.file_scope.mod.resolved_target.result;
     const ptr_bits = target.ptrBitWidth();
 
     if (!typed_value.ty.isSlice(zcu)) switch (zcu.intern_pool.indexToKey(typed_value.val.toIntern())) {

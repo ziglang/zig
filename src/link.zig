@@ -69,10 +69,12 @@ pub const File = struct {
     allow_shlib_undefined: bool,
     stack_size: u64,
 
+    error_flags: ErrorFlags = .{},
+    misc_errors: std.ArrayListUnmanaged(ErrorMsg) = .{},
+
     /// Prevents other processes from clobbering files in the output directory
     /// of this linking operation.
     lock: ?Cache.Lock = null,
-
     child_pid: ?std.ChildProcess.Id = null,
 
     pub const OpenOptions = struct {
@@ -210,6 +212,8 @@ pub const File = struct {
     }
 
     pub fn makeWritable(base: *File) !void {
+        const comp = base.comp;
+        const gpa = comp.gpa;
         switch (base.tag) {
             .coff, .elf, .macho, .plan9, .wasm => {
                 if (build_options.only_c) unreachable;
@@ -225,9 +229,10 @@ pub const File = struct {
                         // it will return ETXTBSY. So instead, we copy the file, atomically rename it
                         // over top of the exe path, and then proceed normally. This changes the inode,
                         // avoiding the error.
-                        const tmp_sub_path = try std.fmt.allocPrint(base.allocator, "{s}-{x}", .{
+                        const tmp_sub_path = try std.fmt.allocPrint(gpa, "{s}-{x}", .{
                             emit.sub_path, std.crypto.random.int(u32),
                         });
+                        defer gpa.free(tmp_sub_path);
                         try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, tmp_sub_path, .{});
                         try emit.directory.handle.rename(tmp_sub_path, emit.sub_path);
                         switch (builtin.os.tag) {
@@ -242,9 +247,9 @@ pub const File = struct {
                         }
                     }
                 }
-                const use_lld = build_options.have_llvm and base.comp.config.use_lld;
-                const output_mode = base.comp.config.output_mode;
-                const link_mode = base.comp.config.link_mode;
+                const use_lld = build_options.have_llvm and comp.config.use_lld;
+                const output_mode = comp.config.output_mode;
+                const link_mode = comp.config.link_mode;
                 base.file = try emit.directory.handle.createFile(emit.sub_path, .{
                     .truncate = false,
                     .read = true,
@@ -256,9 +261,10 @@ pub const File = struct {
     }
 
     pub fn makeExecutable(base: *File) !void {
-        const output_mode = base.comp.config.output_mode;
-        const link_mode = base.comp.config.link_mode;
-        const use_lld = build_options.have_llvm and base.comp.config.use_lld;
+        const comp = base.comp;
+        const output_mode = comp.config.output_mode;
+        const link_mode = comp.config.link_mode;
+        const use_lld = build_options.have_llvm and comp.config.use_lld;
 
         switch (output_mode) {
             .Obj => return,
@@ -464,8 +470,13 @@ pub const File = struct {
     }
 
     pub fn destroy(base: *File) void {
+        const gpa = base.comp.gpa;
         base.releaseLock();
         if (base.file) |f| f.close();
+        {
+            for (base.misc_errors.items) |*item| item.deinit(gpa);
+            base.misc_errors.deinit(gpa);
+        }
         switch (base.tag) {
             .coff => {
                 if (build_options.only_c) unreachable;
@@ -602,9 +613,9 @@ pub const File = struct {
             return;
         }
 
-        const use_lld = build_options.have_llvm and base.comp.config.use_lld;
-        const output_mode = base.comp.config.output_mode;
-        const link_mode = base.comp.config.link_mode;
+        const use_lld = build_options.have_llvm and comp.config.use_lld;
+        const output_mode = comp.config.output_mode;
+        const link_mode = comp.config.link_mode;
         if (use_lld and output_mode == .Lib and link_mode == .Static) {
             return base.linkAsArchive(comp, prog_node);
         }
@@ -654,25 +665,6 @@ pub const File = struct {
             .spirv => @fieldParentPtr(SpirV, "base", base).freeDecl(decl_index),
             .plan9 => @fieldParentPtr(Plan9, "base", base).freeDecl(decl_index),
             .nvptx => @fieldParentPtr(NvPtx, "base", base).freeDecl(decl_index),
-        }
-    }
-
-    pub fn errorFlags(base: *File) ErrorFlags {
-        switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).error_flags,
-            .elf => return @fieldParentPtr(Elf, "base", base).error_flags,
-            .macho => return @fieldParentPtr(MachO, "base", base).error_flags,
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).error_flags,
-            .c => return .{ .no_entry_point_found = false },
-            .wasm, .spirv, .nvptx => return ErrorFlags{},
-        }
-    }
-
-    pub fn miscErrors(base: *File) []const ErrorMsg {
-        switch (base.tag) {
-            .elf => return @fieldParentPtr(Elf, "base", base).misc_errors.items,
-            .macho => return @fieldParentPtr(MachO, "base", base).misc_errors.items,
-            else => return &.{},
         }
     }
 
@@ -781,14 +773,15 @@ pub const File = struct {
         const tracy = trace(@src());
         defer tracy.end();
 
-        var arena_allocator = std.heap.ArenaAllocator.init(base.allocator);
+        const gpa = comp.gpa;
+        var arena_allocator = std.heap.ArenaAllocator.init(gpa);
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
         const directory = base.emit.directory; // Just an alias to make it shorter to type.
         const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
         const full_out_path_z = try arena.dupeZ(u8, full_out_path);
-        const opt_zcu = base.comp.module;
+        const opt_zcu = comp.module;
 
         // If there is no Zig code to compile, then we should skip flushing the output file
         // because it will not be part of the linker line anyway.
@@ -801,7 +794,7 @@ pub const File = struct {
 
         log.debug("zcu_obj_path={s}", .{if (zcu_obj_path) |s| s else "(null)"});
 
-        const compiler_rt_path: ?[]const u8 = if (base.comp.include_compiler_rt)
+        const compiler_rt_path: ?[]const u8 = if (comp.include_compiler_rt)
             comp.compiler_rt_obj.?.full_object_path
         else
             null;
@@ -815,7 +808,7 @@ pub const File = struct {
         var man: Cache.Manifest = undefined;
         defer if (!base.disable_lld_caching) man.deinit();
 
-        const objects = base.comp.objects;
+        const objects = comp.objects;
 
         var digest: [Cache.hex_digest_len]u8 = undefined;
 
@@ -869,7 +862,7 @@ pub const File = struct {
 
         const win32_resource_table_len = if (build_options.only_core_functionality) 0 else comp.win32_resource_table.count();
         const num_object_files = objects.len + comp.c_object_table.count() + win32_resource_table_len + 2;
-        var object_files = try std.ArrayList([*:0]const u8).initCapacity(base.allocator, num_object_files);
+        var object_files = try std.ArrayList([*:0]const u8).initCapacity(gpa, num_object_files);
         defer object_files.deinit();
 
         for (objects) |obj| {

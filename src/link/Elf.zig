@@ -196,9 +196,6 @@ resolver: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index) = .{},
 has_text_reloc: bool = false,
 num_ifunc_dynrelocs: usize = 0,
 
-error_flags: link.File.ErrorFlags = link.File.ErrorFlags{},
-misc_errors: std.ArrayListUnmanaged(link.File.ErrorMsg) = .{},
-
 /// List of atoms that are owned directly by the linker.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
 
@@ -477,7 +474,6 @@ pub fn deinit(self: *Elf) void {
     }
     self.last_atom_and_free_list_table.deinit(gpa);
 
-    self.misc_errors.deinit(gpa);
     self.comdat_groups.deinit(gpa);
     self.comdat_groups_owners.deinit(gpa);
     self.comdat_groups_table.deinit(gpa);
@@ -1168,7 +1164,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     // libc dep
-    self.error_flags.missing_libc = false;
+    self.base.error_flags.missing_libc = false;
     if (self.base.comp.config.link_libc) {
         if (self.base.comp.libc_installation) |lc| {
             const flags = target_util.libcFullLinkFlags(target);
@@ -1219,7 +1215,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             });
             try system_libs.append(.{ .path = path });
         } else {
-            self.error_flags.missing_libc = true;
+            self.base.error_flags.missing_libc = true;
         }
     }
 
@@ -1257,7 +1253,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         };
     }
 
-    if (self.misc_errors.items.len > 0) return error.FlushFailure;
+    if (self.base.misc_errors.items.len > 0) return error.FlushFailure;
 
     // Init all objects
     for (self.objects.items) |index| {
@@ -1267,7 +1263,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         try self.file(index).?.shared_object.init(self);
     }
 
-    if (self.misc_errors.items.len > 0) return error.FlushFailure;
+    if (self.base.misc_errors.items.len > 0) return error.FlushFailure;
 
     // Dedup shared objects
     {
@@ -1389,14 +1385,14 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     if (self.entry_index == null and self.base.isExe()) {
         log.debug("flushing. no_entry_point_found = true", .{});
-        self.error_flags.no_entry_point_found = true;
+        self.base.error_flags.no_entry_point_found = true;
     } else {
         log.debug("flushing. no_entry_point_found = false", .{});
-        self.error_flags.no_entry_point_found = false;
+        self.base.error_flags.no_entry_point_found = false;
         try self.writeElfHeader();
     }
 
-    if (self.misc_errors.items.len > 0) return error.FlushFailure;
+    if (self.base.misc_errors.items.len > 0) return error.FlushFailure;
 }
 
 pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
@@ -1428,7 +1424,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
         };
     }
 
-    if (self.misc_errors.items.len > 0) return error.FlushFailure;
+    if (self.base.misc_errors.items.len > 0) return error.FlushFailure;
 
     // First, we flush relocatable object file generated with our backends.
     if (self.zigObjectPtr()) |zig_object| {
@@ -1540,7 +1536,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
     try self.base.file.?.setEndPos(total_size);
     try self.base.file.?.pwriteAll(buffer.items, 0);
 
-    if (self.misc_errors.items.len > 0) return error.FlushFailure;
+    if (self.base.misc_errors.items.len > 0) return error.FlushFailure;
 }
 
 pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
@@ -1571,14 +1567,14 @@ pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8)
         };
     }
 
-    if (self.misc_errors.items.len > 0) return error.FlushFailure;
+    if (self.base.misc_errors.items.len > 0) return error.FlushFailure;
 
     // Init all objects
     for (self.objects.items) |index| {
         try self.file(index).?.object.init(self);
     }
 
-    if (self.misc_errors.items.len > 0) return error.FlushFailure;
+    if (self.base.misc_errors.items.len > 0) return error.FlushFailure;
 
     // Now, we are ready to resolve the symbols across all input files.
     // We will first resolve the files in the ZigObject, next in the parsed
@@ -1612,7 +1608,7 @@ pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8)
     try self.writeShdrTable();
     try self.writeElfHeader();
 
-    if (self.misc_errors.items.len > 0) return error.FlushFailure;
+    if (self.base.misc_errors.items.len > 0) return error.FlushFailure;
 }
 
 /// --verbose-link output
@@ -2891,7 +2887,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             }
 
             // libc dep
-            self.error_flags.missing_libc = false;
+            self.base.error_flags.missing_libc = false;
             if (comp.config.link_libc) {
                 if (self.base.comp.libc_installation != null) {
                     const needs_grouping = link_mode == .Static;
@@ -2912,7 +2908,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                         .Dynamic => "libc.so",
                     }));
                 } else {
-                    self.error_flags.missing_libc = true;
+                    self.base.error_flags.missing_libc = true;
                 }
             }
         }
@@ -3135,7 +3131,7 @@ fn writePhdrTable(self: *Elf) !void {
 }
 
 fn writeElfHeader(self: *Elf) !void {
-    if (self.misc_errors.items.len > 0) return; // We had errors, so skip flushing to render the output unusable
+    if (self.base.misc_errors.items.len > 0) return; // We had errors, so skip flushing to render the output unusable
 
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 = undefined;
 
@@ -6067,8 +6063,9 @@ const ErrorWithNotes = struct {
         comptime format: []const u8,
         args: anytype,
     ) error{OutOfMemory}!void {
-        const gpa = elf_file.base.allocator;
-        const err_msg = &elf_file.misc_errors.items[err.index];
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
+        const err_msg = &elf_file.base.misc_errors.items[err.index];
         err_msg.msg = try std.fmt.allocPrint(gpa, format, args);
     }
 
@@ -6078,8 +6075,9 @@ const ErrorWithNotes = struct {
         comptime format: []const u8,
         args: anytype,
     ) error{OutOfMemory}!void {
-        const gpa = elf_file.base.allocator;
-        const err_msg = &elf_file.misc_errors.items[err.index];
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
+        const err_msg = &elf_file.base.misc_errors.items[err.index];
         assert(err.note_slot < err_msg.notes.len);
         err_msg.notes[err.note_slot] = .{ .msg = try std.fmt.allocPrint(gpa, format, args) };
         err.note_slot += 1;
@@ -6088,14 +6086,14 @@ const ErrorWithNotes = struct {
 
 pub fn addErrorWithNotes(self: *Elf, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
     const gpa = self.base.comp.gpa;
-    try self.misc_errors.ensureUnusedCapacity(gpa, 1);
+    try self.base.misc_errors.ensureUnusedCapacity(gpa, 1);
     return self.addErrorWithNotesAssumeCapacity(note_count);
 }
 
 fn addErrorWithNotesAssumeCapacity(self: *Elf, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
     const gpa = self.base.comp.gpa;
-    const index = self.misc_errors.items.len;
-    const err = self.misc_errors.addOneAssumeCapacity();
+    const index = self.base.misc_errors.items.len;
+    const err = self.base.misc_errors.addOneAssumeCapacity();
     err.* = .{ .msg = undefined, .notes = try gpa.alloc(link.File.ErrorMsg, note_count) };
     return .{ .index = index };
 }
@@ -6130,7 +6128,7 @@ fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
     const gpa = self.base.comp.gpa;
     const max_notes = 4;
 
-    try self.misc_errors.ensureUnusedCapacity(gpa, undefs.count());
+    try self.base.misc_errors.ensureUnusedCapacity(gpa, undefs.count());
 
     var it = undefs.iterator();
     while (it.next()) |entry| {

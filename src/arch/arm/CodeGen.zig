@@ -351,7 +351,7 @@ pub fn generate(
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
     const namespace = zcu.namespacePtr(fn_owner_decl.src_namespace);
-    const target = &namespace.file_scope.mod.target;
+    const target = &namespace.file_scope.mod.resolved_target.result;
 
     var branch_stack = std.ArrayList(Branch).init(gpa);
     defer {
@@ -6292,14 +6292,16 @@ fn wantSafety(self: *Self) bool {
 fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
     assert(self.err_msg == null);
-    self.err_msg = try ErrorMsg.create(self.bin_file.allocator, self.src_loc, format, args);
+    const gpa = self.gpa;
+    self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);
     return error.CodegenFail;
 }
 
 fn failSymbol(self: *Self, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
     assert(self.err_msg == null);
-    self.err_msg = try ErrorMsg.create(self.bin_file.allocator, self.src_loc, format, args);
+    const gpa = self.gpa;
+    self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);
     return error.CodegenFail;
 }
 

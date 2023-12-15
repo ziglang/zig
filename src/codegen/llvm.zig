@@ -1785,7 +1785,7 @@ pub const Object = struct {
             if (wantDllExports(mod)) global_index.setDllStorageClass(.default, &self.builder);
             global_index.setUnnamedAddr(.unnamed_addr, &self.builder);
             if (decl.val.getVariable(mod)) |decl_var| {
-                const decl_namespace = mod.namespacePtr(decl.namespace_index);
+                const decl_namespace = mod.namespacePtr(decl.src_namespace);
                 const single_threaded = decl_namespace.file_scope.mod.single_threaded;
                 global_index.ptrConst(&self.builder).kind.variable.setThreadLocal(
                     if (decl_var.is_threadlocal and !single_threaded)
@@ -3173,7 +3173,7 @@ pub const Object = struct {
             variable_index.setLinkage(.external, &o.builder);
             variable_index.setUnnamedAddr(.default, &o.builder);
             if (decl.val.getVariable(mod)) |decl_var| {
-                const decl_namespace = mod.namespacePtr(decl.namespace_index);
+                const decl_namespace = mod.namespacePtr(decl.src_namespace);
                 const single_threaded = decl_namespace.file_scope.mod.single_threaded;
                 variable_index.setThreadLocal(
                     if (decl_var.is_threadlocal and !single_threaded) .generaldynamic else .default,

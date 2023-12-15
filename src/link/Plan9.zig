@@ -28,7 +28,6 @@ pub const base_tag = .plan9;
 
 base: link.File,
 sixtyfour_bit: bool,
-error_flags: File.ErrorFlags = File.ErrorFlags{},
 bases: Bases,
 
 /// A symbol's value is just casted down when compiling
