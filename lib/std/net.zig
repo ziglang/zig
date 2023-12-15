@@ -38,20 +38,20 @@ pub const Address = extern union {
     /// IPv6 link-local unix addresses.
     pub fn parseIp(name: []const u8, port: u16) !Address {
         if (parseIp4(name, port)) |ip4| return ip4 else |err| switch (err) {
-            IPv4ParseError.Overflow,
-            IPv4ParseError.InvalidEnd,
-            IPv4ParseError.InvalidCharacter,
-            IPv4ParseError.Incomplete,
-            IPv4ParseError.NonCanonical,
+            error.Overflow,
+            error.InvalidEnd,
+            error.InvalidCharacter,
+            error.Incomplete,
+            error.NonCanonical,
             => {},
         }
 
         if (parseIp6(name, port)) |ip6| return ip6 else |err| switch (err) {
-            IPv6ParseError.Overflow,
-            IPv6ParseError.InvalidEnd,
-            IPv6ParseError.InvalidCharacter,
-            IPv6ParseError.Incomplete,
-            IPv6ParseError.InvalidIpv4Mapping,
+            error.Overflow,
+            error.InvalidEnd,
+            error.InvalidCharacter,
+            error.Incomplete,
+            error.InvalidIpv4Mapping,
             => {},
         }
 
@@ -60,20 +60,20 @@ pub const Address = extern union {
 
     pub fn resolveIp(name: []const u8, port: u16) !Address {
         if (parseIp4(name, port)) |ip4| return ip4 else |err| switch (err) {
-            IPv4ParseError.Overflow,
-            IPv4ParseError.InvalidEnd,
-            IPv4ParseError.InvalidCharacter,
-            IPv4ParseError.Incomplete,
-            IPv4ParseError.NonCanonical,
+            error.Overflow,
+            error.InvalidEnd,
+            error.InvalidCharacter,
+            error.Incomplete,
+            error.NonCanonical,
             => {},
         }
 
         if (resolveIp6(name, port)) |ip6| return ip6 else |err| switch (err) {
-            IPv6ResolveError.Overflow,
-            IPv6ResolveError.InvalidEnd,
-            IPv6ResolveError.InvalidCharacter,
-            IPv6ResolveError.Incomplete,
-            IPv6ResolveError.InvalidIpv4Mapping,
+            error.Overflow,
+            error.InvalidEnd,
+            error.InvalidCharacter,
+            error.Incomplete,
+            error.InvalidIpv4Mapping,
             => {},
             else => return err,
         }
@@ -260,10 +260,10 @@ pub const Ip4Address = extern struct {
 
     pub fn resolveIp(name: []const u8, port: u16) !Ip4Address {
         if (parse(name, port)) |ip4| return ip4 else |err| switch (err) {
-            IPv4ParseError.Overflow,
-            IPv4ParseError.InvalidEnd,
-            IPv4ParseError.InvalidCharacter,
-            IPv4ParseError.Incomplete,
+            error.Overflow,
+            error.InvalidEnd,
+            error.InvalidCharacter,
+            error.Incomplete,
             => {},
         }
         return error.InvalidIPAddressFormat;
