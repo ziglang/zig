@@ -5,6 +5,7 @@ const mem = std.mem;
 const testing = std.testing;
 
 test "parse and render IP addresses at comptime" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
     comptime {
         var ipAddrBuffer: [16]u8 = undefined;
         // Parses IPv6 at comptime
