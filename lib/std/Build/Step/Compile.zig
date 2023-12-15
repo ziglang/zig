@@ -37,6 +37,7 @@ kind: Kind,
 major_only_filename: ?[]const u8,
 name_only_filename: ?[]const u8,
 strip: ?bool,
+formatted_panics: ?bool = null,
 unwind_tables: ?bool,
 // keep in sync with src/link.zig:CompressDebugSections
 compress_debug_sections: enum { none, zlib, zstd } = .none,
@@ -1702,6 +1703,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (self.generated_h != null) try zig_args.append("-femit-h");
 
     try addFlag(&zig_args, "strip", self.strip);
+    try addFlag(&zig_args, "formatted-panics", self.formatted_panics);
     try addFlag(&zig_args, "unwind-tables", self.unwind_tables);
 
     if (self.dwarf_format) |dwarf_format| {
