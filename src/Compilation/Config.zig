@@ -13,6 +13,7 @@ any_non_single_threaded: bool,
 /// and function calling convention depend on this global value, however, other
 /// kinds of error tracing are omitted depending on the per-Module setting.
 any_error_tracing: bool,
+any_sanitize_thread: bool,
 pie: bool,
 /// If this is true then linker code is responsible for making an LLVM IR
 /// Module, outputting it to an object file, and then linking that together
@@ -427,6 +428,7 @@ pub fn resolve(options: Options) !Config {
         .any_c_source_files = options.any_c_source_files,
         .any_non_single_threaded = options.any_non_single_threaded,
         .any_error_tracing = any_error_tracing,
+        .any_sanitize_thread = options.any_sanitize_thread,
         .root_error_tracing = root_error_tracing,
         .pie = pie,
         .lto = lto,

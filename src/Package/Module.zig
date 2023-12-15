@@ -102,6 +102,11 @@ pub const ResolvedTarget = struct {
 
 /// At least one of `parent` and `resolved_target` must be non-null.
 pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
+    if (options.inherited.sanitize_thread == true) assert(options.global.any_sanitize_thread);
+    if (options.inherited.single_threaded == false) assert(options.global.any_non_single_threaded);
+    if (options.inherited.unwind_tables == true) assert(options.global.any_unwind_tables);
+    if (options.inherited.error_tracing == true) assert(options.global.any_error_tracing);
+
     const resolved_target = options.inherited.resolved_target orelse options.parent.?.resolved_target;
     const target = resolved_target.result;
 

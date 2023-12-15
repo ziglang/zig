@@ -4566,7 +4566,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
 
     // If we don't get an error return trace from a caller, create our own.
     if (func.analysis(ip).calls_or_awaits_errorable_fn and
-        mod.comp.config.error_tracing and
+        mod.comp.config.any_error_tracing and
         !sema.fn_ret_ty.isError(mod))
     {
         sema.setupErrorReturnTrace(&inner_block, last_arg_index) catch |err| switch (err) {
@@ -5567,8 +5567,8 @@ pub const Feature = enum {
 };
 
 pub fn backendSupportsFeature(zcu: Module, feature: Feature) bool {
-    const cpu_arch = zcu.root_mod.resolved_target.cpu.arch;
-    const ofmt = zcu.root_mod.resolved_target.ofmt;
+    const cpu_arch = zcu.root_mod.resolved_target.result.cpu.arch;
+    const ofmt = zcu.root_mod.resolved_target.result.ofmt;
     const use_llvm = zcu.comp.config.use_llvm;
     return switch (feature) {
         .panic_fn => ofmt == .c or use_llvm or cpu_arch == .x86_64,

@@ -191,7 +191,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             return comp.build_crt_file("c", .Lib, .@"musl libc.a", prog_node, c_source_files.items);
         },
         .libc_so => {
-            const unwind_tables = false;
             const optimize_mode = comp.compilerRtOptMode();
             const strip = comp.compilerRtStrip();
             const config = try Compilation.Config.resolve(.{
@@ -204,7 +203,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 .root_optimize_mode = optimize_mode,
                 .root_strip = strip,
                 .link_libc = false,
-                .any_unwind_tables = unwind_tables,
             });
 
             const target = comp.root_mod.resolved_target.result;
@@ -232,7 +230,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                     .red_zone = comp.root_mod.red_zone,
                     .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
                     .valgrind = false,
-                    .unwind_tables = unwind_tables,
                     .optimize_mode = optimize_mode,
                     .structured_cfg = comp.root_mod.structured_cfg,
                 },
