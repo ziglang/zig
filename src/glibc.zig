@@ -12,7 +12,7 @@ const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
 const Cache = std.Build.Cache;
-const Package = @import("Package.zig");
+const Module = @import("Package/Module.zig");
 
 pub const Lib = struct {
     name: []const u8,
@@ -1067,34 +1067,62 @@ fn buildSharedLib(
             .src_path = try path.join(arena, &[_][]const u8{ bin_directory.path.?, asm_file_basename }),
         },
     };
+
+    const optimize_mode = comp.compilerRtOptMode();
+    const strip = comp.compilerRtStrip();
+    const config = try Compilation.Config.resolve(.{
+        .output_mode = .Lib,
+        .link_mode = .Dynamic,
+        .resolved_target = comp.root_mod.resolved_target,
+        .is_test = false,
+        .have_zcu = false,
+        .emit_bin = true,
+        .root_optimize_mode = optimize_mode,
+        .root_strip = strip,
+        .link_libc = false,
+    });
+
+    const root_mod = try Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
+        .paths = .{
+            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root_src_path = "",
+        },
+        .fully_qualified_name = "root",
+        .inherited = .{
+            .resolved_target = comp.root_mod.resolved_target,
+            .strip = strip,
+            .stack_check = false,
+            .stack_protector = 0,
+            .sanitize_c = false,
+            .sanitize_thread = false,
+            .red_zone = comp.root_mod.red_zone,
+            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            .valgrind = false,
+            .optimize_mode = optimize_mode,
+            .structured_cfg = comp.root_mod.structured_cfg,
+        },
+        .global = config,
+        .cc_argv = &.{},
+        .parent = null,
+        .builtin_mod = null,
+    });
+
     const sub_compilation = try Compilation.create(comp.gpa, .{
         .local_cache_directory = zig_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
-        .cache_mode = .whole,
-        .target = comp.getTarget(),
-        .root_name = lib.name,
-        .main_mod = null,
-        .output_mode = .Lib,
-        .link_mode = .Dynamic,
         .thread_pool = comp.thread_pool,
-        .libc_installation = comp.bin_file.options.libc_installation,
-        .emit_bin = emit_bin,
-        .optimize_mode = comp.compilerRtOptMode(),
-        .want_sanitize_c = false,
-        .want_stack_check = false,
-        .want_stack_protector = 0,
-        .want_red_zone = comp.bin_file.options.red_zone,
-        .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
-        .want_valgrind = false,
-        .want_tsan = false,
-        .emit_h = null,
-        .strip = comp.compilerRtStrip(),
-        .is_native_os = false,
-        .is_native_abi = false,
         .self_exe_path = comp.self_exe_path,
+        .cache_mode = .whole,
+        .config = config,
+        .root_mod = root_mod,
+        .root_name = lib.name,
+        .libc_installation = comp.libc_installation,
+        .emit_bin = emit_bin,
+        .emit_h = null,
         .verbose_cc = comp.verbose_cc,
-        .verbose_link = comp.bin_file.options.verbose_link,
+        .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,

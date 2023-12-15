@@ -251,6 +251,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         },
         .fully_qualified_name = "root",
         .inherited = .{
+            .resolved_target = comp.root_mod.resolved_target,
             .strip = strip,
             .stack_check = false,
             .stack_protector = 0,
@@ -439,6 +440,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         },
         .fully_qualified_name = "root",
         .inherited = .{
+            .resolved_target = comp.root_mod.resolved_target,
             .strip = strip,
             .stack_check = false,
             .stack_protector = 0,

@@ -6158,6 +6158,7 @@ fn buildOutputFromZig(
         },
         .fully_qualified_name = "root",
         .inherited = .{
+            .resolved_target = comp.root_mod.resolved_target,
             .strip = comp.compilerRtStrip(),
             .stack_check = false,
             .stack_protector = 0,
@@ -6269,6 +6270,7 @@ pub fn build_crt_file(
         },
         .fully_qualified_name = "root",
         .inherited = .{
+            .resolved_target = comp.root_mod.resolved_target,
             .strip = comp.compilerRtStrip(),
             .stack_check = false,
             .stack_protector = 0,

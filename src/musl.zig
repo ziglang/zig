@@ -222,6 +222,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 },
                 .fully_qualified_name = "root",
                 .inherited = .{
+                    .resolved_target = comp.root_mod.resolved_target,
                     .strip = strip,
                     .stack_check = false,
                     .stack_protector = 0,
