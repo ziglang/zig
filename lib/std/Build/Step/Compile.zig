@@ -141,6 +141,9 @@ linker_dynamicbase: bool = true,
 
 linker_allow_shlib_undefined: ?bool = null,
 
+/// Allow unused version in version script (disabled by default)
+linker_allow_undefined_version: ?bool = null,
+
 /// Permit read-only relocations in read-only segments. Disallowed by default.
 link_z_notext: bool = false,
 
@@ -1737,6 +1740,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
     if (self.linker_allow_shlib_undefined) |x| {
         try zig_args.append(if (x) "-fallow-shlib-undefined" else "-fno-allow-shlib-undefined");
+    }
+    if (self.linker_allow_undefined_version) |x| {
+        try zig_args.append(if (x) "--undefined-version" else "--no-undefined-version");
     }
     if (self.link_z_notext) {
         try zig_args.append("-z");
