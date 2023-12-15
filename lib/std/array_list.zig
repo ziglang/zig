@@ -244,27 +244,19 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Invalidates element pointers if this ArrayList is resized.
         /// Asserts that the range is in bounds.
         pub fn replaceRange(self: *Self, start: usize, len: usize, new_items: []const T) Allocator.Error!void {
-            const after_range = start + len;
-            const range = self.items[start..after_range];
+            var unmanaged = self.moveToUnmanaged();
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.replaceRange(self.allocator, start, len, new_items);
+        }
 
-            if (range.len == new_items.len)
-                @memcpy(range[0..new_items.len], new_items)
-            else if (range.len < new_items.len) {
-                const first = new_items[0..range.len];
-                const rest = new_items[range.len..];
-
-                @memcpy(range[0..first.len], first);
-                try self.insertSlice(after_range, rest);
-            } else {
-                @memcpy(range[0..new_items.len], new_items);
-                const after_subrange = start + new_items.len;
-
-                for (self.items[after_range..], 0..) |item, i| {
-                    self.items[after_subrange..][i] = item;
-                }
-
-                self.items.len -= len - new_items.len;
-            }
+        /// Replace range of elements `list[start..][0..len]` with `new_items`.
+        /// If `len < new_items.len` then it asserts that `.capacity` is
+        /// large enough for the increase in items.
+        /// Invalidates pointers if this ArrayList is resized.
+        pub fn replaceRangeAssumeCapacity(self: *Self, start: usize, len: usize, new_items: []const T) void {
+            var unmanaged = self.moveToUnmanaged();
+            unmanaged.replaceRangeAssumeCapacity(start, len, new_items);
+            self.* = unmanaged.toManaged(self.allocator);
         }
 
         /// Extends the list by 1 element. Allocates more memory as necessary.
@@ -290,13 +282,8 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Asserts that the index is in bounds.
         /// Asserts that the list is not empty.
         pub fn orderedRemove(self: *Self, i: usize) T {
-            const newlen = self.items.len - 1;
-            if (newlen == i) return self.pop();
-
             const old_item = self.items[i];
-            for (self.items[i..newlen], 0..) |*b, j| b.* = self.items[i + 1 + j];
-            self.items[newlen] = undefined;
-            self.items.len = newlen;
+            self.replaceRangeAssumeCapacity(i, 1, &.{});
             return old_item;
         }
 
@@ -820,9 +807,45 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             len: usize,
             new_items: []const T,
         ) Allocator.Error!void {
-            var managed = self.toManaged(allocator);
-            defer self.* = managed.moveToUnmanaged();
-            try managed.replaceRange(start, len, new_items);
+            const after_range = start + len;
+            const range = self.items[start..after_range];
+            if (range.len < new_items.len) {
+                const first = new_items[0..range.len];
+                const rest = new_items[range.len..];
+                @memcpy(range[0..first.len], first);
+                try self.insertSlice(allocator, after_range, rest);
+            } else {
+                self.replaceRangeAssumeCapacity(start, len, new_items);
+            }
+        }
+
+        /// Replace range of elements `list[start..][0..len]` with `new_items`.
+        /// Grows list if `len < new_items.len`.
+        /// Shrinks list if `len > new_items.len`.
+        /// Invalidates pointers if this ArrayList is resized.
+        pub fn replaceRangeAssumeCapacity(self: *Self, start: usize, len: usize, new_items: []const T) void {
+            const after_range = start + len;
+            const range = self.items[start..after_range];
+
+            if (range.len == new_items.len)
+                @memcpy(range[0..new_items.len], new_items)
+            else if (range.len < new_items.len) {
+                const first = new_items[0..range.len];
+                const rest = new_items[range.len..];
+                @memcpy(range[0..first.len], first);
+                const dst = self.addManyAtAssumeCapacity(after_range, rest.len);
+                @memcpy(dst, rest);
+            } else {
+                const extra = range.len - new_items.len;
+                @memcpy(range[0..new_items.len], new_items);
+                std.mem.copyForwards(
+                    T,
+                    self.items[after_range - extra ..],
+                    self.items[after_range..],
+                );
+                @memset(self.items[self.items.len - extra ..], undefined);
+                self.items.len -= extra;
+            }
         }
 
         /// Extend the list by 1 element. Allocates more memory as necessary.
@@ -846,13 +869,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Asserts that the list is not empty.
         /// Asserts that the index is in bounds.
         pub fn orderedRemove(self: *Self, i: usize) T {
-            const newlen = self.items.len - 1;
-            if (newlen == i) return self.pop();
-
             const old_item = self.items[i];
-            for (self.items[i..newlen], 0..) |*b, j| b.* = self.items[i + 1 + j];
-            self.items[newlen] = undefined;
-            self.items.len = newlen;
+            self.replaceRangeAssumeCapacity(i, 1, &.{});
             return old_item;
         }
 
@@ -1470,6 +1488,22 @@ test "std.ArrayList/ArrayListUnmanaged.orderedRemove" {
         try testing.expectEqual(@as(i32, 2), list.items[0]);
         try testing.expectEqual(@as(usize, 4), list.items.len);
     }
+    {
+        // remove last item
+        var list = ArrayList(i32).init(a);
+        defer list.deinit();
+        try list.append(1);
+        try testing.expectEqual(@as(i32, 1), list.orderedRemove(0));
+        try testing.expectEqual(@as(usize, 0), list.items.len);
+    }
+    {
+        // remove last item
+        var list = ArrayListUnmanaged(i32){};
+        defer list.deinit(a);
+        try list.append(a, 1);
+        try testing.expectEqual(@as(i32, 1), list.orderedRemove(0));
+        try testing.expectEqual(@as(usize, 0), list.items.len);
+    }
 }
 
 test "std.ArrayList/ArrayListUnmanaged.swapRemove" {
@@ -1659,6 +1693,55 @@ test "std.ArrayList/ArrayListUnmanaged.replaceRange" {
         // after_range > new_items.len in function body
         try testing.expect(1 + 4 > new.len);
         try list_gt.replaceRange(a, 1, 4, &new);
+
+        try testing.expectEqualSlices(i32, list_zero.items, &result_zero);
+        try testing.expectEqualSlices(i32, list_eq.items, &result_eq);
+        try testing.expectEqualSlices(i32, list_lt.items, &result_le);
+        try testing.expectEqualSlices(i32, list_gt.items, &result_gt);
+    }
+
+    {
+        var list_zero = ArrayList(i32).init(a);
+        var list_eq = ArrayList(i32).init(a);
+        var list_lt = ArrayList(i32).init(a);
+        var list_gt = ArrayList(i32).init(a);
+
+        try list_zero.appendSlice(&init);
+        try list_eq.appendSlice(&init);
+        try list_lt.appendSlice(&init);
+        try list_gt.appendSlice(&init);
+
+        list_zero.replaceRangeAssumeCapacity(1, 0, &new);
+        list_eq.replaceRangeAssumeCapacity(1, 3, &new);
+        list_lt.replaceRangeAssumeCapacity(1, 2, &new);
+
+        // after_range > new_items.len in function body
+        try testing.expect(1 + 4 > new.len);
+        list_gt.replaceRangeAssumeCapacity(1, 4, &new);
+
+        try testing.expectEqualSlices(i32, list_zero.items, &result_zero);
+        try testing.expectEqualSlices(i32, list_eq.items, &result_eq);
+        try testing.expectEqualSlices(i32, list_lt.items, &result_le);
+        try testing.expectEqualSlices(i32, list_gt.items, &result_gt);
+    }
+    {
+        var list_zero = ArrayListUnmanaged(i32){};
+        var list_eq = ArrayListUnmanaged(i32){};
+        var list_lt = ArrayListUnmanaged(i32){};
+        var list_gt = ArrayListUnmanaged(i32){};
+
+        try list_zero.appendSlice(a, &init);
+        try list_eq.appendSlice(a, &init);
+        try list_lt.appendSlice(a, &init);
+        try list_gt.appendSlice(a, &init);
+
+        list_zero.replaceRangeAssumeCapacity(1, 0, &new);
+        list_eq.replaceRangeAssumeCapacity(1, 3, &new);
+        list_lt.replaceRangeAssumeCapacity(1, 2, &new);
+
+        // after_range > new_items.len in function body
+        try testing.expect(1 + 4 > new.len);
+        list_gt.replaceRangeAssumeCapacity(1, 4, &new);
 
         try testing.expectEqualSlices(i32, list_zero.items, &result_zero);
         try testing.expectEqualSlices(i32, list_eq.items, &result_eq);
