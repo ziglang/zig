@@ -6241,7 +6241,7 @@ pub fn build_crt_file(
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const basename = try std.zig.binNameAlloc(arena, .{
+    const basename = try std.zig.binNameAlloc(gpa, .{
         .root_name = root_name,
         .target = comp.root_mod.resolved_target.result,
         .output_mode = output_mode,
