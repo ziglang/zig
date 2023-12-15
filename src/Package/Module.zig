@@ -114,9 +114,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     const strip = b: {
         if (options.inherited.strip) |x| break :b x;
         if (options.parent) |p| break :b p.strip;
-        if (optimize_mode == .ReleaseSmall) break :b true;
-        if (!target_util.hasDebugInfo(target)) break :b true;
-        break :b false;
+        break :b options.global.root_strip;
     };
 
     const valgrind = b: {
@@ -156,11 +154,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     const error_tracing = b: {
         if (options.inherited.error_tracing) |x| break :b x;
         if (options.parent) |p| break :b p.error_tracing;
-        if (strip) break :b false;
-        break :b switch (optimize_mode) {
-            .Debug => true,
-            .ReleaseSafe, .ReleaseFast, .ReleaseSmall => false,
-        };
+        break :b options.global.root_error_tracing;
     };
 
     const pic = b: {

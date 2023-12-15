@@ -1398,7 +1398,7 @@ pub const Object = struct {
         };
 
         const err_return_tracing = Type.fromInterned(fn_info.return_type).isError(mod) and
-            mod.comp.bin_file.options.error_return_tracing;
+            mod.comp.config.any_error_tracing;
 
         const err_ret_trace: Builder.Value = if (err_return_tracing) param: {
             const param = wip.arg(llvm_arg_i);
@@ -2820,7 +2820,7 @@ pub const Object = struct {
                 }
 
                 if (Type.fromInterned(fn_info.return_type).isError(mod) and
-                    o.module.comp.bin_file.options.error_return_tracing)
+                    o.module.comp.config.any_error_tracing)
                 {
                     const ptr_ty = try mod.singleMutPtrType(try o.getStackTraceType());
                     try param_di_types.append(try o.lowerDebugType(ptr_ty, .full));
@@ -2988,7 +2988,7 @@ pub const Object = struct {
         }
 
         const err_return_tracing = Type.fromInterned(fn_info.return_type).isError(mod) and
-            mod.comp.bin_file.options.error_return_tracing;
+            mod.comp.config.any_error_tracing;
 
         if (err_return_tracing) {
             try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
@@ -3677,7 +3677,7 @@ pub const Object = struct {
         }
 
         if (Type.fromInterned(fn_info.return_type).isError(mod) and
-            mod.comp.bin_file.options.error_return_tracing)
+            mod.comp.config.any_error_tracing)
         {
             const ptr_ty = try mod.singleMutPtrType(try o.getStackTraceType());
             try llvm_params.append(o.gpa, try o.lowerType(ptr_ty));
@@ -5142,7 +5142,7 @@ pub const FuncGen = struct {
         };
 
         const err_return_tracing = return_type.isError(mod) and
-            o.module.comp.bin_file.options.error_return_tracing;
+            o.module.comp.config.any_error_tracing;
         if (err_return_tracing) {
             assert(self.err_ret_trace != .none);
             try llvm_args.append(self.err_ret_trace);

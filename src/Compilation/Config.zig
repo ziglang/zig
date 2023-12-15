@@ -9,6 +9,10 @@ link_libunwind: bool,
 any_unwind_tables: bool,
 any_c_source_files: bool,
 any_non_single_threaded: bool,
+/// This is true if any Module has error_tracing set to true. Function types
+/// and function calling convention depend on this global value, however, other
+/// kinds of error tracing are omitted depending on the per-Module setting.
+any_error_tracing: bool,
 pie: bool,
 /// If this is true then linker code is responsible for making an LLVM IR
 /// Module, outputting it to an object file, and then linking that together
@@ -34,6 +38,8 @@ is_test: bool,
 test_evented_io: bool,
 entry: ?[]const u8,
 debug_format: DebugFormat,
+root_strip: bool,
+root_error_tracing: bool,
 
 pub const CFrontend = enum { clang, aro };
 
@@ -51,6 +57,7 @@ pub const Options = struct {
     emit_bin: bool,
     root_optimize_mode: ?std.builtin.OptimizeMode = null,
     root_strip: ?bool = null,
+    root_error_tracing: ?bool = null,
     link_mode: ?std.builtin.LinkMode = null,
     ensure_libc_on_non_freestanding: bool = false,
     ensure_libcpp_on_non_freestanding: bool = false,
@@ -60,6 +67,7 @@ pub const Options = struct {
     any_dyn_libs: bool = false,
     any_c_source_files: bool = false,
     any_non_stripped: bool = false,
+    any_error_tracing: bool = false,
     emit_llvm_ir: bool = false,
     emit_llvm_bc: bool = false,
     link_libc: ?bool = null,
@@ -395,6 +403,17 @@ pub fn resolve(options: Options) !Config {
         };
     };
 
+    const root_error_tracing = b: {
+        if (options.root_error_tracing) |x| break :b x;
+        if (root_strip) break :b false;
+        break :b switch (root_optimize_mode) {
+            .Debug => true,
+            .ReleaseSafe, .ReleaseFast, .ReleaseSmall => false,
+        };
+    };
+
+    const any_error_tracing = root_error_tracing or options.any_error_tracing;
+
     return .{
         .output_mode = options.output_mode,
         .have_zcu = options.have_zcu,
@@ -407,6 +426,8 @@ pub fn resolve(options: Options) !Config {
         .any_unwind_tables = any_unwind_tables,
         .any_c_source_files = options.any_c_source_files,
         .any_non_single_threaded = options.any_non_single_threaded,
+        .any_error_tracing = any_error_tracing,
+        .root_error_tracing = root_error_tracing,
         .pie = pie,
         .lto = lto,
         .import_memory = import_memory,
@@ -419,6 +440,7 @@ pub fn resolve(options: Options) !Config {
         .entry = entry,
         .wasi_exec_model = wasi_exec_model,
         .debug_format = debug_format,
+        .root_strip = root_strip,
     };
 }
 

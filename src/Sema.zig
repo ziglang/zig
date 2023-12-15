@@ -1329,13 +1329,13 @@ fn analyzeBodyInner(
             },
             .dbg_block_begin => {
                 dbg_block_begins += 1;
-                try sema.zirDbgBlockBegin(block);
+                try zirDbgBlockBegin(block);
                 i += 1;
                 continue;
             },
             .dbg_block_end => {
                 dbg_block_begins -= 1;
-                try sema.zirDbgBlockEnd(block);
+                try zirDbgBlockEnd(block);
                 i += 1;
                 continue;
             },
@@ -1830,17 +1830,17 @@ fn analyzeBodyInner(
     };
 
     // balance out dbg_block_begins in case of early noreturn
-    const noreturn_inst = block.instructions.popOrNull();
-    while (dbg_block_begins > 0) {
-        dbg_block_begins -= 1;
-        if (block.is_comptime or mod.comp.bin_file.options.strip) continue;
-
-        _ = try block.addInst(.{
-            .tag = .dbg_block_end,
-            .data = undefined,
-        });
+    if (!block.is_comptime and !block.ownerModule().strip) {
+        const noreturn_inst = block.instructions.popOrNull();
+        while (dbg_block_begins > 0) {
+            dbg_block_begins -= 1;
+            _ = try block.addInst(.{
+                .tag = .dbg_block_end,
+                .data = undefined,
+            });
+        }
+        if (noreturn_inst) |some| try block.instructions.append(sema.gpa, some);
     }
-    if (noreturn_inst) |some| try block.instructions.append(sema.gpa, some);
 
     // We may have overwritten the capture scope due to a `repeat` instruction where
     // the body had a capture; restore it now.
@@ -6272,7 +6272,7 @@ fn zirDbgStmt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
     // ZIR code that possibly will need to generate runtime code. So error messages
     // and other source locations must not rely on sema.src being set from dbg_stmt
     // instructions.
-    if (block.is_comptime or sema.mod.comp.bin_file.options.strip) return;
+    if (block.is_comptime or block.ownerModule().strip) return;
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
 
@@ -6297,8 +6297,8 @@ fn zirDbgStmt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
     });
 }
 
-fn zirDbgBlockBegin(sema: *Sema, block: *Block) CompileError!void {
-    if (block.is_comptime or sema.mod.comp.bin_file.options.strip) return;
+fn zirDbgBlockBegin(block: *Block) CompileError!void {
+    if (block.is_comptime or block.ownerModule().strip) return;
 
     _ = try block.addInst(.{
         .tag = .dbg_block_begin,
@@ -6306,8 +6306,8 @@ fn zirDbgBlockBegin(sema: *Sema, block: *Block) CompileError!void {
     });
 }
 
-fn zirDbgBlockEnd(sema: *Sema, block: *Block) CompileError!void {
-    if (block.is_comptime or sema.mod.comp.bin_file.options.strip) return;
+fn zirDbgBlockEnd(block: *Block) CompileError!void {
+    if (block.is_comptime or block.ownerModule().strip) return;
 
     _ = try block.addInst(.{
         .tag = .dbg_block_end,
@@ -6321,7 +6321,7 @@ fn zirDbgVar(
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
 ) CompileError!void {
-    if (block.is_comptime or sema.mod.comp.bin_file.options.strip) return;
+    if (block.is_comptime or block.ownerModule().strip) return;
 
     const str_op = sema.code.instructions.items(.data)[@intFromEnum(inst)].str_op;
     const operand = try sema.resolveInst(str_op.operand);
@@ -6519,7 +6519,7 @@ pub fn analyzeSaveErrRetIndex(sema: *Sema, block: *Block) SemaError!Air.Inst.Ref
     const src = sema.src;
 
     if (!mod.backendSupportsFeature(.error_return_trace)) return .none;
-    if (!mod.comp.bin_file.options.error_return_tracing) return .none;
+    if (!block.ownerModule().error_tracing) return .none;
 
     if (block.is_comptime)
         return .none;
@@ -6703,7 +6703,7 @@ fn zirCall(
         input_is_error = false;
     }
 
-    if (mod.backendSupportsFeature(.error_return_trace) and mod.comp.bin_file.options.error_return_tracing and
+    if (mod.backendSupportsFeature(.error_return_trace) and block.ownerModule().error_tracing and
         !block.is_comptime and !block.is_typeof and (input_is_error or pop_error_return_trace))
     {
         const return_ty = sema.typeOf(call_inst);
@@ -7456,7 +7456,7 @@ fn analyzeCall(
             new_fn_info.return_type = sema.fn_ret_ty.toIntern();
             const new_func_resolved_ty = try mod.funcType(new_fn_info);
             if (!is_comptime_call and !block.is_typeof) {
-                try sema.emitDbgInline(block, prev_fn_index, module_fn_index, new_func_resolved_ty, .dbg_inline_begin);
+                try emitDbgInline(block, prev_fn_index, module_fn_index, new_func_resolved_ty, .dbg_inline_begin);
 
                 const zir_tags = sema.code.instructions.items(.tag);
                 for (fn_info.param_body) |param| switch (zir_tags[@intFromEnum(param)]) {
@@ -7494,7 +7494,7 @@ fn analyzeCall(
             if (!is_comptime_call and !block.is_typeof and
                 sema.typeOf(result).zigTypeTag(mod) != .NoReturn)
             {
-                try sema.emitDbgInline(
+                try emitDbgInline(
                     block,
                     module_fn_index,
                     prev_fn_index,
@@ -8067,15 +8067,13 @@ fn resolveTupleLazyValues(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type)
 }
 
 fn emitDbgInline(
-    sema: *Sema,
     block: *Block,
     old_func: InternPool.Index,
     new_func: InternPool.Index,
     new_func_ty: Type,
     tag: Air.Inst.Tag,
 ) CompileError!void {
-    const mod = sema.mod;
-    if (mod.comp.bin_file.options.strip) return;
+    if (block.ownerModule().strip) return;
 
     // Recursive inline call; no dbg_inline needed.
     if (old_func == new_func) return;
@@ -9109,7 +9107,7 @@ fn handleExternLibName(
             );
             break :blk;
         }
-        if (!target.isWasm() and !comp.bin_file.options.pic) {
+        if (!target.isWasm() and !block.ownerModule().pic) {
             return sema.fail(
                 block,
                 src_loc,
@@ -18738,16 +18736,16 @@ fn wantErrorReturnTracing(sema: *Sema, fn_ret_ty: Type) bool {
     const mod = sema.mod;
     if (!mod.backendSupportsFeature(.error_return_trace)) return false;
 
-    return fn_ret_ty.isError(mod) and
-        mod.comp.bin_file.options.error_return_tracing;
+    return fn_ret_ty.isError(mod) and mod.comp.config.any_error_tracing;
 }
 
 fn zirSaveErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].save_err_ret_index;
 
+    // TODO: replace all of these checks with logic in module creation
     if (!mod.backendSupportsFeature(.error_return_trace)) return;
-    if (!mod.comp.bin_file.options.error_return_tracing) return;
+    if (!block.ownerModule().error_tracing) return;
 
     // This is only relevant at runtime.
     if (block.is_comptime or block.is_typeof) return;
@@ -18774,7 +18772,7 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index)
 
     if (!mod.backendSupportsFeature(.error_return_trace)) return;
     if (!ip.funcAnalysis(sema.owner_func_index).calls_or_awaits_errorable_fn) return;
-    if (!mod.comp.bin_file.options.error_return_tracing) return;
+    if (!start_block.ownerModule().error_tracing) return;
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -20045,7 +20043,7 @@ fn getErrorReturnTrace(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
 
     if (sema.owner_func_index != .none and
         ip.funcAnalysis(sema.owner_func_index).calls_or_awaits_errorable_fn and
-        mod.comp.bin_file.options.error_return_tracing and
+        mod.ownerModule().error_tracing and
         mod.backendSupportsFeature(.error_return_trace))
     {
         return block.addTy(.err_return_trace, opt_ptr_stack_trace_ty);
@@ -34504,7 +34502,9 @@ pub fn resolveFnTypes(sema: *Sema, fn_ty: Type) CompileError!void {
 
     try sema.resolveTypeFully(Type.fromInterned(fn_ty_info.return_type));
 
-    if (mod.comp.bin_file.options.error_return_tracing and Type.fromInterned(fn_ty_info.return_type).isError(mod)) {
+    if (mod.comp.config.any_error_tracing and
+        Type.fromInterned(fn_ty_info.return_type).isError(mod))
+    {
         // Ensure the type exists so that backends can assume that.
         _ = try sema.getBuiltinType("StackTrace");
     }

@@ -1055,6 +1055,8 @@ fn buildOutputType(
                             create_module.opts.any_unwind_tables = true;
                         if (mod_opts.strip == false)
                             create_module.opts.any_non_stripped = true;
+                        if (mod_opts.error_tracing == true)
+                            create_module.opts.any_error_tracing = true;
 
                         const root_src = try introspect.resolvePath(arena, root_src_orig);
                         try create_module.modules.put(arena, mod_name, .{
@@ -2535,6 +2537,8 @@ fn buildOutputType(
             create_module.opts.any_unwind_tables = true;
         if (mod_opts.strip == false)
             create_module.opts.any_non_stripped = true;
+        if (mod_opts.error_tracing == true)
+            create_module.opts.any_error_tracing = true;
 
         const src_path = try introspect.resolvePath(arena, unresolved_src_path);
         try create_module.modules.put(arena, "main", .{
@@ -3741,6 +3745,7 @@ fn createModule(
         create_module.opts.resolved_target = resolved_target;
         create_module.opts.root_optimize_mode = cli_mod.inherited.optimize_mode;
         create_module.opts.root_strip = cli_mod.inherited.strip;
+        create_module.opts.root_error_tracing = cli_mod.inherited.error_tracing;
         const target = resolved_target.result;
 
         // First, remove libc, libc++, and compiler_rt libraries from the system libraries list.
