@@ -438,39 +438,50 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     return error.EmitFail;
 }
 
-fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
-    const delta_line = @as(i32, @intCast(line)) - @as(i32, @intCast(self.prev_di_line));
-    const delta_pc: usize = self.code.items.len - self.prev_di_pc;
-    switch (self.debug_output) {
+fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) InnerError!void {
+    const delta_line = @as(i33, line) - @as(i33, emit.prev_di_line);
+    const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
+    log.debug("  (advance pc={d} and line={d})", .{ delta_pc, delta_line });
+    switch (emit.debug_output) {
         .dwarf => |dw| {
+            if (column != emit.prev_di_column) try dw.setColumn(column);
             try dw.advancePCAndLine(delta_line, delta_pc);
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
+            emit.prev_di_line = line;
+            emit.prev_di_column = column;
+            emit.prev_di_pc = emit.code.items.len;
         },
         .plan9 => |dbg_out| {
             if (delta_pc <= 0) return; // only do this when the pc changes
 
             // increasing the line number
-            try link.File.Plan9.changeLine(&dbg_out.dbg_line, delta_line);
+            try link.File.Plan9.changeLine(&dbg_out.dbg_line, @intCast(delta_line));
             // increasing the pc
             const d_pc_p9 = @as(i64, @intCast(delta_pc)) - dbg_out.pc_quanta;
             if (d_pc_p9 > 0) {
                 // minus one because if its the last one, we want to leave space to change the line which is one pc quanta
-                try dbg_out.dbg_line.append(@as(u8, @intCast(@divExact(d_pc_p9, dbg_out.pc_quanta) + 128)) - dbg_out.pc_quanta);
+                var diff = @divExact(d_pc_p9, dbg_out.pc_quanta) - dbg_out.pc_quanta;
+                while (diff > 0) {
+                    if (diff < 64) {
+                        try dbg_out.dbg_line.append(@intCast(diff + 128));
+                        diff = 0;
+                    } else {
+                        try dbg_out.dbg_line.append(@intCast(64 + 128));
+                        diff -= 64;
+                    }
+                }
                 if (dbg_out.pcop_change_index) |pci|
                     dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index = @as(u32, @intCast(dbg_out.dbg_line.items.len - 1));
+                dbg_out.pcop_change_index = @intCast(dbg_out.dbg_line.items.len - 1);
             } else if (d_pc_p9 == 0) {
                 // we don't need to do anything, because adding the pc quanta does it for us
             } else unreachable;
             if (dbg_out.start_line == null)
-                dbg_out.start_line = self.prev_di_line;
+                dbg_out.start_line = emit.prev_di_line;
             dbg_out.end_line = line;
             // only do this if the pc changed
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
+            emit.prev_di_line = line;
+            emit.prev_di_column = column;
+            emit.prev_di_pc = emit.code.items.len;
         },
         .none => {},
     }
@@ -638,22 +649,25 @@ fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
-fn mirDebugPrologueEnd(self: *Emit) !void {
-    switch (self.debug_output) {
+fn mirDebugPrologueEnd(emit: *Emit) !void {
+    switch (emit.debug_output) {
         .dwarf => |dw| {
             try dw.setPrologueEnd();
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
+            log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{
+                emit.prev_di_line, emit.prev_di_column,
+            });
+            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
         .none => {},
     }
 }
 
-fn mirDebugEpilogueBegin(self: *Emit) !void {
-    switch (self.debug_output) {
+fn mirDebugEpilogueBegin(emit: *Emit) !void {
+    switch (emit.debug_output) {
         .dwarf => |dw| {
             try dw.setEpilogueBegin();
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
+            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
         .none => {},

@@ -309,7 +309,7 @@ fn fixupRelocs(emit: *Emit) Error!void {
 fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
     const delta_line = @as(i33, line) - @as(i33, emit.prev_di_line);
     const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
-    log.debug("  (advance pc={d} and line={d})", .{ delta_line, delta_pc });
+    log.debug("  (advance pc={d} and line={d})", .{ delta_pc, delta_line });
     switch (emit.debug_output) {
         .dwarf => |dw| {
             if (column != emit.prev_di_column) try dw.setColumn(column);
