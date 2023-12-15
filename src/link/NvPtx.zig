@@ -98,9 +98,9 @@ pub fn updateExports(
     exported: Module.Exported,
     exports: []const *Module.Export,
 ) !void {
-    if (build_options.skip_non_native and builtin.object_format != .nvptx) {
+    if (build_options.skip_non_native and builtin.object_format != .nvptx)
         @panic("Attempted to compile for object format that was disabled by build configuration");
-    }
+
     return self.llvm_object.updateExports(module, exported, exports);
 }
 
@@ -113,27 +113,13 @@ pub fn flush(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.Node) li
 }
 
 pub fn flushModule(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    if (build_options.skip_non_native) {
+    if (build_options.skip_non_native)
         @panic("Attempted to compile for architecture that was disabled by build configuration");
-    }
-    const outfile = comp.bin_file.options.emit orelse return;
 
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    // We modify 'comp' before passing it to LLVM, but restore value afterwards.
-    // We tell LLVM to not try to build a .o, only an "assembly" file.
-    // This is required by the LLVM PTX backend.
-    comp.bin_file.options.emit = null;
-    comp.emit_asm = .{
-        // 'null' means using the default cache dir: zig-cache/o/...
-        .directory = null,
-        .basename = self.base.emit.sub_path,
-    };
-    defer {
-        comp.bin_file.options.emit = outfile;
-        comp.emit_asm = null;
-    }
-
-    try self.llvm_object.flushModule(comp, prog_node);
+    // The code that was here before mutated the Compilation's file emission mechanism.
+    // That's not supposed to happen in flushModule, so I deleted the code.
+    _ = self;
+    _ = comp;
+    _ = prog_node;
+    @panic("TODO: rewrite the NvPtx.flushModule function");
 }
