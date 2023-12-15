@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
+const Module = @import("Package/Module.zig");
 
 pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) {
@@ -195,44 +196,71 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         "-DTSAN_CONTAINS_UBSAN=0",
     };
 
+    const optimize_mode = comp.compilerRtOptMode();
+    const strip = comp.compilerRtStrip();
+
+    const config = try Compilation.Config.resolve(.{
+        .output_mode = output_mode,
+        .link_mode = link_mode,
+        .resolved_target = comp.root_mod.resolved_target,
+        .is_test = false,
+        .have_zcu = false,
+        .emit_bin = true,
+        .root_optimize_mode = optimize_mode,
+        .root_strip = strip,
+        .link_libc = true,
+    });
+
+    const root_mod = try Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
+        .paths = .{
+            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root_src_path = "",
+        },
+        .fully_qualified_name = "root",
+        .inherited = .{
+            .strip = strip,
+            .stack_check = false,
+            .stack_protector = 0,
+            .sanitize_c = false,
+            .sanitize_thread = false,
+            .red_zone = comp.root_mod.red_zone,
+            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            .valgrind = false,
+            .optimize_mode = optimize_mode,
+            .structured_cfg = comp.root_mod.structured_cfg,
+            .pic = true,
+            .cc_argv = &common_flags,
+        },
+        .global = config,
+        .cc_argv = &.{},
+        .parent = null,
+        .builtin_mod = null,
+    });
+
     const sub_compilation = try Compilation.create(comp.gpa, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
-        .cache_mode = .whole,
-        .target = target,
-        .root_name = root_name,
-        .main_mod = null,
-        .output_mode = output_mode,
         .thread_pool = comp.thread_pool,
-        .libc_installation = comp.bin_file.options.libc_installation,
-        .emit_bin = emit_bin,
-        .optimize_mode = comp.compilerRtOptMode(),
-        .link_mode = link_mode,
-        .want_sanitize_c = false,
-        .want_stack_check = false,
-        .want_stack_protector = 0,
-        .want_valgrind = false,
-        .want_tsan = false,
-        .want_pic = true,
-        .want_pie = null,
-        .emit_h = null,
-        .strip = comp.compilerRtStrip(),
-        .is_native_os = comp.bin_file.options.is_native_os,
-        .is_native_abi = comp.bin_file.options.is_native_abi,
         .self_exe_path = comp.self_exe_path,
+        .cache_mode = .whole,
+        .config = config,
+        .root_mod = root_mod,
+        .root_name = root_name,
+        .libc_installation = comp.libc_installation,
+        .emit_bin = emit_bin,
+        .emit_h = null,
         .c_source_files = c_source_files.items,
         .verbose_cc = comp.verbose_cc,
-        .verbose_link = comp.bin_file.options.verbose_link,
+        .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
-        .link_libc = true,
         .skip_linker_dependencies = true,
-        .clang_argv = &common_flags,
     });
     defer sub_compilation.destroy();
 
@@ -240,8 +268,8 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
 
     assert(comp.tsan_static_lib == null);
     comp.tsan_static_lib = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{
-            sub_compilation.bin_file.options.emit.?.sub_path,
+        .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(comp.gpa, &[_][]const u8{
+            sub_compilation.bin_file.?.emit.sub_path,
         }),
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
