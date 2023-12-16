@@ -1184,7 +1184,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         // We put the `Compilation` itself in the arena. Freeing the arena will free the module.
         // It's initialized later after we prepare the initialization options.
-        const comp = try arena.create(Compilation);
         const root_name = try arena.dupeZ(u8, options.root_name);
 
         const use_llvm = options.config.use_llvm;
@@ -1280,7 +1279,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const sysroot = options.sysroot orelse libc_dirs.sysroot;
 
         const include_compiler_rt = options.want_compiler_rt orelse
-            (!comp.skip_linker_dependencies and is_exe_or_dyn_lib);
+            (!options.skip_linker_dependencies and is_exe_or_dyn_lib);
 
         if (include_compiler_rt and output_mode == .Obj) {
             // For objects, this mechanism relies on essentially `_ = @import("compiler-rt");`
@@ -1357,7 +1356,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.config.link_libcpp);
         cache.hash.add(options.config.link_libunwind);
         cache.hash.add(output_mode);
-        cache_helpers.addDebugFormat(&cache.hash, comp.config.debug_format);
+        cache_helpers.addDebugFormat(&cache.hash, options.config.debug_format);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_bin);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_implib);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_docs);
@@ -1365,6 +1364,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.config.wasi_exec_model);
         // TODO audit this and make sure everything is in it
 
+        const comp = try arena.create(Compilation);
         const opt_zcu: ?*Module = if (have_zcu) blk: {
             // Pre-open the directory handles for cached ZIR code so that it does not need
             // to redundantly happen for each AstGen operation.
