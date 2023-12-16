@@ -268,12 +268,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     try comp.updateSubCompilation(sub_compilation, .libtsan, prog_node);
 
     assert(comp.tsan_static_lib == null);
-    comp.tsan_static_lib = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(comp.gpa, &[_][]const u8{
-            sub_compilation.bin_file.?.emit.sub_path,
-        }),
-        .lock = sub_compilation.bin_file.toOwnedLock(),
-    };
+    comp.tsan_static_lib = try sub_compilation.toCrtFile();
 }
 
 const tsan_sources = [_][]const u8{

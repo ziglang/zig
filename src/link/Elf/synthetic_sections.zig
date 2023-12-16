@@ -8,14 +8,16 @@ pub const DynamicSection = struct {
     }
 
     pub fn addNeeded(dt: *DynamicSection, shared: *SharedObject, elf_file: *Elf) !void {
-        const gpa = elf_file.base.allocator;
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         const off = try elf_file.insertDynString(shared.soname());
         try dt.needed.append(gpa, off);
     }
 
     pub fn setRpath(dt: *DynamicSection, rpath_list: []const []const u8, elf_file: *Elf) !void {
         if (rpath_list.len == 0) return;
-        const gpa = elf_file.base.allocator;
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         var rpath = std.ArrayList(u8).init(gpa);
         defer rpath.deinit();
         for (rpath_list, 0..) |path, i| {
@@ -248,7 +250,8 @@ pub const ZigGotSection = struct {
 
     pub fn addSymbol(zig_got: *ZigGotSection, sym_index: Symbol.Index, elf_file: *Elf) !Index {
         const comp = elf_file.base.comp;
-        const index = try zig_got.allocateEntry(elf_file.base.allocator);
+        const gpa = comp.gpa;
+        const index = try zig_got.allocateEntry(gpa);
         const entry = &zig_got.entries.items[index];
         entry.* = sym_index;
         const symbol = elf_file.symbol(sym_index);
@@ -349,7 +352,9 @@ pub const ZigGotSection = struct {
     }
 
     pub fn addRela(zig_got: ZigGotSection, elf_file: *Elf) !void {
-        try elf_file.rela_dyn.ensureUnusedCapacity(elf_file.base.allocator, zig_got.numRela());
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
+        try elf_file.rela_dyn.ensureUnusedCapacity(gpa, zig_got.numRela());
         for (zig_got.entries.items) |entry| {
             const symbol = elf_file.symbol(entry);
             const offset = symbol.zigGotAddress(elf_file);
@@ -481,7 +486,8 @@ pub const GotSection = struct {
 
     pub fn addGotSymbol(got: *GotSection, sym_index: Symbol.Index, elf_file: *Elf) !Index {
         const comp = elf_file.base.comp;
-        const index = try got.allocateEntry(elf_file.base.allocator);
+        const gpa = comp.gpa;
+        const index = try got.allocateEntry(gpa);
         const entry = &got.entries.items[index];
         entry.tag = .got;
         entry.symbol_index = sym_index;
@@ -501,8 +507,10 @@ pub const GotSection = struct {
     }
 
     pub fn addTlsLdSymbol(got: *GotSection, elf_file: *Elf) !void {
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         assert(got.flags.needs_tlsld);
-        const index = try got.allocateEntry(elf_file.base.allocator);
+        const index = try got.allocateEntry(gpa);
         const entry = &got.entries.items[index];
         entry.tag = .tlsld;
         entry.symbol_index = undefined; // unused
@@ -511,7 +519,9 @@ pub const GotSection = struct {
     }
 
     pub fn addTlsGdSymbol(got: *GotSection, sym_index: Symbol.Index, elf_file: *Elf) !void {
-        const index = try got.allocateEntry(elf_file.base.allocator);
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
+        const index = try got.allocateEntry(gpa);
         const entry = &got.entries.items[index];
         entry.tag = .tlsgd;
         entry.symbol_index = sym_index;
@@ -526,7 +536,9 @@ pub const GotSection = struct {
     }
 
     pub fn addGotTpSymbol(got: *GotSection, sym_index: Symbol.Index, elf_file: *Elf) !void {
-        const index = try got.allocateEntry(elf_file.base.allocator);
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
+        const index = try got.allocateEntry(gpa);
         const entry = &got.entries.items[index];
         entry.tag = .gottp;
         entry.symbol_index = sym_index;
@@ -541,7 +553,9 @@ pub const GotSection = struct {
     }
 
     pub fn addTlsDescSymbol(got: *GotSection, sym_index: Symbol.Index, elf_file: *Elf) !void {
-        const index = try got.allocateEntry(elf_file.base.allocator);
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
+        const index = try got.allocateEntry(gpa);
         const entry = &got.entries.items[index];
         entry.tag = .tlsdesc;
         entry.symbol_index = sym_index;
@@ -628,8 +642,9 @@ pub const GotSection = struct {
 
     pub fn addRela(got: GotSection, elf_file: *Elf) !void {
         const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         const is_dyn_lib = elf_file.isDynLib();
-        try elf_file.rela_dyn.ensureUnusedCapacity(elf_file.base.allocator, got.numRela(elf_file));
+        try elf_file.rela_dyn.ensureUnusedCapacity(gpa, got.numRela(elf_file));
 
         for (got.entries.items) |entry| {
             const symbol = switch (entry.tag) {
@@ -847,6 +862,8 @@ pub const PltSection = struct {
     }
 
     pub fn addSymbol(plt: *PltSection, sym_index: Symbol.Index, elf_file: *Elf) !void {
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         const index = @as(u32, @intCast(plt.symbols.items.len));
         const symbol = elf_file.symbol(sym_index);
         symbol.flags.has_plt = true;
@@ -855,7 +872,7 @@ pub const PltSection = struct {
             new_extra.plt = index;
             symbol.setExtra(new_extra, elf_file);
         } else try symbol.addExtra(.{ .plt = index }, elf_file);
-        try plt.symbols.append(elf_file.base.allocator, sym_index);
+        try plt.symbols.append(gpa, sym_index);
     }
 
     pub fn size(plt: PltSection) usize {
@@ -895,7 +912,9 @@ pub const PltSection = struct {
     }
 
     pub fn addRela(plt: PltSection, elf_file: *Elf) !void {
-        try elf_file.rela_plt.ensureUnusedCapacity(elf_file.base.allocator, plt.numRela());
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
+        try elf_file.rela_plt.ensureUnusedCapacity(gpa, plt.numRela());
         for (plt.symbols.items) |sym_index| {
             const sym = elf_file.symbol(sym_index);
             assert(sym.flags.import);
@@ -1010,6 +1029,8 @@ pub const PltGotSection = struct {
     }
 
     pub fn addSymbol(plt_got: *PltGotSection, sym_index: Symbol.Index, elf_file: *Elf) !void {
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         const index = @as(u32, @intCast(plt_got.symbols.items.len));
         const symbol = elf_file.symbol(sym_index);
         symbol.flags.has_plt = true;
@@ -1019,7 +1040,7 @@ pub const PltGotSection = struct {
             new_extra.plt_got = index;
             symbol.setExtra(new_extra, elf_file);
         } else try symbol.addExtra(.{ .plt_got = index }, elf_file);
-        try plt_got.symbols.append(elf_file.base.allocator, sym_index);
+        try plt_got.symbols.append(gpa, sym_index);
     }
 
     pub fn size(plt_got: PltGotSection) usize {
@@ -1077,6 +1098,8 @@ pub const CopyRelSection = struct {
     }
 
     pub fn addSymbol(copy_rel: *CopyRelSection, sym_index: Symbol.Index, elf_file: *Elf) !void {
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         const index = @as(u32, @intCast(copy_rel.symbols.items.len));
         const symbol = elf_file.symbol(sym_index);
         symbol.flags.import = true;
@@ -1089,7 +1112,7 @@ pub const CopyRelSection = struct {
             new_extra.copy_rel = index;
             symbol.setExtra(new_extra, elf_file);
         } else try symbol.addExtra(.{ .copy_rel = index }, elf_file);
-        try copy_rel.symbols.append(elf_file.base.allocator, sym_index);
+        try copy_rel.symbols.append(gpa, sym_index);
 
         const shared_object = symbol.file(elf_file).?.shared_object;
         if (shared_object.aliases == null) {
@@ -1129,7 +1152,9 @@ pub const CopyRelSection = struct {
     }
 
     pub fn addRela(copy_rel: CopyRelSection, elf_file: *Elf) !void {
-        try elf_file.rela_dyn.ensureUnusedCapacity(elf_file.base.allocator, copy_rel.numRela());
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
+        try elf_file.rela_dyn.ensureUnusedCapacity(gpa, copy_rel.numRela());
         for (copy_rel.symbols.items) |sym_index| {
             const sym = elf_file.symbol(sym_index);
             assert(sym.flags.import and sym.flags.has_copy_rel);
@@ -1162,7 +1187,8 @@ pub const DynsymSection = struct {
     }
 
     pub fn addSymbol(dynsym: *DynsymSection, sym_index: Symbol.Index, elf_file: *Elf) !void {
-        const gpa = elf_file.base.allocator;
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         const index = @as(u32, @intCast(dynsym.entries.items.len + 1));
         const sym = elf_file.symbol(sym_index);
         sym.flags.has_dynamic = true;
@@ -1244,7 +1270,8 @@ pub const HashSection = struct {
     pub fn generate(hs: *HashSection, elf_file: *Elf) !void {
         if (elf_file.dynsym.count() == 1) return;
 
-        const gpa = elf_file.base.allocator;
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         const nsyms = elf_file.dynsym.count();
 
         var buckets = try gpa.alloc(u32, nsyms);
@@ -1332,7 +1359,8 @@ pub const GnuHashSection = struct {
         try cwriter.writeInt(u32, hash.num_bloom, .little);
         try cwriter.writeInt(u32, bloom_shift, .little);
 
-        const gpa = elf_file.base.allocator;
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         const hashes = try gpa.alloc(u32, exports.len);
         defer gpa.free(hashes);
         const indices = try gpa.alloc(u32, exports.len);
@@ -1434,7 +1462,8 @@ pub const VerneedSection = struct {
             }
         };
 
-        const gpa = elf_file.base.allocator;
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         var verneed = std.ArrayList(VersionedSymbol).init(gpa);
         defer verneed.deinit();
         try verneed.ensureTotalCapacity(dynsyms.len);
@@ -1490,7 +1519,8 @@ pub const VerneedSection = struct {
     }
 
     fn addVerneed(vern: *VerneedSection, soname: []const u8, elf_file: *Elf) !*elf.Elf64_Verneed {
-        const gpa = elf_file.base.allocator;
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         const sym = try vern.verneed.addOne(gpa);
         sym.* = .{
             .vn_version = 1,
@@ -1508,7 +1538,8 @@ pub const VerneedSection = struct {
         version: [:0]const u8,
         elf_file: *Elf,
     ) !elf.Elf64_Vernaux {
-        const gpa = elf_file.base.allocator;
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         const sym = try vern.vernaux.addOne(gpa);
         sym.* = .{
             .vna_hash = HashSection.hasher(version),

@@ -25,7 +25,9 @@ const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
 const Lower = @import("Lower.zig");
 const Mir = @import("Mir.zig");
+const Package = @import("../../Package.zig");
 const Module = @import("../../Module.zig");
+const Zcu = Module;
 const InternPool = @import("../../InternPool.zig");
 const Alignment = InternPool.Alignment;
 const Target = std.Target;
@@ -56,6 +58,7 @@ bin_file: *link.File,
 debug_output: DebugInfoOutput,
 target: *const std.Target,
 owner: Owner,
+mod: *Package.Module,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 va_info: union {
@@ -10906,7 +10909,7 @@ fn genCall(self: *Self, info: union(enum) {
                     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                         const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                         const sym = elf_file.symbol(sym_index);
-                        if (self.bin_file.options.pic) {
+                        if (self.mod.pic) {
                             const callee_reg: Register = switch (resolved_cc) {
                                 .SysV => callee: {
                                     if (!fn_info.is_var_args) break :callee .rax;
@@ -13819,7 +13822,7 @@ fn genLazySymbolRef(
         const sym_index = elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
         const sym = elf_file.symbol(sym_index);
-        if (self.bin_file.options.pic) {
+        if (self.mod.pic) {
             switch (tag) {
                 .lea, .call => try self.genSetReg(reg, Type.usize, .{
                     .load_symbol = .{ .sym = sym.esym_index },
@@ -16062,7 +16065,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
             const const_mcv = try self.genTypedValue(.{ .ty = ty, .val = Value.fromInterned(ip_index) });
             switch (const_mcv) {
                 .lea_tlv => |tlv_sym| if (self.bin_file.cast(link.File.Elf)) |_| {
-                    if (self.bin_file.options.pic) {
+                    if (self.mod.pic) {
                         try self.spillRegisters(&.{ .rdi, .rax });
                     } else {
                         try self.spillRegisters(&.{.rax});

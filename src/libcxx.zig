@@ -299,12 +299,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     try comp.updateSubCompilation(sub_compilation, .libcxx, prog_node);
 
     assert(comp.libcxx_static_lib == null);
-    comp.libcxx_static_lib = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(comp.gpa, &.{
-            sub_compilation.bin_file.?.emit.sub_path,
-        }),
-        .lock = sub_compilation.bin_file.toOwnedLock(),
-    };
+    comp.libcxx_static_lib = try sub_compilation.toCrtFile();
 }
 
 pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
@@ -489,10 +484,5 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     try comp.updateSubCompilation(sub_compilation, .libcxxabi, prog_node);
 
     assert(comp.libcxxabi_static_lib == null);
-    comp.libcxxabi_static_lib = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(comp.gpa, &[_][]const u8{
-            sub_compilation.bin_file.?.emit.sub_path,
-        }),
-        .lock = sub_compilation.bin_file.toOwnedLock(),
-    };
+    comp.libcxxabi_static_lib = try sub_compilation.toCrtFile();
 }

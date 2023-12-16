@@ -893,6 +893,12 @@ const CacheUse = union(CacheMode) {
                 whole.lock = null;
             }
         }
+
+        fn moveLock(whole: *Whole) Cache.Lock {
+            const result = whole.lock.?;
+            whole.lock = null;
+            return result;
+        }
     };
 
     const Incremental = struct {
@@ -939,7 +945,9 @@ pub const InitOptions = struct {
     main_mod: ?*Package.Module = null,
     /// This is provided so that the API user has a chance to tweak the
     /// per-module settings of the standard library.
-    std_mod: *Package.Module,
+    /// When this is null, a default configuration of the std lib is created
+    /// based on the settings of root_mod.
+    std_mod: ?*Package.Module = null,
     root_name: []const u8,
     sysroot: ?[]const u8 = null,
     /// `null` means to not emit a binary file.
@@ -1381,13 +1389,30 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 break :eh eh;
             } else null;
 
+            const std_mod = options.std_mod orelse try Package.Module.create(arena, .{
+                .global_cache_directory = options.global_cache_directory,
+                .paths = .{
+                    .root = .{
+                        .root_dir = options.zig_lib_directory,
+                        .sub_path = "std",
+                    },
+                    .root_src_path = "std.zig",
+                },
+                .fully_qualified_name = "std",
+                .cc_argv = &.{},
+                .inherited = .{},
+                .global = options.config,
+                .parent = options.root_mod,
+                .builtin_mod = options.root_mod.deps.get("builtin").?,
+            });
+
             const zcu = try arena.create(Module);
             zcu.* = .{
                 .gpa = gpa,
                 .comp = comp,
                 .main_mod = options.main_mod orelse options.root_mod,
                 .root_mod = options.root_mod,
-                .std_mod = options.std_mod,
+                .std_mod = std_mod,
                 .global_zir_cache = global_zir_cache,
                 .local_zir_cache = local_zir_cache,
                 .emit_h = emit_h,
@@ -6215,7 +6240,7 @@ fn buildOutputFromZig(
         .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(gpa, &.{
             sub_compilation.bin_file.?.emit.sub_path,
         }),
-        .lock = sub_compilation.bin_file.toOwnedLock(),
+        .lock = sub_compilation.bin_file.?.toOwnedLock(),
     };
 }
 
@@ -6317,13 +6342,16 @@ pub fn build_crt_file(
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
     try comp.crt_files.ensureUnusedCapacity(gpa, 1);
+    comp.crt_files.putAssumeCapacityNoClobber(basename, try sub_compilation.toCrtFile());
+}
 
-    comp.crt_files.putAssumeCapacityNoClobber(basename, .{
-        .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(gpa, &.{
-            sub_compilation.bin_file.?.emit.sub_path,
+pub fn toCrtFile(comp: *Compilation) Allocator.Error!CRTFile {
+    return .{
+        .full_object_path = try comp.local_cache_directory.join(comp.gpa, &.{
+            comp.cache_use.whole.bin_sub_path.?,
         }),
-        .lock = sub_compilation.bin_file.toOwnedLock(),
-    });
+        .lock = comp.cache_use.whole.moveLock(),
+    };
 }
 
 pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {

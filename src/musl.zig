@@ -280,7 +280,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(comp.gpa, &.{
                     sub_compilation.bin_file.?.emit.sub_path,
                 }),
-                .lock = sub_compilation.bin_file.toOwnedLock(),
+                .lock = sub_compilation.bin_file.?.toOwnedLock(),
             });
         },
     }

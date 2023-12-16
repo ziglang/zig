@@ -151,12 +151,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
 
     assert(comp.libunwind_static_lib == null);
 
-    comp.libunwind_static_lib = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(comp.gpa, &[_][]const u8{
-            sub_compilation.bin_file.?.emit.sub_path,
-        }),
-        .lock = sub_compilation.bin_file.toOwnedLock(),
-    };
+    comp.libunwind_static_lib = try sub_compilation.toOwnedLock();
 }
 
 const unwind_src_list = [_][]const u8{

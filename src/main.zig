@@ -5242,22 +5242,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         });
 
         const builtin_mod = root_mod.getBuiltinDependency();
-        const std_mod = try Package.Module.create(arena, .{
-            .global_cache_directory = global_cache_directory,
-            .paths = .{
-                .root = .{
-                    .root_dir = zig_lib_directory,
-                    .sub_path = "std",
-                },
-                .root_src_path = "std.zig",
-            },
-            .fully_qualified_name = "std",
-            .cc_argv = &.{},
-            .inherited = .{},
-            .global = config,
-            .parent = root_mod,
-            .builtin_mod = builtin_mod,
-        });
 
         const build_mod = try Package.Module.create(arena, .{
             .global_cache_directory = global_cache_directory,
@@ -5425,7 +5409,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .config = config,
             .root_mod = root_mod,
             .main_mod = build_mod,
-            .std_mod = std_mod,
             .emit_bin = emit_bin,
             .emit_h = null,
             .self_exe_path = self_exe_path,

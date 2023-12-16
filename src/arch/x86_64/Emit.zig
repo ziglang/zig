@@ -103,10 +103,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                     });
                 },
                 .linker_reloc => |data| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
-                    const is_obj_or_static_lib = switch (emit.lower.bin_file.options.output_mode) {
+                    const is_obj_or_static_lib = switch (emit.lower.output_mode) {
                         .Exe => false,
                         .Obj => true,
-                        .Lib => emit.lower.bin_file.options.link_mode == .Static,
+                        .Lib => emit.lower.link_mode == .Static,
                     };
                     const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
                     const sym_index = elf_file.zigObjectPtr().?.symbol(data.sym_index);
@@ -114,7 +114,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     if (sym.flags.needs_zig_got and !is_obj_or_static_lib) {
                         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                     }
-                    if (emit.lower.bin_file.options.pic) {
+                    if (emit.lower.pic) {
                         const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
                             link.File.Elf.R_X86_64_ZIG_GOTPCREL
                         else if (sym.flags.needs_got)
