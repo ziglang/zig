@@ -39,7 +39,6 @@ pub const base_tag: link.File.Tag = .wasm;
 base: link.File,
 import_symbols: bool,
 export_symbol_names: []const []const u8,
-rdynamic: bool,
 global_base: ?u64,
 initial_memory: ?u64,
 max_memory: ?u64,
@@ -563,7 +562,6 @@ pub fn createEmpty(
         .export_table = options.export_table,
         .import_symbols = options.import_symbols,
         .export_symbol_names = options.export_symbol_names,
-        .rdynamic = options.rdynamic,
         .global_base = options.global_base,
         .initial_memory = options.initial_memory,
         .max_memory = options.max_memory,
@@ -2973,8 +2971,9 @@ fn mergeTypes(wasm: *Wasm) !void {
 }
 
 fn setupExports(wasm: *Wasm) !void {
-    const gpa = wasm.base.comp.gpa;
-    if (wasm.base.comp.config.output_mode == .Obj) return;
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    if (comp.config.output_mode == .Obj) return;
     log.debug("Building exports from symbols", .{});
 
     const force_exp_names = wasm.export_symbol_names;
@@ -2999,7 +2998,7 @@ fn setupExports(wasm: *Wasm) !void {
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const symbol = sym_loc.getSymbol(wasm);
-        if (!symbol.isExported(wasm.rdynamic)) continue;
+        if (!symbol.isExported(comp.config.rdynamic)) continue;
 
         const sym_name = sym_loc.getName(wasm);
         const export_name = if (wasm.export_names.get(sym_loc)) |name| name else blk: {
@@ -4789,7 +4788,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append(arg);
         }
 
-        if (wasm.rdynamic) {
+        if (comp.config.rdynamic) {
             try argv.append("--export-dynamic");
         }
 
@@ -5288,7 +5287,7 @@ fn markReferences(wasm: *Wasm) !void {
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const sym = sym_loc.getSymbol(wasm);
-        if (sym.isExported(wasm.rdynamic) or sym.isNoStrip() or !do_garbage_collect) {
+        if (sym.isExported(comp.config.rdynamic) or sym.isNoStrip() or !do_garbage_collect) {
             try wasm.mark(sym_loc);
             continue;
         }

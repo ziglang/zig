@@ -1,6 +1,5 @@
 base: link.File,
 image_base: u64,
-rdynamic: bool,
 eh_frame_hdr: bool,
 emit_relocs: bool,
 z_nodelete: bool,
@@ -370,7 +369,7 @@ pub fn createEmpty(
         else => 0x1000,
     };
     const is_dyn_lib = output_mode == .Lib and link_mode == .Dynamic;
-    const default_sym_version: elf.Elf64_Versym = if (is_dyn_lib or options.rdynamic)
+    const default_sym_version: elf.Elf64_Versym = if (is_dyn_lib or comp.config.rdynamic)
         elf.VER_NDX_GLOBAL
     else
         elf.VER_NDX_LOCAL;
@@ -402,7 +401,6 @@ pub fn createEmpty(
             };
         },
 
-        .rdynamic = options.rdynamic,
         .eh_frame_hdr = options.eh_frame_hdr,
         .emit_relocs = options.emit_relocs,
         .z_nodelete = options.z_nodelete,
@@ -1725,7 +1723,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try argv.append("--eh-frame-hdr");
         }
 
-        if (self.rdynamic) {
+        if (comp.config.rdynamic) {
             try argv.append("--export-dynamic");
         }
 
@@ -2434,7 +2432,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.addOptional(self.sort_section);
         man.hash.add(self.eh_frame_hdr);
         man.hash.add(self.emit_relocs);
-        man.hash.add(self.rdynamic);
+        man.hash.add(comp.config.rdynamic);
         man.hash.addListOfBytes(self.lib_dirs);
         man.hash.addListOfBytes(self.base.rpath_list);
         man.hash.add(self.each_lib_rpath);
@@ -2637,7 +2635,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("--emit-relocs");
         }
 
-        if (self.rdynamic) {
+        if (comp.config.rdynamic) {
             try argv.append("--export-dynamic");
         }
 

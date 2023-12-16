@@ -786,7 +786,6 @@ fn buildOutputType(
     arg_mode: ArgMode,
 ) !void {
     var provided_name: ?[]const u8 = null;
-    var dll_export_fns: ?bool = null;
     var root_src_file: ?[]const u8 = null;
     var version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 };
     var have_version = false;
@@ -824,7 +823,6 @@ fn buildOutputType(
     var soname: SOName = undefined;
     var want_native_include_dirs = false;
     var want_compiler_rt: ?bool = null;
-    var rdynamic: bool = false;
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
     var disable_c_depfile = false;
@@ -1411,7 +1409,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-error-tracing")) {
                         mod_opts.error_tracing = false;
                     } else if (mem.eql(u8, arg, "-rdynamic")) {
-                        rdynamic = true;
+                        create_module.opts.rdynamic = true;
                     } else if (mem.eql(u8, arg, "-fsoname")) {
                         soname = .yes_default_value;
                     } else if (mem.startsWith(u8, arg, "-fsoname=")) {
@@ -1472,9 +1470,9 @@ fn buildOutputType(
                         lib_preferred_mode = .Static;
                         lib_search_strategy = .no_fallback;
                     } else if (mem.eql(u8, arg, "-fdll-export-fns")) {
-                        dll_export_fns = true;
+                        create_module.opts.dll_export_fns = true;
                     } else if (mem.eql(u8, arg, "-fno-dll-export-fns")) {
-                        dll_export_fns = false;
+                        create_module.opts.dll_export_fns = false;
                     } else if (mem.eql(u8, arg, "--show-builtin")) {
                         show_builtin = true;
                         emit_bin = .no;
@@ -1882,7 +1880,7 @@ fn buildOutputType(
                         create_module.opts.link_mode = .Dynamic;
                         is_shared_lib = true;
                     },
-                    .rdynamic => rdynamic = true,
+                    .rdynamic => create_module.opts.rdynamic = true,
                     .wl => {
                         var split_it = mem.splitScalar(u8, it.only_arg, ',');
                         while (split_it.next()) |linker_arg| {
@@ -2136,7 +2134,7 @@ fn buildOutputType(
                     mem.eql(u8, arg, "--export-dynamic") or
                     mem.eql(u8, arg, "-export-dynamic"))
                 {
-                    rdynamic = true;
+                    create_module.opts.rdynamic = true;
                 } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
                     version_script = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "-O")) {
@@ -2295,7 +2293,7 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "--high-entropy-va")) {
                     // This option does not do anything.
                 } else if (mem.eql(u8, arg, "--export-all-symbols")) {
-                    rdynamic = true;
+                    create_module.opts.rdynamic = true;
                 } else if (mem.eql(u8, arg, "--color-diagnostics") or
                     mem.eql(u8, arg, "--color-diagnostics=always"))
                 {
@@ -3365,7 +3363,6 @@ fn buildOutputType(
         .emit_llvm_bc = emit_llvm_bc_resolved.data,
         .emit_docs = emit_docs_resolved.data,
         .emit_implib = emit_implib_resolved.data,
-        .dll_export_fns = dll_export_fns,
         .lib_dirs = lib_dirs.items,
         .rpath_list = rpath_list.items,
         .symbol_wrap_set = symbol_wrap_set,
@@ -3381,7 +3378,6 @@ fn buildOutputType(
         .wasi_emulated_libs = create_module.wasi_emulated_libs.items,
         .want_compiler_rt = want_compiler_rt,
         .hash_style = hash_style,
-        .rdynamic = rdynamic,
         .linker_script = linker_script,
         .version_script = version_script,
         .disable_c_depfile = disable_c_depfile,

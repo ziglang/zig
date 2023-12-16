@@ -1672,6 +1672,7 @@ pub const Object = struct {
         // because we call `updateExports` at the end of `updateFunc` and `updateDecl`.
         const global_index = self.decl_map.get(decl_index) orelse return;
         const decl = mod.declPtr(decl_index);
+        const comp = mod.comp;
         if (decl.isExtern(mod)) {
             const decl_name = decl_name: {
                 const decl_name = mod.intern_pool.stringToSlice(decl.name);
@@ -1696,7 +1697,8 @@ pub const Object = struct {
             try global_index.rename(decl_name, &self.builder);
             global_index.setLinkage(.external, &self.builder);
             global_index.setUnnamedAddr(.default, &self.builder);
-            if (wantDllExports(mod)) global_index.setDllStorageClass(.default, &self.builder);
+            if (comp.config.dll_export_fns)
+                global_index.setDllStorageClass(.default, &self.builder);
             if (self.di_map.get(decl)) |di_node| {
                 const decl_name_slice = decl_name.slice(&self.builder).?;
                 if (try decl.isFunction(mod)) {
@@ -1762,7 +1764,8 @@ pub const Object = struct {
             );
             try global_index.rename(fqn, &self.builder);
             global_index.setLinkage(.internal, &self.builder);
-            if (wantDllExports(mod)) global_index.setDllStorageClass(.default, &self.builder);
+            if (comp.config.dll_export_fns)
+                global_index.setDllStorageClass(.default, &self.builder);
             global_index.setUnnamedAddr(.unnamed_addr, &self.builder);
             if (decl.val.getVariable(mod)) |decl_var| {
                 const decl_namespace = mod.namespacePtr(decl.src_namespace);
@@ -1821,7 +1824,9 @@ pub const Object = struct {
         exports: []const *Module.Export,
     ) link.File.UpdateExportsError!void {
         global_index.setUnnamedAddr(.default, &o.builder);
-        if (wantDllExports(mod)) global_index.setDllStorageClass(.dllexport, &o.builder);
+        const comp = mod.comp;
+        if (comp.config.dll_export_fns)
+            global_index.setDllStorageClass(.dllexport, &o.builder);
         global_index.setLinkage(switch (exports[0].opts.linkage) {
             .Internal => unreachable,
             .Strong => .external,
@@ -11757,10 +11762,4 @@ fn constraintAllowsRegister(constraint: []const u8) bool {
             else => return true,
         }
     } else return false;
-}
-
-fn wantDllExports(zcu: *const Zcu) bool {
-    const lf = zcu.bin_file.?;
-    const coff = lf.cast(link.File.Coff) orelse return false;
-    return coff.dll_export_fns;
 }

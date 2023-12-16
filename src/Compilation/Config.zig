@@ -41,6 +41,8 @@ entry: ?[]const u8,
 debug_format: DebugFormat,
 root_strip: bool,
 root_error_tracing: bool,
+dll_export_fns: bool,
+rdynamic: bool,
 
 pub const CFrontend = enum { clang, aro };
 
@@ -93,6 +95,8 @@ pub const Options = struct {
     shared_memory: ?bool = null,
     test_evented_io: bool = false,
     debug_format: ?Config.DebugFormat = null,
+    dll_export_fns: ?bool = null,
+    rdynamic: ?bool = null,
 };
 
 pub fn resolve(options: Options) !Config {
@@ -415,6 +419,17 @@ pub fn resolve(options: Options) !Config {
 
     const any_error_tracing = root_error_tracing or options.any_error_tracing;
 
+    const rdynamic = options.rdynamic orelse false;
+
+    const dll_export_fns = b: {
+        if (options.dll_export_fns) |x| break :b x;
+        if (rdynamic) break :b true;
+        break :b switch (options.output_mode) {
+            .Obj, .Exe => false,
+            .Lib => link_mode == .Dynamic,
+        };
+    };
+
     return .{
         .output_mode = options.output_mode,
         .have_zcu = options.have_zcu,
@@ -443,6 +458,8 @@ pub fn resolve(options: Options) !Config {
         .wasi_exec_model = wasi_exec_model,
         .debug_format = debug_format,
         .root_strip = root_strip,
+        .dll_export_fns = dll_export_fns,
+        .rdynamic = rdynamic,
     };
 }
 

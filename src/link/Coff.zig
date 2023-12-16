@@ -8,7 +8,6 @@ llvm_object: ?*LlvmObject = null,
 
 base: link.File,
 image_base: u64,
-dll_export_fns: bool,
 subsystem: ?std.Target.SubSystem,
 tsaware: bool,
 nxcompat: bool,
@@ -416,7 +415,6 @@ pub fn createEmpty(
             .Obj => 0,
         },
 
-        .dll_export_fns = options.dll_export_fns,
         .subsystem = options.subsystem,
         .tsaware = options.tsaware,
         .nxcompat = options.nxcompat,

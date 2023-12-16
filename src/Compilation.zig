@@ -956,7 +956,6 @@ pub const InitOptions = struct {
     emit_docs: ?EmitLoc = null,
     /// `null` means to not emit an import lib.
     emit_implib: ?EmitLoc = null,
-    dll_export_fns: ?bool = false,
     /// Normally when using LLD to link, Zig uses a file named "lld.id" in the
     /// same directory as the output binary which contains the hash of the link
     /// operation, allowing Zig to skip linking when the hash would be unchanged.
@@ -989,7 +988,6 @@ pub const InitOptions = struct {
     want_compiler_rt: ?bool = null,
     want_lto: ?bool = null,
     formatted_panics: ?bool = null,
-    rdynamic: bool = false,
     function_sections: bool = false,
     data_sections: bool = false,
     no_builtin: bool = false,
@@ -1199,8 +1197,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const build_id = options.build_id orelse .none;
 
         const link_libc = options.config.link_libc;
-
-        const dll_export_fns = options.dll_export_fns orelse (is_dyn_lib or options.rdynamic);
 
         const libc_dirs = try detectLibCIncludeDirs(
             arena,
@@ -1524,10 +1520,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .gc_sections = options.linker_gc_sections,
             .eh_frame_hdr = link_eh_frame_hdr,
             .emit_relocs = options.link_emit_relocs,
-            .rdynamic = options.rdynamic,
             .soname = options.soname,
             .compatibility_version = options.compatibility_version,
-            .dll_export_fns = dll_export_fns,
             .each_lib_rpath = each_lib_rpath,
             .build_id = build_id,
             .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
@@ -1555,7 +1549,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 // Synchronize with other matching comments: ZigOnlyHashStuff
                 hash.add(use_llvm);
                 hash.add(options.config.use_lib_llvm);
-                hash.add(dll_export_fns);
+                hash.add(options.config.dll_export_fns);
                 hash.add(options.config.is_test);
                 hash.add(options.config.test_evented_io);
                 hash.addOptionalBytes(options.test_filter);
@@ -2430,6 +2424,8 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.config.import_memory);
     man.hash.add(comp.config.export_memory);
     man.hash.add(comp.config.shared_memory);
+    man.hash.add(comp.config.dll_export_fns);
+    man.hash.add(comp.config.rdynamic);
 
     if (comp.bin_file) |lf| {
         man.hash.add(lf.stack_size);
@@ -2442,7 +2438,6 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         switch (lf.tag) {
             .elf => {
                 const elf = lf.cast(link.File.Elf).?;
-                man.hash.add(elf.rdynamic);
                 man.hash.add(elf.eh_frame_hdr);
                 man.hash.add(elf.image_base);
                 man.hash.add(elf.emit_relocs);
@@ -2468,7 +2463,6 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
             },
             .wasm => {
                 const wasm = lf.cast(link.File.Wasm).?;
-                man.hash.add(wasm.rdynamic);
                 man.hash.addOptional(wasm.initial_memory);
                 man.hash.addOptional(wasm.max_memory);
                 man.hash.addOptional(wasm.global_base);
@@ -2485,7 +2479,6 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
             },
             .coff => {
                 const coff = lf.cast(link.File.Coff).?;
-                man.hash.add(coff.dll_export_fns);
                 man.hash.add(coff.image_base);
                 man.hash.addOptional(coff.subsystem);
                 man.hash.add(coff.tsaware);
