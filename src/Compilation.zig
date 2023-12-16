@@ -2336,11 +2336,6 @@ fn wholeCacheModeSetBinFilePath(
 
     if (whole.bin_sub_path) |sub_path| {
         @memcpy(sub_path[digest_start..][0..digest.len], digest);
-
-        comp.bin_file.?.emit = .{
-            .directory = comp.local_cache_directory,
-            .sub_path = sub_path,
-        };
     }
 
     if (whole.implib_sub_path) |sub_path| {
@@ -6243,12 +6238,7 @@ fn buildOutputFromZig(
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
     assert(out.* == null);
-    out.* = .{
-        .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(gpa, &.{
-            sub_compilation.bin_file.?.emit.sub_path,
-        }),
-        .lock = sub_compilation.bin_file.?.toOwnedLock(),
-    };
+    out.* = try sub_compilation.toCrtFile();
 }
 
 pub fn build_crt_file(

@@ -276,12 +276,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             const basename = try comp.gpa.dupe(u8, "libc.so");
             errdefer comp.gpa.free(basename);
 
-            comp.crt_files.putAssumeCapacityNoClobber(basename, .{
-                .full_object_path = try sub_compilation.bin_file.?.emit.directory.join(comp.gpa, &.{
-                    sub_compilation.bin_file.?.emit.sub_path,
-                }),
-                .lock = sub_compilation.bin_file.?.toOwnedLock(),
-            });
+            comp.crt_files.putAssumeCapacityNoClobber(basename, try sub_compilation.toCrtFile());
         },
     }
 }
