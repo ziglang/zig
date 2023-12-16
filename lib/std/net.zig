@@ -14,6 +14,19 @@ pub const has_unix_sockets = @hasDecl(os.sockaddr, "un") and
     (builtin.target.os.tag != .windows or
     builtin.os.version_range.windows.isAtLeast(.win10_rs4) orelse false);
 
+pub const IPParseError = error{
+    Overflow,
+    InvalidEnd,
+    InvalidCharacter,
+    Incomplete,
+};
+
+pub const IPv4ParseError = IPParseError || error{NonCanonical};
+
+pub const IPv6ParseError = IPParseError || error{InvalidIpv4Mapping};
+pub const IPv6InterfaceError = os.SocketError || os.IoCtl_SIOCGIFINDEX_Error || error{NameTooLong};
+pub const IPv6ResolveError = IPv6ParseError || IPv6InterfaceError;
+
 pub const Address = extern union {
     any: os.sockaddr,
     in: Ip4Address,
@@ -77,15 +90,15 @@ pub const Address = extern union {
         }
     }
 
-    pub fn parseIp6(buf: []const u8, port: u16) !Address {
+    pub fn parseIp6(buf: []const u8, port: u16) IPv6ParseError!Address {
         return Address{ .in6 = try Ip6Address.parse(buf, port) };
     }
 
-    pub fn resolveIp6(buf: []const u8, port: u16) !Address {
+    pub fn resolveIp6(buf: []const u8, port: u16) IPv6ResolveError!Address {
         return Address{ .in6 = try Ip6Address.resolve(buf, port) };
     }
 
-    pub fn parseIp4(buf: []const u8, port: u16) !Address {
+    pub fn parseIp4(buf: []const u8, port: u16) IPv4ParseError!Address {
         return Address{ .in = try Ip4Address.parse(buf, port) };
     }
 
@@ -198,7 +211,7 @@ pub const Address = extern union {
 pub const Ip4Address = extern struct {
     sa: os.sockaddr.in,
 
-    pub fn parse(buf: []const u8, port: u16) !Ip4Address {
+    pub fn parse(buf: []const u8, port: u16) IPv4ParseError!Ip4Address {
         var result = Ip4Address{
             .sa = .{
                 .port = mem.nativeToBig(u16, port),
@@ -307,7 +320,7 @@ pub const Ip6Address = extern struct {
     /// Parse a given IPv6 address string into an Address.
     /// Assumes the Scope ID of the address is fully numeric.
     /// For non-numeric addresses, see `resolveIp6`.
-    pub fn parse(buf: []const u8, port: u16) !Ip6Address {
+    pub fn parse(buf: []const u8, port: u16) IPv6ParseError!Ip6Address {
         var result = Ip6Address{
             .sa = os.sockaddr.in6{
                 .scope_id = 0,
@@ -424,7 +437,7 @@ pub const Ip6Address = extern struct {
         }
     }
 
-    pub fn resolve(buf: []const u8, port: u16) !Ip6Address {
+    pub fn resolve(buf: []const u8, port: u16) IPv6ResolveError!Ip6Address {
         // TODO: Unify the implementations of resolveIp6 and parseIp6.
         var result = Ip6Address{
             .sa = os.sockaddr.in6{
@@ -659,7 +672,7 @@ pub fn connectUnixSocket(path: []const u8) !Stream {
     };
 }
 
-fn if_nametoindex(name: []const u8) !u32 {
+fn if_nametoindex(name: []const u8) IPv6InterfaceError!u32 {
     if (builtin.target.os.tag == .linux) {
         var ifr: os.ifreq = undefined;
         const sockfd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM | os.SOCK.CLOEXEC, 0);
