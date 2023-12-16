@@ -224,7 +224,7 @@ pub const HashStyle = enum { sysv, gnu, both };
 pub const CompressDebugSections = enum { none, zlib, zstd };
 pub const SortSection = enum { name, alignment };
 
-pub fn open(
+pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
     emit: Compilation.Emit,
@@ -238,8 +238,79 @@ pub fn open(
     const opt_zcu = comp.module;
     const output_mode = comp.config.output_mode;
     const link_mode = comp.config.link_mode;
+    const optimize_mode = comp.root_mod.optimize_mode;
+    const is_native_os = comp.root_mod.resolved_target.is_native_os;
+    const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
+        0...32 => .p32,
+        33...64 => .p64,
+        else => return error.UnsupportedELFArchitecture,
+    };
 
-    const self = try createEmpty(arena, comp, emit, options);
+    const page_size: u32 = switch (target.cpu.arch) {
+        .powerpc64le => 0x10000,
+        .sparc64 => 0x2000,
+        else => 0x1000,
+    };
+    const is_dyn_lib = output_mode == .Lib and link_mode == .Dynamic;
+    const default_sym_version: elf.Elf64_Versym = if (is_dyn_lib or comp.config.rdynamic)
+        elf.VER_NDX_GLOBAL
+    else
+        elf.VER_NDX_LOCAL;
+
+    const self = try arena.create(Elf);
+    self.* = .{
+        .base = .{
+            .tag = .elf,
+            .comp = comp,
+            .emit = emit,
+            .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
+            .print_gc_sections = options.print_gc_sections,
+            .stack_size = options.stack_size orelse 16777216,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse !is_native_os,
+            .file = null,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
+            .force_undefined_symbols = options.force_undefined_symbols,
+        },
+        .ptr_width = ptr_width,
+        .page_size = page_size,
+        .default_sym_version = default_sym_version,
+
+        .image_base = b: {
+            if (is_dyn_lib) break :b 0;
+            if (output_mode == .Exe and comp.config.pie) break :b 0;
+            break :b options.image_base orelse switch (ptr_width) {
+                .p32 => 0x1000,
+                .p64 => 0x1000000,
+            };
+        },
+
+        .eh_frame_hdr = options.eh_frame_hdr,
+        .emit_relocs = options.emit_relocs,
+        .z_nodelete = options.z_nodelete,
+        .z_notext = options.z_notext,
+        .z_defs = options.z_defs,
+        .z_origin = options.z_origin,
+        .z_nocopyreloc = options.z_nocopyreloc,
+        .z_now = options.z_now,
+        .z_relro = options.z_relro,
+        .z_common_page_size = options.z_common_page_size,
+        .z_max_page_size = options.z_max_page_size,
+        .lib_dirs = options.lib_dirs,
+        .hash_style = options.hash_style,
+        .compress_debug_sections = options.compress_debug_sections,
+        .symbol_wrap_set = options.symbol_wrap_set,
+        .each_lib_rpath = options.each_lib_rpath,
+        .sort_section = options.sort_section,
+        .soname = options.soname,
+        .bind_global_refs_locally = options.bind_global_refs_locally,
+        .linker_script = options.linker_script,
+        .version_script = options.version_script,
+    };
+    if (use_llvm and comp.config.have_zcu) {
+        self.llvm_object = try LlvmObject.create(arena, comp);
+    }
     errdefer self.base.destroy();
 
     if (use_lld and use_llvm) {
@@ -343,91 +414,13 @@ pub fn open(
     return self;
 }
 
-pub fn createEmpty(
+pub fn open(
     arena: Allocator,
     comp: *Compilation,
     emit: Compilation.Emit,
     options: link.File.OpenOptions,
 ) !*Elf {
-    const use_llvm = comp.config.use_llvm;
-    const optimize_mode = comp.root_mod.optimize_mode;
-    const target = comp.root_mod.resolved_target.result;
-    const output_mode = comp.config.output_mode;
-    const link_mode = comp.config.link_mode;
-    const is_native_os = comp.root_mod.resolved_target.is_native_os;
-    const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
-        0...32 => .p32,
-        33...64 => .p64,
-        else => return error.UnsupportedELFArchitecture,
-    };
-    const self = try arena.create(Elf);
-
-    const page_size: u32 = switch (target.cpu.arch) {
-        .powerpc64le => 0x10000,
-        .sparc64 => 0x2000,
-        else => 0x1000,
-    };
-    const is_dyn_lib = output_mode == .Lib and link_mode == .Dynamic;
-    const default_sym_version: elf.Elf64_Versym = if (is_dyn_lib or comp.config.rdynamic)
-        elf.VER_NDX_GLOBAL
-    else
-        elf.VER_NDX_LOCAL;
-
-    self.* = .{
-        .base = .{
-            .tag = .elf,
-            .comp = comp,
-            .emit = emit,
-            .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
-            .print_gc_sections = options.print_gc_sections,
-            .stack_size = options.stack_size orelse 16777216,
-            .allow_shlib_undefined = options.allow_shlib_undefined orelse !is_native_os,
-            .file = null,
-            .disable_lld_caching = options.disable_lld_caching,
-            .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
-            .force_undefined_symbols = options.force_undefined_symbols,
-        },
-        .ptr_width = ptr_width,
-        .page_size = page_size,
-        .default_sym_version = default_sym_version,
-
-        .image_base = b: {
-            if (is_dyn_lib) break :b 0;
-            if (output_mode == .Exe and comp.config.pie) break :b 0;
-            break :b options.image_base orelse switch (ptr_width) {
-                .p32 => 0x1000,
-                .p64 => 0x1000000,
-            };
-        },
-
-        .eh_frame_hdr = options.eh_frame_hdr,
-        .emit_relocs = options.emit_relocs,
-        .z_nodelete = options.z_nodelete,
-        .z_notext = options.z_notext,
-        .z_defs = options.z_defs,
-        .z_origin = options.z_origin,
-        .z_nocopyreloc = options.z_nocopyreloc,
-        .z_now = options.z_now,
-        .z_relro = options.z_relro,
-        .z_common_page_size = options.z_common_page_size,
-        .z_max_page_size = options.z_max_page_size,
-        .lib_dirs = options.lib_dirs,
-        .hash_style = options.hash_style,
-        .compress_debug_sections = options.compress_debug_sections,
-        .symbol_wrap_set = options.symbol_wrap_set,
-        .each_lib_rpath = options.each_lib_rpath,
-        .sort_section = options.sort_section,
-        .soname = options.soname,
-        .bind_global_refs_locally = options.bind_global_refs_locally,
-        .linker_script = options.linker_script,
-        .version_script = options.version_script,
-    };
-    if (use_llvm and comp.config.have_zcu) {
-        self.llvm_object = try LlvmObject.create(arena, comp);
-    }
-
-    return self;
+    return createEmpty(arena, comp, emit, options);
 }
 
 pub fn deinit(self: *Elf) void {
