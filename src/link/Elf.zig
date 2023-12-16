@@ -230,7 +230,6 @@ pub fn open(
     emit: Compilation.Emit,
     options: link.File.OpenOptions,
 ) !*Elf {
-    if (build_options.only_c) unreachable;
     const target = comp.root_mod.resolved_target.result;
     assert(target.ofmt == .elf);
 
@@ -380,6 +379,7 @@ pub fn createEmpty(
             .comp = comp,
             .emit = emit,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
+            .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 16777216,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse !is_native_os,
             .file = null,
@@ -1175,7 +1175,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 const lib_name = flag["-l".len..];
 
                 success: {
-                    if (!self.isStatic()) {
+                    if (!self.base.isStatic()) {
                         if (try self.accessLibPath(&test_path, &checked_paths, lc.crt_dir.?, lib_name, .Dynamic))
                             break :success;
                     }
@@ -1664,7 +1664,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try argv.append(p);
         }
     } else {
-        if (!self.isStatic()) {
+        if (!self.base.isStatic()) {
             if (target.dynamic_linker.get()) |path| {
                 try argv.append("-dynamic-linker");
                 try argv.append(path);
@@ -1742,7 +1742,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try argv.append("now");
         }
 
-        if (self.isStatic()) {
+        if (self.base.isStatic()) {
             try argv.append("-static");
         } else if (self.base.isDynLib()) {
             try argv.append("-shared");
@@ -2023,7 +2023,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
                 // TODO I think technically we should re-use the mechanism used by the frontend here.
                 // Maybe we should hoist search-strategy all the way here?
                 for (self.lib_dirs) |lib_dir| {
-                    if (!self.isStatic()) {
+                    if (!self.base.isStatic()) {
                         if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, lib_name, .Dynamic))
                             break :success;
                     }
@@ -3598,7 +3598,7 @@ fn initSyntheticSections(self: *Elf) !void {
         // In this case, if we do generate .interp section and segment, we will get
         // a segfault in the dynamic linker trying to load a binary that is static
         // and doesn't contain .dynamic section.
-        if (self.isStatic() and !comp.config.pie) break :blk false;
+        if (self.base.isStatic() and !comp.config.pie) break :blk false;
         break :blk target.dynamic_linker.get() != null;
     };
     if (needs_interp) {

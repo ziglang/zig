@@ -21,7 +21,8 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     const tracy = trace(@src());
     defer tracy.end();
 
-    var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
+    const gpa = comp.gpa;
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
@@ -30,7 +31,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (self.base.comp.module != null) blk: {
+    const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
         try self.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -45,12 +46,12 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     sub_prog_node.context.refresh();
     defer sub_prog_node.end();
 
-    const is_lib = self.base.comp.config.output_mode == .Lib;
-    const is_dyn_lib = self.base.comp.config.link_mode == .Dynamic and is_lib;
-    const is_exe_or_dyn_lib = is_dyn_lib or self.base.comp.config.output_mode == .Exe;
+    const is_lib = comp.config.output_mode == .Lib;
+    const is_dyn_lib = comp.config.link_mode == .Dynamic and is_lib;
+    const is_exe_or_dyn_lib = is_dyn_lib or comp.config.output_mode == .Exe;
     const link_in_crt = comp.config.link_libc and is_exe_or_dyn_lib;
-    const target = self.base.comp.root_mod.resolved_target.result;
-    const optimize_mode = self.base.comp.root_mod.optimize_mode;
+    const target = comp.root_mod.resolved_target.result;
+    const optimize_mode = comp.root_mod.optimize_mode;
 
     // See link/Elf.zig for comments on how this mechanism works.
     const id_symlink_basename = "lld.id";
@@ -85,8 +86,8 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         man.hash.addListOfBytes(self.lib_dirs);
         man.hash.add(comp.skip_linker_dependencies);
         if (comp.config.link_libc) {
-            man.hash.add(self.base.comp.libc_installation != null);
-            if (self.base.comp.libc_installation) |libc_installation| {
+            man.hash.add(comp.libc_installation != null);
+            if (comp.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
                 if (target.abi == .msvc) {
                     man.hash.addBytes(libc_installation.msvc_lib_dir.?);
@@ -94,7 +95,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                 }
             }
         }
-        try link.hashAddSystemLibs(&man, self.base.comp.system_libs);
+        try link.hashAddSystemLibs(&man, comp.system_libs);
         man.hash.addListOfBytes(self.base.force_undefined_symbols.keys());
         man.hash.addOptional(self.subsystem);
         man.hash.add(comp.config.is_test);
@@ -136,7 +137,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         };
     }
 
-    if (self.base.comp.config.output_mode == .Obj) {
+    if (comp.config.output_mode == .Obj) {
         // LLD's COFF driver does not support the equivalent of `-r` so we do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
@@ -161,7 +162,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         }
     } else {
         // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(self.base.allocator);
+        var argv = std.ArrayList([]const u8).init(gpa);
         defer argv.deinit();
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
@@ -192,7 +193,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                 .ReleaseFast, .ReleaseSafe => try argv.append("-OPT:lldlto=3"),
             }
         }
-        if (self.base.comp.config.output_mode == .Exe) {
+        if (comp.config.output_mode == .Exe) {
             try argv.append(try allocPrint(arena, "-STACK:{d}", .{self.base.stack_size}));
         }
         try argv.append(try std.fmt.allocPrint(arena, "-BASE:{d}", .{self.image_base}));
@@ -242,7 +243,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         }
 
         if (comp.config.link_libc) {
-            if (self.base.comp.libc_installation) |libc_installation| {
+            if (comp.libc_installation) |libc_installation| {
                 try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.crt_dir.?}));
 
                 if (target.abi == .msvc) {
@@ -287,7 +288,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             if (self.subsystem) |explicit| break :blk explicit;
             switch (target.os.tag) {
                 .windows => {
-                    if (self.base.comp.module) |module| {
+                    if (comp.module) |module| {
                         if (module.stage1_flags.have_dllmain_crt_startup or is_dyn_lib)
                             break :blk null;
                         if (module.stage1_flags.have_c_main or comp.config.is_test or
@@ -415,13 +416,13 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                         try argv.append(try comp.get_libc_crt_file(arena, "uuid.lib"));
 
                         for (mingw.always_link_libs) |name| {
-                            if (!self.base.comp.system_libs.contains(name)) {
+                            if (!comp.system_libs.contains(name)) {
                                 const lib_basename = try allocPrint(arena, "{s}.lib", .{name});
                                 try argv.append(try comp.get_libc_crt_file(arena, lib_basename));
                             }
                         }
                     } else {
-                        const lib_str = switch (self.base.comp.config.link_mode) {
+                        const lib_str = switch (comp.config.link_mode) {
                             .Dynamic => "",
                             .Static => "lib",
                         };
@@ -429,7 +430,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                             .Debug => "d",
                             else => "",
                         };
-                        switch (self.base.comp.config.link_mode) {
+                        switch (comp.config.link_mode) {
                             .Static => try argv.append(try allocPrint(arena, "libcmt{s}.lib", .{d_str})),
                             .Dynamic => try argv.append(try allocPrint(arena, "msvcrt{s}.lib", .{d_str})),
                         }
@@ -448,7 +449,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                 } else {
                     try argv.append("-NODEFAULTLIB");
                     if (!is_lib and comp.config.entry == null) {
-                        if (self.base.comp.module) |module| {
+                        if (comp.module) |module| {
                             if (module.stage1_flags.have_winmain_crt_startup) {
                                 try argv.append("-ENTRY:WinMainCRTStartup");
                             } else {
@@ -485,8 +486,8 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             if (comp.compiler_rt_lib) |lib| try argv.append(lib.full_object_path);
         }
 
-        try argv.ensureUnusedCapacity(self.base.comp.system_libs.count());
-        for (self.base.comp.system_libs.keys()) |key| {
+        try argv.ensureUnusedCapacity(comp.system_libs.count());
+        for (comp.system_libs.keys()) |key| {
             const lib_basename = try allocPrint(arena, "{s}.lib", .{key});
             if (comp.crt_files.get(lib_basename)) |crt_file| {
                 argv.appendAssumeCapacity(crt_file.full_object_path);
@@ -512,7 +513,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             return error.DllImportLibraryNotFound;
         }
 
-        if (self.base.comp.verbose_link) {
+        if (comp.verbose_link) {
             // Skip over our own name so that the LLD linker name is the first argv item.
             Compilation.dump_argv(argv.items[1..]);
         }

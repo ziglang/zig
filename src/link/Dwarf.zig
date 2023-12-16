@@ -1745,6 +1745,7 @@ pub fn freeDecl(self: *Dwarf, decl_index: InternPool.DeclIndex) void {
 }
 
 pub fn writeDbgAbbrev(self: *Dwarf) !void {
+    const gpa = self.allocator;
     // These are LEB encoded but since the values are all less than 127
     // we can simply append these bytes.
     // zig fmt: off
@@ -1887,7 +1888,7 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
         .wasm => {
             const wasm_file = self.bin_file.cast(File.Wasm).?;
             const debug_abbrev = &wasm_file.getAtomPtr(wasm_file.debug_abbrev_atom.?).code;
-            try debug_abbrev.resize(wasm_file.base.allocator, needed_size);
+            try debug_abbrev.resize(gpa, needed_size);
             debug_abbrev.items[0..abbrev_buf.len].* = abbrev_buf;
         },
         else => unreachable,
@@ -2236,6 +2237,7 @@ fn writeDbgInfoNopsToArrayList(
 
 pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
     const comp = self.bin_file.comp;
+    const gpa = comp.gpa;
     const target = comp.root_mod.resolved_target.result;
     const target_endian = target.cpu.arch.endian();
     const ptr_width_bytes = self.ptrWidthBytes();
@@ -2301,7 +2303,7 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
         .wasm => {
             const wasm_file = self.bin_file.cast(File.Wasm).?;
             const debug_ranges = &wasm_file.getAtomPtr(wasm_file.debug_ranges_atom.?).code;
-            try debug_ranges.resize(wasm_file.base.allocator, needed_size);
+            try debug_ranges.resize(gpa, needed_size);
             @memcpy(debug_ranges.items[0..di_buf.items.len], di_buf.items);
         },
         else => unreachable,

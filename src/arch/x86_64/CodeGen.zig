@@ -800,19 +800,20 @@ pub fn generate(
 ) CodeGenError!Result {
     const comp = bin_file.comp;
     const gpa = comp.gpa;
-    const mod = comp.module.?;
-    const func = mod.funcInfo(func_index);
-    const fn_owner_decl = mod.declPtr(func.owner_decl);
+    const zcu = comp.module.?;
+    const func = zcu.funcInfo(func_index);
+    const fn_owner_decl = zcu.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
-    const namespace = mod.namespacePtr(fn_owner_decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const namespace = zcu.namespacePtr(fn_owner_decl.src_namespace);
+    const mod = namespace.file_scope.mod;
 
     var function = Self{
         .gpa = gpa,
         .air = air,
         .liveness = liveness,
-        .target = target,
+        .target = &mod.resolved_target.result,
+        .mod = mod,
         .bin_file = bin_file,
         .debug_output = debug_output,
         .owner = .{ .func_index = func_index },
@@ -843,7 +844,7 @@ pub fn generate(
 
     wip_mir_log.debug("{}:", .{function.fmtDecl(func.owner_decl)});
 
-    const ip = &mod.intern_pool;
+    const ip = &zcu.intern_pool;
 
     try function.frame_allocs.resize(gpa, FrameIndex.named_count);
     function.frame_allocs.set(
@@ -858,7 +859,7 @@ pub fn generate(
         FrameAlloc.init(.{ .size = 0, .alignment = .@"1" }),
     );
 
-    const fn_info = mod.typeToFunc(fn_type).?;
+    const fn_info = zcu.typeToFunc(fn_type).?;
     const cc = abi.resolveCallingConvention(fn_info.cc, function.target.*);
     var call_info = function.resolveCallingConventionValues(fn_info, &.{}, .args_frame) catch |err| switch (err) {
         error.CodegenFail => return Result{ .fail = function.err_msg.? },
@@ -877,14 +878,14 @@ pub fn generate(
     function.args = call_info.args;
     function.ret_mcv = call_info.return_value;
     function.frame_allocs.set(@intFromEnum(FrameIndex.ret_addr), FrameAlloc.init(.{
-        .size = Type.usize.abiSize(mod),
-        .alignment = Type.usize.abiAlignment(mod).min(call_info.stack_align),
+        .size = Type.usize.abiSize(zcu),
+        .alignment = Type.usize.abiAlignment(zcu).min(call_info.stack_align),
     }));
     function.frame_allocs.set(@intFromEnum(FrameIndex.base_ptr), FrameAlloc.init(.{
-        .size = Type.usize.abiSize(mod),
+        .size = Type.usize.abiSize(zcu),
         .alignment = Alignment.min(
             call_info.stack_align,
-            Alignment.fromNonzeroByteUnits(target.stackAlignment()),
+            Alignment.fromNonzeroByteUnits(function.target.stackAlignment()),
         ),
     }));
     function.frame_allocs.set(
@@ -927,6 +928,9 @@ pub fn generate(
             .mir = mir,
             .cc = cc,
             .src_loc = src_loc,
+            .output_mode = comp.config.output_mode,
+            .link_mode = comp.config.link_mode,
+            .pic = mod.pic,
         },
         .debug_output = debug_output,
         .code = code,
@@ -970,16 +974,14 @@ pub fn generateLazy(
 ) CodeGenError!Result {
     const comp = bin_file.comp;
     const gpa = comp.gpa;
-    const zcu = comp.module.?;
-    const decl_index = lazy_sym.ty.getOwnerDecl(zcu);
-    const decl = zcu.declPtr(decl_index);
-    const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    // This function is for generating global code, so we use the root module.
+    const mod = comp.root_mod;
     var function = Self{
         .gpa = gpa,
         .air = undefined,
         .liveness = undefined,
-        .target = target,
+        .target = &mod.resolved_target.result,
+        .mod = mod,
         .bin_file = bin_file,
         .debug_output = debug_output,
         .owner = .{ .lazy_sym = lazy_sym },
@@ -1020,6 +1022,9 @@ pub fn generateLazy(
             .mir = mir,
             .cc = abi.resolveCallingConvention(.Unspecified, function.target.*),
             .src_loc = src_loc,
+            .output_mode = comp.config.output_mode,
+            .link_mode = comp.config.link_mode,
+            .pic = mod.pic,
         },
         .debug_output = debug_output,
         .code = code,
@@ -1104,6 +1109,8 @@ fn formatWipMir(
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
+    const comp = data.self.bin_file.comp;
+    const mod = comp.root_mod;
     var lower = Lower{
         .bin_file = data.self.bin_file,
         .allocator = data.self.gpa,
@@ -1114,6 +1121,9 @@ fn formatWipMir(
         },
         .cc = .Unspecified,
         .src_loc = data.self.src_loc,
+        .output_mode = comp.config.output_mode,
+        .link_mode = comp.config.link_mode,
+        .pic = mod.pic,
     };
     var first = true;
     for ((lower.lowerMir(data.inst) catch |err| switch (err) {

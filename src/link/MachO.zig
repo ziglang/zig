@@ -155,6 +155,7 @@ frameworks: []const Framework,
 install_name: ?[]const u8,
 /// Path to entitlements file.
 entitlements: ?[]const u8,
+compatibility_version: ?std.SemanticVersion,
 
 /// When adding a new field, remember to update `hashAddFrameworks`.
 pub const Framework = struct {
@@ -185,7 +186,6 @@ pub fn open(
     emit: Compilation.Emit,
     options: link.File.OpenOptions,
 ) !*MachO {
-    if (build_options.only_c) unreachable;
     const target = comp.root_mod.resolved_target.result;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const use_llvm = comp.config.use_llvm;
@@ -295,6 +295,7 @@ pub fn createEmpty(
             .comp = comp,
             .emit = emit,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
+            .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 16777216,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
@@ -315,6 +316,7 @@ pub fn createEmpty(
         .frameworks = options.frameworks,
         .install_name = options.install_name,
         .entitlements = options.entitlements,
+        .compatibility_version = options.compatibility_version,
     };
 
     if (use_llvm and comp.module != null) {
@@ -632,7 +634,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     });
     {
         const platform = Platform.fromTarget(target);
-        const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(arena, comp);
+        const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(self);
         if (platform.isBuildVersionCompatible()) {
             try load_commands.writeBuildVersionLC(platform, sdk_version, lc_writer);
         } else if (platform.isVersionMinCompatible()) {
@@ -2237,10 +2239,10 @@ fn allocateGlobal(self: *MachO) !u32 {
     return index;
 }
 
-pub fn addGotEntry(self: *MachO, target: SymbolWithLoc) !void {
-    if (self.got_table.lookup.contains(target)) return;
+pub fn addGotEntry(self: *MachO, reloc_target: SymbolWithLoc) !void {
+    if (self.got_table.lookup.contains(reloc_target)) return;
     const gpa = self.base.comp.gpa;
-    const got_index = try self.got_table.allocateEntry(gpa, target);
+    const got_index = try self.got_table.allocateEntry(gpa, reloc_target);
     if (self.got_section_index == null) {
         self.got_section_index = try self.initSection("__DATA_CONST", "__got", .{
             .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
@@ -2249,20 +2251,22 @@ pub fn addGotEntry(self: *MachO, target: SymbolWithLoc) !void {
     if (self.mode == .incremental) {
         try self.writeOffsetTableEntry(got_index);
         self.got_table_count_dirty = true;
-        self.markRelocsDirtyByTarget(target);
+        self.markRelocsDirtyByTarget(reloc_target);
     }
 }
 
-pub fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
-    if (self.stub_table.lookup.contains(target)) return;
-    const gpa = self.base.comp.gpa;
-    const stub_index = try self.stub_table.allocateEntry(gpa, target);
+pub fn addStubEntry(self: *MachO, reloc_target: SymbolWithLoc) !void {
+    if (self.stub_table.lookup.contains(reloc_target)) return;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+    const cpu_arch = comp.root_mod.resolved_target.result.cpu.arch;
+    const stub_index = try self.stub_table.allocateEntry(gpa, reloc_target);
     if (self.stubs_section_index == null) {
         self.stubs_section_index = try self.initSection("__TEXT", "__stubs", .{
             .flags = macho.S_SYMBOL_STUBS |
                 macho.S_ATTR_PURE_INSTRUCTIONS |
                 macho.S_ATTR_SOME_INSTRUCTIONS,
-            .reserved2 = stubs.stubSize(target.cpu.arch),
+            .reserved2 = stubs.stubSize(cpu_arch),
         });
         self.stub_helper_section_index = try self.initSection("__TEXT", "__stub_helper", .{
             .flags = macho.S_REGULAR |
@@ -2276,14 +2280,14 @@ pub fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
     if (self.mode == .incremental) {
         try self.writeStubTableEntry(stub_index);
         self.stub_table_count_dirty = true;
-        self.markRelocsDirtyByTarget(target);
+        self.markRelocsDirtyByTarget(reloc_target);
     }
 }
 
-pub fn addTlvPtrEntry(self: *MachO, target: SymbolWithLoc) !void {
-    if (self.tlv_ptr_table.lookup.contains(target)) return;
+pub fn addTlvPtrEntry(self: *MachO, reloc_target: SymbolWithLoc) !void {
+    if (self.tlv_ptr_table.lookup.contains(reloc_target)) return;
     const gpa = self.base.comp.gpa;
-    _ = try self.tlv_ptr_table.allocateEntry(gpa, target);
+    _ = try self.tlv_ptr_table.allocateEntry(gpa, reloc_target);
     if (self.tlv_ptr_section_index == null) {
         self.tlv_ptr_section_index = try self.initSection("__DATA", "__thread_ptrs", .{
             .flags = macho.S_THREAD_LOCAL_VARIABLE_POINTERS,

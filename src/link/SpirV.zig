@@ -24,7 +24,6 @@ const SpirV = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 
@@ -65,6 +64,7 @@ pub fn createEmpty(
             .comp = comp,
             .emit = emit,
             .gc_sections = options.gc_sections orelse false,
+            .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 0,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
@@ -98,8 +98,6 @@ pub fn open(
     emit: Compilation.Emit,
     options: link.File.OpenOptions,
 ) !*SpirV {
-    if (build_options.only_c) unreachable;
-
     const target = comp.root_mod.resolved_target.result;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const use_llvm = comp.config.use_llvm;
@@ -194,7 +192,9 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
 
     const spv = &self.object.spv;
 
+    const gpa = comp.gpa;
     const target = comp.getTarget();
+
     try writeCapabilities(spv, target);
     try writeMemoryModel(spv, target);
 
@@ -214,11 +214,11 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
         // We're using : as separator, which is a reserved character.
 
-        const escaped_name = try std.Uri.escapeString(self.base.allocator, name);
-        defer self.base.allocator.free(escaped_name);
+        const escaped_name = try std.Uri.escapeString(gpa, name);
+        defer gpa.free(escaped_name);
         try error_info.writer().print(":{s}", .{escaped_name});
     }
-    try spv.sections.debug_strings.emit(spv.gpa, .OpSourceExtension, .{
+    try spv.sections.debug_strings.emit(gpa, .OpSourceExtension, .{
         .extension = error_info.items,
     });
 
@@ -226,6 +226,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
 }
 
 fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
+    const gpa = spv.gpa;
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
         .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .GenericPointer },
@@ -235,13 +236,15 @@ fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     };
 
     for (caps) |cap| {
-        try spv.sections.capabilities.emit(spv.gpa, .OpCapability, .{
+        try spv.sections.capabilities.emit(gpa, .OpCapability, .{
             .capability = cap,
         });
     }
 }
 
 fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
+    const gpa = spv.gpa;
+
     const addressing_model = switch (target.os.tag) {
         .opencl => switch (target.cpu.arch) {
             .spirv32 => spec.AddressingModel.Physical32,
@@ -260,7 +263,7 @@ fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
     };
 
     // TODO: Put this in a proper section.
-    try spv.sections.extensions.emit(spv.gpa, .OpMemoryModel, .{
+    try spv.sections.extensions.emit(gpa, .OpMemoryModel, .{
         .addressing_model = addressing_model,
         .memory_model = memory_model,
     });

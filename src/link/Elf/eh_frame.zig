@@ -271,7 +271,7 @@ pub fn calcEhFrameSize(elf_file: *Elf) !usize {
         }
     }
 
-    if (!elf_file.isRelocatable()) {
+    if (!elf_file.base.isRelocatable()) {
         offset += 4; // NULL terminator
     }
 

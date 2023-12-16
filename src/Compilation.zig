@@ -229,7 +229,7 @@ pub const Emit = struct {
 
     /// Returns the full path to `basename` if it were in the same directory as the
     /// `Emit` sub_path.
-    pub fn basenamePath(emit: Emit, arena: Allocator, basename: [:0]const u8) ![:0]const u8 {
+    pub fn basenamePath(emit: Emit, arena: Allocator, basename: []const u8) ![:0]const u8 {
         const full_path = if (emit.directory.path) |p|
             try std.fs.path.join(arena, &[_][]const u8{ p, emit.sub_path })
         else
@@ -238,7 +238,7 @@ pub const Emit = struct {
         if (std.fs.path.dirname(full_path)) |dirname| {
             return try std.fs.path.joinZ(arena, &.{ dirname, basename });
         } else {
-            return basename;
+            return try arena.dupeZ(u8, basename);
         }
     }
 };
@@ -1038,8 +1038,8 @@ pub const InitOptions = struct {
     linker_compress_debug_sections: ?link.File.Elf.CompressDebugSections = null,
     linker_module_definition_file: ?[]const u8 = null,
     linker_sort_section: ?link.File.Elf.SortSection = null,
-    major_subsystem_version: ?u32 = null,
-    minor_subsystem_version: ?u32 = null,
+    major_subsystem_version: ?u16 = null,
+    minor_subsystem_version: ?u16 = null,
     clang_passthrough_mode: bool = false,
     verbose_cc: bool = false,
     verbose_link: bool = false,

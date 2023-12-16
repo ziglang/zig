@@ -1168,7 +1168,7 @@ pub const Object = struct {
         pre_ir_path: ?[]const u8,
         pre_bc_path: ?[]const u8,
         bin_path: ?[*:0]const u8,
-        emit_asm: ?[*:0]const u8,
+        asm_path: ?[*:0]const u8,
         post_ir_path: ?[*:0]const u8,
         post_bc_path: ?[*:0]const u8,
 

@@ -377,8 +377,8 @@ pub fn scanRelocsRequiresCode(self: Atom, elf_file: *Elf) bool {
 }
 
 pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype) !void {
-    const is_static = elf_file.isStatic();
-    const is_dyn_lib = elf_file.isDynLib();
+    const is_static = elf_file.base.isStatic();
+    const is_dyn_lib = elf_file.base.isDynLib();
     const file_ptr = self.file(elf_file).?;
     const rels = self.relocs(elf_file);
     var i: usize = 0;
@@ -660,7 +660,7 @@ fn dynAbsRelocAction(symbol: *const Symbol, elf_file: *Elf) RelocAction {
 
 fn outputType(elf_file: *Elf) u2 {
     const comp = elf_file.base.comp;
-    assert(!elf_file.isRelocatable());
+    assert(!elf_file.base.isRelocatable());
     return switch (elf_file.base.comp.config.output_mode) {
         .Obj => unreachable,
         .Lib => 0,

@@ -378,7 +378,6 @@ pub fn open(
     emit: Compilation.Emit,
     options: link.File.OpenOptions,
 ) !*Wasm {
-    if (build_options.only_c) unreachable;
     const gpa = comp.gpa;
     const target = comp.root_mod.resolved_target.result;
     assert(target.ofmt == .wasm);
@@ -549,6 +548,7 @@ pub fn createEmpty(
             .comp = comp,
             .emit = emit,
             .gc_sections = options.gc_sections orelse (output_mode != .Obj),
+            .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse std.wasm.page_size * 16, // 1MB
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
@@ -1893,7 +1893,12 @@ pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: lin
     return target_symbol_index;
 }
 
-pub fn deleteDeclExport(wasm: *Wasm, decl_index: InternPool.DeclIndex) void {
+pub fn deleteDeclExport(
+    wasm: *Wasm,
+    decl_index: InternPool.DeclIndex,
+    name: InternPool.NullTerminatedString,
+) void {
+    _ = name;
     if (wasm.llvm_object) |_| return;
     const atom_index = wasm.decls.get(decl_index) orelse return;
     const sym_index = wasm.getAtom(atom_index).sym_index;

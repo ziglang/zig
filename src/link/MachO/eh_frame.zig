@@ -1,5 +1,6 @@
 pub fn scanRelocs(macho_file: *MachO) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
 
     for (macho_file.objects.items, 0..) |*object, object_id| {
         var cies = std.AutoHashMap(u32, void).init(gpa);
@@ -37,7 +38,8 @@ pub fn calcSectionSize(macho_file: *MachO, unwind_info: *const UnwindInfo) error
 
     const target = macho_file.base.comp.root_mod.resolved_target.result;
     const cpu_arch = target.cpu.arch;
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     var size: u32 = 0;
 
     for (macho_file.objects.items, 0..) |*object, object_id| {
@@ -89,7 +91,8 @@ pub fn write(macho_file: *MachO, unwind_info: *UnwindInfo) !void {
 
     const target = macho_file.base.comp.root_mod.resolved_target.result;
     const cpu_arch = target.cpu.arch;
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
 
     var eh_records = std.AutoArrayHashMap(u32, EhFrameRecord(true)).init(gpa);
     defer {

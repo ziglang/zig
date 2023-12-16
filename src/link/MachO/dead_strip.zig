@@ -1,7 +1,8 @@
 //! An algorithm for dead stripping of unreferenced Atoms.
 
 pub fn gcAtoms(macho_file: *MachO) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();

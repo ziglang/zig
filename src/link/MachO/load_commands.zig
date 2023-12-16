@@ -63,7 +63,7 @@ fn calcLCsSize(m: *MachO, ctx: CalcLCsSizeCtx, assume_max_path_len: bool) !u32 {
     }
     // LC_RPATH
     {
-        var it = RpathIterator.init(gpa, m.rpath_list);
+        var it = RpathIterator.init(gpa, m.base.rpath_list);
         defer it.deinit();
         while (try it.next()) |rpath| {
             sizeofcmds += calcInstallNameLen(
@@ -189,17 +189,20 @@ fn writeDylibLC(ctx: WriteDylibLCCtx, lc_writer: anytype) !void {
     }
 }
 
-pub fn writeDylibIdLC(gpa: Allocator, options: *const link.Options, lc_writer: anytype) !void {
-    assert(options.output_mode == .Lib and options.link_mode == .Dynamic);
-    const emit = options.emit.?;
-    const install_name = options.install_name orelse try emit.directory.join(gpa, &.{emit.sub_path});
-    defer if (options.install_name == null) gpa.free(install_name);
-    const curr = options.version orelse std.SemanticVersion{
+pub fn writeDylibIdLC(macho_file: *MachO, lc_writer: anytype) !void {
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
+    assert(comp.config.output_mode == .Lib and comp.config.link_mode == .Dynamic);
+    const emit = macho_file.base.emit;
+    const install_name = macho_file.install_name orelse
+        try emit.directory.join(gpa, &.{emit.sub_path});
+    defer if (macho_file.install_name == null) gpa.free(install_name);
+    const curr = comp.version orelse std.SemanticVersion{
         .major = 1,
         .minor = 0,
         .patch = 0,
     };
-    const compat = options.compatibility_version orelse std.SemanticVersion{
+    const compat = macho_file.compatibility_version orelse std.SemanticVersion{
         .major = 1,
         .minor = 0,
         .patch = 0,
@@ -237,8 +240,11 @@ const RpathIterator = struct {
     }
 };
 
-pub fn writeRpathLCs(gpa: Allocator, options: *const link.Options, lc_writer: anytype) !void {
-    var it = RpathIterator.init(gpa, options.rpath_list);
+pub fn writeRpathLCs(macho_file: *MachO, lc_writer: anytype) !void {
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
+
+    var it = RpathIterator.init(gpa, macho_file.base.rpath_list);
     defer it.deinit();
 
     while (try it.next()) |rpath| {
@@ -467,12 +473,13 @@ pub inline fn appleVersionToSemanticVersion(version: u32) std.SemanticVersion {
     };
 }
 
-pub fn inferSdkVersion(gpa: Allocator, comp: *const Compilation) ?std.SemanticVersion {
+pub fn inferSdkVersion(macho_file: *MachO) ?std.SemanticVersion {
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
+
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
-
-    const macho_file = comp.bin_file.cast(MachO).?;
 
     const sdk_layout = macho_file.sdk_layout orelse return null;
     const sdk_dir = switch (sdk_layout) {

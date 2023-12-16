@@ -20043,7 +20043,7 @@ fn getErrorReturnTrace(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
 
     if (sema.owner_func_index != .none and
         ip.funcAnalysis(sema.owner_func_index).calls_or_awaits_errorable_fn and
-        mod.ownerModule().error_tracing and
+        block.ownerModule().error_tracing and
         mod.backendSupportsFeature(.error_return_trace))
     {
         return block.addTy(.err_return_trace, opt_ptr_stack_trace_ty);

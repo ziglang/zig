@@ -318,6 +318,7 @@ pub fn createEmpty(
             .comp = comp,
             .emit = emit,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
+            .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 16777216,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
@@ -1314,8 +1315,6 @@ pub fn open(
     emit: Compilation.Emit,
     options: link.File.OpenOptions,
 ) !*Plan9 {
-    if (build_options.only_c) unreachable;
-
     const target = comp.root_mod.resolved_target.result;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const use_llvm = comp.config.use_llvm;
@@ -1525,7 +1524,13 @@ pub fn getDeclVAddr(
     return undefined;
 }
 
-pub fn lowerAnonDecl(self: *Plan9, decl_val: InternPool.Index, src_loc: Module.SrcLoc) !codegen.Result {
+pub fn lowerAnonDecl(
+    self: *Plan9,
+    decl_val: InternPool.Index,
+    explicit_alignment: InternPool.Alignment,
+    src_loc: Module.SrcLoc,
+) !codegen.Result {
+    _ = explicit_alignment;
     // This is basically the same as lowerUnnamedConst.
     // example:
     // const ty = mod.intern_pool.typeOf(decl_val).toType();

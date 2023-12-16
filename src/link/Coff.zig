@@ -14,9 +14,10 @@ nxcompat: bool,
 dynamicbase: bool,
 /// TODO this and minor_subsystem_version should be combined into one property and left as
 /// default or populated together. They should not be separate fields.
-major_subsystem_version: u32,
-minor_subsystem_version: u32,
+major_subsystem_version: u16,
+minor_subsystem_version: u16,
 lib_dirs: []const []const u8,
+entry_addr: ?u32,
 
 ptr_width: PtrWidth,
 page_size: u32,
@@ -238,7 +239,6 @@ pub fn open(
     emit: Compilation.Emit,
     options: link.File.OpenOptions,
 ) !*Coff {
-    if (build_options.only_c) unreachable;
     const target = comp.root_mod.resolved_target.result;
     assert(target.ofmt == .coff);
 
@@ -390,6 +390,7 @@ pub fn createEmpty(
             .emit = emit,
             .stack_size = options.stack_size orelse 16777216,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
+            .print_gc_sections = options.print_gc_sections,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
             .disable_lld_caching = options.disable_lld_caching,
@@ -422,6 +423,8 @@ pub fn createEmpty(
         .major_subsystem_version = options.major_subsystem_version orelse 6,
         .minor_subsystem_version = options.minor_subsystem_version orelse 0,
         .lib_dirs = options.lib_dirs,
+        .entry_addr = math.cast(u32, options.entry_addr orelse 0) orelse
+            return error.EntryAddressTooBig,
     };
 
     const use_llvm = comp.config.use_llvm;
@@ -2329,8 +2332,8 @@ fn writeHeader(self: *Coff) !void {
                 .minor_operating_system_version = 0,
                 .major_image_version = 0,
                 .minor_image_version = 0,
-                .major_subsystem_version = self.major_subsystem_version,
-                .minor_subsystem_version = self.minor_subsystem_version,
+                .major_subsystem_version = @intCast(self.major_subsystem_version),
+                .minor_subsystem_version = @intCast(self.minor_subsystem_version),
                 .win32_version_value = 0,
                 .size_of_image = size_of_image,
                 .size_of_headers = size_of_headers,
@@ -2342,7 +2345,7 @@ fn writeHeader(self: *Coff) !void {
                 .size_of_heap_reserve = default_size_of_heap_reserve,
                 .size_of_heap_commit = default_size_of_heap_commit,
                 .loader_flags = 0,
-                .number_of_rva_and_sizes = @as(u32, @intCast(self.data_directories.len)),
+                .number_of_rva_and_sizes = @intCast(self.data_directories.len),
             };
             writer.writeAll(mem.asBytes(&opt_header)) catch unreachable;
         },

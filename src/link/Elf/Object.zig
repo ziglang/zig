@@ -250,7 +250,7 @@ fn addAtom(self: *Object, shdr: ElfShdr, shndx: u16, elf_file: *Elf) error{OutOf
 fn initOutputSection(self: Object, elf_file: *Elf, shdr: ElfShdr) error{OutOfMemory}!u16 {
     const name = blk: {
         const name = self.getString(shdr.sh_name);
-        if (elf_file.isRelocatable()) break :blk name;
+        if (elf_file.base.isRelocatable()) break :blk name;
         if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
         const sh_name_prefixes: []const [:0]const u8 = &.{
             ".text",       ".data.rel.ro", ".data", ".rodata", ".bss.rel.ro",       ".bss",
@@ -278,7 +278,7 @@ fn initOutputSection(self: Object, elf_file: *Elf, shdr: ElfShdr) error{OutOfMem
     };
     const flags = blk: {
         var flags = shdr.sh_flags;
-        if (!elf_file.isRelocatable()) {
+        if (!elf_file.base.isRelocatable()) {
             flags &= ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP | elf.SHF_GNU_RETAIN);
         }
         break :blk switch (@"type") {
@@ -520,7 +520,7 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
         }
 
         const is_import = blk: {
-            if (!elf_file.isDynLib()) break :blk false;
+            if (!elf_file.base.isDynLib()) break :blk false;
             const vis = @as(elf.STV, @enumFromInt(esym.st_other));
             if (vis == .HIDDEN) break :blk false;
             break :blk true;

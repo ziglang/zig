@@ -874,8 +874,8 @@ fn buildOutputType(
     var override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.Target.SubSystem = null;
-    var major_subsystem_version: ?u32 = null;
-    var minor_subsystem_version: ?u32 = null;
+    var major_subsystem_version: ?u16 = null;
+    var minor_subsystem_version: ?u16 = null;
     var enable_link_snapshots: bool = false;
     var debug_incremental: bool = false;
     var install_name: ?[]const u8 = null;
@@ -2321,21 +2321,17 @@ fn buildOutputType(
                     _ = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "--major-subsystem-version")) {
                     const major = linker_args_it.nextOrFatal();
-                    major_subsystem_version = std.fmt.parseUnsigned(
-                        u32,
-                        major,
-                        10,
-                    ) catch |err| {
-                        fatal("unable to parse major subsystem version '{s}': {s}", .{ major, @errorName(err) });
+                    major_subsystem_version = std.fmt.parseUnsigned(u16, major, 10) catch |err| {
+                        fatal("unable to parse major subsystem version '{s}': {s}", .{
+                            major, @errorName(err),
+                        });
                     };
                 } else if (mem.eql(u8, arg, "--minor-subsystem-version")) {
                     const minor = linker_args_it.nextOrFatal();
-                    minor_subsystem_version = std.fmt.parseUnsigned(
-                        u32,
-                        minor,
-                        10,
-                    ) catch |err| {
-                        fatal("unable to parse minor subsystem version '{s}': {s}", .{ minor, @errorName(err) });
+                    minor_subsystem_version = std.fmt.parseUnsigned(u16, minor, 10) catch |err| {
+                        fatal("unable to parse minor subsystem version '{s}': {s}", .{
+                            minor, @errorName(err),
+                        });
                     };
                 } else if (mem.eql(u8, arg, "-framework")) {
                     try frameworks.put(arena, linker_args_it.nextOrFatal(), .{});

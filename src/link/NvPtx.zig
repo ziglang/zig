@@ -31,8 +31,6 @@ pub fn createEmpty(
     emit: Compilation.Emit,
     options: link.File.OpenOptions,
 ) !*NvPtx {
-    if (build_options.only_c) unreachable;
-
     const target = comp.root_mod.resolved_target.result;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const use_llvm = comp.config.use_llvm;
@@ -55,6 +53,7 @@ pub fn createEmpty(
             .comp = comp,
             .emit = emit,
             .gc_sections = options.gc_sections orelse false,
+            .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 0,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,

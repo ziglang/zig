@@ -342,19 +342,22 @@ pub const SplitIntoAtomsError = error{
 };
 
 pub fn splitIntoAtoms(self: *Object, macho_file: *MachO, object_id: u32) SplitIntoAtomsError!void {
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     log.debug("splitting object({d}, {s}) into atoms", .{ object_id, self.name });
 
     try self.splitRegularSections(macho_file, object_id);
     try self.parseEhFrameSection(macho_file, object_id);
     try self.parseUnwindInfo(macho_file, object_id);
-    try self.parseDataInCode(macho_file.base.allocator);
+    try self.parseDataInCode(gpa);
 }
 
 /// Splits input regular sections into Atoms.
 /// If the Object was compiled with `MH_SUBSECTIONS_VIA_SYMBOLS`, splits section
 /// into subsections where each subsection then represents an Atom.
 pub fn splitRegularSections(self: *Object, macho_file: *MachO, object_id: u32) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const target = macho_file.base.comp.root_mod.resolved_target.result;
 
     const sections = self.getSourceSections();
@@ -555,7 +558,8 @@ fn createAtomFromSubsection(
     alignment: Alignment,
     out_sect_id: u8,
 ) !Atom.Index {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const atom_index = try macho_file.createAtom(sym_index, .{
         .size = size,
         .alignment = alignment,
@@ -671,7 +675,8 @@ fn parseEhFrameSection(self: *Object, macho_file: *MachO, object_id: u32) !void 
 
     log.debug("parsing __TEXT,__eh_frame section", .{});
 
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
 
     if (macho_file.eh_frame_section_index == null) {
         macho_file.eh_frame_section_index = try macho_file.initSection("__TEXT", "__eh_frame", .{});
@@ -767,7 +772,8 @@ fn parseEhFrameSection(self: *Object, macho_file: *MachO, object_id: u32) !void 
 }
 
 fn parseUnwindInfo(self: *Object, macho_file: *MachO, object_id: u32) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const target = macho_file.base.comp.root_mod.resolved_target.result;
     const cpu_arch = target.cpu.arch;
     const sect_id = self.unwind_info_sect_id orelse {

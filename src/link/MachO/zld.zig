@@ -15,7 +15,7 @@ pub fn linkWithZld(
     const arena = arena_allocator.allocator();
 
     const directory = emit.directory; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{emit.?.sub_path});
+    const full_out_path = try directory.join(arena, &[_][]const u8{emit.sub_path});
     const opt_zcu = macho_file.base.comp.module;
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
@@ -71,14 +71,14 @@ pub fn linkWithZld(
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.add(stack_size);
-        man.hash.addOptional(macho_file.pagezero_vmsize);
-        man.hash.addOptional(macho_file.headerpad_size);
+        man.hash.add(macho_file.pagezero_vmsize);
+        man.hash.add(macho_file.headerpad_size);
         man.hash.add(macho_file.headerpad_max_install_names);
         man.hash.add(macho_file.base.gc_sections);
         man.hash.add(macho_file.dead_strip_dylibs);
         man.hash.add(macho_file.base.comp.root_mod.strip);
         try MachO.hashAddFrameworks(&man, macho_file.frameworks);
-        man.hash.addListOfBytes(macho_file.rpath_list);
+        man.hash.addListOfBytes(macho_file.base.rpath_list);
         if (is_dyn_lib) {
             man.hash.addOptionalBytes(macho_file.install_name);
             man.hash.addOptional(comp.version);
@@ -151,7 +151,7 @@ pub fn linkWithZld(
             try fs.cwd().copyFile(the_object_path, fs.cwd(), full_out_path, .{});
         }
     } else {
-        const sub_path = emit.?.sub_path;
+        const sub_path = emit.sub_path;
 
         const old_file = macho_file.base.file; // TODO is this needed at all?
         defer macho_file.base.file = old_file;
@@ -241,7 +241,7 @@ pub fn linkWithZld(
                 try argv.append(@tagName(platform.os_tag));
                 try argv.append(try std.fmt.allocPrint(arena, "{}", .{platform.version}));
 
-                const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(arena, comp);
+                const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(macho_file);
                 if (sdk_version) |ver| {
                     try argv.append(try std.fmt.allocPrint(arena, "{d}.{d}", .{ ver.major, ver.minor }));
                 } else {
@@ -254,13 +254,13 @@ pub fn linkWithZld(
                 try argv.append(syslibroot);
             }
 
-            for (macho_file.rpath_list) |rpath| {
+            for (macho_file.base.rpath_list) |rpath| {
                 try argv.append("-rpath");
                 try argv.append(rpath);
             }
 
             try argv.appendSlice(&.{
-                "-pagezero_size",  try std.fmt.allocPrint(arena, "0x{x}", .{macho_file.pagezero_size}),
+                "-pagezero_size",  try std.fmt.allocPrint(arena, "0x{x}", .{macho_file.pagezero_vmsize}),
                 "-headerpad_size", try std.fmt.allocPrint(arena, "0x{x}", .{macho_file.headerpad_size}),
             });
 
@@ -558,7 +558,7 @@ pub fn linkWithZld(
         });
         {
             const platform = Platform.fromTarget(target);
-            const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(arena, comp);
+            const sdk_version: ?std.SemanticVersion = load_commands.inferSdkVersion(macho_file);
             if (platform.isBuildVersionCompatible()) {
                 try load_commands.writeBuildVersionLC(platform, sdk_version, lc_writer);
             } else {
@@ -609,7 +609,8 @@ pub fn linkWithZld(
 }
 
 fn createSegments(macho_file: *MachO) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const target = macho_file.base.comp.root_mod.resolved_target.result;
     const page_size = MachO.getPageSize(target.cpu.arch);
     const aligned_pagezero_vmsize = mem.alignBackward(u64, macho_file.pagezero_vmsize, page_size);
@@ -683,7 +684,8 @@ fn createSegments(macho_file: *MachO) !void {
 }
 
 fn writeAtoms(macho_file: *MachO) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const slice = macho_file.sections.slice();
 
     for (slice.items(.first_atom_index), 0..) |first_atom_index, sect_id| {
@@ -758,7 +760,8 @@ fn writeDyldPrivateAtom(macho_file: *MachO) !void {
 fn writeThunks(macho_file: *MachO) !void {
     const target = macho_file.base.comp.root_mod.resolved_target.result;
     assert(target.cpu.arch == .aarch64);
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
 
     const sect_id = macho_file.text_section_index orelse return;
     const header = macho_file.sections.items(.header)[sect_id];
@@ -778,7 +781,8 @@ fn writeThunks(macho_file: *MachO) !void {
 }
 
 fn writePointerEntries(macho_file: *MachO, sect_id: u8, table: anytype) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const header = macho_file.sections.items(.header)[sect_id];
     const capacity = math.cast(usize, header.size) orelse return error.Overflow;
     var buffer = try std.ArrayList(u8).initCapacity(gpa, capacity);
@@ -792,7 +796,8 @@ fn writePointerEntries(macho_file: *MachO, sect_id: u8, table: anytype) !void {
 }
 
 fn writeStubs(macho_file: *MachO) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const target = macho_file.base.comp.root_mod.resolved_target.result;
     const cpu_arch = target.cpu.arch;
     const stubs_header = macho_file.sections.items(.header)[macho_file.stubs_section_index.?];
@@ -815,7 +820,8 @@ fn writeStubs(macho_file: *MachO) !void {
 }
 
 fn writeStubHelpers(macho_file: *MachO) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const target = macho_file.base.comp.root_mod.resolved_target.result;
     const cpu_arch = target.cpu.arch;
     const stub_helper_header = macho_file.sections.items(.header)[macho_file.stub_helper_section_index.?];
@@ -859,7 +865,8 @@ fn writeStubHelpers(macho_file: *MachO) !void {
 }
 
 fn writeLaSymbolPtrs(macho_file: *MachO) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const target = macho_file.base.comp.root_mod.resolved_target.result;
     const cpu_arch = target.cpu.arch;
     const la_symbol_ptr_header = macho_file.sections.items(.header)[macho_file.la_symbol_ptr_section_index.?];
@@ -892,7 +899,8 @@ fn pruneAndSortSections(macho_file: *MachO) !void {
         }
     };
 
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
 
     var entries = try std.ArrayList(Entry).initCapacity(gpa, macho_file.sections.slice().len);
     defer entries.deinit();

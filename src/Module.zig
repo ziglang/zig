@@ -4309,14 +4309,9 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
     decl.zir_decl_index = @enumFromInt(decl_sub_index);
     if (decl.getOwnedFunction(mod) != null) {
-        switch (comp.bin_file.tag) {
-            .coff, .elf, .macho, .plan9 => {
-                // TODO Look into detecting when this would be unnecessary by storing enough state
-                // in `Decl` to notice that the line number did not change.
-                comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
-            },
-            .c, .wasm, .spirv, .nvptx => {},
-        }
+        // TODO Look into detecting when this would be unnecessary by storing enough state
+        // in `Decl` to notice that the line number did not change.
+        comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
     }
 }
 
