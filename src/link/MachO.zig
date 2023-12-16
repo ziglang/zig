@@ -74,12 +74,6 @@ stub_table_count_dirty: bool = false,
 stub_table_contents_dirty: bool = false,
 stub_helper_preamble_allocated: bool = false,
 
-/// A helper var to indicate if we are at the start of the incremental updates, or
-/// already somewhere further along the update-and-run chain.
-/// TODO once we add opening a prelinked output binary from file, this will become
-/// obsolete as we will carry on where we left off.
-cold_start: bool = true,
-
 /// List of atoms that are either synthetic or map directly to the Zig source program.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
 
@@ -404,90 +398,37 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     var libs = std.StringArrayHashMap(link.SystemLib).init(arena);
     try self.resolveLibSystem(arena, comp, &libs);
 
-    const id_symlink_basename = "link.id";
-
-    const cache_dir_handle = module.zig_cache_artifact_directory.handle;
-    var man: Cache.Manifest = undefined;
-    defer man.deinit();
-
-    var digest: [Cache.hex_digest_len]u8 = undefined;
-    man = comp.cache_parent.obtain();
-    man.want_shared_lock = false;
     self.base.releaseLock();
 
-    man.hash.addListOfBytes(libs.keys());
-
-    _ = try man.hit();
-    digest = man.final();
-
-    var prev_digest_buf: [digest.len]u8 = undefined;
-    const prev_digest: []u8 = Cache.readSmallFile(
-        cache_dir_handle,
-        id_symlink_basename,
-        &prev_digest_buf,
-    ) catch |err| blk: {
-        log.debug("MachO Zld new_digest={s} error: {s}", .{
-            std.fmt.fmtSliceHexLower(&digest),
-            @errorName(err),
-        });
-        // Handle this as a cache miss.
-        break :blk prev_digest_buf[0..0];
-    };
-    const cache_miss: bool = cache_miss: {
-        if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("MachO Zld digest={s} match", .{
-                std.fmt.fmtSliceHexLower(&digest),
-            });
-            if (!self.cold_start) {
-                log.debug("  skipping parsing linker line objects", .{});
-                break :cache_miss false;
-            } else {
-                log.debug("  TODO parse prelinked binary and continue linking where we left off", .{});
-            }
-        }
-        log.debug("MachO Zld prev_digest={s} new_digest={s}", .{
-            std.fmt.fmtSliceHexLower(prev_digest),
-            std.fmt.fmtSliceHexLower(&digest),
-        });
-        // We are about to change the output file to be different, so we invalidate the build hash now.
-        cache_dir_handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return e,
-        };
-        break :cache_miss true;
-    };
-
-    if (cache_miss) {
-        for (self.dylibs.items) |*dylib| {
-            dylib.deinit(gpa);
-        }
-        self.dylibs.clearRetainingCapacity();
-        self.dylibs_map.clearRetainingCapacity();
-        self.referenced_dylibs.clearRetainingCapacity();
-
-        var dependent_libs = std.fifo.LinearFifo(DylibReExportInfo, .Dynamic).init(arena);
-
-        for (libs.keys(), libs.values()) |path, lib| {
-            const in_file = try std.fs.cwd().openFile(path, .{});
-            defer in_file.close();
-
-            var parse_ctx = ParseErrorCtx.init(gpa);
-            defer parse_ctx.deinit();
-
-            self.parseLibrary(
-                in_file,
-                path,
-                lib,
-                false,
-                false,
-                null,
-                &dependent_libs,
-                &parse_ctx,
-            ) catch |err| try self.handleAndReportParseError(path, err, &parse_ctx);
-        }
-
-        try self.parseDependentLibs(&dependent_libs);
+    for (self.dylibs.items) |*dylib| {
+        dylib.deinit(gpa);
     }
+    self.dylibs.clearRetainingCapacity();
+    self.dylibs_map.clearRetainingCapacity();
+    self.referenced_dylibs.clearRetainingCapacity();
+
+    var dependent_libs = std.fifo.LinearFifo(DylibReExportInfo, .Dynamic).init(arena);
+
+    for (libs.keys(), libs.values()) |path, lib| {
+        const in_file = try std.fs.cwd().openFile(path, .{});
+        defer in_file.close();
+
+        var parse_ctx = ParseErrorCtx.init(gpa);
+        defer parse_ctx.deinit();
+
+        self.parseLibrary(
+            in_file,
+            path,
+            lib,
+            false,
+            false,
+            null,
+            &dependent_libs,
+            &parse_ctx,
+        ) catch |err| try self.handleAndReportParseError(path, err, &parse_ctx);
+    }
+
+    try self.parseDependentLibs(&dependent_libs);
 
     try self.resolveSymbols();
 
@@ -666,23 +607,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         // Flush debug symbols bundle.
         try d_sym.flushModule(self);
     }
-
-    if (cache_miss) {
-        // Update the file with the digest. If it fails we can continue; it only
-        // means that the next invocation will have an unnecessary cache miss.
-        Cache.writeSmallFile(cache_dir_handle, id_symlink_basename, &digest) catch |err| {
-            log.debug("failed to save linking hash digest file: {s}", .{@errorName(err)});
-        };
-        // Again failure here only means an unnecessary cache miss.
-        man.writeManifest() catch |err| {
-            log.debug("failed to write cache manifest when linking: {s}", .{@errorName(err)});
-        };
-        // We hang on to this lock so that the output file path can be used without
-        // other processes clobbering it.
-        self.base.lock = man.toOwnedLock();
-    }
-
-    self.cold_start = false;
 }
 
 /// XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
