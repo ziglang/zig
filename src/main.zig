@@ -1491,6 +1491,10 @@ fn buildOutputType(
                         linker_allow_shlib_undefined = true;
                     } else if (mem.eql(u8, arg, "-fno-allow-shlib-undefined")) {
                         linker_allow_shlib_undefined = false;
+                    } else if (mem.eql(u8, arg, "--undefined-version")) {
+                        linker_allow_undefined_version = true;
+                    } else if (mem.eql(u8, arg, "--no-undefined-version")) {
+                        linker_allow_undefined_version = false;
                     } else if (mem.eql(u8, arg, "-z")) {
                         const z_arg = args_iter.nextOrFatal();
                         if (mem.eql(u8, z_arg, "nodelete")) {
