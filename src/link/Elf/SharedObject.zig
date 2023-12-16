@@ -47,7 +47,8 @@ pub fn deinit(self: *SharedObject, allocator: Allocator) void {
 }
 
 pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     var stream = std.io.fixedBufferStream(self.data);
     const reader = stream.reader();
 
@@ -101,7 +102,8 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
 }
 
 fn parseVersions(self: *SharedObject, elf_file: *Elf) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const symtab = self.getSymtabRaw();
 
     try self.verstrings.resize(gpa, 2);
@@ -146,7 +148,8 @@ fn parseVersions(self: *SharedObject, elf_file: *Elf) !void {
 }
 
 pub fn init(self: *SharedObject, elf_file: *Elf) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const symtab = self.getSymtabRaw();
     const strtab = self.getStrtabRaw();
 
@@ -295,7 +298,8 @@ pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {
         }
     };
 
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     var aliases = std.ArrayList(Symbol.Index).init(gpa);
     defer aliases.deinit();
     try aliases.ensureTotalCapacityPrecise(self.globals().len);

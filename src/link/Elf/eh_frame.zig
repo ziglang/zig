@@ -233,9 +233,12 @@ pub const Iterator = struct {
 };
 
 pub fn calcEhFrameSize(elf_file: *Elf) !usize {
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
+
     var offset: usize = 0;
 
-    var cies = std.ArrayList(Cie).init(elf_file.base.allocator);
+    var cies = std.ArrayList(Cie).init(gpa);
     defer cies.deinit();
 
     for (elf_file.objects.items) |index| {
@@ -327,7 +330,8 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
 }
 
 pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
 
     relocs_log.debug("{x}: .eh_frame", .{elf_file.shdrs.items[elf_file.eh_frame_section_index.?].sh_addr});
 
@@ -378,7 +382,8 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
 }
 
 pub fn writeEhFrameObject(elf_file: *Elf, writer: anytype) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
 
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
@@ -467,6 +472,9 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
 }
 
 pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
+
     try writer.writeByte(1); // version
     try writer.writeByte(EH_PE.pcrel | EH_PE.sdata4);
     try writer.writeByte(EH_PE.udata4);
@@ -495,7 +503,7 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
         }
     };
 
-    var entries = std.ArrayList(Entry).init(elf_file.base.allocator);
+    var entries = std.ArrayList(Entry).init(gpa);
     defer entries.deinit();
     try entries.ensureTotalCapacityPrecise(num_fdes);
 

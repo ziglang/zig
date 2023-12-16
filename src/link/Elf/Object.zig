@@ -66,7 +66,8 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
 
     if (self.header.?.e_shnum == 0) return;
 
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
 
     if (self.data.len < self.header.?.e_shoff or
         self.data.len < self.header.?.e_shoff + @as(u64, @intCast(self.header.?.e_shnum)) * @sizeOf(elf.Elf64_Shdr))
@@ -149,8 +150,10 @@ pub fn init(self: *Object, elf_file: *Elf) !void {
 }
 
 fn initAtoms(self: *Object, elf_file: *Elf) !void {
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const shdrs = self.shdrs.items;
-    try self.atoms.resize(elf_file.base.allocator, shdrs.len);
+    try self.atoms.resize(gpa, shdrs.len);
     @memset(self.atoms.items, 0);
 
     for (shdrs, 0..) |shdr, i| {
@@ -185,7 +188,6 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
                     continue;
                 }
 
-                const gpa = elf_file.base.allocator;
                 const gop = try elf_file.getOrCreateComdatGroupOwner(group_signature);
                 const comdat_group_index = try elf_file.addComdatGroup();
                 const comdat_group = elf_file.comdatGroup(comdat_group_index);
@@ -308,7 +310,8 @@ fn skipShdr(self: *Object, index: u16, elf_file: *Elf) bool {
 }
 
 fn initSymtab(self: *Object, elf_file: *Elf) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const first_global = self.first_global orelse self.symtab.items.len;
 
     try self.symbols.ensureTotalCapacityPrecise(gpa, self.symtab.items.len);
@@ -340,7 +343,8 @@ fn parseEhFrame(self: *Object, shndx: u16, elf_file: *Elf) !void {
         return;
     };
 
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const raw = self.shdrContents(shndx);
     const relocs = self.getRelocs(relocs_shndx);
     const fdes_start = self.fdes.items.len;
@@ -440,6 +444,8 @@ fn filterRelocs(
 }
 
 pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     for (self.atoms.items) |atom_index| {
         const atom = elf_file.atom(atom_index) orelse continue;
         if (!atom.flags.alive) continue;
@@ -450,7 +456,7 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
             // TODO ideally, we don't have to decompress at this stage (should already be done)
             // and we just fetch the code slice.
             const code = try self.codeDecompressAlloc(elf_file, atom_index);
-            defer elf_file.base.allocator.free(code);
+            defer gpa.free(code);
             try atom.scanRelocs(elf_file, code, undefs);
         } else try atom.scanRelocs(elf_file, null, undefs);
     }
@@ -623,7 +629,8 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
             continue;
         }
 
-        const gpa = elf_file.base.allocator;
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
 
         const atom_index = try elf_file.addAtom();
         try self.atoms.append(gpa, atom_index);
@@ -682,7 +689,8 @@ pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
         const shdr = atom.inputShdr(elf_file);
         atom.output_section_index = self.initOutputSection(elf_file, shdr) catch unreachable;
 
-        const gpa = elf_file.base.allocator;
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         const gop = try elf_file.output_sections.getOrPut(gpa, atom.output_section_index);
         if (!gop.found_existing) gop.value_ptr.* = .{};
         try gop.value_ptr.append(gpa, atom_index);
@@ -742,7 +750,8 @@ pub fn addAtomsToRelaSections(self: Object, elf_file: *Elf) !void {
         shdr.sh_info = atom.outputShndx().?;
         shdr.sh_link = elf_file.symtab_section_index.?;
 
-        const gpa = elf_file.base.allocator;
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         const gop = try elf_file.output_rela_sections.getOrPut(gpa, atom.outputShndx().?);
         if (!gop.found_existing) gop.value_ptr.* = .{ .shndx = shndx };
         try gop.value_ptr.atom_list.append(gpa, atom_index);
@@ -750,7 +759,8 @@ pub fn addAtomsToRelaSections(self: Object, elf_file: *Elf) !void {
 }
 
 pub fn updateArSymtab(self: Object, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const start = self.first_global orelse self.symtab.items.len;
 
     try ar_symtab.symtab.ensureUnusedCapacity(gpa, self.symtab.items.len - start);
@@ -857,7 +867,8 @@ pub fn shdrContents(self: Object, index: u32) []const u8 {
 /// Returns atom's code and optionally uncompresses data if required (for compressed sections).
 /// Caller owns the memory.
 pub fn codeDecompressAlloc(self: Object, elf_file: *Elf, atom_index: Atom.Index) ![]u8 {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const atom_ptr = elf_file.atom(atom_index).?;
     assert(atom_ptr.file_index == self.index);
     const data = self.shdrContents(atom_ptr.input_section_index);
