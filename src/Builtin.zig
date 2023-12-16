@@ -276,7 +276,7 @@ pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
 }
 
 fn writeFile(file: *File, mod: *Module) !void {
-    var af = try mod.root.atomicFile(mod.root_src_path, .{});
+    var af = try mod.root.atomicFile(mod.root_src_path, .{ .make_path = true });
     defer af.deinit();
     try af.file.writeAll(file.source);
     try af.finish();

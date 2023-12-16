@@ -1119,6 +1119,11 @@ fn addModuleTableToCacheHash(
     var i: usize = 0;
     while (i < seen_table.count()) : (i += 1) {
         const mod = seen_table.keys()[i];
+        if (mod.isBuiltin()) {
+            // Skip builtin.zig; it is useless as an input, and we don't want to
+            // have to write it before checking for a cache hit.
+            continue;
+        }
 
         cache_helpers.addResolvedTarget(hash, mod.resolved_target);
         hash.add(mod.optimize_mode);
@@ -1133,6 +1138,8 @@ fn addModuleTableToCacheHash(
         hash.add(mod.red_zone);
         hash.add(mod.sanitize_c);
         hash.add(mod.sanitize_thread);
+        hash.add(mod.unwind_tables);
+        hash.add(mod.structured_cfg);
 
         switch (hash_type) {
             .path_bytes => {
@@ -2371,7 +2378,6 @@ pub const link_hash_implementation_version = 10;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
-    const target = comp.getTarget();
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
@@ -2432,6 +2438,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.include_compiler_rt);
     if (comp.config.link_libc) {
         man.hash.add(comp.libc_installation != null);
+        const target = comp.root_mod.resolved_target.result;
         if (comp.libc_installation) |libc_installation| {
             man.hash.addOptionalBytes(libc_installation.crt_dir);
             if (target.abi == .msvc) {

@@ -40,7 +40,7 @@ builtin_file: ?*File,
 pub const Deps = std.StringArrayHashMapUnmanaged(*Module);
 
 pub fn isBuiltin(m: Module) bool {
-    return m.file != null;
+    return m.builtin_file != null;
 }
 
 pub const Tree = struct {

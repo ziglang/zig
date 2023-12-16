@@ -898,14 +898,22 @@ pub const Object = struct {
                 // very location dependent.
                 // TODO: the only concern I have with this is WASI as either host or target, should
                 // we leave the paths as relative then?
+                // TODO: This is totally wrong. In dwarf, paths are encoded as relative to
+                // a particular directory, and then the directory path is specified elsewhere.
+                // In the compiler frontend we have it stored correctly in this
+                // way already, but here we throw all that sweet information
+                // into the garbage can by converting into absolute paths. What
+                // a terrible tragedy.
                 const compile_unit_dir_z = blk: {
                     if (comp.module) |zcu| m: {
                         const d = try zcu.root_mod.root.joinStringZ(arena, "");
                         if (d.len == 0) break :m;
                         if (std.fs.path.isAbsolute(d)) break :blk d;
-                        break :blk std.fs.realpathAlloc(arena, d) catch d;
+                        const realpath = std.fs.realpathAlloc(arena, d) catch break :blk d;
+                        break :blk try arena.dupeZ(u8, realpath);
                     }
-                    break :blk try std.process.getCwdAlloc(arena);
+                    const cwd = try std.process.getCwdAlloc(arena);
+                    break :blk try arena.dupeZ(u8, cwd);
                 };
 
                 builder.llvm.di_compile_unit = builder.llvm.di_builder.?.createCompileUnit(
