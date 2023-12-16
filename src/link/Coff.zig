@@ -3,7 +3,7 @@
 //! LLD for traditional linking (linking relocatable object files).
 //! LLD is also the default linker for LLVM.
 
-/// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
+/// If this is not null, an object file is created by LLVM and emitted to intermediary_basename.
 llvm_object: ?*LlvmObject = null,
 
 base: link.File,
@@ -1711,17 +1711,22 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = comp.gpa;
+
     if (self.llvm_object) |llvm_object| {
-        return try llvm_object.flushModule(comp, prog_node);
+        var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+        defer arena_allocator.deinit();
+        const arena = arena_allocator.allocator();
+
+        try self.base.emitLlvmObject(arena, llvm_object, prog_node);
+        return;
     }
 
     var sub_prog_node = prog_node.start("COFF Flush", 0);
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    const gpa = self.base.comp.gpa;
-
-    const module = self.base.comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    const module = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     if (self.lazy_syms.getPtr(.none)) |metadata| {
         // Most lazy symbols can be updated on first use, but
@@ -1822,7 +1827,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     try self.writeDataDirectoriesHeaders();
     try self.writeSectionHeaders();
 
-    if (self.entry_addr == null and self.base.comp.config.output_mode == .Exe) {
+    if (self.entry_addr == null and comp.config.output_mode == .Exe) {
         log.debug("flushing. no_entry_point_found = true\n", .{});
         self.base.error_flags.no_entry_point_found = true;
     } else {

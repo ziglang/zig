@@ -3700,8 +3700,15 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = comp.gpa;
+    // Used for all temporary memory allocated during flushin
+    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
     if (wasm.llvm_object) |llvm_object| {
-        return try llvm_object.flushModule(comp, prog_node);
+        try wasm.base.emitLlvmObject(arena, llvm_object, prog_node);
+        return;
     }
 
     var sub_prog_node = prog_node.start("Wasm Flush", 0);
@@ -3711,13 +3718,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     // ensure the error names table is populated when an error name is referenced
     try wasm.populateErrorNameTable();
 
-    // Used for all temporary memory allocated during flushin
-    const gpa = wasm.base.comp.gpa;
-    var arena_instance = std.heap.ArenaAllocator.init(gpa);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
-
-    const objects = wasm.base.comp.objects;
+    const objects = comp.objects;
 
     // Positional arguments to the linker such as object files and static archives.
     var positionals = std.ArrayList([]const u8).init(arena);
@@ -3755,7 +3756,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     try wasm.markReferences();
     try wasm.setupErrorsLen();
     try wasm.setupImports();
-    if (wasm.base.comp.module) |mod| {
+    if (comp.module) |mod| {
         var decl_it = wasm.decls.iterator();
         while (decl_it.next()) |entry| {
             const decl = mod.declPtr(entry.key_ptr.*);
@@ -3810,7 +3811,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
 
         if (wasm.dwarf) |*dwarf| {
-            try dwarf.flushModule(wasm.base.comp.module.?);
+            try dwarf.flushModule(comp.module.?);
         }
     }
 

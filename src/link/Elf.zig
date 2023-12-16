@@ -27,7 +27,7 @@ version_script: ?[]const u8,
 
 ptr_width: PtrWidth,
 
-/// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
+/// If this is not null, an object file is created by LLVM and emitted to intermediary_basename.
 llvm_object: ?*LlvmObject = null,
 
 /// A list of all input files.
@@ -1031,24 +1031,23 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (self.llvm_object) |llvm_object| {
-        try llvm_object.flushModule(comp, prog_node);
-
-        const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
-        if (use_lld) return;
-    }
-
-    const gpa = self.base.comp.gpa;
-    var sub_prog_node = prog_node.start("ELF Flush", 0);
-    sub_prog_node.activate();
-    defer sub_prog_node.end();
-
+    const gpa = comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const target = self.base.comp.root_mod.resolved_target.result;
-    const link_mode = self.base.comp.config.link_mode;
+    if (self.llvm_object) |llvm_object| {
+        try self.base.emitLlvmObject(arena, llvm_object, prog_node);
+        const use_lld = build_options.have_llvm and comp.config.use_lld;
+        if (use_lld) return;
+    }
+
+    var sub_prog_node = prog_node.start("ELF Flush", 0);
+    sub_prog_node.activate();
+    defer sub_prog_node.end();
+
+    const target = comp.root_mod.resolved_target.result;
+    const link_mode = comp.config.link_mode;
     const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
     const module_obj_path: ?[]const u8 = if (self.base.intermediary_basename) |path| blk: {
@@ -1060,7 +1059,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     } else null;
 
     // --verbose-link
-    if (self.base.comp.verbose_link) try self.dumpArgv(comp);
+    if (comp.verbose_link) try self.dumpArgv(comp);
 
     const csu = try CsuObjects.init(arena, comp);
     const compiler_rt_path: ?[]const u8 = blk: {
@@ -1082,8 +1081,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (csu.crti) |v| try positionals.append(.{ .path = v });
     if (csu.crtbegin) |v| try positionals.append(.{ .path = v });
 
-    try positionals.ensureUnusedCapacity(self.base.comp.objects.len);
-    positionals.appendSliceAssumeCapacity(self.base.comp.objects);
+    try positionals.ensureUnusedCapacity(comp.objects.len);
+    positionals.appendSliceAssumeCapacity(comp.objects);
 
     // This is a set of object files emitted by clang in a single `build-exe` invocation.
     // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
@@ -1106,13 +1105,13 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         var test_path = std.ArrayList(u8).init(gpa);
         defer test_path.deinit();
         for (self.lib_dirs) |lib_dir_path| {
-            for (self.base.comp.system_libs.keys()) |link_lib| {
+            for (comp.system_libs.keys()) |link_lib| {
                 if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
                     continue;
                 _ = try rpath_table.put(lib_dir_path, {});
             }
         }
-        for (self.base.comp.objects) |obj| {
+        for (comp.objects) |obj| {
             if (Compilation.classifyFileExt(obj.path) == .shared_library) {
                 const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
                 if (obj.loption) continue;
@@ -1122,7 +1121,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     }
 
     // TSAN
-    if (self.base.comp.config.any_sanitize_thread) {
+    if (comp.config.any_sanitize_thread) {
         try positionals.append(.{ .path = comp.tsan_static_lib.?.full_object_path });
     }
 
@@ -1146,27 +1145,27 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     var system_libs = std.ArrayList(SystemLib).init(arena);
 
-    try system_libs.ensureUnusedCapacity(self.base.comp.system_libs.values().len);
-    for (self.base.comp.system_libs.values()) |lib_info| {
+    try system_libs.ensureUnusedCapacity(comp.system_libs.values().len);
+    for (comp.system_libs.values()) |lib_info| {
         system_libs.appendAssumeCapacity(.{ .needed = lib_info.needed, .path = lib_info.path.? });
     }
 
     // libc++ dep
-    if (self.base.comp.config.link_libcpp) {
+    if (comp.config.link_libcpp) {
         try system_libs.ensureUnusedCapacity(2);
         system_libs.appendAssumeCapacity(.{ .path = comp.libcxxabi_static_lib.?.full_object_path });
         system_libs.appendAssumeCapacity(.{ .path = comp.libcxx_static_lib.?.full_object_path });
     }
 
     // libunwind dep
-    if (self.base.comp.config.link_libunwind) {
+    if (comp.config.link_libunwind) {
         try system_libs.append(.{ .path = comp.libunwind_static_lib.?.full_object_path });
     }
 
     // libc dep
     self.base.error_flags.missing_libc = false;
-    if (self.base.comp.config.link_libc) {
-        if (self.base.comp.libc_installation) |lc| {
+    if (comp.config.link_libc) {
+        if (comp.libc_installation) |lc| {
             const flags = target_util.libcFullLinkFlags(target);
             try system_libs.ensureUnusedCapacity(flags.len);
 
@@ -1305,7 +1304,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Look for entry address in objects if not set by the incremental compiler.
     if (self.entry_index == null) {
         const entry: ?[]const u8 = entry: {
-            if (self.base.comp.config.entry) |entry| break :entry entry;
+            if (comp.config.entry) |entry| break :entry entry;
             if (!self.base.isDynLib()) break :entry "_start";
             break :entry null;
         };

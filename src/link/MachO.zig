@@ -1,6 +1,6 @@
 base: File,
 
-/// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
+/// If this is not null, an object file is created by LLVM and emitted to intermediary_basename.
 llvm_object: ?*LlvmObject = null,
 
 /// Debug symbols bundle (or dSym).
@@ -352,22 +352,23 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (self.llvm_object) |llvm_object| {
-        return try llvm_object.flushModule(comp, prog_node);
-    }
-
-    const gpa = self.base.comp.gpa;
+    const gpa = comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
+
+    if (self.llvm_object) |llvm_object| {
+        try self.base.emitLlvmObject(arena, llvm_object, prog_node);
+        return;
+    }
 
     var sub_prog_node = prog_node.start("MachO Flush", 0);
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    const output_mode = self.base.comp.config.output_mode;
-    const module = self.base.comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
-    const target = self.base.comp.root_mod.resolved_target.result;
+    const output_mode = comp.config.output_mode;
+    const module = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    const target = comp.root_mod.resolved_target.result;
 
     if (self.lazy_syms.getPtr(.none)) |metadata| {
         // Most lazy symbols can be updated on first use, but
@@ -619,7 +620,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                 .stacksize = self.base.stack_size,
             });
         },
-        .Lib => if (self.base.comp.config.link_mode == .Dynamic) {
+        .Lib => if (comp.config.link_mode == .Dynamic) {
             try load_commands.writeDylibIdLC(self, lc_writer);
         },
         else => {},
