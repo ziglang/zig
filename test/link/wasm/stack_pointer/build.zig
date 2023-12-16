@@ -30,7 +30,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const check_lib = lib.checkObject();
 
     // ensure global exists and its initial value is equal to explitic stack size
-    check_lib.checkStart();
+    check_lib.checkInHeaders();
     check_lib.checkExact("Section global");
     check_lib.checkExact("entries 1");
     check_lib.checkExact("type i32"); // on wasm32 the stack pointer must be i32
@@ -39,13 +39,13 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     check_lib.checkComputeCompare("stack_pointer", .{ .op = .eq, .value = .{ .literal = lib.stack_size.? } });
 
     // validate memory section starts after virtual stack
-    check_lib.checkStart();
+    check_lib.checkInHeaders();
     check_lib.checkExact("Section data");
     check_lib.checkExtract("i32.const {data_start}");
     check_lib.checkComputeCompare("data_start", .{ .op = .eq, .value = .{ .variable = "stack_pointer" } });
 
     // validate the name of the stack pointer
-    check_lib.checkStart();
+    check_lib.checkInHeaders();
     check_lib.checkExact("Section custom");
     check_lib.checkExact("type global");
     check_lib.checkExact("names 1");

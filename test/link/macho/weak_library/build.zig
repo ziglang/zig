@@ -37,15 +37,15 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.addRPath(dylib.getEmittedBinDirectory());
 
     const check = exe.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("cmd LOAD_WEAK_DYLIB");
     check.checkExact("name @rpath/liba.dylib");
 
     check.checkInSymtab();
-    check.checkExact("(undefined) weak external _a (from liba)");
+    check.checkExact("(undefined) weakref external _a (from liba)");
 
     check.checkInSymtab();
-    check.checkExact("(undefined) weak external _asStr (from liba)");
+    check.checkExact("(undefined) weakref external _asStr (from liba)");
     test_step.dependOn(&check.step);
 
     const run = b.addRunArtifact(exe);

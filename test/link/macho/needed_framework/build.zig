@@ -26,7 +26,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.dead_strip_dylibs = true;
 
     const check = exe.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("cmd LOAD_DYLIB");
     check.checkContains("Cocoa");
     test_step.dependOn(&check.step);

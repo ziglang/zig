@@ -184,7 +184,6 @@ pub const Options = struct {
     dll_export_fns: bool,
     error_return_tracing: bool,
     skip_linker_dependencies: bool,
-    parent_compilation_link_libc: bool,
     each_lib_rpath: bool,
     build_id: BuildId,
     disable_lld_caching: bool,

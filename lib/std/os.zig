@@ -7271,7 +7271,7 @@ pub fn perf_event_open(
     group_fd: fd_t,
     flags: usize,
 ) PerfEventOpenError!fd_t {
-    const rc = system.perf_event_open(attr, pid, cpu, group_fd, flags);
+    const rc = linux.perf_event_open(attr, pid, cpu, group_fd, flags);
     switch (errno(rc)) {
         .SUCCESS => return @as(fd_t, @intCast(rc)),
         .@"2BIG" => return error.TooBig,

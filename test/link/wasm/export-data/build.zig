@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
 
     const check_lib = lib.checkObject();
 
-    check_lib.checkStart();
+    check_lib.checkInHeaders();
     check_lib.checkExact("Section global");
     check_lib.checkExact("entries 3");
     check_lib.checkExact("type i32"); // stack pointer so skip other fields
@@ -35,7 +35,7 @@ pub fn build(b: *std.Build) void {
     check_lib.checkComputeCompare("foo_address", .{ .op = .eq, .value = .{ .literal = 4 } });
     check_lib.checkComputeCompare("bar_address", .{ .op = .eq, .value = .{ .literal = 0 } });
 
-    check_lib.checkStart();
+    check_lib.checkInHeaders();
     check_lib.checkExact("Section export");
     check_lib.checkExact("entries 3");
     check_lib.checkExact("name foo");
