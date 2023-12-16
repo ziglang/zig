@@ -4,6 +4,7 @@
 //! Think about this as fake in-memory Object file for the Zig module.
 
 data: std.ArrayListUnmanaged(u8) = .{},
+/// Externally owned memory.
 path: []const u8,
 index: File.Index,
 
@@ -109,7 +110,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
 
 pub fn deinit(self: *ZigObject, allocator: Allocator) void {
     self.data.deinit(allocator);
-    allocator.free(self.path);
     self.local_esyms.deinit(allocator);
     self.global_esyms.deinit(allocator);
     self.strtab.deinit(allocator);
