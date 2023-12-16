@@ -138,6 +138,50 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const abi_namespace_arg = try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
         @intFromEnum(comp.libcxx_abi_version),
     });
+
+    const optimize_mode = comp.compilerRtOptMode();
+    const strip = comp.compilerRtStrip();
+
+    const config = try Compilation.Config.resolve(.{
+        .output_mode = output_mode,
+        .link_mode = link_mode,
+        .resolved_target = comp.root_mod.resolved_target,
+        .is_test = false,
+        .have_zcu = false,
+        .emit_bin = true,
+        .root_optimize_mode = optimize_mode,
+        .root_strip = strip,
+        .link_libc = true,
+        .lto = comp.config.lto,
+    });
+
+    const root_mod = try Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
+        .paths = .{
+            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root_src_path = "",
+        },
+        .fully_qualified_name = "root",
+        .inherited = .{
+            .resolved_target = comp.root_mod.resolved_target,
+            .strip = strip,
+            .stack_check = false,
+            .stack_protector = 0,
+            .sanitize_c = false,
+            .sanitize_thread = comp.config.any_sanitize_thread,
+            .red_zone = comp.root_mod.red_zone,
+            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            .valgrind = false,
+            .optimize_mode = optimize_mode,
+            .structured_cfg = comp.root_mod.structured_cfg,
+            .pic = comp.root_mod.pic,
+        },
+        .global = config,
+        .cc_argv = &.{},
+        .parent = null,
+        .builtin_mod = null,
+    });
+
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxx_files.len);
 
     for (libcxx_files) |cxx_src| {
@@ -224,51 +268,9 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", cxx_src }),
             .extra_flags = cflags.items,
             .cache_exempt_flags = cache_exempt_flags.items,
+            .owner = root_mod,
         });
     }
-
-    const optimize_mode = comp.compilerRtOptMode();
-    const strip = comp.compilerRtStrip();
-
-    const config = try Compilation.Config.resolve(.{
-        .output_mode = output_mode,
-        .link_mode = link_mode,
-        .resolved_target = comp.root_mod.resolved_target,
-        .is_test = false,
-        .have_zcu = false,
-        .emit_bin = true,
-        .root_optimize_mode = optimize_mode,
-        .root_strip = strip,
-        .link_libc = true,
-        .lto = comp.config.lto,
-    });
-
-    const root_mod = try Module.create(arena, .{
-        .global_cache_directory = comp.global_cache_directory,
-        .paths = .{
-            .root = .{ .root_dir = comp.zig_lib_directory },
-            .root_src_path = "",
-        },
-        .fully_qualified_name = "root",
-        .inherited = .{
-            .resolved_target = comp.root_mod.resolved_target,
-            .strip = strip,
-            .stack_check = false,
-            .stack_protector = 0,
-            .sanitize_c = false,
-            .sanitize_thread = comp.config.any_sanitize_thread,
-            .red_zone = comp.root_mod.red_zone,
-            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
-            .valgrind = false,
-            .optimize_mode = optimize_mode,
-            .structured_cfg = comp.root_mod.structured_cfg,
-            .pic = comp.root_mod.pic,
-        },
-        .global = config,
-        .cc_argv = &.{},
-        .parent = null,
-        .builtin_mod = null,
-    });
 
     const sub_compilation = try Compilation.create(comp.gpa, .{
         .local_cache_directory = comp.global_cache_directory,
@@ -339,6 +341,53 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const abi_namespace_arg = try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
         @intFromEnum(comp.libcxx_abi_version),
     });
+
+    const optimize_mode = comp.compilerRtOptMode();
+    const strip = comp.compilerRtStrip();
+    const unwind_tables = true;
+
+    const config = try Compilation.Config.resolve(.{
+        .output_mode = output_mode,
+        .link_mode = link_mode,
+        .resolved_target = comp.root_mod.resolved_target,
+        .is_test = false,
+        .have_zcu = false,
+        .emit_bin = true,
+        .root_optimize_mode = optimize_mode,
+        .root_strip = strip,
+        .link_libc = true,
+        .any_unwind_tables = unwind_tables,
+        .lto = comp.config.lto,
+    });
+
+    const root_mod = try Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
+        .paths = .{
+            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root_src_path = "",
+        },
+        .fully_qualified_name = "root",
+        .inherited = .{
+            .resolved_target = comp.root_mod.resolved_target,
+            .strip = strip,
+            .stack_check = false,
+            .stack_protector = 0,
+            .sanitize_c = false,
+            .sanitize_thread = comp.config.any_sanitize_thread,
+            .red_zone = comp.root_mod.red_zone,
+            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            .valgrind = false,
+            .optimize_mode = optimize_mode,
+            .structured_cfg = comp.root_mod.structured_cfg,
+            .unwind_tables = unwind_tables,
+            .pic = comp.root_mod.pic,
+        },
+        .global = config,
+        .cc_argv = &.{},
+        .parent = null,
+        .builtin_mod = null,
+    });
+
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
 
     for (libcxxabi_files) |cxxabi_src| {
@@ -406,54 +455,9 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", cxxabi_src }),
             .extra_flags = cflags.items,
             .cache_exempt_flags = cache_exempt_flags.items,
+            .owner = root_mod,
         });
     }
-
-    const optimize_mode = comp.compilerRtOptMode();
-    const strip = comp.compilerRtStrip();
-    const unwind_tables = true;
-
-    const config = try Compilation.Config.resolve(.{
-        .output_mode = output_mode,
-        .link_mode = link_mode,
-        .resolved_target = comp.root_mod.resolved_target,
-        .is_test = false,
-        .have_zcu = false,
-        .emit_bin = true,
-        .root_optimize_mode = optimize_mode,
-        .root_strip = strip,
-        .link_libc = true,
-        .any_unwind_tables = unwind_tables,
-        .lto = comp.config.lto,
-    });
-
-    const root_mod = try Module.create(arena, .{
-        .global_cache_directory = comp.global_cache_directory,
-        .paths = .{
-            .root = .{ .root_dir = comp.zig_lib_directory },
-            .root_src_path = "",
-        },
-        .fully_qualified_name = "root",
-        .inherited = .{
-            .resolved_target = comp.root_mod.resolved_target,
-            .strip = strip,
-            .stack_check = false,
-            .stack_protector = 0,
-            .sanitize_c = false,
-            .sanitize_thread = comp.config.any_sanitize_thread,
-            .red_zone = comp.root_mod.red_zone,
-            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
-            .valgrind = false,
-            .optimize_mode = optimize_mode,
-            .structured_cfg = comp.root_mod.structured_cfg,
-            .unwind_tables = unwind_tables,
-            .pic = comp.root_mod.pic,
-        },
-        .global = config,
-        .cc_argv = &.{},
-        .parent = null,
-        .builtin_mod = null,
-    });
 
     const sub_compilation = try Compilation.create(comp.gpa, .{
         .local_cache_directory = comp.global_cache_directory,

@@ -23,6 +23,8 @@ soname: ?[]const u8,
 bind_global_refs_locally: bool,
 linker_script: ?[]const u8,
 version_script: ?[]const u8,
+print_icf_sections: bool,
+print_map: bool,
 
 ptr_width: PtrWidth,
 
@@ -307,6 +309,8 @@ pub fn createEmpty(
         .bind_global_refs_locally = options.bind_global_refs_locally,
         .linker_script = options.linker_script,
         .version_script = options.version_script,
+        .print_icf_sections = options.print_icf_sections,
+        .print_map = options.print_map,
     };
     if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, comp);
@@ -1294,12 +1298,9 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // Look for entry address in objects if not set by the incremental compiler.
     if (self.entry_index == null) {
-        const entry: ?[]const u8 = entry: {
-            if (comp.config.entry) |entry| break :entry entry;
-            if (!self.base.isDynLib()) break :entry "_start";
-            break :entry null;
-        };
-        self.entry_index = if (entry) |name| self.globalByName(name) else null;
+        if (comp.config.entry) |name| {
+            self.entry_index = self.globalByName(name);
+        }
     }
 
     if (self.base.gc_sections) {
@@ -2420,7 +2421,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.addOptionalBytes(comp.config.entry);
-        man.hash.addOptional(self.image_base);
+        man.hash.add(self.image_base);
         man.hash.add(self.base.gc_sections);
         man.hash.addOptional(self.sort_section);
         man.hash.add(self.eh_frame_hdr);
@@ -5896,7 +5897,7 @@ pub fn addSymbol(self: *Elf) !Symbol.Index {
             break :blk index;
         } else {
             log.debug("  (allocating symbol index {d})", .{self.symbols.items.len});
-            const index = @as(Symbol.Index, @intCast(self.symbols.items.len));
+            const index: Symbol.Index = @intCast(self.symbols.items.len);
             _ = self.symbols.addOneAssumeCapacity();
             break :blk index;
         }
@@ -5961,6 +5962,7 @@ pub fn getOrPutGlobal(self: *Elf, name: []const u8) !GetOrPutGlobalResult {
     const gop = try self.resolver.getOrPut(gpa, name_off);
     if (!gop.found_existing) {
         const index = try self.addSymbol();
+        log.debug("added symbol '{s}' at index {d}", .{ name, index });
         const global = self.symbol(index);
         global.name_offset = name_off;
         global.flags.global = true;
@@ -5996,7 +5998,7 @@ pub fn getOrCreateComdatGroupOwner(self: *Elf, name: [:0]const u8) !GetOrCreateC
     const off = try self.strings.insert(gpa, name);
     const gop = try self.comdat_groups_table.getOrPut(gpa, off);
     if (!gop.found_existing) {
-        const index = @as(ComdatGroupOwner.Index, @intCast(self.comdat_groups_owners.items.len));
+        const index: ComdatGroupOwner.Index = @intCast(self.comdat_groups_owners.items.len);
         const owner = try self.comdat_groups_owners.addOne(gpa);
         owner.* = .{};
         gop.value_ptr.* = index;

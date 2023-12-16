@@ -34,12 +34,14 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             try args.appendSlice(&[_][]const u8{
                 "-Qunused-arguments",
             });
-            return comp.build_crt_file("crti", .Obj, .@"musl crti.o", prog_node, &.{
+            var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crti.s"),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 },
-            });
+            };
+            return comp.build_crt_file("crti", .Obj, .@"musl crti.o", prog_node, &files);
         },
         .crtn_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -47,12 +49,14 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             try args.appendSlice(&[_][]const u8{
                 "-Qunused-arguments",
             });
-            return comp.build_crt_file("crtn", .Obj, .@"musl crtn.o", prog_node, &.{
+            var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crtn.s"),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 },
-            });
+            };
+            return comp.build_crt_file("crtn", .Obj, .@"musl crtn.o", prog_node, &files);
         },
         .crt1_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -61,14 +65,16 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 "-fno-stack-protector",
                 "-DCRT",
             });
-            return comp.build_crt_file("crt1", .Obj, .@"musl crt1.o", prog_node, &.{
+            var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "musl", "crt", "crt1.c",
                     }),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 },
-            });
+            };
+            return comp.build_crt_file("crt1", .Obj, .@"musl crt1.o", prog_node, &files);
         },
         .rcrt1_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -78,14 +84,16 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 "-fno-stack-protector",
                 "-DCRT",
             });
-            return comp.build_crt_file("rcrt1", .Obj, .@"musl rcrt1.o", prog_node, &.{
+            var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "musl", "crt", "rcrt1.c",
                     }),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 },
-            });
+            };
+            return comp.build_crt_file("rcrt1", .Obj, .@"musl rcrt1.o", prog_node, &files);
         },
         .scrt1_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -95,14 +103,16 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 "-fno-stack-protector",
                 "-DCRT",
             });
-            return comp.build_crt_file("Scrt1", .Obj, .@"musl Scrt1.o", prog_node, &.{
+            var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "musl", "crt", "Scrt1.c",
                     }),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 },
-            });
+            };
+            return comp.build_crt_file("Scrt1", .Obj, .@"musl Scrt1.o", prog_node, &files);
         },
         .libc_a => {
             // When there is a src/<arch>/foo.* then it should substitute for src/foo.*
@@ -186,6 +196,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 c_source_file.* = .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", src_file }),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 };
             }
             return comp.build_crt_file("c", .Lib, .@"musl libc.a", prog_node, c_source_files.items);
@@ -235,7 +246,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                     .structured_cfg = comp.root_mod.structured_cfg,
                 },
                 .global = config,
-                .cc_argv = &.{},
+                .cc_argv = cc_argv,
                 .parent = null,
                 .builtin_mod = null,
             });
@@ -261,9 +272,11 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
                 .clang_passthrough_mode = comp.clang_passthrough_mode,
                 .c_source_files = &[_]Compilation.CSourceFile{
-                    .{ .src_path = try comp.zig_lib_directory.join(arena, &.{ "libc", "musl", "libc.S" }) },
+                    .{
+                        .src_path = try comp.zig_lib_directory.join(arena, &.{ "libc", "musl", "libc.S" }),
+                        .owner = root_mod,
+                    },
                 },
-                .cc_argv = cc_argv,
                 .skip_linker_dependencies = true,
                 .soname = "libc.so",
             });

@@ -18,6 +18,8 @@ major_subsystem_version: u16,
 minor_subsystem_version: u16,
 lib_dirs: []const []const u8,
 entry_addr: ?u32,
+module_definition_file: ?[]const u8,
+pdb_out_path: ?[]const u8,
 
 ptr_width: PtrWidth,
 page_size: u32,
@@ -425,6 +427,8 @@ pub fn createEmpty(
         .lib_dirs = options.lib_dirs,
         .entry_addr = math.cast(u32, options.entry_addr orelse 0) orelse
             return error.EntryAddressTooBig,
+        .module_definition_file = options.module_definition_file,
+        .pdb_out_path = options.pdb_out_path,
     };
 
     const use_llvm = comp.config.use_llvm;

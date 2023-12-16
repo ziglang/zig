@@ -170,7 +170,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const target = comp.getTarget();
+    const target = comp.root_mod.resolved_target.result;
     const target_ver = target.os.version_range.linux.glibc;
     const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33, .patch = 0 }) != .gt;
 
@@ -196,12 +196,14 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 "-DASSEMBLER",
                 "-Wa,--noexecstack",
             });
-            return comp.build_crt_file("crti", .Obj, .@"glibc crti.o", prog_node, &.{
+            var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crti.S"),
                     .cache_exempt_flags = args.items,
+                    .owner = comp.root_mod,
                 },
-            });
+            };
+            return comp.build_crt_file("crti", .Obj, .@"glibc crti.o", prog_node, &files);
         },
         .crtn_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -215,12 +217,14 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 "-DASSEMBLER",
                 "-Wa,--noexecstack",
             });
-            return comp.build_crt_file("crtn", .Obj, .@"glibc crtn.o", prog_node, &.{
+            var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crtn.S"),
                     .cache_exempt_flags = args.items,
+                    .owner = undefined,
                 },
-            });
+            };
+            return comp.build_crt_file("crtn", .Obj, .@"glibc crtn.o", prog_node, &files);
         },
         .scrt1_o => {
             const start_o: Compilation.CSourceFile = blk: {
@@ -244,6 +248,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 break :blk .{
                     .src_path = try start_asm_path(comp, arena, src_path),
                     .cache_exempt_flags = args.items,
+                    .owner = undefined,
                 };
             };
             const abi_note_o: Compilation.CSourceFile = blk: {
@@ -263,11 +268,11 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 break :blk .{
                     .src_path = try lib_path(comp, arena, lib_libc_glibc ++ "csu" ++ path.sep_str ++ "abi-note.S"),
                     .cache_exempt_flags = args.items,
+                    .owner = undefined,
                 };
             };
-            return comp.build_crt_file("Scrt1", .Obj, .@"glibc Scrt1.o", prog_node, &.{
-                start_o, abi_note_o,
-            });
+            var files = [_]Compilation.CSourceFile{ start_o, abi_note_o };
+            return comp.build_crt_file("Scrt1", .Obj, .@"glibc Scrt1.o", prog_node, &files);
         },
         .libc_nonshared_a => {
             const s = path.sep_str;
@@ -364,6 +369,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 files_buf[files_index] = .{
                     .src_path = try lib_path(comp, arena, dep.path),
                     .cache_exempt_flags = args.items,
+                    .owner = undefined,
                 };
                 files_index += 1;
             }
@@ -1065,6 +1071,7 @@ fn buildSharedLib(
     const c_source_files = [1]Compilation.CSourceFile{
         .{
             .src_path = try path.join(arena, &[_][]const u8{ bin_directory.path.?, asm_file_basename }),
+            .owner = undefined,
         },
     };
 

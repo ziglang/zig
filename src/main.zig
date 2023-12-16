@@ -3481,7 +3481,7 @@ fn buildOutputType(
     defer if (!comp_destroyed) comp.destroy();
 
     if (show_builtin) {
-        const builtin_mod = comp.root_mod.deps.get("builtin").?;
+        const builtin_mod = comp.root_mod.getBuiltinDependency();
         const source = builtin_mod.builtin_file.?.source;
         return std.io.getStdOut().writeAll(source);
     }

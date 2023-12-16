@@ -34,6 +34,52 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .basename = basename,
     };
 
+    const optimize_mode = comp.compilerRtOptMode();
+    const strip = comp.compilerRtStrip();
+
+    const config = try Compilation.Config.resolve(.{
+        .output_mode = output_mode,
+        .link_mode = link_mode,
+        .resolved_target = comp.root_mod.resolved_target,
+        .is_test = false,
+        .have_zcu = false,
+        .emit_bin = true,
+        .root_optimize_mode = optimize_mode,
+        .root_strip = strip,
+        .link_libc = true,
+    });
+
+    const common_flags = [_][]const u8{
+        "-DTSAN_CONTAINS_UBSAN=0",
+    };
+
+    const root_mod = try Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
+        .paths = .{
+            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root_src_path = "",
+        },
+        .fully_qualified_name = "root",
+        .inherited = .{
+            .resolved_target = comp.root_mod.resolved_target,
+            .strip = strip,
+            .stack_check = false,
+            .stack_protector = 0,
+            .sanitize_c = false,
+            .sanitize_thread = false,
+            .red_zone = comp.root_mod.red_zone,
+            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            .valgrind = false,
+            .optimize_mode = optimize_mode,
+            .structured_cfg = comp.root_mod.structured_cfg,
+            .pic = true,
+        },
+        .global = config,
+        .cc_argv = &common_flags,
+        .parent = null,
+        .builtin_mod = null,
+    });
+
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
     try c_source_files.ensureUnusedCapacity(tsan_sources.len);
 
@@ -50,8 +96,9 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         try cflags.append("-fno-rtti");
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "tsan", tsan_src }),
+            .src_path = try comp.zig_lib_directory.join(arena, &.{ "tsan", tsan_src }),
             .extra_flags = cflags.items,
+            .owner = root_mod,
         });
     }
 
@@ -74,6 +121,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "tsan", tsan_src }),
             .extra_flags = cflags.items,
+            .owner = root_mod,
         });
     }
     {
@@ -94,6 +142,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "tsan", asm_source }),
             .extra_flags = cflags.items,
+            .owner = root_mod,
         });
     }
 
@@ -117,6 +166,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
                 "tsan", "sanitizer_common", common_src,
             }),
             .extra_flags = cflags.items,
+            .owner = root_mod,
         });
     }
 
@@ -141,6 +191,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
                 "tsan", "sanitizer_common", c_src,
             }),
             .extra_flags = cflags.items,
+            .owner = root_mod,
         });
     }
 
@@ -161,6 +212,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
                 "tsan", "sanitizer_common", c_src,
             }),
             .extra_flags = cflags.items,
+            .owner = root_mod,
         });
     }
 
@@ -189,55 +241,9 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
                 "tsan", "interception", c_src,
             }),
             .extra_flags = cflags.items,
+            .owner = root_mod,
         });
     }
-
-    const common_flags = [_][]const u8{
-        "-DTSAN_CONTAINS_UBSAN=0",
-    };
-
-    const optimize_mode = comp.compilerRtOptMode();
-    const strip = comp.compilerRtStrip();
-
-    const config = try Compilation.Config.resolve(.{
-        .output_mode = output_mode,
-        .link_mode = link_mode,
-        .resolved_target = comp.root_mod.resolved_target,
-        .is_test = false,
-        .have_zcu = false,
-        .emit_bin = true,
-        .root_optimize_mode = optimize_mode,
-        .root_strip = strip,
-        .link_libc = true,
-    });
-
-    const root_mod = try Module.create(arena, .{
-        .global_cache_directory = comp.global_cache_directory,
-        .paths = .{
-            .root = .{ .root_dir = comp.zig_lib_directory },
-            .root_src_path = "",
-        },
-        .fully_qualified_name = "root",
-        .inherited = .{
-            .resolved_target = comp.root_mod.resolved_target,
-            .strip = strip,
-            .stack_check = false,
-            .stack_protector = 0,
-            .sanitize_c = false,
-            .sanitize_thread = false,
-            .red_zone = comp.root_mod.red_zone,
-            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
-            .valgrind = false,
-            .optimize_mode = optimize_mode,
-            .structured_cfg = comp.root_mod.structured_cfg,
-            .pic = true,
-            .cc_argv = &common_flags,
-        },
-        .global = config,
-        .cc_argv = &.{},
-        .parent = null,
-        .builtin_mod = null,
-    });
 
     const sub_compilation = try Compilation.create(comp.gpa, .{
         .local_cache_directory = comp.global_cache_directory,

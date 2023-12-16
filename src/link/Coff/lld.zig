@@ -82,7 +82,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         try man.addOptionalFile(module_obj_path);
         man.hash.addOptionalBytes(comp.config.entry);
         man.hash.add(self.base.stack_size);
-        man.hash.addOptional(self.image_base);
+        man.hash.add(self.image_base);
         man.hash.addListOfBytes(self.lib_dirs);
         man.hash.add(comp.skip_linker_dependencies);
         if (comp.config.link_libc) {
@@ -102,10 +102,10 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         man.hash.add(self.tsaware);
         man.hash.add(self.nxcompat);
         man.hash.add(self.dynamicbase);
-        man.hash.addOptional(self.base.allow_shlib_undefined);
+        man.hash.add(self.base.allow_shlib_undefined);
         // strip does not need to go into the linker hash because it is part of the hash namespace
-        man.hash.addOptional(self.major_subsystem_version);
-        man.hash.addOptional(self.minor_subsystem_version);
+        man.hash.add(self.major_subsystem_version);
+        man.hash.add(self.minor_subsystem_version);
         man.hash.addOptional(comp.version);
         try man.addOptionalFile(self.module_definition_file);
 
@@ -237,7 +237,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
-        if (self.implib_emit) |emit| {
+        if (comp.implib_emit) |emit| {
             const implib_out_path = try emit.directory.join(arena, &[_][]const u8{emit.sub_path});
             try argv.append(try allocPrint(arena, "-IMPLIB:{s}", .{implib_out_path}));
         }
@@ -310,16 +310,9 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         const Mode = enum { uefi, win32 };
         const mode: Mode = mode: {
             if (resolved_subsystem) |subsystem| {
-                const subsystem_suffix = ss: {
-                    if (self.major_subsystem_version) |major| {
-                        if (self.minor_subsystem_version) |minor| {
-                            break :ss try allocPrint(arena, ",{d}.{d}", .{ major, minor });
-                        } else {
-                            break :ss try allocPrint(arena, ",{d}", .{major});
-                        }
-                    }
-                    break :ss "";
-                };
+                const subsystem_suffix = try allocPrint(arena, ",{d}.{d}", .{
+                    self.major_subsystem_version, self.minor_subsystem_version,
+                });
 
                 switch (subsystem) {
                     .Console => {

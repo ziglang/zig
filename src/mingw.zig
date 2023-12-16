@@ -41,14 +41,16 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 //"-D_UNICODE",
                 //"-DWPRFLAG=1",
             });
-            return comp.build_crt_file("crt2", .Obj, .@"mingw-w64 crt2.o", prog_node, &.{
+            var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "mingw", "crt", "crtexe.c",
                     }),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 },
-            });
+            };
+            return comp.build_crt_file("crt2", .Obj, .@"mingw-w64 crt2.o", prog_node, &files);
         },
 
         .dllcrt2_o => {
@@ -60,14 +62,16 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 "-U__CRTDLL__",
                 "-D__MSVCRT__",
             });
-            return comp.build_crt_file("dllcrt2", .Obj, .@"mingw-w64 dllcrt2.o", prog_node, &.{
+            var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "mingw", "crt", "crtdll.c",
                     }),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 },
-            });
+            };
+            return comp.build_crt_file("dllcrt2", .Obj, .@"mingw-w64 dllcrt2.o", prog_node, &files);
         },
 
         .mingw32_lib => {
@@ -97,6 +101,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                         "libc", "mingw", "crt", dep,
                     }),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 };
             }
             return comp.build_crt_file("mingw32", .Lib, .@"mingw-w64 mingw32.lib", prog_node, &c_source_files);
@@ -125,6 +130,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 (try c_source_files.addOne()).* = .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", dep }),
                     .extra_flags = extra_flags,
+                    .owner = undefined,
                 };
             }
             if (comp.getTarget().cpu.arch == .x86) {
@@ -134,6 +140,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                             "libc", "mingw", dep,
                         }),
                         .extra_flags = extra_flags,
+                        .owner = undefined,
                     };
                 }
             } else {
@@ -143,6 +150,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                             "libc", "mingw", dep,
                         }),
                         .extra_flags = extra_flags,
+                        .owner = undefined,
                     };
                 }
             }
@@ -175,6 +183,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                         "libc", "mingw", dep,
                     }),
                     .extra_flags = extra_flags,
+                    .owner = undefined,
                 };
             }
             const target = comp.getTarget();
@@ -185,6 +194,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                             "libc", "mingw", dep,
                         }),
                         .extra_flags = extra_flags,
+                        .owner = undefined,
                     };
                 }
             } else if (target.cpu.arch.isARM()) {
@@ -194,6 +204,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                             "libc", "mingw", dep,
                         }),
                         .extra_flags = extra_flags,
+                        .owner = undefined,
                     };
                 }
             } else if (target.cpu.arch.isAARCH64()) {
@@ -203,6 +214,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                             "libc", "mingw", dep,
                         }),
                         .extra_flags = extra_flags,
+                        .owner = undefined,
                     };
                 }
             } else {
@@ -238,6 +250,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                         "libc", "mingw", "libsrc", dep,
                     }),
                     .extra_flags = extra_flags,
+                    .owner = undefined,
                 };
             }
             return comp.build_crt_file("uuid", .Lib, .@"mingw-w64 uuid.lib", prog_node, &c_source_files);

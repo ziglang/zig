@@ -5759,14 +5759,39 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         };
         return sema.failWithOwnedErrorMsg(&child_block, msg);
     }
-    const c_import_mod = try Package.Module.create(comp.arena.allocator(), .{
-        .root = .{
-            .root_dir = Compilation.Directory.cwd(),
-            .sub_path = std.fs.path.dirname(c_import_res.out_zig_path) orelse "",
+    const parent_mod = parent_block.ownerModule();
+    const c_import_mod = Package.Module.create(comp.arena.allocator(), .{
+        .global_cache_directory = comp.global_cache_directory,
+        .paths = .{
+            .root = .{
+                .root_dir = Compilation.Directory.cwd(),
+                .sub_path = std.fs.path.dirname(c_import_res.out_zig_path) orelse "",
+            },
+            .root_src_path = std.fs.path.basename(c_import_res.out_zig_path),
         },
-        .root_src_path = std.fs.path.basename(c_import_res.out_zig_path),
         .fully_qualified_name = c_import_res.out_zig_path,
-    });
+        .cc_argv = parent_mod.cc_argv,
+        .inherited = .{},
+        .global = comp.config,
+        .parent = parent_mod,
+        .builtin_mod = parent_mod.getBuiltinDependency(),
+    }) catch |err| switch (err) {
+        // None of these are possible because we are creating a package with
+        // the exact same configuration as the parent package, which already
+        // passed these checks.
+        error.ValgrindUnsupportedOnTarget => unreachable,
+        error.TargetRequiresSingleThreaded => unreachable,
+        error.BackendRequiresSingleThreaded => unreachable,
+        error.TargetRequiresPic => unreachable,
+        error.PieRequiresPic => unreachable,
+        error.DynamicLinkingRequiresPic => unreachable,
+        error.TargetHasNoRedZone => unreachable,
+        error.StackCheckUnsupportedByTarget => unreachable,
+        error.StackProtectorUnsupportedByTarget => unreachable,
+        error.StackProtectorUnavailableWithoutLibC => unreachable,
+
+        else => |e| return e,
+    };
 
     const result = mod.importPkg(c_import_mod) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});

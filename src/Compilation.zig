@@ -1410,7 +1410,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .inherited = .{},
                 .global = options.config,
                 .parent = options.root_mod,
-                .builtin_mod = options.root_mod.deps.get("builtin").?,
+                .builtin_mod = options.root_mod.getBuiltinDependency(),
             });
 
             const zcu = try arena.create(Module);
@@ -3830,6 +3830,7 @@ pub fn obtainCObjectCacheManifest(
     // that apply both to @cImport and compiling C objects. No linking stuff here!
     // Also nothing that applies only to compiling .zig code.
     man.hash.add(owner_mod.sanitize_c);
+    man.hash.add(owner_mod.sanitize_thread);
     man.hash.addListOfBytes(owner_mod.cc_argv);
     man.hash.add(comp.config.link_libcpp);
 
@@ -3970,10 +3971,13 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
 
         const dep_basename = std.fs.path.basename(out_dep_path);
         try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
-        if (comp.whole_cache_manifest) |whole_cache_manifest| {
-            comp.whole_cache_manifest_mutex.lock();
-            defer comp.whole_cache_manifest_mutex.unlock();
-            try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+        switch (comp.cache_use) {
+            .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
+                whole.cache_manifest_mutex.lock();
+                defer whole.cache_manifest_mutex.unlock();
+                try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+            },
+            .incremental => {},
         }
 
         const digest = man.final();
@@ -4425,10 +4429,15 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             const dep_basename = std.fs.path.basename(dep_file_path);
             // Add the files depended on to the cache system.
             try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
-            if (comp.whole_cache_manifest) |whole_cache_manifest| {
-                comp.whole_cache_manifest_mutex.lock();
-                defer comp.whole_cache_manifest_mutex.unlock();
-                try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+            switch (comp.cache_use) {
+                .whole => |whole| {
+                    if (whole.cache_manifest) |whole_cache_manifest| {
+                        whole.cache_manifest_mutex.lock();
+                        defer whole.cache_manifest_mutex.unlock();
+                        try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+                    }
+                },
+                .incremental => {},
             }
             // Just to save disk space, we delete the file because it is never needed again.
             zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
@@ -4724,10 +4733,13 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         const dep_basename = std.fs.path.basename(out_dep_path);
         // Add the files depended on to the cache system.
         try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
-        if (comp.whole_cache_manifest) |whole_cache_manifest| {
-            comp.whole_cache_manifest_mutex.lock();
-            defer comp.whole_cache_manifest_mutex.unlock();
-            try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+        switch (comp.cache_use) {
+            .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
+                whole.cache_manifest_mutex.lock();
+                defer whole.cache_manifest_mutex.unlock();
+                try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+            },
+            .incremental => {},
         }
         // Just to save disk space, we delete the file because it is never needed again.
         zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
@@ -4799,10 +4811,13 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
         for (dependencies_list.items) |dep_file_path| {
             try man.addFilePost(dep_file_path);
-            if (comp.whole_cache_manifest) |whole_cache_manifest| {
-                comp.whole_cache_manifest_mutex.lock();
-                defer comp.whole_cache_manifest_mutex.unlock();
-                try whole_cache_manifest.addFilePost(dep_file_path);
+            switch (comp.cache_use) {
+                .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
+                    whole.cache_manifest_mutex.lock();
+                    defer whole.cache_manifest_mutex.unlock();
+                    try whole_cache_manifest.addFilePost(dep_file_path);
+                },
+                .incremental => {},
             }
         }
 
@@ -6247,7 +6262,9 @@ pub fn build_crt_file(
     output_mode: std.builtin.OutputMode,
     misc_task_tag: MiscTask,
     prog_node: *std.Progress.Node,
-    c_source_files: []const CSourceFile,
+    /// These elements have to get mutated to add the owner module after it is
+    /// created within this function.
+    c_source_files: []CSourceFile,
 ) !void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
@@ -6304,6 +6321,10 @@ pub fn build_crt_file(
         .parent = null,
         .builtin_mod = null,
     });
+
+    for (c_source_files) |*item| {
+        item.owner = root_mod;
+    }
 
     const sub_compilation = try Compilation.create(gpa, .{
         .local_cache_directory = comp.global_cache_directory,

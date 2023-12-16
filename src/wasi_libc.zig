@@ -74,27 +74,31 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             var args = std.ArrayList([]const u8).init(arena);
             try addCCArgs(comp, arena, &args, .{});
             try addLibcBottomHalfIncludes(comp, arena, &args);
-            return comp.build_crt_file("crt1-reactor", .Obj, .@"wasi crt1-reactor.o", prog_node, &.{
+            var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", try sanitize(arena, crt1_reactor_src_file),
                     }),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 },
-            });
+            };
+            return comp.build_crt_file("crt1-reactor", .Obj, .@"wasi crt1-reactor.o", prog_node, &files);
         },
         .crt1_command_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCCArgs(comp, arena, &args, .{});
             try addLibcBottomHalfIncludes(comp, arena, &args);
-            return comp.build_crt_file("crt1-command", .Obj, .@"wasi crt1-command.o", prog_node, &.{
+            var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", try sanitize(arena, crt1_command_src_file),
                     }),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 },
-            });
+            };
+            return comp.build_crt_file("crt1-command", .Obj, .@"wasi crt1-command.o", prog_node, &files);
         },
         .libc_a => {
             var libc_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
@@ -109,6 +113,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                             "libc", try sanitize(arena, file_path),
                         }),
                         .extra_flags = args.items,
+                        .owner = undefined,
                     });
                 }
             }
@@ -125,6 +130,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                             "libc", try sanitize(arena, file_path),
                         }),
                         .extra_flags = args.items,
+                        .owner = undefined,
                     });
                 }
             }
@@ -141,6 +147,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                             "libc", try sanitize(arena, file_path),
                         }),
                         .extra_flags = args.items,
+                        .owner = undefined,
                     });
                 }
             }
@@ -159,6 +166,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                         "libc", try sanitize(arena, file_path),
                     }),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 });
             }
             try comp.build_crt_file("wasi-emulated-process-clocks", .Lib, .@"libwasi-emulated-process-clocks.a", prog_node, emu_clocks_sources.items);
@@ -175,6 +183,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                         "libc", try sanitize(arena, file_path),
                     }),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 });
             }
             try comp.build_crt_file("wasi-emulated-getpid", .Lib, .@"libwasi-emulated-getpid.a", prog_node, emu_getpid_sources.items);
@@ -191,6 +200,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                         "libc", try sanitize(arena, file_path),
                     }),
                     .extra_flags = args.items,
+                    .owner = undefined,
                 });
             }
             try comp.build_crt_file("wasi-emulated-mman", .Lib, .@"libwasi-emulated-mman.a", prog_node, emu_mman_sources.items);
@@ -208,6 +218,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                             "libc", try sanitize(arena, file_path),
                         }),
                         .extra_flags = args.items,
+                        .owner = undefined,
                     });
                 }
             }
@@ -224,6 +235,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                             "libc", try sanitize(arena, file_path),
                         }),
                         .extra_flags = args.items,
+                        .owner = undefined,
                     });
                 }
             }

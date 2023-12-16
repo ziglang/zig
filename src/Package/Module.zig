@@ -310,7 +310,39 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         break :b buf.items[0 .. buf.items.len - 1 :0].ptr;
     };
 
-    const builtin_mod = options.builtin_mod orelse b: {
+    const mod = try arena.create(Module);
+    mod.* = .{
+        .root = options.paths.root,
+        .root_src_path = options.paths.root_src_path,
+        .fully_qualified_name = options.fully_qualified_name,
+        .resolved_target = .{
+            .result = target,
+            .is_native_os = resolved_target.is_native_os,
+            .is_native_abi = resolved_target.is_native_abi,
+            .llvm_cpu_features = llvm_cpu_features,
+        },
+        .optimize_mode = optimize_mode,
+        .single_threaded = single_threaded,
+        .error_tracing = error_tracing,
+        .valgrind = valgrind,
+        .pic = pic,
+        .strip = strip,
+        .omit_frame_pointer = omit_frame_pointer,
+        .stack_check = stack_check,
+        .stack_protector = stack_protector,
+        .code_model = code_model,
+        .red_zone = red_zone,
+        .sanitize_c = sanitize_c,
+        .sanitize_thread = sanitize_thread,
+        .unwind_tables = unwind_tables,
+        .cc_argv = options.cc_argv,
+        .structured_cfg = structured_cfg,
+        .builtin_file = null,
+    };
+
+    const opt_builtin_mod = options.builtin_mod orelse b: {
+        if (!options.global.have_zcu) break :b null;
+
         const generated_builtin_source = try Builtin.generate(.{
             .target = target,
             .zig_backend = zig_backend,
@@ -388,38 +420,10 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         break :b new;
     };
 
-    const mod = try arena.create(Module);
-    mod.* = .{
-        .root = options.paths.root,
-        .root_src_path = options.paths.root_src_path,
-        .fully_qualified_name = options.fully_qualified_name,
-        .resolved_target = .{
-            .result = target,
-            .is_native_os = resolved_target.is_native_os,
-            .is_native_abi = resolved_target.is_native_abi,
-            .llvm_cpu_features = llvm_cpu_features,
-        },
-        .optimize_mode = optimize_mode,
-        .single_threaded = single_threaded,
-        .error_tracing = error_tracing,
-        .valgrind = valgrind,
-        .pic = pic,
-        .strip = strip,
-        .omit_frame_pointer = omit_frame_pointer,
-        .stack_check = stack_check,
-        .stack_protector = stack_protector,
-        .code_model = code_model,
-        .red_zone = red_zone,
-        .sanitize_c = sanitize_c,
-        .sanitize_thread = sanitize_thread,
-        .unwind_tables = unwind_tables,
-        .cc_argv = options.cc_argv,
-        .structured_cfg = structured_cfg,
-        .builtin_file = null,
-    };
-
-    try mod.deps.ensureUnusedCapacity(arena, 1);
-    mod.deps.putAssumeCapacityNoClobber("builtin", builtin_mod);
+    if (opt_builtin_mod) |builtin_mod| {
+        try mod.deps.ensureUnusedCapacity(arena, 1);
+        mod.deps.putAssumeCapacityNoClobber("builtin", builtin_mod);
+    }
 
     return mod;
 }
@@ -462,8 +466,10 @@ pub fn createLimited(gpa: Allocator, options: LimitedOptions) Allocator.Error!*P
     return mod;
 }
 
-pub fn getBuiltinDependency(m: *Module) *Module {
-    return m.deps.values()[0];
+pub fn getBuiltinDependency(m: Module) *Module {
+    const result = m.deps.values()[0];
+    assert(result.isBuiltin());
+    return result;
 }
 
 const Module = @This();

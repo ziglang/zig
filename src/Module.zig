@@ -5275,7 +5275,7 @@ pub fn populateTestFunctions(
 ) !void {
     const gpa = mod.gpa;
     const ip = &mod.intern_pool;
-    const builtin_mod = mod.main_mod.deps.get("builtin").?;
+    const builtin_mod = mod.main_mod.getBuiltinDependency();
     const builtin_file = (mod.importPkg(builtin_mod) catch unreachable).file;
     const root_decl = mod.declPtr(builtin_file.root_decl.unwrap().?);
     const builtin_namespace = mod.namespacePtr(root_decl.src_namespace);

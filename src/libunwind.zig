@@ -33,7 +33,8 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         // Disable LTO to avoid https://github.com/llvm/llvm-project/issues/56825
         .lto = false,
     });
-    const root_mod = Module.create(.{
+    const root_mod = try Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{ .root_dir = comp.zig_lib_directory },
             .root_src_path = "",
@@ -55,6 +56,8 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         },
         .global = config,
         .cc_argv = &.{},
+        .parent = null,
+        .builtin_mod = null,
     });
 
     const root_name = "unwind";
@@ -117,6 +120,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         c_source_files[i] = .{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{unwind_src}),
             .extra_flags = cflags.items,
+            .owner = root_mod,
         };
     }
     const sub_compilation = try Compilation.create(comp.gpa, .{
@@ -132,7 +136,6 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
         .emit_bin = emit_bin,
-        .link_mode = link_mode,
         .function_sections = comp.function_sections,
         .c_source_files = &c_source_files,
         .verbose_cc = comp.verbose_cc,
@@ -150,8 +153,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     try comp.updateSubCompilation(sub_compilation, .libunwind, prog_node);
 
     assert(comp.libunwind_static_lib == null);
-
-    comp.libunwind_static_lib = try sub_compilation.toOwnedLock();
+    comp.libunwind_static_lib = try sub_compilation.toCrtFile();
 }
 
 const unwind_src_list = [_][]const u8{
