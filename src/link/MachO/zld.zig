@@ -24,9 +24,9 @@ pub fn linkWithZld(
         try macho_file.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, macho_file.base.intermediary_basename.? });
+            break :blk try fs.path.join(arena, &.{ dirname, macho_file.base.zcu_object_sub_path.? });
         } else {
-            break :blk macho_file.base.intermediary_basename.?;
+            break :blk macho_file.base.zcu_object_sub_path.?;
         }
     } else null;
 

@@ -401,7 +401,7 @@ pub fn open(
         const o_file_path = try std.fmt.allocPrint(arena, "{s}{s}", .{
             emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
         });
-        wasm.base.intermediary_basename = o_file_path;
+        wasm.base.zcu_object_sub_path = o_file_path;
         break :p o_file_path;
     };
 
@@ -3511,9 +3511,9 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         try wasm.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, wasm.base.intermediary_basename.? });
+            break :blk try fs.path.join(arena, &.{ dirname, wasm.base.zcu_object_sub_path.? });
         } else {
-            break :blk wasm.base.intermediary_basename.?;
+            break :blk wasm.base.zcu_object_sub_path.?;
         }
     } else null;
 
@@ -4604,9 +4604,9 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         try wasm.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, wasm.base.intermediary_basename.? });
+            break :blk try fs.path.join(arena, &.{ dirname, wasm.base.zcu_object_sub_path.? });
         } else {
-            break :blk wasm.base.intermediary_basename.?;
+            break :blk wasm.base.zcu_object_sub_path.?;
         }
     } else null;
 

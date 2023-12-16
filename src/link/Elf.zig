@@ -28,7 +28,7 @@ print_map: bool,
 
 ptr_width: PtrWidth,
 
-/// If this is not null, an object file is created by LLVM and emitted to intermediary_basename.
+/// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
 llvm_object: ?*LlvmObject = null,
 
 /// A list of all input files.
@@ -259,12 +259,25 @@ pub fn createEmpty(
     else
         elf.VER_NDX_LOCAL;
 
+    // If using LLD to link, this code should produce an object file so that it
+    // can be passed to LLD.
+    // If using LLVM to generate the object file for the zig compilation unit,
+    // we need a place to put the object file so that it can be subsequently
+    // handled.
+    const zcu_object_sub_path = if (!use_lld and !use_llvm) null else p: {
+        const o_file_path = try std.fmt.allocPrint(arena, "{s}{s}", .{
+            emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
+        });
+        break :p o_file_path;
+    };
+
     const self = try arena.create(Elf);
     self.* = .{
         .base = .{
             .tag = .elf,
             .comp = comp,
             .emit = emit,
+            .zcu_object_sub_path = zcu_object_sub_path,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
             .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 16777216,
@@ -325,16 +338,10 @@ pub fn createEmpty(
     const is_obj = output_mode == .Obj;
     const is_obj_or_ar = is_obj or (output_mode == .Lib and link_mode == .Static);
 
-    const sub_path = if (!use_lld) emit.sub_path else p: {
-        // Open a temporary object file, not the final output file because we
-        // want to link with LLD.
-        const o_file_path = try std.fmt.allocPrint(arena, "{s}{s}", .{
-            emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
-        });
-        self.base.intermediary_basename = o_file_path;
-        break :p o_file_path;
-    };
-
+    // What path should this ELF linker code output to?
+    // If using LLD to link, this code should produce an object file so that it
+    // can be passed to LLD.
+    const sub_path = if (use_lld) zcu_object_sub_path.? else emit.sub_path;
     self.base.file = try emit.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
@@ -1045,7 +1052,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     const link_mode = comp.config.link_mode;
     const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
-    const module_obj_path: ?[]const u8 = if (self.base.intermediary_basename) |path| blk: {
+    const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, path });
         } else {
@@ -1613,7 +1620,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
     const link_mode = self.base.comp.config.link_mode;
     const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
-    const module_obj_path: ?[]const u8 = if (self.base.intermediary_basename) |path| blk: {
+    const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, path });
         } else {
@@ -2356,9 +2363,9 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         try self.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, self.base.intermediary_basename.? });
+            break :blk try fs.path.join(arena, &.{ dirname, self.base.zcu_object_sub_path.? });
         } else {
-            break :blk self.base.intermediary_basename.?;
+            break :blk self.base.zcu_object_sub_path.?;
         }
     } else null;
 

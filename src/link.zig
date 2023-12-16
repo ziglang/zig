@@ -58,7 +58,7 @@ pub const File = struct {
     file: ?fs.File,
     /// When linking with LLD, this linker code will output an object file only at
     /// this location, and then this path can be placed on the LLD linker line.
-    intermediary_basename: ?[]const u8 = null,
+    zcu_object_sub_path: ?[]const u8 = null,
     disable_lld_caching: bool,
     gc_sections: bool,
     print_gc_sections: bool,
@@ -289,7 +289,7 @@ pub const File = struct {
         switch (base.tag) {
             .elf => if (base.file) |f| {
                 if (build_options.only_c) unreachable;
-                if (base.intermediary_basename != null and use_lld) {
+                if (base.zcu_object_sub_path != null and use_lld) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
                     return;
@@ -308,7 +308,7 @@ pub const File = struct {
             },
             .coff, .macho, .plan9, .wasm => if (base.file) |f| {
                 if (build_options.only_c) unreachable;
-                if (base.intermediary_basename != null) {
+                if (base.zcu_object_sub_path != null) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
                     return;
@@ -734,7 +734,7 @@ pub const File = struct {
             try base.flushModule(comp, prog_node);
 
             const dirname = fs.path.dirname(full_out_path_z) orelse ".";
-            break :blk try fs.path.join(arena, &.{ dirname, base.intermediary_basename.? });
+            break :blk try fs.path.join(arena, &.{ dirname, base.zcu_object_sub_path.? });
         } else null;
 
         log.debug("zcu_obj_path={s}", .{if (zcu_obj_path) |s| s else "(null)"});
@@ -1022,7 +1022,7 @@ pub const File = struct {
             .pre_bc_path = comp.verbose_llvm_bc,
             .bin_path = try base.resolveEmitLoc(arena, .{
                 .directory = null,
-                .basename = base.intermediary_basename.?,
+                .basename = base.zcu_object_sub_path.?,
             }),
             .asm_path = try base.resolveEmitLoc(arena, comp.emit_asm),
             .post_ir_path = try base.resolveEmitLoc(arena, comp.emit_llvm_ir),

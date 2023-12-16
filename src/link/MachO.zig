@@ -1,6 +1,6 @@
 base: File,
 
-/// If this is not null, an object file is created by LLVM and emitted to intermediary_basename.
+/// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
 llvm_object: ?*LlvmObject = null,
 
 /// Debug symbols bundle (or dSym).
@@ -208,10 +208,10 @@ pub fn open(
     errdefer self.base.destroy();
 
     if (mode == .zld) {
-        // TODO this intermediary_basename isn't enough; in the case of `zig build-exe`,
+        // TODO this zcu_object_sub_path isn't enough; in the case of `zig build-exe`,
         // we also want to put the intermediary object file in the cache while the
         // main emit directory is the cwd.
-        self.base.intermediary_basename = sub_path;
+        self.base.zcu_object_sub_path = sub_path;
         return self;
     }
 

@@ -3,7 +3,7 @@
 //! LLD for traditional linking (linking relocatable object files).
 //! LLD is also the default linker for LLVM.
 
-/// If this is not null, an object file is created by LLVM and emitted to intermediary_basename.
+/// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
 llvm_object: ?*LlvmObject = null,
 
 base: link.File,
@@ -261,7 +261,7 @@ pub fn open(
         const o_file_path = try std.fmt.allocPrint(arena, "{s}{s}", .{
             emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
         });
-        self.base.intermediary_basename = o_file_path;
+        self.base.zcu_object_sub_path = o_file_path;
         break :p o_file_path;
     };
 
