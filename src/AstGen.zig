@@ -5580,8 +5580,8 @@ fn containerDecl(
 
                         try astgen.appendErrorTokNotes(
                             record.items[0],
-                            "duplicate enum field name '{s}'",
-                            .{try astgen.identifierTokenString(record.items[0])},
+                            "duplicate enum field name",
+                            .{},
                             error_notes.items,
                         );
                     }
