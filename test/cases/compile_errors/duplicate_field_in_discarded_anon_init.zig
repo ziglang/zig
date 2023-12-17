@@ -6,6 +6,6 @@ pub export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :2:13: error: struct field name conflict: 'a'
+// :2:13: error: duplicate struct field
 // :2:21: note: duplicate name here
 // :2:10: note: struct declared here

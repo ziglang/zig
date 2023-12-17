@@ -1762,8 +1762,8 @@ fn structInitExpr(
 
                     try astgen.appendErrorTokNotes(
                         record.items[0],
-                        "struct field name conflict: '{s}'",
-                        .{try astgen.identifierTokenString(record.items[0])},
+                        "duplicate struct field",
+                        .{},
                         error_notes.items,
                     );
                 }
@@ -5077,8 +5077,8 @@ fn structDeclInner(
 
                 try astgen.appendErrorTokNotes(
                     record.items[0],
-                    "struct field name conflict: '{s}'",
-                    .{try astgen.identifierTokenString(record.items[0])},
+                    "duplicate struct field",
+                    .{},
                     error_notes.items,
                 );
             }
@@ -5283,8 +5283,8 @@ fn unionDeclInner(
 
                 try astgen.appendErrorTokNotes(
                     record.items[0],
-                    "union field name conflict: '{s}'",
-                    .{try astgen.identifierTokenString(record.items[0])},
+                    "duplicate union field name",
+                    .{},
                     error_notes.items,
                 );
             }
@@ -5580,7 +5580,7 @@ fn containerDecl(
 
                         try astgen.appendErrorTokNotes(
                             record.items[0],
-                            "enum field name conflict: '{s}'",
+                            "duplicate enum field name '{s}'",
                             .{try astgen.identifierTokenString(record.items[0])},
                             error_notes.items,
                         );

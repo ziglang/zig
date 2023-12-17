@@ -12,6 +12,6 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :2:5: error: enum field name conflict: 'Bar'
+// :2:5: error: duplicate enum field name 'Bar'
 // :3:5: note: duplicate field here
 // :1:13: note: enum declared here

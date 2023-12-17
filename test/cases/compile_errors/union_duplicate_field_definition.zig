@@ -11,6 +11,6 @@ export fn entry() void {
 // error
 // target=native
 //
-// :2:5: error: union field name conflict: 'foo'
+// :2:5: error: duplicate union field name
 // :3:5: note: duplicate field here
 // :1:11: note: union declared here

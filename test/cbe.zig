@@ -507,7 +507,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\    return p.y - p.x - p.x;
             \\}
         , &.{
-            ":4:10: error: struct field name conflict: 'y'",
+            ":4:10: error: duplicate struct field",
             ":6:10: note: duplicate name here",
             ":3:21: note: struct declared here",
         });
@@ -723,7 +723,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\    _ = E1.a;
             \\}
         , &.{
-            ":1:22: error: enum field name conflict: 'b'",
+            ":1:22: error: duplicate enum field name",
             ":1:28: note: duplicate field here",
             ":1:12: note: enum declared here",
         });
