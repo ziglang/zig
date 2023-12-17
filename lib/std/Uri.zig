@@ -16,19 +16,19 @@ fragment: ?[]const u8,
 
 /// Applies URI encoding and replaces all reserved characters with their respective %XX code.
 pub fn escapeString(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
-    return escapeStringWithFn(allocator, input, isUnreserved);
+    return escapeStringWithFn(allocator, input, allowedInQuery);
 }
 
 pub fn escapePath(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
-    return escapeStringWithFn(allocator, input, isPathChar);
+    return escapeStringWithFn(allocator, input, allowedInPath);
 }
 
 pub fn writeEscapedString(writer: anytype, input: []const u8) !void {
-    return writeEscapedStringWithFn(writer, input, isUnreserved);
+    return writeEscapedStringWithFn(writer, input, allowedInQuery);
 }
 
 pub fn writeEscapedPath(writer: anytype, input: []const u8) !void {
-    return writeEscapedStringWithFn(writer, input, isPathChar);
+    return writeEscapedStringWithFn(writer, input, allowedInPath);
 }
 
 pub fn escapeStringWithFn(allocator: std.mem.Allocator, input: []const u8, comptime keepUnescaped: fn (c: u8) bool) std.mem.Allocator.Error![]u8 {
@@ -276,27 +276,20 @@ pub fn writeToStream(
         } else {
             try writeEscapedPath(writer, uri.path);
         }
+    }
 
-        if (options.query) if (uri.query) |q| {
+    if (options.query) {
+        if (uri.query) |q| {
             try writer.writeAll("?");
             try writer.writeAll(q);
         }
+    }
 
-        if (needs_fragment) {
-            if (uri.fragment) |f| {
-                try writer.writeAll("#");
-                try Uri.writeEscapedQuery(writer, f);
-            }
-        };
-
-        if (options.fragment) if (uri.fragment) |f| {
+    if (options.fragment) {
+        if (uri.fragment) |f| {
             try writer.writeAll("#");
-            if (options.raw) {
-                try writer.writeAll(f);
-            } else {
-                try writeEscapedQuery(writer, f);
-            }
-        };
+            try writer.writeAll(f);
+        }
     }
 }
 
@@ -450,47 +443,129 @@ const SliceReader = struct {
     }
 };
 
-/// scheme      = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
+const EncodingMode = enum {
+    EncodeUser,
+    EncodeHost,
+    EncodePath,
+    EncodeQuery,
+    EncodeFragment,
+};
+
+fn shouldEscape(c: u8, encodingFor: EncodingMode) bool {
+    // Alphanumeric characters are always unreserved
+    if (isAlphaNum(c)) return false;
+
+    switch (encodingFor) {
+        .EncodeHost => {
+            // §3.2.2 Host allows the following characters:
+            //	sub-delims = "!" / "$" / "&" / "'" / "(" / ")" / "*" / "+" / "," / ";" / "="
+            //
+            // In order to match the functionality of Golang net.URL, we
+            // additionally allow the following characters:
+            //  - ":", to allow for host:port notation
+            //  - "[" / "]", to support [ipv6]:port notation
+            //  - "<" / ">" / "\"", because they're the only characters leftover
+            //    and hosts aren't allowed to use %-encoding for regular ASCII
+            //    bytes.
+            switch (c) {
+                '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '[', ']', '<', '>', '"' => return false,
+                else => {},
+            }
+        },
+        else => {},
+    }
+
+    // Now that hostnames have been handled, let's allow for the remaining
+    // reserved characters for URLs, but that aren't valid for hostnames.
+    switch (c) {
+        // §2.3 Unreserved characters
+        '-', '_', '.', '~' => return false,
+
+        // §2.2 Reserved characters (reserved)
+        '$', '&', '+', ',', '/', ':', ';', '=', '?', '@' => {
+            // Whether or not a character is reserved depends on which component of the URL it is in.
+            switch (encodingFor) {
+                .EncodePath => {
+                    // §3.3
+                    // "$", "&", "+", ":", and "="  are specifically allowed
+                    // unescaped, and "/", ";", and "," have meaning in paths, and
+                    // are not escaped. The only left over character to escape is
+                    // "?".
+                    return c == '?';
+                },
+
+                // TODO: Draw a distinction between paths and path segments
+
+                .EncodeUser => {
+                    // §3.2.1
+                    // ";", ":", "&", "=", "+", "$", and ',' are allowed, so we only need to escape
+                    // "@", "/", and "?". However, ":" is special in parsing, so we escape that as well.
+                    switch (c) {
+                        '@', '/', '?', ':' => return true,
+                        else => return false,
+                    }
+                },
+
+                .EncodeQuery => {
+                    // §3.4
+                    // Escape all reserved characters.
+                    return true;
+                },
+
+                .EncodeFragment => {
+                    // §4.1
+                    // Escape no reserved characters.
+                    return false;
+                },
+
+                else => {},
+            }
+        },
+        else => {},
+    }
+
+    if (encodingFor == .EncodeFragment) {
+        // Sub-delims are not required to be escaped in fragments, but we'll
+        // still escape single quote for compatibility. This allows for the
+        // remaining sub-delims to be unescaped.
+        switch (c) {
+            '!', '(', ')', '*' => return false,
+            else => {},
+        }
+    }
+    return true;
+}
+
+fn allowedInUser(c: u8) bool {
+    return !shouldEscape(c, .EncodeUser);
+}
+
+fn allowedInHost(c: u8) bool {
+    return !shouldEscape(c, .EncodeHost);
+}
+
+fn allowedInPath(c: u8) bool {
+    return !shouldEscape(c, .EncodePath);
+}
+
+fn allowedInQuery(c: u8) bool {
+    return !shouldEscape(c, .EncodeQuery);
+}
+
+fn allowedInFragment(c: u8) bool {
+    return !shouldEscape(c, .EncodeFragment);
+}
+
+fn isAlphaNum(c: u8) bool {
+    return switch (c) {
+        'A'...'Z', 'a'...'z', '0'...'9' => true,
+        else => false,
+    };
+}
+
 fn isSchemeChar(c: u8) bool {
     return switch (c) {
         'A'...'Z', 'a'...'z', '0'...'9', '+', '-', '.' => true,
-        else => false,
-    };
-}
-
-fn isAuthoritySeparator(c: u8) bool {
-    return switch (c) {
-        '/', '?', '#' => true,
-        else => false,
-    };
-}
-
-/// reserved    = gen-delims / sub-delims
-fn isReserved(c: u8) bool {
-    return isGenLimit(c) or isSubLimit(c);
-}
-
-/// gen-delims  = ":" / "/" / "?" / "#" / "[" / "]" / "@"
-fn isGenLimit(c: u8) bool {
-    return switch (c) {
-        ':', ',', '?', '#', '[', ']', '@' => true,
-        else => false,
-    };
-}
-
-/// sub-delims  = "!" / "$" / "&" / "'" / "(" / ")"
-///             / "*" / "+" / "," / ";" / "="
-fn isSubLimit(c: u8) bool {
-    return switch (c) {
-        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => true,
-        else => false,
-    };
-}
-
-/// unreserved  = ALPHA / DIGIT / "-" / "." / "_" / "~"
-fn isUnreserved(c: u8) bool {
-    return switch (c) {
-        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => true,
         else => false,
     };
 }
@@ -502,12 +577,11 @@ fn isPathSeparator(c: u8) bool {
     };
 }
 
-fn isPathChar(c: u8) bool {
-    return isUnreserved(c) or isSubLimit(c) or c == '/' or c == ':' or c == '@';
-}
-
-fn isQueryChar(c: u8) bool {
-    return isPathChar(c) or c == '?' or c == '%';
+fn isAuthoritySeparator(c: u8) bool {
+    return switch (c) {
+        '/', '?', '#' => true,
+        else => false,
+    };
 }
 
 fn isQuerySeparator(c: u8) bool {
@@ -755,14 +829,17 @@ test "URI unescaping" {
     try std.testing.expectEqualSlices(u8, expected, actual);
 }
 
-test "URI query escaping" {
+test "URI parse query unescaping" {
     const address = "https://objects.githubusercontent.com/?response-content-type=application%2Foctet-stream";
     const parsed = try Uri.parse(address);
+
+    const expected_parsed_query = "response-content-type=application%2Foctet-stream";
+    try std.testing.expectEqualStrings(expected_parsed_query, parsed.query orelse "");
 
     // format the URI to escape it
     const formatted_uri = try std.fmt.allocPrint(std.testing.allocator, "{/?}", .{parsed});
     defer std.testing.allocator.free(formatted_uri);
-    try std.testing.expectEqualStrings("/?response-content-type=application%2Foctet-stream", formatted_uri);
+    try std.testing.expectEqualStrings("/?" ++ expected_parsed_query, formatted_uri);
 }
 
 test "format" {
@@ -786,6 +863,9 @@ test "URI malformed input" {
     try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://]["));
     try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://]@["));
     try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://lo]s\x85hc@[/8\x10?0Q"));
+}
+
+test "pre-escaped input" {
     const query = "a%3D=b&c=d";
     const u = Uri{
         .scheme = "https",
@@ -801,7 +881,7 @@ test "URI malformed input" {
     var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();
 
-    try std.fmt.format(buf.writer(), "{+/}", .{u});
+    try std.fmt.format(buf.writer(), "{}", .{u});
     try std.testing.expectEqualSlices(u8, expected, buf.items);
 
     try std.testing.expectEqualDeep(u, try parse(buf.items));
