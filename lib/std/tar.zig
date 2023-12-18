@@ -105,6 +105,8 @@ pub const Header = struct {
         // used to store the path or link name for the next file.
         gnu_long_name = 'L',
         gnu_long_link = 'K',
+        gnu_sparse = 'S',
+        solaris_extended_header = 'X',
         _,
     };
 
@@ -194,16 +196,21 @@ pub const Header = struct {
         return std.fmt.parseInt(u64, rtrimmed, 8) catch return error.TarHeader;
     }
 
+    const Chksums = struct {
+        unsigned: u64,
+        signed: i64,
+    };
+
     // Sum of all bytes in the header block. The chksum field is treated as if
     // it were filled with spaces (ASCII 32).
-    fn computeChksum(header: Header) u64 {
-        var sum: u64 = 0;
-        for (header.bytes, 0..) |b, i| {
-            if (148 <= i and i < 156) continue; // skip chksum field bytes
-            sum += b;
+    fn computeChksum(header: Header) Chksums {
+        var cs: Chksums = .{ .signed = 0, .unsigned = 0 };
+        for (header.bytes, 0..) |v, i| {
+            const b = if (148 <= i and i < 156) 32 else v; // Treating chksum bytes as spaces.
+            cs.unsigned += b;
+            cs.signed += @as(i8, @bitCast(b));
         }
-        // Treating chksum bytes as spaces. 256 = 8 * 32, 8 spaces.
-        return if (sum > 0) sum + 256 else 0;
+        return cs;
     }
 
     // Checks calculated chksum with value of chksum field.
@@ -211,8 +218,9 @@ pub const Header = struct {
     // Zero value indicates empty block.
     pub fn checkChksum(header: Header) !u64 {
         const field = try header.chksum();
-        const computed = header.computeChksum();
-        if (field != computed) return error.TarHeaderChksum;
+        const cs = header.computeChksum();
+        if (field == 0 and cs.unsigned == 256) return 0;
+        if (field != cs.unsigned and field != cs.signed) return error.TarHeaderChksum;
         return field;
     }
 };
@@ -387,10 +395,24 @@ fn Iterator(comptime ReaderType: type) type {
                             .file_name = try d.allocator.dupe(u8, header.name()),
                             .file_type = kind,
                         } });
+                        if (kind == .gnu_sparse) {
+                            try self.skipGnuSparseExtendedHeaders(header);
+                        }
+                        self.reader.skipBytes(size, .{}) catch return error.TarHeadersTooBig;
                     },
                 }
             }
             return null;
+        }
+
+        fn skipGnuSparseExtendedHeaders(self: *Self, header: Header) !void {
+            var is_extended = header.bytes[482] > 0;
+            while (is_extended) {
+                var buf: [Header.SIZE]u8 = undefined;
+                const n = try self.reader.readAll(&buf);
+                if (n < Header.SIZE) return error.UnexpectedEndOfStream;
+                is_extended = buf[504] > 0;
+            }
         }
     };
 }
