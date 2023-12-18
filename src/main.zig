@@ -2511,6 +2511,13 @@ fn buildOutputType(
         fatal("`zig test` expects a zig source file argument", .{});
     }
 
+    if (show_builtin and root_src_file == null) {
+        // Without this, there will be no main module created and no zig
+        // compilation unit, and therefore also no builtin.zig contents
+        // created.
+        root_src_file = "dummy.zig";
+    }
+
     if (root_src_file) |unresolved_src_path| {
         if (create_module.modules.count() != 0) {
             fatal("main module provided both by '--mod {s} {}{s}' and by positional argument '{s}'", .{
