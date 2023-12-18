@@ -1104,6 +1104,7 @@ fn addModuleTableToCacheHash(
     hash_type: union(enum) { path_bytes, files: *Cache.Manifest },
 ) (error{OutOfMemory} || std.os.GetCwdError)!void {
     var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .{};
+    defer seen_table.deinit(gpa);
     try seen_table.put(gpa, root_mod, {});
 
     const SortByName = struct {
@@ -6172,6 +6173,8 @@ fn buildOutputFromZig(
 
     const lf = comp.bin_file.?;
     const unwind_tables = if (lf.cast(link.File.Elf)) |elf| elf.eh_frame_hdr else false;
+    const strip = comp.compilerRtStrip();
+    const optimize_mode = comp.compilerRtOptMode();
 
     const config = try Config.resolve(.{
         .output_mode = output_mode,
@@ -6180,8 +6183,8 @@ fn buildOutputFromZig(
         .is_test = false,
         .have_zcu = true,
         .emit_bin = true,
-        .root_optimize_mode = comp.compilerRtOptMode(),
-        .root_strip = comp.compilerRtStrip(),
+        .root_optimize_mode = optimize_mode,
+        .root_strip = strip,
         .link_libc = comp.config.link_libc,
         .any_unwind_tables = unwind_tables,
     });
@@ -6195,14 +6198,14 @@ fn buildOutputFromZig(
         .fully_qualified_name = "root",
         .inherited = .{
             .resolved_target = comp.root_mod.resolved_target,
-            .strip = comp.compilerRtStrip(),
+            .strip = strip,
             .stack_check = false,
             .stack_protector = 0,
             .red_zone = comp.root_mod.red_zone,
             .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
             .unwind_tables = unwind_tables,
             .pic = comp.root_mod.pic,
-            .optimize_mode = comp.compilerRtOptMode(),
+            .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
         },
         .global = config,
