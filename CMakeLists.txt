@@ -45,7 +45,7 @@ if("${ZIG_VERSION}" STREQUAL "")
     find_program(GIT_EXE NAMES git NAMES_PER_DIR)
     if(GIT_EXE)
         execute_process(
-            COMMAND ${GIT_EXE} -C ${CMAKE_SOURCE_DIR} describe --match *.*.* --tags
+            COMMAND ${GIT_EXE} -C ${CMAKE_SOURCE_DIR} describe --match *.*.* --tags --abbrev=9
             RESULT_VARIABLE EXIT_STATUS
             OUTPUT_VARIABLE GIT_DESCRIBE
             OUTPUT_STRIP_TRAILING_WHITESPACE
