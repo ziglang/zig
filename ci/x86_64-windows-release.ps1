@@ -23,7 +23,6 @@ function CheckLastExitCode {
 
 # Make the `zig version` number consistent.
 # This will affect the `zig build` command below which uses `git describe`.
-git config core.abbrev 9
 git fetch --tags
 
 if ((git rev-parse --is-shallow-repository) -eq "true") {
