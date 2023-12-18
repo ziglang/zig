@@ -20,7 +20,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         const exe = createScenario(b, optimize, target, "search_dylibs_first", .mode_first);
 
         const check = exe.checkObject();
-        check.checkStart();
+        check.checkInHeaders();
         check.checkExact("cmd LOAD_DYLIB");
         check.checkExact("name @rpath/libsearch_dylibs_first.dylib");
         test_step.dependOn(&check.step);

@@ -1789,6 +1789,11 @@ test "parseInt" {
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0b", 0));
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0o", 0));
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0x", 0));
+
+    // edge cases which previously errored due to base overflowing T
+    try std.testing.expectEqual(@as(i2, -2), try std.fmt.parseInt(i2, "-10", 2));
+    try std.testing.expectEqual(@as(i4, -8), try std.fmt.parseInt(i4, "-10", 8));
+    try std.testing.expectEqual(@as(i5, -16), try std.fmt.parseInt(i5, "-10", 16));
 }
 
 fn parseWithSign(
@@ -1829,27 +1834,33 @@ fn parseWithSign(
         .neg => math.sub,
     };
 
-    var x: T = 0;
+    // accumulate into U which is always 8 bits or larger.  this prevents
+    // `buf_base` from overflowing T.
+    const info = @typeInfo(T);
+    const U = std.meta.Int(info.Int.signedness, @max(8, info.Int.bits));
+    var x: U = 0;
 
     if (buf_start[0] == '_' or buf_start[buf_start.len - 1] == '_') return error.InvalidCharacter;
 
     for (buf_start) |c| {
         if (c == '_') continue;
         const digit = try charToDigit(c, buf_base);
-
         if (x != 0) {
-            x = try math.mul(T, x, math.cast(T, buf_base) orelse return error.Overflow);
+            x = try math.mul(U, x, math.cast(U, buf_base) orelse return error.Overflow);
         } else if (sign == .neg) {
             // The first digit of a negative number.
             // Consider parsing "-4" as an i3.
             // This should work, but positive 4 overflows i3, so we can't cast the digit to T and subtract.
-            x = math.cast(T, -@as(i8, @intCast(digit))) orelse return error.Overflow;
+            x = math.cast(U, -@as(i8, @intCast(digit))) orelse return error.Overflow;
             continue;
         }
-        x = try add(T, x, math.cast(T, digit) orelse return error.Overflow);
+        x = try add(U, x, math.cast(U, digit) orelse return error.Overflow);
     }
 
-    return x;
+    return if (T == U)
+        x
+    else
+        math.cast(T, x) orelse return error.Overflow;
 }
 
 /// Parses the string `buf` as unsigned representation in the specified base

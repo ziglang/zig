@@ -30,7 +30,7 @@ pub fn build(b: *std.Build) void {
     exe.linkLibC();
 
     const check = exe.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("cmd BUILD_VERSION");
     check.checkExact("platform IOS");
     test_step.dependOn(&check.step);
