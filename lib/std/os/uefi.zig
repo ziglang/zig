@@ -31,6 +31,8 @@ pub const cc = switch (@import("builtin").target.cpu.arch) {
     else => .C,
 };
 
+pub const Crc32 = std.hash.crc.Crc32IsoHdlc;
+
 pub const MacAddress = extern struct {
     address: [32]u8,
 };

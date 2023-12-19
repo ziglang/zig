@@ -1,5 +1,3 @@
-const testing = @import("std").testing;
-
 const high_bit = 1 << @typeInfo(usize).Int.bits - 1;
 
 pub const Status = enum(usize) {
@@ -150,6 +148,7 @@ pub const Status = enum(usize) {
     _,
 
     pub const EfiError = error{
+        Unknown,
         LoadError,
         InvalidParameter,
         Unsupported,
@@ -242,9 +241,12 @@ pub const Status = enum(usize) {
             .connection_finished => return error.ConnectionFin,
             .connection_reset => return error.ConnectionReset,
             .connection_refused => return error.ConnectionRefused,
+            else => return error.Unknown,
         }
     }
 };
+
+const testing = @import("../../std.zig").testing;
 
 test "status" {
     var st: Status = .DeviceError;
