@@ -1180,7 +1180,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         return error.ExportTableAndImportTableConflict;
     }
 
-    const have_zcu = options.root_mod.root_src_path.len != 0;
+    const have_zcu = options.config.have_zcu;
 
     const comp: *Compilation = comp: {
         // For allocations that have the same lifetime as Compilation. This

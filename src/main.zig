@@ -2515,21 +2515,48 @@ fn buildOutputType(
         // Without this, there will be no main module created and no zig
         // compilation unit, and therefore also no builtin.zig contents
         // created.
-        root_src_file = "dummy.zig";
+        root_src_file = "builtin.zig";
     }
 
-    if (root_src_file) |unresolved_src_path| {
-        if (create_module.modules.count() != 0) {
-            fatal("main module provided both by '--mod {s} {}{s}' and by positional argument '{s}'", .{
-                create_module.modules.keys()[0],
-                create_module.modules.values()[0].paths.root,
-                create_module.modules.values()[0].paths.root_src_path,
-                unresolved_src_path,
-            });
-        }
+    implicit_root_mod: {
+        const unresolved_src_path = b: {
+            if (root_src_file) |src_path| {
+                if (create_module.modules.count() != 0) {
+                    fatal("main module provided both by '--mod {s} {}{s}' and by positional argument '{s}'", .{
+                        create_module.modules.keys()[0],
+                        create_module.modules.values()[0].paths.root,
+                        create_module.modules.values()[0].paths.root_src_path,
+                        src_path,
+                    });
+                }
+                create_module.opts.have_zcu = true;
+                break :b src_path;
+            }
+
+            if (create_module.modules.count() != 0)
+                break :implicit_root_mod;
+
+            if (create_module.c_source_files.items.len >= 1)
+                break :b create_module.c_source_files.items[0].src_path;
+
+            if (link_objects.items.len >= 1)
+                break :b link_objects.items[0].path;
+
+            if (emit_bin == .yes)
+                break :b emit_bin.yes;
+
+            if (create_module.rc_source_files.items.len >= 1)
+                break :b create_module.rc_source_files.items[0].src_path;
+
+            if (arg_mode == .run)
+                fatal("`zig run` expects at least one positional argument", .{});
+
+            fatal("expected a positional argument, -femit-bin=[path], --show-builtin, or --name [name]", .{});
+
+            break :implicit_root_mod;
+        };
 
         // See duplicate logic: ModCreationGlobalFlags
-        create_module.opts.have_zcu = true;
         if (mod_opts.single_threaded == false)
             create_module.opts.any_non_single_threaded = true;
         if (mod_opts.sanitize_thread == true)
@@ -2542,7 +2569,12 @@ fn buildOutputType(
             create_module.opts.any_error_tracing = true;
 
         const src_path = try introspect.resolvePath(arena, unresolved_src_path);
-        try create_module.modules.put(arena, "main", .{
+        const name = if (arg_mode == .zig_test)
+            "test"
+        else
+            fs.path.stem(fs.path.basename(src_path));
+
+        try create_module.modules.put(arena, name, .{
             .paths = .{
                 .root = .{
                     .root_dir = Cache.Directory.cwd(),
@@ -2718,35 +2750,7 @@ fn buildOutputType(
         }
     }
 
-    const root_name = if (provided_name) |n| n else blk: {
-        if (arg_mode == .zig_test) {
-            break :blk "test";
-        } else if (root_src_file) |file| {
-            const basename = fs.path.basename(file);
-            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
-        } else if (create_module.c_source_files.items.len >= 1) {
-            const basename = fs.path.basename(create_module.c_source_files.items[0].src_path);
-            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
-        } else if (link_objects.items.len >= 1) {
-            const basename = fs.path.basename(link_objects.items[0].path);
-            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
-        } else if (emit_bin == .yes) {
-            const basename = fs.path.basename(emit_bin.yes);
-            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
-        } else if (create_module.rc_source_files.items.len >= 1) {
-            const basename = fs.path.basename(create_module.rc_source_files.items[0].src_path);
-            break :blk basename[0 .. basename.len - fs.path.extension(basename).len];
-        } else if (show_builtin) {
-            break :blk "builtin";
-        } else if (arg_mode == .run) {
-            fatal("`zig run` expects at least one positional argument", .{});
-            // TODO once the attempt to unwrap error: LinkingWithoutZigSourceUnimplemented
-            // is solved, remove the above fatal() and uncomment the `break` below.
-            //break :blk "run";
-        } else {
-            fatal("expected a positional argument, -femit-bin=[path], --show-builtin, or --name [name]", .{});
-        }
-    };
+    const root_name = if (provided_name) |n| n else main_mod.fully_qualified_name;
 
     // Resolve the library path arguments with respect to sysroot.
     var lib_dirs: std.ArrayListUnmanaged([]const u8) = .{};
