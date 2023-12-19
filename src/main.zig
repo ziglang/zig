@@ -3823,7 +3823,32 @@ fn createModule(
             create_module.opts.any_dyn_libs = true;
 
         create_module.resolved_options = Compilation.Config.resolve(create_module.opts) catch |err| switch (err) {
-            else => fatal("unable to resolve compilation options: {s}", .{@errorName(err)}),
+            error.WasiExecModelRequiresWasi => fatal("execution model only allowed for WASI OS targets", .{}),
+            error.SharedMemoryIsWasmOnly => fatal("shared memory only allowed for WebAssembly CPU targets", .{}),
+            error.ObjectFilesCannotShareMemory => fatal("object files cannot share memory", .{}),
+            error.SharedMemoryRequiresAtomicsAndBulkMemory => fatal("shared memory requires atomics and bulk_memory CPU features", .{}),
+            error.ThreadsRequireSharedMemory => fatal("threads require shared memory", .{}),
+            error.UnknownTargetEntryPoint => fatal("unknown target entry point", .{}),
+            error.NonExecutableEntryPoint => fatal("entry points only allowed for executables", .{}),
+            error.EmittingLlvmModuleRequiresLlvmBackend => fatal("emitting an LLVM module requires using the LLVM backend", .{}),
+            error.LlvmLacksTargetSupport => fatal("LLVM lacks support for the specified target", .{}),
+            error.ZigLacksTargetSupport => fatal("compiler backend unavailable for the specified target", .{}),
+            error.EmittingBinaryRequiresLlvmLibrary => fatal("producing machine code via LLVM requires using the LLVM library", .{}),
+            error.LldIncompatibleObjectFormat => fatal("using LLD to link {s} files is unsupported", .{@tagName(target.ofmt)}),
+            error.LtoRequiresLld => fatal("LTO requires using LLD", .{}),
+            error.SanitizeThreadRequiresLibCpp => fatal("thread sanitization is (for now) implemented in C++, so it requires linking libc++", .{}),
+            error.LibCppRequiresLibUnwind => fatal("libc++ requires linking libunwind", .{}),
+            error.OsRequiresLibC => fatal("the target OS requires using libc as the stable syscall interface", .{}),
+            error.LibCppRequiresLibC => fatal("libc++ requires linking libc", .{}),
+            error.LibUnwindRequiresLibC => fatal("libunwind requires linking libc", .{}),
+            error.TargetCannotDynamicLink => fatal("dynamic linking unavailable on the specified target", .{}),
+            error.LibCRequiresDynamicLinking => fatal("libc of the specified target requires dynamic linking", .{}),
+            error.SharedLibrariesRequireDynamicLinking => fatal("using shared libraries requires dynamic linking", .{}),
+            error.ExportMemoryAndDynamicIncompatible => fatal("exporting memory is incompatible with dynamic linking", .{}),
+            error.DynamicLibraryPrecludesPie => fatal("dynamic libraries cannot be position independent executables", .{}),
+            error.TargetRequiresPie => fatal("the specified target requires position independent executables", .{}),
+            error.SanitizeThreadRequiresPie => fatal("thread sanitization requires position independent executables", .{}),
+            error.BackendLacksErrorTracing => fatal("the selected backend has not yet implemented error return tracing", .{}),
         };
     }
 
