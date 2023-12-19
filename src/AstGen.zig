@@ -1788,7 +1788,13 @@ fn structInitExpr(
 
     switch (ri.rl) {
         .none => return structInitExprAnon(gz, scope, node, struct_init),
-        .discard => return .void_value,
+        .discard => {
+            // Even if discarding we must perform side-effects.
+            for (struct_init.ast.fields) |field_init| {
+                _ = try expr(gz, scope, .{ .rl = .discard }, field_init);
+            }
+            return .void_value;
+        },
         .ref => {
             const result = try structInitExprAnon(gz, scope, node, struct_init);
             return gz.addUnTok(.ref, result, tree.firstToken(node));
