@@ -365,6 +365,10 @@ fn generateFileName(base_name: []const u8) ![]const u8 {
 
 test "non-blocking tcp server" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (true) {
+        // https://github.com/ziglang/zig/issues/18315
+        return error.SkipZigTest;
+    }
 
     const localhost = try net.Address.parseIp("127.0.0.1", 0);
     var server = net.StreamServer.init(.{ .force_nonblocking = true });
