@@ -266,11 +266,14 @@ pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
         else => |e| return e,
     }
 
+    log.debug("parsing and generating '{s}'", .{mod.root_src_path});
+
     file.tree = try std.zig.Ast.parse(comp.gpa, file.source, .zig);
-    file.tree_loaded = true;
     assert(file.tree.errors.len == 0); // builtin.zig must parse
+    file.tree_loaded = true;
 
     file.zir = try AstGen.generate(comp.gpa, file.tree);
+    assert(!file.zir.hasCompileErrors()); // builtin.zig must not have astgen errors
     file.zir_loaded = true;
     file.status = .success_zir;
 }
@@ -296,3 +299,4 @@ const assert = std.debug.assert;
 const AstGen = @import("AstGen.zig");
 const File = @import("Module.zig").File;
 const Compilation = @import("Compilation.zig");
+const log = std.log.scoped(.builtin);

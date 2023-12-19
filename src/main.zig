@@ -2662,23 +2662,7 @@ fn buildOutputType(
     const std_mod = m: {
         if (main_mod_is_std) break :m main_mod;
         if (create_module.modules.get("std")) |cli_mod| break :m cli_mod.resolved.?;
-
-        break :m try Package.Module.create(arena, .{
-            .global_cache_directory = global_cache_directory,
-            .paths = .{
-                .root = .{
-                    .root_dir = zig_lib_directory,
-                    .sub_path = "std",
-                },
-                .root_src_path = "std.zig",
-            },
-            .fully_qualified_name = "std",
-            .cc_argv = &.{},
-            .inherited = .{},
-            .global = create_module.resolved_options,
-            .parent = main_mod,
-            .builtin_mod = main_mod.getBuiltinDependency(),
-        });
+        break :m null;
     };
 
     const root_mod = if (arg_mode == .zig_test) root_mod: {

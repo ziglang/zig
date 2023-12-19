@@ -119,10 +119,7 @@ pub fn generateLazySymbol(
 
     const comp = bin_file.comp;
     const zcu = comp.module.?;
-    const decl_index = lazy_sym.ty.getOwnerDecl(zcu);
-    const decl = zcu.declPtr(decl_index);
-    const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const target = comp.root_mod.resolved_target.result;
     const endian = target.cpu.arch.endian();
     const gpa = comp.gpa;
 
