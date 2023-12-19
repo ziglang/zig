@@ -5589,16 +5589,7 @@ pub fn backendSupportsFeature(zcu: Module, feature: Feature) bool {
     const cpu_arch = zcu.root_mod.resolved_target.result.cpu.arch;
     const ofmt = zcu.root_mod.resolved_target.result.ofmt;
     const use_llvm = zcu.comp.config.use_llvm;
-    return switch (feature) {
-        .panic_fn => ofmt == .c or use_llvm or cpu_arch == .x86_64,
-        .panic_unwrap_error => ofmt == .c or use_llvm,
-        .safety_check_formatted => ofmt == .c or use_llvm,
-        .error_return_trace => use_llvm,
-        .is_named_enum_value => use_llvm,
-        .error_set_has_value => use_llvm or cpu_arch.isWasm(),
-        .field_reordering => use_llvm,
-        .safety_checked_instructions => use_llvm,
-    };
+    return target_util.backendSupportsFeature(cpu_arch, ofmt, use_llvm, feature);
 }
 
 /// Shortcut for calling `intern_pool.get`.

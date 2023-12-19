@@ -2,6 +2,7 @@ const std = @import("std");
 const Type = @import("type.zig").Type;
 const AddressSpace = std.builtin.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
+const Feature = @import("Module.zig").Feature;
 
 pub const default_stack_protector_buffer_size = 4;
 
@@ -662,6 +663,24 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
         .sparc64 => .stage2_sparc64,
         .spirv64 => .stage2_spirv64,
         else => .other,
+    };
+}
+
+pub fn backendSupportsFeature(
+    cpu_arch: std.Target.Cpu.Arch,
+    ofmt: std.Target.ObjectFormat,
+    use_llvm: bool,
+    feature: Feature,
+) bool {
+    return switch (feature) {
+        .panic_fn => ofmt == .c or use_llvm or cpu_arch == .x86_64,
+        .panic_unwrap_error => ofmt == .c or use_llvm,
+        .safety_check_formatted => ofmt == .c or use_llvm,
+        .error_return_trace => use_llvm,
+        .is_named_enum_value => use_llvm,
+        .error_set_has_value => use_llvm or cpu_arch.isWasm(),
+        .field_reordering => use_llvm,
+        .safety_checked_instructions => use_llvm,
     };
 }
 

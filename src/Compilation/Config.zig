@@ -408,9 +408,17 @@ pub fn resolve(options: Options) !Config {
         };
     };
 
+    const backend_supports_error_tracing = target_util.backendSupportsFeature(
+        target.cpu.arch,
+        target.ofmt,
+        use_llvm,
+        .error_return_trace,
+    );
+
     const root_error_tracing = b: {
         if (options.root_error_tracing) |x| break :b x;
         if (root_strip) break :b false;
+        if (!backend_supports_error_tracing) break :b false;
         break :b switch (root_optimize_mode) {
             .Debug => true,
             .ReleaseSafe, .ReleaseFast, .ReleaseSmall => false,
@@ -418,6 +426,8 @@ pub fn resolve(options: Options) !Config {
     };
 
     const any_error_tracing = root_error_tracing or options.any_error_tracing;
+    if (any_error_tracing and !backend_supports_error_tracing)
+        return error.BackendLacksErrorTracing;
 
     const rdynamic = options.rdynamic orelse false;
 

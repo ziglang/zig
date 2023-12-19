@@ -2045,9 +2045,10 @@ fn analyzeAsType(
 
 pub fn setupErrorReturnTrace(sema: *Sema, block: *Block, last_arg_index: usize) !void {
     const mod = sema.mod;
+    const comp = mod.comp;
     const gpa = sema.gpa;
     const ip = &mod.intern_pool;
-    if (!mod.backendSupportsFeature(.error_return_trace)) return;
+    if (!comp.config.any_error_tracing) return;
 
     assert(!block.is_comptime);
     var err_trace_block = block.makeSubBlock();
@@ -6543,7 +6544,6 @@ pub fn analyzeSaveErrRetIndex(sema: *Sema, block: *Block) SemaError!Air.Inst.Ref
     const gpa = sema.gpa;
     const src = sema.src;
 
-    if (!mod.backendSupportsFeature(.error_return_trace)) return .none;
     if (!block.ownerModule().error_tracing) return .none;
 
     if (block.is_comptime)
@@ -6728,7 +6728,7 @@ fn zirCall(
         input_is_error = false;
     }
 
-    if (mod.backendSupportsFeature(.error_return_trace) and block.ownerModule().error_tracing and
+    if (block.ownerModule().error_tracing and
         !block.is_comptime and !block.is_typeof and (input_is_error or pop_error_return_trace))
     {
         const return_ty = sema.typeOf(call_inst);
@@ -18759,8 +18759,6 @@ fn retWithErrTracing(
 
 fn wantErrorReturnTracing(sema: *Sema, fn_ret_ty: Type) bool {
     const mod = sema.mod;
-    if (!mod.backendSupportsFeature(.error_return_trace)) return false;
-
     return fn_ret_ty.isError(mod) and mod.comp.config.any_error_tracing;
 }
 
@@ -18768,8 +18766,6 @@ fn zirSaveErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].save_err_ret_index;
 
-    // TODO: replace all of these checks with logic in module creation
-    if (!mod.backendSupportsFeature(.error_return_trace)) return;
     if (!block.ownerModule().error_tracing) return;
 
     // This is only relevant at runtime.
@@ -18795,7 +18791,6 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index)
     const mod = sema.mod;
     const ip = &mod.intern_pool;
 
-    if (!mod.backendSupportsFeature(.error_return_trace)) return;
     if (!ip.funcAnalysis(sema.owner_func_index).calls_or_awaits_errorable_fn) return;
     if (!start_block.ownerModule().error_tracing) return;
 
@@ -20068,8 +20063,7 @@ fn getErrorReturnTrace(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
 
     if (sema.owner_func_index != .none and
         ip.funcAnalysis(sema.owner_func_index).calls_or_awaits_errorable_fn and
-        block.ownerModule().error_tracing and
-        mod.backendSupportsFeature(.error_return_trace))
+        block.ownerModule().error_tracing)
     {
         return block.addTy(.err_return_trace, opt_ptr_stack_trace_ty);
     }
