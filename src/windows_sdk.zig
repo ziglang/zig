@@ -488,7 +488,7 @@ pub const Windows81Sdk = struct {
             };
             defer sdk_lib_dir.close();
 
-            var iterator = sdk_lib_dir.iterate();
+            var iterator = sdk_lib_dir.iterate(.{});
             const versions = iterateAndFilterBySemVer(&iterator, allocator, "winv") catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.VersionNotFound => return error.Windows81SdkNotFound,
@@ -693,7 +693,7 @@ const MsvcLibDir = struct {
         errdefer latest_version_lib_dir.deinit(allocator);
 
         var latest_version: u64 = 0;
-        var instances_dir_it = instances_dir.iterateAssumeFirstIteration();
+        var instances_dir_it = instances_dir.iterate(.{ .reset_cursor = false });
         while (instances_dir_it.next() catch return error.PathNotFound) |entry| {
             if (entry.kind != .directory) continue;
 
@@ -794,7 +794,7 @@ const MsvcLibDir = struct {
             }) catch return error.PathNotFound;
             defer visualstudio_folder.close();
 
-            var iterator = visualstudio_folder.iterate();
+            var iterator = visualstudio_folder.iterate(.{});
             const versions = iterateAndFilterBySemVer(&iterator, allocator, null) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.VersionNotFound => return error.PathNotFound,

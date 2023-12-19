@@ -197,7 +197,7 @@ pub fn main() !void {
                 };
                 defer dir.close();
 
-                var dir_it = dir.iterate();
+                var dir_it = dir.iterate(.{});
 
                 while (try dir_it.next()) |entry| {
                     const full_path = try std.fs.path.join(arena, &[_][]const u8{ full_dir_name, entry.name });

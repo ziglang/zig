@@ -5644,7 +5644,7 @@ fn fmtPathDir(
     const stat = try dir.stat();
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
-    var dir_it = dir.iterate();
+    var dir_it = dir.iterate(.{});
     while (try dir_it.next()) |entry| {
         const is_dir = entry.kind == .directory;
 

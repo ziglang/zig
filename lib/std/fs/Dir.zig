@@ -11,14 +11,23 @@ pub const Entry = struct {
 
 const IteratorError = error{ AccessDenied, SystemResources } || posix.UnexpectedError;
 
+pub const IterateOptions = struct {
+    /// If it's known that the `Dir` has not had its cursor modified yet (e.g. it was just opened),
+    /// this can be set to false to skip an explicit reset of the cursor.
+    reset_cursor: bool = true,
+
+    /// Explicitly stat the files, if the file kind is not reported by the underlying directory reading operation.
+    query_kind: bool = true,
+};
+
 pub const Iterator = switch (builtin.os.tag) {
     .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => struct {
         dir: Dir,
-        seek: i64,
-        buf: [1024]u8, // TODO align(@alignOf(posix.system.dirent)),
-        index: usize,
-        end_index: usize,
-        first_iter: bool,
+        seek: i64 = 0,
+        buf: [1024]u8 = undefined, // TODO align(@alignOf(posix.system.dirent)),
+        index: usize = 0,
+        end_index: usize = 0,
+        opts: IterateOptions,
 
         const Self = @This();
 
@@ -38,9 +47,9 @@ pub const Iterator = switch (builtin.os.tag) {
         fn nextDarwin(self: *Self) !?Entry {
             start_over: while (true) {
                 if (self.index >= self.end_index) {
-                    if (self.first_iter) {
+                    if (self.opts.reset_cursor) {
                         posix.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
-                        self.first_iter = false;
+                        self.opts.reset_cursor = false;
                     }
                     const rc = posix.system.__getdirentries64(
                         self.dir.fd,
@@ -80,7 +89,16 @@ pub const Iterator = switch (builtin.os.tag) {
                     posix.DT.REG => .file,
                     posix.DT.SOCK => .unix_domain_socket,
                     posix.DT.WHT => .whiteout,
-                    else => .unknown,
+                    else => query_kind: {
+                        if (!self.opts.query_kind) {
+                            break :query_kind .unknown;
+                        }
+                        if (self.dir.statFile(name)) |info| {
+                            break :query_kind info.kind;
+                        } else |_| {
+                            break :query_kind .unknown;
+                        }
+                    },
                 };
                 return Entry{
                     .name = name,
@@ -92,9 +110,9 @@ pub const Iterator = switch (builtin.os.tag) {
         fn nextSolaris(self: *Self) !?Entry {
             start_over: while (true) {
                 if (self.index >= self.end_index) {
-                    if (self.first_iter) {
+                    if (self.opts.reset_cursor) {
                         posix.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
-                        self.first_iter = false;
+                        self.opts.reset_cursor = false;
                     }
                     const rc = posix.system.getdents(self.dir.fd, &self.buf, self.buf.len);
                     switch (posix.errno(rc)) {
@@ -118,6 +136,13 @@ pub const Iterator = switch (builtin.os.tag) {
                     continue :start_over;
 
                 // Solaris dirent doesn't expose d_type, so we have to call stat to get it.
+                if (!self.opts.query_kind) {
+                    return Entry{
+                        .name = name,
+                        .kind = .unknown,
+                    };
+                }
+
                 const stat_info = posix.fstatat(
                     self.dir.fd,
                     name,
@@ -150,9 +175,9 @@ pub const Iterator = switch (builtin.os.tag) {
         fn nextBsd(self: *Self) !?Entry {
             start_over: while (true) {
                 if (self.index >= self.end_index) {
-                    if (self.first_iter) {
+                    if (self.opts.reset_cursor) {
                         posix.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
-                        self.first_iter = false;
+                        self.opts.reset_cursor = false;
                     }
                     const rc = if (builtin.os.tag == .netbsd)
                         posix.system.__getdents30(self.dir.fd, &self.buf, self.buf.len)
@@ -199,7 +224,16 @@ pub const Iterator = switch (builtin.os.tag) {
                     posix.DT.REG => .file,
                     posix.DT.SOCK => .unix_domain_socket,
                     posix.DT.WHT => .whiteout,
-                    else => .unknown,
+                    else => query_kind: {
+                        if (!self.opts.query_kind) {
+                            break :query_kind .unknown;
+                        }
+                        if (self.dir.statFile(name)) |info| {
+                            break :query_kind info.kind;
+                        } else |_| {
+                            break :query_kind .unknown;
+                        }
+                    },
                 };
                 return Entry{
                     .name = name,
@@ -211,15 +245,15 @@ pub const Iterator = switch (builtin.os.tag) {
         pub fn reset(self: *Self) void {
             self.index = 0;
             self.end_index = 0;
-            self.first_iter = true;
+            self.opts.reset_cursor = true;
         }
     },
     .haiku => struct {
         dir: Dir,
-        buf: [1024]u8, // TODO align(@alignOf(posix.dirent64)),
-        index: usize,
-        end_index: usize,
-        first_iter: bool,
+        buf: [1024]u8 = undefined, // TODO align(@alignOf(posix.dirent64)),
+        index: usize = 0,
+        end_index: usize = 0,
+        opts: IterateOptions,
 
         const Self = @This();
 
@@ -232,9 +266,9 @@ pub const Iterator = switch (builtin.os.tag) {
                 // TODO: find a better max
                 const HAIKU_MAX_COUNT = 10000;
                 if (self.index >= self.end_index) {
-                    if (self.first_iter) {
+                    if (self.opts.reset_cursor) {
                         posix.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
-                        self.first_iter = false;
+                        self.opts.reset_cursor = false;
                     }
                     const rc = posix.system._kern_read_dir(
                         self.dir.fd,
@@ -262,6 +296,13 @@ pub const Iterator = switch (builtin.os.tag) {
 
                 if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (haiku_entry.d_ino == 0)) {
                     continue :start_over;
+                }
+
+                if (!self.opts.query_kind) {
+                    return Entry{
+                        .name = name,
+                        .kind = .unknown,
+                    };
                 }
 
                 var stat_info: posix.Stat = undefined;
@@ -304,17 +345,17 @@ pub const Iterator = switch (builtin.os.tag) {
         pub fn reset(self: *Self) void {
             self.index = 0;
             self.end_index = 0;
-            self.first_iter = true;
+            self.opts.reset_cursor = true;
         }
     },
     .linux => struct {
         dir: Dir,
         // The if guard is solely there to prevent compile errors from missing `linux.dirent64`
         // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
-        buf: [1024]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(linux.dirent64)),
-        index: usize,
-        end_index: usize,
-        first_iter: bool,
+        buf: [1024]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(linux.dirent64)) = undefined,
+        index: usize = 0,
+        end_index: usize = 0,
+        opts: IterateOptions,
 
         const Self = @This();
         const linux = std.os.linux;
@@ -339,9 +380,9 @@ pub const Iterator = switch (builtin.os.tag) {
         pub fn nextLinux(self: *Self) ErrorLinux!?Entry {
             start_over: while (true) {
                 if (self.index >= self.end_index) {
-                    if (self.first_iter) {
+                    if (self.opts.reset_cursor) {
                         posix.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
-                        self.first_iter = false;
+                        self.opts.reset_cursor = false;
                     }
                     const rc = linux.getdents64(self.dir.fd, &self.buf, self.buf.len);
                     switch (linux.getErrno(rc)) {
@@ -377,7 +418,16 @@ pub const Iterator = switch (builtin.os.tag) {
                     linux.DT.LNK => .sym_link,
                     linux.DT.REG => .file,
                     linux.DT.SOCK => .unix_domain_socket,
-                    else => .unknown,
+                    else => query_kind: {
+                        if (!self.opts.query_kind) {
+                            break :query_kind .unknown;
+                        }
+                        if (self.dir.statFile(name)) |info| {
+                            break :query_kind info.kind;
+                        } else |_| {
+                            break :query_kind .unknown;
+                        }
+                    },
                 };
                 return Entry{
                     .name = name,
@@ -389,16 +439,16 @@ pub const Iterator = switch (builtin.os.tag) {
         pub fn reset(self: *Self) void {
             self.index = 0;
             self.end_index = 0;
-            self.first_iter = true;
+            self.opts.reset_cursor = true;
         }
     },
     .windows => struct {
         dir: Dir,
-        buf: [1024]u8 align(@alignOf(std.os.windows.FILE_BOTH_DIR_INFORMATION)),
-        index: usize,
-        end_index: usize,
-        first_iter: bool,
-        name_data: [fs.MAX_NAME_BYTES]u8,
+        buf: [1024]u8 align(@alignOf(std.os.windows.FILE_BOTH_DIR_INFORMATION)) = undefined,
+        index: usize = 0,
+        end_index: usize = 0,
+        opts: IterateOptions,
+        name_data: [fs.MAX_NAME_BYTES]u8 = undefined,
 
         const Self = @This();
 
@@ -422,9 +472,9 @@ pub const Iterator = switch (builtin.os.tag) {
                         .FileBothDirectoryInformation,
                         w.FALSE,
                         null,
-                        if (self.first_iter) @as(w.BOOLEAN, w.TRUE) else @as(w.BOOLEAN, w.FALSE),
+                        if (self.opts.reset_cursor) @as(w.BOOLEAN, w.TRUE) else @as(w.BOOLEAN, w.FALSE),
                     );
-                    self.first_iter = false;
+                    self.opts.reset_cursor = false;
                     if (io.Information == 0) return null;
                     self.index = 0;
                     self.end_index = io.Information;
@@ -468,15 +518,16 @@ pub const Iterator = switch (builtin.os.tag) {
         pub fn reset(self: *Self) void {
             self.index = 0;
             self.end_index = 0;
-            self.first_iter = true;
+            self.opts.reset_cursor = true;
         }
     },
     .wasi => struct {
         dir: Dir,
-        buf: [1024]u8, // TODO align(@alignOf(posix.wasi.dirent_t)),
-        cookie: u64,
-        index: usize,
-        end_index: usize,
+        buf: [1024]u8 = undefined, // TODO align(@alignOf(posix.wasi.dirent_t)),
+        cookie: u64 = std.os.wasi.DIRCOOKIE_START,
+        index: usize = 0,
+        end_index: usize = 0,
+        opts: IterateOptions,
 
         const Self = @This();
 
@@ -548,7 +599,16 @@ pub const Iterator = switch (builtin.os.tag) {
                     .SYMBOLIC_LINK => .sym_link,
                     .REGULAR_FILE => .file,
                     .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
-                    else => .unknown,
+                    else => query_kind: {
+                        if (!self.opts.query_kind) {
+                            break :query_kind .unknown;
+                        }
+                        if (self.dir.statFile(name)) |info| {
+                            break :query_kind info.kind;
+                        } else |_| {
+                            break :query_kind .unknown;
+                        }
+                    },
                 };
                 return Entry{
                     .name = name,
@@ -566,59 +626,11 @@ pub const Iterator = switch (builtin.os.tag) {
     else => @compileError("unimplemented"),
 };
 
-pub fn iterate(self: Dir) Iterator {
-    return self.iterateImpl(true);
-}
-
-/// Like `iterate`, but will not reset the directory cursor before the first
-/// iteration. This should only be used in cases where it is known that the
-/// `Dir` has not had its cursor modified yet (e.g. it was just opened).
-pub fn iterateAssumeFirstIteration(self: Dir) Iterator {
-    return self.iterateImpl(false);
-}
-
-fn iterateImpl(self: Dir, first_iter_start_value: bool) Iterator {
-    switch (builtin.os.tag) {
-        .macos,
-        .ios,
-        .freebsd,
-        .netbsd,
-        .dragonfly,
-        .openbsd,
-        .solaris,
-        .illumos,
-        => return Iterator{
-            .dir = self,
-            .seek = 0,
-            .index = 0,
-            .end_index = 0,
-            .buf = undefined,
-            .first_iter = first_iter_start_value,
-        },
-        .linux, .haiku => return Iterator{
-            .dir = self,
-            .index = 0,
-            .end_index = 0,
-            .buf = undefined,
-            .first_iter = first_iter_start_value,
-        },
-        .windows => return Iterator{
-            .dir = self,
-            .index = 0,
-            .end_index = 0,
-            .first_iter = first_iter_start_value,
-            .buf = undefined,
-            .name_data = undefined,
-        },
-        .wasi => return Iterator{
-            .dir = self,
-            .cookie = std.os.wasi.DIRCOOKIE_START,
-            .index = 0,
-            .end_index = 0,
-            .buf = undefined,
-        },
-        else => @compileError("unimplemented"),
-    }
+pub fn iterate(self: Dir, iterate_options: IterateOptions) Iterator {
+    return Iterator{
+        .dir = self,
+        .opts = iterate_options,
+    };
 }
 
 pub const Walker = struct {
@@ -674,7 +686,7 @@ pub const Walker = struct {
                     {
                         errdefer new_dir.close();
                         try self.stack.append(StackItem{
-                            .iter = new_dir.iterateAssumeFirstIteration(),
+                            .iter = new_dir.iterate(.{ .reset_cursor = false }),
                             .dirname_len = self.name_buffer.items.len,
                         });
                         top = &self.stack.items[self.stack.items.len - 1];
@@ -722,7 +734,7 @@ pub fn walk(self: Dir, allocator: Allocator) !Walker {
     errdefer stack.deinit();
 
     try stack.append(Walker.StackItem{
-        .iter = self.iterate(),
+        .iter = self.iterate(.{}),
         .dirname_len = 0,
     });
 
@@ -1837,7 +1849,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
     stack.appendAssumeCapacity(.{
         .name = sub_path,
         .parent_dir = self,
-        .iter = initial_iterable_dir.iterateAssumeFirstIteration(),
+        .iter = initial_iterable_dir.iterate(.{ .reset_cursor = false }),
     });
 
     process_stack: while (stack.items.len != 0) {
@@ -1878,7 +1890,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                         stack.appendAssumeCapacity(.{
                             .name = entry.name,
                             .parent_dir = top.iter.dir,
-                            .iter = iterable_dir.iterateAssumeFirstIteration(),
+                            .iter = iterable_dir.iterate(.{ .reset_cursor = false }),
                         });
                         continue :process_stack;
                     } else {
@@ -2004,7 +2016,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
             stack.appendAssumeCapacity(.{
                 .name = name,
                 .parent_dir = parent_dir,
-                .iter = iterable_dir.iterateAssumeFirstIteration(),
+                .iter = iterable_dir.iterate(.{ .reset_cursor = false }),
             });
             continue :process_stack;
         }
@@ -2037,7 +2049,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
         // open it, and close the original directory. Repeat. Then start the entire operation over.
 
         scan_dir: while (true) {
-            var dir_it = dir.iterateAssumeFirstIteration();
+            var dir_it = dir.iterate(.{ .reset_cursor = false });
             dir_it: while (try dir_it.next()) |entry| {
                 var treat_as_dir = entry.kind == .directory;
                 handle_entry: while (true) {
