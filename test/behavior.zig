@@ -143,6 +143,7 @@ test {
     _ = @import("behavior/bugs/13785.zig");
     _ = @import("behavior/bugs/14854.zig");
     _ = @import("behavior/bugs/15778.zig");
+    _ = @import("behavior/bugs/18302.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
     _ = @import("behavior/c_char_signedness.zig");
