@@ -1666,7 +1666,11 @@ fn buildOutputType(
                         fatal("unrecognized parameter: '{s}'", .{arg});
                     }
                 } else switch (file_ext orelse Compilation.classifyFileExt(arg)) {
-                    .object, .static_library, .shared_library => {
+                    .shared_library => {
+                        try link_objects.append(arena, .{ .path = arg });
+                        create_module.opts.any_dyn_libs = true;
+                    },
+                    .object, .static_library => {
                         try link_objects.append(arena, .{ .path = arg });
                     },
                     .res => {
@@ -1781,7 +1785,14 @@ fn buildOutputType(
                                 .ext = file_ext, // duped while parsing the args.
                             });
                         },
-                        .unknown, .shared_library, .object, .static_library => {
+                        .shared_library => {
+                            try link_objects.append(arena, .{
+                                .path = it.only_arg,
+                                .must_link = must_link,
+                            });
+                            create_module.opts.any_dyn_libs = true;
+                        },
+                        .unknown, .object, .static_library => {
                             try link_objects.append(arena, .{
                                 .path = it.only_arg,
                                 .must_link = must_link,
