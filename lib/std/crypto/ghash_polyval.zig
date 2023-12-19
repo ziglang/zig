@@ -158,11 +158,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
         /// clmulSoft128_64 is faster on platforms with no native 128-bit registers.
         const clmulSoft = switch (builtin.cpu.arch) {
             .wasm32, .wasm64 => clmulSoft128_64,
-            else => impl: {
-                const vector_size = std.simd.suggestVectorSize(u128) orelse 0;
-                if (vector_size < 128) break :impl clmulSoft128_64;
-                break :impl clmulSoft128;
-            },
+            else => if (std.simd.suggestVectorLength(u128) != null) clmulSoft128 else clmulSoft128_64,
         };
 
         // Software carryless multiplication of two 64-bit integers using native 128-bit registers.
