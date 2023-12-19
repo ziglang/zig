@@ -86,6 +86,7 @@ skip_linker_dependencies: bool,
 no_builtin: bool,
 function_sections: bool,
 data_sections: bool,
+native_system_include_paths: []const []const u8,
 
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
 win32_resource_table: if (build_options.only_core_functionality) void else std.AutoArrayHashMapUnmanaged(*Win32Resource, void) =
@@ -1065,6 +1066,7 @@ pub const InitOptions = struct {
     version: ?std.SemanticVersion = null,
     compatibility_version: ?std.SemanticVersion = null,
     libc_installation: ?*const LibCInstallation = null,
+    native_system_include_paths: []const []const u8 = &.{},
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
     /// This is for stage1 and should be deleted upon completion of self-hosting.
     color: Color = .auto,
@@ -1508,6 +1510,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .job_queued_update_builtin_zig = have_zcu,
             .function_sections = options.function_sections,
             .data_sections = options.data_sections,
+            .native_system_include_paths = options.native_system_include_paths,
         };
 
         const lf_open_opts: link.File.OpenOptions = .{
@@ -5294,6 +5297,14 @@ pub fn addCCArgs(
 
     if (target.os.tag == .freestanding) {
         try argv.append("-ffreestanding");
+    }
+
+    if (mod.resolved_target.is_native_os and mod.resolved_target.is_native_abi) {
+        try argv.ensureUnusedCapacity(comp.native_system_include_paths.len * 2);
+        for (comp.native_system_include_paths) |include_path| {
+            argv.appendAssumeCapacity("-isystem");
+            argv.appendAssumeCapacity(include_path);
+        }
     }
 
     try argv.appendSlice(mod.cc_argv);
