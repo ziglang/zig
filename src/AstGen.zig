@@ -1788,11 +1788,7 @@ fn structInitExpr(
 
     switch (ri.rl) {
         .none => return structInitExprAnon(gz, scope, node, struct_init),
-        .discard => {
-            // Even if discarding we must perform an anonymous init to check for duplicate field names.
-            _ = try structInitExprAnon(gz, scope, node, struct_init);
-            return .void_value;
-        },
+        .discard => return .void_value,
         .ref => {
             const result = try structInitExprAnon(gz, scope, node, struct_init);
             return gz.addUnTok(.ref, result, tree.firstToken(node));
