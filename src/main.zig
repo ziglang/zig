@@ -5234,11 +5234,15 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         gimmeMoreOfThoseSweetSweetFileDescriptors();
 
         const target_query: std.Target.Query = .{};
-        const target = resolveTargetQueryOrFatal(target_query);
+        const resolved_target: Package.Module.ResolvedTarget = .{
+            .result = resolveTargetQueryOrFatal(target_query),
+            .is_native_os = true,
+            .is_native_abi = true,
+        };
 
         const exe_basename = try std.zig.binNameAlloc(arena, .{
             .root_name = "build",
-            .target = target,
+            .target = resolved_target.result,
             .output_mode = .Exe,
         });
         const emit_bin: Compilation.EmitLoc = .{
@@ -5262,11 +5266,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
         const config = try Compilation.Config.resolve(.{
             .output_mode = .Exe,
-            .resolved_target = .{
-                .result = target,
-                .is_native_os = true,
-                .is_native_abi = true,
-            },
+            .resolved_target = resolved_target,
             .have_zcu = true,
             .emit_bin = true,
             .is_test = false,
@@ -5277,7 +5277,9 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .paths = main_mod_paths,
             .fully_qualified_name = "root",
             .cc_argv = &.{},
-            .inherited = .{},
+            .inherited = .{
+                .resolved_target = resolved_target,
+            },
             .global = config,
             .parent = null,
             .builtin_mod = null,
