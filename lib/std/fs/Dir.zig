@@ -89,7 +89,7 @@ pub const Iterator = switch (builtin.os.tag) {
                     posix.DT.REG => .file,
                     posix.DT.SOCK => .unix_domain_socket,
                     posix.DT.WHT => .whiteout,
-                    else => query_kind: {
+                    posix.DT.UNKNOWN => query_kind: {
                         if (!self.opts.query_kind) {
                             break :query_kind .unknown;
                         }
@@ -99,6 +99,7 @@ pub const Iterator = switch (builtin.os.tag) {
                             break :query_kind .unknown;
                         }
                     },
+                    else => .unknown,
                 };
                 return Entry{
                     .name = name,
@@ -224,7 +225,7 @@ pub const Iterator = switch (builtin.os.tag) {
                     posix.DT.REG => .file,
                     posix.DT.SOCK => .unix_domain_socket,
                     posix.DT.WHT => .whiteout,
-                    else => query_kind: {
+                    posix.DT.UNKNOWN => query_kind: {
                         if (!self.opts.query_kind) {
                             break :query_kind .unknown;
                         }
@@ -234,6 +235,7 @@ pub const Iterator = switch (builtin.os.tag) {
                             break :query_kind .unknown;
                         }
                     },
+                    else => .unknown,
                 };
                 return Entry{
                     .name = name,
@@ -418,7 +420,7 @@ pub const Iterator = switch (builtin.os.tag) {
                     linux.DT.LNK => .sym_link,
                     linux.DT.REG => .file,
                     linux.DT.SOCK => .unix_domain_socket,
-                    else => query_kind: {
+                    linux.DT.UNKNOWN => query_kind: {
                         if (!self.opts.query_kind) {
                             break :query_kind .unknown;
                         }
@@ -428,6 +430,7 @@ pub const Iterator = switch (builtin.os.tag) {
                             break :query_kind .unknown;
                         }
                     },
+                    else => .unknown,
                 };
                 return Entry{
                     .name = name,
