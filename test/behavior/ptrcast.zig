@@ -265,7 +265,8 @@ test "comptime @ptrCast a subset of an array, then write through it" {
         var buff: [16]u8 align(4) = undefined;
         const len_bytes = @as(*u32, @ptrCast(&buff));
         len_bytes.* = 16;
-        std.mem.copy(u8, buff[4..], "abcdef");
+        const source = "abcdef";
+        @memcpy(buff[4 .. 4 + source.len], source);
     }
 }
 

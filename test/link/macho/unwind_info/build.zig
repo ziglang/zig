@@ -32,7 +32,7 @@ fn testUnwindInfo(
     exe.link_gc_sections = dead_strip;
 
     const check = exe.checkObject();
-    check.checkStart();
+    check.checkInHeaders();
     check.checkExact("segname __TEXT");
     check.checkExact("sectname __gcc_except_tab");
     check.checkExact("sectname __unwind_info");
@@ -46,7 +46,7 @@ fn testUnwindInfo(
     }
 
     check.checkInSymtab();
-    check.checkContains("(__TEXT,__text) external ___gxx_personality_v0");
+    check.checkContains("(__TEXT,__text) private external ___gxx_personality_v0");
     test_step.dependOn(&check.step);
 
     const run = b.addRunArtifact(exe);

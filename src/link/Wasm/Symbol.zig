@@ -79,6 +79,9 @@ pub const Flag = enum(u32) {
     WASM_SYM_NO_STRIP = 0x80,
     /// Indicates a symbol is TLS
     WASM_SYM_TLS = 0x100,
+    /// Zig specific flag. Uses the most significant bit of the flag to annotate whether a symbol is
+    /// alive or not. Dead symbols are allowed to be garbage collected.
+    alive = 0x80000000,
 };
 
 /// Verifies if the given symbol should be imported from the
@@ -90,6 +93,23 @@ pub fn requiresImport(symbol: Symbol) bool {
     // if (symbol.isDefined() and symbol.isWeak()) return true; //TODO: Only when building shared lib
 
     return true;
+}
+
+/// Marks a symbol as 'alive', ensuring the garbage collector will not collect the trash.
+pub fn mark(symbol: *Symbol) void {
+    symbol.flags |= @intFromEnum(Flag.alive);
+}
+
+pub fn unmark(symbol: *Symbol) void {
+    symbol.flags &= ~@intFromEnum(Flag.alive);
+}
+
+pub fn isAlive(symbol: Symbol) bool {
+    return symbol.flags & @intFromEnum(Flag.alive) != 0;
+}
+
+pub fn isDead(symbol: Symbol) bool {
+    return symbol.flags & @intFromEnum(Flag.alive) == 0;
 }
 
 pub fn isTLS(symbol: Symbol) bool {

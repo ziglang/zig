@@ -280,7 +280,7 @@ fn detectAbiAndDynamicLinker(
         assert(@intFromEnum(Target.Abi.none) == 0);
         const fields = std.meta.fields(Target.Abi)[1..];
         var array: [fields.len]Target.Abi = undefined;
-        inline for (fields, 0..) |field, i| {
+        for (fields, 0..) |field, i| {
             array[i] = @field(Target.Abi, field.name);
         }
         break :blk array;
@@ -801,11 +801,9 @@ pub fn abiAndDynamicLinkerFromFile(
 
         if (dynstr) |ds| {
             if (rpath_offset) |rpoff| {
-                // TODO this pointer cast should not be necessary
-                const rpoff_usize = std.math.cast(usize, rpoff) orelse return error.InvalidElfFile;
-                if (rpoff_usize > ds.size) return error.InvalidElfFile;
-                const rpoff_file = ds.offset + rpoff_usize;
-                const rp_max_size = ds.size - rpoff_usize;
+                if (rpoff > ds.size) return error.InvalidElfFile;
+                const rpoff_file = ds.offset + rpoff;
+                const rp_max_size = ds.size - rpoff;
 
                 const strtab_len = @min(rp_max_size, strtab_buf.len);
                 const strtab_read_len = try preadMin(file, &strtab_buf, rpoff_file, strtab_len);

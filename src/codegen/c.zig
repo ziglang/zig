@@ -329,9 +329,13 @@ pub const Function = struct {
         return .{ .new_local = @intCast(f.locals.items.len - 1) };
     }
 
-    fn allocLocal(f: *Function, inst: Air.Inst.Index, ty: Type) !CValue {
+    fn allocLocal(f: *Function, inst: ?Air.Inst.Index, ty: Type) !CValue {
         const result = try f.allocAlignedLocal(ty, .{}, .none);
-        log.debug("%{d}: allocating t{d}", .{ inst, result.new_local });
+        if (inst) |i| {
+            log.debug("%{d}: allocating t{d}", .{ i, result.new_local });
+        } else {
+            log.debug("allocating t{d}", .{result.new_local});
+        }
         return result;
     }
 
@@ -2951,7 +2955,7 @@ fn genBodyResolveState(f: *Function, inst: Air.Inst.Index, leading_deaths: []con
     const pre_locals_len = @as(LocalIndex, @intCast(f.locals.items.len));
 
     for (leading_deaths) |death| {
-        try die(f, inst, Air.indexToRef(death));
+        try die(f, inst, death.toRef());
     }
 
     if (inner) {
@@ -2969,11 +2973,11 @@ fn genBodyResolveState(f: *Function, inst: Air.Inst.Index, leading_deaths: []con
     // them, unless they were used to store allocs.
 
     for (pre_locals_len..f.locals.items.len) |local_i| {
-        const local_index = @as(LocalIndex, @intCast(local_i));
+        const local_index: LocalIndex = @intCast(local_i);
         if (f.allocs.contains(local_index)) {
             continue;
         }
-        try freeLocal(f, inst, local_index, 0);
+        try freeLocal(f, inst, local_index, null);
     }
 }
 
@@ -2986,7 +2990,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
         if (f.liveness.isUnused(inst) and !f.air.mustLower(inst, ip))
             continue;
 
-        const result_value = switch (air_tags[inst]) {
+        const result_value = switch (air_tags[@intFromEnum(inst)]) {
             // zig fmt: off
             .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
@@ -3013,7 +3017,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
 
             .div_trunc, .div_exact => try airBinOp(f, inst, "/", "div_trunc", .none),
             .rem => blk: {
-                const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+                const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
                 const lhs_scalar_ty = f.typeOf(bin_op.lhs).scalarType(mod);
                 // For binary operations @TypeOf(lhs)==@TypeOf(rhs),
                 // so we only check one.
@@ -3061,16 +3065,16 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
 
             .slice => try airSlice(f, inst),
 
-            .cmp_gt  => try airCmpOp(f, inst, f.air.instructions.items(.data)[inst].bin_op, .gt),
-            .cmp_gte => try airCmpOp(f, inst, f.air.instructions.items(.data)[inst].bin_op, .gte),
-            .cmp_lt  => try airCmpOp(f, inst, f.air.instructions.items(.data)[inst].bin_op, .lt),
-            .cmp_lte => try airCmpOp(f, inst, f.air.instructions.items(.data)[inst].bin_op, .lte),
+            .cmp_gt  => try airCmpOp(f, inst, f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op, .gt),
+            .cmp_gte => try airCmpOp(f, inst, f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op, .gte),
+            .cmp_lt  => try airCmpOp(f, inst, f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op, .lt),
+            .cmp_lte => try airCmpOp(f, inst, f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op, .lte),
 
             .cmp_eq  => try airEquality(f, inst, .eq),
             .cmp_neq => try airEquality(f, inst, .neq),
 
             .cmp_vector => blk: {
-                const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+                const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
                 const extra = f.air.extraData(Air.VectorCmp, ty_pl.payload).data;
                 break :blk try airCmpOp(f, inst, extra, extra.compareOperator());
             },
@@ -3256,7 +3260,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
         if (result_value == .new_local) {
             log.debug("map %{d} to t{d}", .{ inst, result_value.new_local });
         }
-        try f.value_map.putNoClobber(Air.indexToRef(inst), switch (result_value) {
+        try f.value_map.putNoClobber(inst.toRef(), switch (result_value) {
             .none => continue,
             .new_local => |i| .{ .local = i },
             else => result_value,
@@ -3265,7 +3269,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
 }
 
 fn airSliceField(f: *Function, inst: Air.Inst.Index, is_ptr: bool, field_name: []const u8) !CValue {
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const inst_ty = f.typeOfIndex(inst);
     const operand = try f.resolveInst(ty_op.operand);
@@ -3287,7 +3291,7 @@ fn airSliceField(f: *Function, inst: Air.Inst.Index, is_ptr: bool, field_name: [
 fn airPtrElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
     const inst_ty = f.typeOfIndex(inst);
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     if (!inst_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
         return .none;
@@ -3312,7 +3316,7 @@ fn airPtrElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airPtrElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
 
     const inst_ty = f.typeOfIndex(inst);
@@ -3349,7 +3353,7 @@ fn airPtrElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airSliceElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
     const inst_ty = f.typeOfIndex(inst);
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     if (!inst_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
         return .none;
@@ -3374,7 +3378,7 @@ fn airSliceElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airSliceElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
 
     const inst_ty = f.typeOfIndex(inst);
@@ -3404,7 +3408,7 @@ fn airSliceElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airArrayElemVal(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const inst_ty = f.typeOfIndex(inst);
     if (!inst_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
@@ -3486,7 +3490,7 @@ fn airArg(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const ptr_ty = f.typeOf(ty_op.operand);
     const ptr_scalar_ty = ptr_ty.scalarType(mod);
@@ -3573,14 +3577,14 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
     const mod = f.object.dg.module;
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const writer = f.object.writer();
-    const op_inst = Air.refToIndex(un_op);
+    const op_inst = un_op.toIndex();
     const op_ty = f.typeOf(un_op);
     const ret_ty = if (is_ptr) op_ty.childType(mod) else op_ty;
     const lowered_ret_ty = try lowerFnRetTy(ret_ty, mod);
 
-    if (op_inst != null and f.air.instructions.items(.tag)[op_inst.?] == .call_always_tail) {
+    if (op_inst != null and f.air.instructions.items(.tag)[@intFromEnum(op_inst.?)] == .call_always_tail) {
         try reap(f, inst, &.{un_op});
         _ = try airCall(f, op_inst.?, .always_tail);
     } else if (lowered_ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
@@ -3611,7 +3615,7 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
             try f.writeCValue(writer, ret_val, .Other);
         try writer.writeAll(";\n");
         if (is_array) {
-            try freeLocal(f, inst, ret_val.new_local, 0);
+            try freeLocal(f, inst, ret_val.new_local, null);
         }
     } else {
         try reap(f, inst, &.{un_op});
@@ -3623,7 +3627,7 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
 
 fn airIntCast(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
@@ -3649,7 +3653,7 @@ fn airIntCast(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
@@ -3732,7 +3736,7 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airIntFromBool(f: *Function, inst: Air.Inst.Index) !CValue {
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try f.resolveInst(un_op);
     try reap(f, inst, &.{un_op});
     const writer = f.object.writer();
@@ -3749,7 +3753,7 @@ fn airIntFromBool(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const mod = f.object.dg.module;
     // *a = b;
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const ptr_ty = f.typeOf(bin_op.lhs);
     const ptr_scalar_ty = ptr_ty.scalarType(mod);
@@ -3815,7 +3819,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         try f.renderType(writer, src_ty);
         try writer.writeAll("))");
         if (src_val == .constant) {
-            try freeLocal(f, inst, array_src.new_local, 0);
+            try freeLocal(f, inst, array_src.new_local, null);
         }
     } else if (ptr_info.packed_offset.host_size > 0 and ptr_info.flags.vector_index == .none) {
         const host_bits = ptr_info.packed_offset.host_size * 8;
@@ -3887,7 +3891,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
 
 fn airOverflow(f: *Function, inst: Air.Inst.Index, operation: []const u8, info: BuiltinInfo) !CValue {
     const mod = f.object.dg.module;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
 
     const lhs = try f.resolveInst(bin_op.lhs);
@@ -3925,7 +3929,7 @@ fn airOverflow(f: *Function, inst: Air.Inst.Index, operation: []const u8, info: 
 
 fn airNot(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand_ty = f.typeOf(ty_op.operand);
     const scalar_ty = operand_ty.scalarType(mod);
     if (scalar_ty.ip_index != .bool_type) return try airUnBuiltinCall(f, inst, "not", .bits);
@@ -3958,7 +3962,7 @@ fn airBinOp(
     info: BuiltinInfo,
 ) !CValue {
     const mod = f.object.dg.module;
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const operand_ty = f.typeOf(bin_op.lhs);
     const scalar_ty = operand_ty.scalarType(mod);
     if ((scalar_ty.isInt(mod) and scalar_ty.bitSize(mod) > 64) or scalar_ty.isRuntimeFloat())
@@ -4046,7 +4050,7 @@ fn airEquality(
     operator: std.math.CompareOperator,
 ) !CValue {
     const mod = f.object.dg.module;
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const operand_ty = f.typeOf(bin_op.lhs);
     const operand_bits = operand_ty.bitSize(mod);
@@ -4109,7 +4113,7 @@ fn airEquality(
 }
 
 fn airCmpLtErrorsLen(f: *Function, inst: Air.Inst.Index) !CValue {
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
 
     const inst_ty = f.typeOfIndex(inst);
     const operand = try f.resolveInst(un_op);
@@ -4126,7 +4130,7 @@ fn airCmpLtErrorsLen(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airPtrAddSub(f: *Function, inst: Air.Inst.Index, operator: u8) !CValue {
     const mod = f.object.dg.module;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
 
     const lhs = try f.resolveInst(bin_op.lhs);
@@ -4174,7 +4178,7 @@ fn airPtrAddSub(f: *Function, inst: Air.Inst.Index, operator: u8) !CValue {
 
 fn airMinMax(f: *Function, inst: Air.Inst.Index, operator: u8, operation: []const u8) !CValue {
     const mod = f.object.dg.module;
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const inst_ty = f.typeOfIndex(inst);
     const inst_scalar_ty = inst_ty.scalarType(mod);
@@ -4216,7 +4220,7 @@ fn airMinMax(f: *Function, inst: Air.Inst.Index, operator: u8, operation: []cons
 
 fn airSlice(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
 
     const ptr = try f.resolveInst(bin_op.lhs);
@@ -4260,7 +4264,7 @@ fn airCall(
     const gpa = f.object.dg.gpa;
     const writer = f.object.writer();
 
-    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = f.air.extraData(Air.Call, pl_op.payload);
     const args = @as([]const Air.Inst.Ref, @ptrCast(f.air.extra[extra.end..][0..extra.data.args_len]));
 
@@ -4366,7 +4370,7 @@ fn airCall(
         if (resolved_arg == .none) continue;
         if (args_written != 0) try writer.writeAll(", ");
         try f.writeCValue(writer, resolved_arg, .FunctionArgument);
-        if (resolved_arg == .new_local) try freeLocal(f, inst, resolved_arg.new_local, 0);
+        if (resolved_arg == .new_local) try freeLocal(f, inst, resolved_arg.new_local, null);
         args_written += 1;
     }
     try writer.writeAll(");\n");
@@ -4383,7 +4387,7 @@ fn airCall(
         try writer.writeAll(", sizeof(");
         try f.renderType(writer, ret_ty);
         try writer.writeAll("));\n");
-        try freeLocal(f, inst, result_local.new_local, 0);
+        try freeLocal(f, inst, result_local.new_local, null);
         break :result array_local;
     };
 
@@ -4391,7 +4395,7 @@ fn airCall(
 }
 
 fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
-    const dbg_stmt = f.air.instructions.items(.data)[inst].dbg_stmt;
+    const dbg_stmt = f.air.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
     const writer = f.object.writer();
     // TODO re-evaluate whether to emit these or not. If we naively emit
     // these directives, the output file will report bogus line numbers because
@@ -4406,7 +4410,7 @@ fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airDbgInline(f: *Function, inst: Air.Inst.Index) !CValue {
-    const ty_fn = f.air.instructions.items(.data)[inst].ty_fn;
+    const ty_fn = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
     const mod = f.object.dg.module;
     const writer = f.object.writer();
     const owner_decl = mod.funcOwnerDeclPtr(ty_fn.func);
@@ -4418,7 +4422,7 @@ fn airDbgInline(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const name = f.air.nullTerminatedString(pl_op.payload);
     const operand_is_undef = if (try f.air.value(pl_op.operand, mod)) |v| v.isUndefDeep(mod) else false;
     if (!operand_is_undef) _ = try f.resolveInst(pl_op.operand);
@@ -4431,9 +4435,9 @@ fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airBlock(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = f.air.extraData(Air.Block, ty_pl.payload);
-    const body = f.air.extra[extra.end..][0..extra.data.body_len];
+    const body: []const Air.Inst.Index = @ptrCast(f.air.extra[extra.end..][0..extra.data.body_len]);
     const liveness_block = f.liveness.getBlock(inst);
 
     const block_id: usize = f.next_block_index;
@@ -4457,7 +4461,7 @@ fn airBlock(f: *Function, inst: Air.Inst.Index) !CValue {
 
     // The body might result in some values we had beforehand being killed
     for (liveness_block.deaths) |death| {
-        try die(f, inst, Air.indexToRef(death));
+        try die(f, inst, death.toRef());
     }
 
     try f.object.indent_writer.insertNewline();
@@ -4472,18 +4476,18 @@ fn airBlock(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airTry(f: *Function, inst: Air.Inst.Index) !CValue {
-    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = f.air.extraData(Air.Try, pl_op.payload);
-    const body = f.air.extra[extra.end..][0..extra.data.body_len];
+    const body: []const Air.Inst.Index = @ptrCast(f.air.extra[extra.end..][0..extra.data.body_len]);
     const err_union_ty = f.typeOf(pl_op.operand);
     return lowerTry(f, inst, pl_op.operand, body, err_union_ty, false);
 }
 
 fn airTryPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = f.air.extraData(Air.TryPtr, ty_pl.payload);
-    const body = f.air.extra[extra.end..][0..extra.data.body_len];
+    const body: []const Air.Inst.Index = @ptrCast(f.air.extra[extra.end..][0..extra.data.body_len]);
     const err_union_ty = f.typeOf(extra.data.ptr).childType(mod);
     return lowerTry(f, inst, extra.data.ptr, body, err_union_ty, true);
 }
@@ -4529,7 +4533,7 @@ fn lowerTry(
 
     // Now we have the "then branch" (in terms of the liveness data); process any deaths.
     for (liveness_condbr.then_deaths) |death| {
-        try die(f, inst, Air.indexToRef(death));
+        try die(f, inst, death.toRef());
     }
 
     if (!payload_has_bits) {
@@ -4559,7 +4563,7 @@ fn lowerTry(
 }
 
 fn airBr(f: *Function, inst: Air.Inst.Index) !CValue {
-    const branch = f.air.instructions.items(.data)[inst].br;
+    const branch = f.air.instructions.items(.data)[@intFromEnum(inst)].br;
     const block = f.blocks.get(branch.block_inst).?;
     const result = block.result;
     const writer = f.object.writer();
@@ -4582,7 +4586,7 @@ fn airBr(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const dest_ty = f.typeOfIndex(inst);
 
     const operand = try f.resolveInst(ty_op.operand);
@@ -4624,7 +4628,7 @@ const LocalResult = struct {
 
     fn free(lr: LocalResult, f: *Function) !void {
         if (lr.need_free) {
-            try freeLocal(f, 0, lr.c_value.new_local, 0);
+            try freeLocal(f, null, lr.c_value.new_local, null);
         }
     }
 };
@@ -4648,7 +4652,7 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !Loca
     }
 
     if (dest_ty.isPtrAtRuntime(mod) and operand_ty.isPtrAtRuntime(mod)) {
-        const local = try f.allocLocal(0, dest_ty);
+        const local = try f.allocLocal(null, dest_ty);
         try f.writeCValue(writer, local, .Other);
         try writer.writeAll(" = (");
         try f.renderType(writer, dest_ty);
@@ -4662,7 +4666,7 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !Loca
     }
 
     const operand_lval = if (operand == .constant) blk: {
-        const operand_local = try f.allocLocal(0, operand_ty);
+        const operand_local = try f.allocLocal(null, operand_ty);
         try f.writeCValue(writer, operand_local, .Other);
         if (operand_ty.isAbiInt(mod)) {
             try writer.writeAll(" = ");
@@ -4676,7 +4680,7 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !Loca
         break :blk operand_local;
     } else operand;
 
-    const local = try f.allocLocal(0, dest_ty);
+    const local = try f.allocLocal(null, dest_ty);
     try writer.writeAll("memcpy(&");
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(", &");
@@ -4741,7 +4745,7 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !Loca
     }
 
     if (operand == .constant) {
-        try freeLocal(f, 0, operand_lval.new_local, 0);
+        try freeLocal(f, null, operand_lval.new_local, null);
     }
 
     return .{
@@ -4784,7 +4788,7 @@ fn airFrameAddress(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airFence(f: *Function, inst: Air.Inst.Index) !CValue {
-    const atomic_order = f.air.instructions.items(.data)[inst].fence;
+    const atomic_order = f.air.instructions.items(.data)[@intFromEnum(inst)].fence;
     const writer = f.object.writer();
 
     try writer.writeAll("zig_fence(");
@@ -4803,9 +4807,9 @@ fn airUnreach(f: *Function) !CValue {
 }
 
 fn airLoop(f: *Function, inst: Air.Inst.Index) !CValue {
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const loop = f.air.extraData(Air.Block, ty_pl.payload);
-    const body = f.air.extra[loop.end..][0..loop.data.body_len];
+    const body: []const Air.Inst.Index = @ptrCast(f.air.extra[loop.end..][0..loop.data.body_len]);
     const writer = f.object.writer();
 
     try writer.writeAll("for (;;) ");
@@ -4816,12 +4820,12 @@ fn airLoop(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
-    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const cond = try f.resolveInst(pl_op.operand);
     try reap(f, inst, &.{pl_op.operand});
     const extra = f.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body = f.air.extra[extra.end..][0..extra.data.then_body_len];
-    const else_body = f.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+    const then_body: []const Air.Inst.Index = @ptrCast(f.air.extra[extra.end..][0..extra.data.then_body_len]);
+    const else_body: []const Air.Inst.Index = @ptrCast(f.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len]);
     const liveness_condbr = f.liveness.getCondBr(inst);
     const writer = f.object.writer();
 
@@ -4837,7 +4841,7 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
     // `free_locals_map` well defined (our parent is responsible for doing that).
 
     for (liveness_condbr.else_deaths) |death| {
-        try die(f, inst, Air.indexToRef(death));
+        try die(f, inst, death.toRef());
     }
 
     // We never actually need an else block, because our branches are noreturn so must (for
@@ -4850,7 +4854,7 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const condition = try f.resolveInst(pl_op.operand);
     try reap(f, inst, &.{pl_op.operand});
     const condition_ty = f.typeOf(pl_op.operand);
@@ -4883,7 +4887,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     for (0..switch_br.data.cases_len) |case_i| {
         const case = f.air.extraData(Air.SwitchBr.Case, extra_index);
         const items = @as([]const Air.Inst.Ref, @ptrCast(f.air.extra[case.end..][0..case.data.items_len]));
-        const case_body = f.air.extra[case.end + items.len ..][0..case.data.body_len];
+        const case_body: []const Air.Inst.Index = @ptrCast(f.air.extra[case.end + items.len ..][0..case.data.body_len]);
         extra_index = case.end + case.data.items_len + case_body.len;
 
         for (items) |item| {
@@ -4903,7 +4907,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
             try genBodyResolveState(f, inst, liveness.deaths[case_i], case_body, false);
         } else {
             for (liveness.deaths[case_i]) |death| {
-                try die(f, inst, Air.indexToRef(death));
+                try die(f, inst, death.toRef());
             }
             try genBody(f, case_body);
         }
@@ -4911,12 +4915,12 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
         // The case body must be noreturn so we don't need to insert a break.
     }
 
-    const else_body = f.air.extra[extra_index..][0..switch_br.data.else_body_len];
+    const else_body: []const Air.Inst.Index = @ptrCast(f.air.extra[extra_index..][0..switch_br.data.else_body_len]);
     try f.object.indent_writer.insertNewline();
     if (else_body.len > 0) {
         // Note that this must be the last case (i.e. the `last_case_i` case was not hit above)
         for (liveness.deaths[liveness.deaths.len - 1]) |death| {
-            try die(f, inst, Air.indexToRef(death));
+            try die(f, inst, death.toRef());
         }
         try writer.writeAll("default: ");
         try genBody(f, else_body);
@@ -4951,7 +4955,7 @@ fn asmInputNeedsLocal(f: *Function, constraint: []const u8, value: CValue) bool 
 
 fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = f.air.extraData(Air.Asm, ty_pl.payload);
     const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
     const clobbers_len = @as(u31, @truncate(extra.data.flags));
@@ -5213,7 +5217,7 @@ fn airIsNull(
     is_ptr: bool,
 ) !CValue {
     const mod = f.object.dg.module;
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
 
     const writer = f.object.writer();
     const operand = try f.resolveInst(un_op);
@@ -5259,7 +5263,7 @@ fn airIsNull(
 
 fn airOptionalPayload(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
@@ -5293,7 +5297,7 @@ fn airOptionalPayload(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airOptionalPayloadPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const writer = f.object.writer();
     const operand = try f.resolveInst(ty_op.operand);
@@ -5324,7 +5328,7 @@ fn airOptionalPayloadPtr(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airOptionalPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const writer = f.object.writer();
     const operand = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
@@ -5433,7 +5437,7 @@ fn fieldLocation(
 }
 
 fn airStructFieldPtr(f: *Function, inst: Air.Inst.Index) !CValue {
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = f.air.extraData(Air.StructField, ty_pl.payload).data;
 
     const container_ptr_val = try f.resolveInst(extra.struct_operand);
@@ -5443,7 +5447,7 @@ fn airStructFieldPtr(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airStructFieldPtrIndex(f: *Function, inst: Air.Inst.Index, index: u8) !CValue {
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const container_ptr_val = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
@@ -5453,7 +5457,7 @@ fn airStructFieldPtrIndex(f: *Function, inst: Air.Inst.Index, index: u8) !CValue
 
 fn airFieldParentPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = f.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
 
     const container_ptr_ty = f.typeOfIndex(inst);
@@ -5558,7 +5562,7 @@ fn fieldPtr(
 fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
     const ip = &mod.intern_pool;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = f.air.extraData(Air.StructField, ty_pl.payload).data;
 
     const inst_ty = f.typeOfIndex(inst);
@@ -5634,7 +5638,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                 try writer.writeAll(", sizeof(");
                 try f.renderType(writer, inst_ty);
                 try writer.writeAll("));\n");
-                try freeLocal(f, inst, temp_local.new_local, 0);
+                try freeLocal(f, inst, temp_local.new_local, null);
                 return local;
             },
         },
@@ -5666,7 +5670,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                 try writer.writeAll("));\n");
 
                 if (struct_byval == .constant) {
-                    try freeLocal(f, inst, operand_lval.new_local, 0);
+                    try freeLocal(f, inst, operand_lval.new_local, null);
                 }
 
                 return local;
@@ -5695,7 +5699,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
 /// Note that the result is never a pointer.
 fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const inst_ty = f.typeOfIndex(inst);
     const operand = try f.resolveInst(ty_op.operand);
@@ -5736,7 +5740,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airUnwrapErrUnionPay(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const inst_ty = f.typeOfIndex(inst);
     const operand = try f.resolveInst(ty_op.operand);
@@ -5772,7 +5776,7 @@ fn airUnwrapErrUnionPay(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValu
 
 fn airWrapOptional(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const inst_ty = f.typeOfIndex(inst);
     const repr_is_payload = inst_ty.optionalReprIsPayload(mod);
@@ -5804,7 +5808,7 @@ fn airWrapOptional(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airWrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const inst_ty = f.typeOfIndex(inst);
     const payload_ty = inst_ty.errorUnionPayload(mod);
@@ -5844,7 +5848,7 @@ fn airWrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
     const writer = f.object.writer();
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand = try f.resolveInst(ty_op.operand);
     const error_union_ty = f.typeOf(ty_op.operand).childType(mod);
 
@@ -5894,7 +5898,7 @@ fn airSaveErrReturnTraceIndex(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const inst_ty = f.typeOfIndex(inst);
     const payload_ty = inst_ty.errorUnionPayload(mod);
@@ -5928,7 +5932,7 @@ fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airIsErr(f: *Function, inst: Air.Inst.Index, is_ptr: bool, operator: []const u8) !CValue {
     const mod = f.object.dg.module;
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
 
     const writer = f.object.writer();
     const operand = try f.resolveInst(un_op);
@@ -5963,7 +5967,7 @@ fn airIsErr(f: *Function, inst: Air.Inst.Index, is_ptr: bool, operator: []const 
 
 fn airArrayToSlice(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
@@ -5994,7 +5998,7 @@ fn airArrayToSlice(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airFloatCast(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const inst_ty = f.typeOfIndex(inst);
     const operand = try f.resolveInst(ty_op.operand);
@@ -6037,7 +6041,7 @@ fn airFloatCast(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airIntFromPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
 
     const operand = try f.resolveInst(un_op);
     const operand_ty = f.typeOf(un_op);
@@ -6066,7 +6070,7 @@ fn airUnBuiltinCall(
     info: BuiltinInfo,
 ) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
@@ -6110,7 +6114,7 @@ fn airBinBuiltinCall(
     info: BuiltinInfo,
 ) !CValue {
     const mod = f.object.dg.module;
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const operand_ty = f.typeOf(bin_op.lhs);
     const operand_cty = try f.typeToCType(operand_ty, .complete);
@@ -6215,7 +6219,7 @@ fn airCmpBuiltinCall(
 
 fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue {
     const mod = f.object.dg.module;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = f.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
     const inst_ty = f.typeOfIndex(inst);
     const ptr = try f.resolveInst(extra.ptr);
@@ -6311,7 +6315,7 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
     try new_value_mat.end(f, inst);
 
     if (f.liveness.isUnused(inst)) {
-        try freeLocal(f, inst, local.new_local, 0);
+        try freeLocal(f, inst, local.new_local, null);
         return .none;
     }
 
@@ -6320,7 +6324,7 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
 
 fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = f.air.extraData(Air.AtomicRmw, pl_op.payload).data;
     const inst_ty = f.typeOfIndex(inst);
     const ptr_ty = f.typeOf(pl_op.operand);
@@ -6366,7 +6370,7 @@ fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
     try operand_mat.end(f, inst);
 
     if (f.liveness.isUnused(inst)) {
-        try freeLocal(f, inst, local.new_local, 0);
+        try freeLocal(f, inst, local.new_local, null);
         return .none;
     }
 
@@ -6375,7 +6379,7 @@ fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airAtomicLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const atomic_load = f.air.instructions.items(.data)[inst].atomic_load;
+    const atomic_load = f.air.instructions.items(.data)[@intFromEnum(inst)].atomic_load;
     const ptr = try f.resolveInst(atomic_load.ptr);
     try reap(f, inst, &.{atomic_load.ptr});
     const ptr_ty = f.typeOf(atomic_load.ptr);
@@ -6411,7 +6415,7 @@ fn airAtomicLoad(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CValue {
     const mod = f.object.dg.module;
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const ptr_ty = f.typeOf(bin_op.lhs);
     const ty = ptr_ty.childType(mod);
     const ptr = try f.resolveInst(bin_op.lhs);
@@ -6455,7 +6459,7 @@ fn writeSliceOrPtr(f: *Function, writer: anytype, ptr: CValue, ptr_ty: Type) !vo
 
 fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const mod = f.object.dg.module;
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const dest_ty = f.typeOf(bin_op.lhs);
     const dest_slice = try f.resolveInst(bin_op.lhs);
     const value = try f.resolveInst(bin_op.rhs);
@@ -6542,7 +6546,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         try a.end(f, writer);
 
         try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
-        try freeLocal(f, inst, index.new_local, 0);
+        try freeLocal(f, inst, index.new_local, null);
 
         return .none;
     }
@@ -6577,7 +6581,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
 
 fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const dest_ptr = try f.resolveInst(bin_op.lhs);
     const src_ptr = try f.resolveInst(bin_op.rhs);
     const dest_ty = f.typeOf(bin_op.lhs);
@@ -6616,7 +6620,7 @@ fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airSetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const union_ptr = try f.resolveInst(bin_op.lhs);
     const new_tag = try f.resolveInst(bin_op.rhs);
     try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
@@ -6637,7 +6641,7 @@ fn airSetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airGetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
@@ -6659,7 +6663,7 @@ fn airGetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airTagName(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
 
     const inst_ty = f.typeOfIndex(inst);
     const enum_ty = f.typeOf(un_op);
@@ -6679,7 +6683,7 @@ fn airTagName(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airErrorName(f: *Function, inst: Air.Inst.Index) !CValue {
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
 
     const writer = f.object.writer();
     const inst_ty = f.typeOfIndex(inst);
@@ -6696,7 +6700,7 @@ fn airErrorName(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airSplat(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
@@ -6719,7 +6723,7 @@ fn airSplat(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airSelect(f: *Function, inst: Air.Inst.Index) !CValue {
-    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = f.air.extraData(Air.Bin, pl_op.payload).data;
 
     const pred = try f.resolveInst(pl_op.operand);
@@ -6751,7 +6755,7 @@ fn airSelect(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airShuffle(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = f.air.extraData(Air.Shuffle, ty_pl.payload).data;
 
     const mask = Value.fromInterned(extra.mask);
@@ -6783,7 +6787,7 @@ fn airShuffle(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const reduce = f.air.instructions.items(.data)[inst].reduce;
+    const reduce = f.air.instructions.items(.data)[@intFromEnum(inst)].reduce;
 
     const scalar_ty = f.typeOfIndex(inst);
     const operand = try f.resolveInst(reduce.operand);
@@ -6939,7 +6943,7 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
     const ip = &mod.intern_pool;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const inst_ty = f.typeOfIndex(inst);
     const len = @as(usize, @intCast(inst_ty.arrayLen(mod)));
     const elements = @as([]const Air.Inst.Ref, @ptrCast(f.air.extra[ty_pl.payload..][0..len]));
@@ -7069,7 +7073,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
     const ip = &mod.intern_pool;
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = f.air.extraData(Air.UnionInit, ty_pl.payload).data;
 
     const union_ty = f.typeOfIndex(inst);
@@ -7117,7 +7121,7 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airPrefetch(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const prefetch = f.air.instructions.items(.data)[inst].prefetch;
+    const prefetch = f.air.instructions.items(.data)[@intFromEnum(inst)].prefetch;
 
     const ptr_ty = f.typeOf(prefetch.ptr);
     const ptr = try f.resolveInst(prefetch.ptr);
@@ -7142,7 +7146,7 @@ fn airPrefetch(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airWasmMemorySize(f: *Function, inst: Air.Inst.Index) !CValue {
-    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
 
     const writer = f.object.writer();
     const inst_ty = f.typeOfIndex(inst);
@@ -7156,7 +7160,7 @@ fn airWasmMemorySize(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airWasmMemoryGrow(f: *Function, inst: Air.Inst.Index) !CValue {
-    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
 
     const writer = f.object.writer();
     const inst_ty = f.typeOfIndex(inst);
@@ -7174,7 +7178,7 @@ fn airWasmMemoryGrow(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airFloatNeg(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
 
     const operand = try f.resolveInst(un_op);
     try reap(f, inst, &.{un_op});
@@ -7200,7 +7204,7 @@ fn airFloatNeg(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airAbs(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand = try f.resolveInst(ty_op.operand);
     const ty = f.typeOf(ty_op.operand);
     const scalar_ty = ty.scalarType(mod);
@@ -7239,7 +7243,7 @@ fn unFloatOp(f: *Function, inst: Air.Inst.Index, operand: CValue, ty: Type, oper
 }
 
 fn airUnFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CValue {
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
 
     const operand = try f.resolveInst(un_op);
     try reap(f, inst, &.{un_op});
@@ -7250,7 +7254,7 @@ fn airUnFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CVal
 
 fn airBinFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CValue {
     const mod = f.object.dg.module;
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const lhs = try f.resolveInst(bin_op.lhs);
     const rhs = try f.resolveInst(bin_op.rhs);
@@ -7282,7 +7286,7 @@ fn airBinFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CVa
 
 fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
-    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const bin_op = f.air.extraData(Air.Bin, pl_op.payload).data;
 
     const mulend1 = try f.resolveInst(bin_op.lhs);
@@ -7336,7 +7340,7 @@ fn airCVaStart(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airCVaArg(f: *Function, inst: Air.Inst.Index) !CValue {
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const inst_ty = f.typeOfIndex(inst);
     const va_list = try f.resolveInst(ty_op.operand);
@@ -7348,13 +7352,13 @@ fn airCVaArg(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(" = va_arg(*(va_list *)");
     try f.writeCValue(writer, va_list, .Other);
     try writer.writeAll(", ");
-    try f.renderType(writer, f.air.getRefType(ty_op.ty));
+    try f.renderType(writer, ty_op.ty.toType());
     try writer.writeAll(");\n");
     return local;
 }
 
 fn airCVaEnd(f: *Function, inst: Air.Inst.Index) !CValue {
-    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
 
     const va_list = try f.resolveInst(un_op);
     try reap(f, inst, &.{un_op});
@@ -7367,7 +7371,7 @@ fn airCVaEnd(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airCVaCopy(f: *Function, inst: Air.Inst.Index) !CValue {
-    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const inst_ty = f.typeOfIndex(inst);
     const va_list = try f.resolveInst(ty_op.operand);
@@ -7836,7 +7840,7 @@ const Materialize = struct {
 
     pub fn end(self: Materialize, f: *Function, inst: Air.Inst.Index) !void {
         switch (self.local) {
-            .new_local => |local| try freeLocal(f, inst, local, 0),
+            .new_local => |local| try freeLocal(f, inst, local, null),
             else => {},
         }
     }
@@ -7926,7 +7930,7 @@ const Vectorize = struct {
         if (self.index != .none) {
             f.object.indent_writer.popIndent();
             try writer.writeAll("}\n");
-            try freeLocal(f, inst, self.index.new_local, 0);
+            try freeLocal(f, inst, self.index.new_local, null);
         }
     }
 };
@@ -7972,7 +7976,7 @@ fn reap(f: *Function, inst: Air.Inst.Index, operands: []const Air.Inst.Ref) !voi
 }
 
 fn die(f: *Function, inst: Air.Inst.Index, ref: Air.Inst.Ref) !void {
-    const ref_inst = Air.refToIndex(ref) orelse return;
+    const ref_inst = ref.toIndex() orelse return;
     const c_value = (f.value_map.fetchRemove(ref) orelse return).value;
     const local_index = switch (c_value) {
         .local, .new_local => |l| l,
@@ -7981,10 +7985,22 @@ fn die(f: *Function, inst: Air.Inst.Index, ref: Air.Inst.Ref) !void {
     try freeLocal(f, inst, local_index, ref_inst);
 }
 
-fn freeLocal(f: *Function, inst: Air.Inst.Index, local_index: LocalIndex, ref_inst: Air.Inst.Index) !void {
+fn freeLocal(f: *Function, inst: ?Air.Inst.Index, local_index: LocalIndex, ref_inst: ?Air.Inst.Index) !void {
     const gpa = f.object.dg.gpa;
     const local = &f.locals.items[local_index];
-    log.debug("%{d}: freeing t{d} (operand %{d})", .{ inst, local_index, ref_inst });
+    if (inst) |i| {
+        if (ref_inst) |operand| {
+            log.debug("%{d}: freeing t{d} (operand %{d})", .{ @intFromEnum(i), local_index, operand });
+        } else {
+            log.debug("%{d}: freeing t{d}", .{ @intFromEnum(i), local_index });
+        }
+    } else {
+        if (ref_inst) |operand| {
+            log.debug("freeing t{d} (operand %{d})", .{ local_index, operand });
+        } else {
+            log.debug("freeing t{d}", .{local_index});
+        }
+    }
     const gop = try f.free_locals_map.getOrPut(gpa, local.getType());
     if (!gop.found_existing) gop.value_ptr.* = .{};
     if (std.debug.runtime_safety) {

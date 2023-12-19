@@ -389,7 +389,47 @@ pub fn generateSymbol(
                 },
             },
             .vector_type => |vector_type| {
-                switch (aggregate.storage) {
+                const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse
+                    return error.Overflow;
+                if (Type.fromInterned(vector_type.child).bitSize(mod) == 1) {
+                    const bytes = try code.addManyAsSlice(abi_size);
+                    @memset(bytes, 0xaa);
+                    var index: usize = 0;
+                    const len = math.cast(usize, vector_type.len) orelse return error.Overflow;
+                    while (index < len) : (index += 1) {
+                        const bit_index = switch (endian) {
+                            .big => len - 1 - index,
+                            .little => index,
+                        };
+                        const byte = &bytes[bit_index / 8];
+                        const mask = @as(u8, 1) << @truncate(bit_index);
+                        if (switch (switch (aggregate.storage) {
+                            .bytes => unreachable,
+                            .elems => |elems| elems[index],
+                            .repeated_elem => |elem| elem,
+                        }) {
+                            .bool_true => true,
+                            .bool_false => false,
+                            else => |elem| switch (mod.intern_pool.indexToKey(elem)) {
+                                .undef => continue,
+                                .int => |int| switch (int.storage) {
+                                    .u64 => |x| switch (x) {
+                                        0 => false,
+                                        1 => true,
+                                        else => unreachable,
+                                    },
+                                    .i64 => |x| switch (x) {
+                                        -1 => true,
+                                        0 => false,
+                                        else => unreachable,
+                                    },
+                                    else => unreachable,
+                                },
+                                else => unreachable,
+                            },
+                        }) byte.* |= mask else byte.* &= ~mask;
+                    }
+                } else switch (aggregate.storage) {
                     .bytes => |bytes| try code.appendSlice(bytes),
                     .elems, .repeated_elem => {
                         var index: u64 = 0;
@@ -398,7 +438,9 @@ pub fn generateSymbol(
                                 .ty = Type.fromInterned(vector_type.child),
                                 .val = Value.fromInterned(switch (aggregate.storage) {
                                     .bytes => unreachable,
-                                    .elems => |elems| elems[@as(usize, @intCast(index))],
+                                    .elems => |elems| elems[
+                                        math.cast(usize, index) orelse return error.Overflow
+                                    ],
                                     .repeated_elem => |elem| elem,
                                 }),
                             }, code, debug_output, reloc_info)) {
@@ -409,11 +451,14 @@ pub fn generateSymbol(
                     },
                 }
 
-                const padding = math.cast(usize, typed_value.ty.abiSize(mod) -
-                    (math.divCeil(u64, Type.fromInterned(vector_type.child).bitSize(mod) * vector_type.len, 8) catch |err| switch (err) {
+                const padding = abi_size - (math.cast(usize, math.divCeil(
+                    u64,
+                    Type.fromInterned(vector_type.child).bitSize(mod) * vector_type.len,
+                    8,
+                ) catch |err| switch (err) {
                     error.DivisionByZero => unreachable,
                     else => |e| return e,
-                })) orelse return error.Overflow;
+                }) orelse return error.Overflow);
                 if (padding > 0) try code.appendNTimes(0, padding);
             },
             .anon_struct_type => |tuple| {
@@ -657,14 +702,15 @@ fn lowerParentPtr(
                 Type.fromInterned(mod.intern_pool.typeOf(elem.base)).elemType2(mod).abiSize(mod)))),
         ),
         .field => |field| {
-            const base_type = mod.intern_pool.indexToKey(mod.intern_pool.typeOf(field.base)).ptr_type.child;
+            const base_ptr_ty = mod.intern_pool.typeOf(field.base);
+            const base_ty = mod.intern_pool.indexToKey(base_ptr_ty).ptr_type.child;
             return lowerParentPtr(
                 bin_file,
                 src_loc,
                 field.base,
                 code,
                 debug_output,
-                reloc_info.offset(switch (mod.intern_pool.indexToKey(base_type)) {
+                reloc_info.offset(switch (mod.intern_pool.indexToKey(base_ty)) {
                     .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                         .One, .Many, .C => unreachable,
                         .Slice => switch (field.index) {
@@ -676,19 +722,20 @@ fn lowerParentPtr(
                     .struct_type,
                     .anon_struct_type,
                     .union_type,
-                    => switch (Type.fromInterned(base_type).containerLayout(mod)) {
-                        .Auto, .Extern => @intCast(Type.fromInterned(base_type).structFieldOffset(
+                    => switch (Type.fromInterned(base_ty).containerLayout(mod)) {
+                        .Auto, .Extern => @intCast(Type.fromInterned(base_ty).structFieldOffset(
                             @intCast(field.index),
                             mod,
                         )),
-                        .Packed => if (mod.typeToStruct(Type.fromInterned(base_type))) |struct_type|
-                            math.divExact(u16, mod.structPackedFieldBitOffset(
-                                struct_type,
-                                @intCast(field.index),
-                            ), 8) catch |err| switch (err) {
-                                error.UnexpectedRemainder => 0,
-                                error.DivisionByZero => unreachable,
-                            }
+                        .Packed => if (mod.typeToStruct(Type.fromInterned(base_ty))) |struct_obj|
+                            if (Type.fromInterned(ptr.ty).ptrInfo(mod).packed_offset.host_size == 0)
+                                @divExact(Type.fromInterned(base_ptr_ty).ptrInfo(mod)
+                                    .packed_offset.bit_offset + mod.structPackedFieldBitOffset(
+                                    struct_obj,
+                                    @intCast(field.index),
+                                ), 8)
+                            else
+                                0
                         else
                             0,
                     },

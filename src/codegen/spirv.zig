@@ -445,7 +445,7 @@ const DeclGen = struct {
 
             return try self.constant(ty, val, .direct);
         }
-        const index = Air.refToIndex(inst).?;
+        const index = inst.toIndex().?;
         return self.inst_results.get(index).?; // Assertion means instruction does not dominate usage.
     }
 
@@ -2089,7 +2089,7 @@ const DeclGen = struct {
             return;
 
         const air_tags = self.air.instructions.items(.tag);
-        const maybe_result_id: ?IdRef = switch (air_tags[inst]) {
+        const maybe_result_id: ?IdRef = switch (air_tags[@intFromEnum(inst)]) {
             // zig fmt: off
             .add, .add_wrap => try self.airArithOp(inst, .OpFAdd, .OpIAdd, .OpIAdd, true),
             .sub, .sub_wrap => try self.airArithOp(inst, .OpFSub, .OpISub, .OpISub, true),
@@ -2255,7 +2255,7 @@ const DeclGen = struct {
     fn airBinOpSimple(self: *DeclGen, inst: Air.Inst.Index, comptime opcode: Opcode) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
         const ty = self.typeOf(bin_op.lhs);
@@ -2265,7 +2265,7 @@ const DeclGen = struct {
 
     fn airShift(self: *DeclGen, inst: Air.Inst.Index, comptime opcode: Opcode) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
         const result_type_id = try self.resolveTypeId(self.typeOfIndex(inst));
@@ -2291,7 +2291,7 @@ const DeclGen = struct {
     fn airMinMax(self: *DeclGen, inst: Air.Inst.Index, op: std.math.CompareOperator) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
         const result_ty = self.typeOfIndex(inst);
@@ -2395,7 +2395,7 @@ const DeclGen = struct {
         // LHS and RHS are guaranteed to have the same type, and AIR guarantees
         // the result to be the same as the LHS and RHS, which matches SPIR-V.
         const ty = self.typeOfIndex(inst);
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
 
@@ -2492,7 +2492,7 @@ const DeclGen = struct {
     ) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const lhs = try self.resolve(extra.lhs);
         const rhs = try self.resolve(extra.rhs);
@@ -2601,7 +2601,7 @@ const DeclGen = struct {
         const mod = self.module;
         if (self.liveness.isUnused(inst)) return null;
         const ty = self.typeOfIndex(inst);
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
         const a = try self.resolve(extra.a);
         const b = try self.resolve(extra.b);
@@ -2719,7 +2719,7 @@ const DeclGen = struct {
 
     fn airPtrAdd(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_id = try self.resolve(bin_op.lhs);
         const offset_id = try self.resolve(bin_op.rhs);
@@ -2731,7 +2731,7 @@ const DeclGen = struct {
 
     fn airPtrSub(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_id = try self.resolve(bin_op.lhs);
         const ptr_ty = self.typeOf(bin_op.lhs);
@@ -2919,7 +2919,7 @@ const DeclGen = struct {
         comptime op: std.math.CompareOperator,
     ) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
         const ty = self.typeOf(bin_op.lhs);
@@ -2931,7 +2931,7 @@ const DeclGen = struct {
     fn airVectorCmp(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const vec_cmp = self.air.extraData(Air.VectorCmp, ty_pl.payload).data;
         const lhs_id = try self.resolve(vec_cmp.lhs);
         const rhs_id = try self.resolve(vec_cmp.rhs);
@@ -2999,7 +2999,7 @@ const DeclGen = struct {
 
     fn airBitCast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
         const result_ty = self.typeOfIndex(inst);
@@ -3009,7 +3009,7 @@ const DeclGen = struct {
     fn airIntCast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const src_ty = self.typeOf(ty_op.operand);
         const dst_ty = self.typeOfIndex(inst);
@@ -3057,7 +3057,7 @@ const DeclGen = struct {
     fn airIntFromPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand_id = try self.resolve(un_op);
         return try self.intFromPtr(operand_id);
     }
@@ -3065,7 +3065,7 @@ const DeclGen = struct {
     fn airFloatFromInt(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_ty = self.typeOf(ty_op.operand);
         const operand_id = try self.resolve(ty_op.operand);
         const operand_info = try self.arithmeticTypeInfo(operand_ty);
@@ -3091,7 +3091,7 @@ const DeclGen = struct {
     fn airIntFromFloat(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const dest_ty = self.typeOfIndex(inst);
         const dest_info = try self.arithmeticTypeInfo(dest_ty);
@@ -3116,7 +3116,7 @@ const DeclGen = struct {
     fn airFloatCast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const dest_ty = self.typeOfIndex(inst);
         const dest_ty_id = try self.resolveTypeId(dest_ty);
@@ -3132,7 +3132,7 @@ const DeclGen = struct {
 
     fn airNot(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const result_ty = self.typeOfIndex(inst);
         const result_ty_id = try self.resolveTypeId(result_ty);
@@ -3166,7 +3166,7 @@ const DeclGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const mod = self.module;
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const array_ptr_ty = self.typeOf(ty_op.operand);
         const array_ty = array_ptr_ty.childType(mod);
         const slice_ty = self.typeOfIndex(inst);
@@ -3195,7 +3195,7 @@ const DeclGen = struct {
     fn airSlice(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_id = try self.resolve(bin_op.lhs);
         const len_id = try self.resolve(bin_op.rhs);
@@ -3216,7 +3216,7 @@ const DeclGen = struct {
 
         const mod = self.module;
         const ip = &mod.intern_pool;
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const result_ty = self.typeOfIndex(inst);
         const len: usize = @intCast(result_ty.arrayLen(mod));
         const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra[ty_pl.payload..][0..len]);
@@ -3316,7 +3316,7 @@ const DeclGen = struct {
     }
 
     fn airMemcpy(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const dest_slice = try self.resolve(bin_op.lhs);
         const src_slice = try self.resolve(bin_op.rhs);
         const dest_ty = self.typeOf(bin_op.lhs);
@@ -3333,7 +3333,7 @@ const DeclGen = struct {
 
     fn airSliceField(self: *DeclGen, inst: Air.Inst.Index, field: u32) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const field_ty = self.typeOfIndex(inst);
         const operand_id = try self.resolve(ty_op.operand);
         return try self.extractField(field_ty, operand_id, field);
@@ -3341,7 +3341,7 @@ const DeclGen = struct {
 
     fn airSliceElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const mod = self.module;
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const slice_ty = self.typeOf(bin_op.lhs);
         if (!slice_ty.isVolatilePtr(mod) and self.liveness.isUnused(inst)) return null;
@@ -3358,7 +3358,7 @@ const DeclGen = struct {
 
     fn airSliceElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const mod = self.module;
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const slice_ty = self.typeOf(bin_op.lhs);
         if (!slice_ty.isVolatilePtr(mod) and self.liveness.isUnused(inst)) return null;
 
@@ -3392,7 +3392,7 @@ const DeclGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const mod = self.module;
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const src_ptr_ty = self.typeOf(bin_op.lhs);
         const elem_ty = src_ptr_ty.childType(mod);
@@ -3411,7 +3411,7 @@ const DeclGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const mod = self.module;
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const array_ty = self.typeOf(bin_op.lhs);
         const elem_ty = array_ty.childType(mod);
         const array_id = try self.resolve(bin_op.lhs);
@@ -3433,7 +3433,7 @@ const DeclGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const mod = self.module;
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const ptr_ty = self.typeOf(bin_op.lhs);
         const elem_ty = self.typeOfIndex(inst);
         const ptr_id = try self.resolve(bin_op.lhs);
@@ -3444,7 +3444,7 @@ const DeclGen = struct {
 
     fn airSetUnionTag(self: *DeclGen, inst: Air.Inst.Index) !void {
         const mod = self.module;
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const un_ptr_ty = self.typeOf(bin_op.lhs);
         const un_ty = un_ptr_ty.childType(mod);
         const layout = self.unionLayout(un_ty);
@@ -3468,7 +3468,7 @@ const DeclGen = struct {
     fn airGetUnionTag(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const un_ty = self.typeOf(ty_op.operand);
 
         const mod = self.module;
@@ -3555,7 +3555,7 @@ const DeclGen = struct {
 
         const mod = self.module;
         const ip = &mod.intern_pool;
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
         const ty = self.typeOfIndex(inst);
 
@@ -3572,7 +3572,7 @@ const DeclGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const mod = self.module;
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
 
         const object_ty = self.typeOf(struct_field.struct_operand);
@@ -3616,11 +3616,11 @@ const DeclGen = struct {
 
     fn airFieldParentPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const mod = self.module;
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
 
-        const parent_ty = self.air.getRefType(ty_pl.ty).childType(mod);
-        const res_ty = try self.resolveType(self.air.getRefType(ty_pl.ty), .indirect);
+        const parent_ty = ty_pl.ty.toType().childType(mod);
+        const res_ty = try self.resolveType(ty_pl.ty.toType(), .indirect);
         const usize_ty = Type.usize;
         const usize_ty_ref = try self.resolveType(usize_ty, .direct);
 
@@ -3692,7 +3692,7 @@ const DeclGen = struct {
 
     fn airStructFieldPtrIndex(self: *DeclGen, inst: Air.Inst.Index, field_index: u32) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const struct_ptr = try self.resolve(ty_op.operand);
         const struct_ptr_ty = self.typeOf(ty_op.operand);
         const result_ptr_ty = self.typeOfIndex(inst);
@@ -3918,8 +3918,9 @@ const DeclGen = struct {
         const mod = self.module;
         const ty = self.typeOfIndex(inst);
         const inst_datas = self.air.instructions.items(.data);
-        const extra = self.air.extraData(Air.Block, inst_datas[inst].ty_pl.payload);
-        const body = self.air.extra[extra.end..][0..extra.data.body_len];
+        const extra = self.air.extraData(Air.Block, inst_datas[@intFromEnum(inst)].ty_pl.payload);
+        const body: []const Air.Inst.Index =
+            @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
         const have_block_result = ty.isFnOrHasRuntimeBitsIgnoreComptime(mod);
 
         const cf = switch (self.control_flow) {
@@ -3983,7 +3984,7 @@ const DeclGen = struct {
 
         // Check if the target of the branch was this current block.
         const block_id_ty_ref = try self.intType(.unsigned, 32);
-        const this_block = try self.constInt(block_id_ty_ref, inst);
+        const this_block = try self.constInt(block_id_ty_ref, @intFromEnum(inst));
         const jump_to_this_block_id = self.spv.allocId();
         const bool_ty_ref = try self.resolveType(Type.bool, .direct);
         try self.func.body.emit(self.spv.gpa, .OpIEqual, .{
@@ -4052,7 +4053,7 @@ const DeclGen = struct {
 
     fn airBr(self: *DeclGen, inst: Air.Inst.Index) !void {
         const mod = self.module;
-        const br = self.air.instructions.items(.data)[inst].br;
+        const br = self.air.instructions.items(.data)[@intFromEnum(inst)].br;
         const operand_ty = self.typeOf(br.operand);
 
         switch (self.control_flow) {
@@ -4064,7 +4065,7 @@ const DeclGen = struct {
                 }
 
                 const block_id_ty_ref = try self.intType(.unsigned, 32);
-                const next_block = try self.constInt(block_id_ty_ref, br.block_inst);
+                const next_block = try self.constInt(block_id_ty_ref, @intFromEnum(br.block_inst));
                 try self.structuredBreak(next_block);
             },
             .unstructured => |cf| {
@@ -4089,10 +4090,10 @@ const DeclGen = struct {
     }
 
     fn airCondBr(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const cond_br = self.air.extraData(Air.CondBr, pl_op.payload);
-        const then_body = self.air.extra[cond_br.end..][0..cond_br.data.then_body_len];
-        const else_body = self.air.extra[cond_br.end + then_body.len ..][0..cond_br.data.else_body_len];
+        const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra[cond_br.end..][0..cond_br.data.then_body_len]);
+        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[cond_br.end + then_body.len ..][0..cond_br.data.else_body_len]);
         const condition_id = try self.resolve(pl_op.operand);
 
         const then_label = self.spv.allocId();
@@ -4149,9 +4150,9 @@ const DeclGen = struct {
     }
 
     fn airLoop(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const loop = self.air.extraData(Air.Block, ty_pl.payload);
-        const body = self.air.extra[loop.end..][0..loop.data.body_len];
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[loop.end..][0..loop.data.body_len]);
 
         const body_label = self.spv.allocId();
 
@@ -4197,7 +4198,7 @@ const DeclGen = struct {
 
     fn airLoad(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const mod = self.module;
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const ptr_ty = self.typeOf(ty_op.operand);
         const elem_ty = self.typeOfIndex(inst);
         const operand = try self.resolve(ty_op.operand);
@@ -4207,7 +4208,7 @@ const DeclGen = struct {
     }
 
     fn airStore(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const ptr_ty = self.typeOf(bin_op.lhs);
         const elem_ty = ptr_ty.childType(self.module);
         const ptr = try self.resolve(bin_op.lhs);
@@ -4217,7 +4218,7 @@ const DeclGen = struct {
     }
 
     fn airRet(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const operand = self.air.instructions.items(.data)[inst].un_op;
+        const operand = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const ret_ty = self.typeOf(operand);
         const mod = self.module;
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
@@ -4241,7 +4242,7 @@ const DeclGen = struct {
 
     fn airRetLoad(self: *DeclGen, inst: Air.Inst.Index) !void {
         const mod = self.module;
-        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const ptr_ty = self.typeOf(un_op);
         const ret_ty = ptr_ty.childType(mod);
 
@@ -4269,10 +4270,10 @@ const DeclGen = struct {
 
     fn airTry(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const mod = self.module;
-        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const err_union_id = try self.resolve(pl_op.operand);
         const extra = self.air.extraData(Air.Try, pl_op.payload);
-        const body = self.air.extra[extra.end..][0..extra.data.body_len];
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
 
         const err_union_ty = self.typeOf(pl_op.operand);
         const payload_ty = self.typeOfIndex(inst);
@@ -4344,7 +4345,7 @@ const DeclGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const mod = self.module;
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const err_union_ty = self.typeOf(ty_op.operand);
         const err_ty_ref = try self.resolveType(Type.anyerror, .direct);
@@ -4368,7 +4369,7 @@ const DeclGen = struct {
     fn airErrUnionPayload(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const payload_ty = self.typeOfIndex(inst);
         const eu_layout = self.errorUnionLayout(payload_ty);
@@ -4384,7 +4385,7 @@ const DeclGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const mod = self.module;
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const err_union_ty = self.typeOfIndex(inst);
         const payload_ty = err_union_ty.errorUnionPayload(mod);
         const operand_id = try self.resolve(ty_op.operand);
@@ -4410,7 +4411,7 @@ const DeclGen = struct {
     fn airWrapErrUnionPayload(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const err_union_ty = self.typeOfIndex(inst);
         const operand_id = try self.resolve(ty_op.operand);
         const payload_ty = self.typeOf(ty_op.operand);
@@ -4436,7 +4437,7 @@ const DeclGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const mod = self.module;
-        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand_id = try self.resolve(un_op);
         const optional_ty = self.typeOf(un_op);
 
@@ -4493,7 +4494,7 @@ const DeclGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const mod = self.module;
-        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand_id = try self.resolve(un_op);
         const err_union_ty = self.typeOf(un_op);
 
@@ -4529,7 +4530,7 @@ const DeclGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const mod = self.module;
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const optional_ty = self.typeOf(ty_op.operand);
         const payload_ty = self.typeOfIndex(inst);
@@ -4547,7 +4548,7 @@ const DeclGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const mod = self.module;
-        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const payload_ty = self.typeOf(ty_op.operand);
 
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
@@ -4569,7 +4570,7 @@ const DeclGen = struct {
 
     fn airSwitchBr(self: *DeclGen, inst: Air.Inst.Index) !void {
         const mod = self.module;
-        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const cond_ty = self.typeOf(pl_op.operand);
         const cond = try self.resolve(pl_op.operand);
         const cond_indirect = try self.convertToIndirect(cond_ty, cond);
@@ -4679,8 +4680,8 @@ const DeclGen = struct {
         var extra_index: usize = switch_br.end;
         for (0..num_cases) |case_i| {
             const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-            const items = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[case.end..][0..case.data.items_len]));
-            const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
+            const items: []const Air.Inst.Ref = @ptrCast(self.air.extra[case.end..][0..case.data.items_len]);
+            const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
             extra_index = case.end + case.data.items_len + case_body.len;
 
             const label = IdResult{ .id = @intCast(first_case_label.id + case_i) };
@@ -4702,7 +4703,7 @@ const DeclGen = struct {
             }
         }
 
-        const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
+        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra_index..][0..switch_br.data.else_body_len]);
         try self.beginSpvBlock(default);
         if (else_body.len != 0) {
             switch (self.control_flow) {
@@ -4734,7 +4735,7 @@ const DeclGen = struct {
     }
 
     fn airDbgStmt(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
+        const dbg_stmt = self.air.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
         const mod = self.module;
         const decl = mod.declPtr(self.decl_index);
         const path = decl.getFileScope(mod).sub_file_path;
@@ -4749,7 +4750,7 @@ const DeclGen = struct {
 
     fn airDbgInlineBegin(self: *DeclGen, inst: Air.Inst.Index) !void {
         const mod = self.module;
-        const fn_ty = self.air.instructions.items(.data)[inst].ty_fn;
+        const fn_ty = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
         const decl_index = mod.funcInfo(fn_ty.func).owner_decl;
         const decl = mod.declPtr(decl_index);
         try self.base_line_stack.append(self.gpa, decl.src_line);
@@ -4761,7 +4762,7 @@ const DeclGen = struct {
     }
 
     fn airDbgVar(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const target_id = try self.resolve(pl_op.operand);
         const name = self.air.nullTerminatedString(pl_op.payload);
         try self.spv.debugName(target_id, name);
@@ -4769,7 +4770,7 @@ const DeclGen = struct {
 
     fn airAssembly(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const mod = self.module;
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Asm, ty_pl.payload);
 
         const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
@@ -4901,7 +4902,7 @@ const DeclGen = struct {
         _ = modifier;
 
         const mod = self.module;
-        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
         const args = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]));
         const callee_ty = self.typeOf(pl_op.operand);

@@ -162,17 +162,17 @@ pub const File = union(enum) {
         state.name_off = try ar_strtab.insert(allocator, path);
     }
 
-    pub fn updateArSize(file: File, elf_file: *Elf) void {
+    pub fn updateArSize(file: File) void {
         return switch (file) {
-            .zig_object => |x| x.updateArSize(elf_file),
+            .zig_object => |x| x.updateArSize(),
             .object => |x| x.updateArSize(),
             inline else => unreachable,
         };
     }
 
-    pub fn writeAr(file: File, elf_file: *Elf, writer: anytype) !void {
+    pub fn writeAr(file: File, writer: anytype) !void {
         return switch (file) {
-            .zig_object => |x| x.writeAr(elf_file, writer),
+            .zig_object => |x| x.writeAr(writer),
             .object => |x| x.writeAr(writer),
             inline else => unreachable,
         };

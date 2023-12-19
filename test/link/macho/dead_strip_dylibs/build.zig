@@ -19,11 +19,11 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         const exe = createScenario(b, optimize, "no-dead-strip");
 
         const check = exe.checkObject();
-        check.checkStart();
+        check.checkInHeaders();
         check.checkExact("cmd LOAD_DYLIB");
         check.checkContains("Cocoa");
 
-        check.checkStart();
+        check.checkInHeaders();
         check.checkExact("cmd LOAD_DYLIB");
         check.checkContains("libobjc");
 

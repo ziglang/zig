@@ -33,12 +33,10 @@ pub fn parse(self: *Archive, elf_file: *Elf) !void {
         const hdr = try reader.readStruct(elf.ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
-            // TODO convert into an error
-            log.debug(
-                "{s}: invalid header delimiter: expected '{s}', found '{s}'",
-                .{ self.path, std.fmt.fmtSliceEscapeLower(elf.ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag) },
-            );
-            return;
+            try elf_file.reportParseError(self.path, "invalid archive header delimiter: {s}", .{
+                std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
+            });
+            return error.MalformedArchive;
         }
 
         const size = try hdr.size();

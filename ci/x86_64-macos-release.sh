@@ -22,7 +22,6 @@ cd $ZIGDIR
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
-git config core.abbrev 9
 git fetch --unshallow || true
 git fetch --tags
 

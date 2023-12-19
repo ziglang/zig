@@ -3615,6 +3615,14 @@ pub const inotify_event = extern struct {
     cookie: u32,
     len: u32,
     //name: [?]u8,
+
+    // if an event is returned for a directory or file inside the directory being watched
+    // returns the name of said directory/file
+    // returns `null` if the directory/file is the one being watched
+    pub fn getName(self: *const inotify_event) ?[:0]const u8 {
+        if (self.len == 0) return null;
+        return std.mem.span(@as([*:0]const u8, @ptrCast(self)) + @sizeOf(inotify_event));
+    }
 };
 
 pub const dirent64 = extern struct {

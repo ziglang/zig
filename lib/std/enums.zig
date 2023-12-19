@@ -1086,6 +1086,14 @@ pub fn IndexedMap(comptime I: type, comptime V: type, comptime Ext: ?fn (type) t
             return &self.values[index];
         }
 
+        /// Gets the address of the const value associated with a key.
+        /// The key must be present in the map.
+        pub fn getPtrConstAssertContains(self: *const Self, key: Key) *const Value {
+            const index = Indexer.indexOf(key);
+            assert(self.bits.isSet(index));
+            return &self.values[index];
+        }
+
         /// Adds the key to the map with the supplied value.
         /// If the key is already in the map, overwrites the value.
         pub fn put(self: *Self, key: Key, value: Value) void {
