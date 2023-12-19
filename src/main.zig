@@ -5478,10 +5478,12 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             error.SemanticAnalyzeFail => process.exit(2),
             else => |e| return e,
         };
-        try comp.makeBinFileExecutable();
 
-        const emit = comp.bin_file.?.emit;
-        child_argv.items[argv_index_exe] = try emit.directory.join(arena, &.{emit.sub_path});
+        // Since incremental compilation isn't done yet, we use cache_mode = whole
+        // above, and thus the output file is already closed.
+        //try comp.makeBinFileExecutable();
+        child_argv.items[argv_index_exe] =
+            try local_cache_directory.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
 
         break :argv child_argv.items;
     };
