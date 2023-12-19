@@ -251,7 +251,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     else
         owner.fmt("{s} ", .{name});
 
-    const target = options.root_module.target.?.result;
+    const resolved_target = options.root_module.target.?;
+    const target = resolved_target.result;
 
     const step_name = owner.fmt("{s} {s}{s} {s}", .{
         switch (options.kind) {
@@ -262,7 +263,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         },
         name_adjusted,
         @tagName(options.root_module.optimize orelse .Debug),
-        target.zigTriple(owner.allocator) catch @panic("OOM"),
+        resolved_target.query.zigTriple(owner.allocator) catch @panic("OOM"),
     });
 
     const out_filename = std.zig.binNameAlloc(owner.allocator, .{
