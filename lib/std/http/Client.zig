@@ -159,6 +159,7 @@ pub const ConnectionPool = struct {
 
     pub fn deinit(pool: *ConnectionPool, allocator: Allocator) void {
         pool.mutex.lock();
+        defer pool.mutex.unlock();
 
         var next = pool.free.first;
         while (next) |node| {
