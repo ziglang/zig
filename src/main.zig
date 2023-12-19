@@ -911,7 +911,7 @@ fn buildOutputType(
     // These get appended to by CLI flags and then slurped when a `--mod` flag
     // is encountered.
     var cssan: ClangSearchSanitizer = .{};
-    var clang_argv: std.ArrayListUnmanaged([]const u8) = .{};
+    var cc_argv: std.ArrayListUnmanaged([]const u8) = .{};
     var deps: std.ArrayListUnmanaged(CliModule.Dep) = .{};
 
     // Contains every module specified via --mod. The dependencies are added
@@ -1067,7 +1067,7 @@ fn buildOutputType(
                                 },
                                 .root_src_path = fs.path.basename(root_src),
                             },
-                            .cc_argv = try clang_argv.toOwnedSlice(arena),
+                            .cc_argv = try cc_argv.toOwnedSlice(arena),
                             .inherited = mod_opts,
                             .target_arch_os_abi = target_arch_os_abi,
                             .target_mcpu = target_mcpu,
@@ -1226,22 +1226,22 @@ fn buildOutputType(
                             .search_strategy = lib_search_strategy,
                         });
                     } else if (mem.eql(u8, arg, "-D")) {
-                        try clang_argv.appendSlice(arena, &.{ arg, args_iter.nextOrFatal() });
+                        try cc_argv.appendSlice(arena, &.{ arg, args_iter.nextOrFatal() });
                     } else if (mem.eql(u8, arg, "-I")) {
-                        try cssan.addIncludePath(arena, &clang_argv, .I, arg, args_iter.nextOrFatal(), false);
+                        try cssan.addIncludePath(arena, &cc_argv, .I, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "-isystem")) {
-                        try cssan.addIncludePath(arena, &clang_argv, .isystem, arg, args_iter.nextOrFatal(), false);
+                        try cssan.addIncludePath(arena, &cc_argv, .isystem, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "-iwithsysroot")) {
-                        try cssan.addIncludePath(arena, &clang_argv, .iwithsysroot, arg, args_iter.nextOrFatal(), false);
+                        try cssan.addIncludePath(arena, &cc_argv, .iwithsysroot, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "-idirafter")) {
-                        try cssan.addIncludePath(arena, &clang_argv, .idirafter, arg, args_iter.nextOrFatal(), false);
+                        try cssan.addIncludePath(arena, &cc_argv, .idirafter, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "-iframework")) {
                         const path = args_iter.nextOrFatal();
-                        try cssan.addIncludePath(arena, &clang_argv, .iframework, arg, path, false);
+                        try cssan.addIncludePath(arena, &cc_argv, .iframework, arg, path, false);
                         try create_module.framework_dirs.append(arena, path); // Forward to the backend as -F
                     } else if (mem.eql(u8, arg, "-iframeworkwithsysroot")) {
                         const path = args_iter.nextOrFatal();
-                        try cssan.addIncludePath(arena, &clang_argv, .iframeworkwithsysroot, arg, path, false);
+                        try cssan.addIncludePath(arena, &cc_argv, .iframeworkwithsysroot, arg, path, false);
                         try create_module.framework_dirs.append(arena, path); // Forward to the backend as -F
                     } else if (mem.eql(u8, arg, "--version")) {
                         const next_arg = args_iter.nextOrFatal();
@@ -1268,7 +1268,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--sysroot")) {
                         const next_arg = args_iter.nextOrFatal();
                         create_module.sysroot = next_arg;
-                        try clang_argv.appendSlice(arena, &.{ "-isysroot", next_arg });
+                        try cc_argv.appendSlice(arena, &.{ "-isysroot", next_arg });
                     } else if (mem.eql(u8, arg, "--libc")) {
                         create_module.libc_paths_file = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-filter")) {
@@ -1650,9 +1650,9 @@ fn buildOutputType(
                             .search_strategy = lib_search_strategy,
                         });
                     } else if (mem.startsWith(u8, arg, "-D")) {
-                        try clang_argv.append(arena, arg);
+                        try cc_argv.append(arena, arg);
                     } else if (mem.startsWith(u8, arg, "-I")) {
-                        try cssan.addIncludePath(arena, &clang_argv, .I, arg, arg[2..], true);
+                        try cssan.addIncludePath(arena, &cc_argv, .I, arg, arg[2..], true);
                     } else if (mem.eql(u8, arg, "-x")) {
                         const lang = args_iter.nextOrFatal();
                         if (mem.eql(u8, lang, "none")) {
@@ -1776,7 +1776,7 @@ fn buildOutputType(
                         }
                     },
                     .other => {
-                        try clang_argv.appendSlice(arena, it.other_args);
+                        try cc_argv.appendSlice(arena, it.other_args);
                     },
                     .positional => switch (file_ext orelse Compilation.classifyFileExt(mem.sliceTo(it.only_arg, 0))) {
                         .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .m, .mm, .cu => {
@@ -1985,7 +1985,7 @@ fn buildOutputType(
                         {
                             mod_opts.optimize_mode = .Debug;
                         } else {
-                            try clang_argv.appendSlice(arena, it.other_args);
+                            try cc_argv.appendSlice(arena, it.other_args);
                         }
                     },
                     .debug => {
@@ -1996,9 +1996,9 @@ fn buildOutputType(
                             mem.eql(u8, it.only_arg, "gline-tables-only"))
                         {
                             // We handled with strip = false above. but we also want reduced debug info.
-                            try clang_argv.append(arena, "-gline-tables-only");
+                            try cc_argv.append(arena, "-gline-tables-only");
                         } else {
-                            try clang_argv.appendSlice(arena, it.other_args);
+                            try cc_argv.appendSlice(arena, it.other_args);
                         }
                     },
                     .gdwarf32 => {
@@ -2015,7 +2015,7 @@ fn buildOutputType(
                         } else if (mem.eql(u8, it.only_arg, "thread")) {
                             mod_opts.sanitize_thread = true;
                         } else {
-                            try clang_argv.appendSlice(arena, it.other_args);
+                            try cc_argv.appendSlice(arena, it.other_args);
                         }
                     },
                     .linker_script => linker_script = it.only_arg,
@@ -2024,14 +2024,14 @@ fn buildOutputType(
                         // Have Clang print more infos, some tools such as CMake
                         // parse this to discover any implicit include and
                         // library dir to look-up into.
-                        try clang_argv.append(arena, "-v");
+                        try cc_argv.append(arena, "-v");
                     },
                     .dry_run => {
                         // This flag means "dry run". Clang will not actually output anything
                         // to the file system.
                         verbose_link = true;
                         disable_c_depfile = true;
-                        try clang_argv.append(arena, "-###");
+                        try cc_argv.append(arena, "-###");
                     },
                     .for_linker => try linker_args.append(it.only_arg),
                     .linker_input_z => {
@@ -2043,14 +2043,14 @@ fn buildOutputType(
                     .m => try create_module.llvm_m_args.append(arena, it.only_arg),
                     .dep_file => {
                         disable_c_depfile = true;
-                        try clang_argv.appendSlice(arena, it.other_args);
+                        try cc_argv.appendSlice(arena, it.other_args);
                     },
                     .dep_file_to_stdout => { // -M, -MM
                         // "Like -MD, but also implies -E and writes to stdout by default"
                         // "Like -MMD, but also implies -E and writes to stdout by default"
                         c_out_mode = .preprocessor;
                         disable_c_depfile = true;
-                        try clang_argv.appendSlice(arena, it.other_args);
+                        try cc_argv.appendSlice(arena, it.other_args);
                     },
                     .framework_dir => try create_module.framework_dirs.append(arena, it.only_arg),
                     .framework => try create_module.frameworks.put(arena, it.only_arg, .{}),
@@ -2595,7 +2595,7 @@ fn buildOutputType(
                 },
                 .root_src_path = fs.path.basename(src_path),
             },
-            .cc_argv = try clang_argv.toOwnedSlice(arena),
+            .cc_argv = try cc_argv.toOwnedSlice(arena),
             .inherited = mod_opts,
             .target_arch_os_abi = target_arch_os_abi,
             .target_mcpu = target_mcpu,
