@@ -296,7 +296,7 @@ test Options {
 
     const host: std.Build.ResolvedTarget = .{
         .query = .{},
-        .target = try std.zig.system.resolveTargetQuery(.{}),
+        .result = try std.zig.system.resolveTargetQuery(.{}),
     };
 
     var cache: std.Build.Cache = .{
