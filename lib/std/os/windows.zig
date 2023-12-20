@@ -1727,14 +1727,14 @@ pub const CreateProcessError = error{
 };
 
 pub fn CreateProcessW(
-    lpApplicationName: ?LPWSTR,
-    lpCommandLine: LPWSTR,
+    lpApplicationName: ?LPCWSTR,
+    lpCommandLine: ?LPWSTR,
     lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
     lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
     bInheritHandles: BOOL,
     dwCreationFlags: DWORD,
     lpEnvironment: ?*anyopaque,
-    lpCurrentDirectory: ?LPWSTR,
+    lpCurrentDirectory: ?LPCWSTR,
     lpStartupInfo: *STARTUPINFOW,
     lpProcessInformation: *PROCESS_INFORMATION,
 ) CreateProcessError!void {
