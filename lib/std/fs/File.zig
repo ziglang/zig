@@ -315,11 +315,11 @@ pub const Stat = struct {
     mode: Mode,
     kind: Kind,
 
-    /// Access time in nanoseconds, relative to UTC 1970-01-01.
+    /// Last access time in nanoseconds, relative to UTC 1970-01-01.
     atime: i128,
     /// Last modification time in nanoseconds, relative to UTC 1970-01-01.
     mtime: i128,
-    /// Creation time in nanoseconds, relative to UTC 1970-01-01.
+    /// Last status/metadata change time in nanoseconds, relative to UTC 1970-01-01.
     ctime: i128,
 
     pub fn fromSystem(st: posix.system.Stat) Stat {
@@ -369,6 +369,8 @@ pub const Stat = struct {
 
 pub const StatError = posix.FStatError;
 
+/// Returns `Stat` containing basic information about the `File`.
+/// Use `metadata` to retrieve more detailed information (e.g. creation time, permissions).
 /// TODO: integrate with async I/O
 pub fn stat(self: File) StatError!Stat {
     if (builtin.os.tag == .windows) {
@@ -392,7 +394,7 @@ pub fn stat(self: File) StatError!Stat {
             .kind = if (info.StandardInformation.Directory == 0) .file else .directory,
             .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
             .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
-            .ctime = windows.fromSysTime(info.BasicInformation.CreationTime),
+            .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
         };
     }
 
