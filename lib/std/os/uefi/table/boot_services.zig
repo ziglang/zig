@@ -1,31 +1,18 @@
-const std = @import("std");
-const uefi = std.os.uefi;
-const Event = uefi.Event;
-const Guid = uefi.Guid;
-const Handle = uefi.Handle;
-const Status = uefi.Status;
-const TableHeader = uefi.tables.TableHeader;
-const DevicePathProtocol = uefi.protocol.DevicePath;
-const AllocateType = uefi.tables.AllocateType;
-const MemoryType = uefi.tables.MemoryType;
-const MemoryDescriptor = uefi.tables.MemoryDescriptor;
-const TimerDelay = uefi.tables.TimerDelay;
-const EfiInterfaceType = uefi.tables.EfiInterfaceType;
-const LocateSearchType = uefi.tables.LocateSearchType;
-const OpenProtocolAttributes = uefi.tables.OpenProtocolAttributes;
-const ProtocolInformationEntry = uefi.tables.ProtocolInformationEntry;
-const EfiEventNotify = uefi.tables.EfiEventNotify;
-const cc = uefi.cc;
-const Guid = uefi.Guid;
-const Status = uefi.Status;
+const std = @import("../../../std.zig");
 
-const DevicePathProtocol = uefi.protocol.DevicePath;
+const bits = @import("../bits.zig");
+const table = @import("../table.zig");
 
-const Event = uefi.Event;
-const Handle = uefi.Handle;
+const cc = bits.cc;
+const Status = @import("../status.zig").Status;
+const DevicePathProtocol = @import("../protocol.zig").DevicePath;
 
-const PhysicalAddress = u64;
-const VirtualAddress = u64;
+const Guid = bits.Guid;
+const Event = bits.Event;
+const Handle = bits.Handle;
+const PhysicalAddress = bits.PhysicalAddress;
+const VirtualAddress = bits.VirtualAddress;
+
 const ProtocolInterface = *const anyopaque;
 const RegistrationValue = *const anyopaque;
 
@@ -41,15 +28,15 @@ const RegistrationValue = *const anyopaque;
 ///
 /// As the boot_services table may grow with new UEFI versions, it is important to check hdr.header_size.
 pub const BootServices = extern struct {
-    hdr: uefi.tables.TableHeader,
+    hdr: table.Header,
 
     _raiseTpl: *const fn (new_tpl: TaskPriorityLevel) callconv(cc) TaskPriorityLevel,
     _restoreTpl: *const fn (old_tpl: TaskPriorityLevel) callconv(cc) void,
 
-    _allocatePages: *const fn (alloc_type: AllocateType, mem_type: MemoryType, pages: usize, memory: PhysicalAddress) callconv(cc) Status,
+    _allocatePages: *const fn (alloc_type: AllocateType, mem_type: bits.MemoryDescriptor.Type, pages: usize, memory: PhysicalAddress) callconv(cc) Status,
     _freePages: *const fn (memory: [*]align(4096) u8, pages: usize) callconv(cc) Status,
-    _getMemoryMap: *const fn (mmap_size: *usize, mmap: ?*const anyopaque, mapKey: *MemoryMap.Key, descriptor_size: *usize, descriptor_version: *u32) callconv(cc) Status,
-    _allocatePool: *const fn (pool_type: MemoryType, size: usize, buffer: *[*]align(8) u8) callconv(cc) Status,
+    _getMemoryMap: *const fn (mmap_size: *usize, mmap: ?*anyopaque, mapKey: *MemoryMap.Key, descriptor_size: *usize, descriptor_version: *u32) callconv(cc) Status,
+    _allocatePool: *const fn (pool_type: bits.MemoryDescriptor.Type, size: usize, buffer: *[*]align(8) u8) callconv(cc) Status,
     _freePool: *const fn (buffer: [*]align(8) u8) callconv(cc) Status,
 
     _createEvent: *const fn (type: u32, notify_tpl: TaskPriorityLevel, notify_func: ?EventNotify, notifyCtx: ?EventNotifyContext, event: *Event) callconv(cc) Status,
@@ -110,6 +97,38 @@ pub const BootServices = extern struct {
     // Following introduced in UEFI 2.0
     _createEventEx: *const fn (type: u32, notify_tpl: TaskPriorityLevel, notify_func: ?EventNotify, notify_ctx: ?EventNotifyContext, event_group: ?*align(8) const Guid, event: *Event) callconv(cc) Status,
 
+    /// Function pointer type of event notification callbacks.
+    pub const EventNotify = *const fn (event: Event, ctx: *anyopaque) callconv(cc) void;
+
+    /// The context type passed to event notification callbacks.
+    pub const EventNotifyContext = *const anyopaque;
+
+    /// These types can be "ORed" together as needed.
+    pub const EventKind = struct {
+        /// The event is a timer event and may be used in a call to `setTimer()`. Note that timers only function during boot
+        /// services time.
+        pub const timer: u32 = 0x80000000;
+
+        /// The event is allocated from runtime memory. If an event is to be signaled after the call to `exitBootServices()`
+        /// the event’s data structure and notification function need to be allocated from runtime memory.
+        pub const runtime: u32 = 0x40000000;
+
+        /// If an event of this type is not already in the signaled state, then the event’s *notify_func* will be
+        /// queued at the event’s *notify_tpl* whenever the event is being waited on via `waitForEvent()` or `checkEvent()`.
+        pub const notify_wait: u32 = 0x00000100;
+
+        /// The event’s *notify_func* is queued whenever the event is signaled.
+        pub const notify_signal: u32 = 0x00000200;
+
+        /// This event is of type `notify_signal`. It should not be combined with any other event types. This event type
+        /// is functionally equivalent to the `EventGroup.exit_boot_services` event group.
+        pub const signal_exit_boot_services: u32 = 0x00000201;
+
+        /// This event is of type `notify_signal`. It should not be combined with any other event types. The event is to be
+        /// notified by the system when `setVirtualAddressMap()` is performed.
+        pub const signal_virtual_address_change: u32 = 0x60000202;
+    };
+
     /// Creates an event.
     pub fn createEvent(
         self: *const BootServices,
@@ -126,6 +145,90 @@ pub const BootServices = extern struct {
         try self._createEvent(kind, notify_tpl, notify_func, notify_ctx, &event).err();
         return event;
     }
+
+    /// A set of common event group GUIDs.
+    pub const EventGroup = struct {
+        /// This event group is notified by the system when `exitBootServices()` is invoked after notifying
+        /// `before_exit_boot_services` event group. The notification function is not allow to use the Memory Allocation
+        /// Services. The notification must not depend on timer events since timer services will be deactivated before
+        /// this group is dispatched.
+        pub const exit_boot_services align(8) = Guid{
+            .time_low = 0x27abf055,
+            .time_mid = 0xb1b8,
+            .time_high_and_version = 0x4c26,
+            .clock_seq_high_and_reserved = 0x80,
+            .clock_seq_low = 0x48,
+            .node = [_]u8{ 0x74, 0x8f, 0x37, 0xba, 0xa2, 0xdf },
+        };
+
+        /// This event group is notified by the system ExitBootServices() is invoked right before notifying
+        /// `exit_boot_services` event group. The event presents the last opportunity to use firmware interfaces in the
+        /// boot environment. The notification function must not depend on any kind of delayed processing because the
+        /// firmware deactivates timer services right after dispatching this event group.
+        pub const before_exit_boot_services align(8) = Guid{
+            .time_low = 0x8be0e274,
+            .time_mid = 0x3970,
+            .time_high_and_version = 0x4b44,
+            .clock_seq_high_and_reserved = 0x80,
+            .clock_seq_low = 0xc5,
+            .node = [_]u8{ 0x1a, 0xb9, 0x50, 0x2f, 0x3b, 0xfc },
+        };
+
+        /// This event group is notified by the system when `setVirtualAddressMap()` is invoked.
+        pub const virtual_address_change align(8) = Guid{
+            .time_low = 0x13fa7698,
+            .time_mid = 0xc831,
+            .time_high_and_version = 0x49c7,
+            .clock_seq_high_and_reserved = 0x87,
+            .clock_seq_low = 0xea,
+            .node = [_]u8{ 0x8f, 0x43, 0xfc, 0xc2, 0x51, 0x96 },
+        };
+
+        /// This event group is notified by the system when the memory map has changed. The notification function should
+        /// not use Memory Allocation Services to avoid reentrancy issues.
+        pub const memory_map_change align(8) = Guid{
+            .time_low = 0x78bee926,
+            .time_mid = 0x692f,
+            .time_high_and_version = 0x48fd,
+            .clock_seq_high_and_reserved = 0x9e,
+            .clock_seq_low = 0xdb,
+            .node = [_]u8{ 0x01, 0x42, 0x2e, 0xf0, 0xd7, 0xab },
+        };
+
+        /// This event group is notified by the system right before notifying `after_ready_to_boot`event group when the
+        /// Boot Manager is about to load and execute a boot option or a platform or OS recovery option. The event group
+        /// presents the last chance to modify device or system configuration prior to passing control to a boot option.
+        pub const ready_to_boot align(8) = Guid{
+            .time_low = 0x7ce88fb3,
+            .time_mid = 0x4bd7,
+            .time_high_and_version = 0x4679,
+            .clock_seq_high_and_reserved = 0x87,
+            .clock_seq_low = 0xa8,
+            .node = [_]u8{ 0xa8, 0xd8, 0xde, 0xe5, 0x0d, 0x2b },
+        };
+
+        /// This event group is notified by the system immediately after notifying `ready_to_boot` event group when the
+        /// Boot Manager is about to load and execute a boot option or a platform or OS recovery option. The event group
+        /// presents the last chance to survey device or system configuration prior to passing control to a boot option.
+        pub const after_ready_to_boot align(8) = Guid{
+            .time_low = 0x3a2a00ad,
+            .time_mid = 0x98b9,
+            .time_high_and_version = 0x4cdf,
+            .clock_seq_high_and_reserved = 0xa4,
+            .clock_seq_low = 0x78,
+            .node = [_]u8{ 0x70, 0x27, 0x77, 0xf1, 0xc1, 0x0b },
+        };
+
+        /// This event group is notified by the system when `resetSystem()` is invoked and the system is about to be reset.
+        pub const reset_system align(8) = Guid{
+            .time_low = 0x62da6a56,
+            .time_mid = 0x13fb,
+            .time_high_and_version = 0x485a,
+            .clock_seq_high_and_reserved = 0xa8,
+            .clock_seq_low = 0xda,
+            .node = [_]u8{ 0xa3, 0xdd, 0x79, 0x12, 0xcb, 0x6b },
+        };
+    };
 
     /// Creates an event in a group.
     pub fn createEventEx(
@@ -196,6 +299,30 @@ pub const BootServices = extern struct {
         }
     }
 
+    /// How the timer is to be set.
+    pub const TimerKind = union(Enum) {
+        pub const Enum = enum(u32) {
+            /// The timer is canceled.
+            cancel = 0,
+
+            /// The timer is a periodic timer.
+            periodic = 1,
+
+            /// The timer is a relative timer.
+            relative = 2,
+        };
+
+        /// The timer is to be canceled.
+        cancel: void,
+
+        /// The timer is to be signaled periodically at `trigger_time` ns intervals. The event timer does not need to be
+        /// reset for each notification.
+        periodic: u64,
+
+        /// The timer is to be signaled after `trigger_time` ns.
+        relative: u64,
+    };
+
     /// Sets the type of timer and the trigger time for a timer event.
     ///
     /// Timers only have 100ns time resolution.
@@ -213,7 +340,32 @@ pub const BootServices = extern struct {
         }
     }
 
+    /// The priority level of a task. The higher the number, the higher the priority.
+    pub const TaskPriorityLevel = enum(usize) {
+        /// This is the lowest priority level. It is the level of execution which occurs when no event notifications are
+        /// pending and which interacts with the user. User I/O (and blocking on User I/O) can be performed at this level.
+        /// The boot manager executes at this level and passes control to other UEFI applications at this level.
+        application = 4,
+
+        /// Interrupts code executing below TPL_CALLBACK level. Long term operations (such as file system operations and
+        /// disk I/O) can occur at this level
+        callback = 8,
+
+        /// Interrupts code executing below TPL_NOTIFY level. Blocking is not allowed at this level. Code executes to
+        /// completion and returns. If code requires more processing, it needs to signal an event to wait to obtain control
+        /// again at whatever level it requires. This level is typically used to process low level IO to or from a device.
+        notify = 16,
+
+        /// Interrupts code executing below TPL_HIGH_LEVEL This is the highest priority level. It is not interruptible
+        /// (interrupts are disabled) and is used sparingly by firmware to synchronize operations that need to be accessible
+        /// from any priority level. For example, it must be possible to signal events while executing at any priority level.
+        /// Therefore, firmware manipulates the internal event structure while at this priority level.
+        high_level = 31,
+    };
+
     /// Raises a task's priority level and returns its previous level.
+    ///
+    /// The new TPL *must* be higher than the current TPL, otherwise the system may exhibit indeterminate behavior.
     ///
     /// The caller must restore the task priority level with `restoreTPL()` to the previous level before
     /// returning control to the system.
@@ -234,6 +386,29 @@ pub const BootServices = extern struct {
         self._restoreTpl(old_tpl);
     }
 
+    pub const AllocateType = union(Enum) {
+        pub const Enum = enum(u32) {
+            /// Allocate any available range of pages that satisfies the request.
+            any = 0,
+
+            /// Allocate any available range of pages whose uppermost address is less than or equal to a specified
+            /// address.
+            max_address = 1,
+
+            /// Allocate pages at a specified address.
+            at_address = 2,
+        };
+
+        /// Allocate any available range of pages that satisfies the request.
+        any: void,
+
+        /// Allocate any available range of pages whose uppermost address is less than or equal to a specified address.
+        max_address: PhysicalAddress,
+
+        /// Allocate pages at a specified address.
+        at_address: PhysicalAddress,
+    };
+
     /// Allocates memory pages from the system.
     ///
     /// The memory returned is physical memory, apply the virtual address map to get the correct virtual address.
@@ -242,7 +417,7 @@ pub const BootServices = extern struct {
         /// The type of allocation to perform.
         alloc_type: AllocateType,
         /// The type of memory to allocate.
-        mem_type: MemoryType,
+        mem_type: bits.MemoryDescriptor.Type,
         /// The number of contiguous 4 KiB pages to allocate.
         pages: usize,
     ) ![]align(4096) u8 {
@@ -270,6 +445,81 @@ pub const BootServices = extern struct {
         // any error here arises from user error (ie. freeing a page not allocated by allocatePages) or a firmware bug
         _ = self._freePages(memory.ptr, @divExact(memory.len, 4096));
     }
+
+    /// A structure containing all necessary information about a memory map, and providing the methods required to
+    /// access it correctly.
+    pub const MemoryMap = struct {
+        pub const Key = enum(usize) { _ };
+
+        map: *anyopaque,
+
+        /// The length of the memory map in bytes.
+        size: usize,
+
+        /// The key for the current memory map.
+        key: Key,
+
+        /// The size of each memory descriptor in the memory map.
+        descriptor_size: usize,
+
+        /// The version of the memory map.
+        descriptor_version: u32,
+
+        /// An iterator over the memory map.
+        pub const Iterator = struct {
+            map: *const MemoryMap,
+
+            /// The current index of the iterator.
+            index: usize = 0,
+
+            /// Returns the next memory descriptor in the map.
+            pub fn next(iter: *Iterator) ?*bits.MemoryDescriptor {
+                const offset = iter.index * iter.map.descriptor_size;
+
+                // ensure the next descriptor is within the map
+                if (offset + iter.map.descriptor_size > iter.map.size)
+                    return null;
+
+                const addr = @intFromPtr(iter.map.map) + offset;
+                iter.index += 1;
+
+                return @ptrFromInt(addr);
+            }
+        };
+
+        /// Creates a memory map from a list of memory descriptors.
+        pub fn initFromList(list: []bits.MemoryDescriptor) MemoryMap {
+            return .{
+                .map = @ptrCast(list.ptr),
+                .size = list.len * @sizeOf(bits.MemoryDescriptor),
+                .key = 0,
+                .descriptor_size = @sizeOf(bits.MemoryDescriptor),
+                .descriptor_version = bits.MemoryDescriptor.revision,
+            };
+        }
+
+        /// Returns an iterator over the memory map.
+        pub fn iterator(self: *const MemoryMap) Iterator {
+            return Iterator{ .map = self };
+        }
+
+        /// Returns a pointer to the memory descriptor at the given index.
+        pub fn at(self: *const MemoryMap, index: usize) ?*bits.MemoryDescriptor {
+            const offset = index * self.descriptor_size;
+
+            // ensure the descriptor is within the map
+            if (offset + self.descriptor_size > self.size)
+                return null;
+
+            const addr = @intFromPtr(self.map) + offset;
+            return @ptrFromInt(addr);
+        }
+
+        /// Returns the number of memory descriptors in the map.
+        pub fn size(self: *const MemoryMap) usize {
+            return self.size / self.descriptor_size;
+        }
+    };
 
     /// Returns the size of the current memory map.
     ///
@@ -318,7 +568,7 @@ pub const BootServices = extern struct {
     pub fn allocatePool(
         self: *const BootServices,
         /// The type of pool to allocate.
-        pool_type: MemoryType,
+        pool_type: bits.MemoryDescriptor.Type,
         /// The number of bytes to allocate.
         size: usize,
     ) ![]align(8) u8 {
@@ -341,6 +591,10 @@ pub const BootServices = extern struct {
         _ = self._freePool(buffer.ptr);
     }
 
+    pub const EfiInterfaceType = enum(u32) {
+        native,
+    };
+
     /// Installs a protocol interface on a device handle. If the handle does not exist, it is created and added to the
     /// list of handles in the system.
     ///
@@ -350,14 +604,14 @@ pub const BootServices = extern struct {
         /// The handle to install the protocol interface on.
         handle: ?Handle,
         /// The GUID of the protocol.
-        protocol: *align(8) const Guid,
+        protocol_guid: *align(8) const Guid,
         /// The type of interface to install.
         interface_type: EfiInterfaceType,
         /// The interface to install. Can only be `null` if `protocol` refers to a protocol that has no interface.
         interface: ?ProtocolInterface,
     ) !Handle {
         var new_handle: ?Handle = handle;
-        try self._installProtocolInterface(&new_handle, protocol, interface_type, interface).err();
+        try self._installProtocolInterface(&new_handle, protocol_guid, interface_type, interface).err();
         return new_handle;
     }
 
@@ -371,11 +625,11 @@ pub const BootServices = extern struct {
         /// The handle to uninstall the protocol interface from.
         handle: Handle,
         /// The GUID of the protocol.
-        protocol: *align(8) const Guid,
+        protocol_guid: *align(8) const Guid,
         /// The interface to uninstall. Can only be `null` if `protocol` refers to a protocol that has no interface.
         interface: ?ProtocolInterface,
     ) !void {
-        try self._uninstallProtocolInterface(handle, protocol, interface).err();
+        try self._uninstallProtocolInterface(handle, protocol_guid, interface).err();
     }
 
     /// Reinstalls a protocol interface on a device handle.
@@ -386,46 +640,68 @@ pub const BootServices = extern struct {
         /// The handle to reinstall the protocol interface on.
         handle: Handle,
         /// The GUID of the protocol.
-        protocol: *align(8) const Guid,
+        protocol_guid: *align(8) const Guid,
         /// The old interface to uninstall. Can only be `null` if `protocol` refers to a protocol that has no interface.
         old_interface: ?ProtocolInterface,
         /// The new interface to install. Can only be `null` if `protocol` refers to a protocol that has no interface.
         new_interface: ?ProtocolInterface,
     ) !void {
-        try self._reinstallProtocolInterface(handle, protocol, old_interface, new_interface).err();
+        try self._reinstallProtocolInterface(handle, protocol_guid, old_interface, new_interface).err();
     }
 
     /// Creates an event that is to be signaled whenever an interface is installed for a specified protocol.
     pub fn registerProtocolNotify(
         self: *const BootServices,
         /// The GUID of the protocol.
-        protocol: *align(8) const Guid,
+        protocol_guid: *align(8) const Guid,
         /// The event to signal when the protocol is installed.
         event: Event,
         /// A pointer to a memory location to receive the registration value. THe value must be saved and used by the
         /// notification function to retrieve the list of handles that have added or removed the protocol.
         registration: **const anyopaque,
     ) !void {
-        try self._registerProtocolNotify(protocol, event, registration).err();
+        try self._registerProtocolNotify(protocol_guid, event, registration).err();
     }
+
+    /// The type of search to perform.
+    pub const LocateSearchType = union(Enum) {
+        pub const Enum = enum(u32) {
+            all,
+            by_notify,
+            by_protocol,
+        };
+
+        /// Returns all handles in the system
+        all: void,
+
+        /// Returns the next handle that is new for the registration. Only one handle is returned at a time, starting
+        /// with the first and the caller must loop until no more handles are returned.
+        by_notify: *const anyopaque,
+
+        /// Returns all handles that support this protocol.
+        by_protocol: *align(8) const Guid,
+    };
 
     /// Returns the size in bytes of the buffer that is required to hold the list of handles that support a specified
     /// protocol.
+    ///
+    /// Returns null if no handles match the search.
     pub fn locateHandleSize(
         self: *const BootServices,
         /// The type of search to perform.
         search_type: LocateSearchType,
-    ) !usize {
+    ) !?usize {
         var buffer_size: usize = 0;
 
         const status = switch (search_type) {
             .all => self._locateHandle(search_type, null, null, &buffer_size, null),
             .by_notify => |search_key| self._locateHandle(search_type, null, search_key, &buffer_size, null),
-            .by_protocol => |protocol| self._locateHandle(search_type, protocol, null, &buffer_size, null),
+            .by_protocol => |protocol_guid| self._locateHandle(search_type, protocol_guid, null, &buffer_size, null),
         };
 
         switch (status) {
             .buffer_too_small => return buffer_size,
+            .not_found => return null,
             else => return status.err(),
         }
     }
@@ -433,43 +709,81 @@ pub const BootServices = extern struct {
     /// Returns an array of handles that support a specified protocol.
     ///
     /// Use `locateHandleSize()` to determine the size of the buffer to allocate.
+    ///
+    /// Returns null if no handles match the search.
     pub fn locateHandle(
         self: *const BootServices,
         /// The type of search to perform.
         search_type: LocateSearchType,
         /// The buffer in which to return the array of handles.
         buffer: [*]u8,
-    ) ![]Handle {
+    ) !?[]Handle {
         var handle_buffer: [*]Handle = @ptrCast(buffer.ptr);
         var buffer_size: usize = buffer.len;
 
-        switch (search_type) {
-            .all => try self._locateHandle(search_type, null, null, &buffer_size, &handle_buffer).err(),
+        const status = switch (search_type) {
+            .all => self._locateHandle(search_type, null, null, &buffer_size, &handle_buffer),
             .by_notify => |search_key| self._locateHandle(search_type, null, search_key, &buffer_size, &handle_buffer),
-            .by_protocol => |protocol| self._locateHandle(search_type, protocol, null, &buffer_size, &handle_buffer),
-        }
+            .by_protocol => |protocol_guid| self._locateHandle(search_type, protocol_guid, null, &buffer_size, &handle_buffer),
+        };
 
-        return buffer[0..@divExact(buffer_size, @sizeOf(Handle))];
+        switch (status) {
+            .success => return handle_buffer[0..@divExact(buffer_size, @sizeOf(Handle))],
+            .not_found => return null,
+            else => return status.err(),
+        }
     }
 
+    /// A tuple of a located device path containing the handle to the device and the remaining device path.
     pub const LocatedDevicePath = struct { ?Handle, *const DevicePathProtocol };
 
     /// Locates the handle to a device on the device path that supports the specified protocol.
     pub fn locateDevicePath(
         self: *const BootServices,
         /// The GUID of the protocol.
-        protocol: *align(8) const Guid,
+        protocol_guid: *align(8) const Guid,
         /// The device path to search for.
         device_path: *const DevicePathProtocol,
     ) !LocatedDevicePath {
         var handle: ?Handle = null;
         var path: *const DevicePathProtocol = device_path;
-        switch (self._locateDevicePath(protocol, &handle, &path)) {
+        switch (self._locateDevicePath(protocol_guid, &handle, &path)) {
             .success => return .{ handle, path },
             .not_found => return .{ null, path },
             else => |status| return status.err(),
         }
     }
+
+    pub const OpenProtocolAttributes = packed struct(u32) {
+        /// Query whether a protocol interface is supported on a handle. If yes, then the protocol interface is returned.
+        by_handle_protocol: bool = false,
+
+        /// Used by a driver to get a protocol interface from a handle. Care must be taken when using this mode because the
+        /// driver that opens the protocol interface in this manner will not be informed if the protocol interface is
+        /// uninstalled or reinstalled. The caller is also not required to close the protocol interface.
+        get_protocol: bool = false,
+
+        /// Used by a driver to test for the existence of a protocol interface on a handle. The returned interface will always
+        /// be `null`. This mode can be used to determine if a driver is present in the handle's driver stack.
+        test_protocol: bool = false,
+
+        /// Used by bus drivers to show that a protocol interface is being used by one of the child controllers of the bus.
+        /// This information is used by `connectController` to recursively connect all child controllers and by
+        /// `disconnectController` to get the list of child controllers that a bus driver created.
+        by_child_controller: bool = false,
+
+        /// Used by a driver to gain access to a protocol interface. When this mode is used, the driver's `stop()` function
+        /// will be called by `disconnectController` if the protocol interface is reinstalled or uninstalled. Once a
+        /// protocol interface is opened by a driver with this attribute, no other drivers can open that protocol interface
+        /// with this attribute.
+        by_driver: bool = false,
+
+        /// Used to gain exclusive access to a protocol interface. If any drivers have the protocol interface opened with
+        /// the `by_driver` attribute, then an attempt will be made to remove them by calling the driver's `stop()` function.
+        exclusive: bool = false,
+
+        reserved: u26 = 0,
+    };
 
     /// Queries a handle to determine if it supports a specified protocol. If the protocol is supported by the handle,
     /// it opens the protocol on behalf of the calling agent.
@@ -478,7 +792,7 @@ pub const BootServices = extern struct {
         /// The handle for the protocol interface that is being opened.
         handle: Handle,
         /// The GUID of the protocol to open.
-        protocol: *align(8) const Guid,
+        protocol_guid: *align(8) const Guid,
         /// The handle of the agent that is opening the protocol interface specified by `protocol`.
         agent_handle: ?Handle,
         /// The handle of the controller that requires the protocol interface.
@@ -487,7 +801,7 @@ pub const BootServices = extern struct {
         attributes: OpenProtocolAttributes,
     ) !?ProtocolInterface {
         var interface: ?ProtocolInterface = undefined;
-        try self._openProtocol(handle, protocol, &interface, agent_handle, controller_handle, attributes).err();
+        try self._openProtocol(handle, protocol_guid, &interface, agent_handle, controller_handle, attributes).err();
         return interface;
     }
 
@@ -497,15 +811,22 @@ pub const BootServices = extern struct {
         /// The handle for the protocol interface that was previously opened with `openProtocol()`.
         handle: Handle,
         /// The GUID of the protocol to close.
-        protocol: *align(8) const Guid,
+        protocol_guid: *align(8) const Guid,
         /// The handle of the agent that is closing the protocol interface specified by `protocol`.
         agent_handle: Handle,
         /// The handle of the controller that required the protocol interface.
         controller_handle: ?Handle,
     ) void {
         // any error here arises from user error (ie. closing a protocol that was not supported) or a firmware bug
-        _ = self._closeProtocol(handle, protocol, agent_handle, controller_handle);
+        _ = self._closeProtocol(handle, protocol_guid, agent_handle, controller_handle);
     }
+
+    pub const ProtocolInformationEntry = extern struct {
+        agent_handle: ?Handle,
+        controller_handle: ?Handle,
+        attributes: OpenProtocolAttributes,
+        open_count: u32,
+    };
 
     /// Retrieves the list of agents that currently have a protocol interface opened in a buffer allocated from the pool.
     /// Returns `null` if the handle does not support the requested protocol.
@@ -516,11 +837,11 @@ pub const BootServices = extern struct {
         /// The handle for the protocol interface that is being queried.
         handle: Handle,
         /// The GUID of the protocol to list.
-        protocol: *align(8) const Guid,
+        protocol_guid: *align(8) const Guid,
     ) !?[]const ProtocolInformationEntry {
         var entry_buffer: [*]const ProtocolInformationEntry = undefined;
         var entry_count: usize = 0;
-        switch (self._openProtocolInformation(handle, protocol, &entry_buffer, &entry_count)) {
+        switch (self._openProtocolInformation(handle, protocol_guid, &entry_buffer, &entry_count)) {
             .success => return entry_buffer[0..entry_count],
             .not_found => return null,
             else => |status| return status.err(),
@@ -589,7 +910,7 @@ pub const BootServices = extern struct {
         switch (search_type) {
             .all => try self._locateHandleBuffer(search_type, null, null, &num_handles, &handle_buffer).err(),
             .by_notify => |search_key| self._locateHandleBuffer(search_type, null, search_key, &num_handles, &handle_buffer),
-            .by_protocol => |protocol| self._locateHandleBuffer(search_type, protocol, null, &num_handles, &handle_buffer),
+            .by_protocol => |protocol_guid| self._locateHandleBuffer(search_type, protocol_guid, null, &num_handles, &handle_buffer),
         }
 
         return handle_buffer[0..num_handles];
@@ -599,12 +920,12 @@ pub const BootServices = extern struct {
     pub fn locateProtocol(
         self: *const BootServices,
         /// The GUID of the protocol.
-        protocol: *align(8) const Guid,
+        protocol_guid: *align(8) const Guid,
         /// An optional registration key returned from `registerProtocolNotify()`.
         registration: ?*const anyopaque,
     ) !?ProtocolInterface {
         var interface: ?ProtocolInterface = undefined;
-        switch (self._locateProtocol(protocol, registration, &interface)) {
+        switch (self._locateProtocol(protocol_guid, registration, &interface)) {
             .success => return interface,
             .not_found => return null,
             else => |status| return status.err(),
@@ -701,12 +1022,14 @@ pub const BootServices = extern struct {
         image_handle: Handle,
         /// The image's exit status.
         exit_status: Status,
-        /// The size of the exit data.
-        exit_data_size: usize,
         /// The exit data. This must begin with a null terminated UCS2 string.
-        exit_data: ?[*]align(2) const u8,
+        exit_data: ?[]align(2) const u8,
     ) !void {
-        try self._exit(image_handle, exit_status, exit_data_size, exit_data).err();
+        if (exit_data) |data| {
+            try self._exit(image_handle, exit_status, data.len, data.ptr).err();
+        } else {
+            try self._exit(image_handle, exit_status, 0, null).err();
+        }
     }
 
     /// Terminates all boot services.
@@ -727,12 +1050,14 @@ pub const BootServices = extern struct {
         timeout: usize,
         /// The numeric code to log on timeout.
         watchdog_code: u64,
-        /// The size of the watchdog timer's data.
-        watchdog_data_size: usize,
         /// A data buffer pointing to a null terminated UCS2 string. Optionally followed by a blob of binary data.
-        watchdog_data: ?[*]const u8,
+        watchdog_data: ?[]align(2) const u8,
     ) !void {
-        try self._setWatchdogTimer(timeout, watchdog_code, watchdog_data_size, watchdog_data).err();
+        if (watchdog_data) |data| {
+            try self._setWatchdogTimer(timeout, watchdog_code, data.len, data.ptr).err();
+        } else {
+            try self._setWatchdogTimer(timeout, watchdog_code, 0, null).err();
+        }
     }
 
     /// Induces a fine-grained stall.
@@ -759,365 +1084,10 @@ pub const BootServices = extern struct {
         /// The GUID of the configuration table.
         guid: *align(8) const Guid,
         /// A pointer to the configuration table.
-        table: ?*const anyopaque,
+        config_table: ?*const anyopaque,
     ) !void {
-        try self._installConfigurationTable(guid, table).err();
-    }
-
-    /// Opens a protocol with a structure as the loaded image for a UEFI application
-    pub fn openProtocolSt(self: *const BootServices, comptime protocol: type, handle: Handle) !*protocol {
-        if (!@hasDecl(protocol, "guid"))
-            @compileError("Protocol is missing guid!");
-
-        var ptr: ?*protocol = undefined;
-
-        try self.openProtocol(
-            handle,
-            &protocol.guid,
-            @as(*?*anyopaque, @ptrCast(&ptr)),
-            // Invoking handle (loaded image)
-            uefi.handle,
-            // Control handle (null as not a driver)
-            null,
-            uefi.tables.OpenProtocolAttributes{ .by_handle_protocol = true },
-        ).err();
-
-        return ptr.?;
+        try self._installConfigurationTable(guid, config_table).err();
     }
 
     pub const signature: u64 = 0x56524553544f4f42;
 };
-<<<<<<< HEAD
-=======
-
-/// These types can be "ORed" together as needed.
-pub const EventKind = struct {
-    /// The event is a timer event and may be used in a call to `setTimer()`. Note that timers only function during boot
-    /// services time.
-    pub const timer: u32 = 0x80000000;
-
-    /// The event is allocated from runtime memory. If an event is to be signaled after the call to `exitBootServices()`
-    /// the event’s data structure and notification function need to be allocated from runtime memory.
-    pub const runtime: u32 = 0x40000000;
-
-    /// If an event of this type is not already in the signaled state, then the event’s *notify_func* will be
-    /// queued at the event’s *notify_tpl* whenever the event is being waited on via `waitForEvent()` or `checkEvent()`.
-    pub const notify_wait: u32 = 0x00000100;
-
-    /// The event’s *notify_func* is queued whenever the event is signaled.
-    pub const notify_signal: u32 = 0x00000200;
-
-    /// This event is of type `notify_signal`. It should not be combined with any other event types. This event type
-    /// is functionally equivalent to the `EventGroup.exit_boot_services` event group.
-    pub const signal_exit_boot_services: u32 = 0x00000201;
-
-    /// This event is of type `notify_signal`. It should not be combined with any other event types. The event is to be
-    /// notified by the system when `setVirtualAddressMap()` is performed.
-    pub const signal_virtual_address_change: u32 = 0x60000202;
-};
-
-pub const EventGroup = struct {};
-
-pub const TaskPriorityLevel = enum(usize) {
-    /// This is the lowest priority level. It is the level of execution which occurs when no event notifications are
-    /// pending and which interacts with the user. User I/O (and blocking on User I/O) can be performed at this level.
-    /// The boot manager executes at this level and passes control to other UEFI applications at this level.
-    application = 4,
-
-    /// Interrupts code executing below TPL_CALLBACK level. Long term operations (such as file system operations and
-    /// disk I/O) can occur at this level
-    callback = 8,
-
-    /// Interrupts code executing below TPL_NOTIFY level. Blocking is not allowed at this level. Code executes to
-    /// completion and returns. If code requires more processing, it needs to signal an event to wait to obtain control
-    /// again at whatever level it requires. This level is typically used to process low level IO to or from a device.
-    notify = 16,
-
-    /// Interrupts code executing below TPL_HIGH_LEVEL This is the highest priority level. It is not interruptible
-    /// (interrupts are disabled) and is used sparingly by firmware to synchronize operations that need to be accessible
-    /// from any priority level. For example, it must be possible to signal events while executing at any priority level.
-    /// Therefore, firmware manipulates the internal event structure while at this priority level.
-    high_level = 31,
-};
-
-pub const EventNotify = *const fn (event: Event, ctx: *anyopaque) callconv(cc) void;
-pub const EventNotifyContext = *const anyopaque;
-
-pub const TimerKind = union(Enum) {
-    pub const Enum = enum(u32) {
-        /// The timer is canceled.
-        cancel = 0,
-
-        /// The timer is a periodic timer.
-        periodic = 1,
-
-        /// The timer is a relative timer.
-        relative = 2,
-    };
-
-    /// The timer is to be canceled.
-    cancel: void,
-
-    /// The timer is to be signaled periodically at `trigger_time` ns intervals. The event timer does not need to be
-    /// reset for each notification.
-    periodic: u64,
-
-    /// The timer is to be signaled after `trigger_time` ns.
-    relative: u64,
-};
-
-pub const MemoryMap = struct {
-    pub const Key = enum(usize) { _ };
-
-    map: *const anyopaque,
-
-    /// The length of the memory map in bytes.
-    size: usize,
-
-    /// The key for the current memory map.
-    key: Key,
-
-    /// The size of each memory descriptor in the memory map.
-    descriptor_size: usize,
-
-    /// The version of the memory map.
-    descriptor_version: u32,
-
-    /// An iterator over the memory map.
-    pub const Iterator = struct {
-        map: *const MemoryMap,
-
-        /// The current index of the iterator.
-        index: usize = 0,
-
-        /// Returns the next memory descriptor in the map.
-        pub fn next(iter: *Iterator) ?*const MemoryDescriptor {
-            const offset = iter.index * iter.map.descriptor_size;
-
-            // ensure the next descriptor is within the map
-            if (offset + iter.map.descriptor_size > iter.map.size)
-                return null;
-
-            const addr = @intFromPtr(iter.map.map) + offset;
-            iter.index += 1;
-
-            return @ptrFromInt(addr);
-        }
-    };
-
-    /// Returns an iterator over the memory map.
-    pub fn iterator(self: *const MemoryMap) Iterator {
-        return Iterator{ .map = self };
-    }
-};
-
-pub const MemoryType = enum(u32) {
-    /// Not usable.
-    reserved,
-
-    /// The code portions of a loaded application.
-    loader_code,
-
-    /// The data portions of a loaded application and the default data allocation type used by an application to
-    /// allocate pool memory.
-    loader_data,
-
-    /// The code portions of a loaded Boot Services Driver.
-    boot_services_code,
-
-    /// The data portions of a loaded Boot Services Driver, and the default data allocation type used by a Boot
-    /// Services Driver to allocate pool memory.
-    boot_services_data,
-
-    /// The code portions of a loaded Runtime Services Driver.
-    runtime_services_code,
-
-    /// The data portions of a loaded Runtime Services Driver and the default data allocation type used by a Runtime
-    /// Services Driver to allocate pool memory.
-    runtime_services_data,
-
-    /// Free (unallocated) memory.
-    conventional,
-
-    /// Memory in which errors have been detected.
-    unusable,
-
-    /// Memory that holds the ACPI tables.
-    acpi_reclaim,
-
-    /// Address space reserved for use by the firmware.
-    acpi_nvs,
-
-    /// Used by system firmware to request that a memory-mapped IO region be mapped by the OS to a virtual address so
-    /// it can be accessed by EFI runtime services.
-    memory_mapped_io,
-
-    /// System memory-mapped IO region that is used to translate memory cycles to IO cycles by the processor.
-    memory_mapped_io_port_space,
-
-    /// Address space reserved by the firmware for code that is part of the processor.
-    pal_code,
-
-    /// A memory region that operates as `conventional`, but additionally supports byte-addressable non-volatility.
-    persistent,
-
-    /// A memory region that represents unaccepted memory that must be accepted by the boot target before it can be used.
-    /// For platforms that support unaccepted memory, all unaccepted valid memory will be reported in the memory map.
-    /// Unreported memory addresses must be treated as non-present memory.
-    unaccepted,
-
-    _,
-};
-
-pub const MemoryDescriptorAttribute = packed struct(u64) {
-    /// The memory region supports being configured as not cacheable.
-    non_cacheable: bool,
-
-    /// The memory region supports being configured as write combining.
-    write_combining: bool,
-
-    /// The memory region supports being configured as cacheable with a "write-through". Writes that hit in the cache
-    /// will also be written to main memory.
-    write_through: bool,
-
-    /// The memory region supports being configured as cacheable with a "write-back". Reads and writes that hit in the
-    /// cache do not propagate to main memory. Dirty data is written back to main memory when a new cache line is
-    /// allocated.
-    write_back: bool,
-
-    /// The memory region supports being configured as not cacheable, exported, and supports the "fetch and add"
-    /// semaphore mechanism.
-    non_cacheable_exported: bool,
-
-    _pad1: u7 = 0,
-
-    /// The memory region supports being configured as write-protected by system hardware. This is typically used as a
-    /// cacheability attribute today. The memory region supports being configured as cacheable with a "write protected"
-    /// policy. Reads come from cache lines when possible, and read misses cause cache fills. Writes are propagated to
-    /// the system bus and cause corresponding cache lines on all processors to be invalidated.
-    write_protect: bool,
-
-    /// The memory region supports being configured as read-protected by system hardware.
-    read_protect: bool,
-
-    /// The memory region supports being configured so it is protected by system hardware from executing code.
-    execute_protect: bool,
-
-    /// The memory region refers to persistent memory.
-    non_volatile: bool,
-
-    /// The memory region provides higher reliability relative to other memory in the system. If all memory has the same
-    /// reliability, then this bit is not used.
-    more_reliable: bool,
-
-    /// The memory region supports making this memory range read-only by system hardware.
-    read_only: bool,
-
-    /// The memory region is earmarked for specific purposes such as for specific device drivers or applications. This
-    /// attribute serves as a hint to the OS to avoid allocation this memory for core OS data or code that cannot be
-    /// relocated. Prolonged use of this memory for purposes other than the intended purpose may result in suboptimal
-    /// platform performance.
-    specific_purpose: bool,
-
-    /// The memory region is capable of being protected with the CPU's memory cryptographic capabilities.
-    cpu_crypto: bool,
-
-    _pad2: u24 = 0,
-
-    /// When `memory_isa_valid` is set, this field contains ISA specific cacheability attributes not covered above.
-    memory_isa: u16,
-
-    _pad3: u2 = 0,
-
-    /// If set, then `memory_isa` is valid.
-    memory_isa_valid: bool,
-
-    /// This memory must be given a virtual mapping by the operating system when `setVirtualAddressMap()` is called.
-    memory_runtime: bool,
-};
-
-pub const MemoryDescriptor = extern struct {
-    type: MemoryType,
-    physical_start: PhysicalAddress,
-    virtual_start: VirtualAddress,
-    number_of_pages: u64,
-    attribute: MemoryDescriptorAttribute,
-};
-
-pub const LocateSearchType = union(Enum) {
-    pub const Enum = enum(u32) {
-        all,
-        by_notify,
-        by_protocol,
-    };
-
-    all: void,
-    by_notify: *const anyopaque,
-    by_protocol: *align(8) const Guid,
-};
-
-pub const OpenProtocolAttributes = packed struct(u32) {
-    /// Query whether a protocol interface is supported on a handle. If yes, then the protocol interface is returned.
-    by_handle_protocol: bool = false,
-
-    /// Used by a driver to get a protocol interface from a handle. Care must be taken when using this mode because the
-    /// driver that opens the protocol interface in this manner will not be informed if the protocol interface is
-    /// uninstalled or reinstalled. The caller is also not required to close the protocol interface.
-    get_protocol: bool = false,
-
-    /// Used by a driver to test for the existence of a protocol interface on a handle. The returned interface will always
-    /// be `null`. This mode can be used to determine if a driver is present in the handle's driver stack.
-    test_protocol: bool = false,
-
-    /// Used by bus drivers to show that a protocol interface is being used by one of the child controllers of the bus.
-    /// This information is used by `connectController` to recursively connect all child controllers and by
-    /// `disconnectController` to get the list of child controllers that a bus driver created.
-    by_child_controller: bool = false,
-
-    /// Used by a driver to gain access to a protocol interface. When this mode is used, the driver's `stop()` function
-    /// will be called by `disconnectController` if the protocol interface is reinstalled or uninstalled. Once a
-    /// protocol interface is opened by a driver with this attribute, no other drivers can open that protocol interface
-    /// with this attribute.
-    by_driver: bool = false,
-
-    /// Used to gain exclusive access to a protocol interface. If any drivers have the protocol interface opened with
-    /// the `by_driver` attribute, then an attempt will be made to remove them by calling the driver's `stop()` function.
-    exclusive: bool = false,
-
-    reserved: u26 = 0,
-};
-
-pub const ProtocolInformationEntry = extern struct {
-    agent_handle: ?Handle,
-    controller_handle: ?Handle,
-    attributes: OpenProtocolAttributes,
-    open_count: u32,
-};
-
-pub const EfiInterfaceType = enum(u32) {
-    native,
-};
-
-pub const AllocateType = union(Enum) {
-    pub const Enum = enum(u32) {
-        /// Allocate any available range of pages that satisfies the request.
-        any = 0,
-
-        /// Allocate any available range of pages whose uppermost address is less than or equal to a specified
-        /// address.
-        max_address = 1,
-
-        /// Allocate pages at a specified address.
-        at_address = 2,
-    };
-
-    /// Allocate any available range of pages that satisfies the request.
-    any: void,
-
-    /// Allocate any available range of pages whose uppermost address is less than or equal to a specified address.
-    max_address: PhysicalAddress,
-
-    /// Allocate pages at a specified address.
-    at_address: PhysicalAddress,
-};
->>>>>>> 908d1f3d3f (std.os.uefi: add zig-like bindings for boot services)
