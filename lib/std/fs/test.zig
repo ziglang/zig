@@ -156,6 +156,31 @@ fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !vo
     try testing.expectEqualStrings(target_path, given);
 }
 
+test "stat on a symlink returns Kind.sym_link" {
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            const dir_target_path = try ctx.transformPath("subdir");
+            try ctx.dir.makeDir(dir_target_path);
+
+            // TODO: Also test a symlink to a file.
+            // There's currently no way to avoid following symlinks when opening files.
+            // https://github.com/ziglang/zig/issues/18327
+
+            ctx.dir.symLink(dir_target_path, "symlink", .{ .is_directory = true }) catch |err| switch (err) {
+                // Symlink requires admin privileges on windows, so this test can legitimately fail.
+                error.AccessDenied => return error.SkipZigTest,
+                else => return err,
+            };
+
+            var symlink = try ctx.dir.openDir("symlink", .{ .no_follow = true });
+            defer symlink.close();
+
+            const stat = try symlink.stat();
+            try testing.expectEqual(File.Kind.sym_link, stat.kind);
+        }
+    }.impl);
+}
+
 test "relative symlink to parent directory" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();

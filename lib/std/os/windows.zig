@@ -2972,6 +2972,15 @@ pub const FILE_INFORMATION_CLASS = enum(c_int) {
     FileMaximumInformation,
 };
 
+pub const FILE_ATTRIBUTE_TAG_INFO = extern struct {
+    FileAttributes: DWORD,
+    ReparseTag: DWORD,
+};
+
+/// "If this bit is set, the file or directory represents another named entity in the system."
+/// https://learn.microsoft.com/en-us/windows/win32/fileio/reparse-point-tags
+pub const reparse_tag_name_surrogate_bit = 0x20000000;
+
 pub const FILE_DISPOSITION_INFORMATION = extern struct {
     DeleteFile: BOOLEAN,
 };
