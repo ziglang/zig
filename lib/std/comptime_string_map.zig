@@ -61,11 +61,11 @@ pub fn ComptimeStringMapWithEql(
         const SortContext = struct {
             kvs: []KV,
 
-            pub fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+            pub fn lessThan(comptime ctx: @This(), a: usize, b: usize) bool {
                 return ctx.kvs[a].key.len < ctx.kvs[b].key.len;
             }
 
-            pub fn swap(ctx: @This(), a: usize, b: usize) void {
+            pub fn swap(comptime ctx: @This(), a: usize, b: usize) void {
                 return std.mem.swap(KV, &ctx.kvs[a], &ctx.kvs[b]);
             }
         };
@@ -97,12 +97,12 @@ pub fn ComptimeStringMapWithEql(
         pub const kvs = precomputed.sorted_kvs;
 
         /// Checks if the map has a value for the key.
-        pub fn has(str: []const u8) bool {
+        pub fn has(comptime str: []const u8) bool {
             return get(str) != null;
         }
 
         /// Returns the value for the key if any, else null.
-        pub fn get(str: []const u8) ?V {
+        pub fn get(comptime str: []const u8) ?V {
             if (str.len < precomputed.min_len or str.len > precomputed.max_len)
                 return null;
 
