@@ -960,6 +960,7 @@ pub const Object = struct {
                 code_model,
                 options.function_sections,
                 options.data_sections,
+                options.relax_elf_relocations,
                 float_abi,
                 if (target_util.llvmMachineAbi(options.target)) |s| s.ptr else null,
             );

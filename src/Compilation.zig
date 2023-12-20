@@ -876,6 +876,7 @@ pub const InitOptions = struct {
     want_stack_protector: ?u32 = null,
     want_red_zone: ?bool = null,
     omit_frame_pointer: ?bool = null,
+    relax_elf_relocations: bool = true,
     want_valgrind: ?bool = null,
     want_tsan: ?bool = null,
     want_compiler_rt: ?bool = null,
@@ -1489,6 +1490,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(stack_protector);
         cache.hash.add(red_zone);
         cache.hash.add(omit_frame_pointer);
+        cache.hash.add(options.relax_elf_relocations);
         cache.hash.add(link_mode);
         cache.hash.add(options.function_sections);
         cache.hash.add(options.data_sections);
@@ -1936,6 +1938,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .stack_protector = stack_protector,
             .red_zone = red_zone,
             .omit_frame_pointer = omit_frame_pointer,
+            .relax_elf_relocations = options.relax_elf_relocations,
             .single_threaded = single_threaded,
             .verbose_link = options.verbose_link,
             .machine_code_model = options.machine_code_model,
@@ -5446,6 +5449,10 @@ pub fn addCCArgs(
                 try argv.append("-fno-omit-frame-pointer");
             }
 
+            if (!comp.bin_file.options.relax_elf_relocations) {
+                try argv.append("-mrelax-relocations=no");
+            }
+
             const ssp_buf_size = comp.bin_file.options.stack_protector;
             if (ssp_buf_size != 0) {
                 try argv.appendSlice(&[_][]const u8{
@@ -6800,6 +6807,7 @@ fn buildOutputFromZig(
         .want_stack_protector = 0,
         .want_red_zone = comp.bin_file.options.red_zone,
         .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
+        .relax_elf_relocations = comp.bin_file.options.relax_elf_relocations,
         .want_valgrind = false,
         .want_tsan = false,
         .want_unwind_tables = comp.bin_file.options.eh_frame_hdr,
@@ -6877,6 +6885,7 @@ pub fn build_crt_file(
         .want_stack_protector = 0,
         .want_red_zone = comp.bin_file.options.red_zone,
         .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
+        .relax_elf_relocations = comp.bin_file.options.relax_elf_relocations,
         .want_valgrind = false,
         .want_tsan = false,
         .want_pic = comp.bin_file.options.pic,

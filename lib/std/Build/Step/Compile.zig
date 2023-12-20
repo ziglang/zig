@@ -186,6 +186,7 @@ pie: ?bool = null,
 red_zone: ?bool = null,
 
 omit_frame_pointer: ?bool = null,
+relax_elf_relocations: bool = true,
 dll_export_fns: ?bool = null,
 
 subsystem: ?std.Target.SubSystem = null,
@@ -1836,6 +1837,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
     try addFlag(&zig_args, "omit-frame-pointer", self.omit_frame_pointer);
+    if (!self.relax_elf_relocations) {
+        try zig_args.append("-mrelax-relocations=no");
+    }
     try addFlag(&zig_args, "dll-export-fns", self.dll_export_fns);
 
     if (self.disable_sanitize_c) {
