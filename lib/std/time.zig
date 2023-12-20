@@ -118,7 +118,7 @@ pub fn nanoTimestamp() i128 {
         var value: std.os.uefi.Time = undefined;
         const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
         assert(status == .Success);
-        return @as(i128, @intCast(value.toEpoch())) * ms_per_s;
+        return value.toEpoch();
     }
 
     var ts: os.timespec = undefined;

@@ -153,7 +153,8 @@ pub const Time = extern struct {
         days += daysInYear(self.year, @as(u4, @intCast(self.month)) - 1) + self.day;
         const hours = self.hour + (days * 24);
         const minutes = self.minute + (hours * 60);
-        return self.second + (minutes * 60);
+        const seconds = self.second + (minutes * std.time.s_per_min);
+        return self.nanosecond + (seconds * std.time.ns_per_s);
     }
 };
 
