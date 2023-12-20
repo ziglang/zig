@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("std.zig");
 const mem = std.mem;
 
 /// Comptime string map optimized for small sets of disparate string keys.
