@@ -1,4 +1,4 @@
-const std = @import("std.zig");
+const std = @import("std");
 const mem = std.mem;
 
 /// Comptime string map optimized for small sets of disparate string keys.
@@ -231,4 +231,39 @@ test "ComptimeStringMapWithEql" {
     try std.testing.expect(null == map.get("SameLength"));
 
     try std.testing.expect(map.has("ThESe"));
+}
+
+
+
+test "ComptimeStringMap Value is type" {
+    const extensions = ComptimeStringMap(type, .{
+        .{ "bmp", struct {
+            pub const foo = 1;
+        } },
+        .{ "qoi", struct {
+            pub const foo = 2;
+        } },
+        .{ "png", struct {
+            pub const foo = 3;
+        } },
+        .{ "jpg", struct {
+            pub const foo = 4;
+        } },
+        .{ "gif", struct {
+            pub const foo = 5;
+        } },
+    });
+
+    const T = comptime extensions.get("bmp").?;
+    const T2 = comptime extensions.get("qoi").?;
+    const T3 = comptime extensions.get("png").?;
+    const T4 = comptime extensions.get("jpg").?;
+    const T5 = comptime extensions.get("gif").?;
+
+    try std.testing.expect(T.foo == 1);
+    try std.testing.expect(T2.foo == 2);
+    try std.testing.expect(T3.foo == 3);
+    try std.testing.expect(T4.foo == 4);
+    try std.testing.expect(T5.foo == 5);
+    
 }
