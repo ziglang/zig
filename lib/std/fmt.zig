@@ -435,7 +435,7 @@ pub fn defaultSpec(comptime T: type) [:0]const u8 {
         .Array => |_| return ANY,
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
-                .Array => |_| return "*",
+                .Array => |_| return ANY,
                 else => {},
             },
             .Many, .C => return "*",
@@ -599,26 +599,7 @@ pub fn formatType(
         },
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
-                .Array => |info| {
-                    if (actual_fmt.len == 0)
-                        @compileError("cannot format array ref without a specifier (i.e. {s} or {*})");
-                    if (info.child == u8) {
-                        switch (actual_fmt[0]) {
-                            's', 'x', 'X', 'e', 'E' => {
-                                comptime checkTextFmt(actual_fmt);
-                                return formatBuf(value, options, writer);
-                            },
-                            else => {},
-                        }
-                    }
-                    for (value, 0..) |item, i| {
-                        comptime checkTextFmt(actual_fmt);
-                        if (i != 0) try formatBuf(", ", options, writer);
-                        try formatBuf(item, options, writer);
-                    }
-                    return;
-                },
-                .Enum, .Union, .Struct => {
+                .Array, .Enum, .Union, .Struct => {
                     return formatType(value.*, actual_fmt, options, writer, max_depth);
                 },
                 else => return format(writer, "{s}@{x}", .{ @typeName(ptr_info.child), @intFromPtr(value) }),
@@ -629,14 +610,8 @@ pub fn formatType(
                 if (ptr_info.sentinel) |_| {
                     return formatType(mem.span(value), actual_fmt, options, writer, max_depth);
                 }
-                if (ptr_info.child == u8) {
-                    switch (actual_fmt[0]) {
-                        's', 'x', 'X', 'e', 'E' => {
-                            comptime checkTextFmt(actual_fmt);
-                            return formatBuf(mem.span(value), options, writer);
-                        },
-                        else => {},
-                    }
+                if (actual_fmt[0] == 's' and ptr_info.child == u8) {
+                    return formatBuf(mem.span(value), options, writer);
                 }
                 invalidFmtError(fmt, value);
             },
@@ -646,14 +621,8 @@ pub fn formatType(
                 if (max_depth == 0) {
                     return writer.writeAll("{ ... }");
                 }
-                if (ptr_info.child == u8) {
-                    switch (actual_fmt[0]) {
-                        's', 'x', 'X', 'e', 'E' => {
-                            comptime checkTextFmt(actual_fmt);
-                            return formatBuf(value, options, writer);
-                        },
-                        else => {},
-                    }
+                if (actual_fmt[0] == 's' and ptr_info.child == u8) {
+                    return formatBuf(value, options, writer);
                 }
                 try writer.writeAll("{ ");
                 for (value, 0..) |elem, i| {
@@ -671,14 +640,8 @@ pub fn formatType(
             if (max_depth == 0) {
                 return writer.writeAll("{ ... }");
             }
-            if (info.child == u8) {
-                switch (actual_fmt[0]) {
-                    's', 'x', 'X', 'e', 'E' => {
-                        comptime checkTextFmt(actual_fmt);
-                        return formatBuf(&value, options, writer);
-                    },
-                    else => {},
-                }
+            if (actual_fmt[0] == 's' and info.child == u8) {
+                return formatBuf(&value, options, writer);
             }
             try writer.writeAll("{ ");
             for (value, 0..) |elem, i| {
@@ -2205,12 +2168,22 @@ test "buffer" {
     }
 }
 
+// Test formatting of arrays by value, by single-item pointer, and as a slice
+fn expectArrayFmt(expected: []const u8, comptime template: []const u8, comptime array_value: anytype) !void {
+    try expectFmt(expected, template, .{array_value});
+    try expectFmt(expected, template, .{&array_value});
+    var runtime_zero: usize = 0;
+    _ = &runtime_zero;
+    try expectFmt(expected, template, .{array_value[runtime_zero..]});
+}
+
 test "array" {
     {
         const value: [3]u8 = "abc".*;
-        try expectFmt("array: abc\n", "array: {s}\n", .{value});
-        try expectFmt("array: abc\n", "array: {s}\n", .{&value});
-        try expectFmt("array: { 97, 98, 99 }\n", "array: {d}\n", .{value});
+        try expectArrayFmt("array: abc\n", "array: {s}\n", value);
+        try expectArrayFmt("array: { 97, 98, 99 }\n", "array: {d}\n", value);
+        try expectArrayFmt("array: { 61, 62, 63 }\n", "array: {x}\n", value);
+        try expectArrayFmt("array: { 97, 98, 99 }\n", "array: {any}\n", value);
 
         var buf: [100]u8 = undefined;
         try expectFmt(
@@ -2219,12 +2192,23 @@ test "array" {
             .{&value},
         );
     }
+
+    {
+        const value = [2][3]u8{ "abc".*, "def".* };
+
+        try expectArrayFmt("array: { abc, def }\n", "array: {s}\n", value);
+        try expectArrayFmt("array: { { 97, 98, 99 }, { 100, 101, 102 } }\n", "array: {d}\n", value);
+        try expectArrayFmt("array: { { 61, 62, 63 }, { 64, 65, 66 } }\n", "array: {x}\n", value);
+    }
 }
 
 test "slice" {
     {
         const value: []const u8 = "abc";
         try expectFmt("slice: abc\n", "slice: {s}\n", .{value});
+        try expectFmt("slice: { 97, 98, 99 }\n", "slice: {d}\n", .{value});
+        try expectFmt("slice: { 61, 62, 63 }\n", "slice: {x}\n", .{value});
+        try expectFmt("slice: { 97, 98, 99 }\n", "slice: {any}\n", .{value});
     }
     {
         var runtime_zero: usize = 0;
