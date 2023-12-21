@@ -1525,3 +1525,8 @@ test "bitcast to vector with different child type" {
     try S.doTheTest();
     try comptime S.doTheTest();
 }
+
+test "index into comptime-known vector is comptime-known" {
+    const vec: @Vector(2, f16) = [2]f16{ 1.5, 3.5 };
+    if (vec[0] != 1.5) @compileError("vec should be comptime");
+}
