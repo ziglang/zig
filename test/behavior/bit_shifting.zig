@@ -119,16 +119,11 @@ test "Saturating Shift Left where lhs is of a computed type" {
 
     const S = struct {
         fn getIntShiftType(comptime T: type) type {
-            const int = @typeInfo(T).Int;
-            var bits = 1;
-            while (int.bits > (1 << bits)) {
-                bits += 1;
-            }
-            return @Type(std.builtin.Type {
-                .Int = .{
-                    .bits = bits,
-                    .signedness = .signed
-                }
+            var unsigned_shift_type = @typeInfo(std.math.Log2Int(T)).Int;
+            unsigned_shift_type.signedness = .signed;
+
+            return @Type(.{
+                .Int = unsigned_shift_type,
             });
         }
 
@@ -152,8 +147,11 @@ test "Saturating Shift Left where lhs is of a computed type" {
 
     const FP = S.FixedPoint(i32);
 
-    _ = (FP {
+    const value = (FP {
         .value = 1,
         .exponent = 1,
-    }).shiftExponent(1);
+    }).shiftExponent(-1);
+
+    try expect(value.value == 2);
+    try expect(value.exponent == 0);
 }
