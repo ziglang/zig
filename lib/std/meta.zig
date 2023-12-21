@@ -34,6 +34,7 @@ pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
             }
             break :build_kvs kvs_array[0..];
         };
+        @setEvalBranchQuota(3_000); // if the cutoff is 100 items, it should have enough quota to process 100 items
         const map = std.ComptimeStringMap(T, kvs);
         return map.get(str);
     } else {

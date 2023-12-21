@@ -574,37 +574,6 @@ test "switch prongs with cases with identical payload types" {
     try comptime S.doTheTest();
 }
 
-test "switch on pointer type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    const S = struct {
-        const X = struct {
-            field: u32,
-        };
-
-        const P1 = @as(*X, @ptrFromInt(0x400));
-        const P2 = @as(*X, @ptrFromInt(0x800));
-        const P3 = @as(*X, @ptrFromInt(0xC00));
-
-        fn doTheTest(arg: *X) i32 {
-            switch (arg) {
-                P1 => return 1,
-                P2 => return 2,
-                else => return 3,
-            }
-        }
-    };
-
-    try expect(1 == S.doTheTest(S.P1));
-    try expect(2 == S.doTheTest(S.P2));
-    try expect(3 == S.doTheTest(S.P3));
-    try comptime expect(1 == S.doTheTest(S.P1));
-    try comptime expect(2 == S.doTheTest(S.P2));
-    try comptime expect(3 == S.doTheTest(S.P3));
-}
-
 test "switch on error set with single else" {
     const S = struct {
         fn doTheTest() !void {

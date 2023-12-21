@@ -11684,7 +11684,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 },
             }
         },
-        .EnumLiteral, .Void, .Fn, .Pointer, .Type => {
+        .EnumLiteral, .Void, .Fn, .Type => {
             if (special_prong != .@"else") {
                 return sema.fail(
                     block,
@@ -11759,6 +11759,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         .AnyFrame,
         .ComptimeFloat,
         .Float,
+        .Pointer,
         => return sema.fail(block, operand_src, "invalid switch operand type '{}'", .{
             operand_ty.fmt(mod),
         }),

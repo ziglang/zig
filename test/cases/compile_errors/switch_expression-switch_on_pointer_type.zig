@@ -12,4 +12,4 @@ export fn entry() usize {
 // backend=stage2
 // target=native
 //
-// :2:5: error: else prong required when switching on type '*u8'
+// :2:13: error: invalid switch operand type '*u8'

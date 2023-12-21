@@ -13,13 +13,6 @@ pub export fn entry2() void {
         inline else => {},
     }
 }
-pub export fn entry3() void {
-    var a: *u32 = undefined;
-    _ = &a;
-    switch (a) {
-        inline else => {},
-    }
-}
 
 // error
 // backend=stage2
@@ -27,4 +20,3 @@ pub export fn entry3() void {
 //
 // :5:21: error: cannot enumerate values of type 'anyerror' for 'inline else'
 // :13:21: error: cannot enumerate values of type 'tmp.E' for 'inline else'
-// :20:21: error: cannot enumerate values of type '*u32' for 'inline else'

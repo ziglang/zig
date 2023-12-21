@@ -96,13 +96,13 @@ pub const Block = struct {
         const cpu = std.Target.x86.cpu;
 
         /// The recommended number of AES encryption/decryption to perform in parallel for the chosen implementation.
-        pub const optimal_parallel_blocks = switch (builtin.cpu.model) {
-            &cpu.westmere, &cpu.goldmont => 3,
-            &cpu.cannonlake, &cpu.skylake, &cpu.skylake_avx512, &cpu.tremont, &cpu.goldmont_plus, &cpu.cascadelake => 4,
-            &cpu.icelake_client, &cpu.icelake_server, &cpu.tigerlake, &cpu.rocketlake, &cpu.alderlake => 6,
-            &cpu.haswell, &cpu.broadwell => 7,
-            &cpu.sandybridge, &cpu.ivybridge => 8,
-            &cpu.znver1, &cpu.znver2, &cpu.znver3, &cpu.znver4 => 8,
+        pub const optimal_parallel_blocks = switch (std.meta.stringToEnum(std.meta.DeclEnum(cpu), builtin.cpu.model.name).?) {
+            .westmere, .goldmont => 3,
+            .cannonlake, .skylake, .skylake_avx512, .tremont, .goldmont_plus, .cascadelake => 4,
+            .icelake_client, .icelake_server, .tigerlake, .rocketlake, .alderlake => 6,
+            .haswell, .broadwell => 7,
+            .sandybridge, .ivybridge => 8,
+            .znver1, .znver2, .znver3, .znver4 => 8,
             else => 8,
         };
 
