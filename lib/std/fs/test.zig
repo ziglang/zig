@@ -156,15 +156,18 @@ fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !vo
     try testing.expectEqualStrings(target_path, given);
 }
 
-test "stat on a symlink returns Kind.sym_link" {
+test "File.stat on a File that is a symlink returns Kind.sym_link" {
+    // This test requires getting a file descriptor of a symlink which
+    // is not possible on all targets
+    switch (builtin.target.os.tag) {
+        .windows, .linux => {},
+        else => return error.SkipZigTest,
+    }
+
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const dir_target_path = try ctx.transformPath("subdir");
             try ctx.dir.makeDir(dir_target_path);
-
-            // TODO: Also test a symlink to a file.
-            // There's currently no way to avoid following symlinks when opening files.
-            // https://github.com/ziglang/zig/issues/18327
 
             ctx.dir.symLink(dir_target_path, "symlink", .{ .is_directory = true }) catch |err| switch (err) {
                 // Symlink requires admin privileges on windows, so this test can legitimately fail.
@@ -172,7 +175,61 @@ test "stat on a symlink returns Kind.sym_link" {
                 else => return err,
             };
 
-            var symlink = try ctx.dir.openDir("symlink", .{ .no_follow = true });
+            var symlink = switch (builtin.target.os.tag) {
+                .windows => windows_symlink: {
+                    const w = std.os.windows;
+
+                    const sub_path_w = try std.os.windows.cStrToPrefixedFileW(ctx.dir.fd, "symlink");
+
+                    var result = Dir{
+                        .fd = undefined,
+                    };
+
+                    const path_len_bytes = @as(u16, @intCast(sub_path_w.span().len * 2));
+                    var nt_name = w.UNICODE_STRING{
+                        .Length = path_len_bytes,
+                        .MaximumLength = path_len_bytes,
+                        .Buffer = @constCast(&sub_path_w.data),
+                    };
+                    var attr = w.OBJECT_ATTRIBUTES{
+                        .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
+                        .RootDirectory = if (fs.path.isAbsoluteWindowsW(sub_path_w.span())) null else ctx.dir.fd,
+                        .Attributes = 0,
+                        .ObjectName = &nt_name,
+                        .SecurityDescriptor = null,
+                        .SecurityQualityOfService = null,
+                    };
+                    var io: w.IO_STATUS_BLOCK = undefined;
+                    const rc = w.ntdll.NtCreateFile(
+                        &result.fd,
+                        w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA | w.SYNCHRONIZE | w.FILE_TRAVERSE,
+                        &attr,
+                        &io,
+                        null,
+                        w.FILE_ATTRIBUTE_NORMAL,
+                        w.FILE_SHARE_READ | w.FILE_SHARE_WRITE,
+                        w.FILE_OPEN,
+                        // FILE_OPEN_REPARSE_POINT is the important thing here
+                        w.FILE_OPEN_REPARSE_POINT | w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT,
+                        null,
+                        0,
+                    );
+
+                    switch (rc) {
+                        .SUCCESS => break :windows_symlink result,
+                        else => return w.unexpectedStatus(rc),
+                    }
+                },
+                .linux => linux_symlink: {
+                    const sub_path_c = try os.toPosixPath("symlink");
+                    // the O_NOFOLLOW | O_PATH combination can obtain a fd to a symlink
+                    // note that if O_DIRECTORY is set, then this will error with ENOTDIR
+                    const flags = os.O.NOFOLLOW | os.O.PATH | os.O.RDONLY | os.O.CLOEXEC;
+                    const fd = try os.openatZ(ctx.dir.fd, &sub_path_c, flags, 0);
+                    break :linux_symlink Dir{ .fd = fd };
+                },
+                else => unreachable,
+            };
             defer symlink.close();
 
             const stat = try symlink.stat();
