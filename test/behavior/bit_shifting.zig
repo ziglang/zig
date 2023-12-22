@@ -136,10 +136,7 @@ test "Saturating Shift Left where lhs is of a computed type" {
 
                 pub fn shiftExponent(self: @This(), shift: ShiftType) @This() {
                     const shiftAbs = @abs(shift);
-                    return .{
-                        .value = if (shift >= 0) self.value >> shiftAbs else self.value <<| shiftAbs,
-                        .exponent = self.exponent + shift
-                    };
+                    return .{ .value = if (shift >= 0) self.value >> shiftAbs else self.value <<| shiftAbs, .exponent = self.exponent + shift };
                 }
             };
         }
@@ -147,7 +144,7 @@ test "Saturating Shift Left where lhs is of a computed type" {
 
     const FP = S.FixedPoint(i32);
 
-    const value = (FP {
+    const value = (FP{
         .value = 1,
         .exponent = 1,
     }).shiftExponent(-1);
