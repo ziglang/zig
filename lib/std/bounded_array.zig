@@ -268,13 +268,16 @@ pub fn BoundedArrayAligned(
         }
 
         pub const Writer = if (T != u8)
-            @compileError("The Writer interface is only defined for BoundedArray(u8, ...) " ++
-                "but the given type is BoundedArray(" ++ @typeName(T) ++ ", ...)")
+            InvalidBoundedArrayWriter
         else
             std.io.Writer(*Self, error{Overflow}, appendWrite);
 
         /// Initializes a writer which will write into the array.
         pub fn writer(self: *Self) Writer {
+            if (comptime T != u8) {
+                @compileError("The Writer interface is only defined for BoundedArray(u8, ...) " ++
+                    "but the given type is BoundedArray(" ++ @typeName(T) ++ ", ...)");
+            }
             return .{ .context = self };
         }
 
@@ -286,6 +289,9 @@ pub fn BoundedArrayAligned(
         }
     };
 }
+
+// Placeholder type for when  T != u8, so the actual Writer interface is not available
+const InvalidBoundedArrayWriter = struct {};
 
 test "BoundedArray" {
     var a = try BoundedArray(u8, 64).init(32);
@@ -411,4 +417,16 @@ test "BoundedArrayAligned" {
     const b = @as(*const [2]u16, @ptrCast(a.constSlice().ptr));
     try testing.expectEqual(@as(u16, 0), b[0]);
     try testing.expectEqual(@as(u16, 65535), b[1]);
+}
+
+test "BoundedArray(non-u8) iterate decls and check type compiles" {
+    inline for (comptime std.meta.declarations(BoundedArray(u32, 8))) |decl| {
+        if (@TypeOf(@field(BoundedArray(u32, 8), decl.name)) == type) {
+            // do nothing, just ensuring it compiles
+
+            // testing.refAllDecls won't work here because it takes the address of all decls
+            // but the writer() function isn't defined for non-u8 types and produces a compileError
+            // so attempting to take its address will fail to compile
+        }
+    }
 }

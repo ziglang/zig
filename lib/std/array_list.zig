@@ -345,13 +345,16 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         pub const Writer = if (T != u8)
-            @compileError("The Writer interface is only defined for ArrayList(u8) " ++
-                "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
+            InvalidArrayListWriter
         else
             std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
 
         /// Initializes a Writer which will append to the list.
         pub fn writer(self: *Self) Writer {
+            if (comptime T != u8) {
+                @compileError("The Writer interface is only defined for ArrayList(u8) " ++
+                    "but the given type is ArrayList(" ++ @typeName(T) ++ ")");
+            }
             return .{ .context = self };
         }
 
@@ -885,13 +888,16 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         };
 
         pub const Writer = if (T != u8)
-            @compileError("The Writer interface is only defined for ArrayList(u8) " ++
-                "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
+            InvalidArrayListWriter
         else
             std.io.Writer(WriterContext, error{OutOfMemory}, appendWrite);
 
         /// Initializes a Writer which will append to the list.
         pub fn writer(self: *Self, allocator: Allocator) Writer {
+            if (comptime T != u8) {
+                @compileError("The Writer interface is only defined for ArrayList(u8) " ++
+                    "but the given type is ArrayList(" ++ @typeName(T) ++ ")");
+            }
             return .{ .context = .{ .self = self, .allocator = allocator } };
         }
 
@@ -1637,6 +1643,9 @@ const ItemUnmanaged = struct {
     sub_items: ArrayListUnmanaged(ItemUnmanaged),
 };
 
+// Placeholder type for when  T != u8, so the actual Writer interface is not available
+const InvalidArrayListWriter = struct {};
+
 test "std.ArrayList/ArrayListUnmanaged: ArrayList(T) of struct T" {
     const a = std.testing.allocator;
     {
@@ -1951,4 +1960,16 @@ test "std.ArrayList(u32).getLastOrNull()" {
     try list.append(2);
     const const_list = list;
     try testing.expectEqual(const_list.getLastOrNull().?, 2);
+}
+
+test "std.ArrayList(non-u8) iterate decls and check type compiles" {
+    inline for (comptime std.meta.declarations(ArrayList(u32))) |decl| {
+        if (@TypeOf(@field(ArrayList(u32), decl.name)) == type) {
+            // do nothing, just ensuring it compiles
+
+            // testing.refAllDecls won't work here because it takes the address of all decls
+            // but the writer() function isn't defined for non-u8 types and produces a compileError
+            // so attempting to take its address will fail to compile
+        }
+    }
 }
