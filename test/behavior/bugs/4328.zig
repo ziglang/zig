@@ -1,3 +1,5 @@
+thisfileisautotranslatedfromc;
+
 const expect = @import("std").testing.expect;
 const builtin = @import("builtin");
 
