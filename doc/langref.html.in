@@ -122,7 +122,7 @@
         overflow-x: auto;
       }
 
-      .tok-kw {
+      .tok-keyword {
           color: #333;
           font-weight: bold;
       }
@@ -140,7 +140,7 @@
           color: #900;
           font-weight: bold;
       }
-      .tok-null {
+      .tok-primitive {
           color: #005C5C;
       }
       .tok-number {
@@ -261,7 +261,7 @@
         pre > samp {
           border: unset;
         }
-        .tok-kw {
+        .tok-keyword {
             color: #eee;
         }
         .tok-str {
@@ -276,7 +276,7 @@
         .tok-fn {
             color: #B1A0F8;
         }
-        .tok-null {
+        .tok-primitive {
             color: #ff8080;
         }
         .tok-number {

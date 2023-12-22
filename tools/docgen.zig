@@ -1125,13 +1125,13 @@ fn printZigCode(
             .keyword_while,
             .keyword_anytype,
             => {
-                try out.writeAll("<span class=\"tok-kw\">");
+                try out.writeAll("<span class=\"tok-keyword\">");
                 try writeEscaped(out, src[token.loc.start..token.loc.end]);
                 try out.writeAll("</span>");
             },
 
             .keyword_fn => {
-                try out.writeAll("<span class=\"tok-kw\">");
+                try out.writeAll("<span class=\"tok-keyword\">");
                 try writeEscaped(out, src[token.loc.start..token.loc.end]);
                 try out.writeAll("</span>");
                 next_tok_is_fn = true;
@@ -1178,7 +1178,7 @@ fn printZigCode(
                     mem.eql(u8, tok_bytes, "true") or
                     mem.eql(u8, tok_bytes, "false"))
                 {
-                    try out.writeAll("<span class=\"tok-null\">");
+                    try out.writeAll("<span class=\"tok-primitive\">");
                     try writeEscaped(out, tok_bytes);
                     try out.writeAll("</span>");
                 } else if (prev_tok_was_fn) {
