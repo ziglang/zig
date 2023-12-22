@@ -370,20 +370,32 @@ fn parseContainerMembers(p: *Parse) !Members {
                 trailing = p.token_tags[p.tok_i - 1] == .semicolon;
             },
             .keyword_autotranslated => {
-                const node = p.expectAutoTranslated() catch |err| switch (err) {
+                const autotranslate_token = p.expectAutoTranslated() catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
                     error.ParseError => {
                         p.findNextContainerMember();
                         continue;
                     },
                 };
-                if (node != 0) {
-                    if (field_state == .seen) {
-                        field_state = .{ .end = node };
-                    }
-                }
                 trailing = p.token_tags[p.tok_i - 1] == .semicolon;
-                p.is_autotranslated = true;
+
+                // Make sure this is the first token of the file.
+                // The root token takes 1.
+                if (p.nodes.len == 1) {
+                    p.is_autotranslated = true;
+                } else {
+                    try p.warnMsg(.{
+                        .tag = .autotranslated_must_be_first,
+                        .token = try p.addNode(.{
+                            .tag = .identifier,
+                            .main_token = autotranslate_token,
+                            .data = undefined,
+                        }),
+                    });
+
+                    // Continue parsing; error will be reported later.
+                    field_state = .err;
+                }
             },
             .eof, .r_brace => {
                 if (doc_comment) |tok| {
@@ -687,6 +699,12 @@ fn expectTopLevelDecl(p: *Parse) !Node.Index {
     return p.expectUsingNamespace();
 }
 
+fn expectAutoTranslated(p: *Parse) Error!TokenIndex {
+    const node = p.assertToken(.keyword_autotranslated);
+    try p.expectSemicolon(.expected_semi_after_decl, false);
+    return node;
+}
+
 fn expectTopLevelDeclRecoverable(p: *Parse) error{OutOfMemory}!Node.Index {
     return p.expectTopLevelDecl() catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -708,16 +726,6 @@ fn expectUsingNamespace(p: *Parse) !Node.Index {
             .lhs = expr,
             .rhs = undefined,
         },
-    });
-}
-
-fn expectAutoTranslated(p: *Parse) Error!Node.Index {
-    const autotranslated_token = p.assertToken(.keyword_autotranslated);
-    try p.expectSemicolon(.expected_semi_after_decl, false);
-    return p.addNode(.{
-        .tag = .autotranslated,
-        .main_token = autotranslated_token,
-        .data = undefined,
     });
 }
 

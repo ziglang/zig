@@ -469,6 +469,10 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         .c_pointer_not_allowed => {
             return stream.writeAll("[*c] pointers are only allowed in auto-translated C code");
         },
+
+        .autotranslated_must_be_first => {
+            return stream.writeAll("thisfileisautotranslatedfromc must be the first token in the file");
+        },
     }
 }
 
@@ -2925,6 +2929,7 @@ pub const Error = struct {
         expected_token,
 
         c_pointer_not_allowed,
+        autotranslated_must_be_first,
     };
 };
 
