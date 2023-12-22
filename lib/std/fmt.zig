@@ -199,8 +199,11 @@ pub fn format(
         const missing_count = arg_state.args_len - @popCount(arg_state.used_args);
         switch (missing_count) {
             0 => unreachable,
-            1 => @compileError("unused argument in '" ++ fmt ++ "'"),
-            else => @compileError(comptimePrint("{d}", .{missing_count}) ++ " unused arguments in '" ++ fmt ++ "'"),
+            1 => @compileError(comptimePrint("unused argument in '{}'", .{std.zig.fmtEscapes(fmt)})),
+            else => @compileError(comptimePrint("{d} unused arguments in '{}'", .{
+                missing_count,
+                std.zig.fmtEscapes(fmt),
+            })),
         }
     }
 }
