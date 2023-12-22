@@ -241,6 +241,10 @@ const Tokenizer = struct {
         return result;
     }
 
+    fn text(self: *Tokenizer, token: Token) []const u8 {
+        return self.buffer[token.start..token.end];
+    }
+
     const Location = struct {
         line: usize,
         column: usize,
@@ -433,12 +437,12 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
             },
             .content => {
                 try nodes.append(Node{
-                    .Content = tokenizer.buffer[token.start..token.end],
+                    .Content = tokenizer.text(token),
                 });
             },
             .bracket_open => {
                 const tag_token = try eatToken(tokenizer, .tag_content);
-                const tag_name = tokenizer.buffer[tag_token.start..tag_token.end];
+                const tag_name = tokenizer.text(tag_token);
 
                 if (mem.eql(u8, tag_name, "nav")) {
                     _ = try eatToken(tokenizer, .bracket_close);
@@ -450,7 +454,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                 } else if (mem.eql(u8, tag_name, "header_open")) {
                     _ = try eatToken(tokenizer, .separator);
                     const content_token = try eatToken(tokenizer, .tag_content);
-                    const content = tokenizer.buffer[content_token.start..content_token.end];
+                    const content = tokenizer.text(content_token);
                     var columns: ?u8 = null;
                     while (true) {
                         const bracket_tok = tokenizer.next();
@@ -458,7 +462,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             .bracket_close => break,
                             .separator => continue,
                             .tag_content => {
-                                const param = tokenizer.buffer[bracket_tok.start..bracket_tok.end];
+                                const param = tokenizer.text(bracket_tok);
                                 if (mem.eql(u8, param, "2col")) {
                                     columns = 2;
                                 } else {
@@ -538,7 +542,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         const see_also_tok = tokenizer.next();
                         switch (see_also_tok.id) {
                             .tag_content => {
-                                const content = tokenizer.buffer[see_also_tok.start..see_also_tok.end];
+                                const content = tokenizer.text(see_also_tok);
                                 try list.append(SeeAlsoItem{
                                     .name = content,
                                     .token = see_also_tok,
@@ -562,7 +566,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                 } else if (mem.eql(u8, tag_name, "link")) {
                     _ = try eatToken(tokenizer, .separator);
                     const name_tok = try eatToken(tokenizer, .tag_content);
-                    const name = tokenizer.buffer[name_tok.start..name_tok.end];
+                    const name = tokenizer.text(name_tok);
 
                     const url_name = blk: {
                         const tok = tokenizer.next();
@@ -571,7 +575,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             .separator => {
                                 const explicit_text = try eatToken(tokenizer, .tag_content);
                                 _ = try eatToken(tokenizer, .bracket_close);
-                                break :blk tokenizer.buffer[explicit_text.start..explicit_text.end];
+                                break :blk tokenizer.text(explicit_text);
                             },
                             else => return parseError(
                                 tokenizer,
@@ -594,19 +598,19 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     const code_kind_tok = try eatToken(tokenizer, .tag_content);
                     _ = try eatToken(tokenizer, .separator);
                     const name_tok = try eatToken(tokenizer, .tag_content);
-                    const name = tokenizer.buffer[name_tok.start..name_tok.end];
+                    const name = tokenizer.text(name_tok);
                     var error_str: []const u8 = "";
                     const maybe_sep = tokenizer.next();
                     switch (maybe_sep.id) {
                         .separator => {
                             const error_tok = try eatToken(tokenizer, .tag_content);
-                            error_str = tokenizer.buffer[error_tok.start..error_tok.end];
+                            error_str = tokenizer.text(error_tok);
                             _ = try eatToken(tokenizer, .bracket_close);
                         },
                         .bracket_close => {},
                         else => return parseError(tokenizer, token, "invalid token", .{}),
                     }
-                    const code_kind_str = tokenizer.buffer[code_kind_tok.start..code_kind_tok.end];
+                    const code_kind_str = tokenizer.text(code_kind_tok);
                     var code_kind_id: Code.Id = undefined;
                     var just_check_syntax = false;
                     if (mem.eql(u8, code_kind_str, "exe")) {
@@ -654,7 +658,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         const content_tok = try eatToken(tokenizer, .content);
                         _ = try eatToken(tokenizer, .bracket_open);
                         const end_code_tag = try eatToken(tokenizer, .tag_content);
-                        const end_tag_name = tokenizer.buffer[end_code_tag.start..end_code_tag.end];
+                        const end_tag_name = tokenizer.text(end_code_tag);
                         if (mem.eql(u8, end_tag_name, "code_release_fast")) {
                             mode = .ReleaseFast;
                         } else if (mem.eql(u8, end_tag_name, "code_release_safe")) {
@@ -666,7 +670,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         } else if (mem.eql(u8, end_tag_name, "code_link_object")) {
                             _ = try eatToken(tokenizer, .separator);
                             const obj_tok = try eatToken(tokenizer, .tag_content);
-                            try link_objects.append(tokenizer.buffer[obj_tok.start..obj_tok.end]);
+                            try link_objects.append(tokenizer.text(obj_tok));
                         } else if (mem.eql(u8, end_tag_name, "target_windows")) {
                             target_str = "x86_64-windows";
                         } else if (mem.eql(u8, end_tag_name, "target_linux_x86_64")) {
@@ -684,7 +688,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         } else if (mem.eql(u8, end_tag_name, "additonal_option")) {
                             _ = try eatToken(tokenizer, .separator);
                             const option = try eatToken(tokenizer, .tag_content);
-                            try additional_options.append(tokenizer.buffer[option.start..option.end]);
+                            try additional_options.append(tokenizer.text(option));
                         } else if (mem.eql(u8, end_tag_name, "code_end")) {
                             _ = try eatToken(tokenizer, .bracket_close);
                             break content_tok;
@@ -720,7 +724,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     const content_tok = try eatToken(tokenizer, .content);
                     _ = try eatToken(tokenizer, .bracket_open);
                     const end_syntax_tag = try eatToken(tokenizer, .tag_content);
-                    const end_tag_name = tokenizer.buffer[end_syntax_tag.start..end_syntax_tag.end];
+                    const end_tag_name = tokenizer.text(end_syntax_tag);
                     if (!mem.eql(u8, end_tag_name, "endsyntax")) {
                         return parseError(
                             tokenizer,
@@ -736,7 +740,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     const content_tok = try eatToken(tokenizer, .content);
                     _ = try eatToken(tokenizer, .bracket_open);
                     const end_syntax_tag = try eatToken(tokenizer, .tag_content);
-                    const end_tag_name = tokenizer.buffer[end_syntax_tag.start..end_syntax_tag.end];
+                    const end_tag_name = tokenizer.text(end_syntax_tag);
                     if (!mem.eql(u8, end_tag_name, "end_shell_samp")) {
                         return parseError(
                             tokenizer,
@@ -755,7 +759,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     switch (maybe_sep.id) {
                         .separator => {
                             const name_tok = try eatToken(tokenizer, .tag_content);
-                            name = tokenizer.buffer[name_tok.start..name_tok.end];
+                            name = tokenizer.text(name_tok);
                             _ = try eatToken(tokenizer, .bracket_close);
                         },
                         .bracket_close => {},
@@ -766,7 +770,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             .{},
                         ),
                     }
-                    const source_type_str = tokenizer.buffer[source_type_tok.start..source_type_tok.end];
+                    const source_type_str = tokenizer.text(source_type_tok);
                     var source_type: SyntaxBlock.SourceType = undefined;
                     if (mem.eql(u8, source_type_str, "zig")) {
                         source_type = SyntaxBlock.SourceType.zig;
@@ -788,7 +792,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         const content_tok = try eatToken(tokenizer, .content);
                         _ = try eatToken(tokenizer, .bracket_open);
                         const end_code_tag = try eatToken(tokenizer, .tag_content);
-                        const end_tag_name = tokenizer.buffer[end_code_tag.start..end_code_tag.end];
+                        const end_tag_name = tokenizer.text(end_code_tag);
                         if (mem.eql(u8, end_tag_name, "end_syntax_block")) {
                             _ = try eatToken(tokenizer, .bracket_close);
                             break content_tok;
@@ -1301,11 +1305,11 @@ fn printSourceBlock(
     switch (syntax_block.source_type) {
         .zig => {
             const tok = syntax_block.source_token;
-            const raw_src = docgen_tokenizer.buffer[tok.start..tok.end];
+            const raw_src = docgen_tokenizer.text(tok);
             try printZigCode(allocator, docgen_tokenizer, out, tok, raw_src);
         },
         else => {
-            const raw_source = docgen_tokenizer.buffer[syntax_block.source_token.start..syntax_block.source_token.end];
+            const raw_source = docgen_tokenizer.text(syntax_block.source_token);
             const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
 
             try out.writeAll("<code>" ++ start_line);
@@ -1423,11 +1427,11 @@ fn genHtml(
                 try out.writeAll("</ul>\n");
             },
             .InlineSyntax => |tok| {
-                const raw_src = tokenizer.buffer[tok.start..tok.end];
+                const raw_src = tokenizer.text(tok);
                 try printZigCode(allocator, tokenizer, out, tok, raw_src);
             },
             .Shell => |tok| {
-                const raw_shell_content = tokenizer.buffer[tok.start..tok.end];
+                const raw_shell_content = tokenizer.text(tok);
                 try printShellBlock(out, raw_shell_content, true);
             },
             .SyntaxBlock => |syntax_block| {
@@ -1454,7 +1458,7 @@ fn genHtml(
                     }
                 }
 
-                const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
+                const raw_source = tokenizer.text(code.source_token);
                 const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
                 const tmp_source_file_name = try fs.path.join(
                     allocator,
