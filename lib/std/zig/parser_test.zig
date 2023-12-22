@@ -610,7 +610,9 @@ test "zig fmt: grouped expressions (parentheses)" {
 
 test "zig fmt: c pointer type" {
     try testCanonical(
-        \\pub extern fn repro() [*c]const u8;
+        \\test {
+        \\    const x: [*c]u8 = 0;
+        \\}
         \\
     );
 }
@@ -714,9 +716,11 @@ test "zig fmt: sentinel pointer with modifiers" {
 
 test "zig fmt: c pointer with modifiers" {
     try testCanonical(
-        \\const x: [*c]u32 = undefined;
-        \\const y: [*c]allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
-        \\const z: [*c]allowzero align(8:4:2) addrspace(.generic) const volatile u32 = undefined;
+        \\test {
+        \\    const x: [*c]u32 = undefined;
+        \\    const y: [*c]allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
+        \\    const z: [*c]allowzero align(8:4:2) addrspace(.generic) const volatile u32 = undefined;
+        \\}
         \\
     );
 }
@@ -1244,7 +1248,9 @@ test "zig fmt: infix operator and then multiline string literal over multiple li
 
 test "zig fmt: C pointers" {
     try testCanonical(
-        \\const Ptr = [*c]i32;
+        \\test {
+        \\    const Ptr = [*c]i32;
+        \\}
         \\
     );
 }
@@ -6169,6 +6175,7 @@ test "recovery: eof in c pointer" {
     try testError(
         \\const Ptr = [*c
     , &[_]Error{
+        .c_pointer_not_allowed,
         .expected_token,
     });
 }

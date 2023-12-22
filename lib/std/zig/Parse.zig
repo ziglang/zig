@@ -238,6 +238,10 @@ fn parseContainerMembers(p: *Parse) !Members {
 
         switch (p.token_tags[p.tok_i]) {
             .keyword_test => {
+                // Enable c pointers for test.
+                const state_before = p.is_autotranslated;
+                p.is_autotranslated = true;
+
                 if (doc_comment) |some| {
                     try p.warnMsg(.{ .tag = .test_doc_comment, .token = some });
                 }
@@ -249,6 +253,9 @@ fn parseContainerMembers(p: *Parse) !Members {
                     try p.scratch.append(p.gpa, test_decl_node);
                 }
                 trailing = false;
+
+                // Revert c pointers after test.
+                p.is_autotranslated = state_before;
             },
             .keyword_comptime => switch (p.token_tags[p.tok_i + 1]) {
                 .l_brace => {

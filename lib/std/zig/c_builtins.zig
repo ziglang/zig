@@ -1,5 +1,3 @@
-thisfileisautotranslatedfromc;
-
 const std = @import("std");
 
 pub inline fn __builtin_bswap16(val: u16) u16 {
@@ -130,10 +128,10 @@ pub inline fn __builtin_roundf(val: f32) f32 {
     return @round(val);
 }
 
-pub inline fn __builtin_strlen(s: [*c]const u8) usize {
+pub inline fn __builtin_strlen(s: [*]const u8) usize {
     return std.mem.sliceTo(s, 0).len;
 }
-pub inline fn __builtin_strcmp(s1: [*c]const u8, s2: [*c]const u8) c_int {
+pub inline fn __builtin_strcmp(s1: [*]const u8, s2: [*]const u8) c_int {
     return switch (std.mem.orderZ(u8, s1, s2)) {
         .lt => -1,
         .eq => 0,
@@ -163,7 +161,7 @@ pub inline fn __builtin___memset_chk(
 }
 
 pub inline fn __builtin_memset(dst: ?*anyopaque, val: c_int, len: usize) ?*anyopaque {
-    const dst_cast = @as([*c]u8, @ptrCast(dst));
+    const dst_cast = @as([*]u8, @ptrCast(dst));
     @memset(dst_cast[0..len], @as(u8, @bitCast(@as(i8, @truncate(val)))));
     return dst;
 }
