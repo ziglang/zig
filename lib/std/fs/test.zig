@@ -917,6 +917,57 @@ test "openSelfExe" {
     self_exe_file.close();
 }
 
+test "deleteTree does not follow symlinks" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("b");
+    {
+        var a = try tmp.dir.makeOpenPath("a", .{});
+        defer a.close();
+
+        a.symLink("../b", "b", .{ .is_directory = true }) catch |err| switch (err) {
+            // Symlink requires admin privileges on windows, so this test can legitimately fail.
+            error.AccessDenied => return error.SkipZigTest,
+            else => return err,
+        };
+    }
+
+    try tmp.dir.deleteTree("a");
+
+    try testing.expectError(error.FileNotFound, tmp.dir.access("a", .{}));
+    try tmp.dir.access("b", .{});
+}
+
+test "deleteTree on a symlink" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Symlink to a file
+    try tmp.dir.writeFile("file", "");
+    tmp.dir.symLink("file", "filelink", .{}) catch |err| switch (err) {
+        // Symlink requires admin privileges on windows, so this test can legitimately fail.
+        error.AccessDenied => return error.SkipZigTest,
+        else => return err,
+    };
+
+    try tmp.dir.deleteTree("filelink");
+    try testing.expectError(error.FileNotFound, tmp.dir.access("filelink", .{}));
+    try tmp.dir.access("file", .{});
+
+    // Symlink to a directory
+    try tmp.dir.makePath("dir");
+    tmp.dir.symLink("dir", "dirlink", .{ .is_directory = true }) catch |err| switch (err) {
+        // Symlink requires admin privileges on windows, so this test can legitimately fail.
+        error.AccessDenied => return error.SkipZigTest,
+        else => return err,
+    };
+
+    try tmp.dir.deleteTree("dirlink");
+    try testing.expectError(error.FileNotFound, tmp.dir.access("dirlink", .{}));
+    try tmp.dir.access("dir", .{});
+}
+
 test "makePath, put some files in it, deleteTree" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
