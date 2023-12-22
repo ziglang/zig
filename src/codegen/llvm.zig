@@ -8433,7 +8433,7 @@ pub const FuncGen = struct {
             llvm_lhs_ty,
             try o.builder.intConst(llvm_lhs_scalar_ty, -1),
         );
-        const in_range = try self.wip.icmp(.ult, rhs, bits, "");
+        const in_range = try self.wip.icmp(.ult, casted_rhs, bits, "");
         return self.wip.select(.normal, in_range, result, lhs_max, "");
     }
 
