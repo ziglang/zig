@@ -103,7 +103,15 @@ pub fn main() !void {
     try fs.cwd().makePath(tmp_dir_name);
     defer fs.cwd().deleteTree(tmp_dir_name) catch {};
 
-    try genHtml(allocator, &tokenizer, &toc, buffered_writer.writer(), zig_exe, opt_zig_lib_dir, do_code_tests);
+    try genHtml(
+        allocator,
+        &tokenizer,
+        &toc,
+        buffered_writer.writer(),
+        zig_exe,
+        opt_zig_lib_dir,
+        do_code_tests,
+    );
     try buffered_writer.flush();
 }
 
@@ -265,7 +273,12 @@ const Tokenizer = struct {
     }
 };
 
-fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, args: anytype) anyerror {
+fn parseError(
+    tokenizer: *Tokenizer,
+    token: Token,
+    comptime fmt: []const u8,
+    args: anytype,
+) anyerror {
     const loc = tokenizer.getTokenLocation(token);
     const args_prefix = .{ tokenizer.source_file_name, loc.line + 1, loc.column + 1 };
     print("{s}:{d}:{d}: error: " ++ fmt ++ "\n", args_prefix ++ args);
@@ -291,7 +304,12 @@ fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, arg
 
 fn assertToken(tokenizer: *Tokenizer, token: Token, id: Token.Id) !void {
     if (token.id != id) {
-        return parseError(tokenizer, token, "expected {s}, found {s}", .{ @tagName(id), @tagName(token.id) });
+        return parseError(
+            tokenizer,
+            token,
+            "expected {s}, found {s}",
+            .{ @tagName(id), @tagName(token.id) },
+        );
     }
 }
 
@@ -414,7 +432,9 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                 break;
             },
             .content => {
-                try nodes.append(Node{ .Content = tokenizer.buffer[token.start..token.end] });
+                try nodes.append(Node{
+                    .Content = tokenizer.buffer[token.start..token.end],
+                });
             },
             .bracket_open => {
                 const tag_token = try eatToken(tokenizer, .tag_content);
@@ -450,7 +470,12 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                                     );
                                 }
                             },
-                            else => return parseError(tokenizer, bracket_tok, "invalid header_open token", .{}),
+                            else => return parseError(
+                                tokenizer,
+                                bracket_tok,
+                                "invalid header_open token",
+                                .{},
+                            ),
                         }
                     }
 
@@ -482,10 +507,18 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     }
                     last_columns = columns;
                     try toc.writeByteNTimes(' ', 4 + header_stack_size * 4);
-                    try toc.print("<li><a id=\"toc-{s}\" href=\"#{s}\">{s}</a>", .{ urlized, urlized, content });
+                    try toc.print(
+                        "<li><a id=\"toc-{s}\" href=\"#{s}\">{s}</a>",
+                        .{ urlized, urlized, content },
+                    );
                 } else if (mem.eql(u8, tag_name, "header_close")) {
                     if (header_stack_size == 0) {
-                        return parseError(tokenizer, tag_token, "unbalanced close header", .{});
+                        return parseError(
+                            tokenizer,
+                            tag_token,
+                            "unbalanced close header",
+                            .{},
+                        );
                     }
                     header_stack_size -= 1;
                     _ = try eatToken(tokenizer, .bracket_close);
@@ -513,10 +546,17 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             },
                             .separator => {},
                             .bracket_close => {
-                                try nodes.append(Node{ .SeeAlso = try list.toOwnedSlice() });
+                                try nodes.append(Node{
+                                    .SeeAlso = try list.toOwnedSlice(),
+                                });
                                 break;
                             },
-                            else => return parseError(tokenizer, see_also_tok, "invalid see_also token", .{}),
+                            else => return parseError(
+                                tokenizer,
+                                see_also_tok,
+                                "invalid see_also token",
+                                .{},
+                            ),
                         }
                     }
                 } else if (mem.eql(u8, tag_name, "link")) {
@@ -533,7 +573,12 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                                 _ = try eatToken(tokenizer, .bracket_close);
                                 break :blk tokenizer.buffer[explicit_text.start..explicit_text.end];
                             },
-                            else => return parseError(tokenizer, tok, "invalid link token", .{}),
+                            else => return parseError(
+                                tokenizer,
+                                tok,
+                                "invalid link token",
+                                .{},
+                            ),
                         }
                     };
 
@@ -586,7 +631,12 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         code_kind_id = Code.Id{ .obj = null };
                         just_check_syntax = true;
                     } else {
-                        return parseError(tokenizer, code_kind_tok, "unrecognized code kind: {s}", .{code_kind_str});
+                        return parseError(
+                            tokenizer,
+                            code_kind_tok,
+                            "unrecognized code kind: {s}",
+                            .{code_kind_str},
+                        );
                     }
 
                     var mode: std.builtin.OptimizeMode = .Debug;
@@ -709,7 +759,12 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             _ = try eatToken(tokenizer, .bracket_close);
                         },
                         .bracket_close => {},
-                        else => return parseError(tokenizer, token, "invalid token", .{}),
+                        else => return parseError(
+                            tokenizer,
+                            token,
+                            "invalid token",
+                            .{},
+                        ),
                     }
                     const source_type_str = tokenizer.buffer[source_type_tok.start..source_type_tok.end];
                     var source_type: SyntaxBlock.SourceType = undefined;
@@ -722,7 +777,12 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     } else if (mem.eql(u8, source_type_str, "javascript")) {
                         source_type = SyntaxBlock.SourceType.javascript;
                     } else {
-                        return parseError(tokenizer, source_type_tok, "unrecognized code kind: {s}", .{source_type_str});
+                        return parseError(
+                            tokenizer,
+                            source_type_tok,
+                            "unrecognized code kind: {s}",
+                            .{source_type_str},
+                        );
                     }
                     const source_token = while (true) {
                         const content_tok = try eatToken(tokenizer, .content);
@@ -742,9 +802,20 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         }
                         _ = try eatToken(tokenizer, .bracket_close);
                     };
-                    try nodes.append(Node{ .SyntaxBlock = SyntaxBlock{ .source_type = source_type, .name = name, .source_token = source_token } });
+                    try nodes.append(Node{
+                        .SyntaxBlock = SyntaxBlock{
+                            .source_type = source_type,
+                            .name = name,
+                            .source_token = source_token,
+                        },
+                    });
                 } else {
-                    return parseError(tokenizer, tag_token, "unrecognized tag name: {s}", .{tag_name});
+                    return parseError(
+                        tokenizer,
+                        tag_token,
+                        "unrecognized tag name: {s}",
+                        .{tag_name},
+                    );
                 }
             },
             else => return parseError(tokenizer, token, "invalid token", .{}),
@@ -963,7 +1034,7 @@ fn writeEscapedLines(out: anytype, text: []const u8) !void {
     }
 }
 
-fn tokenizeAndPrintRaw(
+fn printZigCode(
     allocator: Allocator,
     docgen_tokenizer: *Tokenizer,
     out: anytype,
@@ -1215,22 +1286,24 @@ fn tokenizeAndPrintRaw(
     try out.writeAll(end_line ++ "</code>");
 }
 
-fn tokenizeAndPrint(
+fn printSourceBlock(
     allocator: Allocator,
     docgen_tokenizer: *Tokenizer,
     out: anytype,
-    source_token: Token,
+    syntax_block: SyntaxBlock,
 ) !void {
-    const raw_src = docgen_tokenizer.buffer[source_token.start..source_token.end];
-    return tokenizeAndPrintRaw(allocator, docgen_tokenizer, out, source_token, raw_src);
-}
-
-fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: anytype, syntax_block: SyntaxBlock) !void {
     const source_type = @tagName(syntax_block.source_type);
 
-    try out.print("<figure><figcaption class=\"{s}-cap\"><cite class=\"file\">{s}</cite></figcaption><pre>", .{ source_type, syntax_block.name });
+    try out.print(
+        "<figure><figcaption class=\"{s}-cap\"><cite class=\"file\">{s}</cite></figcaption><pre>",
+        .{ source_type, syntax_block.name },
+    );
     switch (syntax_block.source_type) {
-        .zig => try tokenizeAndPrint(allocator, docgen_tokenizer, out, syntax_block.source_token),
+        .zig => {
+            const tok = syntax_block.source_token;
+            const raw_src = docgen_tokenizer.buffer[tok.start..tok.end];
+            try printZigCode(allocator, docgen_tokenizer, out, tok, raw_src);
+        },
         else => {
             const raw_source = docgen_tokenizer.buffer[syntax_block.source_token.start..syntax_block.source_token.end];
             const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
@@ -1243,7 +1316,7 @@ fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: any
     try out.writeAll("</pre></figure>");
 }
 
-fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
+fn printShellBlock(out: anytype, shell_content: []const u8, escape: bool) !void {
     const trimmed_shell_content = mem.trim(u8, shell_content, " \n");
     try out.writeAll("<figure><figcaption class=\"shell-cap\">Shell</figcaption><pre><samp>");
     var cmd_cont: bool = false;
@@ -1329,7 +1402,7 @@ fn genHtml(
             },
             .Builtin => |tok| {
                 try out.writeAll("<figure><figcaption class=\"zig-cap\"><cite>@import(\"builtin\")</cite></figcaption><pre>");
-                try tokenizeAndPrintRaw(allocator, tokenizer, out, tok, builtin_code);
+                try printZigCode(allocator, tokenizer, out, tok, builtin_code);
                 try out.writeAll("</pre></figure>");
             },
             .HeaderOpen => |info| {
@@ -1349,12 +1422,13 @@ fn genHtml(
                 }
                 try out.writeAll("</ul>\n");
             },
-            .InlineSyntax => |content_tok| {
-                try tokenizeAndPrint(allocator, tokenizer, out, content_tok);
+            .InlineSyntax => |tok| {
+                const raw_src = tokenizer.buffer[tok.start..tok.end];
+                try printZigCode(allocator, tokenizer, out, tok, raw_src);
             },
-            .Shell => |content_tok| {
-                const raw_shell_content = tokenizer.buffer[content_tok.start..content_tok.end];
-                try printShell(out, raw_shell_content, true);
+            .Shell => |tok| {
+                const raw_shell_content = tokenizer.buffer[tok.start..tok.end];
+                try printShellBlock(out, raw_shell_content, true);
             },
             .SyntaxBlock => |syntax_block| {
                 try printSourceBlock(allocator, tokenizer, out, syntax_block);
@@ -1836,7 +1910,7 @@ fn genHtml(
                 }
 
                 if (!code.just_check_syntax) {
-                    try printShell(out, shell_buffer.items, false);
+                    try printShellBlock(out, shell_buffer.items, false);
                 }
             },
         }
@@ -2085,7 +2159,7 @@ test "term output from zig" {
     }
 }
 
-test "printShell" {
+test "printShellBlock" {
     const test_allocator = std.testing.allocator;
 
     {
@@ -2100,7 +2174,7 @@ test "printShell" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
+        try printShellBlock(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -2117,7 +2191,7 @@ test "printShell" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
+        try printShellBlock(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -2136,7 +2210,7 @@ test "printShell" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
+        try printShellBlock(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -2157,7 +2231,7 @@ test "printShell" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
+        try printShellBlock(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -2176,7 +2250,7 @@ test "printShell" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
+        try printShellBlock(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -2199,7 +2273,7 @@ test "printShell" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
+        try printShellBlock(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -2221,7 +2295,7 @@ test "printShell" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
+        try printShellBlock(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -2238,7 +2312,7 @@ test "printShell" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
+        try printShellBlock(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -2257,7 +2331,7 @@ test "printShell" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
+        try printShellBlock(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -2272,7 +2346,7 @@ test "printShell" {
         var buffer = std.ArrayList(u8).init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
+        try printShellBlock(buffer.writer(), shell_out, false);
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
 }
