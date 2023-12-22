@@ -11,6 +11,7 @@ errors: std.ArrayListUnmanaged(AstError),
 nodes: Ast.NodeList,
 extra_data: std.ArrayListUnmanaged(Node.Index),
 scratch: std.ArrayListUnmanaged(Node.Index),
+is_autotranslated: bool = false,
 
 const SmallSpan = union(enum) {
     zero_or_one: Node.Index,
@@ -368,6 +369,22 @@ fn parseContainerMembers(p: *Parse) !Members {
                 }
                 trailing = p.token_tags[p.tok_i - 1] == .semicolon;
             },
+            .keyword_autotranslated => {
+                const node = p.expectAutoTranslated() catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.ParseError => {
+                        p.findNextContainerMember();
+                        continue;
+                    },
+                };
+                if (node != 0) {
+                    if (field_state == .seen) {
+                        field_state = .{ .end = node };
+                    }
+                }
+                trailing = p.token_tags[p.tok_i - 1] == .semicolon;
+                p.is_autotranslated = true;
+            },
             .eof, .r_brace => {
                 if (doc_comment) |tok| {
                     try p.warnMsg(.{
@@ -691,6 +708,16 @@ fn expectUsingNamespace(p: *Parse) !Node.Index {
             .lhs = expr,
             .rhs = undefined,
         },
+    });
+}
+
+fn expectAutoTranslated(p: *Parse) Error!Node.Index {
+    const autotranslated_token = p.assertToken(.keyword_autotranslated);
+    try p.expectSemicolon(.expected_semi_after_decl, false);
+    return p.addNode(.{
+        .tag = .autotranslated,
+        .main_token = autotranslated_token,
+        .data = undefined,
     });
 }
 
@@ -1919,6 +1946,13 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                     const ident_slice = p.source[p.token_starts[ident]..p.token_starts[ident + 1]];
                     if (!std.mem.eql(u8, std.mem.trimRight(u8, ident_slice, &std.ascii.whitespace), "c")) {
                         p.tok_i -= 1;
+                    } else {
+                        if (!p.is_autotranslated) {
+                            try p.warnMsg(.{
+                                .tag = .c_pointer_not_allowed,
+                                .token = ident,
+                            });
+                        }
                     }
                 } else if (p.eatToken(.colon)) |_| {
                     sentinel = try p.expectExpr();

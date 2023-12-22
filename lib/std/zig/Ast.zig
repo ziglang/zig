@@ -465,6 +465,10 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
                 }),
             }
         },
+
+        .c_pointer_not_allowed => {
+            return stream.writeAll("[*c] pointers are only allowed in auto-translated C code");
+        },
     }
 }
 
@@ -2919,6 +2923,8 @@ pub const Error = struct {
 
         /// `expected_tag` is populated.
         expected_token,
+
+        c_pointer_not_allowed,
     };
 };
 

@@ -59,6 +59,7 @@ pub const Token = struct {
         .{ "var", .keyword_var },
         .{ "volatile", .keyword_volatile },
         .{ "while", .keyword_while },
+        .{ "thisfileisautotranslatedfromc", .keyword_autotranslated },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -188,6 +189,7 @@ pub const Token = struct {
         keyword_var,
         keyword_volatile,
         keyword_while,
+        keyword_autotranslated,
 
         pub fn lexeme(tag: Tag) ?[]const u8 {
             return switch (tag) {
@@ -315,6 +317,7 @@ pub const Token = struct {
                 .keyword_var => "var",
                 .keyword_volatile => "volatile",
                 .keyword_while => "while",
+                .keyword_autotranslated => "thisfileisautotranslatedfromc",
             };
         }
 

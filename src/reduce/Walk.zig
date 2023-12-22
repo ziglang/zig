@@ -222,6 +222,7 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         .unreachable_literal,
         .anyframe_literal,
         .string_literal,
+        .autotranslated,
         => {},
 
         .multiline_string_literal => {},
