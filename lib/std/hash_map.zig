@@ -251,7 +251,7 @@ pub fn verifyContext(
                 errors = errors ++ lazy.err_invalid_hash_signature;
             }
         } else {
-            errors = errors ++ lazy.prefix ++ @typeName(Context) ++ " must declare a hash function with signature " ++ lazy.hash_signature;
+            errors = errors ++ lazy.prefix ++ @typeName(Context) ++ " must declare a pub hash function with signature " ++ lazy.hash_signature;
         }
 
         // Verify Context.eql(self, PseudoKey, Key) => bool
@@ -335,7 +335,7 @@ pub fn verifyContext(
                 errors = errors ++ lazy.err_invalid_eql_signature;
             }
         } else {
-            errors = errors ++ lazy.prefix ++ @typeName(Context) ++ " must declare a eql function with signature " ++ lazy.eql_signature;
+            errors = errors ++ lazy.prefix ++ @typeName(Context) ++ " must declare a pub eql function with signature " ++ lazy.eql_signature;
         }
 
         if (errors.len != 0) {
