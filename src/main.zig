@@ -856,6 +856,7 @@ fn buildOutputType(
     var linker_dynamicbase = true;
     var linker_optimization: ?[]const u8 = null;
     var linker_module_definition_file: ?[]const u8 = null;
+    var linker_map_file: ?[]const u8 = null;
     var test_no_exec = false;
     var entry: Compilation.CreateOptions.Entry = .default;
     var force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{};
@@ -2440,6 +2441,8 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "--version")) {
                     try std.io.getStdOut().writeAll("zig ld " ++ build_options.version ++ "\n");
                     process.exit(0);
+                } else if (mem.startsWith(u8, arg, "-Map=")) {
+                    linker_map_file = arg["-Map=".len..];
                 } else {
                     fatal("unsupported linker arg: {s}", .{arg});
                 }
@@ -3197,6 +3200,7 @@ fn buildOutputType(
         .linker_dynamicbase = linker_dynamicbase,
         .linker_compress_debug_sections = linker_compress_debug_sections,
         .linker_module_definition_file = linker_module_definition_file,
+        .linker_map_file = linker_map_file,
         .major_subsystem_version = major_subsystem_version,
         .minor_subsystem_version = minor_subsystem_version,
         .link_eh_frame_hdr = link_eh_frame_hdr,

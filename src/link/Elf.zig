@@ -2472,6 +2472,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
         man.hash.add(self.compress_debug_sections);
         man.hash.add(comp.config.any_sanitize_thread);
         man.hash.addOptionalBytes(comp.sysroot);
+        man.hash.addOptionalBytes(self.base.options.map_file);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -2730,6 +2731,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
                 try argv.append("-rpath");
                 try argv.append(rpath);
             }
+        }
+
+        if (self.base.options.map_file) |map_file| {
+            try argv.appendSlice(&.{ "-Map", map_file });
         }
 
         for (self.symbol_wrap_set.keys()) |symbol_name| {

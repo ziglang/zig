@@ -119,7 +119,10 @@ pub const File = struct {
         soname: ?[]const u8,
         print_gc_sections: bool,
         print_icf_sections: bool,
+        /// Print a link map to the standard output
         print_map: bool,
+        /// Print a link map to the specified file
+        map_file: ?[]const u8,
 
         /// Use a wrapper function for symbol. Any undefined reference to symbol
         /// will be resolved to __wrap_symbol. Any undefined reference to

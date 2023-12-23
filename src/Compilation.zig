@@ -1048,6 +1048,7 @@ pub const CreateOptions = struct {
     linker_print_icf_sections: bool = false,
     linker_print_map: bool = false,
     llvm_opt_bisect_limit: i32 = -1,
+    linker_map_file: ?[]const u8 = null,
     each_lib_rpath: ?bool = null,
     build_id: ?std.zig.BuildId = null,
     disable_c_depfile: bool = false,
@@ -1591,6 +1592,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .pdb_source_path = options.pdb_source_path,
             .pdb_out_path = options.pdb_out_path,
             .entry_addr = null, // CLI does not expose this option (yet?)
+            .map_file = options.linker_map_file,
         };
 
         switch (options.cache_mode) {
