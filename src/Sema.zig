@@ -24311,7 +24311,8 @@ fn analyzeMinMax(
 
 fn upgradeToArrayPtr(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, len: u64) !Air.Inst.Ref {
     const mod = sema.mod;
-    const info = sema.typeOf(ptr).ptrInfo(mod);
+    const ptr_ty = sema.typeOf(ptr);
+    const info = ptr_ty.ptrInfo(mod);
     if (info.flags.size == .One) {
         // Already an array pointer.
         return ptr;
@@ -24330,10 +24331,11 @@ fn upgradeToArrayPtr(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, len: u64) !A
             .address_space = info.flags.address_space,
         },
     });
-    if (info.flags.size == .Slice) {
-        return block.addTyOp(.slice_ptr, new_ty, ptr);
-    }
-    return block.addBitCast(new_ty, ptr);
+    const non_slice_ptr = if (info.flags.size == .Slice)
+        try block.addTyOp(.slice_ptr, ptr_ty.slicePtrFieldType(mod), ptr)
+    else
+        ptr;
+    return block.addBitCast(new_ty, non_slice_ptr);
 }
 
 fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
