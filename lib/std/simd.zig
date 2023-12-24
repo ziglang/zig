@@ -299,10 +299,10 @@ test "vector shifting" {
 pub fn firstTrue(vec: anytype) ?VectorIndex(@TypeOf(vec)) {
     const len = vectorLength(@TypeOf(vec));
 
-    // FIXME: add other backends when they implement bit-casting the same way
     if (comptime builtin.cpu.arch.isX86() and builtin.zig_backend == .stage2_llvm) {
-        // NOTE: if the semantics of bit casting bool vector to int
-        // ever change or are formally specified, update this code
+        // This code depends on the semantics of bit casting bool vector to int, specifically that
+        // bools are packed consecutively into the integer as bits from LSb to MSb. Semantics differ
+        // with other backends: <https://github.com/ziglang/zig/issues/16677>.
 
         const bits_from_lsb_to_msb: std.meta.Int(.unsigned, len) = @bitCast(vec);
 
