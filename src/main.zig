@@ -4416,6 +4416,8 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
         const formatted = try tree.render(comp.gpa);
         defer comp.gpa.free(formatted);
 
+        try zig_file.writeAll("thisfileisautotranslatedfromc;\n");
+
         try zig_file.writeAll(formatted);
 
         man.writeManifest() catch |err| warn("failed to write cache manifest: {s}", .{

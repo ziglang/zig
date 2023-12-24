@@ -11,7 +11,7 @@ pub fn main() !void {
     var i: usize = 0;
     var timer = try std.time.Timer.start();
     const start = timer.lap();
-    const iterations = 1000;
+    const iterations = 100;
     var memory_used: usize = 0;
     while (i < iterations) : (i += 1) {
         memory_used += testOnce();

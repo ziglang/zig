@@ -370,21 +370,23 @@ fn parseContainerMembers(p: *Parse) !Members {
                 trailing = p.token_tags[p.tok_i - 1] == .semicolon;
             },
             .keyword_autotranslated => {
-                _ = p.assertToken(.keyword_autotranslated);
-                var temp_token: Node.Index = 1;
+                const token = p.assertToken(.keyword_autotranslated);
                 p.expectSemicolon(.expected_semi_after_decl, false) catch |err| {
                     switch (err) {
                         error.OutOfMemory => return error.OutOfMemory,
-                        error.ParseError => {
-                            p.findNextContainerMember();
-                            temp_token = null_node;
-                        },
+                        error.ParseError => continue,
                     }
                 };
 
-                if (temp_token != 0) {
-                    p.is_autotranslated = true;
+                if (p.nodes.len != 1) {
+                    try p.warnMsg(.{
+                        .tag = .autotranslated_not_first_token,
+                        .token = token,
+                    });
+                    continue;
                 }
+
+                p.is_autotranslated = true;
 
                 trailing = p.token_tags[p.tok_i - 1] == .semicolon;
             },

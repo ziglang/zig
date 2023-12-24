@@ -610,9 +610,7 @@ test "zig fmt: grouped expressions (parentheses)" {
 
 test "zig fmt: c pointer type" {
     try testCanonical(
-        \\test {
-        \\    const x: [*c]u8 = 0;
-        \\}
+        \\pub extern fn repro() [*c]const u8;
         \\
     );
 }
@@ -716,11 +714,9 @@ test "zig fmt: sentinel pointer with modifiers" {
 
 test "zig fmt: c pointer with modifiers" {
     try testCanonical(
-        \\test {
-        \\    const x: [*c]u32 = undefined;
-        \\    const y: [*c]allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
-        \\    const z: [*c]allowzero align(8:4:2) addrspace(.generic) const volatile u32 = undefined;
-        \\}
+        \\const x: [*c]u32 = undefined;
+        \\const y: [*c]allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
+        \\const z: [*c]allowzero align(8:4:2) addrspace(.generic) const volatile u32 = undefined;
         \\
     );
 }
@@ -1248,9 +1244,7 @@ test "zig fmt: infix operator and then multiline string literal over multiple li
 
 test "zig fmt: C pointers" {
     try testCanonical(
-        \\test {
-        \\    const Ptr = [*c]i32;
-        \\}
+        \\const Ptr = [*c]i32;
         \\
     );
 }
