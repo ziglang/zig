@@ -831,81 +831,42 @@ pub fn setExecCmd(self: *Compile, args: []const ?[]const u8) void {
     self.exec_cmd_args = duped_args;
 }
 
-fn appendModuleArgs(cs: *Compile, zig_args: *ArrayList([]const u8)) !void {
-    const b = cs.step.owner;
-    // First, traverse the whole dependency graph and give every module a
-    // unique name, ideally one named after what it's called somewhere in the
-    // graph. It will help here to have both a mapping from module to name and
-    // a set of all the currently-used names.
-    var mod_names: std.AutoArrayHashMapUnmanaged(*Module, []const u8) = .{};
-    var names = std.StringHashMap(void).init(b.allocator);
+const CliNamedModules = struct {
+    modules: std.AutoArrayHashMapUnmanaged(*Module, void),
+    names: std.StringArrayHashMapUnmanaged(void),
 
-    {
-        var it = cs.root_module.iterateDependencies(null, false);
-        _ = it.next(); // Skip over the root module.
+    /// Traverse the whole dependency graph and give every module a unique
+    /// name, ideally one named after what it's called somewhere in the graph.
+    /// It will help here to have both a mapping from module to name and a set
+    /// of all the currently-used names.
+    fn init(arena: Allocator, root_module: *Module) Allocator.Error!CliNamedModules {
+        var self: CliNamedModules = .{
+            .modules = .{},
+            .names = .{},
+        };
+        var it = root_module.iterateDependencies(null, false);
+        {
+            const item = it.next().?;
+            assert(root_module == item.module);
+            try self.modules.put(arena, root_module, {});
+            try self.names.put(arena, "root", {});
+        }
         while (it.next()) |item| {
-            // While we're traversing the root dependencies, let's make sure that no module names
-            // have colons in them, since the CLI forbids it. We handle this for transitive
-            // dependencies further down.
-            if (std.mem.indexOfScalar(u8, item.name, ':') != null) {
-                return cs.step.fail("module '{s}' contains a colon", .{item.name});
-            }
-
             var name = item.name;
             var n: usize = 0;
-            while (names.contains(name)) {
-                name = b.fmt("{s}{d}", .{ item.name, n });
+            while (true) {
+                const gop = try self.names.getOrPut(arena, name);
+                if (!gop.found_existing) {
+                    try self.modules.putNoClobber(arena, item.module, {});
+                    break;
+                }
+                name = try std.fmt.allocPrint(arena, "{s}{d}", .{ item.name, n });
                 n += 1;
             }
-
-            try mod_names.put(b.allocator, item.module, name);
-            try names.put(name, {});
         }
+        return self;
     }
-
-    // Since the module names given to the CLI are based off of the exposed
-    // names, we already know that none of the CLI names have colons in them,
-    // so there's no need to check that explicitly.
-
-    // Every module in the graph is now named; output their definitions
-    for (mod_names.keys(), mod_names.values()) |mod, name| {
-        const root_src = mod.root_source_file orelse continue;
-        const deps_str = try constructDepString(b.allocator, mod_names, mod.import_table);
-        const src = root_src.getPath2(mod.owner, &cs.step);
-        try zig_args.append("--mod");
-        try zig_args.append(b.fmt("{s}:{s}:{s}", .{ name, deps_str, src }));
-    }
-
-    // Lastly, output the root dependencies
-    const deps_str = try constructDepString(b.allocator, mod_names, cs.root_module.import_table);
-    if (deps_str.len > 0) {
-        try zig_args.append("--deps");
-        try zig_args.append(deps_str);
-    }
-}
-
-fn constructDepString(
-    allocator: std.mem.Allocator,
-    mod_names: std.AutoArrayHashMapUnmanaged(*Module, []const u8),
-    deps: std.StringArrayHashMapUnmanaged(*Module),
-) ![]const u8 {
-    var deps_str = std.ArrayList(u8).init(allocator);
-    var it = deps.iterator();
-    while (it.next()) |kv| {
-        const expose = kv.key_ptr.*;
-        const name = mod_names.get(kv.value_ptr.*).?;
-        if (std.mem.eql(u8, expose, name)) {
-            try deps_str.writer().print("{s},", .{name});
-        } else {
-            try deps_str.writer().print("{s}={s},", .{ expose, name });
-        }
-    }
-    if (deps_str.items.len > 0) {
-        return deps_str.items[0 .. deps_str.items.len - 1]; // omit trailing comma
-    } else {
-        return "";
-    }
-}
+};
 
 fn getGeneratedFilePath(self: *Compile, comptime tag_name: []const u8, asking_step: ?*Step) []const u8 {
     const maybe_path: ?*GeneratedFile = @field(self, tag_name);
@@ -991,14 +952,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         var prev_preferred_link_mode: std.builtin.LinkMode = .Dynamic;
         // Track the number of positional arguments so that a nice error can be
         // emitted if there is nothing to link.
-        var total_linker_objects: usize = 0;
-
-        if (self.root_module.root_source_file) |lp| {
-            try zig_args.append(lp.getPath(b));
-            total_linker_objects += 1;
-        }
-
-        try self.root_module.appendZigProcessFlags(&zig_args, step);
+        var total_linker_objects: usize = @intFromBool(self.root_module.root_source_file != null);
 
         {
             // Fully recursive iteration including dynamic libraries to detect
@@ -1009,6 +963,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 if (key.module.link_libcpp == true) self.is_linking_libcpp = true;
             }
         }
+
+        var cli_named_modules = try CliNamedModules.init(b.allocator, &self.root_module);
 
         // For this loop, don't chase dynamic libraries because their link
         // objects are already linked.
@@ -1231,6 +1187,38 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         try zig_args.append(rc_source_file.file.getPath(b));
                         total_linker_objects += 1;
                     },
+                }
+            }
+
+            // We need to emit the --mod argument here so that the above link objects
+            // have the correct parent module, but only if the module is part of
+            // this compilation.
+            if (cli_named_modules.modules.getIndex(module)) |module_cli_index| {
+                const module_cli_name = cli_named_modules.names.keys()[module_cli_index];
+                try module.appendZigProcessFlags(&zig_args, step);
+
+                // --dep arguments
+                try zig_args.ensureUnusedCapacity(module.import_table.count() * 2);
+                for (module.import_table.keys(), module.import_table.values()) |name, dep| {
+                    const dep_index = cli_named_modules.modules.getIndex(dep).?;
+                    const dep_cli_name = cli_named_modules.names.keys()[dep_index];
+                    zig_args.appendAssumeCapacity("--dep");
+                    if (std.mem.eql(u8, dep_cli_name, name)) {
+                        zig_args.appendAssumeCapacity(dep_cli_name);
+                    } else {
+                        zig_args.appendAssumeCapacity(b.fmt("{s}={s}", .{ name, dep_cli_name }));
+                    }
+                }
+
+                // The CLI assumes if it sees a --mod argument that it is a zig
+                // compilation unit. If there is no root source file, then this
+                // is not a zig compilation unit - it is perhaps a set of
+                // linker objects, or C source files instead.
+                // In such case, there will be only one module, so we can leave
+                // off the naming here.
+                if (module.root_source_file) |lp| {
+                    const src = lp.getPath2(b, step);
+                    try zig_args.appendSlice(&.{ "--mod", module_cli_name, src });
                 }
             }
         }
@@ -1469,8 +1457,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             }
         }
     }
-
-    try self.appendModuleArgs(&zig_args);
 
     if (b.sysroot) |sysroot| {
         try zig_args.appendSlice(&[_][]const u8{ "--sysroot", sysroot });
