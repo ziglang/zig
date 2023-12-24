@@ -11,7 +11,7 @@ errors: std.ArrayListUnmanaged(AstError),
 nodes: Ast.NodeList,
 extra_data: std.ArrayListUnmanaged(Node.Index),
 scratch: std.ArrayListUnmanaged(Node.Index),
-is_autotranslated: bool = false,
+is_autotranslated: bool,
 
 const SmallSpan = union(enum) {
     zero_or_one: Node.Index,
@@ -238,10 +238,6 @@ fn parseContainerMembers(p: *Parse) !Members {
 
         switch (p.token_tags[p.tok_i]) {
             .keyword_test => {
-                // Enable c pointers for test.
-                const state_before = p.is_autotranslated;
-                p.is_autotranslated = true;
-
                 if (doc_comment) |some| {
                     try p.warnMsg(.{ .tag = .test_doc_comment, .token = some });
                 }
@@ -253,9 +249,6 @@ fn parseContainerMembers(p: *Parse) !Members {
                     try p.scratch.append(p.gpa, test_decl_node);
                 }
                 trailing = false;
-
-                // Revert c pointers after test.
-                p.is_autotranslated = state_before;
             },
             .keyword_comptime => switch (p.token_tags[p.tok_i + 1]) {
                 .l_brace => {
@@ -377,32 +370,23 @@ fn parseContainerMembers(p: *Parse) !Members {
                 trailing = p.token_tags[p.tok_i - 1] == .semicolon;
             },
             .keyword_autotranslated => {
-                const autotranslate_token = p.expectAutoTranslated() catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.ParseError => {
-                        p.findNextContainerMember();
-                        continue;
-                    },
+                _ = p.assertToken(.keyword_autotranslated);
+                var temp_token: Node.Index = 1;
+                p.expectSemicolon(.expected_semi_after_decl, false) catch |err| {
+                    switch (err) {
+                        error.OutOfMemory => return error.OutOfMemory,
+                        error.ParseError => {
+                            p.findNextContainerMember();
+                            temp_token = null_node;
+                        },
+                    }
                 };
-                trailing = p.token_tags[p.tok_i - 1] == .semicolon;
 
-                // Make sure this is the first token of the file.
-                // The root token takes 1.
-                if (p.nodes.len == 1) {
+                if (temp_token != 0) {
                     p.is_autotranslated = true;
-                } else {
-                    try p.warnMsg(.{
-                        .tag = .autotranslated_must_be_first,
-                        .token = try p.addNode(.{
-                            .tag = .identifier,
-                            .main_token = autotranslate_token,
-                            .data = undefined,
-                        }),
-                    });
-
-                    // Continue parsing; error will be reported later.
-                    field_state = .err;
                 }
+
+                trailing = p.token_tags[p.tok_i - 1] == .semicolon;
             },
             .eof, .r_brace => {
                 if (doc_comment) |tok| {
@@ -704,12 +688,6 @@ fn expectTopLevelDecl(p: *Parse) !Node.Index {
         return p.fail(.expected_pub_item);
     }
     return p.expectUsingNamespace();
-}
-
-fn expectAutoTranslated(p: *Parse) Error!TokenIndex {
-    const node = p.assertToken(.keyword_autotranslated);
-    try p.expectSemicolon(.expected_semi_after_decl, false);
-    return node;
 }
 
 fn expectTopLevelDeclRecoverable(p: *Parse) error{OutOfMemory}!Node.Index {
@@ -1961,13 +1939,6 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                     const ident_slice = p.source[p.token_starts[ident]..p.token_starts[ident + 1]];
                     if (!std.mem.eql(u8, std.mem.trimRight(u8, ident_slice, &std.ascii.whitespace), "c")) {
                         p.tok_i -= 1;
-                    } else {
-                        if (!p.is_autotranslated) {
-                            try p.warnMsg(.{
-                                .tag = .c_pointer_not_allowed,
-                                .token = ident,
-                            });
-                        }
                     }
                 } else if (p.eatToken(.colon)) |_| {
                     sentinel = try p.expectExpr();

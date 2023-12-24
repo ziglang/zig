@@ -3726,6 +3726,21 @@ fn ptrType(
         return gz.astgen.failTok(ptr_info.allowzero_token.?, "C pointers always allow address zero", .{});
     }
 
+    if (ptr_info.size == .C and !gz.astgen.tree.is_autotranslated) {
+        return gz.astgen.failNodeNotes(
+            node,
+            "[*c] pointers are only allowed in auto-translated C code",
+            .{},
+            &[_]u32{
+                try gz.astgen.errNoteNode(
+                    node,
+                    "* and [*] pointers may be used where a [*c] pointer is expected",
+                    .{},
+                ),
+            },
+        );
+    }
+
     const source_offset = gz.astgen.source_offset;
     const source_line = gz.astgen.source_line;
     const source_column = gz.astgen.source_column;

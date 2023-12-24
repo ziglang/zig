@@ -1,3 +1,5 @@
+thisfileisautotranslatedfromc;
+
 export fn foo() void {
     var ptr: [*]u8 = undefined;
     _ = &ptr;
@@ -13,7 +15,7 @@ export fn bar() void {
 // backend=stage2
 // target=native
 //
-// :4:5: error: unknown @memset length
-// :4:13: note: destination type '[*]u8' provides no length
-// :9:5: error: unknown @memset length
-// :9:13: note: destination type '[*c]bool' provides no length
+// :6:5: error: unknown @memset length
+// :6:13: note: destination type '[*]u8' provides no length
+// :11:5: error: unknown @memset length
+// :11:13: note: destination type '[*c]bool' provides no length

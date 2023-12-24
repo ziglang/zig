@@ -1,3 +1,5 @@
+thisfileisautotranslatedfromc;
+
 export fn a() void {
     var x: [*c]u8 = undefined;
     var y: *align(4) u8 = x;
@@ -33,15 +35,15 @@ export fn f() void {
 // backend=stage2
 // target=native
 //
-// :3:27: error: expected type '*align(4) u8', found '[*c]u8'
-// :3:27: note: pointer alignment '1' cannot cast into pointer alignment '4'
-// :8:18: error: expected type '*u8', found '[*c]const u8'
-// :8:18: note: cast discards const qualifier
-// :13:19: error: expected type '*u32', found '[*c]u8'
-// :13:19: note: pointer type child 'u8' cannot cast into pointer type child 'u32'
-// :18:22: error: expected type '[*c]u32', found '*align(1) u32'
-// :18:22: note: pointer alignment '1' cannot cast into pointer alignment '4'
-// :23:21: error: expected type '[*c]u8', found '*const u8'
-// :23:21: note: cast discards const qualifier
-// :28:22: error: expected type '[*c]u32', found '*u8'
-// :28:22: note: pointer type child 'u8' cannot cast into pointer type child 'u32'
+// :5:27: error: expected type '*align(4) u8', found '[*c]u8'
+// :5:27: note: pointer alignment '1' cannot cast into pointer alignment '4'
+// :10:18: error: expected type '*u8', found '[*c]const u8'
+// :10:18: note: cast discards const qualifier
+// :15:19: error: expected type '*u32', found '[*c]u8'
+// :15:19: note: pointer type child 'u8' cannot cast into pointer type child 'u32'
+// :20:22: error: expected type '[*c]u32', found '*align(1) u32'
+// :20:22: note: pointer alignment '1' cannot cast into pointer alignment '4'
+// :25:21: error: expected type '[*c]u8', found '*const u8'
+// :25:21: note: cast discards const qualifier
+// :30:22: error: expected type '[*c]u32', found '*u8'
+// :30:22: note: pointer type child 'u8' cannot cast into pointer type child 'u32'

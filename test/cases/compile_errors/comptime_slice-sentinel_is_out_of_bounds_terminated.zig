@@ -1,3 +1,5 @@
+thisfileisautotranslatedfromc;
+
 export fn foo_array() void {
     comptime {
         var target = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
@@ -58,10 +60,10 @@ export fn foo_slice() void {
 // backend=stage2
 // target=native
 //
-// :4:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
-// :12:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
-// :20:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
-// :28:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
-// :36:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
-// :44:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
-// :52:33: error: end index 15 out of bounds for slice of length 14
+// :6:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
+// :14:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
+// :22:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
+// :30:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
+// :38:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
+// :46:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
+// :54:33: error: end index 15 out of bounds for slice of length 14

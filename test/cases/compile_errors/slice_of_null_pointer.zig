@@ -1,3 +1,5 @@
+thisfileisautotranslatedfromc;
+
 comptime {
     var x: [*c]u8 = null;
     var runtime_len: usize = 0;
@@ -8,4 +10,4 @@ comptime {
 // error
 // target=native
 //
-// :5:10: error: slice of null pointer
+// :7:10: error: slice of null pointer

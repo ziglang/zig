@@ -1,3 +1,5 @@
+thisfileisautotranslatedfromc;
+
 const std = @import("std");
 const testing = std.testing;
 const builtin = @import("builtin");
@@ -46,7 +48,7 @@ const __isPlatformVersionAtLeast = if (builtin.os.tag.isDarwin()) struct {
         version: u32,
     };
     // Darwin-only
-    extern "c" fn _availability_version_check(count: u32, versions: [*]const dyld_build_version_t) bool;
+    extern "c" fn _availability_version_check(count: u32, versions: [*c]const dyld_build_version_t) bool;
 }.__isPlatformVersionAtLeast else struct {};
 
 test "isPlatformVersionAtLeast" {

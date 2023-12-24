@@ -6175,7 +6175,6 @@ test "recovery: eof in c pointer" {
     try testError(
         \\const Ptr = [*c
     , &[_]Error{
-        .c_pointer_not_allowed,
         .expected_token,
     });
 }

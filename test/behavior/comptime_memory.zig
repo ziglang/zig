@@ -1,3 +1,5 @@
+thisfileisautotranslatedfromc;
+
 const std = @import("std");
 const builtin = @import("builtin");
 const endian = builtin.cpu.arch.endian();

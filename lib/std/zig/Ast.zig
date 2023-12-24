@@ -16,6 +16,9 @@ mode: Mode = .zig,
 
 errors: []const Error,
 
+/// If `thisfileisautotranslatedfromc` is present at the top of the file.
+is_autotranslated: bool = false,
+
 pub const TokenIndex = u32;
 pub const ByteOffset = u32;
 
@@ -78,6 +81,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         .extra_data = .{},
         .scratch = .{},
         .tok_i = 0,
+        .is_autotranslated = false,
     };
     defer parser.errors.deinit(gpa);
     defer parser.nodes.deinit(gpa);
@@ -102,6 +106,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         .nodes = parser.nodes.toOwnedSlice(),
         .extra_data = try parser.extra_data.toOwnedSlice(gpa),
         .errors = try parser.errors.toOwnedSlice(gpa),
+        .is_autotranslated = parser.is_autotranslated,
     };
 }
 
@@ -466,11 +471,7 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             }
         },
 
-        .c_pointer_not_allowed => {
-            return stream.writeAll("[*c] pointers are only allowed in auto-translated C code");
-        },
-
-        .autotranslated_must_be_first => {
+        .autotranslated_not_first_token => {
             return stream.writeAll("thisfileisautotranslatedfromc must be the first token in the file");
         },
     }
@@ -2928,8 +2929,7 @@ pub const Error = struct {
         /// `expected_tag` is populated.
         expected_token,
 
-        c_pointer_not_allowed,
-        autotranslated_must_be_first,
+        autotranslated_not_first_token,
     };
 };
 
