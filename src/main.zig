@@ -1059,7 +1059,7 @@ fn buildOutputType(
                             create_module.opts.any_error_tracing = true;
 
                         const root_src = try introspect.resolvePath(arena, root_src_orig);
-                        try create_module.modules.put(arena, mod_name, .{
+                        gop.value_ptr.* = .{
                             .paths = .{
                                 .root = .{
                                     .root_dir = Cache.Directory.cwd(),
@@ -1077,7 +1077,7 @@ fn buildOutputType(
                             .c_source_files_end = create_module.c_source_files.items.len,
                             .rc_source_files_start = rc_source_files_owner_index,
                             .rc_source_files_end = create_module.rc_source_files.items.len,
-                        });
+                        };
                         cssan.reset();
                         mod_opts = .{};
                         target_arch_os_abi = null;
@@ -3882,7 +3882,7 @@ fn createModule(
     for (create_module.rc_source_files.items[cli_mod.rc_source_files_start..cli_mod.rc_source_files_end]) |*item| item.owner = mod;
 
     for (cli_mod.deps) |dep| {
-        const dep_index = create_module.modules.getIndex(dep.key) orelse
+        const dep_index = create_module.modules.getIndex(dep.value) orelse
             fatal("module '{s}' depends on non-existent module '{s}'", .{ name, dep.key });
         const dep_mod = try createModule(gpa, arena, create_module, dep_index, mod, zig_lib_directory);
         try mod.deps.put(arena, dep.key, dep_mod);
