@@ -87,13 +87,15 @@ const normal_usage =
     \\  fetch            Copy a package into global cache and print its hash
     \\  init             Initialize a Zig package in the current directory
     \\
-    \\  ast-check        Look for simple compile errors in any set of files
     \\  build-exe        Create executable from source or object files
     \\  build-lib        Create library from source or object files
     \\  build-obj        Create object from source or object files
-    \\  fmt              Reformat Zig source into canonical form
+    \\  test             Perform unit testing
     \\  run              Create executable and run immediately
-    \\  test             Create and run a test build
+    \\
+    \\  ast-check        Look for simple compile errors in any set of files
+    \\  fmt              Reformat Zig source into canonical form
+    \\  reduce           Minimize a bug report
     \\  translate-c      Convert C code to Zig code
     \\
     \\  ar               Use Zig as a drop-in archiver
