@@ -2522,10 +2522,6 @@ fn buildOutputType(
         fatal("translate-c expects exactly 1 source file (found {d})", .{create_module.c_source_files.items.len});
     }
 
-    if (root_src_file == null and arg_mode == .zig_test) {
-        fatal("`zig test` expects a zig source file argument", .{});
-    }
-
     if (show_builtin and root_src_file == null) {
         // Without this, there will be no main module created and no zig
         // compilation unit, and therefore also no builtin.zig contents
@@ -2614,6 +2610,10 @@ fn buildOutputType(
         target_mcpu = null;
         c_source_files_owner_index = create_module.c_source_files.items.len;
         rc_source_files_owner_index = create_module.rc_source_files.items.len;
+    }
+
+    if (!create_module.opts.have_zcu and arg_mode == .zig_test) {
+        fatal("`zig test` expects a zig source file argument", .{});
     }
 
     if (c_source_files_owner_index != create_module.c_source_files.items.len) {
