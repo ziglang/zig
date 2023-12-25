@@ -635,11 +635,63 @@ test "lessThan" {
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (a.len != b.len) return false;
-    if (a.ptr == b.ptr) return true;
+    if (a.len == 0 or a.ptr == b.ptr) return true;
+    if (@typeInfo(T) == .Int and std.math.isPowerOfTwo(@bitSizeOf(T))) return eqlBytes(std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
+
     for (a, b) |a_elem, b_elem| {
         if (a_elem != b_elem) return false;
     }
     return true;
+}
+
+/// std.mem.eql heavily optimized for slices of bytes.
+pub fn eqlBytes(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    if (a.len == 0 or a.ptr == b.ptr) return true;
+
+    if (a.len <= 16) {
+        if (a.len < 4) {
+            const x = (a[0] ^ b[0]) | (a[a.len - 1] ^ b[a.len - 1]) | (a[a.len / 2] ^ b[a.len / 2]);
+            return x == 0;
+        }
+        var x: u32 = 0;
+        for ([_]usize{ 0, a.len - 4, (a.len / 8) * 4, a.len - 4 - ((a.len / 8) * 4) }) |n| {
+            x |= @as(u32, @bitCast(a[n..][0..4].*)) ^ @as(u32, @bitCast(b[n..][0..4].*));
+        }
+        return x == 0;
+    }
+
+    const v = std.simd.suggestVectorSize(u8) orelse @sizeOf(usize);
+
+    inline for (1..6) |s| {
+        const n = 16 << s;
+        if (n <= v and a.len <= n) {
+            const V = @Vector(n / 2, u8);
+            var x = @as(V, a[0 .. n / 2].*) ^ @as(V, b[0 .. n / 2].*);
+            x |= @as(V, a[a.len - n / 2 ..][0 .. n / 2].*) ^ @as(V, b[a.len - n / 2 ..][0 .. n / 2].*);
+            return @reduce(.Or, x) == 0;
+        }
+    }
+
+    const V = @Vector(v, u8);
+
+    var p: usize = 0;
+    var l = a.len;
+    inline for ([_]usize{ 4, 1 }) |blk| {
+        while (l > v * blk) : ({
+            l -= v * blk;
+            p += v * blk;
+        }) {
+            if (blk > 1) {
+                @prefetch(a.ptr + p + v * blk, .{ .locality = 0 });
+                @prefetch(b.ptr + p + v * blk, .{ .locality = 0 });
+            }
+            var x: V = @splat(0);
+            for (0..blk) |i| x |= @as(V, a[p + (i * v) ..][0..v].*) ^ @as(V, b[p + (i * v) ..][0..v].*);
+            if (@reduce(.Or, x) != 0) return false;
+        }
+    }
+    return @reduce(.Or, @as(V, a[a.len - v ..][0..v].*) ^ @as(V, b[a.len - v ..][0..v].*)) == 0;
 }
 
 /// Compares two slices and returns the index of the first inequality.
