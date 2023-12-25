@@ -99,7 +99,39 @@ pub const Options = struct {
     rdynamic: ?bool = null,
 };
 
-pub fn resolve(options: Options) !Config {
+pub const ResolveError = error{
+    WasiExecModelRequiresWasi,
+    SharedMemoryIsWasmOnly,
+    ObjectFilesCannotShareMemory,
+    SharedMemoryRequiresAtomicsAndBulkMemory,
+    ThreadsRequireSharedMemory,
+    UnknownTargetEntryPoint,
+    NonExecutableEntryPoint,
+    EmittingLlvmModuleRequiresLlvmBackend,
+    LlvmLacksTargetSupport,
+    ZigLacksTargetSupport,
+    EmittingBinaryRequiresLlvmLibrary,
+    LldIncompatibleObjectFormat,
+    LtoRequiresLld,
+    SanitizeThreadRequiresLibCpp,
+    LibCppRequiresLibUnwind,
+    OsRequiresLibC,
+    LibCppRequiresLibC,
+    LibUnwindRequiresLibC,
+    TargetCannotDynamicLink,
+    LibCRequiresDynamicLinking,
+    SharedLibrariesRequireDynamicLinking,
+    ExportMemoryAndDynamicIncompatible,
+    DynamicLibraryPrecludesPie,
+    TargetRequiresPie,
+    SanitizeThreadRequiresPie,
+    BackendLacksErrorTracing,
+    LlvmLibraryUnavailable,
+    LldUnavailable,
+    ClangUnavailable,
+};
+
+pub fn resolve(options: Options) ResolveError!Config {
     const target = options.resolved_target.result;
 
     // WASI-only. Resolve the optional exec-model option, defaults to command.

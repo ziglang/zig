@@ -3867,6 +3867,9 @@ fn createModule(
             error.TargetRequiresPie => fatal("the specified target requires position independent executables", .{}),
             error.SanitizeThreadRequiresPie => fatal("thread sanitization requires position independent executables", .{}),
             error.BackendLacksErrorTracing => fatal("the selected backend has not yet implemented error return tracing", .{}),
+            error.LlvmLibraryUnavailable => fatal("zig was compiled without LLVM libraries", .{}),
+            error.LldUnavailable => fatal("zig was compiled without LLD libraries", .{}),
+            error.ClangUnavailable => fatal("zig was compiled without Clang libraries", .{}),
         };
     }
 
