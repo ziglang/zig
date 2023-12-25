@@ -378,6 +378,17 @@ pub fn open(
     emit: Compilation.Emit,
     options: link.File.OpenOptions,
 ) !*Wasm {
+    // TODO: restore saved linker state, don't truncate the file, and
+    // participate in incremental compilation.
+    return createEmpty(arena, comp, emit, options);
+}
+
+pub fn createEmpty(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*Wasm {
     const gpa = comp.gpa;
     const target = comp.root_mod.resolved_target.result;
     assert(target.ofmt == .wasm);
@@ -387,7 +398,46 @@ pub fn open(
     const output_mode = comp.config.output_mode;
     const shared_memory = comp.config.shared_memory;
 
-    const wasm = try createEmpty(arena, comp, emit, options);
+    // If using LLD to link, this code should produce an object file so that it
+    // can be passed to LLD.
+    // If using LLVM to generate the object file for the zig compilation unit,
+    // we need a place to put the object file so that it can be subsequently
+    // handled.
+    const zcu_object_sub_path = if (!use_lld and !use_llvm)
+        null
+    else
+        try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
+
+    const wasm = try arena.create(Wasm);
+    wasm.* = .{
+        .base = .{
+            .tag = .wasm,
+            .comp = comp,
+            .emit = emit,
+            .zcu_object_sub_path = zcu_object_sub_path,
+            .gc_sections = options.gc_sections orelse (output_mode != .Obj),
+            .print_gc_sections = options.print_gc_sections,
+            .stack_size = options.stack_size orelse std.wasm.page_size * 16, // 1MB
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
+            .file = null,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
+            .force_undefined_symbols = options.force_undefined_symbols,
+        },
+        .name = undefined,
+        .import_table = options.import_table,
+        .export_table = options.export_table,
+        .import_symbols = options.import_symbols,
+        .export_symbol_names = options.export_symbol_names,
+        .global_base = options.global_base,
+        .initial_memory = options.initial_memory,
+        .max_memory = options.max_memory,
+        .wasi_emulated_libs = options.wasi_emulated_libs,
+    };
+    if (use_llvm and comp.config.have_zcu) {
+        wasm.llvm_object = try LlvmObject.create(arena, comp);
+    }
     errdefer wasm.base.destroy();
 
     if (use_lld and use_llvm) {
@@ -395,17 +445,11 @@ pub fn open(
         return wasm;
     }
 
-    const sub_path = if (!use_lld) emit.sub_path else p: {
-        // Open a temporary object file, not the final output file because we
-        // want to link with LLD.
-        const o_file_path = try std.fmt.allocPrint(arena, "{s}{s}", .{
-            emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
-        });
-        wasm.base.zcu_object_sub_path = o_file_path;
-        break :p o_file_path;
-    };
+    // What path should this Wasm linker code output to?
+    // If using LLD to link, this code should produce an object file so that it
+    // can be passed to LLD.
+    const sub_path = if (use_lld) zcu_object_sub_path.? else emit.sub_path;
 
-    // TODO: read the file and keep valid parts instead of truncating
     const file = try emit.directory.handle.createFile(sub_path, .{
         .truncate = true,
         .read = true,
@@ -529,48 +573,6 @@ pub fn open(
         }
     }
 
-    return wasm;
-}
-
-pub fn createEmpty(
-    arena: Allocator,
-    comp: *Compilation,
-    emit: Compilation.Emit,
-    options: link.File.OpenOptions,
-) !*Wasm {
-    const use_llvm = comp.config.use_llvm;
-    const output_mode = comp.config.output_mode;
-
-    const wasm = try arena.create(Wasm);
-    wasm.* = .{
-        .base = .{
-            .tag = .wasm,
-            .comp = comp,
-            .emit = emit,
-            .gc_sections = options.gc_sections orelse (output_mode != .Obj),
-            .print_gc_sections = options.print_gc_sections,
-            .stack_size = options.stack_size orelse std.wasm.page_size * 16, // 1MB
-            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
-            .file = null,
-            .disable_lld_caching = options.disable_lld_caching,
-            .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
-            .force_undefined_symbols = options.force_undefined_symbols,
-        },
-        .name = undefined,
-        .import_table = options.import_table,
-        .export_table = options.export_table,
-        .import_symbols = options.import_symbols,
-        .export_symbol_names = options.export_symbol_names,
-        .global_base = options.global_base,
-        .initial_memory = options.initial_memory,
-        .max_memory = options.max_memory,
-        .wasi_emulated_libs = options.wasi_emulated_libs,
-    };
-
-    if (use_llvm) {
-        wasm.llvm_object = try LlvmObject.create(arena, comp);
-    }
     return wasm;
 }
 
