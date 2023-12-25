@@ -161,20 +161,6 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b options.shared_memory orelse false;
     };
 
-    const entry: ?[]const u8 = switch (options.entry) {
-        .disabled => null,
-        .default => b: {
-            if (options.output_mode != .Exe) break :b null;
-            break :b target_util.defaultEntrySymbolName(target, wasi_exec_model) orelse
-                return error.UnknownTargetEntryPoint;
-        },
-        .enabled => target_util.defaultEntrySymbolName(target, wasi_exec_model) orelse
-            return error.UnknownTargetEntryPoint,
-        .named => |name| name,
-    };
-    if (entry != null and options.output_mode != .Exe)
-        return error.NonExecutableEntryPoint;
-
     // *If* the LLVM backend were to be selected, should Zig use the LLVM
     // library to build the LLVM module?
     const use_lib_llvm = b: {
@@ -347,6 +333,29 @@ pub fn resolve(options: Options) ResolveError!Config {
 
         break :b false;
     };
+
+    const entry: ?[]const u8 = switch (options.entry) {
+        .disabled => null,
+        .default => b: {
+            if (options.output_mode != .Exe) break :b null;
+
+            // When linking libc, the entry point is inside libc and not in the
+            // zig compilation unit.
+            if (link_libc) break :b null;
+
+            // When producing C source code, the decision of entry point is made
+            // when compiling the C code, not when producing the C code.
+            if (target.ofmt == .c) break :b null;
+
+            break :b target_util.defaultEntrySymbolName(target, wasi_exec_model) orelse
+                return error.UnknownTargetEntryPoint;
+        },
+        .enabled => target_util.defaultEntrySymbolName(target, wasi_exec_model) orelse
+            return error.UnknownTargetEntryPoint,
+        .named => |name| name,
+    };
+    if (entry != null and options.output_mode != .Exe)
+        return error.NonExecutableEntryPoint;
 
     const any_unwind_tables = options.any_unwind_tables or
         link_libunwind or target_util.needUnwindTables(target);
