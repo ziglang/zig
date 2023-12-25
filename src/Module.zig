@@ -3167,6 +3167,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
         .complete => return,
 
         .outdated => blk: {
+            if (build_options.only_c) unreachable;
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
             try mod.deleteDeclExports(decl_index);
@@ -4676,25 +4677,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .instructions = sema.air_instructions.toOwnedSlice(),
         .extra = try sema.air_extra.toOwnedSlice(gpa),
     };
-}
-
-fn markOutdatedDecl(mod: *Module, decl_index: Decl.Index) !void {
-    const decl = mod.declPtr(decl_index);
-    try mod.comp.work_queue.writeItem(.{ .analyze_decl = decl_index });
-    if (mod.failed_decls.fetchSwapRemove(decl_index)) |kv| {
-        kv.value.destroy(mod.gpa);
-    }
-    if (mod.cimport_errors.fetchSwapRemove(decl_index)) |kv| {
-        var errors = kv.value;
-        errors.deinit(mod.gpa);
-    }
-    if (mod.emit_h) |emit_h| {
-        if (emit_h.failed_decls.fetchSwapRemove(decl_index)) |kv| {
-            kv.value.destroy(mod.gpa);
-        }
-    }
-    _ = mod.compile_log_decls.swapRemove(decl_index);
-    decl.analysis = .outdated;
 }
 
 pub fn createNamespace(mod: *Module, initialization: Namespace) !Namespace.Index {
