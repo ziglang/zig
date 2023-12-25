@@ -235,7 +235,7 @@ const ideal_factor = 3;
 const minimum_text_block_size = 64;
 pub const min_text_capacity = padToIdeal(minimum_text_block_size);
 
-pub fn open(
+pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
     emit: Compilation.Emit,
@@ -243,36 +243,96 @@ pub fn open(
 ) !*Coff {
     const target = comp.root_mod.resolved_target.result;
     assert(target.ofmt == .coff);
-
-    const self = try createEmpty(arena, comp, emit, options);
-    errdefer self.base.destroy();
-
-    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const optimize_mode = comp.root_mod.optimize_mode;
+    const output_mode = comp.config.output_mode;
+    const link_mode = comp.config.link_mode;
     const use_llvm = comp.config.use_llvm;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+
+    const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
+        0...32 => .p32,
+        33...64 => .p64,
+        else => return error.UnsupportedCOFFArchitecture,
+    };
+    const page_size: u32 = switch (target.cpu.arch) {
+        else => 0x1000,
+    };
+
+    // If using LLD to link, this code should produce an object file so that it
+    // can be passed to LLD.
+    // If using LLVM to generate the object file for the zig compilation unit,
+    // we need a place to put the object file so that it can be subsequently
+    // handled.
+    const zcu_object_sub_path = if (!use_lld and !use_llvm)
+        null
+    else
+        try std.fmt.allocPrint(arena, "{s}.obj", .{emit.sub_path});
+
+    const self = try arena.create(Coff);
+    self.* = .{
+        .base = .{
+            .tag = .coff,
+            .comp = comp,
+            .emit = emit,
+            .zcu_object_sub_path = zcu_object_sub_path,
+            .stack_size = options.stack_size orelse 16777216,
+            .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
+            .print_gc_sections = options.print_gc_sections,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
+            .file = null,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
+            .force_undefined_symbols = options.force_undefined_symbols,
+        },
+        .ptr_width = ptr_width,
+        .page_size = page_size,
+
+        .data_directories = [1]coff.ImageDataDirectory{.{
+            .virtual_address = 0,
+            .size = 0,
+        }} ** coff.IMAGE_NUMBEROF_DIRECTORY_ENTRIES,
+
+        .image_base = options.image_base orelse switch (output_mode) {
+            .Exe => switch (target.cpu.arch) {
+                .aarch64 => 0x140000000,
+                .x86_64, .x86 => 0x400000,
+                else => unreachable,
+            },
+            .Lib => 0x10000000,
+            .Obj => 0,
+        },
+
+        .subsystem = options.subsystem,
+        .tsaware = options.tsaware,
+        .nxcompat = options.nxcompat,
+        .dynamicbase = options.dynamicbase,
+        .major_subsystem_version = options.major_subsystem_version orelse 6,
+        .minor_subsystem_version = options.minor_subsystem_version orelse 0,
+        .lib_dirs = options.lib_dirs,
+        .entry_addr = math.cast(u32, options.entry_addr orelse 0) orelse
+            return error.EntryAddressTooBig,
+        .module_definition_file = options.module_definition_file,
+        .pdb_out_path = options.pdb_out_path,
+    };
+    if (use_llvm and comp.config.have_zcu) {
+        self.llvm_object = try LlvmObject.create(arena, comp);
+    }
+    errdefer self.base.destroy();
 
     if (use_lld and use_llvm) {
         // LLVM emits the object file; LLD links it into the final product.
         return self;
     }
 
-    const sub_path = if (!use_lld) emit.sub_path else p: {
-        // Open a temporary object file, not the final output file because we
-        // want to link with LLD.
-        const o_file_path = try std.fmt.allocPrint(arena, "{s}{s}", .{
-            emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
-        });
-        self.base.zcu_object_sub_path = o_file_path;
-        break :p o_file_path;
-    };
-
+    // What path should this COFF linker code output to?
+    // If using LLD to link, this code should produce an object file so that it
+    // can be passed to LLD.
+    const sub_path = if (use_lld) zcu_object_sub_path.? else emit.sub_path;
     self.base.file = try emit.directory.handle.createFile(sub_path, .{
-        .truncate = false,
+        .truncate = true,
         .read = true,
-        .mode = link.File.determineMode(
-            use_lld,
-            comp.config.output_mode,
-            comp.config.link_mode,
-        ),
+        .mode = link.File.determineMode(use_lld, output_mode, link_mode),
     });
 
     assert(self.llvm_object == null);
@@ -367,75 +427,15 @@ pub fn open(
     return self;
 }
 
-pub fn createEmpty(
+pub fn open(
     arena: Allocator,
     comp: *Compilation,
     emit: Compilation.Emit,
     options: link.File.OpenOptions,
 ) !*Coff {
-    const target = comp.root_mod.resolved_target.result;
-    const optimize_mode = comp.root_mod.optimize_mode;
-    const output_mode = comp.config.output_mode;
-    const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
-        0...32 => .p32,
-        33...64 => .p64,
-        else => return error.UnsupportedCOFFArchitecture,
-    };
-    const page_size: u32 = switch (target.cpu.arch) {
-        else => 0x1000,
-    };
-    const self = try arena.create(Coff);
-    self.* = .{
-        .base = .{
-            .tag = .coff,
-            .comp = comp,
-            .emit = emit,
-            .stack_size = options.stack_size orelse 16777216,
-            .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
-            .print_gc_sections = options.print_gc_sections,
-            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
-            .file = null,
-            .disable_lld_caching = options.disable_lld_caching,
-            .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
-            .force_undefined_symbols = options.force_undefined_symbols,
-        },
-        .ptr_width = ptr_width,
-        .page_size = page_size,
-
-        .data_directories = [1]coff.ImageDataDirectory{.{
-            .virtual_address = 0,
-            .size = 0,
-        }} ** coff.IMAGE_NUMBEROF_DIRECTORY_ENTRIES,
-
-        .image_base = options.image_base orelse switch (output_mode) {
-            .Exe => switch (target.cpu.arch) {
-                .aarch64 => 0x140000000,
-                .x86_64, .x86 => 0x400000,
-                else => unreachable,
-            },
-            .Lib => 0x10000000,
-            .Obj => 0,
-        },
-
-        .subsystem = options.subsystem,
-        .tsaware = options.tsaware,
-        .nxcompat = options.nxcompat,
-        .dynamicbase = options.dynamicbase,
-        .major_subsystem_version = options.major_subsystem_version orelse 6,
-        .minor_subsystem_version = options.minor_subsystem_version orelse 0,
-        .lib_dirs = options.lib_dirs,
-        .entry_addr = math.cast(u32, options.entry_addr orelse 0) orelse
-            return error.EntryAddressTooBig,
-        .module_definition_file = options.module_definition_file,
-        .pdb_out_path = options.pdb_out_path,
-    };
-
-    const use_llvm = comp.config.use_llvm;
-    if (use_llvm and comp.config.have_zcu) {
-        self.llvm_object = try LlvmObject.create(arena, comp);
-    }
-    return self;
+    // TODO: restore saved linker state, don't truncate the file, and
+    // participate in incremental compilation.
+    return createEmpty(arena, comp, emit, options);
 }
 
 pub fn deinit(self: *Coff) void {
