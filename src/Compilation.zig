@@ -1198,16 +1198,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const use_llvm = options.config.use_llvm;
 
-        // TODO: once we support incremental compilation for the LLVM backend via
-        // saving the LLVM module into a bitcode file and restoring it, along with
-        // compiler state, the second clause here can be removed so that incremental
-        // cache mode is used for LLVM backend too. We need some fuzz testing before
-        // that can be enabled.
-        const cache_mode = if ((use_llvm or !have_zcu) and !options.disable_lld_caching)
-            CacheMode.whole
-        else
-            options.cache_mode;
-
         const any_unwind_tables = options.config.any_unwind_tables;
 
         const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables;
@@ -1560,7 +1550,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .compatibility_version = options.compatibility_version,
             .each_lib_rpath = each_lib_rpath,
             .build_id = build_id,
-            .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
+            .disable_lld_caching = options.disable_lld_caching or options.cache_mode == .whole,
             .subsystem = options.subsystem,
             .hash_style = options.hash_style,
             .enable_link_snapshots = options.enable_link_snapshots,
@@ -1576,7 +1566,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .entry_addr = null, // CLI does not expose this option (yet?)
         };
 
-        switch (cache_mode) {
+        switch (options.cache_mode) {
             .incremental => {
                 // Options that are specific to zig source files, that cannot be
                 // modified between incremental updates.

@@ -3110,6 +3110,21 @@ fn buildOutputType(
         else => false,
     };
 
+    const disable_lld_caching = !output_to_cache;
+
+    const cache_mode: Compilation.CacheMode = b: {
+        if (disable_lld_caching) break :b .incremental;
+        if (!create_module.resolved_options.have_zcu) break :b .whole;
+
+        // TODO: once we support incremental compilation for the LLVM backend
+        // via saving the LLVM module into a bitcode file and restoring it,
+        // along with compiler state, this clause can be removed so that
+        // incremental cache mode is used for LLVM backend too.
+        if (create_module.resolved_options.use_llvm) break :b .whole;
+
+        break :b .incremental;
+    };
+
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 
     const comp = Compilation.create(gpa, .{
@@ -3211,7 +3226,8 @@ fn buildOutputType(
         .test_filter = test_filter,
         .test_name_prefix = test_name_prefix,
         .test_runner_path = test_runner_path,
-        .disable_lld_caching = !output_to_cache,
+        .disable_lld_caching = disable_lld_caching,
+        .cache_mode = cache_mode,
         .subsystem = subsystem,
         .debug_compile_errors = debug_compile_errors,
         .enable_link_snapshots = enable_link_snapshots,
@@ -3942,7 +3958,7 @@ fn serve(
         const hdr = try server.receiveMessage();
 
         switch (hdr.tag) {
-            .exit => return,
+            .exit => return cleanExit(),
             .update => {
                 assert(main_progress_node.recently_updated_child == null);
                 tracy.frameMark();
@@ -4104,25 +4120,63 @@ fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
         try s.serveErrorBundle(error_bundle);
         return;
     }
-    // This logic is a bit counter-intuitive because the protocol implies that
-    // each emitted artifact could possibly be in a different location, when in
-    // reality, there is only one artifact output directory, and the build
-    // system depends on that fact. So, until the protocol is changed to
-    // reflect this, this logic only needs to ensure that emit_bin_path is
-    // emitted for at least one thing, if there are any artifacts.
-    if (comp.bin_file) |lf| {
-        const emit = lf.emit;
+
+    // This logic is counter-intuitive because the protocol accounts for each
+    // emitted artifact possibly being in a different location, which correctly
+    // matches the behavior of the compiler, however, the build system
+    // currently always passes flags that makes all build artifacts output to
+    // the same local cache directory, and relies on them all being in the same
+    // directory.
+    //
+    // So, until the build system and protocol are changed to reflect this,
+    // this logic must ensure that emit_bin_path is emitted for at least one
+    // thing, if there are any artifacts.
+
+    switch (comp.cache_use) {
+        .incremental => if (comp.bin_file) |lf| {
+            const full_path = try lf.emit.directory.join(gpa, &.{lf.emit.sub_path});
+            defer gpa.free(full_path);
+            try s.serveEmitBinPath(full_path, .{
+                .flags = .{ .cache_hit = comp.last_update_was_cache_hit },
+            });
+            return;
+        },
+        .whole => |whole| if (whole.bin_sub_path) |sub_path| {
+            const full_path = try comp.local_cache_directory.join(gpa, &.{sub_path});
+            defer gpa.free(full_path);
+            try s.serveEmitBinPath(full_path, .{
+                .flags = .{ .cache_hit = comp.last_update_was_cache_hit },
+            });
+            return;
+        },
+    }
+
+    for ([_]?Compilation.Emit{
+        comp.docs_emit,
+        comp.implib_emit,
+    }) |opt_emit| {
+        const emit = opt_emit orelse continue;
         const full_path = try emit.directory.join(gpa, &.{emit.sub_path});
         defer gpa.free(full_path);
         try s.serveEmitBinPath(full_path, .{
             .flags = .{ .cache_hit = comp.last_update_was_cache_hit },
         });
-    } else if (comp.docs_emit) |emit| {
-        const full_path = try emit.directory.join(gpa, &.{emit.sub_path});
+        return;
+    }
+
+    for ([_]?Compilation.EmitLoc{
+        comp.emit_asm,
+        comp.emit_llvm_ir,
+        comp.emit_llvm_bc,
+    }) |opt_emit_loc| {
+        const emit_loc = opt_emit_loc orelse continue;
+        const directory = emit_loc.directory orelse continue;
+        const full_path = try directory.join(gpa, &.{emit_loc.basename});
         defer gpa.free(full_path);
         try s.serveEmitBinPath(full_path, .{
             .flags = .{ .cache_hit = comp.last_update_was_cache_hit },
         });
+        return;
     }
 }
 
