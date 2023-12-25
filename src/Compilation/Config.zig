@@ -178,6 +178,9 @@ pub fn resolve(options: Options) ResolveError!Config {
     // For example, Zig can emit .bc and .ll files directly, and this is still considered
     // using "the LLVM backend".
     const use_llvm = b: {
+        // If we have no zig code to compile, no need for LLVM.
+        if (!options.have_zcu) break :b false;
+
         // If emitting to LLVM bitcode object format, must use LLVM backend.
         if (options.emit_llvm_ir or options.emit_llvm_bc) {
             if (options.use_llvm == false)
@@ -202,13 +205,10 @@ pub fn resolve(options: Options) ResolveError!Config {
 
         if (options.use_llvm) |x| break :b x;
 
-        // If we have no zig code to compile, no need for LLVM.
-        if (!options.have_zcu) break :b false;
-
         // If we cannot use LLVM libraries, then our own backends will be a
         // better default since the LLVM backend can only produce bitcode
         // and not an object file or executable.
-        if (!use_lib_llvm) break :b false;
+        if (!use_lib_llvm and options.emit_bin) break :b false;
 
         // Prefer LLVM for release builds.
         if (root_optimize_mode != .Debug) break :b true;
@@ -338,10 +338,6 @@ pub fn resolve(options: Options) ResolveError!Config {
         .disabled => null,
         .default => b: {
             if (options.output_mode != .Exe) break :b null;
-
-            // When linking libc, the entry point is inside libc and not in the
-            // zig compilation unit.
-            if (link_libc) break :b null;
 
             // When producing C source code, the decision of entry point is made
             // when compiling the C code, not when producing the C code.

@@ -174,72 +174,97 @@ pub const SdkLayout = enum {
     vendored,
 };
 
-pub fn open(
+pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
     emit: Compilation.Emit,
     options: link.File.OpenOptions,
 ) !*MachO {
     const target = comp.root_mod.resolved_target.result;
-    const use_lld = build_options.have_llvm and comp.config.use_lld;
-    const use_llvm = comp.config.use_llvm;
     assert(target.ofmt == .macho);
-
+    const use_llvm = comp.config.use_llvm;
     const gpa = comp.gpa;
-    const mode: Mode = mode: {
-        if (use_llvm or comp.module == null or comp.cache_use == .whole)
-            break :mode .zld;
-        break :mode .incremental;
-    };
-    const sub_path = if (mode == .zld) blk: {
-        if (comp.module == null) {
-            // No point in opening a file, we would not write anything to it.
-            // Initialize with empty.
-            return createEmpty(arena, comp, emit, options);
-        }
-        // Open a temporary object file, not the final output file because we
-        // want to link with LLD.
-        break :blk try std.fmt.allocPrint(arena, "{s}{s}", .{
-            emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
-        });
-    } else emit.sub_path;
+    const optimize_mode = comp.root_mod.optimize_mode;
+    const output_mode = comp.config.output_mode;
+    const link_mode = comp.config.link_mode;
 
-    const self = try createEmpty(arena, comp, emit, options);
+    // TODO: get rid of zld mode
+    const mode: Mode = if (use_llvm or !comp.config.have_zcu or comp.cache_use == .whole)
+        .zld
+    else
+        .incremental;
+
+    // If using "zld mode" to link, this code should produce an object file so that it
+    // can be passed to "zld mode". TODO: get rid of "zld mode".
+    // If using LLVM to generate the object file for the zig compilation unit,
+    // we need a place to put the object file so that it can be subsequently
+    // handled.
+    const zcu_object_sub_path = if (mode != .zld and !use_llvm)
+        null
+    else
+        try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
+
+    const self = try arena.create(MachO);
+    self.* = .{
+        .base = .{
+            .tag = .macho,
+            .comp = comp,
+            .emit = emit,
+            .zcu_object_sub_path = zcu_object_sub_path,
+            .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
+            .print_gc_sections = options.print_gc_sections,
+            .stack_size = options.stack_size orelse 16777216,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
+            .file = null,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
+            .force_undefined_symbols = options.force_undefined_symbols,
+        },
+        .mode = mode,
+        .pagezero_vmsize = options.pagezero_size orelse default_pagezero_vmsize,
+        .headerpad_size = options.headerpad_size orelse default_headerpad_size,
+        .headerpad_max_install_names = options.headerpad_max_install_names,
+        .dead_strip_dylibs = options.dead_strip_dylibs,
+        .sdk_layout = options.darwin_sdk_layout,
+        .frameworks = options.frameworks,
+        .install_name = options.install_name,
+        .entitlements = options.entitlements,
+        .compatibility_version = options.compatibility_version,
+    };
+    if (use_llvm and comp.config.have_zcu) {
+        self.llvm_object = try LlvmObject.create(arena, comp);
+    }
     errdefer self.base.destroy();
 
+    log.debug("selected linker mode '{s}'", .{@tagName(self.mode)});
+
     if (mode == .zld) {
-        // TODO this zcu_object_sub_path isn't enough; in the case of `zig build-exe`,
-        // we also want to put the intermediary object file in the cache while the
-        // main emit directory is the cwd.
-        self.base.zcu_object_sub_path = sub_path;
+        // TODO: get rid of zld mode
         return self;
     }
 
-    const file = try emit.directory.handle.createFile(sub_path, .{
-        .truncate = false,
+    const file = try emit.directory.handle.createFile(emit.sub_path, .{
+        .truncate = true,
         .read = true,
-        .mode = link.File.determineMode(
-            use_lld,
-            comp.config.output_mode,
-            comp.config.link_mode,
-        ),
+        .mode = link.File.determineMode(false, output_mode, link_mode),
     });
     self.base.file = file;
 
     if (comp.config.debug_format != .strip and comp.module != null) {
         // Create dSYM bundle.
-        log.debug("creating {s}.dSYM bundle", .{sub_path});
+        log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
 
         const d_sym_path = try std.fmt.allocPrint(
             arena,
             "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
-            .{sub_path},
+            .{emit.sub_path},
         );
 
         var d_sym_bundle = try emit.directory.handle.makeOpenPath(d_sym_path, .{});
         defer d_sym_bundle.close();
 
-        const d_sym_file = try d_sym_bundle.createFile(sub_path, .{
+        const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
             .truncate = false,
             .read = true,
         });
@@ -273,53 +298,15 @@ pub fn open(
     return self;
 }
 
-pub fn createEmpty(
+pub fn open(
     arena: Allocator,
     comp: *Compilation,
     emit: Compilation.Emit,
     options: link.File.OpenOptions,
 ) !*MachO {
-    const optimize_mode = comp.root_mod.optimize_mode;
-    const use_llvm = comp.config.use_llvm;
-
-    const self = try arena.create(MachO);
-    self.* = .{
-        .base = .{
-            .tag = .macho,
-            .comp = comp,
-            .emit = emit,
-            .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
-            .print_gc_sections = options.print_gc_sections,
-            .stack_size = options.stack_size orelse 16777216,
-            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
-            .file = null,
-            .disable_lld_caching = options.disable_lld_caching,
-            .build_id = options.build_id,
-            .rpath_list = options.rpath_list,
-            .force_undefined_symbols = options.force_undefined_symbols,
-        },
-        .mode = if (use_llvm or comp.module == null or comp.cache_use == .whole)
-            .zld
-        else
-            .incremental,
-        .pagezero_vmsize = options.pagezero_size orelse default_pagezero_vmsize,
-        .headerpad_size = options.headerpad_size orelse default_headerpad_size,
-        .headerpad_max_install_names = options.headerpad_max_install_names,
-        .dead_strip_dylibs = options.dead_strip_dylibs,
-        .sdk_layout = options.darwin_sdk_layout,
-        .frameworks = options.frameworks,
-        .install_name = options.install_name,
-        .entitlements = options.entitlements,
-        .compatibility_version = options.compatibility_version,
-    };
-
-    if (use_llvm and comp.module != null) {
-        self.llvm_object = try LlvmObject.create(arena, comp);
-    }
-
-    log.debug("selected linker mode '{s}'", .{@tagName(self.mode)});
-
-    return self;
+    // TODO: restore saved linker state, don't truncate the file, and
+    // participate in incremental compilation.
+    return createEmpty(arena, comp, emit, options);
 }
 
 pub fn flush(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {

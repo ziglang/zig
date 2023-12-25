@@ -328,8 +328,8 @@ pub fn createEmpty(
     }
     errdefer self.base.destroy();
 
-    if (use_lld and use_llvm) {
-        // LLVM emits the object file; LLD links it into the final product.
+    if (use_lld and (use_llvm or !comp.config.have_zcu)) {
+        // LLVM emits the object file (if any); LLD links it into the final product.
         return self;
     }
 
