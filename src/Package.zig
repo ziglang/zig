@@ -88,10 +88,10 @@ pub const Path = struct {
         p: Path,
         sub_path: []const u8,
         options: fs.Dir.AtomicFileOptions,
+        buf: *[fs.MAX_PATH_BYTES]u8,
     ) !fs.AtomicFile {
-        var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
         const joined_path = if (p.sub_path.len == 0) sub_path else p: {
-            break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+            break :p std.fmt.bufPrint(buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
                 p.sub_path, sub_path,
             }) catch return error.NameTooLong;
         };
