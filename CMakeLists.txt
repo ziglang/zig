@@ -810,18 +810,26 @@ endif()
 
 set(BUILD_ZIG2_ARGS
   "${CMAKE_SOURCE_DIR}/lib"
-  build-exe src/main.zig -ofmt=c -lc
-  -OReleaseSmall
-  --name zig2 -femit-bin="${ZIG2_C_SOURCE}"
-  --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
-  --mod "aro_options::src/stubs/aro_options.zig"
-  --mod "Builtins/Builtin.def::src/stubs/aro_builtins.zig"
-  --mod "Attribute/names.def::src/stubs/aro_names.zig"
-  --mod "Diagnostics/messages.def::src/stubs/aro_messages.zig"
-  --mod "aro_backend:build_options=aro_options:deps/aro/backend.zig"
-  --mod "aro:Builtins/Builtin.def,Attribute/names.def,Diagnostics/messages.def,build_options=aro_options,backend=aro_backend:deps/aro/aro.zig"
-  --deps build_options,aro
+  build-exe -ofmt=c -lc -OReleaseSmall
+  --name zig2
+  -femit-bin="${ZIG2_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
+  --dep "build_options"
+  --dep "aro"
+  --mod "root" "src/main.zig"
+  --mod "build_options" "${ZIG_CONFIG_ZIG_OUT}"
+  --mod "aro_options" "src/stubs/aro_options.zig"
+  --mod "Builtins/Builtin.def" "src/stubs/aro_builtins.zig"
+  --mod "Attribute/names.def" "src/stubs/aro_names.zig"
+  --mod "Diagnostics/messages.def" "src/stubs/aro_messages.zig"
+  --dep "build_options=aro_options"
+  --mod "aro_backend" "deps/aro/backend.zig"
+  --dep "Builtins/Builtin.def"
+  --dep "Attribute/names.def"
+  --dep "Diagnostics/messages.def"
+  --dep "build_options=aro_options"
+  --dep "backend=aro_backend"
+  --mod "aro" "deps/aro/aro.zig"
 )
 
 add_custom_command(
@@ -834,12 +842,13 @@ add_custom_command(
 
 set(BUILD_COMPILER_RT_ARGS
   "${CMAKE_SOURCE_DIR}/lib"
-  build-obj lib/compiler_rt.zig -ofmt=c
-  -OReleaseSmall
-  --name compiler_rt -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
-  --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
-  --deps build_options
+  build-obj -ofmt=c -OReleaseSmall
+  --name compiler_rt
+  -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
+  --dep "build_options"
+  --mod "root" "lib/compiler_rt.zig"
+  --mod "build_options" "${ZIG_CONFIG_ZIG_OUT}"
 )
 
 add_custom_command(
