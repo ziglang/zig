@@ -2131,11 +2131,10 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         // Put a work item in for every known source file to detect if
         // it changed, and, if so, re-compute ZIR and then queue the job
         // to update it.
-        // We still want AstGen work items for stage1 so that we expose compile errors
-        // that are implemented in stage2 but not stage1.
         try comp.astgen_work_queue.ensureUnusedCapacity(module.import_table.count());
-        for (module.import_table.values()) |value| {
-            comp.astgen_work_queue.writeItemAssumeCapacity(value);
+        for (module.import_table.values()) |file| {
+            if (file.mod.isBuiltin()) continue;
+            comp.astgen_work_queue.writeItemAssumeCapacity(file);
         }
 
         // Put a work item in for checking if any files used with `@embedFile` changed.
