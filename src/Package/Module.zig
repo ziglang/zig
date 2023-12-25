@@ -187,7 +187,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         if (!target_util.hasRedZone(target)) {
             if (options.inherited.red_zone == true)
                 return error.TargetHasNoRedZone;
-            break :b true;
+            break :b false;
         }
         if (options.inherited.red_zone) |x| break :b x;
         if (options.parent) |p| break :b p.red_zone;
