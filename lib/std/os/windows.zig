@@ -1802,6 +1802,35 @@ pub fn LoadLibraryW(lpLibFileName: [*:0]const u16) LoadLibraryError!HMODULE {
     };
 }
 
+pub const LoadLibraryFlags = packed struct(DWORD) {
+    DONT_RESOLVE_DLL_REFERENCES: bool = false,
+    LOAD_LIBRARY_AS_DATAFILE: bool = false,
+    _unused0: u1 = 0,
+    LOAD_WITH_ALTERED_SEARCH_PATH: bool = false,
+    LOAD_IGNORE_CODE_AUTHZ_LEVEL: bool = false,
+    LOAD_LIBRARY_AS_IMAGE_RESOURCE: bool = false,
+    _unused1: u1 = 0,
+    LOAD_LIBRARY_REQUIRE_SIGNED_TARGET: bool = false,
+    LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR: bool = false,
+    LOAD_LIBRARY_SEARCH_APPLICATION_DIR: bool = false,
+    LOAD_LIBRARY_SEARCH_USER_DIRS: bool = false,
+    LOAD_LIBRARY_SEARCH_SYSTEM32: bool = false,
+    LOAD_LIBRARY_SEARCH_DEFAULT_DIRS: bool = false,
+    LOAD_LIBRARY_SAFE_CURRENT_DIRS: bool = false,
+    _unused2: u18 = 0,
+};
+
+pub fn LoadLibraryExW(lpLibFileName: [*:0]const u16, dwFlags: LoadLibraryFlags) LoadLibraryError!HMODULE {
+    return kernel32.LoadLibraryExW(lpLibFileName, null, @bitCast(dwFlags)) orelse {
+        switch (kernel32.GetLastError()) {
+            .FILE_NOT_FOUND => return error.FileNotFound,
+            .PATH_NOT_FOUND => return error.FileNotFound,
+            .MOD_NOT_FOUND => return error.FileNotFound,
+            else => |err| return unexpectedError(err),
+        }
+    };
+}
+
 pub fn FreeLibrary(hModule: HMODULE) void {
     assert(kernel32.FreeLibrary(hModule) != 0);
 }
