@@ -264,12 +264,10 @@ pub fn createEmpty(
     // If using LLVM to generate the object file for the zig compilation unit,
     // we need a place to put the object file so that it can be subsequently
     // handled.
-    const zcu_object_sub_path = if (!use_lld and !use_llvm) null else p: {
-        const o_file_path = try std.fmt.allocPrint(arena, "{s}{s}", .{
-            emit.sub_path, target.ofmt.fileExt(target.cpu.arch),
-        });
-        break :p o_file_path;
-    };
+    const zcu_object_sub_path = if (!use_lld and !use_llvm)
+        null
+    else
+        try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
 
     const self = try arena.create(Elf);
     self.* = .{
@@ -343,7 +341,7 @@ pub fn createEmpty(
     // can be passed to LLD.
     const sub_path = if (use_lld) zcu_object_sub_path.? else emit.sub_path;
     self.base.file = try emit.directory.handle.createFile(sub_path, .{
-        .truncate = false,
+        .truncate = true,
         .read = true,
         .mode = link.File.determineMode(use_lld, output_mode, link_mode),
     });
@@ -431,6 +429,8 @@ pub fn open(
     emit: Compilation.Emit,
     options: link.File.OpenOptions,
 ) !*Elf {
+    // TODO: restore saved linker state, don't truncate the file, and
+    // participate in incremental compilation.
     return createEmpty(arena, comp, emit, options);
 }
 
