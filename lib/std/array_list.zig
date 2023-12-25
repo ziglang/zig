@@ -344,19 +344,28 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             @memcpy(self.items[old_len..][0..items.len], items);
         }
 
-        pub const Writer = if (T != u8)
-            InvalidArrayListWriter
-        else
-            std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
+        // The Writer interface is only valid for ArrayList(u8)
+        //
+        // The Writer type is omitted rather than being assigned a compileError, because
+        // iterating declarations at comptime will fail to compile if a type declaration
+        // evaluates to a compileError and prevents comptime  introspection.
+        //
+        // Since people generally want to call arraylist.writer() to get a writer, the bogus
+        // writer function is where the error happens so we still get a good error message
+        // when incorrectly calling writer() on a non-u8 ArrayList.
+        pub usingnamespace if (T == u8) struct {
+            pub const Writer = std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
 
-        /// Initializes a Writer which will append to the list.
-        pub fn writer(self: *Self) Writer {
-            if (comptime T != u8) {
+            /// Initializes a Writer which will append to the list.
+            pub fn writer(self: *Self) Writer {
+                return .{ .context = self };
+            }
+        } else struct {
+            pub fn writer(_: *Self) void {
                 @compileError("The Writer interface is only defined for ArrayList(u8) " ++
                     "but the given type is ArrayList(" ++ @typeName(T) ++ ")");
             }
-            return .{ .context = self };
-        }
+        };
 
         /// Same as `append` except it returns the number of bytes written, which is always the same
         /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
@@ -887,19 +896,28 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             allocator: Allocator,
         };
 
-        pub const Writer = if (T != u8)
-            InvalidArrayListWriter
-        else
-            std.io.Writer(WriterContext, error{OutOfMemory}, appendWrite);
+        // The Writer interface is only valid for ArrayList(u8)
+        //
+        // The Writer type is omitted rather than being assigned a compileError, because
+        // iterating declarations at comptime will fail to compile if a type declaration
+        // evaluates to a compileError and prevents comptime  introspection.
+        //
+        // Since people generally want to call arraylist.writer() to get a writer, the bogus
+        // writer function is where the error happens so we still get a good error message
+        // when incorrectly calling writer() on a non-u8 ArrayList.
+        pub usingnamespace if (T == u8) struct {
+            pub const Writer = std.io.Writer(WriterContext, error{OutOfMemory}, appendWrite);
 
-        /// Initializes a Writer which will append to the list.
-        pub fn writer(self: *Self, allocator: Allocator) Writer {
-            if (comptime T != u8) {
+            /// Initializes a Writer which will append to the list.
+            pub fn writer(self: *Self, allocator: Allocator) Writer {
+                return .{ .context = .{ .self = self, .allocator = allocator } };
+            }
+        } else struct {
+            pub fn writer(_: *Self, _: Allocator) void {
                 @compileError("The Writer interface is only defined for ArrayList(u8) " ++
                     "but the given type is ArrayList(" ++ @typeName(T) ++ ")");
             }
-            return .{ .context = .{ .self = self, .allocator = allocator } };
-        }
+        };
 
         /// Same as `append` except it returns the number of bytes written, which is always the same
         /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
@@ -1642,9 +1660,6 @@ const ItemUnmanaged = struct {
     integer: i32,
     sub_items: ArrayListUnmanaged(ItemUnmanaged),
 };
-
-// Placeholder type for when  T != u8, so the actual Writer interface is not available
-const InvalidArrayListWriter = struct {};
 
 test "std.ArrayList/ArrayListUnmanaged: ArrayList(T) of struct T" {
     const a = std.testing.allocator;

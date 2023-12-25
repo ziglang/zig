@@ -267,19 +267,28 @@ pub fn BoundedArrayAligned(
             @memset(self.slice()[old_len..self.len], value);
         }
 
-        pub const Writer = if (T != u8)
-            InvalidBoundedArrayWriter
-        else
-            std.io.Writer(*Self, error{Overflow}, appendWrite);
+        // The Writer interface is only valid for BoundedArray(u8, ...)
+        //
+        // The Writer type is omitted rather than being assigned a compileError, because
+        // iterating declarations at comptime will fail to compile if a type declaration
+        // evaluates to a compileError and prevents comptime  introspection.
+        //
+        // Since people generally want to call boundedarray.writer() to get a writer, the bogus
+        // writer function is where the error happens so we still get a good error message
+        // when incorrectly calling writer() on a non-u8 BoundedArray.
+        pub usingnamespace if (T == u8) struct {
+            pub const Writer = std.io.Writer(*Self, error{Overflow}, appendWrite);
 
-        /// Initializes a writer which will write into the array.
-        pub fn writer(self: *Self) Writer {
-            if (comptime T != u8) {
+            /// Initializes a Writer which will write into the array.
+            pub fn writer(self: *Self) Writer {
+                return .{ .context = self };
+            }
+        } else struct {
+            pub fn writer(_: *Self) void {
                 @compileError("The Writer interface is only defined for BoundedArray(u8, ...) " ++
                     "but the given type is BoundedArray(" ++ @typeName(T) ++ ", ...)");
             }
-            return .{ .context = self };
-        }
+        };
 
         /// Same as `appendSlice` except it returns the number of bytes written, which is always the same
         /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
@@ -289,9 +298,6 @@ pub fn BoundedArrayAligned(
         }
     };
 }
-
-// Placeholder type for when  T != u8, so the actual Writer interface is not available
-const InvalidBoundedArrayWriter = struct {};
 
 test "BoundedArray" {
     var a = try BoundedArray(u8, 64).init(32);
