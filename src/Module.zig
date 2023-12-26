@@ -3656,7 +3656,7 @@ const LowerZon = struct {
     }
 
     fn lower(self: *LowerZon) !InternPool.Index {
-        const tree = self.file.getTree(self.mod.gpa) catch unreachable;
+        const tree = self.file.getTree(self.mod.gpa) catch unreachable; // Already validated
         if (tree.errors.len != 0) {
             return self.lowerAstErrors();
         }
@@ -3669,6 +3669,7 @@ const LowerZon = struct {
     // XXX: is compileError correct here..? can any of this be pulled out from AstGen.lowerAstErrors into a common function?
     fn lowerAstErrors(self: *LowerZon) CompileError {
         const tree = self.file.tree;
+        // XXX: ...
         assert(tree.errors.len > 0);
 
         const gpa = self.mod.gpa;
@@ -3749,12 +3750,22 @@ const LowerZon = struct {
                     return .bool_false;
                 } else if (std.mem.eql(u8, bytes, "null")) {
                     return .null_value;
+                } else if (std.mem.eql(u8, bytes, "nan")) {
+                    return try self.mod.intern(.{ .float = .{
+                        .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
+                        .storage = .{ .f128 = std.math.nan(f128) },
+                    } });
+                } else if (std.mem.eql(u8, bytes, "inf")) {
+                    return try self.mod.intern(.{ .float = .{
+                        .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
+                        .storage = .{ .f128 = std.math.inf(f128) },
+                    } });
                 } else {
                     return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{ bytes });
                 }
             },
-            .number_literal, .char_literal => return self.number(node, false),
-            .negation => return self.number(data[node].lhs, true),
+            .number_literal, .char_literal => return self.number(node, null),
+            .negation => return self.number(data[node].lhs, node),
             // XXX: make sure works with @""!
             .enum_literal => {
                 const token = main_tokens[node];
@@ -3854,6 +3865,7 @@ const LowerZon = struct {
             .struct_init,
             .struct_init_comma => {
                 var buf: [2]Ast.Node.Index = undefined;
+                // XXX: ...
                 const struct_init = self.file.tree.fullStructInit(&buf, node).?;
                 if (struct_init.ast.type_expr != 0) {
                     return self.fail(.{ .node_abs = struct_init.ast.type_expr }, "type expressions not allowed in ZON", .{});
@@ -3902,6 +3914,7 @@ const LowerZon = struct {
             .array_init_comma => {
                 // XXX: Ast.full.ContainerField?
                 var buf: [2]Ast.Node.Index = undefined;
+                // XXX: ...
                 const array_init = self.file.tree.fullArrayInit(&buf, node).?;
                 if (array_init.ast.type_expr != 0) {
                     return self.fail(.{ .node_abs = array_init.ast.type_expr }, "type expressions not allowed in ZON", .{});
@@ -3963,6 +3976,7 @@ const LowerZon = struct {
                     .struct_init_comma,
                     => {
                         var buf: [2]Ast.Node.Index = undefined;
+                        // XXX: ...
                         const full = self.file.tree.fullStructInit(&buf, child_node).?.ast.fields;
                         if (full.len == 0) {
                             const value = .empty_struct;
@@ -3993,11 +4007,12 @@ const LowerZon = struct {
         }
     }
 
-    fn number(self: *LowerZon, node: Ast.Node.Index, is_negative: bool) !InternPool.Index {
+    fn number(self: *LowerZon, node: Ast.Node.Index, is_negative: ?Ast.Node.Index) !InternPool.Index {
         const gpa = self.mod.gpa;
         const tags = self.file.tree.nodes.items(.tag);
         const main_tokens = self.file.tree.nodes.items(.main_token);
         switch (tags[node]) {
+            // XXX: what about negative char ltierals where the char lit is 0?l
             .char_literal => {
                 const token = main_tokens[node];
                 const token_bytes = self.file.tree.tokenSlice(token);
@@ -4014,7 +4029,7 @@ const LowerZon = struct {
                 };
                 return self.mod.intern_pool.get(gpa, .{ .int = .{
                     .ty = try self.mod.intern(.{ .simple_type = .comptime_int }),
-                    .storage = .{ .i64 = if (is_negative) -@as(i64, char) else char },
+                    .storage = .{ .i64 = if (is_negative == null) char else -@as(i64, char) },
                 }});
             },
             .number_literal => {
@@ -4023,7 +4038,11 @@ const LowerZon = struct {
                 const parsed = std.zig.number_literal.parseNumberLiteral(token_bytes);
                 switch (parsed) {
                     .int => |unsigned| {
-                        if (is_negative) {
+                        if (is_negative) |negative_node| {
+                            if (unsigned == 0) {
+                                // TODO: add notes explaining to use 0 or -0.0?
+                                return self.fail(.{ .node_abs = negative_node }, "integer literal '-0' is ambiguous", .{});
+                            }
                             const signed = std.math.negate(unsigned) catch {
                                 // XXX: test all cases...
                                 // XXX: can I just always do this or is that worse for perf?
@@ -4057,13 +4076,14 @@ const LowerZon = struct {
                         defer result.deinit();
                         for (token_bytes[prefix_offset..]) |char| {
                             if (char == '_') continue;
+                            // XXX: ...
                             var d = try std.math.big.int.Managed.initSet(gpa, std.fmt.charToDigit(char, @intFromEnum(base)) catch unreachable);
                             defer d.deinit();
                             try result.mul(&result, &base_managed);
-                            if (is_negative) {
-                                try result.sub(&result, &d);
-                            } else {
+                            if (is_negative == null) {
                                 try result.add(&result, &d);
+                            } else {
+                                try result.sub(&result, &d);
                             }
                         }
                         return self.mod.intern_pool.get(gpa, .{ .int = .{
@@ -4074,8 +4094,8 @@ const LowerZon = struct {
                     // XXX: I think it's okay to ignore float base, parseFloat will handle it right?
                     .float => {
                         // XXX: always f128?
-                        const unsigned_float = std.fmt.parseFloat(f128, token_bytes) catch unreachable;
-                        const float = if (is_negative) -unsigned_float else unsigned_float;
+                        const unsigned_float = std.fmt.parseFloat(f128, token_bytes) catch unreachable; // Already validated
+                        const float = if (is_negative == null) unsigned_float else -unsigned_float;
                         return try self.mod.intern(.{ .float = .{
                             .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
                             .storage = .{ .f128 = float },
@@ -4092,7 +4112,25 @@ const LowerZon = struct {
                     ),
                 }
             },
-            else => unreachable,
+            .identifier => {
+                const token = main_tokens[node];
+                const bytes = self.file.tree.tokenSlice(token);
+                // XXX: make comptime string map or something?
+                if (std.mem.eql(u8, bytes, "nan")) {
+                    return try self.mod.intern(.{ .float = .{
+                        .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
+                        .storage = .{ .f128 = std.math.nan(f128) },
+                    } });
+                } else if (std.mem.eql(u8, bytes, "inf")) {
+                    return try self.mod.intern(.{ .float = .{
+                        .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
+                        .storage = .{ .f128 = if (is_negative == null) std.math.inf(f128) else -std.math.inf(f128) },
+                    } });
+                } else {
+                    return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{ bytes });
+                }
+            },
+            else => return self.fail(.{ .node_abs = node }, "invalid ZON value", .{}),
         }
     }
 };

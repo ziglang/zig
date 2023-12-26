@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualDeep = std.testing.expectEqualDeep;
 const expectEqualSlices = std.testing.expectEqualSlices;
@@ -191,4 +192,24 @@ test "floats" {
     };
     const actual: @TypeOf(expected) = @import("zon/floats.zon");
     try expectEqual(actual, expected);
+}
+
+test "inf and nan" {
+    // comptime float
+    {
+        const actual: struct { comptime_float, comptime_float, comptime_float, comptime_float } = @import("zon/inf_and_nan.zon");
+        try expect(std.math.isNan(actual[0]));
+        try expect(std.math.isNan(actual[1]));
+        try expect(std.math.isPositiveInf(@as(f128, @floatCast(actual[2]))));
+        try expect(std.math.isNegativeInf(@as(f128, @floatCast(actual[3]))));
+    }
+
+    // f32
+    {
+        const actual: struct { f32, f32, f32, f32 } = @import("zon/inf_and_nan.zon");
+        try expect(std.math.isNan(actual[0]));
+        try expect(std.math.isNan(actual[1]));
+        try expect(std.math.isPositiveInf(actual[2]));
+        try expect(std.math.isNegativeInf(actual[3]));
+    }
 }
