@@ -1802,22 +1802,20 @@ pub fn LoadLibraryW(lpLibFileName: [*:0]const u16) LoadLibraryError!HMODULE {
     };
 }
 
-pub const LoadLibraryFlags = packed struct(DWORD) {
-    DONT_RESOLVE_DLL_REFERENCES: bool = false,
-    LOAD_LIBRARY_AS_DATAFILE: bool = false,
-    _unused0: u1 = 0,
-    LOAD_WITH_ALTERED_SEARCH_PATH: bool = false,
-    LOAD_IGNORE_CODE_AUTHZ_LEVEL: bool = false,
-    LOAD_LIBRARY_AS_IMAGE_RESOURCE: bool = false,
-    _unused1: u1 = 0,
-    LOAD_LIBRARY_REQUIRE_SIGNED_TARGET: bool = false,
-    LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR: bool = false,
-    LOAD_LIBRARY_SEARCH_APPLICATION_DIR: bool = false,
-    LOAD_LIBRARY_SEARCH_USER_DIRS: bool = false,
-    LOAD_LIBRARY_SEARCH_SYSTEM32: bool = false,
-    LOAD_LIBRARY_SEARCH_DEFAULT_DIRS: bool = false,
-    LOAD_LIBRARY_SAFE_CURRENT_DIRS: bool = false,
-    _unused2: u18 = 0,
+pub const LoadLibraryFlags = enum(DWORD) {
+    dont_resolve_dll_references = 0x00000001,
+    load_ignore_code_authz_level = 0x00000010,
+    load_library_as_datafile = 0x00000002,
+    load_library_as_datafile_exclusive = 0x00000040,
+    load_library_as_image_resource = 0x00000020,
+    load_library_search_application_dir = 0x00000200,
+    load_library_search_default_dirs = 0x00001000,
+    load_library_search_dll_load_dir = 0x00000100,
+    load_library_search_system32 = 0x00000800,
+    load_library_search_user_dirs = 0x00000400,
+    load_with_altered_search_path = 0x00000008,
+    load_library_require_signed_target = 0x00000080,
+    load_library_safe_current_dirs = 0x00002000,
 };
 
 pub fn LoadLibraryExW(lpLibFileName: [*:0]const u16, dwFlags: LoadLibraryFlags) LoadLibraryError!HMODULE {
