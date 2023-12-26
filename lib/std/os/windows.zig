@@ -1803,6 +1803,7 @@ pub fn LoadLibraryW(lpLibFileName: [*:0]const u16) LoadLibraryError!HMODULE {
 }
 
 pub const LoadLibraryFlags = enum(DWORD) {
+    none = 0,
     dont_resolve_dll_references = 0x00000001,
     load_ignore_code_authz_level = 0x00000010,
     load_library_as_datafile = 0x00000002,

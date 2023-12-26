@@ -317,7 +317,7 @@ pub const WindowsDynLib = struct {
     dll: windows.HMODULE,
 
     pub fn open(path: []const u8) !WindowsDynLib {
-        return openEx(path, 0);
+        return openEx(path, .none);
     }
 
     pub fn openEx(path: []const u8, flags: windows.LoadLibraryFlags) !WindowsDynLib {
@@ -326,7 +326,7 @@ pub const WindowsDynLib = struct {
     }
 
     pub fn openZ(path_c: [*:0]const u8) !WindowsDynLib {
-        return openExZ(path_c, 0);
+        return openExZ(path_c, .none);
     }
 
     pub fn openExZ(path_c: [*:0]const u8, flags: windows.LoadLibraryFlags) !WindowsDynLib {
@@ -335,7 +335,7 @@ pub const WindowsDynLib = struct {
     }
 
     pub fn openW(path_w: [*:0]const u16) !WindowsDynLib {
-        return openExW(path_w, 0);
+        return openExW(path_w, .none);
     }
 
     pub fn openExW(path_w: [*:0]const u16, flags: windows.LoadLibraryFlags) !WindowsDynLib {
