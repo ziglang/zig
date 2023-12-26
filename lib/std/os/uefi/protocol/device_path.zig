@@ -53,24 +53,24 @@ pub const DevicePath = extern struct {
 
         // Pointer to the copy of the end node of the current chain, which is - 4 from the buffer
         // as the end node itself is 4 bytes (type: u8 + subtype: u8 + length: u16).
-        var new = @as(*uefi.DevicePath.Media.FilePathDevicePath, @ptrCast(buf.ptr + path_size - 4));
+        var new = @as(*uefi.DevicePath.Media.FilePath, @ptrCast(buf.ptr + path_size - 4));
 
         new.type = .Media;
         new.subtype = .FilePath;
-        new.length = @sizeOf(uefi.DevicePath.Media.FilePathDevicePath) + 2 * (@as(u16, @intCast(path.len)) + 1);
+        new.length = @sizeOf(uefi.DevicePath.Media.FilePath) + 2 * (@as(u16, @intCast(path.len)) + 1);
 
         // The same as new.getPath(), but not const as we're filling it in.
-        var ptr = @as([*:0]align(1) u16, @ptrCast(@as([*]u8, @ptrCast(new)) + @sizeOf(uefi.DevicePath.Media.FilePathDevicePath)));
+        var ptr = @as([*:0]align(1) u16, @ptrCast(@as([*]u8, @ptrCast(new)) + @sizeOf(uefi.DevicePath.Media.FilePath)));
 
         for (path, 0..) |s, i|
             ptr[i] = s;
 
         ptr[path.len] = 0;
 
-        var end = @as(*uefi.DevicePath.End.EndEntireDevicePath, @ptrCast(@as(*DevicePath, @ptrCast(new)).next().?));
+        var end = @as(*uefi.DevicePath.End.EndEntire, @ptrCast(@as(*DevicePath, @ptrCast(new)).next().?));
         end.type = .End;
         end.subtype = .EndEntire;
-        end.length = @sizeOf(uefi.DevicePath.End.EndEntireDevicePath);
+        end.length = @sizeOf(uefi.DevicePath.End.EndEntire);
 
         return @as(*DevicePath, @ptrCast(buf.ptr));
     }

@@ -37,6 +37,11 @@ pub const Ipv6Address = extern struct {
     address: [16]u8,
 };
 
+pub const IpAddress = extern union {
+    v4: Ipv4Address,
+    v6: Ipv6Address,
+};
+
 /// This structure represents time information.
 pub const Time = extern struct {
     /// 1900 - 9999
