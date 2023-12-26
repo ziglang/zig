@@ -90,6 +90,8 @@ pub fn unescapeString(allocator: std.mem.Allocator, input: []const u8) error{Out
                 };
                 inptr += 2;
                 outsize += 1;
+            } else {
+                outsize += 1;
             }
         } else {
             inptr += 1;
@@ -115,6 +117,9 @@ pub fn unescapeString(allocator: std.mem.Allocator, input: []const u8) error{Out
                 output[outptr] = value;
 
                 inptr += 2;
+                outptr += 1;
+            } else {
+                output[outptr] = input[inptr - 1];
                 outptr += 1;
             }
         } else {
@@ -758,6 +763,10 @@ test "URI unescaping" {
     defer std.testing.allocator.free(actual);
 
     try std.testing.expectEqualSlices(u8, expected, actual);
+
+    const decoded = try unescapeString(std.testing.allocator, "/abc%");
+    defer std.testing.allocator.free(decoded);
+    try std.testing.expectEqualStrings("/abc%", decoded);
 }
 
 test "URI query escaping" {
