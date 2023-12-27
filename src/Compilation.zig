@@ -35,7 +35,6 @@ const c_codegen = @import("codegen/c.zig");
 const libtsan = @import("libtsan.zig");
 const Zir = @import("Zir.zig");
 const Autodoc = @import("Autodoc.zig");
-const Color = @import("main.zig").Color;
 const resinator = @import("resinator.zig");
 const Builtin = @import("Builtin.zig");
 
@@ -196,10 +195,6 @@ glibc_so_files: ?glibc.BuiltSharedObjects = null,
 /// The set of needed CRT (C runtime) files differs depending on the target and compilation settings.
 /// The key is the basename, and the value is the absolute path to the completed build artifact.
 crt_files: std.StringHashMapUnmanaged(CRTFile) = .{},
-
-/// This is for stage1 and should be deleted upon completion of self-hosting.
-/// Don't use this for anything other than stage1 compatibility.
-color: Color = .auto,
 
 /// How many lines of reference trace should be included per compile error.
 /// Null means only show snippet on first error.
@@ -1068,8 +1063,6 @@ pub const InitOptions = struct {
     libc_installation: ?*const LibCInstallation = null,
     native_system_include_paths: []const []const u8 = &.{},
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
-    /// This is for stage1 and should be deleted upon completion of self-hosting.
-    color: Color = .auto,
     reference_trace: ?u32 = null,
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
@@ -1481,7 +1474,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .verbose_llvm_cpu_features = options.verbose_llvm_cpu_features,
             .verbose_link = options.verbose_link,
             .disable_c_depfile = options.disable_c_depfile,
-            .color = options.color,
             .reference_trace = options.reference_trace,
             .formatted_panics = formatted_panics,
             .time_report = options.time_report,

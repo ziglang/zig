@@ -3220,7 +3220,6 @@ fn buildOutputType(
         .verbose_llvm_bc = verbose_llvm_bc,
         .verbose_cimport = verbose_cimport,
         .verbose_llvm_cpu_features = verbose_llvm_cpu_features,
-        .color = color,
         .time_report = time_report,
         .stack_report = stack_report,
         .each_lib_rpath = each_lib_rpath,
@@ -3323,7 +3322,7 @@ fn buildOutputType(
         return cmdTranslateC(comp, arena, null);
     }
 
-    updateModule(comp) catch |err| switch (err) {
+    updateModule(comp, color) catch |err| switch (err) {
         error.SemanticAnalyzeFail => {
             assert(listen == .none);
             saveState(comp, debug_incremental);
@@ -4436,13 +4435,13 @@ fn runOrTestHotSwap(
     }
 }
 
-fn updateModule(comp: *Compilation) !void {
+fn updateModule(comp: *Compilation, color: Color) !void {
     {
         // If the terminal is dumb, we dont want to show the user all the output.
         var progress: std.Progress = .{ .dont_print_on_dumb = true };
         const main_progress_node = progress.start("", 0);
         defer main_progress_node.end();
-        switch (comp.color) {
+        switch (color) {
             .off => {
                 progress.terminal = null;
             },
@@ -4460,13 +4459,14 @@ fn updateModule(comp: *Compilation) !void {
     defer errors.deinit(comp.gpa);
 
     if (errors.errorMessageCount() > 0) {
-        errors.renderToStdErr(renderOptions(comp.color));
+        errors.renderToStdErr(renderOptions(color));
         return error.SemanticAnalyzeFail;
     }
 }
 
 fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilation.CImportResult) !void {
     if (build_options.only_core_functionality) @panic("@translate-c is not available in a zig2.c build");
+    const color: Color = .auto;
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
@@ -4559,7 +4559,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
                             p.errors = errors;
                             return;
                         } else {
-                            errors.renderToStdErr(renderOptions(comp.color));
+                            errors.renderToStdErr(renderOptions(color));
                             process.exit(1);
                         }
                     },
@@ -5533,7 +5533,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         };
         defer comp.destroy();
 
-        updateModule(comp) catch |err| switch (err) {
+        updateModule(comp, color) catch |err| switch (err) {
             error.SemanticAnalyzeFail => process.exit(2),
             else => |e| return e,
         };
