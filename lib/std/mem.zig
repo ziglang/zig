@@ -636,11 +636,12 @@ test "lessThan" {
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
+    if (@sizeOf(T) == 0) return true;
 
     // No vectorization in stage2 x86_64 or x86
     // https://github.com/ziglang/zig/issues/17748
     if (builtin.zig_backend != .stage2_x86_64 and builtin.zig_backend != .stage2_x86) {
-        if (@typeInfo(T) == .Int and std.math.isPowerOfTwo(@bitSizeOf(T))) return eqlBytes(std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
+        if (std.meta.hasUniqueRepresentation(T)) return eqlBytes(std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
     }
 
     for (a, b) |a_elem, b_elem| {
@@ -666,37 +667,45 @@ pub fn eqlBytes(a: []const u8, b: []const u8) bool {
         return x == 0;
     }
 
-    const v = std.simd.suggestVectorSize(u8) orelse @sizeOf(usize);
+    // Figure out the fastest way to scan through the input in chunks.
+    // Uses vectors when supported and falls back to usize/words when not.
+    const Scan = if (std.simd.suggestVectorSize(u8)) |vec_size|
+        struct {
+            pub const size = vec_size;
+            pub const Chunk = @Vector(size, u8);
+            pub inline fn isZero(chunk: Chunk) bool {
+                return @reduce(.Or, chunk) == 0;
+            }
+        }
+    else
+        struct {
+            pub const size = @sizeOf(usize);
+            pub const Chunk = usize;
+            pub inline fn isZero(chunk: Chunk) bool {
+                return chunk == 0;
+            }
+        };
 
     inline for (1..6) |s| {
         const n = 16 << s;
-        if (n <= v and a.len <= n) {
+        if (n <= Scan.size and a.len <= n) {
             const V = @Vector(n / 2, u8);
             var x = @as(V, a[0 .. n / 2].*) ^ @as(V, b[0 .. n / 2].*);
             x |= @as(V, a[a.len - n / 2 ..][0 .. n / 2].*) ^ @as(V, b[a.len - n / 2 ..][0 .. n / 2].*);
             return @reduce(.Or, x) == 0;
         }
     }
-
-    const V = @Vector(v, u8);
-
-    var p: usize = 0;
-    var l = a.len;
-    inline for ([_]usize{ 4, 1 }) |blk| {
-        while (l > v * blk) : ({
-            l -= v * blk;
-            p += v * blk;
-        }) {
-            if (blk > 1) {
-                @prefetch(a.ptr + p + v * blk, .{ .locality = 0 });
-                @prefetch(b.ptr + p + v * blk, .{ .locality = 0 });
-            }
-            var x: V = @splat(0);
-            for (0..blk) |i| x |= @as(V, a[p + (i * v) ..][0..v].*) ^ @as(V, b[p + (i * v) ..][0..v].*);
-            if (@reduce(.Or, x) != 0) return false;
-        }
+    // Compare inputs in chunks at a time (excluding the last chunk).
+    for (0..(a.len - 1) / Scan.size) |i| {
+        const a_chunk: Scan.Chunk = @bitCast(a[i * Scan.size ..][0..Scan.size].*);
+        const b_chunk: Scan.Chunk = @bitCast(b[i * Scan.size ..][0..Scan.size].*);
+        if (!Scan.isZero(a_chunk ^ b_chunk)) return false;
     }
-    return @reduce(.Or, @as(V, a[a.len - v ..][0..v].*) ^ @as(V, b[a.len - v ..][0..v].*)) == 0;
+
+    // Compare the last chunk using an overlapping read (similar to the previous size strategies).
+    const last_a_chunk: Scan.Chunk = @bitCast(a[a.len - Scan.size ..][0..Scan.size].*);
+    const last_b_chunk: Scan.Chunk = @bitCast(b[a.len - Scan.size ..][0..Scan.size].*);
+    return Scan.isZero(last_a_chunk ^ last_b_chunk);
 }
 
 /// Compares two slices and returns the index of the first inequality.
