@@ -99,6 +99,7 @@ pub fn main() !void {
     var skip_oom_steps: bool = false;
     var color: Color = .auto;
     var seed: u32 = 0;
+    var prominent_compile_errors: bool = false;
 
     const stderr_stream = io.getStdErr().writer();
     const stdout_stream = io.getStdOut().writer();
@@ -242,6 +243,8 @@ pub fn main() !void {
                 builder.verbose_cc = true;
             } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
                 builder.verbose_llvm_cpu_features = true;
+            } else if (mem.eql(u8, arg, "--prominent-compile-errors")) {
+                prominent_compile_errors = true;
             } else if (mem.eql(u8, arg, "-fwine")) {
                 builder.enable_wine = true;
             } else if (mem.eql(u8, arg, "-fno-wine")) {
@@ -325,6 +328,7 @@ pub fn main() !void {
         .max_rss_mutex = .{},
         .skip_oom_steps = skip_oom_steps,
         .memory_blocked_steps = std.ArrayList(*Step).init(arena),
+        .prominent_compile_errors = prominent_compile_errors,
 
         .claimed_rss = 0,
         .summary = summary,
@@ -357,6 +361,7 @@ const Run = struct {
     max_rss_mutex: std.Thread.Mutex,
     skip_oom_steps: bool,
     memory_blocked_steps: std.ArrayList(*Step),
+    prominent_compile_errors: bool,
 
     claimed_rss: usize,
     summary: ?Summary,
@@ -561,7 +566,7 @@ fn runStepNames(
     // Finally, render compile errors at the bottom of the terminal.
     // We use a separate compile_error_steps array list because step_stack is destructively
     // mutated in printTreeStep above.
-    if (total_compile_errors > 0) {
+    if (run.prominent_compile_errors and total_compile_errors > 0) {
         for (compile_error_steps.items) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
                 s.result_error_bundle.renderToStdErr(renderOptions(ttyconf));
@@ -910,7 +915,11 @@ fn workerMakeOneStep(
     const make_result = s.make(&sub_prog_node);
 
     // No matter the result, we want to display error/warning messages.
-    if (s.result_error_msgs.items.len > 0) {
+    const show_compile_errors = !run.prominent_compile_errors and
+        s.result_error_bundle.errorMessageCount() > 0;
+    const show_error_msgs = s.result_error_msgs.items.len > 0;
+
+    if (show_error_msgs or show_compile_errors) {
         sub_prog_node.context.lock_stderr();
         defer sub_prog_node.context.unlock_stderr();
 
@@ -1003,7 +1012,11 @@ fn printErrorMessages(b: *std.Build, failing_step: *Step, run: *const Run) !void
     }
     try ttyconf.setColor(stderr, .reset);
 
-    // Finally, the actual error messages.
+    // Penultimately, the compilation errors.
+    if (!run.prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0)
+        try failing_step.result_error_bundle.renderToWriter(renderOptions(ttyconf), stderr.writer());
+
+    // Finally, generic error messages.
     for (failing_step.result_error_msgs.items) |msg| {
         try ttyconf.setColor(stderr, .red);
         try stderr.writeAll("error: ");
@@ -1078,6 +1091,7 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\  -l, --list-steps             Print available steps
         \\  --verbose                    Print commands before executing them
         \\  --color [auto|off|on]        Enable or disable colored error messages
+        \\  --prominent-compile-errors   Buffer compile errors and display at end
         \\  --summary [mode]             Control the printing of the build summary
         \\    all                        Print the build summary in its entirety
         \\    failures                   (Default) Only print failed steps
