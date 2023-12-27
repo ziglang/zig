@@ -37,6 +37,7 @@ pub const Relocation = types.Relocation;
 pub const base_tag: link.File.Tag = .wasm;
 
 base: link.File,
+entry_name: ?[]const u8,
 import_symbols: bool,
 export_symbol_names: []const []const u8,
 global_base: ?u64,
@@ -397,6 +398,7 @@ pub fn createEmpty(
     const use_llvm = comp.config.use_llvm;
     const output_mode = comp.config.output_mode;
     const shared_memory = comp.config.shared_memory;
+    const wasi_exec_model = comp.config.wasi_exec_model;
 
     // If using LLD to link, this code should produce an object file so that it
     // can be passed to LLD.
@@ -434,6 +436,13 @@ pub fn createEmpty(
         .initial_memory = options.initial_memory,
         .max_memory = options.max_memory,
         .wasi_emulated_libs = options.wasi_emulated_libs,
+
+        .entry_name = switch (options.entry) {
+            .disabled => null,
+            .default => if (output_mode != .Exe) null else defaultEntrySymbolName(wasi_exec_model),
+            .enabled => defaultEntrySymbolName(wasi_exec_model),
+            .named => |name| name,
+        },
     };
     if (use_llvm and comp.config.have_zcu) {
         wasm.llvm_object = try LlvmObject.create(arena, comp);
@@ -3042,7 +3051,7 @@ fn setupExports(wasm: *Wasm) !void {
 fn setupStart(wasm: *Wasm) !void {
     const comp = wasm.base.comp;
     // do not export entry point if user set none or no default was set.
-    const entry_name = comp.config.entry orelse return;
+    const entry_name = wasm.entry_name orelse return;
 
     const symbol_loc = wasm.findGlobalSymbol(entry_name) orelse {
         log.err("Entry symbol '{s}' missing, use '-fno-entry' to suppress", .{entry_name});
@@ -3475,8 +3484,8 @@ fn resetState(wasm: *Wasm) void {
 }
 
 pub fn flush(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    const use_lld = build_options.have_llvm and wasm.base.comp.config.use_lld;
-    const use_llvm = wasm.base.comp.config.use_llvm;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
 
     if (use_lld) {
         return wasm.linkWithLLD(comp, prog_node);
@@ -3492,7 +3501,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = wasm.base.comp.gpa;
+    const gpa = comp.gpa;
     const shared_memory = comp.config.shared_memory;
     const import_memory = comp.config.import_memory;
 
@@ -3503,8 +3512,8 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
 
     const directory = wasm.base.emit.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{wasm.base.emit.sub_path});
-    const opt_zcu = wasm.base.comp.module;
-    const use_llvm = wasm.base.comp.config.use_llvm;
+    const opt_zcu = comp.module;
+    const use_llvm = comp.config.use_llvm;
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
@@ -3535,7 +3544,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     defer if (!wasm.base.disable_lld_caching) man.deinit();
     var digest: [Cache.hex_digest_len]u8 = undefined;
 
-    const objects = wasm.base.comp.objects;
+    const objects = comp.objects;
 
     // NOTE: The following section must be maintained to be equal
     // as the section defined in `linkWithLLD`
@@ -3556,7 +3565,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFile(compiler_rt_path);
-        man.hash.addOptionalBytes(wasm.base.comp.config.entry);
+        man.hash.addOptionalBytes(wasm.entry_name);
         man.hash.add(wasm.base.stack_size);
         man.hash.add(wasm.base.build_id);
         man.hash.add(import_memory);
@@ -3605,12 +3614,12 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     var positionals = std.ArrayList([]const u8).init(arena);
     try positionals.ensureUnusedCapacity(objects.len);
 
-    const target = wasm.base.comp.root_mod.resolved_target.result;
-    const output_mode = wasm.base.comp.config.output_mode;
-    const link_mode = wasm.base.comp.config.link_mode;
-    const link_libc = wasm.base.comp.config.link_libc;
-    const link_libcpp = wasm.base.comp.config.link_libcpp;
-    const wasi_exec_model = wasm.base.comp.config.wasi_exec_model;
+    const target = comp.root_mod.resolved_target.result;
+    const output_mode = comp.config.output_mode;
+    const link_mode = comp.config.link_mode;
+    const link_libc = comp.config.link_libc;
+    const link_libcpp = comp.config.link_libcpp;
+    const wasi_exec_model = comp.config.wasi_exec_model;
 
     // When the target os is WASI, we allow linking with WASI-LIBC
     if (target.os.tag == .wasi) {
@@ -4648,7 +4657,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFile(compiler_rt_path);
-        man.hash.addOptionalBytes(wasm.base.comp.config.entry);
+        man.hash.addOptionalBytes(wasm.entry_name);
         man.hash.add(wasm.base.stack_size);
         man.hash.add(wasm.base.build_id);
         man.hash.add(import_memory);
@@ -4799,9 +4808,8 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append("--export-dynamic");
         }
 
-        if (comp.config.entry) |entry| {
-            try argv.append("--entry");
-            try argv.append(entry);
+        if (wasm.entry_name) |entry_name| {
+            try argv.appendSlice(&.{ "--entry", entry_name });
         } else {
             try argv.append("--no-entry");
         }
@@ -5346,4 +5354,11 @@ fn mark(wasm: *Wasm, loc: SymbolLoc) !void {
         const target_loc: SymbolLoc = .{ .index = reloc.index, .file = loc.file };
         try wasm.mark(target_loc.finalLoc(wasm));
     }
+}
+
+fn defaultEntrySymbolName(wasi_exec_model: std.builtin.WasiExecModel) []const u8 {
+    return switch (wasi_exec_model) {
+        .reactor => "_initialize",
+        .command => "_start",
+    };
 }

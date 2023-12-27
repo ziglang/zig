@@ -924,7 +924,7 @@ pub const LinkObject = struct {
     loption: bool = false,
 };
 
-pub const InitOptions = struct {
+pub const CreateOptions = struct {
     zig_lib_directory: Directory,
     local_cache_directory: Directory,
     global_cache_directory: Directory,
@@ -1054,7 +1054,7 @@ pub const InitOptions = struct {
     /// infinite recursion.
     skip_linker_dependencies: bool = false,
     hash_style: link.File.Elf.HashStyle = .both,
-    entry: ?[]const u8 = null,
+    entry: Entry = .default,
     force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{},
     stack_size: ?u64 = null,
     image_base: ?u64 = null,
@@ -1089,6 +1089,8 @@ pub const InitOptions = struct {
     /// (Windows) PDB output path
     pdb_out_path: ?[]const u8 = null,
     error_limit: ?Compilation.Module.ErrorInt = null,
+
+    pub const Entry = link.File.OpenOptions.Entry;
 };
 
 fn addModuleTableToCacheHash(
@@ -1159,7 +1161,7 @@ fn addModuleTableToCacheHash(
     }
 }
 
-pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
+pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
     const output_mode = options.config.output_mode;
     const is_dyn_lib = switch (output_mode) {
         .Obj, .Exe => false,
@@ -1543,6 +1545,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .dynamicbase = options.linker_dynamicbase,
             .major_subsystem_version = options.major_subsystem_version,
             .minor_subsystem_version = options.minor_subsystem_version,
+            .entry = options.entry,
             .stack_size = options.stack_size,
             .image_base = options.image_base,
             .version_script = options.version_script,

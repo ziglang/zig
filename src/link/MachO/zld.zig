@@ -276,9 +276,8 @@ pub fn linkWithZld(
                 try argv.append("-dead_strip_dylibs");
             }
 
-            if (comp.config.entry) |entry| {
-                try argv.append("-e");
-                try argv.append(entry);
+            if (macho_file.entry_name) |entry_name| {
+                try argv.appendSlice(&.{ "-e", entry_name });
             }
 
             for (objects) |obj| {

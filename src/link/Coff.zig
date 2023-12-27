@@ -17,6 +17,7 @@ dynamicbase: bool,
 major_subsystem_version: u16,
 minor_subsystem_version: u16,
 lib_dirs: []const []const u8,
+entry: link.File.OpenOptions.Entry,
 entry_addr: ?u32,
 module_definition_file: ?[]const u8,
 pdb_out_path: ?[]const u8,
@@ -303,7 +304,12 @@ pub fn createEmpty(
             .Obj => 0,
         },
 
+        // Subsystem depends on the set of public symbol names from linked objects.
+        // See LinkerDriver::inferSubsystem from the LLD project for the flow chart.
         .subsystem = options.subsystem,
+
+        .entry = options.entry,
+
         .tsaware = options.tsaware,
         .nxcompat = options.nxcompat,
         .dynamicbase = options.dynamicbase,
@@ -2498,7 +2504,20 @@ inline fn getSizeOfImage(self: Coff) u32 {
 /// Returns symbol location corresponding to the set entrypoint (if any).
 pub fn getEntryPoint(self: Coff) ?SymbolWithLoc {
     const comp = self.base.comp;
-    const entry_name = comp.config.entry orelse return null;
+
+    // TODO This is incomplete.
+    // The entry symbol name depends on the subsystem as well as the set of
+    // public symbol names from linked objects.
+    // See LinkerDriver::findDefaultEntry from the LLD project for the flow chart.
+    const entry_name = switch (self.entry) {
+        .disabled => return null,
+        .default => switch (comp.config.output_mode) {
+            .Exe => "wWinMainCRTStartup",
+            .Obj, .Lib => return null,
+        },
+        .enabled => "wWinMainCRTStartup",
+        .named => |name| name,
+    };
     const global_index = self.resolver.get(entry_name) orelse return null;
     return self.globals.items[global_index];
 }

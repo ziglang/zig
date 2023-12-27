@@ -857,6 +857,7 @@ fn buildOutputType(
     var linker_optimization: ?[]const u8 = null;
     var linker_module_definition_file: ?[]const u8 = null;
     var test_no_exec = false;
+    var entry: Compilation.CreateOptions.Entry = .default;
     var force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{};
     var stack_size: ?u64 = null;
     var image_base: ?u64 = null;
@@ -1129,7 +1130,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-O")) {
                         mod_opts.optimize_mode = parseOptimizeMode(args_iter.nextOrFatal());
                     } else if (mem.startsWith(u8, arg, "-fentry=")) {
-                        create_module.opts.entry = .{ .named = arg["-fentry=".len..] };
+                        entry = .{ .named = arg["-fentry=".len..] };
                     } else if (mem.eql(u8, arg, "--force_undefined")) {
                         try force_undefined_symbols.put(arena, args_iter.nextOrFatal(), {});
                     } else if (mem.eql(u8, arg, "--stack")) {
@@ -1556,12 +1557,12 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--import-memory")) {
                         create_module.opts.import_memory = true;
                     } else if (mem.eql(u8, arg, "-fentry")) {
-                        switch (create_module.opts.entry) {
-                            .default, .disabled => create_module.opts.entry = .enabled,
+                        switch (entry) {
+                            .default, .disabled => entry = .enabled,
                             .enabled, .named => {},
                         }
                     } else if (mem.eql(u8, arg, "-fno-entry")) {
-                        create_module.opts.entry = .disabled;
+                        entry = .disabled;
                     } else if (mem.eql(u8, arg, "--export-memory")) {
                         create_module.opts.export_memory = true;
                     } else if (mem.eql(u8, arg, "--import-symbols")) {
@@ -2065,7 +2066,7 @@ fn buildOutputType(
                         create_module.sysroot = it.only_arg;
                     },
                     .entry => {
-                        create_module.opts.entry = .{ .named = it.only_arg };
+                        entry = .{ .named = it.only_arg };
                     },
                     .force_undefined_symbol => {
                         try force_undefined_symbols.put(arena, it.only_arg, {});
@@ -2210,7 +2211,7 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "--export-table")) {
                     linker_export_table = true;
                 } else if (mem.eql(u8, arg, "--no-entry")) {
-                    create_module.opts.entry = .disabled;
+                    entry = .disabled;
                 } else if (mem.eql(u8, arg, "--initial-memory")) {
                     const next_arg = linker_args_it.nextOrFatal();
                     linker_initial_memory = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
@@ -2284,7 +2285,7 @@ fn buildOutputType(
                     };
                     have_version = true;
                 } else if (mem.eql(u8, arg, "-e") or mem.eql(u8, arg, "--entry")) {
-                    create_module.opts.entry = .{ .named = linker_args_it.nextOrFatal() };
+                    entry = .{ .named = linker_args_it.nextOrFatal() };
                 } else if (mem.eql(u8, arg, "-u")) {
                     try force_undefined_symbols.put(arena, linker_args_it.nextOrFatal(), {});
                 } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack_size")) {
@@ -3200,6 +3201,7 @@ fn buildOutputType(
         .minor_subsystem_version = minor_subsystem_version,
         .link_eh_frame_hdr = link_eh_frame_hdr,
         .link_emit_relocs = link_emit_relocs,
+        .entry = entry,
         .force_undefined_symbols = force_undefined_symbols,
         .stack_size = stack_size,
         .image_base = image_base,
@@ -3845,8 +3847,6 @@ fn createModule(
             error.ObjectFilesCannotShareMemory => fatal("object files cannot share memory", .{}),
             error.SharedMemoryRequiresAtomicsAndBulkMemory => fatal("shared memory requires atomics and bulk_memory CPU features", .{}),
             error.ThreadsRequireSharedMemory => fatal("threads require shared memory", .{}),
-            error.UnknownTargetEntryPoint => fatal("unknown target entry point", .{}),
-            error.NonExecutableEntryPoint => fatal("entry points only allowed for executables", .{}),
             error.EmittingLlvmModuleRequiresLlvmBackend => fatal("emitting an LLVM module requires using the LLVM backend", .{}),
             error.LlvmLacksTargetSupport => fatal("LLVM lacks support for the specified target", .{}),
             error.ZigLacksTargetSupport => fatal("compiler backend unavailable for the specified target", .{}),

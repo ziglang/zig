@@ -25,6 +25,7 @@ linker_script: ?[]const u8,
 version_script: ?[]const u8,
 print_icf_sections: bool,
 print_map: bool,
+entry_name: ?[]const u8,
 
 ptr_width: PtrWidth,
 
@@ -289,6 +290,13 @@ pub fn createEmpty(
         .ptr_width = ptr_width,
         .page_size = page_size,
         .default_sym_version = default_sym_version,
+
+        .entry_name = switch (options.entry) {
+            .disabled => null,
+            .default => if (output_mode != .Exe) null else defaultEntrySymbolName(target.cpu.arch),
+            .enabled => defaultEntrySymbolName(target.cpu.arch),
+            .named => |name| name,
+        },
 
         .image_base = b: {
             if (is_dyn_lib) break :b 0;
@@ -1305,7 +1313,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // Look for entry address in objects if not set by the incremental compiler.
     if (self.entry_index == null) {
-        if (comp.config.entry) |name| {
+        if (self.entry_name) |name| {
             self.entry_index = self.globalByName(name);
         }
     }
@@ -1679,9 +1687,8 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             }
         }
 
-        if (comp.config.entry) |entry| {
-            try argv.append("--entry");
-            try argv.append(entry);
+        if (self.entry_name) |name| {
+            try argv.appendSlice(&.{ "--entry", name });
         }
 
         for (self.base.rpath_list) |rpath| {
@@ -2427,7 +2434,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
-        man.hash.addOptionalBytes(comp.config.entry);
+        man.hash.addOptionalBytes(self.entry_name);
         man.hash.add(self.image_base);
         man.hash.add(self.base.gc_sections);
         man.hash.addOptional(self.sort_section);
@@ -2563,9 +2570,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             .ReleaseFast, .ReleaseSafe => try argv.append("-O3"),
         }
 
-        if (comp.config.entry) |entry| {
-            try argv.append("--entry");
-            try argv.append(entry);
+        if (self.entry_name) |name| {
+            try argv.appendSlice(&.{ "--entry", name });
         }
 
         for (self.base.force_undefined_symbols.keys()) |sym| {
@@ -6511,6 +6517,13 @@ const RelaSectionTable = std.AutoArrayHashMapUnmanaged(u32, RelaSection);
 
 pub const R_X86_64_ZIG_GOT32 = elf.R_X86_64_NUM + 1;
 pub const R_X86_64_ZIG_GOTPCREL = elf.R_X86_64_NUM + 2;
+
+fn defaultEntrySymbolName(cpu_arch: std.Target.Cpu.Arch) []const u8 {
+    return switch (cpu_arch) {
+        .mips, .mipsel, .mips64, .mips64el => "__start",
+        else => "_start",
+    };
+}
 
 const std = @import("std");
 const build_options = @import("build_options");

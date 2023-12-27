@@ -1,4 +1,5 @@
 base: File,
+entry_name: ?[]const u8,
 
 /// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
 llvm_object: ?*LlvmObject = null,
@@ -231,6 +232,12 @@ pub fn createEmpty(
         .install_name = options.install_name,
         .entitlements = options.entitlements,
         .compatibility_version = options.compatibility_version,
+        .entry_name = switch (options.entry) {
+            .disabled => null,
+            .default => if (output_mode != .Exe) null else default_entry_symbol_name,
+            .enabled => default_entry_symbol_name,
+            .named => |name| name,
+        },
     };
     if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, comp);
@@ -1629,8 +1636,9 @@ pub fn resolveSymbols(self: *MachO) !void {
     // we search for it in libraries should there be no object files specified
     // on the linker line.
     if (output_mode == .Exe) {
-        const entry_name = comp.config.entry.?;
-        _ = try self.addUndefined(entry_name, .{});
+        if (self.entry_name) |entry_name| {
+            _ = try self.addUndefined(entry_name, .{});
+        }
     }
 
     // Force resolution of any symbols requested by the user.
@@ -5085,8 +5093,7 @@ pub fn getStubsEntryAddress(self: *MachO, sym_with_loc: SymbolWithLoc) ?u64 {
 /// Returns symbol location corresponding to the set entrypoint if any.
 /// Asserts output mode is executable.
 pub fn getEntryPoint(self: MachO) ?SymbolWithLoc {
-    const comp = self.base.comp;
-    const entry_name = comp.config.entry orelse return null;
+    const entry_name = self.entry_name orelse return null;
     const global = self.getGlobal(entry_name) orelse return null;
     return global;
 }
@@ -5644,6 +5651,8 @@ pub fn logAtom(self: *MachO, atom_index: Atom.Index, logger: anytype) void {
         }
     }
 }
+
+const default_entry_symbol_name = "_main";
 
 pub const base_tag: File.Tag = File.Tag.macho;
 pub const N_DEAD: u16 = @as(u16, @bitCast(@as(i16, -1)));

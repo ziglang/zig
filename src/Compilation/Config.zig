@@ -55,7 +55,6 @@ export_memory: bool,
 shared_memory: bool,
 is_test: bool,
 test_evented_io: bool,
-entry: ?[]const u8,
 debug_format: DebugFormat,
 root_strip: bool,
 root_error_tracing: bool,
@@ -100,12 +99,6 @@ pub const Options = struct {
     use_lld: ?bool = null,
     use_clang: ?bool = null,
     lto: ?bool = null,
-    entry: union(enum) {
-        default,
-        disabled,
-        enabled,
-        named: []const u8,
-    } = .default,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     import_memory: ?bool = null,
@@ -123,8 +116,6 @@ pub const ResolveError = error{
     ObjectFilesCannotShareMemory,
     SharedMemoryRequiresAtomicsAndBulkMemory,
     ThreadsRequireSharedMemory,
-    UnknownTargetEntryPoint,
-    NonExecutableEntryPoint,
     EmittingLlvmModuleRequiresLlvmBackend,
     LlvmLacksTargetSupport,
     ZigLacksTargetSupport,
@@ -352,25 +343,6 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    const entry: ?[]const u8 = switch (options.entry) {
-        .disabled => null,
-        .default => b: {
-            if (options.output_mode != .Exe) break :b null;
-
-            // When producing C source code, the decision of entry point is made
-            // when compiling the C code, not when producing the C code.
-            if (target.ofmt == .c) break :b null;
-
-            break :b target_util.defaultEntrySymbolName(target, wasi_exec_model) orelse
-                return error.UnknownTargetEntryPoint;
-        },
-        .enabled => target_util.defaultEntrySymbolName(target, wasi_exec_model) orelse
-            return error.UnknownTargetEntryPoint,
-        .named => |name| name,
-    };
-    if (entry != null and options.output_mode != .Exe)
-        return error.NonExecutableEntryPoint;
-
     const any_unwind_tables = options.any_unwind_tables or
         link_libunwind or target_util.needUnwindTables(target);
 
@@ -519,7 +491,6 @@ pub fn resolve(options: Options) ResolveError!Config {
         .use_llvm = use_llvm,
         .use_lib_llvm = use_lib_llvm,
         .use_lld = use_lld,
-        .entry = entry,
         .wasi_exec_model = wasi_exec_model,
         .debug_format = debug_format,
         .root_strip = root_strip,

@@ -52,6 +52,13 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     const link_in_crt = comp.config.link_libc and is_exe_or_dyn_lib;
     const target = comp.root_mod.resolved_target.result;
     const optimize_mode = comp.root_mod.optimize_mode;
+    const entry_name: ?[]const u8 = switch (self.entry) {
+        // This logic isn't quite right for disabled or enabled. No point in fixing it
+        // when the goal is to eliminate dependency on LLD anyway.
+        // https://github.com/ziglang/zig/issues/17751
+        .disabled, .default, .enabled => null,
+        .named => |name| name,
+    };
 
     // See link/Elf.zig for comments on how this mechanism works.
     const id_symlink_basename = "lld.id";
@@ -80,7 +87,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             }
         }
         try man.addOptionalFile(module_obj_path);
-        man.hash.addOptionalBytes(comp.config.entry);
+        man.hash.addOptionalBytes(entry_name);
         man.hash.add(self.base.stack_size);
         man.hash.add(self.image_base);
         man.hash.addListOfBytes(self.lib_dirs);
@@ -218,8 +225,8 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             try argv.append("-DLL");
         }
 
-        if (comp.config.entry) |entry| {
-            try argv.append(try allocPrint(arena, "-ENTRY:{s}", .{entry}));
+        if (entry_name) |name| {
+            try argv.append(try allocPrint(arena, "-ENTRY:{s}", .{name}));
         }
 
         if (self.tsaware) {
@@ -441,7 +448,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                     }
                 } else {
                     try argv.append("-NODEFAULTLIB");
-                    if (!is_lib and comp.config.entry == null) {
+                    if (!is_lib and entry_name == null) {
                         if (comp.module) |module| {
                             if (module.stage1_flags.have_winmain_crt_startup) {
                                 try argv.append("-ENTRY:WinMainCRTStartup");

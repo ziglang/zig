@@ -683,23 +683,3 @@ pub fn backendSupportsFeature(
         .safety_checked_instructions => use_llvm,
     };
 }
-
-pub fn defaultEntrySymbolName(
-    target: std.Target,
-    /// May be `undefined` when `target` is not WASI.
-    wasi_exec_model: std.builtin.WasiExecModel,
-) ?[]const u8 {
-    return switch (target.ofmt) {
-        .coff => "wWinMainCRTStartup",
-        .macho => "_main",
-        .elf, .plan9 => switch (target.cpu.arch) {
-            .mips, .mipsel, .mips64, .mips64el => "__start",
-            else => "_start",
-        },
-        .wasm => switch (wasi_exec_model) {
-            .reactor => "_initialize",
-            .command => "_start",
-        },
-        else => null,
-    };
-}

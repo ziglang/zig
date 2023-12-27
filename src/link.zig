@@ -83,6 +83,8 @@ pub const File = struct {
         symbol_count_hint: u64 = 32,
         program_code_size_hint: u64 = 256 * 1024,
 
+        /// This may depend on what symbols are found during the linking process.
+        entry: Entry,
         /// Virtual address of the entry point procedure relative to image base.
         entry_addr: ?u64,
         stack_size: ?u64,
@@ -169,6 +171,13 @@ pub const File = struct {
         module_definition_file: ?[]const u8,
 
         wasi_emulated_libs: []const wasi_libc.CRTFile,
+
+        pub const Entry = union(enum) {
+            default,
+            disabled,
+            enabled,
+            named: []const u8,
+        };
     };
 
     /// Attempts incremental linking, if the file already exists. If
