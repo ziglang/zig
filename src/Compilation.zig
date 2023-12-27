@@ -815,6 +815,7 @@ pub const cache_helpers = struct {
         hh.add(mod.sanitize_thread);
         hh.add(mod.unwind_tables);
         hh.add(mod.structured_cfg);
+        hh.addListOfBytes(mod.cc_argv);
     }
 
     pub fn addResolvedTarget(
@@ -2398,10 +2399,6 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.main_mod, .{ .files = man });
 
         // Synchronize with other matching comments: ZigOnlyHashStuff
-        man.hash.add(comp.config.use_llvm);
-        man.hash.add(comp.config.use_lib_llvm);
-        man.hash.add(comp.config.dll_export_fns);
-        man.hash.add(comp.config.is_test);
         man.hash.add(comp.config.test_evented_io);
         man.hash.addOptionalBytes(comp.test_filter);
         man.hash.addOptionalBytes(comp.test_name_prefix);
@@ -2439,18 +2436,42 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         }
     }
 
+    man.hash.add(comp.config.use_llvm);
+    man.hash.add(comp.config.use_lib_llvm);
+    man.hash.add(comp.config.is_test);
+    man.hash.add(comp.config.import_memory);
+    man.hash.add(comp.config.export_memory);
+    man.hash.add(comp.config.shared_memory);
+    man.hash.add(comp.config.dll_export_fns);
+    man.hash.add(comp.config.rdynamic);
+
     man.hash.addOptionalBytes(comp.sysroot);
     man.hash.addOptional(comp.version);
+    man.hash.add(comp.link_eh_frame_hdr);
+    man.hash.add(comp.skip_linker_dependencies);
+    man.hash.add(comp.include_compiler_rt);
     man.hash.addListOfBytes(comp.rc_include_dir_list);
     man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
+    man.hash.addListOfBytes(comp.framework_dirs);
+    try link.hashAddSystemLibs(man, comp.system_libs);
 
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_asm);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_bc);
 
-    man.hash.add(comp.skip_linker_dependencies);
-    man.hash.add(comp.include_compiler_rt);
-    man.hash.add(comp.link_eh_frame_hdr);
+    const opts = comp.cache_use.whole.lf_open_opts;
+
+    try man.addOptionalFile(opts.linker_script);
+    try man.addOptionalFile(opts.version_script);
+
+    man.hash.addOptional(opts.stack_size);
+    man.hash.addOptional(opts.image_base);
+    man.hash.addOptional(opts.gc_sections);
+    man.hash.add(opts.emit_relocs);
+    man.hash.addListOfBytes(opts.lib_dirs);
+    man.hash.addListOfBytes(opts.rpath_list);
+    man.hash.addListOfBytes(opts.symbol_wrap_set.keys());
+    man.hash.add(opts.each_lib_rpath);
     if (comp.config.link_libc) {
         man.hash.add(comp.libc_installation != null);
         const target = comp.root_mod.resolved_target.result;
@@ -2463,86 +2484,45 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         }
         man.hash.addOptionalBytes(target.dynamic_linker.get());
     }
-    try link.hashAddSystemLibs(man, comp.system_libs);
+    man.hash.addOptional(opts.allow_shlib_undefined);
+    man.hash.add(opts.bind_global_refs_locally);
 
-    man.hash.add(comp.config.use_llvm);
-    man.hash.add(comp.config.use_lib_llvm);
-    man.hash.add(comp.config.is_test);
-    man.hash.add(comp.config.import_memory);
-    man.hash.add(comp.config.export_memory);
-    man.hash.add(comp.config.shared_memory);
-    man.hash.add(comp.config.dll_export_fns);
-    man.hash.add(comp.config.rdynamic);
+    // ELF specific stuff
+    man.hash.add(opts.z_nodelete);
+    man.hash.add(opts.z_notext);
+    man.hash.add(opts.z_defs);
+    man.hash.add(opts.z_origin);
+    man.hash.add(opts.z_nocopyreloc);
+    man.hash.add(opts.z_now);
+    man.hash.add(opts.z_relro);
+    man.hash.add(opts.z_common_page_size orelse 0);
+    man.hash.add(opts.z_max_page_size orelse 0);
+    man.hash.add(opts.hash_style);
+    man.hash.add(opts.compress_debug_sections);
+    man.hash.addOptional(opts.sort_section);
+    man.hash.addOptionalBytes(opts.soname);
+    man.hash.add(opts.build_id);
 
-    if (comp.bin_file) |lf| {
-        man.hash.add(lf.stack_size);
-        man.hash.add(lf.gc_sections);
-        man.hash.addListOfBytes(lf.rpath_list);
-        man.hash.add(lf.build_id);
-        man.hash.add(lf.allow_shlib_undefined);
+    // WASM specific stuff
+    man.hash.addOptional(opts.initial_memory);
+    man.hash.addOptional(opts.max_memory);
+    man.hash.addOptional(opts.global_base);
 
-        switch (lf.tag) {
-            .elf => {
-                const elf = lf.cast(link.File.Elf).?;
-                man.hash.add(elf.image_base);
-                man.hash.add(elf.emit_relocs);
-                man.hash.add(elf.z_nodelete);
-                man.hash.add(elf.z_notext);
-                man.hash.add(elf.z_defs);
-                man.hash.add(elf.z_origin);
-                man.hash.add(elf.z_nocopyreloc);
-                man.hash.add(elf.z_now);
-                man.hash.add(elf.z_relro);
-                man.hash.add(elf.z_common_page_size orelse 0);
-                man.hash.add(elf.z_max_page_size orelse 0);
-                man.hash.addListOfBytes(elf.lib_dirs);
-                man.hash.add(elf.hash_style);
-                man.hash.add(elf.compress_debug_sections);
-                man.hash.addListOfBytes(elf.symbol_wrap_set.keys());
-                man.hash.add(elf.each_lib_rpath);
-                man.hash.addOptional(elf.sort_section);
-                man.hash.addOptionalBytes(elf.soname);
-                man.hash.add(elf.bind_global_refs_locally);
-                try man.addOptionalFile(elf.linker_script);
-                try man.addOptionalFile(elf.version_script);
-            },
-            .wasm => {
-                const wasm = lf.cast(link.File.Wasm).?;
-                man.hash.addOptional(wasm.initial_memory);
-                man.hash.addOptional(wasm.max_memory);
-                man.hash.addOptional(wasm.global_base);
-            },
-            .macho => {
-                const macho = lf.cast(link.File.MachO).?;
-                man.hash.addListOfBytes(comp.framework_dirs);
-                try link.File.MachO.hashAddFrameworks(man, macho.frameworks);
-                try man.addOptionalFile(macho.entitlements);
-                man.hash.add(macho.pagezero_vmsize);
-                man.hash.add(macho.headerpad_size);
-                man.hash.add(macho.headerpad_max_install_names);
-                man.hash.add(macho.dead_strip_dylibs);
-            },
-            .coff => {
-                const coff = lf.cast(link.File.Coff).?;
-                man.hash.add(coff.image_base);
-                man.hash.addOptional(coff.subsystem);
-                man.hash.add(coff.tsaware);
-                man.hash.add(coff.nxcompat);
-                man.hash.add(coff.dynamicbase);
-                man.hash.add(coff.major_subsystem_version);
-                man.hash.add(coff.minor_subsystem_version);
-                man.hash.addListOfBytes(coff.lib_dirs);
-            },
-            .spirv => {
-                const spirv = lf.cast(link.File.SpirV).?;
-                _ = spirv;
-                // TODO
-            },
-            .c => {}, // TODO
-            .plan9 => {}, // TODO
-            .nvptx => {}, // TODO
-        }
-    }
+    // Mach-O specific stuff
+    try link.File.MachO.hashAddFrameworks(man, opts.frameworks);
+    try man.addOptionalFile(opts.entitlements);
+    man.hash.addOptional(opts.pagezero_size);
+    man.hash.addOptional(opts.headerpad_size);
+    man.hash.add(opts.headerpad_max_install_names);
+    man.hash.add(opts.dead_strip_dylibs);
+
+    // COFF specific stuff
+    man.hash.addOptional(opts.subsystem);
+    man.hash.add(opts.tsaware);
+    man.hash.add(opts.nxcompat);
+    man.hash.add(opts.dynamicbase);
+    man.hash.addOptional(opts.major_subsystem_version);
+    man.hash.addOptional(opts.minor_subsystem_version);
 }
 
 fn emitOthers(comp: *Compilation) void {
@@ -3848,7 +3828,6 @@ pub fn obtainCObjectCacheManifest(
     // that apply both to @cImport and compiling C objects. No linking stuff here!
     // Also nothing that applies only to compiling .zig code.
     cache_helpers.addModule(&man.hash, owner_mod);
-    man.hash.addListOfBytes(owner_mod.cc_argv);
     man.hash.add(comp.config.link_libcpp);
 
     // When libc_installation is null it means that Zig generated this dir list
