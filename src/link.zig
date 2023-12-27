@@ -67,9 +67,6 @@ pub const File = struct {
     allow_shlib_undefined: bool,
     stack_size: u64,
 
-    error_flags: ErrorFlags = .{},
-    misc_errors: std.ArrayListUnmanaged(ErrorMsg) = .{},
-
     /// Prevents other processes from clobbering files in the output directory
     /// of this linking operation.
     lock: ?Cache.Lock = null,
@@ -465,13 +462,8 @@ pub const File = struct {
     }
 
     pub fn destroy(base: *File) void {
-        const gpa = base.comp.gpa;
         base.releaseLock();
         if (base.file) |f| f.close();
-        {
-            for (base.misc_errors.items) |*item| item.deinit(gpa);
-            base.misc_errors.deinit(gpa);
-        }
         switch (base.tag) {
             .c => @fieldParentPtr(C, "base", base).deinit(),
 

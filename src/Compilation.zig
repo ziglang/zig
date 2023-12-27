@@ -28,7 +28,9 @@ const libcxx = @import("libcxx.zig");
 const wasi_libc = @import("wasi_libc.zig");
 const fatal = @import("main.zig").fatal;
 const clangMain = @import("main.zig").clangMain;
-const Module = @import("Module.zig");
+const Zcu = @import("Module.zig");
+/// Deprecated; use `Zcu`.
+const Module = Zcu;
 const InternPool = @import("InternPool.zig");
 const Cache = std.Build.Cache;
 const c_codegen = @import("codegen/c.zig");
@@ -97,6 +99,7 @@ win32_resource_table: if (build_options.only_core_functionality) void else std.A
     if (build_options.only_core_functionality) {} else .{},
 
 link_error_flags: link.File.ErrorFlags = .{},
+link_errors: std.ArrayListUnmanaged(link.File.ErrorMsg) = .{},
 lld_errors: std.ArrayListUnmanaged(LldError) = .{},
 
 work_queue: std.fifo.LinearFifo(Job, .Dynamic),
@@ -1874,87 +1877,90 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
     return comp;
 }
 
-pub fn destroy(self: *Compilation) void {
-    if (self.bin_file) |lf| lf.destroy();
-    if (self.module) |zcu| zcu.deinit();
-    self.cache_use.deinit();
-    self.work_queue.deinit();
-    self.anon_work_queue.deinit();
-    self.c_object_work_queue.deinit();
+pub fn destroy(comp: *Compilation) void {
+    if (comp.bin_file) |lf| lf.destroy();
+    if (comp.module) |zcu| zcu.deinit();
+    comp.cache_use.deinit();
+    comp.work_queue.deinit();
+    comp.anon_work_queue.deinit();
+    comp.c_object_work_queue.deinit();
     if (!build_options.only_core_functionality) {
-        self.win32_resource_work_queue.deinit();
+        comp.win32_resource_work_queue.deinit();
     }
-    self.astgen_work_queue.deinit();
-    self.embed_file_work_queue.deinit();
+    comp.astgen_work_queue.deinit();
+    comp.embed_file_work_queue.deinit();
 
-    const gpa = self.gpa;
-    self.system_libs.deinit(gpa);
+    const gpa = comp.gpa;
+    comp.system_libs.deinit(gpa);
 
     {
-        var it = self.crt_files.iterator();
+        var it = comp.crt_files.iterator();
         while (it.next()) |entry| {
             gpa.free(entry.key_ptr.*);
             entry.value_ptr.deinit(gpa);
         }
-        self.crt_files.deinit(gpa);
+        comp.crt_files.deinit(gpa);
     }
 
-    if (self.libunwind_static_lib) |*crt_file| {
+    if (comp.libunwind_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
-    if (self.libcxx_static_lib) |*crt_file| {
+    if (comp.libcxx_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
-    if (self.libcxxabi_static_lib) |*crt_file| {
+    if (comp.libcxxabi_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
-    if (self.compiler_rt_lib) |*crt_file| {
+    if (comp.compiler_rt_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
-    if (self.compiler_rt_obj) |*crt_file| {
+    if (comp.compiler_rt_obj) |*crt_file| {
         crt_file.deinit(gpa);
     }
-    if (self.libc_static_lib) |*crt_file| {
+    if (comp.libc_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
 
-    if (self.glibc_so_files) |*glibc_file| {
+    if (comp.glibc_so_files) |*glibc_file| {
         glibc_file.deinit(gpa);
     }
 
-    for (self.c_object_table.keys()) |key| {
+    for (comp.c_object_table.keys()) |key| {
         key.destroy(gpa);
     }
-    self.c_object_table.deinit(gpa);
+    comp.c_object_table.deinit(gpa);
 
-    for (self.failed_c_objects.values()) |bundle| {
+    for (comp.failed_c_objects.values()) |bundle| {
         bundle.destroy(gpa);
     }
-    self.failed_c_objects.deinit(gpa);
+    comp.failed_c_objects.deinit(gpa);
 
     if (!build_options.only_core_functionality) {
-        for (self.win32_resource_table.keys()) |key| {
+        for (comp.win32_resource_table.keys()) |key| {
             key.destroy(gpa);
         }
-        self.win32_resource_table.deinit(gpa);
+        comp.win32_resource_table.deinit(gpa);
 
-        for (self.failed_win32_resources.values()) |*value| {
+        for (comp.failed_win32_resources.values()) |*value| {
             value.deinit(gpa);
         }
-        self.failed_win32_resources.deinit(gpa);
+        comp.failed_win32_resources.deinit(gpa);
     }
 
-    for (self.lld_errors.items) |*lld_error| {
+    for (comp.link_errors.items) |*item| item.deinit(gpa);
+    comp.link_errors.deinit(gpa);
+
+    for (comp.lld_errors.items) |*lld_error| {
         lld_error.deinit(gpa);
     }
-    self.lld_errors.deinit(gpa);
+    comp.lld_errors.deinit(gpa);
 
-    self.clearMiscFailures();
+    comp.clearMiscFailures();
 
-    self.cache_parent.manifest_dir.close();
+    comp.cache_parent.manifest_dir.close();
 
-    // This destroys `self`.
-    var arena_instance = self.arena;
+    // This destroys `comp`.
+    var arena_instance = comp.arena;
     arena_instance.deinit();
 }
 
@@ -2214,7 +2220,6 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                 error.LLDReportedFailure => {}, // error reported via lockAndParseLldStderr
                 else => |e| return e,
             };
-            comp.link_error_flags = lf.error_flags;
         }
 
         if (comp.module) |module| {
@@ -2745,23 +2750,23 @@ fn addBuf(bufs_list: []std.os.iovec_const, bufs_len: *usize, buf: []const u8) vo
 }
 
 /// This function is temporally single-threaded.
-pub fn totalErrorCount(self: *Compilation) u32 {
+pub fn totalErrorCount(comp: *Compilation) u32 {
     var total: usize =
-        self.misc_failures.count() +
-        @intFromBool(self.alloc_failure_occurred) +
-        self.lld_errors.items.len;
+        comp.misc_failures.count() +
+        @intFromBool(comp.alloc_failure_occurred) +
+        comp.lld_errors.items.len;
 
-    for (self.failed_c_objects.values()) |bundle| {
+    for (comp.failed_c_objects.values()) |bundle| {
         total += bundle.diags.len;
     }
 
     if (!build_options.only_core_functionality) {
-        for (self.failed_win32_resources.values()) |errs| {
+        for (comp.failed_win32_resources.values()) |errs| {
             total += errs.errorMessageCount();
         }
     }
 
-    if (self.module) |module| {
+    if (comp.module) |module| {
         total += module.failed_exports.count();
         total += module.failed_embed_files.count();
 
@@ -2804,17 +2809,15 @@ pub fn totalErrorCount(self: *Compilation) u32 {
 
     // The "no entry point found" error only counts if there are no semantic analysis errors.
     if (total == 0) {
-        total += @intFromBool(self.link_error_flags.no_entry_point_found);
+        total += @intFromBool(comp.link_error_flags.no_entry_point_found);
     }
-    total += @intFromBool(self.link_error_flags.missing_libc);
+    total += @intFromBool(comp.link_error_flags.missing_libc);
 
-    if (self.bin_file) |lf| {
-        total += lf.misc_errors.items.len;
-    }
+    total += comp.link_errors.items.len;
 
     // Compile log errors only count if there are no other errors.
     if (total == 0) {
-        if (self.module) |module| {
+        if (comp.module) |module| {
             total += @intFromBool(module.compile_log_decls.count() != 0);
         }
     }
@@ -2823,24 +2826,24 @@ pub fn totalErrorCount(self: *Compilation) u32 {
 }
 
 /// This function is temporally single-threaded.
-pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
-    const gpa = self.gpa;
+pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
+    const gpa = comp.gpa;
 
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(gpa);
     defer bundle.deinit();
 
-    for (self.failed_c_objects.values()) |diag_bundle| {
+    for (comp.failed_c_objects.values()) |diag_bundle| {
         try diag_bundle.addToErrorBundle(&bundle);
     }
 
     if (!build_options.only_core_functionality) {
-        for (self.failed_win32_resources.values()) |error_bundle| {
+        for (comp.failed_win32_resources.values()) |error_bundle| {
             try bundle.addBundleAsRoots(error_bundle);
         }
     }
 
-    for (self.lld_errors.items) |lld_error| {
+    for (comp.lld_errors.items) |lld_error| {
         const notes_len = @as(u32, @intCast(lld_error.context_lines.len));
 
         try bundle.addRootErrorMessage(.{
@@ -2854,19 +2857,19 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             }));
         }
     }
-    for (self.misc_failures.values()) |*value| {
+    for (comp.misc_failures.values()) |*value| {
         try bundle.addRootErrorMessage(.{
             .msg = try bundle.addString(value.msg),
             .notes_len = if (value.children) |b| b.errorMessageCount() else 0,
         });
         if (value.children) |b| try bundle.addBundleAsNotes(b);
     }
-    if (self.alloc_failure_occurred) {
+    if (comp.alloc_failure_occurred) {
         try bundle.addRootErrorMessage(.{
             .msg = try bundle.addString("memory allocation failure"),
         });
     }
-    if (self.module) |module| {
+    if (comp.module) |module| {
         for (module.failed_files.keys(), module.failed_files.values()) |file, error_msg| {
             if (error_msg) |msg| {
                 try addModuleErrorMsg(module, &bundle, msg.*);
@@ -2938,14 +2941,14 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
     }
 
     if (bundle.root_list.items.len == 0) {
-        if (self.link_error_flags.no_entry_point_found) {
+        if (comp.link_error_flags.no_entry_point_found) {
             try bundle.addRootErrorMessage(.{
                 .msg = try bundle.addString("no entry point found"),
             });
         }
     }
 
-    if (self.link_error_flags.missing_libc) {
+    if (comp.link_error_flags.missing_libc) {
         try bundle.addRootErrorMessage(.{
             .msg = try bundle.addString("libc not available"),
             .notes_len = 2,
@@ -2959,7 +2962,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         }));
     }
 
-    if (self.bin_file) |lf| for (lf.misc_errors.items) |link_err| {
+    for (comp.link_errors.items) |link_err| {
         try bundle.addRootErrorMessage(.{
             .msg = try bundle.addString(link_err.msg),
             .notes_len = @intCast(link_err.notes.len),
@@ -2970,9 +2973,9 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
                 .msg = try bundle.addString(note.msg),
             }));
         }
-    };
+    }
 
-    if (self.module) |module| {
+    if (comp.module) |module| {
         if (bundle.root_list.items.len == 0 and module.compile_log_decls.count() != 0) {
             const keys = module.compile_log_decls.keys();
             const values = module.compile_log_decls.values();
@@ -2998,9 +3001,9 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         }
     }
 
-    assert(self.totalErrorCount() == bundle.root_list.items.len);
+    assert(comp.totalErrorCount() == bundle.root_list.items.len);
 
-    const compile_log_text = if (self.module) |m| m.compile_log_text.items else "";
+    const compile_log_text = if (comp.module) |m| m.compile_log_text.items else "";
     return bundle.toOwnedBundle(compile_log_text);
 }
 

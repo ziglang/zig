@@ -1839,10 +1839,10 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
     if (self.entry_addr == null and comp.config.output_mode == .Exe) {
         log.debug("flushing. no_entry_point_found = true\n", .{});
-        self.base.error_flags.no_entry_point_found = true;
+        comp.link_error_flags.no_entry_point_found = true;
     } else {
         log.debug("flushing. no_entry_point_found = false\n", .{});
-        self.base.error_flags.no_entry_point_found = false;
+        comp.link_error_flags.no_entry_point_found = false;
         try self.writeHeader();
     }
 
