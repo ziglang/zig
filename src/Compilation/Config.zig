@@ -237,7 +237,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b !target_util.selfHostedBackendIsAsRobustAsLlvm(target);
     };
 
-    if (options.emit_bin) {
+    if (options.emit_bin and options.have_zcu) {
         if (!use_lib_llvm and use_llvm) {
             // Explicit request to use LLVM to produce an object file, but without
             // using LLVM libraries. Impossible.
