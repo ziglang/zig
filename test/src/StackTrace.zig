@@ -5,44 +5,33 @@ test_filter: ?[]const u8,
 optimize_modes: []const OptimizeMode,
 check_exe: *std.Build.Step.Compile,
 
-const Expect = [@typeInfo(OptimizeMode).Enum.fields.len][]const u8;
+const Config = struct {
+    name: []const u8,
+    source: []const u8,
+    Debug: ?PerMode = null,
+    ReleaseSmall: ?PerMode = null,
+    ReleaseSafe: ?PerMode = null,
+    ReleaseFast: ?PerMode = null,
 
-pub fn addCase(self: *StackTrace, config: anytype) void {
-    if (@hasField(@TypeOf(config), "exclude")) {
-        if (config.exclude.exclude()) return;
-    }
-    if (@hasField(@TypeOf(config), "exclude_arch")) {
-        const exclude_arch: []const std.Target.Cpu.Arch = &config.exclude_arch;
-        for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
-    }
-    if (@hasField(@TypeOf(config), "exclude_os")) {
-        const exclude_os: []const std.Target.Os.Tag = &config.exclude_os;
-        for (exclude_os) |os| if (os == builtin.os.tag) return;
-    }
-    for (self.optimize_modes) |optimize_mode| {
-        switch (optimize_mode) {
-            .Debug => {
-                if (@hasField(@TypeOf(config), "Debug")) {
-                    self.addExpect(config.name, config.source, optimize_mode, config.Debug);
-                }
-            },
-            .ReleaseSafe => {
-                if (@hasField(@TypeOf(config), "ReleaseSafe")) {
-                    self.addExpect(config.name, config.source, optimize_mode, config.ReleaseSafe);
-                }
-            },
-            .ReleaseFast => {
-                if (@hasField(@TypeOf(config), "ReleaseFast")) {
-                    self.addExpect(config.name, config.source, optimize_mode, config.ReleaseFast);
-                }
-            },
-            .ReleaseSmall => {
-                if (@hasField(@TypeOf(config), "ReleaseSmall")) {
-                    self.addExpect(config.name, config.source, optimize_mode, config.ReleaseSmall);
-                }
-            },
-        }
-    }
+    const PerMode = struct {
+        expect: []const u8,
+        exclude_os: []const std.Target.Os.Tag = &.{},
+        error_tracing: ?bool = null,
+    };
+};
+
+pub fn addCase(self: *StackTrace, config: Config) void {
+    if (config.Debug) |per_mode|
+        self.addExpect(config.name, config.source, .Debug, per_mode);
+
+    if (config.ReleaseSmall) |per_mode|
+        self.addExpect(config.name, config.source, .ReleaseSmall, per_mode);
+
+    if (config.ReleaseFast) |per_mode|
+        self.addExpect(config.name, config.source, .ReleaseFast, per_mode);
+
+    if (config.ReleaseSafe) |per_mode|
+        self.addExpect(config.name, config.source, .ReleaseSafe, per_mode);
 }
 
 fn addExpect(
@@ -50,19 +39,9 @@ fn addExpect(
     name: []const u8,
     source: []const u8,
     optimize_mode: OptimizeMode,
-    mode_config: anytype,
+    mode_config: Config.PerMode,
 ) void {
-    if (@hasField(@TypeOf(mode_config), "exclude")) {
-        if (mode_config.exclude.exclude()) return;
-    }
-    if (@hasField(@TypeOf(mode_config), "exclude_arch")) {
-        const exclude_arch: []const std.Target.Cpu.Arch = &mode_config.exclude_arch;
-        for (exclude_arch) |arch| if (arch == builtin.cpu.arch) return;
-    }
-    if (@hasField(@TypeOf(mode_config), "exclude_os")) {
-        const exclude_os: []const std.Target.Os.Tag = &mode_config.exclude_os;
-        for (exclude_os) |os| if (os == builtin.os.tag) return;
-    }
+    for (mode_config.exclude_os) |tag| if (tag == builtin.os.tag) return;
 
     const b = self.b;
     const annotated_case_name = fmt.allocPrint(b.allocator, "check {s} ({s})", .{
@@ -78,6 +57,7 @@ fn addExpect(
         .root_source_file = write_src.files.items[0].getPath(),
         .optimize = optimize_mode,
         .target = b.host,
+        .error_tracing = mode_config.error_tracing,
     });
 
     const run = b.addRunArtifact(exe);
