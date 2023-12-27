@@ -43,7 +43,6 @@ export_symbol_names: []const []const u8,
 global_base: ?u64,
 initial_memory: ?u64,
 max_memory: ?u64,
-wasi_emulated_libs: []const wasi_libc.CRTFile,
 /// Output name of the file
 name: []const u8,
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
@@ -435,7 +434,6 @@ pub fn createEmpty(
         .global_base = options.global_base,
         .initial_memory = options.initial_memory,
         .max_memory = options.max_memory,
-        .wasi_emulated_libs = options.wasi_emulated_libs,
 
         .entry_name = switch (options.entry) {
             .disabled => null,
@@ -3626,7 +3624,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         const is_exe_or_dyn_lib = output_mode == .Exe or
             (output_mode == .Lib and link_mode == .Dynamic);
         if (is_exe_or_dyn_lib) {
-            for (wasm.wasi_emulated_libs) |crt_file| {
+            for (comp.wasi_emulated_libs) |crt_file| {
                 try positionals.append(try comp.get_libc_crt_file(
                     arena,
                     wasi_libc.emulatedLibCRFileLibName(crt_file),
@@ -4601,7 +4599,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
     const import_memory = comp.config.import_memory;
     const target = comp.root_mod.resolved_target.result;
 
-    const gpa = wasm.base.comp.gpa;
+    const gpa = comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
@@ -4611,7 +4609,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (wasm.base.comp.module != null) blk: {
+    const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
         try wasm.flushModule(comp, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -4626,7 +4624,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
     sub_prog_node.context.refresh();
     defer sub_prog_node.end();
 
-    const is_obj = wasm.base.comp.config.output_mode == .Obj;
+    const is_obj = comp.config.output_mode == .Obj;
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |lib| break :blk lib.full_object_path;
         if (comp.compiler_rt_obj) |obj| break :blk obj.full_object_path;
@@ -4823,7 +4821,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append("--allow-undefined");
         }
 
-        if (wasm.base.comp.config.output_mode == .Lib and wasm.base.comp.config.link_mode == .Dynamic) {
+        if (comp.config.output_mode == .Lib and comp.config.link_mode == .Dynamic) {
             try argv.append("--shared");
         }
         if (comp.config.pie) {
@@ -4842,10 +4840,10 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         }
 
         if (target.os.tag == .wasi) {
-            const is_exe_or_dyn_lib = wasm.base.comp.config.output_mode == .Exe or
-                (wasm.base.comp.config.output_mode == .Lib and wasm.base.comp.config.link_mode == .Dynamic);
+            const is_exe_or_dyn_lib = comp.config.output_mode == .Exe or
+                (comp.config.output_mode == .Lib and comp.config.link_mode == .Dynamic);
             if (is_exe_or_dyn_lib) {
-                for (wasm.wasi_emulated_libs) |crt_file| {
+                for (comp.wasi_emulated_libs) |crt_file| {
                     try argv.append(try comp.get_libc_crt_file(
                         arena,
                         wasi_libc.emulatedLibCRFileLibName(crt_file),
@@ -4891,7 +4889,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append(p);
         }
 
-        if (wasm.base.comp.config.output_mode != .Obj and
+        if (comp.config.output_mode != .Obj and
             !comp.skip_linker_dependencies and
             !comp.config.link_libc)
         {
@@ -4902,7 +4900,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append(p);
         }
 
-        if (wasm.base.comp.verbose_link) {
+        if (comp.verbose_link) {
             // Skip over our own name so that the LLD linker name is the first argv item.
             Compilation.dump_argv(argv.items[1..]);
         }
@@ -4977,7 +4975,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         // it, and then can react to that in the same way as trying to run an ELF file
         // from a foreign CPU architecture.
         if (fs.has_executable_bit and target.os.tag == .wasi and
-            wasm.base.comp.config.output_mode == .Exe)
+            comp.config.output_mode == .Exe)
         {
             // TODO: what's our strategy for reporting linker errors from this function?
             // report a nice error here with the file path if it fails instead of

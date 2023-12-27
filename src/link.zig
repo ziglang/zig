@@ -170,8 +170,6 @@ pub const File = struct {
         /// (Windows) .def file to specify when linking
         module_definition_file: ?[]const u8,
 
-        wasi_emulated_libs: []const wasi_libc.CRTFile,
-
         pub const Entry = union(enum) {
             default,
             disabled,

@@ -190,6 +190,7 @@ compiler_rt_lib: ?CRTFile = null,
 compiler_rt_obj: ?CRTFile = null,
 
 glibc_so_files: ?glibc.BuiltSharedObjects = null,
+wasi_emulated_libs: []const wasi_libc.CRTFile,
 
 /// For example `Scrt1.o` and `libc_nonshared.a`. These are populated after building libc from source,
 /// The set of needed CRT (C runtime) files differs depending on the target and compilation settings.
@@ -707,6 +708,8 @@ pub const Win32Resource = struct {
 
 pub const MiscTask = enum {
     write_builtin_zig,
+    rename_results,
+    check_whole_cache,
     glibc_crt_file,
     glibc_shared_objects,
     musl_crt_file,
@@ -1500,6 +1503,7 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
             .function_sections = options.function_sections,
             .data_sections = options.data_sections,
             .native_system_include_paths = options.native_system_include_paths,
+            .wasi_emulated_libs = options.wasi_emulated_libs,
         };
 
         // Prevent some footguns by making the "any" fields of config reflect
@@ -1521,7 +1525,6 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
             .z_max_page_size = options.linker_z_max_page_size,
             .darwin_sdk_layout = libc_dirs.darwin_sdk_layout,
             .frameworks = options.frameworks,
-            .wasi_emulated_libs = options.wasi_emulated_libs,
             .lib_dirs = options.lib_dirs,
             .rpath_list = options.rpath_list,
             .symbol_wrap_set = options.symbol_wrap_set,
@@ -1672,10 +1675,10 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
     };
     errdefer comp.destroy();
 
-    const target = options.root_mod.resolved_target.result;
+    const target = comp.root_mod.resolved_target.result;
 
-    const capable_of_building_compiler_rt = canBuildLibCompilerRt(target, options.config.use_llvm);
-    const capable_of_building_zig_libc = canBuildZigLibC(target, options.config.use_llvm);
+    const capable_of_building_compiler_rt = canBuildLibCompilerRt(target, comp.config.use_llvm);
+    const capable_of_building_zig_libc = canBuildZigLibC(target, comp.config.use_llvm);
 
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
@@ -1768,25 +1771,21 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
             });
         }
 
-        if (comp.bin_file) |lf| {
-            if (lf.cast(link.File.Wasm)) |wasm| {
-                if (comp.wantBuildWasiLibcFromSource()) {
-                    if (!target_util.canBuildLibC(target)) return error.LibCUnavailable;
+        if (comp.wantBuildWasiLibcFromSource()) {
+            if (!target_util.canBuildLibC(target)) return error.LibCUnavailable;
 
-                    // worst-case we need all components
-                    try comp.work_queue.ensureUnusedCapacity(wasm.wasi_emulated_libs.len + 2);
+            // worst-case we need all components
+            try comp.work_queue.ensureUnusedCapacity(comp.wasi_emulated_libs.len + 2);
 
-                    for (wasm.wasi_emulated_libs) |crt_file| {
-                        comp.work_queue.writeItemAssumeCapacity(.{
-                            .wasi_libc_crt_file = crt_file,
-                        });
-                    }
-                    comp.work_queue.writeAssumeCapacity(&[_]Job{
-                        .{ .wasi_libc_crt_file = wasi_libc.execModelCrtFile(options.config.wasi_exec_model) },
-                        .{ .wasi_libc_crt_file = .libc_a },
-                    });
-                }
+            for (comp.wasi_emulated_libs) |crt_file| {
+                comp.work_queue.writeItemAssumeCapacity(.{
+                    .wasi_libc_crt_file = crt_file,
+                });
             }
+            comp.work_queue.writeAssumeCapacity(&[_]Job{
+                .{ .wasi_libc_crt_file = wasi_libc.execModelCrtFile(comp.config.wasi_exec_model) },
+                .{ .wasi_libc_crt_file = .libc_a },
+            });
         }
 
         if (comp.wantBuildMinGWFromSource()) {
@@ -1832,11 +1831,11 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
         }
 
         if (comp.bin_file) |lf| {
-            if (comp.getTarget().isMinGW() and comp.config.any_non_single_threaded) {
+            if (target.isMinGW() and comp.config.any_non_single_threaded) {
                 // LLD might drop some symbols as unused during LTO and GCing, therefore,
                 // we force mark them for resolution here.
 
-                const tls_index_sym = switch (comp.getTarget().cpu.arch) {
+                const tls_index_sym = switch (target.cpu.arch) {
                     .x86 => "__tls_index",
                     else => "_tls_index",
                 };
@@ -2024,12 +2023,14 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             try comp.addNonIncrementalStuffToCacheManifest(&man);
 
             const is_hit = man.hit() catch |err| {
-                // TODO properly bubble these up instead of emitting a warning
                 const i = man.failed_file_index orelse return err;
                 const pp = man.files.items[i].prefixed_path orelse return err;
                 const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
-                std.log.warn("{s}: {s}{s}", .{ @errorName(err), prefix, pp.sub_path });
-                return err;
+                return comp.setMiscFailure(
+                    .check_whole_cache,
+                    "unable to check cache: stat file '{}{s}{s}' failed: {s}",
+                    .{ comp.local_cache_directory, prefix, pp.sub_path, @errorName(err) },
+                );
             };
             if (is_hit) {
                 comp.last_update_was_cache_hit = true;
@@ -2221,7 +2222,17 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             const tmp_dir_sub_path = "tmp" ++ s ++ Package.Manifest.hex64(tmp_dir_rand_int);
             const o_sub_path = "o" ++ s ++ digest;
 
-            try renameTmpIntoCache(comp.local_cache_directory, tmp_dir_sub_path, o_sub_path);
+            renameTmpIntoCache(comp.local_cache_directory, tmp_dir_sub_path, o_sub_path) catch |err| {
+                return comp.setMiscFailure(
+                    .rename_results,
+                    "failed to rename compilation results ('{}{s}') into local cache ('{}{s}'): {s}",
+                    .{
+                        comp.local_cache_directory, tmp_dir_sub_path,
+                        comp.local_cache_directory, o_sub_path,
+                        @errorName(err),
+                    },
+                );
+            };
             comp.wholeCacheModeSetBinFilePath(whole, &digest);
 
             // Failure here only means an unnecessary cache miss.
@@ -2251,42 +2262,36 @@ fn renameTmpIntoCache(
     tmp_dir_sub_path: []const u8,
     o_sub_path: []const u8,
 ) !void {
+    var seen_eaccess = false;
     while (true) {
-        if (builtin.os.tag == .windows) {
-            // Work around windows `renameW` can't fail with `PathAlreadyExists`
+        std.fs.rename(
+            cache_directory.handle,
+            tmp_dir_sub_path,
+            cache_directory.handle,
+            o_sub_path,
+        ) catch |err| switch (err) {
+            // On Windows, rename fails with `AccessDenied` rather than `PathAlreadyExists`.
             // See https://github.com/ziglang/zig/issues/8362
-            if (cache_directory.handle.access(o_sub_path, .{})) |_| {
-                try cache_directory.handle.deleteTree(o_sub_path);
-                continue;
-            } else |err| switch (err) {
-                error.FileNotFound => {},
-                else => |e| return e,
-            }
-            std.fs.rename(
-                cache_directory.handle,
-                tmp_dir_sub_path,
-                cache_directory.handle,
-                o_sub_path,
-            ) catch |err| {
-                log.err("unable to rename cache dir {s} to {s}: {s}", .{ tmp_dir_sub_path, o_sub_path, @errorName(err) });
-                return err;
-            };
-            break;
-        } else {
-            std.fs.rename(
-                cache_directory.handle,
-                tmp_dir_sub_path,
-                cache_directory.handle,
-                o_sub_path,
-            ) catch |err| switch (err) {
-                error.PathAlreadyExists => {
+            error.AccessDenied => switch (builtin.os.tag) {
+                .windows => {
+                    if (!seen_eaccess) return error.AccessDenied;
+                    seen_eaccess = true;
                     try cache_directory.handle.deleteTree(o_sub_path);
                     continue;
                 },
-                else => |e| return e,
-            };
-            break;
-        }
+                else => return error.AccessDenied,
+            },
+            error.PathAlreadyExists => {
+                try cache_directory.handle.deleteTree(o_sub_path);
+                continue;
+            },
+            error.FileNotFound => {
+                try cache_directory.handle.makePath("o");
+                continue;
+            },
+            else => |e| return e,
+        };
+        break;
     }
 }
 
@@ -2386,6 +2391,10 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.main_mod, .{ .files = man });
 
         // Synchronize with other matching comments: ZigOnlyHashStuff
+        man.hash.add(comp.config.use_llvm);
+        man.hash.add(comp.config.use_lib_llvm);
+        man.hash.add(comp.config.dll_export_fns);
+        man.hash.add(comp.config.is_test);
         man.hash.add(comp.config.test_evented_io);
         man.hash.addOptionalBytes(comp.test_filter);
         man.hash.addOptionalBytes(comp.test_name_prefix);
@@ -2393,6 +2402,20 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.add(comp.formatted_panics);
         man.hash.add(mod.emit_h != null);
         man.hash.add(mod.error_limit);
+    } else {
+        cache_helpers.addResolvedTarget(&man.hash, comp.root_mod.resolved_target);
+        man.hash.add(comp.root_mod.optimize_mode);
+        man.hash.add(comp.root_mod.code_model);
+        man.hash.add(comp.root_mod.single_threaded);
+        man.hash.add(comp.root_mod.error_tracing);
+        man.hash.add(comp.root_mod.pic);
+        man.hash.add(comp.root_mod.omit_frame_pointer);
+        man.hash.add(comp.root_mod.stack_check);
+        man.hash.add(comp.root_mod.red_zone);
+        man.hash.add(comp.root_mod.sanitize_c);
+        man.hash.add(comp.root_mod.sanitize_thread);
+        man.hash.add(comp.root_mod.unwind_tables);
+        man.hash.add(comp.root_mod.structured_cfg);
     }
 
     for (comp.objects) |obj| {
@@ -3829,8 +3852,19 @@ pub fn obtainCObjectCacheManifest(
     // Only things that need to be added on top of the base hash, and only things
     // that apply both to @cImport and compiling C objects. No linking stuff here!
     // Also nothing that applies only to compiling .zig code.
+    cache_helpers.addResolvedTarget(&man.hash, owner_mod.resolved_target);
+    man.hash.add(owner_mod.optimize_mode);
+    man.hash.add(owner_mod.code_model);
+    man.hash.add(owner_mod.single_threaded);
+    man.hash.add(owner_mod.error_tracing);
+    man.hash.add(owner_mod.pic);
+    man.hash.add(owner_mod.omit_frame_pointer);
+    man.hash.add(owner_mod.stack_check);
+    man.hash.add(owner_mod.red_zone);
     man.hash.add(owner_mod.sanitize_c);
     man.hash.add(owner_mod.sanitize_thread);
+    man.hash.add(owner_mod.unwind_tables);
+    man.hash.add(owner_mod.structured_cfg);
     man.hash.addListOfBytes(owner_mod.cc_argv);
     man.hash.add(comp.config.link_libcpp);
 
