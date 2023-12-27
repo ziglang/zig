@@ -799,6 +799,24 @@ pub const EmitLoc = struct {
 };
 
 pub const cache_helpers = struct {
+    pub fn addModule(hh: *Cache.HashHelper, mod: *const Package.Module) void {
+        addResolvedTarget(hh, mod.resolved_target);
+        hh.add(mod.optimize_mode);
+        hh.add(mod.code_model);
+        hh.add(mod.single_threaded);
+        hh.add(mod.error_tracing);
+        hh.add(mod.valgrind);
+        hh.add(mod.pic);
+        hh.add(mod.strip);
+        hh.add(mod.omit_frame_pointer);
+        hh.add(mod.stack_check);
+        hh.add(mod.red_zone);
+        hh.add(mod.sanitize_c);
+        hh.add(mod.sanitize_thread);
+        hh.add(mod.unwind_tables);
+        hh.add(mod.structured_cfg);
+    }
+
     pub fn addResolvedTarget(
         hh: *Cache.HashHelper,
         resolved_target: Package.Module.ResolvedTarget,
@@ -1131,21 +1149,7 @@ fn addModuleTableToCacheHash(
             continue;
         }
 
-        cache_helpers.addResolvedTarget(hash, mod.resolved_target);
-        hash.add(mod.optimize_mode);
-        hash.add(mod.code_model);
-        hash.add(mod.single_threaded);
-        hash.add(mod.error_tracing);
-        hash.add(mod.valgrind);
-        hash.add(mod.pic);
-        hash.add(mod.strip);
-        hash.add(mod.omit_frame_pointer);
-        hash.add(mod.stack_check);
-        hash.add(mod.red_zone);
-        hash.add(mod.sanitize_c);
-        hash.add(mod.sanitize_thread);
-        hash.add(mod.unwind_tables);
-        hash.add(mod.structured_cfg);
+        cache_helpers.addModule(hash, mod);
 
         switch (hash_type) {
             .path_bytes => {
@@ -2406,19 +2410,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.add(mod.emit_h != null);
         man.hash.add(mod.error_limit);
     } else {
-        cache_helpers.addResolvedTarget(&man.hash, comp.root_mod.resolved_target);
-        man.hash.add(comp.root_mod.optimize_mode);
-        man.hash.add(comp.root_mod.code_model);
-        man.hash.add(comp.root_mod.single_threaded);
-        man.hash.add(comp.root_mod.error_tracing);
-        man.hash.add(comp.root_mod.pic);
-        man.hash.add(comp.root_mod.omit_frame_pointer);
-        man.hash.add(comp.root_mod.stack_check);
-        man.hash.add(comp.root_mod.red_zone);
-        man.hash.add(comp.root_mod.sanitize_c);
-        man.hash.add(comp.root_mod.sanitize_thread);
-        man.hash.add(comp.root_mod.unwind_tables);
-        man.hash.add(comp.root_mod.structured_cfg);
+        cache_helpers.addModule(&man.hash, comp.root_mod);
     }
 
     for (comp.objects) |obj| {
@@ -3855,19 +3847,7 @@ pub fn obtainCObjectCacheManifest(
     // Only things that need to be added on top of the base hash, and only things
     // that apply both to @cImport and compiling C objects. No linking stuff here!
     // Also nothing that applies only to compiling .zig code.
-    cache_helpers.addResolvedTarget(&man.hash, owner_mod.resolved_target);
-    man.hash.add(owner_mod.optimize_mode);
-    man.hash.add(owner_mod.code_model);
-    man.hash.add(owner_mod.single_threaded);
-    man.hash.add(owner_mod.error_tracing);
-    man.hash.add(owner_mod.pic);
-    man.hash.add(owner_mod.omit_frame_pointer);
-    man.hash.add(owner_mod.stack_check);
-    man.hash.add(owner_mod.red_zone);
-    man.hash.add(owner_mod.sanitize_c);
-    man.hash.add(owner_mod.sanitize_thread);
-    man.hash.add(owner_mod.unwind_tables);
-    man.hash.add(owner_mod.structured_cfg);
+    cache_helpers.addModule(&man.hash, owner_mod);
     man.hash.addListOfBytes(owner_mod.cc_argv);
     man.hash.add(comp.config.link_libcpp);
 
