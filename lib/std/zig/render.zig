@@ -100,6 +100,20 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast, fixups: Fixups) Error!v
         try renderContainerDocComments(&r, 0);
     }
 
+    if (tree.is_autotranslated) {
+        // The token can either be index 0 or 1, depending on whether there's a doc
+        // comment before hand.
+        // There should be blank line between the space and the next thing.
+        // It emphasises the tokens presence.
+        if (tree.tokens.items(.tag)[0] == .container_doc_comment) {
+            try renderToken(&r, 1, .semicolon);
+        } else {
+            try renderToken(&r, 0, .semicolon);
+        }
+
+        try r.ais.insertNewline();
+    }
+
     if (tree.mode == .zon) {
         try renderExpression(
             &r,
@@ -122,7 +136,9 @@ fn renderMembers(r: *Render, members: []const Ast.Node.Index) Error!void {
     const container: Container = for (members) |member| {
         if (tree.fullContainerField(member)) |field| if (!field.ast.tuple_like) break .other;
     } else .tuple;
+
     try renderMember(r, container, members[0], .newline);
+
     for (members[1..]) |member| {
         try renderExtraNewline(r, member);
         try renderMember(r, container, member, .newline);
