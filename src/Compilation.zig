@@ -2202,10 +2202,26 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         return;
     }
 
-    // Flush takes care of -femit-bin, but we still have -femit-llvm-ir, -femit-llvm-bc, and
-    // -femit-asm to handle, in the case of C objects.
+    // Flush below handles -femit-bin but there is still -femit-llvm-ir,
+    // -femit-llvm-bc, and -femit-asm, in the case of C objects.
     comp.emitOthers();
-    try comp.flush(main_progress_node);
+
+    {
+        if (comp.bin_file) |lf| {
+            // This is needed before reading the error flags.
+            lf.flush(comp, main_progress_node) catch |err| switch (err) {
+                error.FlushFailure => {}, // error reported through link_error_flags
+                error.LLDReportedFailure => {}, // error reported via lockAndParseLldStderr
+                else => |e| return e,
+            };
+            comp.link_error_flags = lf.error_flags;
+        }
+
+        if (comp.module) |module| {
+            try link.File.C.flushEmitH(module);
+        }
+    }
+
     if (comp.totalErrorCount() != 0) return;
     try maybeGenerateAutodocs(comp, main_progress_node);
 
@@ -2320,22 +2336,6 @@ fn maybeGenerateAutodocs(comp: *Compilation, prog_node: *std.Progress.Node) !voi
 
             try Autodoc.generate(mod, dir);
         }
-    }
-}
-
-fn flush(comp: *Compilation, prog_node: *std.Progress.Node) !void {
-    if (comp.bin_file) |lf| {
-        // This is needed before reading the error flags.
-        lf.flush(comp, prog_node) catch |err| switch (err) {
-            error.FlushFailure => {}, // error reported through link_error_flags
-            error.LLDReportedFailure => {}, // error reported via lockAndParseLldStderr
-            else => |e| return e,
-        };
-        comp.link_error_flags = lf.error_flags;
-    }
-
-    if (comp.module) |module| {
-        try link.File.C.flushEmitH(module);
     }
 }
 
