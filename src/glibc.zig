@@ -1067,13 +1067,7 @@ fn buildSharedLib(
     const version: Version = .{ .major = lib.sover, .minor = 0, .patch = 0 };
     const ld_basename = path.basename(comp.getTarget().standardDynamicLinkerPath().get().?);
     const soname = if (mem.eql(u8, lib.name, "ld")) ld_basename else basename;
-    const map_file_path = try path.join(arena, &[_][]const u8{ bin_directory.path.?, all_map_basename });
-    const c_source_files = [1]Compilation.CSourceFile{
-        .{
-            .src_path = try path.join(arena, &[_][]const u8{ bin_directory.path.?, asm_file_basename }),
-            .owner = undefined,
-        },
-    };
+    const map_file_path = try path.join(arena, &.{ bin_directory.path.?, all_map_basename });
 
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
@@ -1115,13 +1109,20 @@ fn buildSharedLib(
         .builtin_mod = null,
     });
 
+    const c_source_files = [1]Compilation.CSourceFile{
+        .{
+            .src_path = try path.join(arena, &.{ bin_directory.path.?, asm_file_basename }),
+            .owner = root_mod,
+        },
+    };
+
     const sub_compilation = try Compilation.create(comp.gpa, .{
         .local_cache_directory = zig_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
-        .cache_mode = .whole,
+        .cache_mode = .incremental,
         .config = config,
         .root_mod = root_mod,
         .root_name = lib.name,
