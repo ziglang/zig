@@ -636,7 +636,12 @@ test "lessThan" {
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
-    if (@typeInfo(T) == .Int and std.math.isPowerOfTwo(@bitSizeOf(T))) return eqlBytes(std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
+
+    // No vectorization in stage2 x86_64 or x86
+    // https://github.com/ziglang/zig/issues/17748
+    if (builtin.zig_backend != .stage2_x86_64 or builtin.zig_backend != .stage2_x86) {
+        if (@typeInfo(T) == .Int and std.math.isPowerOfTwo(@bitSizeOf(T))) return eqlBytes(std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
+    }
 
     for (a, b) |a_elem, b_elem| {
         if (a_elem != b_elem) return false;
