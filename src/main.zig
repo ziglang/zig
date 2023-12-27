@@ -3842,8 +3842,8 @@ fn createModule(
             create_module.opts.any_dyn_libs = true;
 
         create_module.resolved_options = Compilation.Config.resolve(create_module.opts) catch |err| switch (err) {
-            error.WasiExecModelRequiresWasi => fatal("execution model only allowed for WASI OS targets", .{}),
-            error.SharedMemoryIsWasmOnly => fatal("shared memory only allowed for WebAssembly CPU targets", .{}),
+            error.WasiExecModelRequiresWasi => fatal("only WASI OS targets support execution model", .{}),
+            error.SharedMemoryIsWasmOnly => fatal("only WebAssembly CPU targets support shared memory", .{}),
             error.ObjectFilesCannotShareMemory => fatal("object files cannot share memory", .{}),
             error.SharedMemoryRequiresAtomicsAndBulkMemory => fatal("shared memory requires atomics and bulk_memory CPU features", .{}),
             error.ThreadsRequireSharedMemory => fatal("threads require shared memory", .{}),
@@ -3869,6 +3869,7 @@ fn createModule(
             error.LlvmLibraryUnavailable => fatal("zig was compiled without LLVM libraries", .{}),
             error.LldUnavailable => fatal("zig was compiled without LLD libraries", .{}),
             error.ClangUnavailable => fatal("zig was compiled without Clang libraries", .{}),
+            error.DllExportFnsRequiresWindows => fatal("only Windows OS targets support DLLs", .{}),
         };
     }
 

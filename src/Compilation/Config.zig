@@ -138,6 +138,7 @@ pub const ResolveError = error{
     LlvmLibraryUnavailable,
     LldUnavailable,
     ClangUnavailable,
+    DllExportFnsRequiresWindows,
 };
 
 pub fn resolve(options: Options) ResolveError!Config {
@@ -459,6 +460,11 @@ pub fn resolve(options: Options) ResolveError!Config {
     const rdynamic = options.rdynamic orelse false;
 
     const dll_export_fns = b: {
+        if (target.os.tag != .windows) {
+            if (options.dll_export_fns == true)
+                return error.DllExportFnsRequiresWindows;
+            break :b false;
+        }
         if (options.dll_export_fns) |x| break :b x;
         if (rdynamic) break :b true;
         break :b switch (options.output_mode) {
