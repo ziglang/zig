@@ -86,6 +86,10 @@ no_builtin: bool,
 function_sections: bool,
 data_sections: bool,
 native_system_include_paths: []const []const u8,
+/// List of symbols forced as undefined in the symbol table
+/// thus forcing their resolution by the linker.
+/// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
+force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
 
 c_object_table: std.AutoArrayHashMapUnmanaged(*CObject, void) = .{},
 win32_resource_table: if (build_options.only_core_functionality) void else std.AutoArrayHashMapUnmanaged(*Win32Resource, void) =
@@ -1504,6 +1508,7 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
             .data_sections = options.data_sections,
             .native_system_include_paths = options.native_system_include_paths,
             .wasi_emulated_libs = options.wasi_emulated_libs,
+            .force_undefined_symbols = options.force_undefined_symbols,
         };
 
         // Prevent some footguns by making the "any" fields of config reflect
@@ -1569,7 +1574,6 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
             .headerpad_size = options.headerpad_size,
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
-            .force_undefined_symbols = options.force_undefined_symbols,
             .pdb_source_path = options.pdb_source_path,
             .pdb_out_path = options.pdb_out_path,
             .entry_addr = null, // CLI does not expose this option (yet?)
@@ -1830,18 +1834,16 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
             try comp.work_queue.writeItem(.libtsan);
         }
 
-        if (comp.bin_file) |lf| {
-            if (target.isMinGW() and comp.config.any_non_single_threaded) {
-                // LLD might drop some symbols as unused during LTO and GCing, therefore,
-                // we force mark them for resolution here.
+        if (target.isMinGW() and comp.config.any_non_single_threaded) {
+            // LLD might drop some symbols as unused during LTO and GCing, therefore,
+            // we force mark them for resolution here.
 
-                const tls_index_sym = switch (target.cpu.arch) {
-                    .x86 => "__tls_index",
-                    else => "_tls_index",
-                };
+            const tls_index_sym = switch (target.cpu.arch) {
+                .x86 => "__tls_index",
+                else => "_tls_index",
+            };
 
-                try lf.force_undefined_symbols.put(comp.gpa, tls_index_sym, {});
-            }
+            try comp.force_undefined_symbols.put(comp.gpa, tls_index_sym, {});
         }
 
         if (comp.include_compiler_rt and capable_of_building_compiler_rt) {
@@ -2447,6 +2449,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.addOptionalBytes(comp.sysroot);
     man.hash.addOptional(comp.version);
     man.hash.addListOfBytes(comp.rc_include_dir_list);
+    man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
 
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_asm);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
@@ -2482,7 +2485,6 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.add(lf.gc_sections);
         man.hash.addListOfBytes(lf.rpath_list);
         man.hash.add(lf.build_id);
-        man.hash.addListOfBytes(lf.force_undefined_symbols.keys());
         man.hash.add(lf.allow_shlib_undefined);
 
         switch (lf.tag) {

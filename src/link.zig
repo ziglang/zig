@@ -64,10 +64,6 @@ pub const File = struct {
     print_gc_sections: bool,
     build_id: std.zig.BuildId,
     rpath_list: []const []const u8,
-    /// List of symbols forced as undefined in the symbol table
-    /// thus forcing their resolution by the linker.
-    /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
-    force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
     allow_shlib_undefined: bool,
     stack_size: u64,
 
@@ -129,7 +125,6 @@ pub const File = struct {
         print_icf_sections: bool,
         print_map: bool,
 
-        force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
         /// Use a wrapper function for symbol. Any undefined reference to symbol
         /// will be resolved to __wrap_symbol. Any undefined reference to
         /// __real_symbol will be resolved to symbol. This can be used to provide a

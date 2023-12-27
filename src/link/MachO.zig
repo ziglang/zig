@@ -220,7 +220,6 @@ pub fn createEmpty(
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
             .rpath_list = options.rpath_list,
-            .force_undefined_symbols = options.force_undefined_symbols,
         },
         .mode = mode,
         .pagezero_vmsize = options.pagezero_size orelse default_pagezero_vmsize,
@@ -1642,7 +1641,7 @@ pub fn resolveSymbols(self: *MachO) !void {
     }
 
     // Force resolution of any symbols requested by the user.
-    for (self.base.force_undefined_symbols.keys()) |sym_name| {
+    for (comp.force_undefined_symbols.keys()) |sym_name| {
         _ = try self.addUndefined(sym_name, .{});
     }
 

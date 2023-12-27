@@ -71,7 +71,6 @@ pub fn createEmpty(
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
             .rpath_list = options.rpath_list,
-            .force_undefined_symbols = options.force_undefined_symbols,
         },
         .object = codegen.Object.init(gpa),
     };

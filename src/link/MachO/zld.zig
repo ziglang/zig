@@ -85,7 +85,7 @@ pub fn linkWithZld(
         }
         try link.hashAddSystemLibs(&man, comp.system_libs);
         man.hash.addOptionalBytes(comp.sysroot);
-        man.hash.addListOfBytes(macho_file.base.force_undefined_symbols.keys());
+        man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
         try man.addOptionalFile(macho_file.entitlements);
 
         // We don't actually care whether it's a cache hit or miss; we just

@@ -103,7 +103,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             }
         }
         try link.hashAddSystemLibs(&man, comp.system_libs);
-        man.hash.addListOfBytes(self.base.force_undefined_symbols.keys());
+        man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
         man.hash.addOptional(self.subsystem);
         man.hash.add(comp.config.is_test);
         man.hash.add(self.tsaware);
@@ -217,7 +217,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             }
         }
 
-        for (self.base.force_undefined_symbols.keys()) |symbol| {
+        for (comp.force_undefined_symbols.keys()) |symbol| {
             try argv.append(try allocPrint(arena, "-INCLUDE:{s}", .{symbol}));
         }
 

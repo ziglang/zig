@@ -285,7 +285,6 @@ pub fn createEmpty(
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
             .rpath_list = options.rpath_list,
-            .force_undefined_symbols = options.force_undefined_symbols,
         },
         .ptr_width = ptr_width,
         .page_size = page_size,
@@ -2473,7 +2472,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.addOptionalBytes(self.soname);
         man.hash.addOptional(comp.version);
         try link.hashAddSystemLibs(&man, self.base.comp.system_libs);
-        man.hash.addListOfBytes(self.base.force_undefined_symbols.keys());
+        man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
         man.hash.add(self.base.allow_shlib_undefined);
         man.hash.add(self.bind_global_refs_locally);
         man.hash.add(self.compress_debug_sections);
@@ -2574,7 +2573,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.appendSlice(&.{ "--entry", name });
         }
 
-        for (self.base.force_undefined_symbols.keys()) |sym| {
+        for (comp.force_undefined_symbols.keys()) |sym| {
             try argv.append("-u");
             try argv.append(sym);
         }
