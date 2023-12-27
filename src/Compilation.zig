@@ -1198,7 +1198,12 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const use_llvm = options.config.use_llvm;
 
-        const any_unwind_tables = options.config.any_unwind_tables;
+        // The "any" values provided by resolved config only account for
+        // explicitly-provided settings. We now make them additionally account
+        // for default setting resolution.
+        const any_unwind_tables = options.config.any_unwind_tables or options.root_mod.unwind_tables;
+        const any_non_single_threaded = options.config.any_non_single_threaded or !options.root_mod.single_threaded;
+        const any_sanitize_thread = options.config.any_sanitize_thread or options.root_mod.sanitize_thread;
 
         const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables;
         const build_id = options.build_id orelse .none;
@@ -1502,6 +1507,12 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .data_sections = options.data_sections,
             .native_system_include_paths = options.native_system_include_paths,
         };
+
+        // Prevent some footguns by making the "any" fields of config reflect
+        // the default Module settings.
+        comp.config.any_unwind_tables = any_unwind_tables;
+        comp.config.any_non_single_threaded = any_non_single_threaded;
+        comp.config.any_sanitize_thread = any_sanitize_thread;
 
         const lf_open_opts: link.File.OpenOptions = .{
             .linker_script = options.linker_script,

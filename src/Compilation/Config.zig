@@ -1,4 +1,7 @@
-//! User-specified settings that have all the defaults resolved into concrete values.
+//! User-specified settings that have all the defaults resolved into concrete
+//! values. These values are observable before calling Compilation.create for
+//! the benefit of Module creation API, which needs access to these details in
+//! order to resolve per-Module defaults.
 
 have_zcu: bool,
 output_mode: std.builtin.OutputMode,
@@ -6,12 +9,27 @@ link_mode: std.builtin.LinkMode,
 link_libc: bool,
 link_libcpp: bool,
 link_libunwind: bool,
-any_unwind_tables: bool,
+/// True if and only if the c_source_files field will have nonzero length when
+/// calling Compilation.create.
 any_c_source_files: bool,
+/// This is true if any Module has unwind_tables set explicitly to true. Until
+/// Compilation.create is called, it is possible for this to be false while in
+/// fact all Module instances have unwind_tables=true due to the default
+/// being unwind_tables=true. After Compilation.create is called this will
+/// also take into account the default setting, making this value true if and
+/// only if any Module has unwind_tables set to true.
+any_unwind_tables: bool,
+/// This is true if any Module has single_threaded set explicitly to false. Until
+/// Compilation.create is called, it is possible for this to be false while in
+/// fact all Module instances have single_threaded=false due to the default
+/// being non-single-threaded. After Compilation.create is called this will
+/// also take into account the default setting, making this value true if and
+/// only if any Module has single_threaded set to false.
 any_non_single_threaded: bool,
-/// This is true if any Module has error_tracing set to true. Function types
-/// and function calling convention depend on this global value, however, other
-/// kinds of error tracing are omitted depending on the per-Module setting.
+/// This is true if and only if any Module has error_tracing set to true.
+/// Function types and function calling convention depend on this global value,
+/// however, other kinds of error tracing are omitted depending on the
+/// per-Module setting.
 any_error_tracing: bool,
 any_sanitize_thread: bool,
 pie: bool,
