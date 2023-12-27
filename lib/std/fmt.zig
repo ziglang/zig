@@ -1009,10 +1009,10 @@ pub fn formatBuf(
 }
 
 /// Print a float in scientific notation to the specified precision. Null uses full precision.
-/// It should be the case that every full precision, printed value can be re-parsed back to the
-/// same type unambiguously.
+/// For floats with less than 64 bits, it should be the case that every full precision, printed
+/// value can be re-parsed back to the same type unambiguously.
 ///
-/// TODO: Floats with > 64 bits currently lose precision (https://github.com/ziglang/zig/issues/1181)
+/// Floats with more than 64 are currently rounded, see https://github.com/ziglang/zig/issues/1181
 pub fn formatFloatScientific(
     value: anytype,
     options: FormatOptions,
@@ -1216,7 +1216,7 @@ pub fn formatFloatHexadecimal(
 /// Print a float of the format x.yyyyy where the number of y is specified by the precision argument.
 /// By default floats are printed at full precision (no rounding).
 ///
-/// TODO: Floats with > 64 bits are not yet supported (https://github.com/ziglang/zig/issues/1181)
+/// Floats with more than 64 bits are not yet supported, see https://github.com/ziglang/zig/issues/1181
 pub fn formatFloatDecimal(
     value: anytype,
     options: FormatOptions,
