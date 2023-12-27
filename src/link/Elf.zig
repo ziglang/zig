@@ -294,7 +294,7 @@ pub fn createEmpty(
             if (is_dyn_lib) break :b 0;
             if (output_mode == .Exe and comp.config.pie) break :b 0;
             break :b options.image_base orelse switch (ptr_width) {
-                .p32 => 0x1000,
+                .p32 => 0x10000,
                 .p64 => 0x1000000,
             };
         },
