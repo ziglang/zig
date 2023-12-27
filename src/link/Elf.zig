@@ -1,6 +1,5 @@
 base: link.File,
 image_base: u64,
-eh_frame_hdr: bool,
 emit_relocs: bool,
 z_nodelete: bool,
 z_notext: bool,
@@ -306,7 +305,6 @@ pub fn createEmpty(
             };
         },
 
-        .eh_frame_hdr = options.eh_frame_hdr,
         .emit_relocs = options.emit_relocs,
         .z_nodelete = options.z_nodelete,
         .z_notext = options.z_notext,
@@ -1726,7 +1724,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try argv.append("--print-gc-sections");
         }
 
-        if (self.eh_frame_hdr) {
+        if (comp.link_eh_frame_hdr) {
             try argv.append("--eh-frame-hdr");
         }
 
@@ -2437,7 +2435,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(self.image_base);
         man.hash.add(self.base.gc_sections);
         man.hash.addOptional(self.sort_section);
-        man.hash.add(self.eh_frame_hdr);
+        man.hash.add(comp.link_eh_frame_hdr);
         man.hash.add(self.emit_relocs);
         man.hash.add(comp.config.rdynamic);
         man.hash.addListOfBytes(self.lib_dirs);
@@ -2633,7 +2631,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("--print-map");
         }
 
-        if (self.eh_frame_hdr) {
+        if (comp.link_eh_frame_hdr) {
             try argv.append("--eh-frame-hdr");
         }
 
@@ -3317,6 +3315,9 @@ pub fn deleteDeclExport(
 }
 
 fn addLinkerDefinedSymbols(self: *Elf) !void {
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+
     const linker_defined_index = self.linker_defined_index orelse return;
     const linker_defined = self.file(linker_defined_index).?.linker_defined;
     self.dynamic_index = try linker_defined.addGlobal("_DYNAMIC", self);
@@ -3331,7 +3332,7 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
     self.plt_index = try linker_defined.addGlobal("_PROCEDURE_LINKAGE_TABLE_", self);
     self.end_index = try linker_defined.addGlobal("_end", self);
 
-    if (self.eh_frame_hdr) {
+    if (comp.link_eh_frame_hdr) {
         self.gnu_eh_frame_hdr_index = try linker_defined.addGlobal("__GNU_EH_FRAME_HDR", self);
     }
 
@@ -3345,7 +3346,6 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
 
     for (self.shdrs.items) |shdr| {
         if (self.getStartStopBasename(shdr)) |name| {
-            const gpa = self.base.comp.gpa;
             try self.start_stop_indexes.ensureUnusedCapacity(gpa, 2);
 
             const start = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
@@ -3510,7 +3510,7 @@ fn initSyntheticSections(self: *Elf) !void {
             .offset = std.math.maxInt(u64),
         });
 
-        if (self.eh_frame_hdr) {
+        if (comp.link_eh_frame_hdr) {
             self.eh_frame_hdr_section_index = try self.addSection(.{
                 .name = ".eh_frame_hdr",
                 .type = elf.SHT_PROGBITS,

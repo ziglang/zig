@@ -85,7 +85,6 @@ pub const File = struct {
         entry_addr: ?u64,
         stack_size: ?u64,
         image_base: ?u64,
-        eh_frame_hdr: bool,
         emit_relocs: bool,
         z_nodelete: bool,
         z_notext: bool,

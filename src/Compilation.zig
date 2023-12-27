@@ -85,6 +85,7 @@ skip_linker_dependencies: bool,
 no_builtin: bool,
 function_sections: bool,
 data_sections: bool,
+link_eh_frame_hdr: bool,
 native_system_include_paths: []const []const u8,
 /// List of symbols forced as undefined in the symbol table
 /// thus forcing their resolution by the linker.
@@ -1509,6 +1510,7 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
             .native_system_include_paths = options.native_system_include_paths,
             .wasi_emulated_libs = options.wasi_emulated_libs,
             .force_undefined_symbols = options.force_undefined_symbols,
+            .link_eh_frame_hdr = link_eh_frame_hdr,
         };
 
         // Prevent some footguns by making the "any" fields of config reflect
@@ -1558,7 +1560,6 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
             .image_base = options.image_base,
             .version_script = options.version_script,
             .gc_sections = options.linker_gc_sections,
-            .eh_frame_hdr = link_eh_frame_hdr,
             .emit_relocs = options.link_emit_relocs,
             .soname = options.soname,
             .compatibility_version = options.compatibility_version,
@@ -2457,6 +2458,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 
     man.hash.add(comp.skip_linker_dependencies);
     man.hash.add(comp.include_compiler_rt);
+    man.hash.add(comp.link_eh_frame_hdr);
     if (comp.config.link_libc) {
         man.hash.add(comp.libc_installation != null);
         const target = comp.root_mod.resolved_target.result;
@@ -2490,7 +2492,6 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         switch (lf.tag) {
             .elf => {
                 const elf = lf.cast(link.File.Elf).?;
-                man.hash.add(elf.eh_frame_hdr);
                 man.hash.add(elf.image_base);
                 man.hash.add(elf.emit_relocs);
                 man.hash.add(elf.z_nodelete);
@@ -6213,8 +6214,7 @@ fn buildOutputFromZig(
 
     assert(output_mode != .Exe);
 
-    const lf = comp.bin_file.?;
-    const unwind_tables = if (lf.cast(link.File.Elf)) |elf| elf.eh_frame_hdr else false;
+    const unwind_tables = comp.link_eh_frame_hdr;
     const strip = comp.compilerRtStrip();
     const optimize_mode = comp.compilerRtOptMode();
 
