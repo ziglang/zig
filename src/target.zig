@@ -407,7 +407,6 @@ pub fn hasDebugInfo(target: std.Target) bool {
             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx78) or
             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx80) or
             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx81),
-        .wasm32, .wasm64 => false,
         .bpfel, .bpfeb => false,
         else => true,
     };
