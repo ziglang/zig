@@ -3659,11 +3659,13 @@ fn createModule(
             external_system_libs.len != 0)
         {
             if (create_module.libc_installation == null) {
-                create_module.libc_installation = try LibCInstallation.findNative(.{
+                create_module.libc_installation = LibCInstallation.findNative(.{
                     .allocator = arena,
                     .verbose = true,
                     .target = target,
-                });
+                }) catch |err| {
+                    fatal("unable to find native libc installation: {s}", .{@errorName(err)});
+                };
 
                 try create_module.lib_dirs.appendSlice(arena, &.{
                     create_module.libc_installation.?.msvc_lib_dir.?,
