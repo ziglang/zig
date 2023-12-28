@@ -37,6 +37,7 @@ const clang = @import("clang.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
 const BuiltinFn = std.zig.BuiltinFn;
+const LlvmObject = @import("codegen/llvm.zig").Object;
 
 comptime {
     @setEvalBranchQuota(4000);
@@ -53,6 +54,10 @@ comptime {
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
 comp: *Compilation,
+/// Usually, the LlvmObject is managed by linker code, however, in the case
+/// that -fno-emit-bin is specified, the linker code never executes, so we
+/// store the LlvmObject here.
+llvm_object: ?*LlvmObject,
 
 /// Pointer to externally managed resource.
 root_mod: *Package.Module,
@@ -2476,36 +2481,41 @@ pub fn init(mod: *Module) !void {
     try mod.global_error_set.put(gpa, .empty, {});
 }
 
-pub fn deinit(mod: *Module) void {
-    const gpa = mod.gpa;
+pub fn deinit(zcu: *Zcu) void {
+    const gpa = zcu.gpa;
 
-    for (mod.import_table.keys()) |key| {
+    if (zcu.llvm_object) |llvm_object| {
+        if (build_options.only_c) unreachable;
+        llvm_object.deinit();
+    }
+
+    for (zcu.import_table.keys()) |key| {
         gpa.free(key);
     }
-    var failed_decls = mod.failed_decls;
-    mod.failed_decls = .{};
-    for (mod.import_table.values()) |value| {
-        value.destroy(mod);
+    var failed_decls = zcu.failed_decls;
+    zcu.failed_decls = .{};
+    for (zcu.import_table.values()) |value| {
+        value.destroy(zcu);
     }
-    mod.import_table.deinit(gpa);
+    zcu.import_table.deinit(gpa);
 
-    for (mod.embed_table.keys(), mod.embed_table.values()) |path, embed_file| {
+    for (zcu.embed_table.keys(), zcu.embed_table.values()) |path, embed_file| {
         gpa.free(path);
         gpa.destroy(embed_file);
     }
-    mod.embed_table.deinit(gpa);
+    zcu.embed_table.deinit(gpa);
 
-    mod.compile_log_text.deinit(gpa);
+    zcu.compile_log_text.deinit(gpa);
 
-    mod.local_zir_cache.handle.close();
-    mod.global_zir_cache.handle.close();
+    zcu.local_zir_cache.handle.close();
+    zcu.global_zir_cache.handle.close();
 
     for (failed_decls.values()) |value| {
         value.destroy(gpa);
     }
     failed_decls.deinit(gpa);
 
-    if (mod.emit_h) |emit_h| {
+    if (zcu.emit_h) |emit_h| {
         for (emit_h.failed_decls.values()) |value| {
             value.destroy(gpa);
         }
@@ -2514,68 +2524,68 @@ pub fn deinit(mod: *Module) void {
         emit_h.allocated_emit_h.deinit(gpa);
     }
 
-    for (mod.failed_files.values()) |value| {
+    for (zcu.failed_files.values()) |value| {
         if (value) |msg| msg.destroy(gpa);
     }
-    mod.failed_files.deinit(gpa);
+    zcu.failed_files.deinit(gpa);
 
-    for (mod.failed_embed_files.values()) |msg| {
+    for (zcu.failed_embed_files.values()) |msg| {
         msg.destroy(gpa);
     }
-    mod.failed_embed_files.deinit(gpa);
+    zcu.failed_embed_files.deinit(gpa);
 
-    for (mod.failed_exports.values()) |value| {
+    for (zcu.failed_exports.values()) |value| {
         value.destroy(gpa);
     }
-    mod.failed_exports.deinit(gpa);
+    zcu.failed_exports.deinit(gpa);
 
-    for (mod.cimport_errors.values()) |*errs| {
+    for (zcu.cimport_errors.values()) |*errs| {
         errs.deinit(gpa);
     }
-    mod.cimport_errors.deinit(gpa);
+    zcu.cimport_errors.deinit(gpa);
 
-    mod.compile_log_decls.deinit(gpa);
+    zcu.compile_log_decls.deinit(gpa);
 
-    for (mod.decl_exports.values()) |*export_list| {
+    for (zcu.decl_exports.values()) |*export_list| {
         export_list.deinit(gpa);
     }
-    mod.decl_exports.deinit(gpa);
+    zcu.decl_exports.deinit(gpa);
 
-    for (mod.value_exports.values()) |*export_list| {
+    for (zcu.value_exports.values()) |*export_list| {
         export_list.deinit(gpa);
     }
-    mod.value_exports.deinit(gpa);
+    zcu.value_exports.deinit(gpa);
 
-    for (mod.export_owners.values()) |*value| {
+    for (zcu.export_owners.values()) |*value| {
         freeExportList(gpa, value);
     }
-    mod.export_owners.deinit(gpa);
+    zcu.export_owners.deinit(gpa);
 
-    mod.global_error_set.deinit(gpa);
+    zcu.global_error_set.deinit(gpa);
 
-    mod.test_functions.deinit(gpa);
+    zcu.test_functions.deinit(gpa);
 
-    for (mod.global_assembly.values()) |s| {
+    for (zcu.global_assembly.values()) |s| {
         gpa.free(s);
     }
-    mod.global_assembly.deinit(gpa);
+    zcu.global_assembly.deinit(gpa);
 
-    mod.reference_table.deinit(gpa);
+    zcu.reference_table.deinit(gpa);
 
     {
-        var it = mod.intern_pool.allocated_namespaces.iterator(0);
+        var it = zcu.intern_pool.allocated_namespaces.iterator(0);
         while (it.next()) |namespace| {
             namespace.decls.deinit(gpa);
             namespace.usingnamespace_set.deinit(gpa);
         }
     }
 
-    mod.intern_pool.deinit(gpa);
-    mod.tmp_hack_arena.deinit();
+    zcu.intern_pool.deinit(gpa);
+    zcu.tmp_hack_arena.deinit();
 
-    mod.capture_scope_parents.deinit(gpa);
-    mod.runtime_capture_scopes.deinit(gpa);
-    mod.comptime_capture_scopes.deinit(gpa);
+    zcu.capture_scope_parents.deinit(gpa);
+    zcu.runtime_capture_scopes.deinit(gpa);
+    zcu.comptime_capture_scopes.deinit(gpa);
 }
 
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
@@ -3222,14 +3232,14 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     }
 }
 
-pub fn ensureFuncBodyAnalyzed(mod: *Module, func_index: InternPool.Index) SemaError!void {
+pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const ip = &mod.intern_pool;
-    const func = mod.funcInfo(func_index);
+    const ip = &zcu.intern_pool;
+    const func = zcu.funcInfo(func_index);
     const decl_index = func.owner_decl;
-    const decl = mod.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
 
     switch (decl.analysis) {
         .unreferenced => unreachable,
@@ -3253,13 +3263,13 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func_index: InternPool.Index) SemaEr
                 .success => return,
             }
 
-            const gpa = mod.gpa;
+            const gpa = zcu.gpa;
 
             var tmp_arena = std.heap.ArenaAllocator.init(gpa);
             defer tmp_arena.deinit();
             const sema_arena = tmp_arena.allocator();
 
-            var air = mod.analyzeFnBody(func_index, sema_arena) catch |err| switch (err) {
+            var air = zcu.analyzeFnBody(func_index, sema_arena) catch |err| switch (err) {
                 error.AnalysisFail => {
                     if (func.analysis(ip).state == .in_progress) {
                         // If this decl caused the compile error, the analysis field would
@@ -3273,25 +3283,22 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func_index: InternPool.Index) SemaEr
             };
             defer air.deinit(gpa);
 
-            const comp = mod.comp;
-
-            const no_bin_file = (comp.bin_file == null and
-                comp.emit_asm == null and
-                comp.emit_llvm_ir == null and
-                comp.emit_llvm_bc == null);
+            const comp = zcu.comp;
 
             const dump_air = builtin.mode == .Debug and comp.verbose_air;
             const dump_llvm_ir = builtin.mode == .Debug and (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
 
-            if (no_bin_file and !dump_air and !dump_llvm_ir) return;
+            if (comp.bin_file == null and zcu.llvm_object == null and !dump_air and !dump_llvm_ir) {
+                return;
+            }
 
             var liveness = try Liveness.analyze(gpa, air, ip);
             defer liveness.deinit(gpa);
 
             if (dump_air) {
-                const fqn = try decl.getFullyQualifiedName(mod);
+                const fqn = try decl.getFullyQualifiedName(zcu);
                 std.debug.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)});
-                @import("print_air.zig").dump(mod, air, liveness);
+                @import("print_air.zig").dump(zcu, air, liveness);
                 std.debug.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)});
             }
 
@@ -3307,12 +3314,12 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func_index: InternPool.Index) SemaEr
                 verify.verify() catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
                     else => {
-                        try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
-                        mod.failed_decls.putAssumeCapacityNoClobber(
+                        try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
+                        zcu.failed_decls.putAssumeCapacityNoClobber(
                             decl_index,
                             try Module.ErrorMsg.create(
                                 gpa,
-                                decl.srcLoc(mod),
+                                decl.srcLoc(zcu),
                                 "invalid liveness: {s}",
                                 .{@errorName(err)},
                             ),
@@ -3323,28 +3330,32 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func_index: InternPool.Index) SemaEr
                 };
             }
 
-            if (no_bin_file and !dump_llvm_ir) return;
-
-            const lf = comp.bin_file.?;
-            lf.updateFunc(mod, func_index, air, liveness) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => {
-                    decl.analysis = .codegen_failure;
-                    return;
-                },
-                else => {
-                    try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
-                    mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
-                        gpa,
-                        decl.srcLoc(mod),
-                        "unable to codegen: {s}",
-                        .{@errorName(err)},
-                    ));
-                    decl.analysis = .codegen_failure_retryable;
-                    return;
-                },
-            };
-            return;
+            if (comp.bin_file) |lf| {
+                lf.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.AnalysisFail => {
+                        decl.analysis = .codegen_failure;
+                    },
+                    else => {
+                        try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
+                        zcu.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
+                            gpa,
+                            decl.srcLoc(zcu),
+                            "unable to codegen: {s}",
+                            .{@errorName(err)},
+                        ));
+                        decl.analysis = .codegen_failure_retryable;
+                    },
+                };
+            } else if (zcu.llvm_object) |llvm_object| {
+                if (build_options.only_c) unreachable;
+                llvm_object.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.AnalysisFail => {
+                        decl.analysis = .codegen_failure;
+                    },
+                };
+            }
         },
     }
 }
@@ -5235,44 +5246,57 @@ pub fn processExports(mod: *Module) !void {
 const SymbolExports = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, *Export);
 
 fn processExportsInner(
-    mod: *Module,
+    zcu: *Zcu,
     symbol_exports: *SymbolExports,
     exported: Exported,
     exports: []const *Export,
 ) error{OutOfMemory}!void {
-    const gpa = mod.gpa;
+    const gpa = zcu.gpa;
 
     for (exports) |new_export| {
         const gop = try symbol_exports.getOrPut(gpa, new_export.opts.name);
         if (gop.found_existing) {
             new_export.status = .failed_retryable;
-            try mod.failed_exports.ensureUnusedCapacity(gpa, 1);
-            const src_loc = new_export.getSrcLoc(mod);
+            try zcu.failed_exports.ensureUnusedCapacity(gpa, 1);
+            const src_loc = new_export.getSrcLoc(zcu);
             const msg = try ErrorMsg.create(gpa, src_loc, "exported symbol collision: {}", .{
-                new_export.opts.name.fmt(&mod.intern_pool),
+                new_export.opts.name.fmt(&zcu.intern_pool),
             });
             errdefer msg.destroy(gpa);
             const other_export = gop.value_ptr.*;
-            const other_src_loc = other_export.getSrcLoc(mod);
-            try mod.errNoteNonLazy(other_src_loc, msg, "other symbol here", .{});
-            mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
+            const other_src_loc = other_export.getSrcLoc(zcu);
+            try zcu.errNoteNonLazy(other_src_loc, msg, "other symbol here", .{});
+            zcu.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
             new_export.status = .failed;
         } else {
             gop.value_ptr.* = new_export;
         }
     }
-    const lf = mod.comp.bin_file orelse return;
-    lf.updateExports(mod, exported, exports) catch |err| switch (err) {
+    if (zcu.comp.bin_file) |lf| {
+        try handleUpdateExports(zcu, exports, lf.updateExports(zcu, exported, exports));
+    } else if (zcu.llvm_object) |llvm_object| {
+        if (build_options.only_c) unreachable;
+        try handleUpdateExports(zcu, exports, llvm_object.updateExports(zcu, exported, exports));
+    }
+}
+
+fn handleUpdateExports(
+    zcu: *Zcu,
+    exports: []const *Export,
+    result: link.File.UpdateExportsError!void,
+) Allocator.Error!void {
+    const gpa = zcu.gpa;
+    result catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => {
+        error.AnalysisFail => {
             const new_export = exports[0];
             new_export.status = .failed_retryable;
-            try mod.failed_exports.ensureUnusedCapacity(gpa, 1);
-            const src_loc = new_export.getSrcLoc(mod);
+            try zcu.failed_exports.ensureUnusedCapacity(gpa, 1);
+            const src_loc = new_export.getSrcLoc(zcu);
             const msg = try ErrorMsg.create(gpa, src_loc, "unable to export: {s}", .{
                 @errorName(err),
             });
-            mod.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
+            zcu.failed_exports.putAssumeCapacityNoClobber(new_export, msg);
         },
     };
 }
@@ -5415,41 +5439,38 @@ pub fn populateTestFunctions(
     try mod.linkerUpdateDecl(decl_index);
 }
 
-pub fn linkerUpdateDecl(mod: *Module, decl_index: Decl.Index) !void {
-    const comp = mod.comp;
+pub fn linkerUpdateDecl(zcu: *Zcu, decl_index: Decl.Index) !void {
+    const comp = zcu.comp;
 
     if (comp.bin_file) |lf| {
-        const decl = mod.declPtr(decl_index);
-        lf.updateDecl(mod, decl_index) catch |err| switch (err) {
+        lf.updateDecl(zcu, decl_index) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {
+                const decl = zcu.declPtr(decl_index);
                 decl.analysis = .codegen_failure;
-                return;
             },
             else => {
-                const gpa = mod.gpa;
-                try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
-                mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
+                const decl = zcu.declPtr(decl_index);
+                const gpa = zcu.gpa;
+                try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
+                zcu.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
                     gpa,
-                    decl.srcLoc(mod),
+                    decl.srcLoc(zcu),
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
                 decl.analysis = .codegen_failure_retryable;
-                return;
             },
         };
-    } else {
-        const dump_llvm_ir = builtin.mode == .Debug and
-            (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
-
-        if (comp.emit_asm != null or
-            comp.emit_llvm_ir != null or
-            comp.emit_llvm_bc != null or
-            dump_llvm_ir)
-        {
-            @panic("TODO handle emit_asm, emit_llvm_ir, and emit_llvm_bc along with -fno-emit-bin");
-        }
+    } else if (zcu.llvm_object) |llvm_object| {
+        if (build_options.only_c) unreachable;
+        llvm_object.updateDecl(zcu, decl_index) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.AnalysisFail => {
+                const decl = zcu.declPtr(decl_index);
+                decl.analysis = .codegen_failure;
+            },
+        };
     }
 }
 

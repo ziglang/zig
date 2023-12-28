@@ -39,6 +39,7 @@ const Zir = @import("Zir.zig");
 const Autodoc = @import("Autodoc.zig");
 const resinator = @import("resinator.zig");
 const Builtin = @import("Builtin.zig");
+const LlvmObject = @import("codegen/llvm.zig").Object;
 
 pub const Config = @import("Compilation/Config.zig");
 
@@ -1434,6 +1435,7 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
                 .emit_h = emit_h,
                 .tmp_hack_arena = std.heap.ArenaAllocator.init(gpa),
                 .error_limit = error_limit,
+                .llvm_object = null,
             };
             try zcu.init();
             break :blk zcu;
@@ -1681,6 +1683,17 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
                 };
                 comp.cache_use = .{ .whole = whole };
             },
+        }
+
+        // Handle the case of e.g. -fno-emit-bin -femit-llvm-ir.
+        if (options.emit_bin == null and (comp.verbose_llvm_ir != null or
+            comp.verbose_llvm_bc != null or
+            (use_llvm and comp.emit_asm != null) or
+            comp.emit_llvm_ir != null or
+            comp.emit_llvm_bc != null))
+        {
+            if (build_options.only_c) unreachable;
+            if (opt_zcu) |zcu| zcu.llvm_object = try LlvmObject.create(arena, comp);
         }
 
         comp.arena = arena_allocator;
@@ -2016,6 +2029,12 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
+    // This arena is scoped to this one update.
+    const gpa = comp.gpa;
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
     comp.clearMiscFailures();
     comp.last_update_was_cache_hit = false;
 
@@ -2034,7 +2053,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
 
             man = comp.cache_parent.obtain();
             whole.cache_manifest = &man;
-            try comp.addNonIncrementalStuffToCacheManifest(&man);
+            try addNonIncrementalStuffToCacheManifest(comp, arena, &man);
 
             const is_hit = man.hit() catch |err| {
                 const i = man.failed_file_index orelse return err;
@@ -2065,8 +2084,8 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                 tmp_dir_rand_int = std.crypto.random.int(u64);
                 const tmp_dir_sub_path = "tmp" ++ s ++ Package.Manifest.hex64(tmp_dir_rand_int);
 
-                const path = try comp.local_cache_directory.join(comp.gpa, &.{tmp_dir_sub_path});
-                errdefer comp.gpa.free(path);
+                const path = try comp.local_cache_directory.join(gpa, &.{tmp_dir_sub_path});
+                errdefer gpa.free(path);
 
                 const handle = try comp.local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
                 errdefer handle.close();
@@ -2100,10 +2119,6 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                     .directory = tmp_artifact_directory,
                     .sub_path = std.fs.path.basename(sub_path),
                 };
-                // It's a bit strange to use the Compilation arena allocator here
-                // but in practice it won't leak much and usually whole cache mode
-                // will be combined with exactly one call to update().
-                const arena = comp.arena.allocator();
                 comp.bin_file = try link.File.createEmpty(arena, comp, emit, whole.lf_open_opts);
             }
         },
@@ -2127,7 +2142,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     }
 
     if (comp.module) |module| {
-        module.compile_log_text.shrinkAndFree(module.gpa, 0);
+        module.compile_log_text.shrinkAndFree(gpa, 0);
         module.generation += 1;
 
         // Make sure std.zig is inside the import_table. We unconditionally need
@@ -2189,7 +2204,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                 comp.root_name,
                 @as(usize, @intFromPtr(module)),
             });
-            module.intern_pool.dumpGenericInstances(comp.gpa);
+            module.intern_pool.dumpGenericInstances(gpa);
         }
 
         if (comp.config.is_test and comp.totalErrorCount() == 0) {
@@ -2222,8 +2237,23 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             };
         }
 
-        if (comp.module) |module| {
-            try link.File.C.flushEmitH(module);
+        if (comp.module) |zcu| {
+            try link.File.C.flushEmitH(zcu);
+
+            if (zcu.llvm_object) |llvm_object| {
+                if (build_options.only_c) unreachable;
+                const default_emit = switch (comp.cache_use) {
+                    .whole => |whole| .{
+                        .directory = whole.tmp_artifact_directory.?,
+                        .sub_path = "dummy",
+                    },
+                    .incremental => |incremental| .{
+                        .directory = incremental.artifact_directory,
+                        .sub_path = "dummy",
+                    },
+                };
+                try emitLlvmObject(comp, arena, default_emit, null, llvm_object, main_progress_node);
+            }
         }
     }
 
@@ -2238,7 +2268,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             // Close tmp dir and link.File to avoid open handle during rename.
             if (whole.tmp_artifact_directory) |*tmp_directory| {
                 tmp_directory.handle.close();
-                if (tmp_directory.path) |p| comp.gpa.free(p);
+                if (tmp_directory.path) |p| gpa.free(p);
                 whole.tmp_artifact_directory = null;
             } else unreachable;
 
@@ -2389,12 +2419,12 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// anything from the link cache manifest.
 pub const link_hash_implementation_version = 10;
 
-fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
+fn addNonIncrementalStuffToCacheManifest(
+    comp: *Compilation,
+    arena: Allocator,
+    man: *Cache.Manifest,
+) !void {
     const gpa = comp.gpa;
-
-    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
 
     comptime assert(link_hash_implementation_version == 10);
 
@@ -2566,6 +2596,50 @@ fn emitOthers(comp: *Compilation) void {
             }
         }
     }
+}
+
+pub fn emitLlvmObject(
+    comp: *Compilation,
+    arena: Allocator,
+    default_emit: Emit,
+    bin_emit_loc: ?EmitLoc,
+    llvm_object: *LlvmObject,
+    prog_node: *std.Progress.Node,
+) !void {
+    if (build_options.only_c) @compileError("unreachable");
+
+    var sub_prog_node = prog_node.start("LLVM Emit Object", 0);
+    sub_prog_node.activate();
+    sub_prog_node.context.refresh();
+    defer sub_prog_node.end();
+
+    try llvm_object.emit(.{
+        .pre_ir_path = comp.verbose_llvm_ir,
+        .pre_bc_path = comp.verbose_llvm_bc,
+        .bin_path = try resolveEmitLoc(arena, default_emit, bin_emit_loc),
+        .asm_path = try resolveEmitLoc(arena, default_emit, comp.emit_asm),
+        .post_ir_path = try resolveEmitLoc(arena, default_emit, comp.emit_llvm_ir),
+        .post_bc_path = try resolveEmitLoc(arena, default_emit, comp.emit_llvm_bc),
+
+        .is_debug = comp.root_mod.optimize_mode == .Debug,
+        .is_small = comp.root_mod.optimize_mode == .ReleaseSmall,
+        .time_report = comp.time_report,
+        .sanitize_thread = comp.config.any_sanitize_thread,
+        .lto = comp.config.lto,
+    });
+}
+
+fn resolveEmitLoc(
+    arena: Allocator,
+    default_emit: Emit,
+    opt_loc: ?EmitLoc,
+) Allocator.Error!?[*:0]const u8 {
+    const loc = opt_loc orelse return null;
+    const slice = if (loc.directory) |directory|
+        try directory.joinZ(arena, &.{loc.basename})
+    else
+        try default_emit.basenamePath(arena, loc.basename);
+    return slice.ptr;
 }
 
 fn reportMultiModuleErrors(mod: *Module) !void {

@@ -984,49 +984,16 @@ pub const File = struct {
         return output_mode == .Lib and !self.isStatic();
     }
 
-    pub fn resolveEmitLoc(
-        base: File,
-        arena: Allocator,
-        opt_loc: ?Compilation.EmitLoc,
-    ) Allocator.Error!?[*:0]const u8 {
-        const loc = opt_loc orelse return null;
-        const slice = if (loc.directory) |directory|
-            try directory.joinZ(arena, &.{loc.basename})
-        else
-            try base.emit.basenamePath(arena, loc.basename);
-        return slice.ptr;
-    }
-
     pub fn emitLlvmObject(
         base: File,
         arena: Allocator,
         llvm_object: *LlvmObject,
         prog_node: *std.Progress.Node,
     ) !void {
-        const comp = base.comp;
-
-        var sub_prog_node = prog_node.start("LLVM Emit Object", 0);
-        sub_prog_node.activate();
-        sub_prog_node.context.refresh();
-        defer sub_prog_node.end();
-
-        try llvm_object.emit(.{
-            .pre_ir_path = comp.verbose_llvm_ir,
-            .pre_bc_path = comp.verbose_llvm_bc,
-            .bin_path = try base.resolveEmitLoc(arena, .{
-                .directory = null,
-                .basename = base.zcu_object_sub_path.?,
-            }),
-            .asm_path = try base.resolveEmitLoc(arena, comp.emit_asm),
-            .post_ir_path = try base.resolveEmitLoc(arena, comp.emit_llvm_ir),
-            .post_bc_path = try base.resolveEmitLoc(arena, comp.emit_llvm_bc),
-
-            .is_debug = comp.root_mod.optimize_mode == .Debug,
-            .is_small = comp.root_mod.optimize_mode == .ReleaseSmall,
-            .time_report = comp.time_report,
-            .sanitize_thread = comp.config.any_sanitize_thread,
-            .lto = comp.config.lto,
-        });
+        return base.comp.emitLlvmObject(arena, base.emit, .{
+            .directory = null,
+            .basename = base.zcu_object_sub_path.?,
+        }, llvm_object, prog_node);
     }
 
     pub const C = @import("link/C.zig");
