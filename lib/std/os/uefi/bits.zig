@@ -15,13 +15,13 @@ pub const PhysicalAddress = u64;
 pub const VirtualAddress = u64;
 
 /// An EFI Handle represents a collection of related interfaces.
-pub const Handle = *opaque {};
+pub const Handle = *const opaque {};
 
 /// A handle to an event structure.
-pub const Event = *opaque {};
+pub const Event = *const opaque {};
 
 /// File Handle as specified in the EFI Shell Spec
-pub const FileHandle = *opaque {};
+pub const FileHandle = *const opaque {};
 
 pub const Crc32 = std.hash.crc.Crc32IsoHdlc;
 
@@ -343,6 +343,23 @@ pub const Guid = extern struct {
 
         try std.testing.expect(std.mem.eql(u8, str, "32cb3c89-8080-427c-ba13-5049873bc287"));
     }
+};
+
+pub const Parity = enum(u8) {
+    default = 0,
+    none = 1,
+    even = 2,
+    odd = 3,
+    mark = 4,
+    space = 5,
+};
+
+pub const StopBits = enum(u8) {
+    default = 0,
+    one = 1,
+    one_and_half = 2,
+    two = 3,
+    _,
 };
 
 pub const FileInfo = extern struct {

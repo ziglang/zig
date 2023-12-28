@@ -905,24 +905,6 @@ pub const DevicePath = union(Type) {
         };
 
         pub const UartDevicePath = extern struct {
-            pub const Parity = enum(u8) {
-                default = 0,
-                none = 1,
-                even = 2,
-                odd = 3,
-                mark = 4,
-                space = 5,
-                _,
-            };
-
-            pub const StopBits = enum(u8) {
-                default = 0,
-                one = 1,
-                one_and_half = 2,
-                two = 3,
-                _,
-            };
-
             type: Type = .messaging,
             subtype: Subtype = .uart,
             length: u16 align(1) = 19,
@@ -935,10 +917,10 @@ pub const DevicePath = union(Type) {
             data_bits: u8,
 
             /// The parity setting for the UART device.
-            parity: Parity,
+            parity: bits.Parity,
 
             /// The number of stop bits for the UART device.
-            stop_bits: StopBits,
+            stop_bits: bits.StopBits,
 
             comptime {
                 assert(19 == @sizeOf(UartDevicePath));

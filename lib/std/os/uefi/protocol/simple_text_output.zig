@@ -1,8 +1,11 @@
-const std = @import("std");
-const uefi = std.os.uefi;
-const Guid = uefi.Guid;
-const Status = uefi.Status;
-const cc = uefi.cc;
+const std = @import("../../../std.zig");
+const bits = @import("../bits.zig");
+
+const cc = bits.cc;
+const Status = @import("../status.zig").Status;
+
+const Guid = bits.Guid;
+const Event = bits.Event;
 
 /// Character output devices
 pub const SimpleTextOutput = extern struct {
@@ -15,51 +18,128 @@ pub const SimpleTextOutput = extern struct {
     _clear_screen: *const fn (*const SimpleTextOutput) callconv(cc) Status,
     _set_cursor_position: *const fn (*const SimpleTextOutput, usize, usize) callconv(cc) Status,
     _enable_cursor: *const fn (*const SimpleTextOutput, bool) callconv(cc) Status,
+
+    ///The mode information for this instance of the protocol.
     mode: *Mode,
 
+    // the numbers here are specified as "int32", which implies signed, but signed values make no sense here.
+    pub const Mode = extern struct {
+        /// The number of modes supported by `queryMode()` and `setMode()`.
+        max_mode: u32,
+
+        /// The current mode.
+        mode: u32,
+        attribute: Attribute,
+        cursor_column: u32,
+        cursor_row: u32,
+        cursor_visible: bool,
+    };
+
     /// Resets the text output device hardware.
-    pub fn reset(self: *const SimpleTextOutput, verify: bool) Status {
-        return self._reset(self, verify);
+    pub fn reset(
+        self: *const SimpleTextOutput,
+        /// Indicates that the driver may perform a more exhaustive verification operation of
+        /// the device during reset.
+        verify: bool,
+    ) !void {
+        try self._reset(self, verify).err();
     }
 
     /// Writes a string to the output device.
-    pub fn outputString(self: *const SimpleTextOutput, msg: [*:0]const u16) Status {
-        return self._output_string(self, msg);
+    pub fn outputString(
+        self: *const SimpleTextOutput,
+        /// The Null-terminated string to be displayed on the output device(s).
+        msg: [:0]const u16,
+    ) !void {
+        try self._output_string(self, msg.ptr).err();
     }
 
     /// Verifies that all characters in a string can be output to the target device.
-    pub fn testString(self: *const SimpleTextOutput, msg: [*:0]const u16) Status {
-        return self._test_string(self, msg);
+    pub fn testString(
+        self: *const SimpleTextOutput,
+        msg: [:0]const u16,
+    ) bool {
+        return self._test_string(self, msg.ptr) == .success;
     }
 
+    /// The geometry of a output mode.
+    pub const ModeGeometry = struct {
+        rows: usize,
+        columns: usize,
+    };
+
     /// Returns information for an available text mode that the output device(s) supports.
-    pub fn queryMode(self: *const SimpleTextOutput, mode_number: usize, columns: *usize, rows: *usize) Status {
-        return self._query_mode(self, mode_number, columns, rows);
+    pub fn queryMode(
+        self: *const SimpleTextOutput,
+        /// The mode number to return information on.
+        mode_number: usize,
+    ) !ModeGeometry {
+        var info: ModeGeometry = undefined;
+        try self._query_mode(self, mode_number, &info.columns, &info.rows).err();
+        return info;
     }
 
     /// Sets the output device(s) to a specified mode.
-    pub fn setMode(self: *const SimpleTextOutput, mode_number: usize) Status {
-        return self._set_mode(self, mode_number);
+    pub fn setMode(
+        self: *const SimpleTextOutput,
+        /// The text mode to set.
+        mode_number: usize,
+    ) !void {
+        try self._set_mode(self, mode_number).err();
     }
 
+    pub const Attribute = packed struct(usize) {
+        pub const Color = enum(u3) {
+            black,
+            blue,
+            green,
+            cyan,
+            red,
+            magenta,
+            brown,
+            lightgray,
+        };
+
+        foreground: Color,
+
+        /// If true, `foreground` will use the bright variant of the color
+        foreground_bright: bool,
+        background: Color,
+
+        // this is a usize-sized bitfield, so we have to fill in the padding programmatically
+        reserved: std.meta.Int(.unsigned, @bitSizeOf(usize) - 7),
+    };
+
     /// Sets the background and foreground colors for the outputString() and clearScreen() functions.
-    pub fn setAttribute(self: *const SimpleTextOutput, attribute: usize) Status {
-        return self._set_attribute(self, attribute);
+    pub fn setAttribute(
+        self: *const SimpleTextOutput,
+        attribute: Attribute,
+    ) !void {
+        try self._set_attribute(self, attribute).err();
     }
 
     /// Clears the output device(s) display to the currently selected background color.
-    pub fn clearScreen(self: *const SimpleTextOutput) Status {
-        return self._clear_screen(self);
+    pub fn clearScreen(self: *const SimpleTextOutput) !void {
+        try self._clear_screen(self).err();
     }
 
     /// Sets the current coordinates of the cursor position.
-    pub fn setCursorPosition(self: *const SimpleTextOutput, column: usize, row: usize) Status {
-        return self._set_cursor_position(self, column, row);
+    pub fn setCursorPosition(
+        self: *const SimpleTextOutput,
+        /// The column to move to. Must be less than the columns in the geometry of the mode.
+        column: usize,
+        /// The row to move to. Must be less than the rows in the geometry of the mode.
+        row: usize,
+    ) !void {
+        try self._set_cursor_position(self, column, row).err();
     }
 
     /// Makes the cursor visible or invisible.
-    pub fn enableCursor(self: *const SimpleTextOutput, visible: bool) Status {
-        return self._enable_cursor(self, visible);
+    pub fn enableCursor(
+        self: *const SimpleTextOutput,
+        visible: bool,
+    ) !void {
+        try self._enable_cursor(self, visible).err();
     }
 
     pub const guid align(8) = Guid{
@@ -118,38 +198,4 @@ pub const SimpleTextOutput = extern struct {
     pub const geometricshape_left_triangle: u16 = 0x25c4;
     pub const arrow_up: u16 = 0x2591;
     pub const arrow_down: u16 = 0x2593;
-    pub const black: u8 = 0x00;
-    pub const blue: u8 = 0x01;
-    pub const green: u8 = 0x02;
-    pub const cyan: u8 = 0x03;
-    pub const red: u8 = 0x04;
-    pub const magenta: u8 = 0x05;
-    pub const brown: u8 = 0x06;
-    pub const lightgray: u8 = 0x07;
-    pub const bright: u8 = 0x08;
-    pub const darkgray: u8 = 0x08;
-    pub const lightblue: u8 = 0x09;
-    pub const lightgreen: u8 = 0x0a;
-    pub const lightcyan: u8 = 0x0b;
-    pub const lightred: u8 = 0x0c;
-    pub const lightmagenta: u8 = 0x0d;
-    pub const yellow: u8 = 0x0e;
-    pub const white: u8 = 0x0f;
-    pub const background_black: u8 = 0x00;
-    pub const background_blue: u8 = 0x10;
-    pub const background_green: u8 = 0x20;
-    pub const background_cyan: u8 = 0x30;
-    pub const background_red: u8 = 0x40;
-    pub const background_magenta: u8 = 0x50;
-    pub const background_brown: u8 = 0x60;
-    pub const background_lightgray: u8 = 0x70;
-
-    pub const Mode = extern struct {
-        max_mode: u32, // specified as signed
-        mode: u32, // specified as signed
-        attribute: i32,
-        cursor_column: i32,
-        cursor_row: i32,
-        cursor_visible: bool,
-    };
 };
