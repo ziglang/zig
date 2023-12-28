@@ -3580,6 +3580,9 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
             };
         },
         .windows_import_lib => |index| {
+            if (build_options.only_c)
+                @panic("building import libs not included in core functionality");
+
             const named_frame = tracy.namedFrame("windows_import_lib");
             defer named_frame.end();
 
@@ -6391,15 +6394,18 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     // If we haven't seen this library yet and we're targeting Windows, we need
     // to queue up a work item to produce the DLL import library for this.
     const gop = try comp.system_libs.getOrPut(comp.gpa, lib_name);
-    if (!gop.found_existing and comp.getTarget().os.tag == .windows) {
+    if (!gop.found_existing) {
         gop.value_ptr.* = .{
             .needed = true,
             .weak = false,
             .path = null,
         };
-        try comp.work_queue.writeItem(.{
-            .windows_import_lib = comp.system_libs.count() - 1,
-        });
+        const target = comp.root_mod.resolved_target.result;
+        if (target.os.tag == .windows and target.ofmt != .c) {
+            try comp.work_queue.writeItem(.{
+                .windows_import_lib = comp.system_libs.count() - 1,
+            });
+        }
     }
 }
 

@@ -287,7 +287,7 @@ fn add_cc_args(
 }
 
 pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
-    if (build_options.only_c) @panic("building import libs not included in core functionality");
+    if (build_options.only_c) @compileError("building import libs not included in core functionality");
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
