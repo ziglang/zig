@@ -639,7 +639,7 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 
     // No vectorization in stage2 x86_64 or x86
     // https://github.com/ziglang/zig/issues/17748
-    if (builtin.zig_backend != .stage2_x86_64 or builtin.zig_backend != .stage2_x86) {
+    if (builtin.zig_backend != .stage2_x86_64 and builtin.zig_backend != .stage2_x86) {
         if (@typeInfo(T) == .Int and std.math.isPowerOfTwo(@bitSizeOf(T))) return eqlBytes(std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
     }
 
