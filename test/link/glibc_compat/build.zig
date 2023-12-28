@@ -7,11 +7,11 @@ pub fn build(b: *std.Build) void {
     for ([_][]const u8{ "aarch64-linux-gnu.2.27", "aarch64-linux-gnu.2.34" }) |t| {
         const exe = b.addExecutable(.{
             .name = t,
-            .root_source_file = .{ .path = "main.c" },
             .target = b.resolveTargetQuery(std.Target.Query.parse(
                 .{ .arch_os_abi = t },
             ) catch unreachable),
         });
+        exe.addCSourceFile(.{ .file = .{ .path = "main.c" } });
         exe.linkLibC();
         // TODO: actually test the output
         _ = exe.getEmittedBin();
