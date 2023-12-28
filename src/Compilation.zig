@@ -4322,7 +4322,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         const formatted = try tree.render(comp.gpa);
         defer comp.gpa.free(formatted);
 
-        try out_zig_file.writeAll(formatted);
+        try out_zig_file.writer().print("thisfileisautotranslatedfromc;\n{s}", .{formatted});
 
         break :digest digest;
     } else man.final();

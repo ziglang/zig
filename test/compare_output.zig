@@ -4,11 +4,7 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addC("hello world with libc",
-        \\const c = @cImport({
-        \\    // See https://github.com/ziglang/zig/issues/515
-        \\    @cDefine("_NO_CRT_STDIO_INLINE", "1");
-        \\    @cInclude("stdio.h");
-        \\});
+        \\const c = @cImport(@cInclude("stdio.h"));
         \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
         \\    _ = argc;
         \\    _ = argv;
@@ -32,8 +28,6 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const is_windows = builtin.os.tag == .windows;
         \\const c = @cImport({
         \\    if (is_windows) {
-        \\        // See https://github.com/ziglang/zig/issues/515
-        \\        @cDefine("_NO_CRT_STDIO_INLINE", "1");
         \\        @cInclude("io.h");
         \\        @cInclude("fcntl.h");
         \\    }
@@ -212,8 +206,6 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const is_windows = builtin.os.tag == .windows;
         \\const c = @cImport({
         \\    if (is_windows) {
-        \\        // See https://github.com/ziglang/zig/issues/515
-        \\        @cDefine("_NO_CRT_STDIO_INLINE", "1");
         \\        @cInclude("io.h");
         \\        @cInclude("fcntl.h");
         \\    }
