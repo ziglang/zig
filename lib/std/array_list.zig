@@ -768,7 +768,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             index: usize,
             count: usize,
         ) error{CapacityExceeded}![]T {
-            if (self.items.len + count < self.capacity) return error.CapacityExceeded;
+            if (self.items.len + count > self.capacity) return error.CapacityExceeded;
             return self.addManyAtAssumeCapacity(index, count);
         }
 
@@ -1148,7 +1148,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Does not resize the list. Does not invalidate pointers.
         pub fn addManyAsSliceNoResize(self: *Self, n: usize) error{CapacityExceeded}![]T {
             if (self.items.len + n > self.capacity) return error.CapacityExceeded;
-            return self.addManyAsArrayAssumeCapacity(n);
+            return self.addManyAsSliceAssumeCapacity(n);
         }
 
         /// Resize the array, adding `n` new elements, which have `undefined` values.
@@ -2081,7 +2081,7 @@ test "std.ArrayListUnmanaged(u32).addManyAsArrayNoResize()" {
     try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 4, 3, 82, 21 }, list.items);
 
     (try list.addManyAsArrayNoResize(9)).* = .{ 855, 160, 945, 407, 8439, 63, 238, 564, 9920 };
-    try testing.expectEqualSlices(u32, &.{ 6, 8, 4, 3, 82, 21, 42, 855, 160, 945, 407, 8439, 63, 238, 564, 9920 }, list.items);
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 4, 3, 82, 21, 855, 160, 945, 407, 8439, 63, 238, 564, 9920 }, list.items);
 
     // consistent failure
     try testing.expectError(error.CapacityExceeded, list.addManyAsArrayNoResize(1));
@@ -2107,7 +2107,7 @@ test "std.ArrayListUnmanaged(u32).addManyAsSliceNoResize()" {
     try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 4, 3, 82, 21 }, list.items);
 
     (try list.addManyAsSliceNoResize(9))[0..9].* = .{ 855, 160, 945, 407, 8439, 63, 238, 564, 9920 };
-    try testing.expectEqualSlices(u32, &.{ 6, 8, 4, 3, 82, 21, 42, 855, 160, 945, 407, 8439, 63, 238, 564, 9920 }, list.items);
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 4, 3, 82, 21, 855, 160, 945, 407, 8439, 63, 238, 564, 9920 }, list.items);
 
     // consistent failure
     try testing.expectError(error.CapacityExceeded, list.addManyAsSliceNoResize(1));
@@ -2123,14 +2123,14 @@ test "std.ArrayListUnmanaged(u32).appendSliceNoResize()" {
     try list.appendSliceNoResize(&.{42});
     try testing.expectEqualSlices(u32, &.{42}, list.items);
 
-    try list.appendSliceNoResize(.{ 6, 8 });
+    try list.appendSliceNoResize(&.{ 6, 8 });
     try testing.expectEqualSlices(u32, &.{ 42, 6, 8 }, list.items);
 
-    try list.appendSliceNoResize(.{ 4, 3, 82, 21 });
+    try list.appendSliceNoResize(&.{ 4, 3, 82, 21 });
     try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 4, 3, 82, 21 }, list.items);
 
-    try list.appendSliceNoResize(.{ 855, 160, 945, 407, 8439, 63, 238, 564, 9920 });
-    try testing.expectEqualSlices(u32, &.{ 6, 8, 42, 4, 3, 82, 21, 855, 160, 945, 407, 8439, 63, 238, 564, 9920 }, list.items);
+    try list.appendSliceNoResize(&.{ 855, 160, 945, 407, 8439, 63, 238, 564, 9920 });
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 4, 3, 82, 21, 855, 160, 945, 407, 8439, 63, 238, 564, 9920 }, list.items);
 
     // consistent failure
     try testing.expectError(error.CapacityExceeded, list.appendSliceNoResize(&.{undefined}));
