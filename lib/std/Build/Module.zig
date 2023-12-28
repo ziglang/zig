@@ -88,7 +88,7 @@ pub const CSourceFiles = struct {
 
 pub const CSourceFile = struct {
     file: LazyPath,
-    flags: []const []const u8,
+    flags: []const []const u8 = &.{},
 
     pub fn dupe(self: CSourceFile, b: *std.Build) CSourceFile {
         return .{
