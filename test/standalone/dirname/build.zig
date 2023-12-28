@@ -44,7 +44,14 @@ pub fn build(b: *std.Build) void {
     });
 
     // Cache root:
-    addTestRun(test_step, has_basename, generated.dirname().dirname().dirname().dirname(), &.{"zig-cache"});
+    const cache_dir = b.cache_root.path orelse
+        (b.cache_root.join(b.allocator, &.{"."}) catch @panic("OOM"));
+    addTestRun(
+        test_step,
+        has_basename,
+        generated.dirname().dirname().dirname().dirname(),
+        &.{std.fs.path.basename(cache_dir)},
+    );
 
     // Absolute path:
     const abs_path = setup_abspath: {
