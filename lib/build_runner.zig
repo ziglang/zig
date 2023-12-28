@@ -259,6 +259,10 @@ pub fn main() !void {
                 builder.enable_darling = true;
             } else if (mem.eql(u8, arg, "-fno-darling")) {
                 builder.enable_darling = false;
+            } else if (mem.eql(u8, arg, "-fcompdb")) {
+                builder.enable_compdb = true;
+            } else if (mem.eql(u8, arg, "-fnocompdb")) {
+                builder.enable_compdb = false;
             } else if (mem.eql(u8, arg, "-freference-trace")) {
                 builder.reference_trace = 256;
             } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
@@ -1007,6 +1011,7 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
         \\  --libc [file]                Provide a file which specifies libc paths
         \\
+        \\  -fcompdb,   -fno-compdb      Generate a compile_commands.json file (default: no)
         \\  -fdarling,  -fno-darling     Integration with system-installed Darling to
         \\                               execute macOS programs on Linux hosts
         \\                               (default: no)

@@ -107,6 +107,8 @@ debug_pkg_config: bool = false,
 /// Set to 0 to disable stack collection.
 debug_stack_frames_count: u8 = 8,
 
+/// Experimental. Generate a compile_commands.json file.
+enable_compdb: bool = false,
 /// Experimental. Use system Darling installation to run cross compiled macOS build artifacts.
 enable_darling: bool = false,
 /// Use system QEMU installation to run cross compiled foreign architecture build artifacts.
@@ -390,6 +392,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .debug_log_scopes = parent.debug_log_scopes,
         .debug_compile_errors = parent.debug_compile_errors,
         .debug_pkg_config = parent.debug_pkg_config,
+        .enable_compdb = parent.enable_compdb,
         .enable_darling = parent.enable_darling,
         .enable_qemu = parent.enable_qemu,
         .enable_rosetta = parent.enable_rosetta,
