@@ -5,7 +5,7 @@ const Guid = bits.Guid;
 
 const assert = std.debug.assert;
 
-pub const DevicePath = union(Type) {
+pub const DevicePathNode = union(Type) {
     hardware: Hardware,
     acpi: Acpi,
     messaging: Messaging,
@@ -23,7 +23,15 @@ pub const DevicePath = union(Type) {
         _,
     };
 
-    pub const Any = extern struct {
+    pub fn toGeneric(self: *const DevicePathNode) *const Generic {
+        switch (self) {
+            inline else => |typ| switch (typ) {
+                inline else => |subtype| return @ptrCast(subtype),
+            },
+        }
+    }
+
+    pub const Generic = extern struct {
         type: Type,
         subtype: u8,
         length: u16 align(1),
@@ -364,7 +372,7 @@ pub const DevicePath = union(Type) {
         ipv6: *const Ipv6,
         vlan: *const Vlan,
         infiniband: *const InfiniBand,
-        uart: *const UartDevicePath,
+        uart: *const Uart,
         vendor: *const Vendor,
         scsi_extended: *const ScsiExtended,
         iscsi: *const Iscsi,
@@ -904,7 +912,7 @@ pub const DevicePath = union(Type) {
             }
         };
 
-        pub const UartDevicePath = extern struct {
+        pub const Uart = extern struct {
             type: Type = .messaging,
             subtype: Subtype = .uart,
             length: u16 align(1) = 19,
@@ -923,17 +931,17 @@ pub const DevicePath = union(Type) {
             stop_bits: bits.StopBits,
 
             comptime {
-                assert(19 == @sizeOf(UartDevicePath));
-                assert(1 == @alignOf(UartDevicePath));
+                assert(19 == @sizeOf(Uart));
+                assert(1 == @alignOf(Uart));
 
-                assert(0 == @offsetOf(UartDevicePath, "type"));
-                assert(1 == @offsetOf(UartDevicePath, "subtype"));
-                assert(2 == @offsetOf(UartDevicePath, "length"));
-                assert(4 == @offsetOf(UartDevicePath, "reserved"));
-                assert(8 == @offsetOf(UartDevicePath, "baud_rate"));
-                assert(16 == @offsetOf(UartDevicePath, "data_bits"));
-                assert(17 == @offsetOf(UartDevicePath, "parity"));
-                assert(18 == @offsetOf(UartDevicePath, "stop_bits"));
+                assert(0 == @offsetOf(Uart, "type"));
+                assert(1 == @offsetOf(Uart, "subtype"));
+                assert(2 == @offsetOf(Uart, "length"));
+                assert(4 == @offsetOf(Uart, "reserved"));
+                assert(8 == @offsetOf(Uart, "baud_rate"));
+                assert(16 == @offsetOf(Uart, "data_bits"));
+                assert(17 == @offsetOf(Uart, "parity"));
+                assert(18 == @offsetOf(Uart, "stop_bits"));
             }
         };
 

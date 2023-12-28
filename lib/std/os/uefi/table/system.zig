@@ -5,7 +5,7 @@ const protocol = @import("../protocol.zig");
 /// The EFI System Table contains pointers to the runtime and boot services tables.
 ///
 /// As the system_table may grow with new UEFI versions, it is important to check hdr.header_size.
-pub const SystemTable = extern struct {
+pub const System = extern struct {
     hdr: table.Header,
 
     /// A null-terminated string that identifies the vendor that produces the system firmware of the platform.

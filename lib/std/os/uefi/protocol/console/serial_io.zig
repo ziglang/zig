@@ -1,7 +1,7 @@
-const bits = @import("../bits.zig");
+const bits = @import("../../bits.zig");
 
 const cc = bits.cc;
-const Status = @import("../status.zig").Status;
+const Status = @import("../../status.zig").Status;
 
 const Guid = bits.Guid;
 
@@ -10,11 +10,11 @@ pub const SerialIo = extern struct {
     revision: u32,
 
     _reset: *const fn (*const SerialIo) callconv(cc) Status,
-    _set_attributes: *const fn (*const SerialIo, u64, u32, u32, u32, u32, u32) callconv(cc) Status,
-    _set_control: *const fn (*const SerialIo, Control) callconv(cc) Status,
-    _get_control: *const fn (*const SerialIo, *Control) callconv(cc) Status,
-    _write: *const fn (*const SerialIo, *usize, [*]const u8) callconv(cc) Status,
-    _read: *const fn (*const SerialIo, *usize, [*]u8) callconv(cc) Status,
+    _set_attributes: *const fn (*const SerialIo, baud: u64, fifo_depth: u32, timeout: u32, parity: u32, data_bits: u32, stop_bits: u32) callconv(cc) Status,
+    _set_control: *const fn (*const SerialIo, ctrl: Control) callconv(cc) Status,
+    _get_control: *const fn (*const SerialIo, ctrl: *Control) callconv(cc) Status,
+    _write: *const fn (*const SerialIo, buf_size: *usize, buf: [*]const u8) callconv(cc) Status,
+    _read: *const fn (*const SerialIo, buf_size: *usize, buf: [*]u8) callconv(cc) Status,
 
     /// The current mode of the pointer device.
     mode: *Mode,

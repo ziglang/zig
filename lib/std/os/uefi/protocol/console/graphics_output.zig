@@ -1,7 +1,8 @@
-const bits = @import("../bits.zig");
+const std = @import("../../../../std.zig");
+const bits = @import("../../bits.zig");
 
 const cc = bits.cc;
-const Status = @import("../status.zig").Status;
+const Status = @import("../../status.zig").Status;
 
 const Guid = bits.Guid;
 
@@ -9,9 +10,9 @@ const Guid = bits.Guid;
 /// buffer. The linear address of the hardware frame buffer is also exposed so software can write directly to the
 /// video hardware.
 pub const GraphicsOutput = extern struct {
-    _query_mode: *const fn (*const GraphicsOutput, u32, *usize, **const Mode.Info) callconv(cc) Status,
-    _set_mode: *const fn (*const GraphicsOutput, u32) callconv(cc) Status,
-    _blt: *const fn (*const GraphicsOutput, ?[*]BltPixel, BltOperation, usize, usize, usize, usize, usize, usize, usize) callconv(cc) Status,
+    _query_mode: *const fn (*const GraphicsOutput, mode: u32, *usize, info: **const Mode.Info) callconv(cc) Status,
+    _set_mode: *const fn (*const GraphicsOutput, mode: u32) callconv(cc) Status,
+    _blt: *const fn (*const GraphicsOutput, buffer: ?[*]BltPixel, op: BltOperation, sx: usize, sy: usize, dx: usize, dy: usize, w: usize, h: usize, delta: usize) callconv(cc) Status,
     mode: *const Mode,
 
     pub const Mode = extern struct {
@@ -68,6 +69,48 @@ pub const GraphicsOutput = extern struct {
                 }
             }
         };
+
+        /// Writes a single pixel into the linear framebuffer.
+        pub fn setPixel(
+            self: *const Mode,
+            /// The X coordinate of the pixel.
+            x: usize,
+            /// The Y coordinate of the pixel.
+            y: usize,
+            /// The red channel of the pixel.
+            red: u8,
+            /// The green channel of the pixel.
+            green: u8,
+            /// The blue channel of the pixel.
+            blue: u8,
+        ) !void {
+            const addr = self.frame_buffer_base + (y * self.pixels_per_scan_line + x) * self.info.pixelElementSize();
+
+            const pixel: *[4]u8 = @ptrFromInt(addr);
+
+            switch (self.info.pixel_format) {
+                .rgb_8bit => {
+                    pixel[0] = red;
+                    pixel[1] = green;
+                    pixel[2] = blue;
+                },
+                .bgr_8bit => {
+                    pixel[0] = blue;
+                    pixel[1] = green;
+                    pixel[2] = red;
+                },
+                .bitmask => {
+                    const pixel_u32: *u32 = @ptrCast(pixel);
+
+                    const red_value = self.info.pixel_bitmask.toValue(.red, red);
+                    const green_value = self.info.pixel_bitmask.toValue(.green, green);
+                    const blue_value = self.info.pixel_bitmask.toValue(.blue, blue);
+
+                    pixel_u32.* = red_value | green_value | blue_value;
+                },
+                .blt_only => unreachable,
+            }
+        }
     };
 
     pub const PixelFormat = enum(u32) {
@@ -100,7 +143,7 @@ pub const GraphicsOutput = extern struct {
         };
 
         /// Finds the size in bits of a single pixel.
-        pub fn bitSizeOf(self: *const PixelBitmask) usize {
+        pub fn bitSizeOf(self: *const PixelBitmask) u5 {
             const highest_red_bit = 32 - @clz(self.red_mask);
             const highest_green_bit = 32 - @clz(self.green_mask);
             const highest_blue_bit = 32 - @clz(self.blue_mask);
@@ -110,7 +153,7 @@ pub const GraphicsOutput = extern struct {
         }
 
         /// Finds the size in bits of a pixel field.
-        pub fn bitSizeOfField(self: *const PixelBitmask, field: PixelField) usize {
+        pub inline fn bitSizeOfField(self: *const PixelBitmask, comptime field: PixelField) u5 {
             switch (field) {
                 .red => return @popCount(self.red_mask),
                 .green => return @popCount(self.green_mask),
@@ -120,7 +163,7 @@ pub const GraphicsOutput = extern struct {
         }
 
         /// Finds the offset from zero (ie. a shift) in bits of a pixel field.
-        pub fn bitOffsetOfField(self: *const PixelBitmask, field: PixelField) usize {
+        pub inline fn bitOffsetOfField(self: *const PixelBitmask, comptime field: PixelField) u5 {
             switch (field) {
                 .red => return @ctz(self.red_mask),
                 .green => return @ctz(self.green_mask),
@@ -129,16 +172,30 @@ pub const GraphicsOutput = extern struct {
             }
         }
 
+        /// Returns the bit mask of a pixel field.
+        pub inline fn bitMaskOfField(self: *const PixelBitmask, comptime field: PixelField) u32 {
+            switch (field) {
+                .red => return self.red_mask,
+                .green => return self.green_mask,
+                .blue => return self.blue_mask,
+                .reserved => return self.reserved_mask,
+            }
+        }
+
         /// Pulls the value of a pixel field out of a pixel.
-        pub fn getValue(self: *const PixelBitmask, field: PixelField, pixel_ptr: [*]const u8) u32 {
+        pub fn getValue(self: *const PixelBitmask, comptime field: PixelField, pixel_ptr: [*]const u8) u32 {
             const pixel: *align(1) const u32 = @ptrCast(pixel_ptr);
 
-            switch (field) {
-                .red => return (pixel.* & self.red_mask) >> @ctz(self.red_mask),
-                .green => return (pixel.* & self.green_mask) >> @ctz(self.green_mask),
-                .blue => return (pixel.* & self.blue_mask) >> @ctz(self.blue_mask),
-                .reserved => return (pixel.* & self.reserved_mask) >> @ctz(self.reserved_mask),
-            }
+            return (pixel.* & self.bitMaskOfField(field)) >> self.bitOffsetOfField(field);
+        }
+
+        /// Returns the value of a pixel field shifted and saturated to the correct position for the pixel.
+        pub fn toValue(self: *const PixelBitmask, comptime field: PixelField, value: u8) u32 {
+            const max_field_value: u32 = 1 << self.bitSizeOfField(field);
+
+            const value_saturated: u32 = @min(value, max_field_value);
+            const value_shifted = value_saturated << self.bitOffsetOfField(field);
+            return value_shifted & self.bitMaskOfField(field);
         }
     };
 

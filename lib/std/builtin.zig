@@ -787,46 +787,16 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
         .uefi => {
             const uefi = std.os.uefi;
 
-            const ExitData = struct {
-                pub fn create_exit_data(exit_msg: []const u8, exit_size: *usize) ![*:0]u16 {
-                    // Need boot services for pool allocation
-                    if (uefi.system_table.boot_services == null) {
-                        return error.BootServicesUnavailable;
-                    }
-
-                    // ExitData buffer must be allocated using boot_services.allocatePool
-                    var utf16: []u16 = try uefi.raw_pool_allocator.alloc(u16, 256);
-                    errdefer uefi.raw_pool_allocator.free(utf16);
-
-                    if (exit_msg.len > 255) {
-                        return error.MessageTooLong;
-                    }
-
-                    var fmt: [256]u8 = undefined;
-                    const slice = try std.fmt.bufPrint(&fmt, "\r\nerr: {s}\r\n", .{exit_msg});
-                    const len = try std.unicode.utf8ToUtf16Le(utf16, slice);
-
-                    utf16[len] = 0;
-
-                    exit_size.* = 256;
-
-                    return @as([*:0]u16, @ptrCast(utf16.ptr));
-                }
-            };
-
-            var exit_size: usize = 0;
-            const exit_data = ExitData.create_exit_data(msg, &exit_size) catch null;
-
-            if (exit_data) |data| {
-                if (uefi.system_table.std_err) |out| {
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
-                    _ = out.outputString(data);
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
-                }
-            }
-
             if (uefi.system_table.boot_services) |bs| {
-                _ = bs.exit(uefi.handle, .Aborted, exit_size, exit_data);
+                uefi.system_table.std_err.?.setAttribute(.{ .foreground = .red }) catch {};
+                std.debug.print("{s}", .{msg});
+                uefi.system_table.std_err.?.setAttribute(.{}) catch {};
+
+                if (std.unicode.utf8ToUtf16LeWithNull(uefi.raw_pool_allocator, msg)) |data| {
+                    _ = bs.exit(uefi.handle, .aborted, data[0 .. data.len + 1]);
+                } else |_| {
+                    _ = bs.exit(uefi.handle, .aborted, null);
+                }
             }
 
             // Didn't have boot_services, just fallback to whatever.

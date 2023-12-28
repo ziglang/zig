@@ -1,7 +1,7 @@
-const bits = @import("../bits.zig");
+const bits = @import("../../bits.zig");
 
 const cc = bits.cc;
-const Status = @import("../status.zig").Status;
+const Status = @import("../../status.zig").Status;
 
 const Guid = bits.Guid;
 const Event = bits.Event;
@@ -9,12 +9,12 @@ const Event = bits.Event;
 /// The Simple Text Input Ex protocol defines an extension to the Simple Text Input protocol
 /// which enables various new capabilities.
 pub const SimpleTextInputEx = extern struct {
-    _reset: *const fn (*const SimpleTextInputEx, bool) callconv(cc) Status,
-    _read_key_stroke_ex: *const fn (*const SimpleTextInputEx, *Key) callconv(cc) Status,
+    _reset: *const fn (*const SimpleTextInputEx, verify: bool) callconv(cc) Status,
+    _read_key_stroke_ex: *const fn (*const SimpleTextInputEx, key: *Key) callconv(cc) Status,
     wait_for_key_ex: Event,
-    _set_state: *const fn (*const SimpleTextInputEx, *const Key.State.Toggle) callconv(cc) Status,
-    _register_key_notify: *const fn (*const SimpleTextInputEx, *Key, *const fn (*const Key) callconv(cc) usize, *NotifyHandle) callconv(cc) Status,
-    _unregister_key_notify: *const fn (*const SimpleTextInputEx, NotifyHandle) callconv(cc) Status,
+    _set_state: *const fn (*const SimpleTextInputEx, state: *const Key.State.Toggle) callconv(cc) Status,
+    _register_key_notify: *const fn (*const SimpleTextInputEx, key: *Key, func: *const fn (*const Key) callconv(cc) usize, handle: *NotifyHandle) callconv(cc) Status,
+    _unregister_key_notify: *const fn (*const SimpleTextInputEx, handle: NotifyHandle) callconv(cc) Status,
 
     /// Resets the input device hardware.
     pub fn reset(

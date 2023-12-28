@@ -61,8 +61,8 @@ pub const BootServices = extern struct {
     _installConfigurationTable: *const fn (guid: *align(8) const Guid, table: ?*const anyopaque) callconv(cc) Status,
 
     _loadImage: *const fn (boot_policy: bool, parent_image_handle: Handle, device_path: ?*const DevicePathProtocol, source_buffer: ?[*]const u8, source_size: usize, image_handle: *?Handle) callconv(cc) Status,
-    _startImage: *const fn (image_handle: Handle, exit_data_size: ?*usize, exit_data: ?*[*]align(2) const u8) callconv(cc) Status,
-    _exit: *const fn (image_handle: Handle, exit_status: Status, exit_data_size: usize, exit_data: ?[*]align(2) const u8) callconv(cc) Status,
+    _startImage: *const fn (image_handle: Handle, exit_data_size: ?*usize, exit_data: ?*[*]const u16) callconv(cc) Status,
+    _exit: *const fn (image_handle: Handle, exit_status: Status, exit_data_size: usize, exit_data: ?[*]const u16) callconv(cc) Status,
     _unloadImage: *const fn (image_handle: Handle) callconv(cc) Status,
     _exitBootServices: *const fn (image_handle: Handle, map_key: usize) callconv(cc) Status,
 
@@ -487,6 +487,17 @@ pub const BootServices = extern struct {
             }
         };
 
+        /// Creates a memory map from a buffer.
+        pub fn initFromBuffer(buffer: []u8) MemoryMap {
+            return .{
+                .map = @ptrCast(buffer.ptr),
+                .size = buffer.len,
+                .key = 0,
+                .descriptor_size = 0,
+                .descriptor_version = 0,
+            };
+        }
+
         /// Creates a memory map from a list of memory descriptors.
         pub fn initFromList(list: []bits.MemoryDescriptor) MemoryMap {
             return .{
@@ -521,7 +532,7 @@ pub const BootServices = extern struct {
         }
     };
 
-    /// Returns the size of the current memory map.
+    /// Returns the size of the current memory map. Or null if the buffer size is large enough.
     ///
     /// It is recommended to call this in a loop until it returns `null`.
     pub fn getMemoryMapSize(
@@ -986,7 +997,7 @@ pub const BootServices = extern struct {
         return image_handle;
     }
 
-    pub const ImageReturn = struct { Status, []align(2) const u8 };
+    pub const ImageReturn = struct { Status, []const u16 };
 
     /// Transfers control to a loaded image's entry point.
     ///
@@ -998,10 +1009,10 @@ pub const BootServices = extern struct {
         image_handle: Handle,
     ) ImageReturn {
         var exit_data_size: usize = 0;
-        var exit_data: *[*]align(2) u8 = null;
+        var exit_data: *[*]u16 = null;
         const status = self._startImage(image_handle, &exit_data_size, &exit_data);
 
-        return .{ status, exit_data[0..exit_data_size] };
+        return .{ status, exit_data[0 .. exit_data_size / 2] };
     }
 
     /// Unloads an image.
@@ -1022,11 +1033,11 @@ pub const BootServices = extern struct {
         image_handle: Handle,
         /// The image's exit status.
         exit_status: Status,
-        /// The exit data. This must begin with a null terminated UCS2 string.
-        exit_data: ?[]align(2) const u8,
+        /// The exit data. This must begin with a null terminated utf16 string.
+        exit_data: ?[]const u16,
     ) !void {
         if (exit_data) |data| {
-            try self._exit(image_handle, exit_status, data.len, data.ptr).err();
+            try self._exit(image_handle, exit_status, data.len * 2, data.ptr).err();
         } else {
             try self._exit(image_handle, exit_status, 0, null).err();
         }

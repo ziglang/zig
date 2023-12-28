@@ -1,15 +1,15 @@
-const bits = @import("../bits.zig");
+const bits = @import("../../bits.zig");
 
 const cc = bits.cc;
-const Status = @import("../status.zig").Status;
+const Status = @import("../../status.zig").Status;
 
 const Guid = bits.Guid;
 const Event = bits.Event;
 
 /// Provides services that allow information about a pointer device to be retrieved.
 pub const SimplePointer = struct {
-    _reset: *const fn (*const SimplePointer, bool) callconv(cc) Status,
-    _get_state: *const fn (*const SimplePointer, *State) callconv(cc) Status,
+    _reset: *const fn (*const SimplePointer, verify: bool) callconv(cc) Status,
+    _get_state: *const fn (*const SimplePointer, state: *State) callconv(cc) Status,
 
     /// Event to use with `waitForEvent()` to wait for input from the pointer device.
     wait_for_input: Event,

@@ -14,6 +14,9 @@ pub const PhysicalAddress = u64;
 /// A pointer in virtual address space.
 pub const VirtualAddress = u64;
 
+/// A logical block address
+pub const LogicalBlockAddress = u64;
+
 /// An EFI Handle represents a collection of related interfaces.
 pub const Handle = *const opaque {};
 
@@ -362,26 +365,47 @@ pub const StopBits = enum(u8) {
     _,
 };
 
+/// Provides generic file information.
 pub const FileInfo = extern struct {
     size: u64,
-    file_size: u64,
-    physical_size: u64,
-    create_time: Time,
-    last_access_time: Time,
-    modification_time: Time,
-    attribute: u64,
 
-    pub fn getFileName(self: *const FileInfo) [*:0]const u16 {
-        return @ptrCast(@alignCast(@as([*]const u8, @ptrCast(self)) + @sizeOf(FileInfo)));
+    /// The size of the file in bytes.
+    file_size: u64,
+
+    /// The amount of physical space the file consumes of the file system volume.
+    physical_size: u64,
+
+    /// The time the file was created.
+    create_time: Time,
+
+    /// The time the file was last accessed.
+    last_access_time: Time,
+
+    /// The time the file's contents were last modified.
+    modification_time: Time,
+
+    /// The attributes of the file.
+    attribute: Attributes,
+
+    /// The null-terminated name of the file. For the root directory, this is an empty string.
+    pub fn getFileName(self: *const FileInfo) [:0]const u16 {
+        const ptr: [*:0]const u16 = @ptrCast(self);
+        const file_name = ptr + @divExact(@sizeOf(FileInfo), 2);
+
+        return std.mem.span(file_name);
     }
 
-    pub const efi_file_read_only: u64 = 0x0000000000000001;
-    pub const efi_file_hidden: u64 = 0x0000000000000002;
-    pub const efi_file_system: u64 = 0x0000000000000004;
-    pub const efi_file_reserved: u64 = 0x0000000000000008;
-    pub const efi_file_directory: u64 = 0x0000000000000010;
-    pub const efi_file_archive: u64 = 0x0000000000000020;
-    pub const efi_file_valid_attr: u64 = 0x0000000000000037;
+    /// The attributes of a file.
+    pub const Attributes = packed struct(u64) {
+        read_only: bool = true,
+        hidden: bool = false,
+        system: bool = false,
+        reserved: bool = false,
+        directory: bool = false,
+        archive: bool = false,
+
+        _pad: u58 = 0,
+    };
 
     pub const guid align(8) = Guid{
         .time_low = 0x09576e92,
@@ -393,16 +417,28 @@ pub const FileInfo = extern struct {
     };
 };
 
+/// Provides information about the system volume and volume label.
 pub const FileSystemInfo = extern struct {
     size: u64,
-    read_only: bool,
-    volume_size: u64,
-    free_space: u64,
-    block_size: u32,
-    _volume_label: u16,
 
-    pub fn getVolumeLabel(self: *const FileSystemInfo) [*:0]const u16 {
-        return @as([*:0]const u16, @ptrCast(&self._volume_label));
+    /// If true, the file system is read-only.
+    read_only: bool,
+
+    /// The number of bytes managed by the file system.
+    volume_size: u64,
+
+    /// The number of available bytes for use by the file system.
+    free_space: u64,
+
+    /// The nominal block size by which files are typically grown.
+    block_size: u32,
+
+    /// The null-terminated string that is the volume's label.
+    pub fn getVolumeLabel(self: *const FileSystemInfo) [:0]const u16 {
+        const ptr: [*:0]const u16 = @ptrCast(self);
+        const file_name = ptr + @divExact(@sizeOf(FileSystemInfo), 2);
+
+        return std.mem.span(file_name);
     }
 
     pub const guid align(8) = Guid{
@@ -412,5 +448,24 @@ pub const FileSystemInfo = extern struct {
         .clock_seq_high_and_reserved = 0x8e,
         .clock_seq_low = 0x39,
         .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
+    };
+};
+
+/// Provides information about the volume label. Can safely be cast to and from `[*:0]const u16`.
+pub const FileSystemVolumeLabel = extern struct {
+    /// The null-terminated string that is the volume's label.
+    pub fn getVolumeLabel(self: *const FileSystemVolumeLabel) [:0]const u16 {
+        const ptr: [*:0]const u16 = @ptrCast(self);
+
+        return std.mem.span(ptr);
+    }
+
+    pub const guid align(8) = Guid{
+        .time_low = 0xdb47d7d3,
+        .time_mid = 0xfe81,
+        .time_high_and_version = 0x11d3,
+        .clock_seq_high_and_reserved = 0x9a,
+        .clock_seq_low = 0x35,
+        .node = [_]u8{ 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d },
     };
 };

@@ -1,12 +1,12 @@
 pub const Header = @import("table/header.zig").Header;
 pub const BootServices = @import("table/boot_services.zig").BootServices;
 pub const RuntimeServices = @import("table/runtime_services.zig").RuntimeServices;
-pub const SystemTable = @import("table/system.zig").SystemTable;
+pub const System = @import("table/system.zig").System;
 
 const configuration_table = @import("table/configuration.zig");
-pub const ConfigurationTable = configuration_table.ConfigurationTable;
-pub const RtPropertiesTable = configuration_table.RtPropertiesTable;
-pub const MemoryAttributesTable = configuration_table.MemoryAttributesTable;
+pub const Configuration = configuration_table.Configuration;
+pub const RtProperties = configuration_table.RtProperties;
+pub const MemoryAttributes = configuration_table.MemoryAttributes;
 
 test {
     @import("std").testing.refAllDeclsRecursive(@This());

@@ -255,6 +255,10 @@ pub fn supportsAnsiEscapeCodes(self: File) bool {
 
         return self.isCygwinPty();
     }
+    if (builtin.os.tag == .uefi) {
+        // The UEFI console only supports a tiny subset of ANSI escape codes, primarily for color.
+        return false;
+    }
     if (builtin.os.tag == .wasi) {
         // WASI sanitizes stdout when fd is a tty so ANSI escape codes
         // will not be interpreted as actual cursor commands, and

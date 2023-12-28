@@ -1,23 +1,23 @@
-const std = @import("../../../std.zig");
-const bits = @import("../bits.zig");
+const std = @import("../../../../std.zig");
+const bits = @import("../../bits.zig");
 
 const cc = bits.cc;
-const Status = @import("../status.zig").Status;
+const Status = @import("../../status.zig").Status;
 
 const Guid = bits.Guid;
 const Event = bits.Event;
 
 /// Character output devices
 pub const SimpleTextOutput = extern struct {
-    _reset: *const fn (*const SimpleTextOutput, bool) callconv(cc) Status,
-    _output_string: *const fn (*const SimpleTextOutput, [*:0]const u16) callconv(cc) Status,
-    _test_string: *const fn (*const SimpleTextOutput, [*:0]const u16) callconv(cc) Status,
-    _query_mode: *const fn (*const SimpleTextOutput, usize, *usize, *usize) callconv(cc) Status,
-    _set_mode: *const fn (*const SimpleTextOutput, usize) callconv(cc) Status,
-    _set_attribute: *const fn (*const SimpleTextOutput, usize) callconv(cc) Status,
+    _reset: *const fn (*const SimpleTextOutput, verify: bool) callconv(cc) Status,
+    _output_string: *const fn (*const SimpleTextOutput, str: [*:0]const u16) callconv(cc) Status,
+    _test_string: *const fn (*const SimpleTextOutput, str: [*:0]const u16) callconv(cc) Status,
+    _query_mode: *const fn (*const SimpleTextOutput, mode: usize, cols: *usize, rows: *usize) callconv(cc) Status,
+    _set_mode: *const fn (*const SimpleTextOutput, mode: usize) callconv(cc) Status,
+    _set_attribute: *const fn (*const SimpleTextOutput, Attribute) callconv(cc) Status,
     _clear_screen: *const fn (*const SimpleTextOutput) callconv(cc) Status,
-    _set_cursor_position: *const fn (*const SimpleTextOutput, usize, usize) callconv(cc) Status,
-    _enable_cursor: *const fn (*const SimpleTextOutput, bool) callconv(cc) Status,
+    _set_cursor_position: *const fn (*const SimpleTextOutput, col: usize, row: usize) callconv(cc) Status,
+    _enable_cursor: *const fn (*const SimpleTextOutput, enabled: bool) callconv(cc) Status,
 
     ///The mode information for this instance of the protocol.
     mode: *Mode,
@@ -100,14 +100,14 @@ pub const SimpleTextOutput = extern struct {
             lightgray,
         };
 
-        foreground: Color,
+        foreground: Color = .lightgray,
 
         /// If true, `foreground` will use the bright variant of the color
-        foreground_bright: bool,
-        background: Color,
+        foreground_bright: bool = false,
+        background: Color = .black,
 
         // this is a usize-sized bitfield, so we have to fill in the padding programmatically
-        reserved: std.meta.Int(.unsigned, @bitSizeOf(usize) - 7),
+        reserved: std.meta.Int(.unsigned, @bitSizeOf(usize) - 7) = 0,
     };
 
     /// Sets the background and foreground colors for the outputString() and clearScreen() functions.

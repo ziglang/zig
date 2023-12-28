@@ -1,15 +1,21 @@
 const std = @import("../../../std.zig");
+const bits = @import("../bits.zig");
+
 const mem = std.mem;
-const uefi = std.os.uefi;
+const cc = bits.cc;
+const DevicePathNode = @import("../device_path.zig").DevicePathNode;
+
+const Handle = bits.Handle;
+const Guid = bits.Guid;
 const Allocator = mem.Allocator;
-const Guid = uefi.Guid;
+
 const assert = std.debug.assert;
 
 // All Device Path Nodes are byte-packed and may appear on any byte boundary.
 // All code references to device path nodes must assume all fields are unaligned.
 
 pub const DevicePath = extern struct {
-    type: uefi.DevicePath.Type,
+    type: DevicePathNode.Type,
     subtype: u8,
     length: u16 align(1),
 
@@ -22,88 +28,82 @@ pub const DevicePath = extern struct {
         .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
     };
 
+    pub const loaded_image_guid align(8) = Guid{
+        .time_low = 0xbc62157e,
+        .time_mid = 0x3e33,
+        .time_high_and_version = 0x4fec,
+        .clock_seq_high_and_reserved = 0x99,
+        .clock_seq_low = 0x20,
+        .node = [_]u8{ 0x2d, 0x3b, 0x36, 0xd7, 0x50, 0xdf },
+    };
+
     /// Returns the next DevicePath node in the sequence, if any.
-    pub fn next(self: *DevicePath) ?*DevicePath {
-        if (self.type == .End and @as(uefi.DevicePath.End.Subtype, @enumFromInt(self.subtype)) == .EndEntire)
+    fn next(self: *const DevicePath) ?*const DevicePath {
+        const subtype: DevicePathNode.End.Subtype = @enumFromInt(self.subtype);
+        if (self.type != .end or subtype != .entire)
             return null;
 
-        return @as(*DevicePath, @ptrCast(@as([*]u8, @ptrCast(self)) + self.length));
+        const next_addr = @intFromPtr(self) + self.length;
+        return @ptrFromInt(next_addr);
     }
 
     /// Calculates the total length of the device path structure in bytes, including the end of device path node.
-    pub fn size(self: *DevicePath) usize {
-        var node = self;
+    pub fn size(self: *const DevicePath) usize {
+        var cur_node = self;
 
-        while (node.next()) |next_node| {
-            node = next_node;
+        while (cur_node.next()) |next_node| {
+            cur_node = next_node;
         }
 
-        return (@intFromPtr(node) + node.length) - @intFromPtr(self);
+        return (@intFromPtr(cur_node) + cur_node.length) - @intFromPtr(self);
     }
 
-    /// Creates a file device path from the existing device path and a file path.
-    pub fn create_file_device_path(self: *DevicePath, allocator: Allocator, path: [:0]align(1) const u16) !*DevicePath {
-        const path_size = self.size();
+    /// Creates a new device path with only the end entire node. The device path will be owned by the caller.
+    pub fn create(allocator: Allocator) !*DevicePath {
+        const bytes = try allocator.alloc(u8, 4);
 
-        // 2 * (path.len + 1) for the path and its null terminator, which are u16s
-        // DevicePath for the extra node before the end
-        var buf = try allocator.alloc(u8, path_size + 2 * (path.len + 1) + @sizeOf(DevicePath));
+        const device_path: *DevicePath = @ptrCast(bytes.ptr);
+        device_path.type = .end;
+        device_path.subtype = @intFromEnum(DevicePathNode.End.Subtype.entire);
+        device_path.length = 4;
 
-        @memcpy(buf[0..path_size], @as([*]const u8, @ptrCast(self))[0..path_size]);
-
-        // Pointer to the copy of the end node of the current chain, which is - 4 from the buffer
-        // as the end node itself is 4 bytes (type: u8 + subtype: u8 + length: u16).
-        var new = @as(*uefi.DevicePath.Media.FilePath, @ptrCast(buf.ptr + path_size - 4));
-
-        new.type = .Media;
-        new.subtype = .FilePath;
-        new.length = @sizeOf(uefi.DevicePath.Media.FilePath) + 2 * (@as(u16, @intCast(path.len)) + 1);
-
-        // The same as new.getPath(), but not const as we're filling it in.
-        var ptr = @as([*:0]align(1) u16, @ptrCast(@as([*]u8, @ptrCast(new)) + @sizeOf(uefi.DevicePath.Media.FilePath)));
-
-        for (path, 0..) |s, i|
-            ptr[i] = s;
-
-        ptr[path.len] = 0;
-
-        var end = @as(*uefi.DevicePath.End.EndEntire, @ptrCast(@as(*DevicePath, @ptrCast(new)).next().?));
-        end.type = .End;
-        end.subtype = .EndEntire;
-        end.length = @sizeOf(uefi.DevicePath.End.EndEntire);
-
-        return @as(*DevicePath, @ptrCast(buf.ptr));
+        return device_path;
     }
 
-    pub fn getDevicePath(self: *const DevicePath) ?uefi.DevicePath {
-        inline for (@typeInfo(uefi.DevicePath).Union.fields) |ufield| {
-            const enum_value = std.meta.stringToEnum(uefi.DevicePath.Type, ufield.name);
+    /// Appends a device path node to the end of an existing device path. `allocator` must own the memory of the
+    /// existing device path. The existing device path must be the start of the entire device path chain.
+    /// 
+    /// This will reallocate the existing device path. The pointer returned here must be used instead of any dangling
+    /// references to the previous device path.
+    pub fn append(self: *DevicePath, allocator: Allocator, node_to_append: DevicePathNode) !*DevicePath {
+        const original_size = self.size();
+        const new_size = original_size + node_to_append.toGeneric().length;
 
-            // Got the associated union type for self.type, now
-            // we need to initialize it and its subtype
-            if (self.type == enum_value) {
-                const subtype = self.initSubtype(ufield.type);
-                if (subtype) |sb| {
-                    // e.g. return .{ .Hardware = .{ .Pci = @ptrCast(...) } }
-                    return @unionInit(uefi.DevicePath, ufield.name, sb);
+        const original_bytes: [*]u8 = @ptrCast(self);
+        const new_bytes = try allocator.realloc(original_bytes[0..original_size], new_size);
+
+        // copy end entire node to the end of the new buffer. It is always 4 bytes.
+        @memcpy(new_bytes[new_size - 4 ..], new_bytes[original_size - 4 .. original_size]);
+
+        const node_bytes: [*]const u8 = @ptrCast(node_to_append.toGeneric());
+
+        // Copy new node on top of the previous end entire node.
+        @memcpy(new_bytes[original_size - 4 .. new_size - 4], node_bytes[0..node_to_append.toGeneric().length]);
+
+        return @ptrCast(new_bytes);
+    }
+
+    /// Returns the DevicePathNode union for this device path protocol
+    pub fn node(self: *const DevicePath) ?DevicePathNode {
+        inline for (@typeInfo(DevicePathNode).Union.fields) |type_field| {
+            if (self.type == @field(DevicePathNode.Type, type_field.name)) {
+                const subtype: type_field.type.Subtype = @enumFromInt(self.subtype);
+
+                inline for (@typeInfo(type_field.type).Union.fields) |subtype_field| {
+                    if (subtype == @field(type_field.type.Subtype, subtype_field.name)) {
+                        return @unionInit(DevicePathNode, type_field.name, @unionInit(type_field.type, subtype_field.name, @ptrCast(self)));
+                    }
                 }
-            }
-        }
-
-        return null;
-    }
-
-    pub fn initSubtype(self: *const DevicePath, comptime TUnion: type) ?TUnion {
-        const type_info = @typeInfo(TUnion).Union;
-        const TTag = type_info.tag_type.?;
-
-        inline for (type_info.fields) |subtype| {
-            // The tag names match the union names, so just grab that off the enum
-            const tag_val: u8 = @intFromEnum(@field(TTag, subtype.name));
-
-            if (self.subtype == tag_val) {
-                // e.g. expr = .{ .Pci = @ptrCast(...) }
-                return @unionInit(TUnion, subtype.name, @as(subtype.type, @ptrCast(self)));
             }
         }
 

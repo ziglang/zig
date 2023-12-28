@@ -1,16 +1,16 @@
-const bits = @import("../bits.zig");
-const protocol = @import("../protocol.zig");
+const bits = @import("../../bits.zig");
+const protocol = @import("../../protocol.zig");
 
 const cc = bits.cc;
-const Status = @import("../status.zig").Status;
+const Status = @import("../../status.zig").Status;
 
 const Guid = bits.Guid;
 const Event = bits.Event;
 
 /// Character input devices, e.g. Keyboard
 pub const SimpleTextInput = extern struct {
-    _reset: *const fn (*const SimpleTextInput, bool) callconv(cc) Status,
-    _read_key_stroke: *const fn (*const SimpleTextInput, *Key.Input) callconv(cc) Status,
+    _reset: *const fn (*const SimpleTextInput, verify: bool) callconv(cc) Status,
+    _read_key_stroke: *const fn (*const SimpleTextInput, key: *Key.Input) callconv(cc) Status,
     wait_for_key: Event,
 
     /// Resets the input device hardware.
@@ -24,10 +24,13 @@ pub const SimpleTextInput = extern struct {
     }
 
     /// Reads the next keystroke from the input device.
-    pub fn readKeyStroke(self: *const SimpleTextInput) !Key.Input {
+    pub fn readKeyStroke(self: *const SimpleTextInput) !?Key.Input {
         var input_key: Key.Input = undefined;
-        try self._read_key_stroke(self, &input_key).err();
-        return input_key;
+        switch (self._read_key_stroke(self, &input_key)) {
+            .success => return input_key,
+            .not_ready => return null,
+            else => |s| return s.err(),
+        }
     }
 
     pub const guid align(8) = Guid{

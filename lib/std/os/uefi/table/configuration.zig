@@ -2,7 +2,7 @@ const bits = @import("../bits.zig");
 
 const Guid = bits.Guid;
 
-pub const ConfigurationTable = extern struct {
+pub const Configuration = extern struct {
     vendor_guid: Guid,
     vendor_table: *const anyopaque,
 
@@ -132,7 +132,7 @@ pub const RtPropertiesTable = extern struct {
 
 /// When published by the firmware, this table provides additional information about regions within the run-time memory
 /// blocks defined in `MemoryDescriptor` entries.
-pub const MemoryAttributesTable = extern struct {
+pub const MemoryAttributes = extern struct {
     pub const Flags = packed struct(u32) {
         /// Implies that runtime code includes the forward control flow guard instruction.
         rt_forward_cfg: bool,
@@ -153,7 +153,7 @@ pub const MemoryAttributesTable = extern struct {
 
     /// An iterator over the memory descriptors.
     pub const Iterator = struct {
-        table: *const MemoryAttributesTable,
+        table: *const MemoryAttributes,
 
         /// The current index of the iterator.
         index: usize = 0,
@@ -165,7 +165,7 @@ pub const MemoryAttributesTable = extern struct {
 
             const offset = iter.index * iter.table.descriptor_size;
 
-            const addr = @intFromPtr(iter.table) + @sizeOf(MemoryAttributesTable) + offset;
+            const addr = @intFromPtr(iter.table) + @sizeOf(MemoryAttributes) + offset;
             iter.index += 1;
 
             return @ptrFromInt(addr);
@@ -173,12 +173,12 @@ pub const MemoryAttributesTable = extern struct {
     };
 
     /// Returns an iterator over the memory map.
-    pub fn iterator(self: *const MemoryAttributesTable) Iterator {
+    pub fn iterator(self: *const MemoryAttributes) Iterator {
         return Iterator{ .table = self };
     }
 
     /// Returns a pointer to the memory descriptor at the given index.
-    pub fn at(self: *const MemoryAttributesTable, index: usize) ?*bits.MemoryDescriptor {
+    pub fn at(self: *const MemoryAttributes, index: usize) ?*bits.MemoryDescriptor {
         if (index >= self.entries)
             return null;
 
