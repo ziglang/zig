@@ -3486,7 +3486,7 @@ pub fn flush(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) lin
 
     if (use_lld) {
         return wasm.linkWithLLD(comp, prog_node);
-    } else if (use_llvm and !use_lld) {
+    } else if (use_llvm) {
         return wasm.linkWithZld(comp, prog_node);
     } else {
         return wasm.flushModule(comp, prog_node);
