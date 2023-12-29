@@ -1374,6 +1374,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         cache.hash.add(options.config.wasi_exec_model);
         // TODO audit this and make sure everything is in it
 
+        const main_mod = options.main_mod orelse options.root_mod;
         const comp = try arena.create(Compilation);
         const opt_zcu: ?*Module = if (have_zcu) blk: {
             // Pre-open the directory handles for cached ZIR code so that it does not need
@@ -1420,7 +1421,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             zcu.* = .{
                 .gpa = gpa,
                 .comp = comp,
-                .main_mod = options.main_mod orelse options.root_mod,
+                .main_mod = main_mod,
                 .root_mod = options.root_mod,
                 .std_mod = std_mod,
                 .global_zir_cache = global_zir_cache,
@@ -1608,7 +1609,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 // do want to namespace different source file names because they are
                 // likely different compilations and therefore this would be likely to
                 // cause cache hits.
-                try addModuleTableToCacheHash(gpa, arena, &hash, options.root_mod, .path_bytes);
+                try addModuleTableToCacheHash(gpa, arena, &hash, main_mod, .path_bytes);
 
                 // In the case of incremental cache mode, this `artifact_directory`
                 // is computed based on a hash of non-linker inputs, and it is where all
