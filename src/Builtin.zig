@@ -280,10 +280,25 @@ pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
 
 fn writeFile(file: *File, mod: *Module) !void {
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var af = try mod.root.atomicFile(mod.root_src_path, .{ .make_path = true }, &buf);
+    var af = mod.root.atomicFile(mod.root_src_path, .{ .make_path = true }, &buf) catch |err| {
+        std.log.warn("unable to create builtin atomic file '{}{s}'", .{
+            mod.root, mod.root_src_path,
+        });
+        return err;
+    };
     defer af.deinit();
-    try af.file.writeAll(file.source);
-    try af.finish();
+    af.file.writeAll(file.source) catch |err| {
+        std.log.warn("unable to write builtin file data to '{}{s}'", .{
+            mod.root, mod.root_src_path,
+        });
+        return err;
+    };
+    af.finish() catch |err| {
+        std.log.warn("unable to rename atomic builtin file into '{}{s}'", .{
+            mod.root, mod.root_src_path,
+        });
+        return err;
+    };
 
     file.stat = .{
         .size = file.source.len,
