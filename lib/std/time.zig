@@ -114,6 +114,13 @@ pub fn nanoTimestamp() i128 {
         return ns;
     }
 
+    if (builtin.os.tag == .uefi) {
+        var value: std.os.uefi.Time = undefined;
+        const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
+        assert(status == .Success);
+        return value.toEpoch();
+    }
+
     var ts: os.timespec = undefined;
     os.clock_gettime(os.CLOCK.REALTIME, &ts) catch |err| switch (err) {
         error.UnsupportedClock, error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
@@ -176,7 +183,7 @@ pub const Instant = struct {
     // true if we should use clock_gettime()
     const is_posix = switch (builtin.os.tag) {
         .wasi => builtin.link_libc,
-        .windows => false,
+        .windows, .uefi => false,
         else => true,
     };
 
@@ -195,6 +202,13 @@ pub const Instant = struct {
             const rc = os.wasi.clock_time_get(os.wasi.CLOCK.MONOTONIC, 1, &ns);
             if (rc != .SUCCESS) return error.Unsupported;
             return Instant{ .timestamp = ns };
+        }
+
+        if (builtin.os.tag == .uefi) {
+            var value: std.os.uefi.Time = undefined;
+            const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
+            if (status != .Success) return error.Unsupported;
+            return Instant{ .timestamp = value.toEpoch() };
         }
 
         // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while suspended.

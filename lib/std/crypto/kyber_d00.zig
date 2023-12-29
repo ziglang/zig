@@ -1020,8 +1020,15 @@ const Poly = struct {
                 //                  = ⌊(2ᵈ/q)x+½⌋ mod⁺ 2ᵈ
                 //                  = ⌊((x << d) + q/2) / q⌋ mod⁺ 2ᵈ
                 //                  = DIV((x << d) + q/2, q) & ((1<<d) - 1)
-                const t = @as(u32, @intCast(p.cs[in_off + i])) << d;
-                in[i] = @as(u16, @intCast(@divFloor(t + q_over_2, Q) & two_d_min_1));
+                const t = @as(u24, @intCast(p.cs[in_off + i])) << d;
+                // Division by invariant multiplication, equivalent to DIV(t + q/2, q).
+                // A division may not be a constant-time operation, even with a constant denominator.
+                // Here, side channels would leak information about the shared secret, see https://kyberslash.cr.yp.to
+                // Multiplication, on the other hand, is a constant-time operation on the CPUs we currently support.
+                comptime assert(d <= 11);
+                comptime assert(((20642679 * @as(u64, Q)) >> 36) == 1);
+                const u: u32 = @intCast((@as(u64, t + q_over_2) * 20642679) >> 36);
+                in[i] = @intCast(u & two_d_min_1);
             }
 
             // Now we pack the d-bit integers from `in' into out as bytes.

@@ -148,7 +148,7 @@ pub fn writeStreamArbitraryDepth(
 /// Writes JSON ([RFC8259](https://tools.ietf.org/html/rfc8259)) formatted data
 /// to a stream.
 ///
-/// The seqeunce of method calls to write JSON content must follow this grammar:
+/// The sequence of method calls to write JSON content must follow this grammar:
 /// ```
 ///  <once> = <value>
 ///  <value> =
