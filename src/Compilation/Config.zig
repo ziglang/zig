@@ -105,7 +105,7 @@ pub const Options = struct {
     export_memory: ?bool = null,
     shared_memory: ?bool = null,
     test_evented_io: bool = false,
-    debug_format: ?Config.DebugFormat = null,
+    debug_format: ?DebugFormat = null,
     dll_export_fns: ?bool = null,
     rdynamic: ?bool = null,
 };
