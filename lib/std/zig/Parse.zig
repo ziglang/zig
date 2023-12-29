@@ -919,8 +919,8 @@ fn expectContainerField(p: *Parse) !Node.Index {
             .data = .{
                 .lhs = type_expr,
                 .rhs = try p.addExtra(Node.ContainerField{
-                    .value_expr = value_expr,
                     .align_expr = align_expr,
+                    .value_expr = value_expr,
                 }),
             },
         });
@@ -2049,8 +2049,8 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                             .data = .{
                                 .lhs = len_expr,
                                 .rhs = try p.addExtra(Node.ArrayTypeSentinel{
-                                    .elem_type = elem_type,
                                     .sentinel = sentinel,
+                                    .elem_type = elem_type,
                                 }),
                             },
                         });
