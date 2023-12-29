@@ -11806,6 +11806,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         .runtime_cond = block.runtime_cond,
         .runtime_loop = block.runtime_loop,
         .runtime_index = block.runtime_index,
+        .want_safety = block.want_safety,
         .error_return_trace_index = block.error_return_trace_index,
     };
     const merges = &child_block.label.?.merges;
