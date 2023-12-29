@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = .{ .path = "unwind.zig" },
             .target = target,
             .optimize = optimize,
-            .unwind_tables = target.result.isDarwin(),
+            .unwind_tables = if (target.result.isDarwin()) true else null,
             .omit_frame_pointer = false,
         });
 
@@ -84,7 +84,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = .{ .path = "shared_lib_unwind.zig" },
             .target = target,
             .optimize = optimize,
-            .unwind_tables = target.result.isDarwin(),
+            .unwind_tables = if (target.result.isDarwin()) true else null,
             .omit_frame_pointer = true,
         });
 
