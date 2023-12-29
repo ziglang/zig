@@ -1820,7 +1820,7 @@ pub const LoadLibraryFlags = enum(DWORD) {
 };
 
 pub fn LoadLibraryExW(lpLibFileName: [*:0]const u16, dwFlags: LoadLibraryFlags) LoadLibraryError!HMODULE {
-    return kernel32.LoadLibraryExW(lpLibFileName, null, @bitCast(dwFlags)) orelse {
+    return kernel32.LoadLibraryExW(lpLibFileName, null, @intFromEnum(dwFlags)) orelse {
         switch (kernel32.GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
