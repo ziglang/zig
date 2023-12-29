@@ -123,7 +123,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             .owner = root_mod,
         };
     }
-    const sub_compilation = try Compilation.create(comp.gpa, .{
+    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
         .self_exe_path = comp.self_exe_path,
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,

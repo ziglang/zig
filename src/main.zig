@@ -3130,7 +3130,7 @@ fn buildOutputType(
 
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 
-    const comp = Compilation.create(gpa, .{
+    const comp = Compilation.create(gpa, arena, .{
         .zig_lib_directory = zig_lib_directory,
         .local_cache_directory = local_cache_directory,
         .global_cache_directory = global_cache_directory,
@@ -5508,7 +5508,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
         try root_mod.deps.put(arena, "@build", build_mod);
 
-        const comp = Compilation.create(gpa, .{
+        const comp = Compilation.create(gpa, arena, .{
             .zig_lib_directory = zig_lib_directory,
             .local_cache_directory = local_cache_directory,
             .global_cache_directory = global_cache_directory,

@@ -5761,7 +5761,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         return sema.failWithOwnedErrorMsg(&child_block, msg);
     }
     const parent_mod = parent_block.ownerModule();
-    const c_import_mod = Package.Module.create(comp.arena.allocator(), .{
+    const c_import_mod = Package.Module.create(comp.arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{

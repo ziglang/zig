@@ -45,9 +45,9 @@ pub const Config = @import("Compilation/Config.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
-/// Arena-allocated memory, mostly used during initialization. However, it can be used
-/// for other things requiring the same lifetime as the `Compilation`.
-arena: std.heap.ArenaAllocator,
+/// Arena-allocated memory, mostly used during initialization. However, it can
+/// be used for other things requiring the same lifetime as the `Compilation`.
+arena: Allocator,
 /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
 /// TODO: rename to zcu: ?*Zcu
 module: ?*Module,
@@ -1178,7 +1178,7 @@ fn addModuleTableToCacheHash(
     }
 }
 
-pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
+pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compilation {
     const output_mode = options.config.output_mode;
     const is_dyn_lib = switch (output_mode) {
         .Obj, .Exe => false,
@@ -1197,13 +1197,6 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
     const have_zcu = options.config.have_zcu;
 
     const comp: *Compilation = comp: {
-        // For allocations that have the same lifetime as Compilation. This
-        // arena is used only during this initialization and then is freed in
-        // deinit().
-        var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-        errdefer arena_allocator.deinit();
-        const arena = arena_allocator.allocator();
-
         // We put the `Compilation` itself in the arena. Freeing the arena will free the module.
         // It's initialized later after we prepare the initialization options.
         const root_name = try arena.dupeZ(u8, options.root_name);
@@ -1454,7 +1447,7 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
 
         comp.* = .{
             .gpa = gpa,
-            .arena = undefined, // populated after we are finished with `arena`
+            .arena = arena,
             .module = opt_zcu,
             .cache_use = undefined, // populated below
             .bin_file = null, // populated below
@@ -1696,7 +1689,6 @@ pub fn create(gpa: Allocator, options: CreateOptions) !*Compilation {
             if (opt_zcu) |zcu| zcu.llvm_object = try LlvmObject.create(arena, comp);
         }
 
-        comp.arena = arena_allocator;
         break :comp comp;
     };
     errdefer comp.destroy();
@@ -1971,10 +1963,6 @@ pub fn destroy(comp: *Compilation) void {
     comp.clearMiscFailures();
 
     comp.cache_parent.manifest_dir.close();
-
-    // This destroys `comp`.
-    var arena_instance = comp.arena;
-    arena_instance.deinit();
 }
 
 pub fn clearMiscFailures(comp: *Compilation) void {
@@ -4082,7 +4070,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
         };
     }
 
-    const out_zig_path = try comp.local_cache_directory.join(comp.arena.allocator(), &.{
+    const out_zig_path = try comp.local_cache_directory.join(comp.arena, &.{
         "o", &digest, cimport_zig_basename,
     });
     if (comp.verbose_cimport) {
@@ -6302,7 +6290,7 @@ fn buildOutputFromZig(
         .output_mode = output_mode,
     });
 
-    const sub_compilation = try Compilation.create(gpa, .{
+    const sub_compilation = try Compilation.create(gpa, arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .local_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
@@ -6411,7 +6399,7 @@ pub fn build_crt_file(
         item.owner = root_mod;
     }
 
-    const sub_compilation = try Compilation.create(gpa, .{
+    const sub_compilation = try Compilation.create(gpa, arena, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,

@@ -251,7 +251,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 .builtin_mod = null,
             });
 
-            const sub_compilation = try Compilation.create(comp.gpa, .{
+            const sub_compilation = try Compilation.create(comp.gpa, arena, .{
                 .local_cache_directory = comp.global_cache_directory,
                 .global_cache_directory = comp.global_cache_directory,
                 .zig_lib_directory = comp.zig_lib_directory,
