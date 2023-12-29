@@ -634,11 +634,11 @@ test "lessThan" {
 
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
+    if (@sizeOf(T) == 0) return true;
+    if (std.meta.hasUniqueRepresentation(T)) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
+
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
-    if (@sizeOf(T) == 0) return true;
-
-    if (std.meta.hasUniqueRepresentation(T)) return eqlBytes(std.mem.sliceAsBytes(a), std.mem.sliceAsBytes(b));
 
     for (a, b) |a_elem, b_elem| {
         if (a_elem != b_elem) return false;
@@ -647,7 +647,7 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 }
 
 /// std.mem.eql heavily optimized for slices of bytes.
-pub fn eqlBytes(a: []const u8, b: []const u8) bool {
+fn eqlBytes(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
 
