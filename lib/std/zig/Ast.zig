@@ -3269,13 +3269,13 @@ pub const Node = struct {
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_multi,
-        /// `fn (a: b) rhs addrspace(e) linksection(f) callconv(g)`. `FnProtoOne[lhs]`.
+        /// `fn (a: b) addrspace(e) linksection(f) callconv(g) rhs`. `FnProtoOne[lhs]`.
         /// zero or one parameters.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_one,
-        /// `fn (a: b, c: d) rhs addrspace(e) linksection(f) callconv(g)`. `FnProto[lhs]`.
+        /// `fn (a: b, c: d) addrspace(e) linksection(f) callconv(g) rhs`. `FnProto[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
