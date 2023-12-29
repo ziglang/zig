@@ -466,6 +466,9 @@ pub fn createLimited(gpa: Allocator, options: LimitedOptions) Allocator.Error!*P
     return mod;
 }
 
+/// Asserts that the module has a builtin module, which is not true for non-zig
+/// modules such as ones only used for `@embedFile`, or the root module when
+/// there is no Zig Compilation Unit.
 pub fn getBuiltinDependency(m: Module) *Module {
     const result = m.deps.values()[0];
     assert(result.isBuiltin());
