@@ -249,7 +249,7 @@ pub fn addDepFileOutputArg(self: *Run, basename: []const u8) std.Build.LazyPath 
 /// Add a prefixed path argument to a dep file (.d) for the child process to
 /// write its discovered additional dependencies.
 /// Only one dep file argument is allowed by instance.
-pub fn addPrefixedDepFileOutputArg(self: *Run, prefix: []const u8, basename: []const u8) void {
+pub fn addPrefixedDepFileOutputArg(self: *Run, prefix: []const u8, basename: []const u8) std.Build.LazyPath {
     assert(self.dep_output_file == null);
 
     const b = self.step.owner;
@@ -264,6 +264,12 @@ pub fn addPrefixedDepFileOutputArg(self: *Run, prefix: []const u8, basename: []c
     self.dep_output_file = dep_file;
 
     self.argv.append(.{ .output = dep_file }) catch @panic("OOM");
+
+    if (self.rename_step_with_output_arg) {
+        self.setName(b.fmt("{s} ({s})", .{ self.step.name, basename }));
+    }
+
+    return .{ .generated = &dep_file.generated_file };
 }
 
 pub fn addArg(self: *Run, arg: []const u8) void {
