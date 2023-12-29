@@ -186,12 +186,15 @@ pub const Status = enum(usize) {
     };
 
     pub fn err(self: Status) EfiError!void {
-        inline for (@typeInfo(EfiError).ErrorSet.?) |efi_err| {
-            if (self == @field(Status, efi_err.name)) {
-                return @field(EfiError, efi_err.name);
-            }
+        switch(self) {
+            inline else => |tag| return @field(EfiError, @tagName(tag)),
         }
-        // self is .Success or Warning
+    }
+
+    pub fn status(Error: EfiError) Status {
+        switch(Error) {
+            inline else => |tag| return @field(Status, @errorName(tag)),
+        }
     }
 };
 
