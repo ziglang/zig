@@ -894,9 +894,48 @@ fn getGeneratedFilePath(self: *Compile, comptime tag_name: []const u8, asking_st
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
+    const arena = b.allocator;
     const self = @fieldParentPtr(Compile, "step", step);
 
-    var zig_args = ArrayList([]const u8).init(b.allocator);
+    // Convert search prefixes to -I and -L arguments to be added at the end of
+    // each module's configuration.
+    var search_prefix_args: std.ArrayListUnmanaged([]const u8) = .{};
+    for (b.search_prefixes.items) |search_prefix| {
+        var prefix_dir = fs.cwd().openDir(search_prefix, .{}) catch |err| {
+            return step.fail("unable to open prefix directory '{s}': {s}", .{
+                search_prefix, @errorName(err),
+            });
+        };
+        defer prefix_dir.close();
+
+        // Avoid passing -L and -I flags for nonexistent directories.
+        // This prevents a warning, that should probably be upgraded to an error in Zig's
+        // CLI parsing code, when the linker sees an -L directory that does not exist.
+
+        if (prefix_dir.accessZ("lib", .{})) |_| {
+            try search_prefix_args.appendSlice(arena, &.{
+                "-L", try fs.path.join(arena, &.{ search_prefix, "lib" }),
+            });
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return step.fail("unable to access '{s}/lib' directory: {s}", .{
+                search_prefix, @errorName(e),
+            }),
+        }
+
+        if (prefix_dir.accessZ("include", .{})) |_| {
+            try search_prefix_args.appendSlice(arena, &.{
+                "-I", try fs.path.join(arena, &.{ search_prefix, "include" }),
+            });
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return step.fail("unable to access '{s}/include' directory: {s}", .{
+                search_prefix, @errorName(e),
+            }),
+        }
+    }
+
+    var zig_args = ArrayList([]const u8).init(arena);
     defer zig_args.deinit();
 
     try zig_args.append(b.zig_exe);
@@ -910,14 +949,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try zig_args.append(cmd);
 
     if (b.reference_trace) |some| {
-        try zig_args.append(try std.fmt.allocPrint(b.allocator, "-freference-trace={d}", .{some}));
+        try zig_args.append(try std.fmt.allocPrint(arena, "-freference-trace={d}", .{some}));
     }
 
     try addFlag(&zig_args, "llvm", self.use_llvm);
     try addFlag(&zig_args, "lld", self.use_lld);
 
     if (self.root_module.resolved_target.?.query.ofmt) |ofmt| {
-        try zig_args.append(try std.fmt.allocPrint(b.allocator, "-ofmt={s}", .{@tagName(ofmt)}));
+        try zig_args.append(try std.fmt.allocPrint(arena, "-ofmt={s}", .{@tagName(ofmt)}));
     }
 
     switch (self.entry) {
@@ -925,7 +964,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         .disabled => try zig_args.append("-fno-entry"),
         .enabled => try zig_args.append("-fentry"),
         .symbol_name => |entry_name| {
-            try zig_args.append(try std.fmt.allocPrint(b.allocator, "-fentry={s}", .{entry_name}));
+            try zig_args.append(try std.fmt.allocPrint(arena, "-fentry={s}", .{entry_name}));
         },
     }
 
@@ -939,7 +978,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     if (self.stack_size) |stack_size| {
         try zig_args.append("--stack");
-        try zig_args.append(try std.fmt.allocPrint(b.allocator, "{}", .{stack_size}));
+        try zig_args.append(try std.fmt.allocPrint(arena, "{}", .{stack_size}));
     }
 
     {
@@ -964,7 +1003,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             }
         }
 
-        var cli_named_modules = try CliNamedModules.init(b.allocator, &self.root_module);
+        var cli_named_modules = try CliNamedModules.init(arena, &self.root_module);
 
         // For this loop, don't chase dynamic libraries because their link
         // objects are already linked.
@@ -983,7 +1022,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             // Inherit dependencies on darwin frameworks.
             if (!already_linked) {
                 for (module.frameworks.keys(), module.frameworks.values()) |name, info| {
-                    try frameworks.put(b.allocator, name, info);
+                    try frameworks.put(arena, name, info);
                 }
             }
 
@@ -997,7 +1036,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         }
                     },
                     .system_lib => |system_lib| {
-                        if ((try seen_system_libs.fetchPut(b.allocator, system_lib.name, {})) != null)
+                        if ((try seen_system_libs.fetchPut(arena, system_lib.name, {})) != null)
                             continue;
 
                         if (already_linked)
@@ -1196,6 +1235,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             if (cli_named_modules.modules.getIndex(module)) |module_cli_index| {
                 const module_cli_name = cli_named_modules.names.keys()[module_cli_index];
                 try module.appendZigProcessFlags(&zig_args, step);
+                // These go after `appendZigProcessFlags` so that
+                // --search-prefix directories are prioritized lower than
+                // per-module settings.
+                try zig_args.appendSlice(search_prefix_args.items);
 
                 // --dep arguments
                 try zig_args.ensureUnusedCapacity(module.import_table.count() * 2);
@@ -1385,11 +1428,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.appendSlice(&[_][]const u8{ "--entitlements", entitlements });
     }
     if (self.pagezero_size) |pagezero_size| {
-        const size = try std.fmt.allocPrint(b.allocator, "{x}", .{pagezero_size});
+        const size = try std.fmt.allocPrint(arena, "{x}", .{pagezero_size});
         try zig_args.appendSlice(&[_][]const u8{ "-pagezero_size", size });
     }
     if (self.headerpad_size) |headerpad_size| {
-        const size = try std.fmt.allocPrint(b.allocator, "{x}", .{headerpad_size});
+        const size = try std.fmt.allocPrint(arena, "{x}", .{headerpad_size});
         try zig_args.appendSlice(&[_][]const u8{ "-headerpad", size });
     }
     if (self.headerpad_max_install_names) {
@@ -1462,41 +1505,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.appendSlice(&[_][]const u8{ "--sysroot", sysroot });
     }
 
-    for (b.search_prefixes.items) |search_prefix| {
-        var prefix_dir = fs.cwd().openDir(search_prefix, .{}) catch |err| {
-            return step.fail("unable to open prefix directory '{s}': {s}", .{
-                search_prefix, @errorName(err),
-            });
-        };
-        defer prefix_dir.close();
-
-        // Avoid passing -L and -I flags for nonexistent directories.
-        // This prevents a warning, that should probably be upgraded to an error in Zig's
-        // CLI parsing code, when the linker sees an -L directory that does not exist.
-
-        if (prefix_dir.accessZ("lib", .{})) |_| {
-            try zig_args.appendSlice(&.{
-                "-L", try fs.path.join(b.allocator, &.{ search_prefix, "lib" }),
-            });
-        } else |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return step.fail("unable to access '{s}/lib' directory: {s}", .{
-                search_prefix, @errorName(e),
-            }),
-        }
-
-        if (prefix_dir.accessZ("include", .{})) |_| {
-            try zig_args.appendSlice(&.{
-                "-I", try fs.path.join(b.allocator, &.{ search_prefix, "include" }),
-            });
-        } else |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return step.fail("unable to access '{s}/include' directory: {s}", .{
-                search_prefix, @errorName(e),
-            }),
-        }
-    }
-
     if (self.rc_includes != .any) {
         try zig_args.append("-rcincludes");
         try zig_args.append(@tagName(self.rc_includes));
@@ -1554,12 +1562,12 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try b.cache_root.handle.makePath("args");
 
         const args_to_escape = zig_args.items[2..];
-        var escaped_args = try ArrayList([]const u8).initCapacity(b.allocator, args_to_escape.len);
+        var escaped_args = try ArrayList([]const u8).initCapacity(arena, args_to_escape.len);
         arg_blk: for (args_to_escape) |arg| {
             for (arg, 0..) |c, arg_idx| {
                 if (c == '\\' or c == '"') {
                     // Slow path for arguments that need to be escaped. We'll need to allocate and copy
-                    var escaped = try ArrayList(u8).initCapacity(b.allocator, arg.len + 1);
+                    var escaped = try ArrayList(u8).initCapacity(arena, arg.len + 1);
                     const writer = escaped.writer();
                     try writer.writeAll(arg[0..arg_idx]);
                     for (arg[arg_idx..]) |to_escape| {
@@ -1575,8 +1583,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
         // Write the args to zig-cache/args/<SHA256 hash of args> to avoid conflicts with
         // other zig build commands running in parallel.
-        const partially_quoted = try std.mem.join(b.allocator, "\" \"", escaped_args.items);
-        const args = try std.mem.concat(b.allocator, u8, &[_][]const u8{ "\"", partially_quoted, "\"" });
+        const partially_quoted = try std.mem.join(arena, "\" \"", escaped_args.items);
+        const args = try std.mem.concat(arena, u8, &[_][]const u8{ "\"", partially_quoted, "\"" });
 
         var args_hash: [Sha256.digest_length]u8 = undefined;
         Sha256.hash(args, &args_hash, .{});
@@ -1590,9 +1598,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;
         try b.cache_root.handle.writeFile(args_file, args);
 
-        const resolved_args_file = try mem.concat(b.allocator, u8, &.{
+        const resolved_args_file = try mem.concat(arena, u8, &.{
             "@",
-            try b.cache_root.join(b.allocator, &.{args_file}),
+            try b.cache_root.join(arena, &.{args_file}),
         });
 
         zig_args.shrinkRetainingCapacity(2);
