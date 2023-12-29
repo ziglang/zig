@@ -3789,6 +3789,8 @@ pub const PATH_MAX_WIDE = 32767;
 /// TODO: More verification of this assumption.
 pub const NAME_MAX = 255;
 
+pub const HOST_NAME_MAX = 256;
+
 pub const FORMAT_MESSAGE_ALLOCATE_BUFFER = 0x00000100;
 pub const FORMAT_MESSAGE_ARGUMENT_ARRAY = 0x00002000;
 pub const FORMAT_MESSAGE_FROM_HMODULE = 0x00000800;
