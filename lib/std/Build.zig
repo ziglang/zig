@@ -139,7 +139,7 @@ available_deps: AvailableDeps,
 
 compdb_entries_dir: ?[]const u8 = null,
 
-compdb_entry_paths_set: ?StringHashMap(void) = null,
+compdb_entry_paths_set: ?*StringHashMap(void) = null,
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
 
@@ -585,22 +585,14 @@ fn determineAndApplyInstallPrefix(b: *Build) !void {
     b.resolveInstallPrefix(install_prefix, .{});
 }
 
-pub fn destroy(b: *Build) void {
-    if (b.compdb_entry_paths_set) |*set| {
-        set.deinit();
-    }
-
-    b.env_map.deinit();
-    b.top_level_steps.deinit(b.allocator);
-    b.allocator.destroy(b);
-}
-
-pub fn initCompdb(self: *Build) void {
+pub fn initCompdb(self: *Build) !void {
     if (!self.enable_compdb) return;
 
     self.compdb_entries_dir = self.makeTempPath();
 
-    self.compdb_entry_paths_set = StringHashMap(void).init(self.allocator);
+    const entry_paths_set = try self.allocator.create(StringHashMap(void));
+    entry_paths_set.* = StringHashMap(void).init(self.allocator);
+    self.compdb_entry_paths_set = entry_paths_set;
 }
 
 pub fn generateCompdb(self: *std.Build) !void {
@@ -633,6 +625,17 @@ pub fn generateCompdb(self: *std.Build) !void {
     entries_string = self.fmt("[{s}]", .{entries_string});
 
     try self.build_root.handle.writeFile("compile_commands.json", entries_string);
+}
+
+pub fn destroy(b: *Build) void {
+    if (b.compdb_entry_paths_set) |set| {
+        set.deinit();
+        b.allocator.destroy(set);
+    }
+
+    b.env_map.deinit();
+    b.top_level_steps.deinit(b.allocator);
+    b.allocator.destroy(b);
 }
 
 /// This function is intended to be called by lib/build_runner.zig, not a build.zig file.

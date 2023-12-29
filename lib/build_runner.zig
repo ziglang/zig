@@ -261,7 +261,7 @@ pub fn main() !void {
                 builder.enable_darling = false;
             } else if (mem.eql(u8, arg, "-fcompdb")) {
                 builder.enable_compdb = true;
-                builder.initCompdb();
+                try builder.initCompdb();
             } else if (mem.eql(u8, arg, "-fno-compdb")) {
                 builder.enable_compdb = false;
             } else if (mem.eql(u8, arg, "-freference-trace")) {
