@@ -4783,11 +4783,9 @@ fn validateStructInit(
 
             const field_ptr_ref = sema.inst_map.get(field_ptr).?;
 
-            //std.debug.print("validateStructInit (field_ptr_air_inst=%{d}):\n", .{
-            //    field_ptr_air_inst,
-            //});
+            //std.debug.print("validateStructInit (field_ptr_ref=%{d}):\n", .{field_ptr_ref});
             //for (block.instructions.items) |item| {
-            //    std.debug.print("  %{d} = {s}\n", .{item, @tagName(air_tags[item])});
+            //    std.debug.print("  %{d} = {s}\n", .{item, @tagName(air_tags[@intFromEnum(item)])});
             //}
 
             // We expect to see something like this in the current block AIR:
@@ -4804,8 +4802,9 @@ fn validateStructInit(
 
             // Possible performance enhancement: save the `block_index` between iterations
             // of the for loop.
-            var block_index = block.instructions.items.len -| 1;
-            while (block_index > 0) : (block_index -= 1) {
+            var block_index = block.instructions.items.len;
+            while (block_index > 0) {
+                block_index -= 1;
                 const store_inst = block.instructions.items[block_index];
                 if (store_inst.toRef() == field_ptr_ref) {
                     struct_is_comptime = false;
@@ -5060,8 +5059,9 @@ fn zirValidatePtrArrayInit(
 
         // Possible performance enhancement: save the `block_index` between iterations
         // of the for loop.
-        var block_index = block.instructions.items.len -| 1;
-        while (block_index > 0) : (block_index -= 1) {
+        var block_index = block.instructions.items.len;
+        while (block_index > 0) {
+            block_index -= 1;
             const store_inst = block.instructions.items[block_index];
             if (store_inst.toRef() == elem_ptr_ref) {
                 array_is_comptime = false;
@@ -24311,7 +24311,8 @@ fn analyzeMinMax(
 
 fn upgradeToArrayPtr(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, len: u64) !Air.Inst.Ref {
     const mod = sema.mod;
-    const info = sema.typeOf(ptr).ptrInfo(mod);
+    const ptr_ty = sema.typeOf(ptr);
+    const info = ptr_ty.ptrInfo(mod);
     if (info.flags.size == .One) {
         // Already an array pointer.
         return ptr;
@@ -24330,10 +24331,11 @@ fn upgradeToArrayPtr(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, len: u64) !A
             .address_space = info.flags.address_space,
         },
     });
-    if (info.flags.size == .Slice) {
-        return block.addTyOp(.slice_ptr, new_ty, ptr);
-    }
-    return block.addBitCast(new_ty, ptr);
+    const non_slice_ptr = if (info.flags.size == .Slice)
+        try block.addTyOp(.slice_ptr, ptr_ty.slicePtrFieldType(mod), ptr)
+    else
+        ptr;
+    return block.addBitCast(new_ty, non_slice_ptr);
 }
 
 fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {

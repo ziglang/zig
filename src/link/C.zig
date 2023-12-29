@@ -136,6 +136,8 @@ pub fn deinit(self: *C) void {
     self.string_bytes.deinit(gpa);
     self.fwd_decl_buf.deinit(gpa);
     self.code_buf.deinit(gpa);
+    self.lazy_fwd_decl_buf.deinit(gpa);
+    self.lazy_code_buf.deinit(gpa);
 }
 
 pub fn freeDecl(self: *C, decl_index: InternPool.DeclIndex) void {
