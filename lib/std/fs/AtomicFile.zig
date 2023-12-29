@@ -65,6 +65,10 @@ pub fn deinit(self: *AtomicFile) void {
 
 pub const FinishError = posix.RenameError;
 
+/// On Windows, this function introduces a period of time where some file
+/// system operations on the destination file will result in
+/// `error.AccessDenied`, including rename operations (such as the one used in
+/// this function).
 pub fn finish(self: *AtomicFile) FinishError!void {
     assert(self.file_exists);
     if (self.file_open) {

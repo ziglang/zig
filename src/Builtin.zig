@@ -280,24 +280,19 @@ pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
 
 fn writeFile(file: *File, mod: *Module) !void {
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var af = mod.root.atomicFile(mod.root_src_path, .{ .make_path = true }, &buf) catch |err| {
-        std.log.warn("unable to create builtin atomic file '{}{s}'", .{
-            mod.root, mod.root_src_path,
-        });
-        return err;
-    };
+    var af = try mod.root.atomicFile(mod.root_src_path, .{ .make_path = true }, &buf);
     defer af.deinit();
-    af.file.writeAll(file.source) catch |err| {
-        std.log.warn("unable to write builtin file data to '{}{s}'", .{
-            mod.root, mod.root_src_path,
-        });
-        return err;
-    };
-    af.finish() catch |err| {
-        std.log.warn("unable to rename atomic builtin file into '{}{s}'", .{
-            mod.root, mod.root_src_path,
-        });
-        return err;
+    try af.file.writeAll(file.source);
+    af.finish() catch |err| switch (err) {
+        error.AccessDenied => switch (builtin.os.tag) {
+            .windows => {
+                // Very likely happened due to another process or thread
+                // simultaneously creating the same, correct builtin.zig file.
+                // This is not a problem; ignore it.
+            },
+            else => return err,
+        },
+        else => return err,
     };
 
     file.stat = .{
@@ -307,6 +302,7 @@ fn writeFile(file: *File, mod: *Module) !void {
     };
 }
 
+const builtin = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const build_options = @import("build_options");
