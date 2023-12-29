@@ -137,6 +137,10 @@ initialized_deps: *InitializedDepMap,
 /// A mapping from dependency names to package hashes.
 available_deps: AvailableDeps,
 
+compdb_entries_dir: ?[]const u8 = null,
+
+compdb_entry_paths_set: ?StringHashMap(void) = null,
+
 const AvailableDeps = []const struct { []const u8, []const u8 };
 
 const InitializedDepMap = std.HashMap(InitializedDepKey, *Dependency, InitializedDepContext, std.hash_map.default_max_load_percentage);
@@ -404,6 +408,8 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .modules = std.StringArrayHashMap(*Module).init(allocator),
         .initialized_deps = parent.initialized_deps,
         .available_deps = pkg_deps,
+        .compdb_entries_dir = parent.compdb_entries_dir,
+        .compdb_entry_paths_set = parent.compdb_entry_paths_set,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
     try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
@@ -580,9 +586,53 @@ fn determineAndApplyInstallPrefix(b: *Build) !void {
 }
 
 pub fn destroy(b: *Build) void {
+    if (b.compdb_entry_paths_set) |*set| {
+        set.deinit();
+    }
+
     b.env_map.deinit();
     b.top_level_steps.deinit(b.allocator);
     b.allocator.destroy(b);
+}
+
+pub fn initCompdb(self: *Build) void {
+    if (!self.enable_compdb) return;
+
+    self.compdb_entries_dir = self.makeTempPath();
+
+    self.compdb_entry_paths_set = StringHashMap(void).init(self.allocator);
+}
+
+pub fn generateCompdb(self: *std.Build) !void {
+    if (!self.enable_compdb) return;
+
+    var entry_strings = ArrayList(u8).init(self.allocator);
+    defer entry_strings.deinit();
+
+    var entry_paths_set_key_it = self.compdb_entry_paths_set.?.keyIterator();
+    while (entry_paths_set_key_it.next()) |entry_path| {
+        const entry_path_abs = fs.cwd().realpathAlloc(self.allocator, entry_path.*) catch continue;
+
+        const entry_file = fs.openFileAbsolute(entry_path_abs, .{}) catch continue;
+        defer entry_file.close();
+
+        const entry_file_stat = entry_file.stat() catch continue;
+
+        var entry_file_contents: []const u8 = entry_file.readToEndAlloc(self.allocator, entry_file_stat.size) catch continue;
+        entry_file_contents = mem.trim(u8, entry_file_contents, " \n\r,");
+        if (entry_file_contents.len == 0) continue;
+        entry_file_contents = self.fmt("{s},", .{entry_file_contents});
+
+        entry_strings.appendSlice(entry_file_contents) catch continue;
+    }
+
+    var entries_string: []const u8 = entry_strings.items;
+    if (entries_string.len != 0) {
+        entries_string = mem.trimRight(u8, entries_string, ",");
+    }
+    entries_string = self.fmt("[{s}]", .{entries_string});
+
+    try self.build_root.handle.writeFile("compile_commands.json", entries_string);
 }
 
 /// This function is intended to be called by lib/build_runner.zig, not a build.zig file.

@@ -1481,19 +1481,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var prev_search_strategy: SystemLib.SearchStrategy = .paths_first;
     var prev_preferred_link_mode: std.builtin.LinkMode = .Dynamic;
 
-    const compdb_entries_dir: ?[]const u8 = if (b.enable_compdb)
-        b.makeTempPath()
-    else
-        null;
-
-    var compdb_entry_paths_set: ?StringHashMap(void) = if (b.enable_compdb)
-        StringHashMap(void).init(b.allocator)
-    else
-        null;
-    if (compdb_entry_paths_set) |set| {
-        errdefer set.deinit();
-    }
-
     for (transitive_deps.link_objects.items) |link_object| {
         switch (link_object) {
             .static_path => |static_path| try zig_args.append(static_path.getPath(b)),
@@ -1600,11 +1587,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 const c_source_file_path = c_source_file.file.getPath(b);
 
                 const c_source_file_compdb_entry_path: ?[]u8 = if (b.enable_compdb)
-                    generateCSourceFileCompdbEntryPath(b, compdb_entries_dir.?, c_source_file_path)
+                    try generateCSourceFileCompdbEntryPath(b, c_source_file_path)
                 else
                     null;
                 if (c_source_file_compdb_entry_path) |compdb_entry_path| {
-                    try compdb_entry_paths_set.?.put(compdb_entry_path, {});
+                    try b.compdb_entry_paths_set.?.put(compdb_entry_path, {});
                 }
 
                 if (c_source_file.flags.len == 0) {
@@ -1650,11 +1637,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         b.pathFromRoot(file);
 
                     const c_source_file_compdb_entry_path: ?[]u8 = if (b.enable_compdb)
-                        generateCSourceFileCompdbEntryPath(b, compdb_entries_dir.?, c_source_file_path)
+                        try generateCSourceFileCompdbEntryPath(b, c_source_file_path)
                     else
                         null;
                     if (c_source_file_compdb_entry_path) |compdb_entry_path| {
-                        try compdb_entry_paths_set.?.put(compdb_entry_path, {});
+                        try b.compdb_entry_paths_set.?.put(compdb_entry_path, {});
                     }
 
                     if (c_source_files.flags.len == 0) {
@@ -2299,56 +2286,17 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             self.name_only_filename.?,
         );
     }
-
-    if (b.enable_compdb) {
-        try generateCompdbFromEntryPathsSet(b, &compdb_entry_paths_set.?);
-    }
-}
-
-fn generateCompdbFromEntryPathsSet(
-    b: *std.Build,
-    entry_paths_set: *StringHashMap(void),
-) !void {
-    var entry_strings = ArrayList(u8).init(b.allocator);
-    errdefer entry_strings.deinit();
-
-    var entry_paths_set_key_it = entry_paths_set.keyIterator();
-    while (entry_paths_set_key_it.next()) |entry_path| {
-        const entry_path_abs = fs.cwd().realpathAlloc(b.allocator, entry_path.*) catch continue;
-
-        const entry_file = fs.openFileAbsolute(entry_path_abs, .{}) catch continue;
-        errdefer entry_file.close();
-
-        const entry_file_stat = entry_file.stat() catch continue;
-
-        var entry_file_contents: []const u8 = entry_file.readToEndAlloc(b.allocator, entry_file_stat.size) catch continue;
-        entry_file_contents = mem.trim(u8, entry_file_contents, " \n\r,");
-        if (entry_file_contents.len == 0) continue;
-        entry_file_contents = b.fmt("{s},", .{entry_file_contents});
-
-        entry_strings.appendSlice(entry_file_contents) catch continue;
-    }
-
-    var entries_string: []const u8 = entry_strings.items;
-    if (entries_string.len != 0) {
-        entries_string = mem.trimRight(u8, entries_string, ",");
-    }
-    entries_string = b.fmt("[{s}]", .{entries_string});
-
-    try b.build_root.handle.writeFile("compile_commands.json", entries_string);
 }
 
 fn generateCSourceFileCompdbEntryPath(
     b: *std.Build,
-    entries_dir: []const u8,
     c_source_file_path: []const u8,
-) []u8 {
+) ![]u8 {
     const c_source_file_path_basename = fs.path.basename(c_source_file_path);
-
     const c_source_file_path_basename_hash = std.Build.hex64(CityHash64.hash(c_source_file_path_basename));
 
     return b.fmt("{s}{c}{s}-{s}", .{
-        entries_dir,
+        b.compdb_entries_dir.?,
         std.fs.path.sep,
         c_source_file_path_basename,
         c_source_file_path_basename_hash,

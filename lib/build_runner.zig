@@ -261,6 +261,7 @@ pub fn main() !void {
                 builder.enable_darling = false;
             } else if (mem.eql(u8, arg, "-fcompdb")) {
                 builder.enable_compdb = true;
+                builder.initCompdb();
             } else if (mem.eql(u8, arg, "-fno-compdb")) {
                 builder.enable_compdb = false;
             } else if (mem.eql(u8, arg, "-freference-trace")) {
@@ -457,6 +458,10 @@ fn runStepNames(
         }
     }
     assert(run.memory_blocked_steps.items.len == 0);
+
+    if (b.enable_compdb) {
+        try b.generateCompdb();
+    }
 
     var test_skip_count: usize = 0;
     var test_fail_count: usize = 0;
