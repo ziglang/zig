@@ -2152,14 +2152,14 @@ fn parsePrimaryExpr(p: *Parse) !Node.Index {
                     .keyword_inline => {
                         p.tok_i += 3;
                         switch (p.token_tags[p.tok_i]) {
-                            .keyword_for => return p.parseForExpr(),
+                            .keyword_for => return p.parseFor(expectExpr),
                             .keyword_while => return p.parseWhileExpr(),
                             else => return p.fail(.expected_inlinable),
                         }
                     },
                     .keyword_for => {
                         p.tok_i += 2;
-                        return p.parseForExpr();
+                        return p.parseFor(expectExpr);
                     },
                     .keyword_while => {
                         p.tok_i += 2;
@@ -2178,12 +2178,12 @@ fn parsePrimaryExpr(p: *Parse) !Node.Index {
         .keyword_inline => {
             p.tok_i += 1;
             switch (p.token_tags[p.tok_i]) {
-                .keyword_for => return p.parseForExpr(),
+                .keyword_for => return p.parseFor(expectExpr),
                 .keyword_while => return p.parseWhileExpr(),
                 else => return p.fail(.expected_inlinable),
             }
         },
-        .keyword_for => return p.parseForExpr(),
+        .keyword_for => return p.parseFor(expectExpr),
         .keyword_while => return p.parseWhileExpr(),
         .l_brace => return p.parseBlock(),
         else => return p.parseCurlySuffixExpr(),
@@ -2246,46 +2246,6 @@ fn parseBlock(p: *Parse) !Node.Index {
             });
         },
     }
-}
-
-/// ForExpr <- ForPrefix Expr (KEYWORD_else Expr)?
-fn parseForExpr(p: *Parse) !Node.Index {
-    const for_token = p.eatToken(.keyword_for) orelse return null_node;
-
-    const scratch_top = p.scratch.items.len;
-    defer p.scratch.shrinkRetainingCapacity(scratch_top);
-    const inputs = try p.forPrefix();
-
-    const then_expr = try p.expectExpr();
-    var has_else = false;
-    if (p.eatToken(.keyword_else)) |_| {
-        try p.scratch.append(p.gpa, then_expr);
-        const else_expr = try p.expectExpr();
-        try p.scratch.append(p.gpa, else_expr);
-        has_else = true;
-    } else if (inputs == 1) {
-        return p.addNode(.{
-            .tag = .for_simple,
-            .main_token = for_token,
-            .data = .{
-                .lhs = p.scratch.items[scratch_top],
-                .rhs = then_expr,
-            },
-        });
-    } else {
-        try p.scratch.append(p.gpa, then_expr);
-    }
-    return p.addNode(.{
-        .tag = .@"for",
-        .main_token = for_token,
-        .data = .{
-            .lhs = (try p.listToSpan(p.scratch.items[scratch_top..])).start,
-            .rhs = @as(u32, @bitCast(Node.For{
-                .inputs = @as(u31, @intCast(inputs)),
-                .has_else = has_else,
-            })),
-        },
-    });
 }
 
 /// ForPrefix <- KEYWORD_for LPAREN ForInput (COMMA ForInput)* COMMA? RPAREN ForPayload
@@ -2784,14 +2744,14 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                 .keyword_inline => {
                     p.tok_i += 3;
                     switch (p.token_tags[p.tok_i]) {
-                        .keyword_for => return p.parseForTypeExpr(),
+                        .keyword_for => return p.parseFor(expectTypeExpr),
                         .keyword_while => return p.parseWhileTypeExpr(),
                         else => return p.fail(.expected_inlinable),
                     }
                 },
                 .keyword_for => {
                     p.tok_i += 2;
-                    return p.parseForTypeExpr();
+                    return p.parseFor(expectTypeExpr);
                 },
                 .keyword_while => {
                     p.tok_i += 2;
@@ -2822,12 +2782,12 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
         .keyword_inline => {
             p.tok_i += 1;
             switch (p.token_tags[p.tok_i]) {
-                .keyword_for => return p.parseForTypeExpr(),
+                .keyword_for => return p.parseFor(expectTypeExpr),
                 .keyword_while => return p.parseWhileTypeExpr(),
                 else => return p.fail(.expected_inlinable),
             }
         },
-        .keyword_for => return p.parseForTypeExpr(),
+        .keyword_for => return p.parseFor(expectTypeExpr),
         .keyword_while => return p.parseWhileTypeExpr(),
         .period => switch (p.token_tags[p.tok_i + 1]) {
             .identifier => return p.addNode(.{
@@ -3018,46 +2978,6 @@ fn expectPrimaryTypeExpr(p: *Parse) !Node.Index {
         return p.fail(.expected_primary_type_expr);
     }
     return node;
-}
-
-/// ForTypeExpr <- ForPrefix TypeExpr (KEYWORD_else TypeExpr)?
-fn parseForTypeExpr(p: *Parse) !Node.Index {
-    const for_token = p.eatToken(.keyword_for) orelse return null_node;
-
-    const scratch_top = p.scratch.items.len;
-    defer p.scratch.shrinkRetainingCapacity(scratch_top);
-    const inputs = try p.forPrefix();
-
-    const then_expr = try p.expectTypeExpr();
-    var has_else = false;
-    if (p.eatToken(.keyword_else)) |_| {
-        try p.scratch.append(p.gpa, then_expr);
-        const else_expr = try p.expectTypeExpr();
-        try p.scratch.append(p.gpa, else_expr);
-        has_else = true;
-    } else if (inputs == 1) {
-        return p.addNode(.{
-            .tag = .for_simple,
-            .main_token = for_token,
-            .data = .{
-                .lhs = p.scratch.items[scratch_top],
-                .rhs = then_expr,
-            },
-        });
-    } else {
-        try p.scratch.append(p.gpa, then_expr);
-    }
-    return p.addNode(.{
-        .tag = .@"for",
-        .main_token = for_token,
-        .data = .{
-            .lhs = (try p.listToSpan(p.scratch.items[scratch_top..])).start,
-            .rhs = @as(u32, @bitCast(Node.For{
-                .inputs = @as(u31, @intCast(inputs)),
-                .has_else = has_else,
-            })),
-        },
-    });
 }
 
 /// WhilePrefix <- KEYWORD_while LPAREN Expr RPAREN PtrPayload? WhileContinueExpr?
@@ -4017,6 +3937,48 @@ fn parseIf(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !No
                 .then_expr = then_expr,
                 .else_expr = else_expr,
             }),
+        },
+    });
+}
+
+/// ForExpr <- ForPrefix Expr (KEYWORD_else Expr)?
+///
+/// ForTypeExpr <- ForPrefix TypeExpr (KEYWORD_else TypeExpr)?
+fn parseFor(p: *Parse, comptime bodyParseFn: fn (p: *Parse) Error!Node.Index) !Node.Index {
+    const for_token = p.eatToken(.keyword_for) orelse return null_node;
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+    const inputs = try p.forPrefix();
+
+    const then_expr = try bodyParseFn(p);
+    var has_else = false;
+    if (p.eatToken(.keyword_else)) |_| {
+        try p.scratch.append(p.gpa, then_expr);
+        const else_expr = try bodyParseFn(p);
+        try p.scratch.append(p.gpa, else_expr);
+        has_else = true;
+    } else if (inputs == 1) {
+        return p.addNode(.{
+            .tag = .for_simple,
+            .main_token = for_token,
+            .data = .{
+                .lhs = p.scratch.items[scratch_top],
+                .rhs = then_expr,
+            },
+        });
+    } else {
+        try p.scratch.append(p.gpa, then_expr);
+    }
+    return p.addNode(.{
+        .tag = .@"for",
+        .main_token = for_token,
+        .data = .{
+            .lhs = (try p.listToSpan(p.scratch.items[scratch_top..])).start,
+            .rhs = @as(u32, @bitCast(Node.For{
+                .inputs = @as(u31, @intCast(inputs)),
+                .has_else = has_else,
+            })),
         },
     });
 }
