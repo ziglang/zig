@@ -342,6 +342,15 @@ pub fn assert(ok: bool) void {
     if (!ok) unreachable; // assertion failure
 }
 
+/// This function panics in Debug mode when `ok` is false. It does not generate
+/// any code in any release mode. It is functionally equivalent to C's assert
+/// macro when used in conjunction with NDEBUG.
+pub fn assertDebug(ok: bool) void {
+    if (builtin.mode == .Debug) {
+        if (!ok) @panic("Assertion failed");
+    }
+}
+
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @setCold(true);
 
