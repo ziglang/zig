@@ -634,11 +634,12 @@ test "lessThan" {
 
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
-    if (@sizeOf(T) == 0) return true;
-    if (std.meta.hasUniqueRepresentation(T)) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
-
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
+
+    if (@sizeOf(T) == 0) return true;
+
+    if (!@inComptime() and std.meta.hasUniqueRepresentation(T)) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
 
     for (a, b) |a_elem, b_elem| {
         if (a_elem != b_elem) return false;
