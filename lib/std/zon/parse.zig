@@ -7,16 +7,20 @@ const Base = std.zig.number_literal.Base;
 const StringLiteralError = std.zig.string_literal.Error;
 const NumberLiteralError = std.zig.number_literal.Error;
 const assert = std.debug.assert;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 gpa: Allocator,
 ast: *const Ast,
 status: ?*ParseStatus,
-options: ParseOptions,
 
 /// Configuration for the runtime parser.
 pub const ParseOptions = struct {
     /// If true, unknown fields do not error.
     ignore_unknown_fields: bool = false,
+    /// If true, the parser cleans up partially parsed values on error. This requires some extra
+    /// bookkeeping, so you may want to turn it off if you don't need this feature (e.g. because
+    /// you're doing arena allocation.)
+    free_on_error: bool = true,
 };
 
 /// Information about the success or failure of a parse.
@@ -95,7 +99,7 @@ pub fn parseFromSlice(
     /// The ZON source.
     source: [:0]const u8,
     /// Options for the parser.
-    options: ParseOptions,
+    comptime options: ParseOptions,
 ) error{ OutOfMemory, Type, Syntax }!T {
     var ast = try std.zig.Ast.parse(gpa, source, .zon);
     defer ast.deinit(gpa);
@@ -112,7 +116,7 @@ test "std.zon parseFromSlice syntax error" {
 /// Returns `error.OutOfMemory` if allocation fails, or `error.Type` if the ZON could not be
 /// deserialized into `T`. If `status` is not null, more information about the success/failure of the
 /// parse will be stored in it.
-pub fn parseFromAst(comptime T: type, gpa: Allocator, ast: *const Ast, status: ?*ParseStatus, options: ParseOptions) error{ OutOfMemory, Type }!T {
+pub fn parseFromAst(comptime T: type, gpa: Allocator, ast: *const Ast, status: ?*ParseStatus, comptime options: ParseOptions) error{ OutOfMemory, Type }!T {
     assert(ast.errors.len == 0);
     const data = ast.nodes.items(.data);
     const root = data[0].lhs;
@@ -122,7 +126,7 @@ pub fn parseFromAst(comptime T: type, gpa: Allocator, ast: *const Ast, status: ?
 /// Like `parseFromAst`, but does not take an allocator.
 ///
 /// Asserts at comptime that no value of type `T` requires dynamic allocation.
-pub fn parseFromAstNoAlloc(comptime T: type, ast: *const Ast, status: ?*ParseStatus, options: ParseOptions) error{Type}!T {
+pub fn parseFromAstNoAlloc(comptime T: type, ast: *const Ast, status: ?*ParseStatus, comptime options: ParseOptions) error{Type}!T {
     assert(ast.errors.len == 0);
     const data = ast.nodes.items(.data);
     const root = data[0].lhs;
@@ -140,21 +144,20 @@ test "std.zon parseFromAstNoAlloc" {
 }
 
 /// Like `parseFromAst`, but the parse starts on `node` instead of on the root of the AST.
-pub fn parseFromAstNode(comptime T: type, gpa: Allocator, ast: *const Ast, node: NodeIndex, status: ?*ParseStatus, options: ParseOptions) error{ OutOfMemory, Type }!T {
+pub fn parseFromAstNode(comptime T: type, gpa: Allocator, ast: *const Ast, node: NodeIndex, status: ?*ParseStatus, comptime options: ParseOptions) error{ OutOfMemory, Type }!T {
     assert(ast.errors.len == 0);
     var parser = @This(){
         .gpa = gpa,
         .ast = ast,
         .status = status,
-        .options = options,
     };
-    return parser.parseExpr(T, node);
+    return parser.parseExpr(T, options, node);
 }
 
 /// Like `parseFromAstNode`, but does not take an allocator.
 ///
 /// Asserts at comptime that no value of type `T` requires dynamic allocation.
-pub fn parseFromAstNodeNoAlloc(comptime T: type, ast: *const Ast, node: NodeIndex, status: ?*ParseStatus, options: ParseOptions) error{Type}!T {
+pub fn parseFromAstNodeNoAlloc(comptime T: type, ast: *const Ast, node: NodeIndex, status: ?*ParseStatus, comptime options: ParseOptions) error{Type}!T {
     assert(ast.errors.len == 0);
     if (comptime requiresAllocator(T)) {
         @compileError(@typeName(T) ++ ": requires allocator");
@@ -244,7 +247,9 @@ pub fn parseFree(gpa: Allocator, value: anytype) void {
         .Bool, .Int, .Float, .Enum => {},
         .Pointer => |Pointer| {
             switch (Pointer.size) {
-                .One, .Many, .C => @compileError(@typeName(Value) ++ ": parseFree cannot free non slice pointers"),
+                .One, .Many, .C => if (comptime requiresAllocator(Value)) {
+                    @compileError(@typeName(Value) ++ ": parseFree cannot free non slice pointers");
+                },
                 .Slice => for (value) |item| {
                     parseFree(gpa, item);
                 },
@@ -258,7 +263,9 @@ pub fn parseFree(gpa: Allocator, value: anytype) void {
             parseFree(gpa, @field(value, field.name));
         },
         .Union => |Union| if (Union.tag_type == null) {
-            @compileError(@typeName(Value) ++ ": parseFree cannot free untagged unions");
+            if (comptime requiresAllocator(Value)) {
+                @compileError(@typeName(Value) ++ ": parseFree cannot free untagged unions");
+            }
         } else switch (value) {
             inline else => |_, tag| {
                 parseFree(gpa, @field(value, @tagName(tag)));
@@ -273,20 +280,20 @@ pub fn parseFree(gpa: Allocator, value: anytype) void {
     }
 }
 
-fn parseExpr(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfMemory, Type }!T {
+fn parseExpr(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ OutOfMemory, Type }!T {
     // Keep in sync with parseFree, stringify, and requiresAllocator.
     switch (@typeInfo(T)) {
         .Bool => return self.parseBool(node),
         .Int, .Float => return self.parseNumber(T, node),
         .Enum => return self.parseEnumLiteral(T, node),
-        .Pointer => return self.parsePointer(T, node),
-        .Array => return self.parseArray(T, node),
+        .Pointer => return self.parsePointer(T, options, node),
+        .Array => return self.parseArray(T, options, node),
         .Struct => |Struct| if (Struct.is_tuple)
-            return self.parseTuple(T, node)
+            return self.parseTuple(T, options, node)
         else
-            return self.parseStruct(T, node),
-        .Union => return self.parseUnion(T, node),
-        .Optional => return self.parseOptional(T, node),
+            return self.parseStruct(T, options, node),
+        .Union => return self.parseUnion(T, options, node),
+        .Optional => return self.parseOptional(T, options, node),
         .Void => return self.parseVoid(node),
         .Null => return self.parseNull(node),
 
@@ -387,7 +394,7 @@ test "std.zon void" {
 //     }
 // }
 
-fn parseOptional(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfMemory, Type }!T {
+fn parseOptional(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ OutOfMemory, Type }!T {
     const Optional = @typeInfo(T).Optional;
 
     const tags = self.ast.nodes.items(.tag);
@@ -400,7 +407,7 @@ fn parseOptional(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfM
         }
     }
 
-    return try self.parseExpr(Optional.child, node);
+    return try self.parseExpr(Optional.child, options, node);
 }
 
 test "std.zon optional" {
@@ -424,7 +431,7 @@ test "std.zon optional" {
     }
 }
 
-fn parseUnion(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfMemory, Type }!T {
+fn parseUnion(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ OutOfMemory, Type }!T {
     const Union = @typeInfo(T).Union;
     const field_infos = Union.fields;
 
@@ -484,7 +491,7 @@ fn parseUnion(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfMemo
 
         switch (field_index) {
             inline 0...field_infos.len - 1 => |i| {
-                const value = try self.parseExpr(field_infos[i].type, field_node);
+                const value = try self.parseExpr(field_infos[i].type, options, field_node);
                 return @unionInit(T, field_infos[i].name, value);
             },
             else => unreachable, // Can't be out of bounds
@@ -688,11 +695,9 @@ fn elementsOrFields(
     }
 }
 
-fn parseStruct(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfMemory, Type }!T {
+fn parseStruct(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ OutOfMemory, Type }!T {
     const Struct = @typeInfo(T).Struct;
     const field_infos = Struct.fields;
-
-    var result: T = undefined;
 
     // Gather info on the fields
     const field_indices = b: {
@@ -707,12 +712,29 @@ fn parseStruct(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfMem
     var buf: [2]NodeIndex = undefined;
     const field_nodes = try self.elementsOrFields(T, &buf, node);
 
-    // Fill in the fields we found
+    var result: T = undefined;
     var field_found: [field_infos.len]bool = .{false} ** field_infos.len;
-    for (field_nodes) |field_node| {
+
+    // Fill in the fields we found
+    for (field_nodes, 0..) |field_node, initialized| {
+        // If we fail to parse this field, free all fields before it
+        errdefer if (options.free_on_error and field_infos.len > 0) {
+            for (field_nodes[0..initialized]) |initialized_field_node| {
+                // TODO: is this the correct way to get the field name? (used in a few places)
+                const name_runtime = self.parseIdentifier(self.ast.firstToken(initialized_field_node) - 2);
+                switch (field_indices.get(name_runtime) orelse continue) {
+                    inline 0...(field_infos.len - 1) => |name_index| {
+                        const name = field_infos[name_index].name;
+                        parseFree(self.gpa, @field(result, name));
+                    },
+                    else => unreachable, // Can't be out of bounds
+                }
+            }
+        };
+
         // TODO: is this the correct way to get the field name? (used in a few places)
         const name = self.parseIdentifier(self.ast.firstToken(field_node) - 2);
-        const i = field_indices.get(name) orelse if (self.options.ignore_unknown_fields) {
+        const i = field_indices.get(name) orelse if (options.ignore_unknown_fields) {
             continue;
         } else {
             return self.failUnknownField(T, field_node, name);
@@ -727,10 +749,13 @@ fn parseStruct(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfMem
         field_found[i] = true;
 
         switch (i) {
-            inline 0...(field_infos.len - 1) => |j| @field(result, field_infos[j].name) = try self.parseExpr(field_infos[j].type, field_node),
+            inline 0...(field_infos.len - 1) => |j| @field(result, field_infos[j].name) = try self.parseExpr(field_infos[j].type, options, field_node),
             else => unreachable, // Can't be out of bounds
         }
     }
+
+    // If anything else goes wrong, free the result
+    errdefer if (options.free_on_error) parseFree(self.gpa, result);
 
     // Fill in any missing default fields
     inline for (field_found, 0..) |found, i| {
@@ -973,7 +998,7 @@ test "std.zon structs" {
     }
 }
 
-fn parseTuple(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfMemory, Type }!T {
+fn parseTuple(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ OutOfMemory, Type }!T {
     const Struct = @typeInfo(T).Struct;
     const field_infos = Struct.fields;
 
@@ -987,8 +1012,16 @@ fn parseTuple(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfMemo
         return self.failExpectedType(T, node);
     }
 
-    inline for (field_infos, field_nodes, 0..) |field_info, field_node, i| {
-        result[i] = try self.parseExpr(field_info.type, field_node);
+    inline for (field_infos, field_nodes, 0..) |field_info, field_node, initialized| {
+        // If we fail to parse this field, free all fields before it
+        errdefer if (options.free_on_error) {
+            inline for (0..field_infos.len) |i| {
+                if (i >= initialized) break;
+                parseFree(self.gpa, result[i]);
+            }
+        };
+
+        result[initialized] = try self.parseExpr(field_info.type, options, field_node);
     }
 
     return result;
@@ -1068,7 +1101,7 @@ test "std.zon tuples" {
     }
 }
 
-fn parseArray(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfMemory, Type }!T {
+fn parseArray(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ OutOfMemory, Type }!T {
     const Array = @typeInfo(T).Array;
     // Parse the array
     var array: T = undefined;
@@ -1081,8 +1114,15 @@ fn parseArray(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfMemo
     }
 
     // Parse the elements and return the array
-    for (&array, element_nodes) |*element, element_node| {
-        element.* = try self.parseExpr(Array.child, element_node);
+    for (&array, element_nodes, 0..) |*element, element_node, initialized| {
+        // If we fail to parse this field, free all fields before it
+        errdefer if (options.free_on_error) {
+            for (array[0..initialized]) |initialized_item| {
+                parseFree(self.gpa, initialized_item);
+            }
+        };
+
+        element.* = try self.parseExpr(Array.child, options, element_node);
     }
     return array;
 }
@@ -1383,18 +1423,18 @@ test "std.zon arrays and slices" {
     }
 }
 
-fn parsePointer(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfMemory, Type }!T {
+fn parsePointer(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ OutOfMemory, Type }!T {
     const tags = self.ast.nodes.items(.tag);
     const data = self.ast.nodes.items(.data);
     return switch (tags[node]) {
         .string_literal => try self.parseStringLiteral(T, node),
         .multiline_string_literal => try self.parseMultilineStringLiteral(T, node),
-        .address_of => try self.parseAddressOf(T, data[node].lhs),
+        .address_of => try self.parseAddressOf(T, options, data[node].lhs),
         else => self.failExpectedType(T, node),
     };
 }
 
-fn parseAddressOf(self: @This(), comptime T: type, node: NodeIndex) error{ OutOfMemory, Type }!T {
+fn parseAddressOf(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ OutOfMemory, Type }!T {
     const Ptr = @typeInfo(T).Pointer;
     // Make sure we're working with a slice
     switch (Ptr.size) {
@@ -1415,15 +1455,24 @@ fn parseAddressOf(self: @This(), comptime T: type, node: NodeIndex) error{ OutOf
         sentinel,
     );
     errdefer self.gpa.free(slice);
+    // try self.allocations.append(self.gpa, .{
+    //     .buf = std.mem.sliceAsBytes(slice),
+    //     .log2_buf_align = std.math.log2(Ptr.alignment),
+    // });
 
     // Parse the elements and return the slice
-    for (slice, element_nodes) |*element, element_node| {
-        element.* = try self.parseExpr(Ptr.child, element_node);
+    for (slice, element_nodes, 0..) |*element, element_node, initialized| {
+        errdefer if (options.free_on_error) {
+            for (0..initialized) |i| {
+                parseFree(self.gpa, slice[i]);
+            }
+        };
+        element.* = try self.parseExpr(Ptr.child, options, element_node);
     }
     return slice;
 }
 
-fn parseStringLiteral(self: @This(), comptime T: type, node: NodeIndex) !T {
+fn parseStringLiteral(self: *@This(), comptime T: type, node: NodeIndex) !T {
     const Pointer = @typeInfo(T).Pointer;
 
     if (Pointer.size != .Slice) {
@@ -1454,7 +1503,7 @@ fn parseStringLiteral(self: @This(), comptime T: type, node: NodeIndex) !T {
     return buf.toOwnedSlice(self.gpa);
 }
 
-fn parseMultilineStringLiteral(self: @This(), comptime T: type, node: NodeIndex) !T {
+fn parseMultilineStringLiteral(self: *@This(), comptime T: type, node: NodeIndex) !T {
     const Pointer = @typeInfo(T).Pointer;
 
     if (Pointer.size != .Slice) {
@@ -1793,7 +1842,7 @@ fn parseEnumLiteral(self: @This(), comptime T: type, node: NodeIndex) error{Type
     }
 }
 
-fn parseIdentifier(self: *const @This(), token: TokenIndex) []const u8 {
+fn parseIdentifier(self: @This(), token: TokenIndex) []const u8 {
     var bytes = self.ast.tokenSlice(token);
     if (bytes[0] == '@' and bytes[1] == '"')
         return bytes[2 .. bytes.len - 1];
@@ -1853,7 +1902,6 @@ test "std.zon enum literals" {
     }
 }
 
-// XXX: How do I free the results if failure occurs?
 fn fail(self: @This(), status: ParseStatus) error{Type} {
     @setCold(true);
     // TODO: prevent or is this fine?
@@ -2691,3 +2739,142 @@ test "std.zon parse float" {
 //     const parsed = try std.fmt.parseFloat(f32, "0xffffffffffffffff.0p0");
 //     try std.testing.expectEqual(float, parsed);
 // }
+
+test "std.zon free on error" {
+    // Test freeing partially allocated structs
+    {
+        const Struct = struct {
+            x: []const u8,
+            y: []const u8,
+            z: bool,
+        };
+        try std.testing.expectError(error.Type, parseFromSlice(Struct, std.testing.allocator,
+            \\.{
+            \\    .x = "hello",
+            \\    .y = "world",
+            \\    .z = "fail",
+            \\}
+        , .{}));
+    }
+
+    // Test freeing partially allocated tuples
+    {
+        const Struct = struct {
+            []const u8,
+            []const u8,
+            bool,
+        };
+        try std.testing.expectError(error.Type, parseFromSlice(Struct, std.testing.allocator,
+            \\.{
+            \\    "hello",
+            \\    "world",
+            \\    "fail",
+            \\}
+        , .{}));
+    }
+
+    // Test freeing structs with missing fields
+    {
+        const Struct = struct {
+            x: []const u8,
+            y: bool,
+        };
+        try std.testing.expectError(error.Type, parseFromSlice(Struct, std.testing.allocator,
+            \\.{
+            \\    .x = "hello",
+            \\}
+        , .{}));
+    }
+
+    // Test freeing partially allocated arrays
+    {
+        try std.testing.expectError(error.Type, parseFromSlice([3][]const u8, std.testing.allocator,
+            \\.{
+            \\    "hello",
+            \\    false,
+            \\    false,
+            \\}
+        , .{}));
+    }
+
+    // Test freeing partially allocated slices
+    {
+        try std.testing.expectError(error.Type, parseFromSlice([][]const u8, std.testing.allocator,
+            \\&.{
+            \\    "hello",
+            \\    "world",
+            \\    false,
+            \\}
+        , .{}));
+    }
+
+    // We can parse types that can't be freed, as long as they contain no allocations, e.g. untagged
+    // unions.
+    try std.testing.expectEqual(
+        @as(f32, 1.5),
+        (try parseFromSlice(union { x: f32 }, std.testing.allocator, ".{ .x = 1.5 }", .{})).x,
+    );
+
+    // We can also parse types that can't be freed if it's impossible for an error to occur after
+    // the allocation, as is the case here.
+    {
+        const result = try parseFromSlice(union { x: []const u8 }, std.testing.allocator, ".{ .x = \"foo\" }", .{});
+        defer parseFree(std.testing.allocator, result.x);
+        try std.testing.expectEqualStrings("foo", result.x);
+    }
+
+    // However, if it's possible we could get an error requiring we free the value, but the value
+    // cannot be freed (e.g. untagged unions) then we need to turn off `free_on_error` for it to
+    // compile.
+    {
+        const S = struct {
+            union { x: []const u8 },
+            bool,
+        };
+        const result = try parseFromSlice(S, std.testing.allocator, ".{ .{ .x = \"foo\" }, true }", .{
+            .free_on_error = false,
+        });
+        defer parseFree(std.testing.allocator, result[0].x);
+        try std.testing.expectEqualStrings("foo", result[0].x);
+        try std.testing.expect(result[1]);
+    }
+
+    // Again but for structs.
+    {
+        const S = struct {
+            a: union { x: []const u8 },
+            b: bool,
+        };
+        const result = try parseFromSlice(S, std.testing.allocator, ".{ .a = .{ .x = \"foo\" }, .b = true }", .{
+            .free_on_error = false,
+        });
+        defer parseFree(std.testing.allocator, result.a.x);
+        try std.testing.expectEqualStrings("foo", result.a.x);
+        try std.testing.expect(result.b);
+    }
+
+    // Again but for arrays.
+    {
+        const S = [2]union { x: []const u8 };
+        const result = try parseFromSlice(S, std.testing.allocator, ".{ .{ .x = \"foo\" }, .{ .x = \"bar\" } }", .{
+            .free_on_error = false,
+        });
+        defer parseFree(std.testing.allocator, result[0].x);
+        defer parseFree(std.testing.allocator, result[1].x);
+        try std.testing.expectEqualStrings("foo", result[0].x);
+        try std.testing.expectEqualStrings("bar", result[1].x);
+    }
+
+    // Again but for slices.
+    {
+        const S = []union { x: []const u8 };
+        const result = try parseFromSlice(S, std.testing.allocator, "&.{ .{ .x = \"foo\" }, .{ .x = \"bar\" } }", .{
+            .free_on_error = false,
+        });
+        defer std.testing.allocator.free(result);
+        defer parseFree(std.testing.allocator, result[0].x);
+        defer parseFree(std.testing.allocator, result[1].x);
+        try std.testing.expectEqualStrings("foo", result[0].x);
+        try std.testing.expectEqualStrings("bar", result[1].x);
+    }
+}
