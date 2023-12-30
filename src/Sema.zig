@@ -11292,6 +11292,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         .runtime_loop = block.runtime_loop,
         .runtime_index = block.runtime_index,
         .error_return_trace_index = block.error_return_trace_index,
+        .want_safety = block.want_safety,
     };
     const merges = &child_block.label.?.merges;
     defer child_block.instructions.deinit(gpa);
