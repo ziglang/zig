@@ -333,7 +333,7 @@ pub const SpawnError = error{
 };
 
 /// Spawns a new thread which executes `function` using `args` and returns a handle to the spawned thread.
-/// `config` can be used as hints to the platform for now to spawn and execute the `function`.
+/// `config` can be used as hints to the platform for how to spawn and execute the `function`.
 /// The caller must eventually either call `join()` to wait for the thread to finish and free its resources
 /// or call `detach()` to excuse the caller from calling `join()` and have the thread clean up its resources on completion.
 pub fn spawn(config: SpawnConfig, comptime function: anytype, args: anytype) SpawnError!Thread {
