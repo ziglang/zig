@@ -3,11 +3,13 @@ const std = @import("std");
 test "unexpected load elision (with structs)" {
     const Foo = struct { x: i32 };
 
-    var a = Foo { .x = 1 };
-    var b = Foo { .x = 1 };
+    var a = Foo{ .x = 1 };
+    var b = Foo{ .x = 1 };
 
     var condition = false;
-    std.mem.doNotOptimizeAway({ condition = true; });
+    std.mem.doNotOptimizeAway({
+        condition = true;
+    });
 
     const c = if (condition) a else b;
     // The second variable is superfluous with the current
@@ -25,7 +27,9 @@ test "unexpected load elision (with optionals)" {
     var b: ?i32 = 1;
 
     var condition = false;
-    std.mem.doNotOptimizeAway({ condition = true; });
+    std.mem.doNotOptimizeAway({
+        condition = true;
+    });
 
     const c = if (condition) a else b;
 
@@ -34,4 +38,3 @@ test "unexpected load elision (with optionals)" {
 
     try std.testing.expectEqual(c, 1);
 }
-
