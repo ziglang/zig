@@ -87,7 +87,7 @@ import_table: std.StringArrayHashMapUnmanaged(*File) = .{},
 /// modified on the file system when an update is requested, as well as to cache
 /// `@embedFile` results.
 /// Keys are fully resolved file paths. This table owns the keys and values.
-embed_table: std.StringHashMapUnmanaged(*EmbedFile) = .{},
+embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .{},
 
 /// Stores all Type and Value objects.
 /// The idea is that this will be periodically garbage-collected, but such logic
@@ -2482,15 +2482,11 @@ pub fn deinit(mod: *Module) void {
     }
     mod.import_table.deinit(gpa);
 
-    {
-        var it = mod.embed_table.iterator();
-        while (it.next()) |entry| {
-            gpa.free(entry.key_ptr.*);
-            const ef: *EmbedFile = entry.value_ptr.*;
-            gpa.destroy(ef);
-        }
-        mod.embed_table.deinit(gpa);
+    for (mod.embed_table.keys(), mod.embed_table.values()) |path, embed_file| {
+        gpa.free(path);
+        gpa.destroy(embed_file);
     }
+    mod.embed_table.deinit(gpa);
 
     mod.compile_log_text.deinit(gpa);
 
@@ -4035,7 +4031,7 @@ pub fn embedFile(
 
         const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
         errdefer {
-            assert(mod.embed_table.remove(resolved_path));
+            assert(std.mem.eql(u8, mod.embed_table.pop().key, resolved_path));
             keep_resolved_path = false;
         }
         if (gop.found_existing) return gop.value_ptr.*.val;
@@ -4044,7 +4040,7 @@ pub fn embedFile(
         const sub_file_path = try gpa.dupe(u8, pkg.root_src_path);
         errdefer gpa.free(sub_file_path);
 
-        return newEmbedFile(mod, pkg, sub_file_path, resolved_path, gop, src_loc);
+        return newEmbedFile(mod, pkg, sub_file_path, resolved_path, gop.value_ptr, src_loc);
     }
 
     // The resolved path is used as the key in the table, to detect if a file
@@ -4062,7 +4058,7 @@ pub fn embedFile(
 
     const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
     errdefer {
-        assert(mod.embed_table.remove(resolved_path));
+        assert(std.mem.eql(u8, mod.embed_table.pop().key, resolved_path));
         keep_resolved_path = false;
     }
     if (gop.found_existing) return gop.value_ptr.*.val;
@@ -4089,7 +4085,7 @@ pub fn embedFile(
     };
     defer gpa.free(sub_file_path);
 
-    return newEmbedFile(mod, cur_file.mod, sub_file_path, resolved_path, gop, src_loc);
+    return newEmbedFile(mod, cur_file.mod, sub_file_path, resolved_path, gop.value_ptr, src_loc);
 }
 
 /// https://github.com/ziglang/zig/issues/14307
@@ -4098,7 +4094,7 @@ fn newEmbedFile(
     pkg: *Package.Module,
     sub_file_path: []const u8,
     resolved_path: []const u8,
-    gop: std.StringHashMapUnmanaged(*EmbedFile).GetOrPutResult,
+    result: **EmbedFile,
     src_loc: SrcLoc,
 ) !InternPool.Index {
     const gpa = mod.gpa;
@@ -4154,7 +4150,7 @@ fn newEmbedFile(
         } },
     } });
 
-    gop.value_ptr.* = new_file;
+    result.* = new_file;
     new_file.* = .{
         .sub_file_path = try ip.getOrPutString(gpa, sub_file_path),
         .owner = pkg,
@@ -4621,16 +4617,13 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         else => |e| return e,
     };
 
-    {
-        var it = sema.unresolved_inferred_allocs.keyIterator();
-        while (it.next()) |ptr_inst| {
-            // The lack of a resolve_inferred_alloc means that this instruction
-            // is unused so it just has to be a no-op.
-            sema.air_instructions.set(@intFromEnum(ptr_inst.*), .{
-                .tag = .alloc,
-                .data = .{ .ty = Type.single_const_pointer_to_comptime_int },
-            });
-        }
+    for (sema.unresolved_inferred_allocs.keys()) |ptr_inst| {
+        // The lack of a resolve_inferred_alloc means that this instruction
+        // is unused so it just has to be a no-op.
+        sema.air_instructions.set(@intFromEnum(ptr_inst), .{
+            .tag = .alloc,
+            .data = .{ .ty = Type.single_const_pointer_to_comptime_int },
+        });
     }
 
     // If we don't get an error return trace from a caller, create our own.

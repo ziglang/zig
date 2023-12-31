@@ -93,7 +93,7 @@ no_partial_func_ty: bool = false,
 
 /// The temporary arena is used for the memory of the `InferredAlloc` values
 /// here so the values can be dropped without any cleanup.
-unresolved_inferred_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, InferredAlloc) = .{},
+unresolved_inferred_allocs: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InferredAlloc) = .{},
 
 /// Indices of comptime-mutable decls created by this Sema. These decls' values
 /// should be interned after analysis completes, as they may refer to memory in
@@ -4040,7 +4040,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
         },
         .inferred_alloc => {
             const ia1 = sema.air_instructions.items(.data)[@intFromEnum(ptr_inst)].inferred_alloc;
-            const ia2 = sema.unresolved_inferred_allocs.fetchRemove(ptr_inst).?.value;
+            const ia2 = sema.unresolved_inferred_allocs.fetchSwapRemove(ptr_inst).?.value;
             const peer_vals = try sema.arena.alloc(Air.Inst.Ref, ia2.prongs.items.len);
             for (peer_vals, ia2.prongs.items) |*peer_val, store_inst| {
                 assert(sema.air_instructions.items(.tag)[@intFromEnum(store_inst)] == .store);

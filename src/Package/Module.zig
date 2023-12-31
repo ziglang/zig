@@ -14,7 +14,7 @@ fully_qualified_name: []const u8,
 /// responsible for detecting these names and using the correct package.
 deps: Deps = .{},
 
-pub const Deps = std.StringHashMapUnmanaged(*Module);
+pub const Deps = std.StringArrayHashMapUnmanaged(*Module);
 
 pub const Tree = struct {
     /// Each `Package` exposes a `Module` with build.zig as its root source file.
