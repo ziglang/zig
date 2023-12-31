@@ -2479,7 +2479,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         // that are implemented in stage2 but not stage1.
         try comp.astgen_work_queue.ensureUnusedCapacity(module.import_table.count());
         for (module.import_table.values()) |value| {
-            if (Module.mode(value.sub_file_path) == .zig) {
+            if (value.mode == .zig) {
                 comp.astgen_work_queue.writeItemAssumeCapacity(value);
             }
         }
@@ -4033,7 +4033,7 @@ fn workerAstGenFile(
     wg: *WaitGroup,
     src: AstGenSrc,
 ) void {
-    assert(Module.mode(file.sub_file_path) == .zig);
+    assert(file.mode == .zig);
 
     defer wg.finish();
 
@@ -4087,7 +4087,7 @@ fn workerAstGenFile(
                 }
                 break :blk res;
             };
-            if (import_result.is_new and Module.mode(import_result.file.sub_file_path) == .zig) {
+            if (import_result.is_new and import_result.file.mode == .zig) {
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
                     file.sub_file_path, import_path, import_result.file.sub_file_path,
                 });

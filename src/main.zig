@@ -5513,6 +5513,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                 .zir = undefined,
                 .mod = undefined,
                 .root_decl = .none,
+                .mode = .zig,
             };
 
             file.mod = try Package.Module.create(arena, .{
@@ -5696,7 +5697,8 @@ fn fmtPathFile(
 
     // Add to set after no longer possible to get error.IsDir.
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
-    var tree = try Ast.parse(gpa, source_code, Module.mode(sub_path));
+    const mode = Module.File.modeFromPath(sub_path);
+    var tree = try Ast.parse(gpa, source_code, mode);
     defer tree.deinit(gpa);
 
     if (tree.errors.len != 0) {
@@ -5722,6 +5724,7 @@ fn fmtPathFile(
             .zir = undefined,
             .mod = undefined,
             .root_decl = .none,
+            .mode = mode,
         };
 
         file.mod = try Package.Module.create(fmt.arena, .{
@@ -5806,6 +5809,7 @@ pub fn putAstErrorsIntoBundle(
         .zir = undefined,
         .mod = undefined,
         .root_decl = .none,
+        .mode = Module.File.modeFromPath(path),
     };
 
     file.mod = try Package.Module.create(gpa, .{
@@ -6341,6 +6345,7 @@ pub fn cmdAstCheck(
         .zir = undefined,
         .mod = undefined,
         .root_decl = .none,
+        .mode = .zig,
     };
     if (zig_source_file) |file_name| {
         var f = fs.cwd().openFile(file_name, .{}) catch |err| {
@@ -6383,7 +6388,7 @@ pub fn cmdAstCheck(
         .fully_qualified_name = "root",
     });
 
-    file.tree = try Ast.parse(gpa, file.source, Module.mode(file.sub_file_path));
+    file.tree = try Ast.parse(gpa, file.source, file.mode);
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
@@ -6478,6 +6483,7 @@ pub fn cmdDumpZir(
         .zir = try Module.loadZirCache(gpa, f),
         .mod = undefined,
         .root_decl = .none,
+        .mode = .zig,
     };
     defer file.zir.deinit(gpa);
 
@@ -6548,6 +6554,7 @@ pub fn cmdChangelist(
         .zir = undefined,
         .mod = undefined,
         .root_decl = .none,
+        .mode = Module.File.modeFromPath(old_source_file),
     };
 
     file.mod = try Package.Module.create(arena, .{
@@ -6563,7 +6570,7 @@ pub fn cmdChangelist(
     file.source = source;
     file.source_loaded = true;
 
-    file.tree = try Ast.parse(gpa, file.source, Module.mode(file.sub_file_path));
+    file.tree = try Ast.parse(gpa, file.source, file.mode);
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
@@ -6597,7 +6604,7 @@ pub fn cmdChangelist(
     if (new_amt != new_stat.size)
         return error.UnexpectedEndOfFile;
 
-    var new_tree = try Ast.parse(gpa, new_source, Module.mode(new_source_file));
+    var new_tree = try Ast.parse(gpa, new_source, file.mode);
     defer new_tree.deinit(gpa);
 
     var old_zir = file.zir;

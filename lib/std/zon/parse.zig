@@ -19,7 +19,7 @@ pub const ParseOptions = struct {
     ignore_unknown_fields: bool = false,
     /// If true, the parser cleans up partially parsed values on error. This requires some extra
     /// bookkeeping, so you may want to turn it off if you don't need this feature (e.g. because
-    /// you're doing arena allocation.)
+    /// you're using arena allocation.)
     free_on_error: bool = true,
 };
 
@@ -1993,10 +1993,12 @@ fn parseBool(self: @This(), node: NodeIndex) error{Type}!bool {
     switch (tags[node]) {
         .identifier => {
             const bytes = self.ast.tokenSlice(token);
-            if (std.mem.eql(u8, bytes, "true")) {
-                return true;
-            } else if (std.mem.eql(u8, bytes, "false")) {
-                return false;
+            const map = std.ComptimeStringMap(bool, .{
+                .{ "true", true },
+                .{ "false", false },
+            });
+            if (map.get(bytes)) |value| {
+                return value;
             }
         },
         else => {},
@@ -2064,22 +2066,27 @@ fn parseNumber(
                 const main_tokens = self.ast.nodes.items(.main_token);
                 const token = main_tokens[num_lit_node];
                 const bytes = self.ast.tokenSlice(token);
-                if (std.mem.eql(u8, bytes, "inf")) {
-                    if (self.isNegative(node)) {
-                        return -std.math.inf(T);
-                    } else {
-                        return std.math.inf(T);
+                const Ident = enum { inf, nan };
+                const map = std.ComptimeStringMap(Ident, .{
+                    .{ "inf", .inf },
+                    .{ "nan", .nan },
+                });
+                if (map.get(bytes)) |value| {
+                    switch (value) {
+                        .inf => if (self.isNegative(node)) {
+                            return -std.math.inf(T);
+                        } else {
+                            return std.math.inf(T);
+                        },
+                        .nan => return std.math.nan(T),
                     }
-                } else if (std.mem.eql(u8, bytes, "nan")) {
-                    return std.math.nan(T);
-                } else {
-                    return self.failExpectedType(T, num_lit_node);
                 }
             },
-            else => return self.failExpectedType(T, num_lit_node),
+            else => {},
         },
-        else => return self.failExpectedType(T, num_lit_node),
+        else => {},
     }
+    return self.failExpectedType(T, num_lit_node);
 }
 
 fn parseNumberLiteral(self: @This(), comptime T: type, node: NodeIndex) error{Type}!T {

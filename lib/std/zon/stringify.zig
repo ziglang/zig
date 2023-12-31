@@ -4,6 +4,7 @@ const std = @import("std");
 ///
 /// See `StringifyOptions` for more details.
 pub const StringifierOptions = struct {
+    /// If false, only syntactically necessary whitespace is emitted.
     whitespace: bool = true,
 };
 
@@ -51,7 +52,6 @@ pub const StringifyContainerOptions = struct {
     }
 };
 
-// TODO: are pointers to arrays allowed here? what about in the parser?
 /// Serialize the given value to ZON.
 ///
 /// It is asserted at comptime that `@TypeOf(val)` is not a recursive type.
@@ -244,12 +244,39 @@ test "checkValueDepth" {
     try expectValueDepthEquals(3, @as([]const []const u8, &.{&.{1, 2, 3}}));
 }
 
-/// Lower level control over stringification.
+/// Lower level control over stringification, you can create a new instance with `stringifier`.
 ///
 /// Useful when you want control over which fields/items are stringified, how they're represented,
-/// or what to write a ZON object that does not exist in memory.
+/// or want to write a ZON object that does not exist in memory.
 ///
-/// You can create a new instance with `stringifier`.
+/// You can serialize values with `value`. To serialize recursive types, the following are provided:
+/// * `valueMaxDepth`
+/// * `valueArbitraryDepth`
+///
+/// You can also serialize values using specific notations:
+/// * `int`
+/// * `float`
+/// * `utf8Codepoint`
+/// * `slice`
+/// * `sliceMaxDepth`
+/// * `sliceArbitraryDepth`
+/// * `string`
+/// * `multilineString`
+///
+/// For manual serialization of containers, see:
+/// * `startStruct`
+/// * `startTuple`
+/// * `startSlice`
+///
+/// # Example
+/// ```zig
+/// var serializer = stringifier(writer, .{});
+/// var vec2 = try serializer.startStruct(.{});
+/// try vec2.field("x", 1.5, .{});
+/// try vec2.fieldPrefix();
+/// try serializer.value(2.5);
+/// try vec2.finish();
+/// ```
 pub fn Stringifier(comptime Writer: type) type {
     return struct {
         const Self = @This();
@@ -261,7 +288,7 @@ pub fn Stringifier(comptime Writer: type) type {
         writer: Writer,
 
         /// Initialize a stringifier.
-        pub fn init(writer: Writer, options: StringifierOptions) Self {
+        fn init(writer: Writer, options: StringifierOptions) Self {
             return .{
                 .options = options,
                 .writer = writer,
@@ -410,7 +437,7 @@ pub fn Stringifier(comptime Writer: type) type {
                 else => {}
             }
 
-            // TODO: https://github.com/ziglang/zig/issues/1181
+            // Cast required because of https://github.com/ziglang/zig/issues/1181
             try std.fmt.formatFloatDecimal(@as(f64, @floatCast(val)), .{}, self.writer);
         }
 
@@ -457,16 +484,14 @@ pub fn Stringifier(comptime Writer: type) type {
             try self.sliceArbitraryDepth(val, options);
         }
 
-        // XXX: test this?
         /// Like `value`, but recursive types are allowed.
         ///
         /// Returns `error.MaxDepthError` if `depth` is exceeded.
-        pub fn sliceDepthLimit(self: *Self, val: anytype, options: StringifyValueOptions, depth: usize) MaxDepthError!void {
+        pub fn sliceMaxDepth(self: *Self, val: anytype, options: StringifyValueOptions, depth: usize) MaxDepthError!void {
             try checkValueDepth(val, depth);
             try self.sliceArbitraryDepth(val, options);
         }
 
-        // XXX: test this?
         /// Like `value`, but recursive types are allowed.
         ///
         /// It is the caller's responsibility to ensure that `val` does not contain cycles.
@@ -587,37 +612,31 @@ pub fn Stringifier(comptime Writer: type) type {
                 };
             }
 
-            /// Print a trailing comma as configured when appropriate, and the closing bracket.
+            /// Finishes serializing the tuple.
+            ///
+            /// Prints a trailing comma as configured when appropriate, and the closing bracket.
             pub fn finish(self: *Tuple) Writer.Error!void {
                 try self.container.finish();
                 self.* = undefined;
             }
 
-            /// Serialize a field.
-            ///
-            /// Equivalent to calling `fieldPrefix` followed by `value`.
+            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `value`.
             pub fn field(self: *Tuple, val: anytype, options: StringifyValueOptions) Writer.Error!void {
                 try self.container.field(null, val, options);
             }
 
-            /// Serialize a field.
-            ///
-            /// Equivalent to calling `fieldPrefix` followed by `valueMaxDepth`.
+            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueMaxDepth`.
             pub fn fieldMaxDepth(self: *Tuple, val: anytype, options: StringifyValueOptions, depth: usize) MaxDepthError!void {
                 try self.container.fieldMaxDepth(null, val, options,  depth);
             }
 
-            /// Serialize a field.
-            ///
-            /// Equivalent to calling `fieldPrefix` followed by `valueArbitraryDepth`.
+            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueArbitraryDepth`.
             pub fn fieldArbitraryDepth(self: *Tuple, val: anytype, options: StringifyValueOptions) Writer.Error!void {
                 try self.container.fieldArbitraryDepth(null, val, options);
             }
 
             /// Print a field prefix. This prints any necessary commas, and whitespace as
-            /// configured.
-            ///
-            /// Useful if you want to serialize the field value yourself.
+            /// configured. Useful if you want to serialize the field value yourself.
             pub fn fieldPrefix(self: *Tuple) Writer.Error!void {
                 try self.container.fieldPrefix(null);
             }
@@ -633,37 +652,32 @@ pub fn Stringifier(comptime Writer: type) type {
                 };
             }
 
-            /// Print a trailing comma as configured when appropriate, and the closing bracket.
+            /// Finishes serializing the struct.
+            ///
+            /// Prints a trailing comma as configured when appropriate, and the closing bracket.
             pub fn finish(self: *Struct) Writer.Error!void {
                 try self.container.finish();
                 self.* = undefined;
             }
 
-            /// Serialize a field.
-            ///
-            /// Equivalent to calling `fieldPrefix` followed by `value`.
+            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `value`.
             pub fn field(self: *Struct, name: []const u8, val: anytype, options: StringifyValueOptions) Writer.Error!void {
                 try self.container.field(name, val, options);
             }
 
-            /// Serialize a field.
-            ///
-            /// Equivalent to calling `fieldPrefix` followed by `valueMaxDepth`.
+            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueMaxDepth`.
             pub fn fieldMaxDepth(self: *Struct, name: []const u8, val: anytype, options: StringifyValueOptions, depth: usize) MaxDepthError!void {
                 try self.container.fieldMaxDepth(name, val, options, depth);
             }
 
-            /// Serialize a field.
-            ///
-            /// Equivalent to calling `fieldPrefix` followed by `valueArbitraryDepth`.
+            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueArbitraryDepth`.
             pub fn fieldArbitraryDepth(self: *Struct, name: []const u8, val: anytype, options: StringifyValueOptions) Writer.Error!void {
                 try self.container.fieldArbitraryDepth(name, val, options);
             }
 
             /// Print a field prefix. This prints any necessary commas, the field name (escaped if
-            /// necessary) and whitespace as configured.
-            ///
-            /// Useful if you want to serialize the field value yourself.
+            /// necessary) and whitespace as configured. Useful if you want to serialize the field
+            /// value yourself.
             pub fn fieldPrefix(self: *Struct, name: []const u8) Writer.Error!void {
                 try self.container.fieldPrefix(name);
             }
@@ -680,37 +694,31 @@ pub fn Stringifier(comptime Writer: type) type {
                 };
             }
 
-            /// Print a trailing comma as configured when appropriate, and the closing bracket.
+            /// Finishes serializing the slice.
+            ///
+            /// Prints a trailing comma as configured when appropriate, and the closing bracket.
             pub fn finish(self: *Slice) Writer.Error!void {
                 try self.container.finish();
                 self.* = undefined;
             }
 
-            /// Serialize an item.
-            ///
-            /// Equivalent to calling `itemPrefix` followed by `value`.
+            /// Serialize an item. Equivalent to calling `itemPrefix` followed by `value`.
             pub fn item(self: *Slice, val: anytype, options: StringifyValueOptions) Writer.Error!void {
                 try self.container.field(null, val, options);
             }
 
-            /// Serialize an item.
-            ///
-            /// Equivalent to calling `itemPrefix` followed by `valueMaxDepth`.
+            /// Serialize an item. Equivalent to calling `itemPrefix` followed by `valueMaxDepth`.
             pub fn itemMaxDepth(self: *Slice, val: anytype, options: StringifyValueOptions, depth: usize) MaxDepthError!void {
                 try self.container.fieldMaxDepth(null, val, options, depth);
             }
 
-            /// Serialize an item.
-            ///
-            /// Equivalent to calling `itemPrefix` followed by `valueArbitraryDepth`.
+            /// Serialize an item. Equivalent to calling `itemPrefix` followed by `valueArbitraryDepth`.
             pub fn itemArbitraryDepth(self: *Slice, val: anytype, options: StringifyValueOptions) Writer.Error!void {
                 try self.container.fieldArbitraryDepth(null, val, options);
             }
 
             /// Print a field prefix. This prints any necessary commas, and whitespace as
-            /// configured.
-            ///
-            /// Useful if you want to serialize the item value yourself.
+            /// configured. Useful if you want to serialize the item value yourself.
             pub fn itemPrefix(self: *Slice) Writer.Error!void {
                 try self.container.fieldPrefix(null);
             }
@@ -1417,61 +1425,69 @@ test "stringify multiline strings" {
     const writer = buf.writer();
     var serializer = stringifier(writer, .{});
 
-    {
-        try serializer.multilineString("", .{.top_level = true});
-        try std.testing.expectEqualStrings("\\\\", buf.items);
-        buf.clearRetainingCapacity();
-    }
+    inline for (.{true, false}) |whitespace| {
+        serializer.options.whitespace = whitespace;
 
-    {
-        try serializer.multilineString("abc⚡", .{.top_level = true});
-        try std.testing.expectEqualStrings("\\\\abc⚡", buf.items);
-        buf.clearRetainingCapacity();
-    }
+        {
+            try serializer.multilineString("", .{.top_level = true});
+            try std.testing.expectEqualStrings("\\\\", buf.items);
+            buf.clearRetainingCapacity();
+        }
 
-    {
-        try serializer.multilineString("abc⚡\ndef", .{.top_level = true});
-        try std.testing.expectEqualStrings("\\\\abc⚡\n\\\\def", buf.items);
-        buf.clearRetainingCapacity();
-    }
+        {
+            try serializer.multilineString("abc⚡", .{.top_level = true});
+            try std.testing.expectEqualStrings("\\\\abc⚡", buf.items);
+            buf.clearRetainingCapacity();
+        }
 
-    {
-        try serializer.multilineString("abc⚡\r\ndef", .{.top_level = true});
-        try std.testing.expectEqualStrings("\\\\abc⚡\n\\\\def", buf.items);
-        buf.clearRetainingCapacity();
-    }
+        {
+            try serializer.multilineString("abc⚡\ndef", .{.top_level = true});
+            try std.testing.expectEqualStrings("\\\\abc⚡\n\\\\def", buf.items);
+            buf.clearRetainingCapacity();
+        }
 
-    {
-        try serializer.multilineString("\nabc⚡", .{.top_level = true});
-        try std.testing.expectEqualStrings("\\\\\n\\\\abc⚡", buf.items);
-        buf.clearRetainingCapacity();
-    }
+        {
+            try serializer.multilineString("abc⚡\r\ndef", .{.top_level = true});
+            try std.testing.expectEqualStrings("\\\\abc⚡\n\\\\def", buf.items);
+            buf.clearRetainingCapacity();
+        }
 
-    {
-        try serializer.multilineString("\r\nabc⚡", .{.top_level = true});
-        try std.testing.expectEqualStrings("\\\\\n\\\\abc⚡", buf.items);
-        buf.clearRetainingCapacity();
-    }
+        {
+            try serializer.multilineString("\nabc⚡", .{.top_level = true});
+            try std.testing.expectEqualStrings("\\\\\n\\\\abc⚡", buf.items);
+            buf.clearRetainingCapacity();
+        }
 
-    {
-        try serializer.multilineString("abc\ndef", .{});
-        try std.testing.expectEqualStrings("\n\\\\abc\n\\\\def\n", buf.items);
-        buf.clearRetainingCapacity();
-    }
+        {
+            try serializer.multilineString("\r\nabc⚡", .{.top_level = true});
+            try std.testing.expectEqualStrings("\\\\\n\\\\abc⚡", buf.items);
+            buf.clearRetainingCapacity();
+        }
 
-    {
-        const str: []const u8 = &.{'a', '\r', 'c'};
-        try serializer.string(str);
-        try std.testing.expectEqualStrings("\"a\\rc\"", buf.items);
-        buf.clearRetainingCapacity();
-    }
+        {
+            try serializer.multilineString("abc\ndef", .{});
+            if (whitespace) {
+                try std.testing.expectEqualStrings("\n\\\\abc\n\\\\def\n", buf.items);
+            } else {
+                try std.testing.expectEqualStrings("\\\\abc\n\\\\def\n", buf.items);
+            }
+            buf.clearRetainingCapacity();
+        }
 
-    {
-        try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{'a', '\r', 'c'}), .{}));
-        try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{'a', '\r', 'c', '\n'}), .{}));
-        try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{'a', '\r', 'c', '\r', '\n'}), .{}));
-        try std.testing.expectEqualStrings("", buf.items);
-        buf.clearRetainingCapacity();
+        {
+            const str: []const u8 = &.{'a', '\r', 'c'};
+            try serializer.string(str);
+            try std.testing.expectEqualStrings("\"a\\rc\"", buf.items);
+            buf.clearRetainingCapacity();
+        }
+
+        {
+            try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{'a', '\r', 'c'}), .{}));
+            try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{'a', '\r', 'c', '\n'}), .{}));
+            try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{'a', '\r', 'c', '\r', '\n'}), .{}));
+            try std.testing.expectEqualStrings("", buf.items);
+            buf.clearRetainingCapacity();
+        }
     }
 }
 
@@ -1662,6 +1678,16 @@ test "depth limits" {
         try std.testing.expectError(error.MaxDepth, stringifyMaxDepth(maybe_recurse, .{}, buf.writer(), 2));
         try std.testing.expectEqualStrings("", buf.items);
         buf.clearRetainingCapacity();
+
+        var serializer = stringifier(buf.writer(), .{});
+
+        try std.testing.expectError(error.MaxDepth, serializer.sliceMaxDepth(maybe_recurse, .{}, 2));
+        try std.testing.expectEqualStrings("", buf.items);
+        buf.clearRetainingCapacity();
+
+        try serializer.sliceArbitraryDepth(maybe_recurse, .{});
+        try std.testing.expectEqualStrings("&.{.{ .r = &.{} }}", buf.items);
+        buf.clearRetainingCapacity();
     }
 
     // A slice succeeding
@@ -1670,6 +1696,16 @@ test "depth limits" {
         const maybe_recurse: []const Recurse = &temp;
 
         try stringifyMaxDepth(maybe_recurse, .{}, buf.writer(), 3);
+        try std.testing.expectEqualStrings("&.{.{ .r = &.{} }}", buf.items);
+        buf.clearRetainingCapacity();
+
+        var serializer = stringifier(buf.writer(), .{});
+
+        try serializer.sliceMaxDepth(maybe_recurse, .{}, 3);
+        try std.testing.expectEqualStrings("&.{.{ .r = &.{} }}", buf.items);
+        buf.clearRetainingCapacity();
+
+        try serializer.sliceArbitraryDepth(maybe_recurse, .{});
         try std.testing.expectEqualStrings("&.{.{ .r = &.{} }}", buf.items);
         buf.clearRetainingCapacity();
     }
@@ -1683,9 +1719,14 @@ test "depth limits" {
         try std.testing.expectError(error.MaxDepth, stringifyMaxDepth(maybe_recurse, .{}, buf.writer(), 128));
         try std.testing.expectEqualStrings("", buf.items);
         buf.clearRetainingCapacity();
+
+        var serializer = stringifier(buf.writer(), .{});
+        try std.testing.expectError(error.MaxDepth, serializer.sliceMaxDepth(maybe_recurse, .{}, 128));
+        try std.testing.expectEqualStrings("", buf.items);
+        buf.clearRetainingCapacity();
     }
 
-    // Max depth on the lower level API
+    // Max depth on other parts of the lower level API
     {
         const writer = buf.writer();
         var serializer = stringifier(writer, .{});

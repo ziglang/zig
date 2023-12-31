@@ -912,6 +912,9 @@ pub const File = struct {
     /// successful, this field is unloaded.
     prev_zir: ?*Zir = null,
 
+    /// Whether the file is Zig or ZON.
+    mode: Ast.Mode,
+
     /// A single reference to a file.
     pub const Reference = union(enum) {
         /// The file is imported directly (i.e. not as a package) with @import.
@@ -919,6 +922,14 @@ pub const File = struct {
         /// The file is the root of a module.
         root: *Package.Module,
     };
+
+    pub fn modeFromPath(path: []const u8) Ast.Mode {
+        if (std.mem.endsWith(u8, path, ".zon")) {
+            return .zon;
+        } else if (std.mem.endsWith(u8, path, ".zig")) {
+            return .zig;
+        } else unreachable;
+    }
 
     pub fn unload(file: *File, gpa: Allocator) void {
         file.unloadTree(gpa);
@@ -1012,7 +1023,7 @@ pub const File = struct {
         if (file.tree_loaded) return &file.tree;
 
         const source = try file.getSource(gpa);
-        file.tree = try Ast.parse(gpa, source.bytes, mode(file.sub_file_path));
+        file.tree = try Ast.parse(gpa, source.bytes, file.mode);
         file.tree_loaded = true;
         return &file.tree;
     }
@@ -1127,15 +1138,6 @@ pub const File = struct {
         }
     }
 };
-
-// XXX: reivist
-pub fn mode(sub_file_path: []const u8) Ast.Mode {
-    if (std.mem.endsWith(u8, sub_file_path, ".zon")) {
-        return .zon;
-    } else if (std.mem.endsWith(u8, sub_file_path, ".zig")) {
-        return .zig;
-    } else unreachable;
-}
 
 /// Represents the contents of a file loaded with `@embedFile`.
 pub const EmbedFile = struct {
@@ -2829,7 +2831,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     file.source = source;
     file.source_loaded = true;
 
-    file.tree = try Ast.parse(gpa, source, mode(file.sub_file_path));
+    file.tree = try Ast.parse(gpa, source, file.mode);
     file.tree_loaded = true;
 
     // Any potential AST errors are converted to ZIR errors here.
@@ -3134,7 +3136,7 @@ pub fn populateBuiltinFile(mod: *Module) !void {
         else => |e| return e,
     }
 
-    file.tree = try Ast.parse(gpa, file.source, mode(file.sub_file_path));
+    file.tree = try Ast.parse(gpa, file.source, file.mode);
     file.tree_loaded = true;
     assert(file.tree.errors.len == 0); // builtin.zig must parse
 
@@ -3485,7 +3487,7 @@ pub fn semaPkg(mod: *Module, pkg: *Package.Module) !void {
 /// Regardless of the file status, will create a `Decl` so that we
 /// can track dependencies and re-analyze when the file becomes outdated.
 pub fn semaFile(mod: *Module, file: *File) SemaError!void {
-    assert(mode(file.sub_file_path) == .zig);
+    assert(file.mode == .zig);
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -3600,14 +3602,12 @@ const LowerZon = struct {
     mod: *Module,
     file: *File,
 
-    // XXX: return error or return poisoned value?
     pub fn fail(
         self: *LowerZon,
         loc: LazySrcLoc,
         comptime format: []const u8,
         args: anytype,
     ) (Allocator.Error || error { AnalysisFail }) {
-        // XXX: good idea?
         @setCold(true);
 
         const src_loc = .{
@@ -3638,7 +3638,6 @@ const LowerZon = struct {
         args: anytype,
         notes: []const u32,
     ) Allocator.Error!void {
-        // XXX: use notes...
         _ = notes;
         switch (self.fail(.{ .byte_abs = byte_abs }, format, args)) {
             error.AnalysisFail => {},
@@ -3646,7 +3645,6 @@ const LowerZon = struct {
         }
     }
 
-    // XXX: ...
     fn errNote(self: *LowerZon, token: Ast.TokenIndex, comptime format: []const u8, args: anytype) Allocator.Error!u32 {
         _ = self;
         _ = token;
@@ -3666,10 +3664,8 @@ const LowerZon = struct {
         return self.expr(root);
     }
 
-    // XXX: is compileError correct here..? can any of this be pulled out from AstGen.lowerAstErrors into a common function?
     fn lowerAstErrors(self: *LowerZon) CompileError {
         const tree = self.file.tree;
-        // XXX: ...
         assert(tree.errors.len > 0);
 
         const gpa = self.mod.gpa;
@@ -3711,7 +3707,6 @@ const LowerZon = struct {
             );
         }
 
-        // XXX: do I need to explicitly mention that it's a note somehow or is that information already encoded in the message?
         // Create the notes
         for (tree.errors[1..]) |note| {
             if (!note.is_note) break;
@@ -3734,6 +3729,13 @@ const LowerZon = struct {
         return error.AnalysisFail;
     }
 
+    fn ident(self: *LowerZon, token: Ast.TokenIndex) []const u8 {
+        var bytes = self.file.tree.tokenSlice(token);
+        if (bytes[0] == '@' and bytes[1] == '"')
+            return bytes[2 .. bytes.len - 1];
+        return bytes;
+    }
+
     fn expr(self: *LowerZon, node: Ast.Node.Index) !InternPool.Index {
         const gpa = self.mod.gpa;
         const data = self.file.tree.nodes.items(.data);
@@ -3742,34 +3744,38 @@ const LowerZon = struct {
         switch (tags[node]) {
             .identifier => {
                 const token = main_tokens[node];
-                const bytes = self.file.tree.tokenSlice(token);
-                // XXX: make comptime string map or something?
-                if (std.mem.eql(u8, bytes, "true")) {
-                    return .bool_true;
-                } else if (std.mem.eql(u8, bytes, "false")) {
-                    return .bool_false;
-                } else if (std.mem.eql(u8, bytes, "null")) {
-                    return .null_value;
-                } else if (std.mem.eql(u8, bytes, "nan")) {
-                    return try self.mod.intern(.{ .float = .{
-                        .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
-                        .storage = .{ .f128 = std.math.nan(f128) },
-                    } });
-                } else if (std.mem.eql(u8, bytes, "inf")) {
-                    return try self.mod.intern(.{ .float = .{
-                        .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
-                        .storage = .{ .f128 = std.math.inf(f128) },
-                    } });
-                } else {
-                    return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{ bytes });
+                const bytes = self.ident(token);
+
+                const Ident = enum { true, false, null, nan, inf };
+                const values = std.ComptimeStringMap(Ident, .{
+                    .{ "true", .true },
+                    .{ "false", .false },
+                    .{ "null", .null },
+                    .{ "nan", .nan },
+                    .{ "inf", .inf },
+                });
+                if (values.get(bytes)) |value| {
+                    return switch (value) {
+                        .true => .bool_true,
+                        .false => .bool_false,
+                        .null => .null_value,
+                        .nan => self.mod.intern(.{ .float = .{
+                            .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
+                            .storage = .{ .f128 = std.math.nan(f128) },
+                        } }),
+                        .inf => try self.mod.intern(.{ .float = .{
+                            .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
+                            .storage = .{ .f128 = std.math.inf(f128) },
+                        } }),
+                    };
                 }
+                return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{ bytes });
             },
             .number_literal, .char_literal => return self.number(node, null),
             .negation => return self.number(data[node].lhs, node),
-            // XXX: make sure works with @""!
             .enum_literal => {
                 const token = main_tokens[node];
-                const bytes = self.file.tree.tokenSlice(token);
+                const bytes = self.ident(token);
                 return self.mod.intern_pool.get(gpa, .{
                     .enum_literal = try self.mod.intern_pool.getOrPutString(gpa, bytes),
                 });
@@ -3853,9 +3859,6 @@ const LowerZon = struct {
                     .addr = .{ .anon_decl = .{ .val = val, .orig_ty = ptr_ty } },
                 } });
             },
-            // XXX: enforce no named structs
-            // XXX: does zig support any kind of reepated array syntax or is that just mul? do we support that in zon?
-            // XXX: am i supposed to special case empty struct?
             .struct_init_one,
             .struct_init_one_comma,
             .struct_init_dot_two,
@@ -3865,7 +3868,6 @@ const LowerZon = struct {
             .struct_init,
             .struct_init_comma => {
                 var buf: [2]Ast.Node.Index = undefined;
-                // XXX: ...
                 const struct_init = self.file.tree.fullStructInit(&buf, node).?;
                 if (struct_init.ast.type_expr != 0) {
                     return self.fail(.{ .node_abs = struct_init.ast.type_expr }, "type expressions not allowed in ZON", .{});
@@ -3884,10 +3886,8 @@ const LowerZon = struct {
                     values[i] = try self.expr(field);
                     types[i] = self.mod.intern_pool.typeOf(values[i]);
 
-                    // XXX: need to create or find a parseIdentifier like the runtime code that deals with @"" names, and make sure
-                    // dup fields aren't tripped up by it
                     const name_token = self.file.tree.firstToken(field) - 2;
-                    const name = try self.mod.intern_pool.getOrPutString(gpa, self.file.tree.tokenSlice(name_token));
+                    const name = try self.mod.intern_pool.getOrPutString(gpa, self.ident(name_token));
                     const gop = names.getOrPutAssumeCapacity(name);
                     if (gop.found_existing) {
                         return self.fail(.{ .token_abs = name_token }, "duplicate field", .{});
@@ -3912,9 +3912,7 @@ const LowerZon = struct {
             .array_init_dot_comma ,
             .array_init,
             .array_init_comma => {
-                // XXX: Ast.full.ContainerField?
                 var buf: [2]Ast.Node.Index = undefined;
-                // XXX: ...
                 const array_init = self.file.tree.fullArrayInit(&buf, node).?;
                 if (array_init.ast.type_expr != 0) {
                     return self.fail(.{ .node_abs = array_init.ast.type_expr }, "type expressions not allowed in ZON", .{});
@@ -3940,7 +3938,7 @@ const LowerZon = struct {
             .block_two => if (data[node].lhs == 0 or data[node].rhs == 0) {
                 return .void_value;
             } else {
-                // XXX: why is this unreachable?
+                // XXX: why is this unreachable? but we may actually wanna just get rid of void anyway.
                 unreachable;
             },
             .address_of => {
@@ -3965,7 +3963,6 @@ const LowerZon = struct {
                         }});
 
                     },
-                    // XXX: hmm we could remove possibility of type expressions by just not allowing those tags actually
                     .struct_init_one,
                     .struct_init_one_comma,
                     .struct_init_dot_two,
@@ -3976,7 +3973,6 @@ const LowerZon = struct {
                     .struct_init_comma,
                     => {
                         var buf: [2]Ast.Node.Index = undefined;
-                        // XXX: ...
                         const full = self.file.tree.fullStructInit(&buf, child_node).?.ast.fields;
                         if (full.len == 0) {
                             const value = .empty_struct;
@@ -4012,7 +4008,6 @@ const LowerZon = struct {
         const tags = self.file.tree.nodes.items(.tag);
         const main_tokens = self.file.tree.nodes.items(.main_token);
         switch (tags[node]) {
-            // XXX: what about negative char ltierals where the char lit is 0?l
             .char_literal => {
                 const token = main_tokens[node];
                 const token_bytes = self.file.tree.tokenSlice(token);
@@ -4040,7 +4035,6 @@ const LowerZon = struct {
                     .int => |unsigned| {
                         if (is_negative) |negative_node| {
                             if (unsigned == 0) {
-                                // TODO: add notes explaining to use 0 or -0.0?
                                 return self.fail(.{ .node_abs = negative_node }, "integer literal '-0' is ambiguous", .{});
                             }
                             const signed = std.math.negate(unsigned) catch {
@@ -4065,7 +4059,6 @@ const LowerZon = struct {
                             }});
                         }
                     },
-                    // XXX: handle big ints at runtime too
                     // XXX: any way to do big int math without allocating all args..?
                     .big_int => |base| {
                         // XXX: compare to `zirIntBig`, but I think that function only works because this logic was already done elsewhere.
@@ -4115,28 +4108,30 @@ const LowerZon = struct {
             .identifier => {
                 const token = main_tokens[node];
                 const bytes = self.file.tree.tokenSlice(token);
-                // XXX: make comptime string map or something?
-                if (std.mem.eql(u8, bytes, "nan")) {
-                    return try self.mod.intern(.{ .float = .{
-                        .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
-                        .storage = .{ .f128 = std.math.nan(f128) },
-                    } });
-                } else if (std.mem.eql(u8, bytes, "inf")) {
-                    return try self.mod.intern(.{ .float = .{
-                        .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
-                        .storage = .{ .f128 = if (is_negative == null) std.math.inf(f128) else -std.math.inf(f128) },
-                    } });
-                } else {
-                    return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{ bytes });
+                const Ident = enum { nan, inf };
+                const values = std.ComptimeStringMap(Ident, .{
+                    .{ "nan", .nan },
+                    .{ "inf", .inf },
+                });
+                if (values.get(bytes)) |value| {
+                    return switch (value) {
+                        .nan => self.mod.intern(.{ .float = .{
+                            .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
+                            .storage = .{ .f128 = std.math.nan(f128) },
+                        } }),
+                        .inf => try self.mod.intern(.{ .float = .{
+                            .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
+                            .storage = .{ .f128 = if (is_negative == null) std.math.inf(f128) else -std.math.inf(f128) } },
+                        }),
+                    };
                 }
+                return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{ bytes });
             },
             else => return self.fail(.{ .node_abs = node }, "invalid ZON value", .{}),
         }
     }
 };
 
-// XXX: all error handling, including syntax checks/making sure no types named! make sure no leaks either etc, just getting it working first. Also, arena allocation or no?
-// XXX: pub temporary
 pub fn semaZon(mod: *Module, file: *File) !Air.Inst.Ref {
     var lower_zon = LowerZon{
         .mod = mod,
@@ -4475,6 +4470,7 @@ pub fn importPkg(mod: *Module, pkg: *Package.Module) !ImportFileResult {
         .status = .never_loaded,
         .mod = pkg,
         .root_decl = .none,
+        .mode = File.modeFromPath(sub_file_path),
     };
     try new_file.addReference(mod.*, .{ .root = pkg });
     return ImportFileResult{
@@ -4570,6 +4566,7 @@ pub fn importFile(
         .status = .never_loaded,
         .mod = cur_file.mod,
         .root_decl = .none,
+        .mode = Module.File.modeFromPath(sub_file_path),
     };
     return ImportFileResult{
         .file = new_file,

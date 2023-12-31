@@ -1,27 +1,25 @@
 //! ZON serialization and deserialization.
 //!
 //! # ZON
-//! ZON, or Zig Object Notation, is a subset of Zig use for data representation.
+//! ZON, or Zig Object Notation, is a subset* of Zig used for data storage. ZON contains no type
+//! names.
 //!
-//! (Strictly speaking, ZON is not currently a true subset of Zig, solely because of support for
-//! `nan` and `inf` literals.)
-//!
-//! ZON supports the following Zig primitives:
+//! Supported Zig primitives:
 //! * boolean literals
 //! * number literals (including `nan` and `inf`)
 //! * character literals
 //! * enum literals
-//! * the `null` and `void` literals
-//! * string literals, multiline string literals
+//! * `null` and `void` literals
+//! * string literals
+//! * multiline string literals
 //!
-//! In addition, the following container types are supported:
+//! Supported Zig containers:
 //! * anonymous struct literals
 //! * anonymous tuple literals
-//! * slices (noted as a reference to a tuple literal)
-//!     * the reference (`&`) will likely be removed from ZON in the future, at which point ZON will
-//!       not distinguish between slices and tuples
-//!
-//! ZON objects do not contain type names.
+//! * slices
+//!     * notated as a reference to a tuple literal
+//!     * this syntax will likely be removed in the future, at which point ZON will not distinguish
+//!       between slices and tuples
 //!
 //! Here is an example ZON object:
 //! ```zon
@@ -38,22 +36,25 @@
 //! "This string is a valid ZON object."
 //! ```
 //!
+//! \* ZON is not currently a true subset of Zig, because it supports `nan` and
+//!    `inf` literals, which Zig does not.
+//!
 //! # Deserialization
 //!
-//! The simplest way to deserialize ZON at runtime is to call `parseFromSlice`. (For reading ZON at
+//! The simplest way to deserialize ZON at runtime is `parseFromSlice`. (For reading ZON at
 //! comptime, you can use `@import`.)
 //!
-//! If you need lower level control or more detailed diagnostics on failure, you can generate the
-//! AST yourself with `std.zig.Ast.parse` and then deserialize it with:
+//! If you need lower level control, or more detailed diagnostics, you can generate the AST yourself
+//! with `std.zig.Ast.parse` and then deserialize it with:
 //! * `parseFromAst`
 //! * `parseFromAstNoAlloc`
 //!
-//! The following functions are also provided if you'd like to deserialize only part of an AST:
+//! If you'd like to deserialize just part of an AST, you can use:
 //! * `parseFromAstNode`
 //! * `parseFromAstNodeNoAlloc`
 //!
-//! If you want absolute control over deserialization, you can bypass this module completely and
-//! operate directly on the results of `std.zig.Ast.parse`.
+//! If you need lower level control than provided by this module, you can operate directly on the
+//! results of `std.zig.Ast.parse`.
 //!
 //!
 //! # Serialization
@@ -64,14 +65,11 @@
 //! * `stringifyMaxDepth`
 //! * `stringifyArbitraryDepth`
 //!
-//! If you need more control over the serialization process, you can call `stringifier` to create
-//! a `Stringifier` instance. This is used under the hood by `stringify` and its companion
-//! functions, and allows for writing out values/fields/items individually.
+//! If you need more control over the serialization process, for example to control which fields are
+//! serialized, configure fields individually, or to stringify ZON values that do not exist in
+//! memory, you can use `Stringifier`.
 //!
-//! This can be used to control which fields are serialized, to configure fields individually, or to
-//! stringify a ZON value that does not actually exist in memory.
-//!
-//! Note that serializing floats with more than 64 bits may result in a loss of precision for now
+//! Note that serializing floats with more than 64 bits may result in a loss of precision
 //! (see https://github.com/ziglang/zig/issues/1181).
 
 pub const ParseOptions = @import("zon/parse.zig").ParseOptions;
@@ -91,7 +89,7 @@ pub const Stringifier = @import("zon/stringify.zig").Stringifier;
 pub const stringify = @import("zon/stringify.zig").stringify;
 pub const stringifyMaxDepth = @import("zon/stringify.zig").stringifyMaxDepth;
 pub const stringifyArbitraryDepth = @import("zon/stringify.zig").stringifyArbitraryDepth;
-pub const stringier = @import("zon/stringify.zig").stringifier;
+pub const stringifier = @import("zon/stringify.zig").stringifier;
 
 test {
     _ = @import("zon/parse.zig");

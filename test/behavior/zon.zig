@@ -46,6 +46,8 @@ test "struct" {
     try expectEqual(.{}, @import("zon/vec0.zon"));
     try expectEqual(.{ .x = 1.5 }, @import("zon/vec1.zon"));
     try expectEqual(.{ .x = 1.5, .y = 2 }, @import("zon/vec2.zon"));
+    try expectEqual(.{ .@"0" = 1.5, .foo = 2 }, @import("zon/escaped_struct.zon"));
+    try expectEqual(.{}, @import("zon/empty_struct.zon"));
 }
 
 test "struct default fields" {
@@ -102,8 +104,10 @@ test "enum literals" {
         foo,
         bar,
         baz,
+        @"0",
     };
     try expectEqual(Enum.foo, @import("zon/foo.zon"));
+    try expectEqual(Enum.@"0", @import("zon/escaped_enum.zon"));
 }
 
 test "int" {
