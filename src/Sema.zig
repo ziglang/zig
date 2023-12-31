@@ -15988,46 +15988,45 @@ fn analyzeArithmetic(
     };
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
-    if (block.wantSafety() and want_safety and scalar_tag == .Int) {
+
+    if (block.wantSafety() and want_safety and scalar_tag == .Int) blk: {
+        const op_ov_tag: Air.Inst.Tag = switch (air_tag) {
+            .add => .add_with_overflow,
+            .sub => .sub_with_overflow,
+            .mul => .mul_with_overflow,
+            else => break :blk,
+        };
         if (mod.backendSupportsFeature(.safety_checked_instructions)) {
             _ = try sema.preparePanicId(block, .integer_overflow);
             return block.addBinOp(air_tag_safe, casted_lhs, casted_rhs);
         } else {
-            const maybe_op_ov: ?Air.Inst.Tag = switch (air_tag) {
-                .add => .add_with_overflow,
-                .sub => .sub_with_overflow,
-                .mul => .mul_with_overflow,
-                else => null,
-            };
-            if (maybe_op_ov) |op_ov_tag| {
-                const op_ov_tuple_ty = try sema.overflowArithmeticTupleType(resolved_type);
-                const op_ov = try block.addInst(.{
-                    .tag = op_ov_tag,
-                    .data = .{ .ty_pl = .{
-                        .ty = Air.internedToRef(op_ov_tuple_ty.toIntern()),
-                        .payload = try sema.addExtra(Air.Bin{
-                            .lhs = casted_lhs,
-                            .rhs = casted_rhs,
-                        }),
+            const op_ov_tuple_ty = try sema.overflowArithmeticTupleType(resolved_type);
+            const op_ov = try block.addInst(.{
+                .tag = op_ov_tag,
+                .data = .{ .ty_pl = .{
+                    .ty = Air.internedToRef(op_ov_tuple_ty.toIntern()),
+                    .payload = try sema.addExtra(Air.Bin{
+                        .lhs = casted_lhs,
+                        .rhs = casted_rhs,
+                    }),
+                } },
+            });
+            const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
+            const any_ov_bit = if (resolved_type.zigTypeTag(mod) == .Vector)
+                try block.addInst(.{
+                    .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
+                    .data = .{ .reduce = .{
+                        .operand = ov_bit,
+                        .operation = .Or,
                     } },
-                });
-                const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
-                const any_ov_bit = if (resolved_type.zigTypeTag(mod) == .Vector)
-                    try block.addInst(.{
-                        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
-                        .data = .{ .reduce = .{
-                            .operand = ov_bit,
-                            .operation = .Or,
-                        } },
-                    })
-                else
-                    ov_bit;
-                const zero_ov = Air.internedToRef((try mod.intValue(Type.u1, 0)).toIntern());
-                const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
+                })
+            else
+                ov_bit;
+            const zero_ov = Air.internedToRef((try mod.intValue(Type.u1, 0)).toIntern());
+            const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
 
-                try sema.addSafetyCheck(block, src, no_ov, .integer_overflow);
-                return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
-            }
+            try sema.addSafetyCheck(block, src, no_ov, .integer_overflow);
+            return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
         }
     }
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
