@@ -3407,18 +3407,12 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
         return rc;
     }
 
-    const have_sock_flags = comptime !builtin.target.isDarwin();
-    const filtered_sock_type = if (!have_sock_flags)
-        socket_type & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC)
-    else
-        socket_type;
+    const filtered_sock_type = socket_type & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC);
     const rc = system.socket(domain, filtered_sock_type, protocol);
     switch (errno(rc)) {
         .SUCCESS => {
             const fd = @as(fd_t, @intCast(rc));
-            if (!have_sock_flags) {
-                try setSockFlags(fd, socket_type);
-            }
+            try setSockFlags(fd, socket_type);
             return fd;
         },
         .ACCES => return error.PermissionDenied,
