@@ -9597,9 +9597,9 @@ pub const FuncGen = struct {
             try wip.@"switch"(tag_int_value, bad_value_block, @intCast(enum_type.names.len));
         defer wip_switch.finish(&wip);
 
-        for (enum_type.names.get(ip), 0..) |name, field_index| {
-            const name_string = try o.builder.string(ip.stringToSlice(name));
-            const name_init = try o.builder.stringNullConst(name_string);
+        for (0..enum_type.names.len) |field_index| {
+            const name = try o.builder.string(ip.stringToSlice(enum_type.names.get(ip)[field_index]));
+            const name_init = try o.builder.stringNullConst(name);
             const name_variable_index =
                 try o.builder.addVariable(.empty, name_init.typeOf(&o.builder), .default);
             try name_variable_index.setInitializer(name_init, &o.builder);
@@ -9610,7 +9610,7 @@ pub const FuncGen = struct {
 
             const name_val = try o.builder.structValue(ret_ty, &.{
                 name_variable_index.toConst(&o.builder),
-                try o.builder.intConst(usize_ty, name_string.slice(&o.builder).?.len),
+                try o.builder.intConst(usize_ty, name.slice(&o.builder).?.len),
             });
 
             const return_block = try wip.block(1, "Name");

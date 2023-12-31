@@ -410,22 +410,15 @@ pub const CObject = struct {
         }
 
         pub const Bundle = struct {
-            file_names: std.AutoHashMapUnmanaged(u32, []const u8) = .{},
-            category_names: std.AutoHashMapUnmanaged(u32, []const u8) = .{},
+            file_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .{},
+            category_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .{},
             diags: []Diag = &.{},
 
             pub fn destroy(bundle: *Bundle, gpa: Allocator) void {
-                var file_name_it = bundle.file_names.valueIterator();
-                while (file_name_it.next()) |file_name| gpa.free(file_name.*);
-                bundle.file_names.deinit(gpa);
-
-                var category_name_it = bundle.category_names.valueIterator();
-                while (category_name_it.next()) |category_name| gpa.free(category_name.*);
-                bundle.category_names.deinit(gpa);
-
+                for (bundle.file_names.values()) |file_name| gpa.free(file_name);
+                for (bundle.category_names.values()) |category_name| gpa.free(category_name);
                 for (bundle.diags) |*diag| diag.deinit(gpa);
                 gpa.free(bundle.diags);
-
                 gpa.destroy(bundle);
             }
 
@@ -470,17 +463,15 @@ pub const CObject = struct {
                 var bc = BitcodeReader.init(gpa, .{ .reader = reader.any() });
                 defer bc.deinit();
 
-                var file_names: std.AutoHashMapUnmanaged(u32, []const u8) = .{};
+                var file_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .{};
                 errdefer {
-                    var file_name_it = file_names.valueIterator();
-                    while (file_name_it.next()) |file_name| gpa.free(file_name.*);
+                    for (file_names.values()) |file_name| gpa.free(file_name);
                     file_names.deinit(gpa);
                 }
 
-                var category_names: std.AutoHashMapUnmanaged(u32, []const u8) = .{};
+                var category_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .{};
                 errdefer {
-                    var category_name_it = category_names.valueIterator();
-                    while (category_name_it.next()) |category_name| gpa.free(category_name.*);
+                    for (category_names.values()) |category_name| gpa.free(category_name);
                     category_names.deinit(gpa);
                 }
 
@@ -1014,46 +1005,39 @@ fn addModuleTableToCacheHash(
 ) (error{OutOfMemory} || std.os.GetCwdError)!void {
     const allocator = arena.allocator();
 
-    const modules = try allocator.alloc(Package.Module.Deps.KV, mod_table.count());
-    {
-        // Copy over the hashmap entries to our slice
-        var table_it = mod_table.iterator();
-        var idx: usize = 0;
-        while (table_it.next()) |entry| : (idx += 1) {
-            modules[idx] = .{
-                .key = entry.key_ptr.*,
-                .value = entry.value_ptr.*,
-            };
-        }
-    }
+    const module_indices = try allocator.alloc(u32, mod_table.count());
+    // Copy over the hashmap entries to our slice
+    for (module_indices, 0..) |*module_index, index| module_index.* = @intCast(index);
     // Sort the slice by package name
-    mem.sortUnstable(Package.Module.Deps.KV, modules, {}, struct {
-        fn lessThan(_: void, lhs: Package.Module.Deps.KV, rhs: Package.Module.Deps.KV) bool {
-            return std.mem.lessThan(u8, lhs.key, rhs.key);
+    mem.sortUnstable(u32, module_indices, &mod_table, struct {
+        fn lessThan(deps: *const Package.Module.Deps, lhs: u32, rhs: u32) bool {
+            const keys = deps.keys();
+            return std.mem.lessThan(u8, keys[lhs], keys[rhs]);
         }
     }.lessThan);
 
-    for (modules) |mod| {
-        if ((try seen_table.getOrPut(mod.value)).found_existing) continue;
+    for (module_indices) |module_index| {
+        const module = mod_table.values()[module_index];
+        if ((try seen_table.getOrPut(module)).found_existing) continue;
 
         // Finally insert the package name and path to the cache hash.
-        hash.addBytes(mod.key);
+        hash.addBytes(mod_table.keys()[module_index]);
         switch (hash_type) {
             .path_bytes => {
-                hash.addBytes(mod.value.root_src_path);
-                hash.addOptionalBytes(mod.value.root.root_dir.path);
-                hash.addBytes(mod.value.root.sub_path);
+                hash.addBytes(module.root_src_path);
+                hash.addOptionalBytes(module.root.root_dir.path);
+                hash.addBytes(module.root.sub_path);
             },
             .files => |man| {
-                const pkg_zig_file = try mod.value.root.joinString(
+                const pkg_zig_file = try module.root.joinString(
                     allocator,
-                    mod.value.root_src_path,
+                    module.root_src_path,
                 );
                 _ = try man.addFile(pkg_zig_file, null);
             },
         }
         // Recurse to handle the module's dependencies
-        try addModuleTableToCacheHash(hash, arena, mod.value.deps, seen_table, hash_type);
+        try addModuleTableToCacheHash(hash, arena, module.deps, seen_table, hash_type);
     }
 }
 
@@ -2260,8 +2244,8 @@ pub fn destroy(self: *Compilation) void {
     }
     self.c_object_table.deinit(gpa);
 
-    for (self.failed_c_objects.values()) |value| {
-        value.destroy(gpa);
+    for (self.failed_c_objects.values()) |bundle| {
+        bundle.destroy(gpa);
     }
     self.failed_c_objects.deinit(gpa);
 
@@ -2483,13 +2467,9 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         }
 
         // Put a work item in for checking if any files used with `@embedFile` changed.
-        {
-            try comp.embed_file_work_queue.ensureUnusedCapacity(module.embed_table.count());
-            var it = module.embed_table.iterator();
-            while (it.next()) |entry| {
-                const embed_file = entry.value_ptr.*;
-                comp.embed_file_work_queue.writeItemAssumeCapacity(embed_file);
-            }
+        try comp.embed_file_work_queue.ensureUnusedCapacity(module.embed_table.count());
+        for (module.embed_table.values()) |embed_file| {
+            comp.embed_file_work_queue.writeItemAssumeCapacity(embed_file);
         }
 
         try comp.work_queue.writeItem(.{ .analyze_mod = std_mod });
@@ -3083,9 +3063,8 @@ pub fn totalErrorCount(self: *Compilation) u32 {
         @intFromBool(self.alloc_failure_occurred) +
         self.lld_errors.items.len;
 
-    {
-        var it = self.failed_c_objects.iterator();
-        while (it.next()) |entry| total += entry.value_ptr.*.diags.len;
+    for (self.failed_c_objects.values()) |bundle| {
+        total += bundle.diags.len;
     }
 
     if (!build_options.only_core_functionality) {
@@ -3098,19 +3077,15 @@ pub fn totalErrorCount(self: *Compilation) u32 {
         total += module.failed_exports.count();
         total += module.failed_embed_files.count();
 
-        {
-            var it = module.failed_files.iterator();
-            while (it.next()) |entry| {
-                if (entry.value_ptr.*) |_| {
-                    total += 1;
-                } else {
-                    const file = entry.key_ptr.*;
-                    assert(file.zir_loaded);
-                    const payload_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
-                    assert(payload_index != 0);
-                    const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
-                    total += header.data.items_len;
-                }
+        for (module.failed_files.keys(), module.failed_files.values()) |file, error_msg| {
+            if (error_msg) |_| {
+                total += 1;
+            } else {
+                assert(file.zir_loaded);
+                const payload_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
+                assert(payload_index != 0);
+                const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
+                total += header.data.items_len;
             }
         }
 
@@ -3166,15 +3141,13 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
     try bundle.init(gpa);
     defer bundle.deinit();
 
-    {
-        var it = self.failed_c_objects.iterator();
-        while (it.next()) |entry| try entry.value_ptr.*.addToErrorBundle(&bundle);
+    for (self.failed_c_objects.values()) |diag_bundle| {
+        try diag_bundle.addToErrorBundle(&bundle);
     }
 
     if (!build_options.only_core_functionality) {
-        var it = self.failed_win32_resources.iterator();
-        while (it.next()) |entry| {
-            try bundle.addBundleAsRoots(entry.value_ptr.*);
+        for (self.failed_win32_resources.values()) |error_bundle| {
+            try bundle.addBundleAsRoots(error_bundle);
         }
     }
 
@@ -3205,65 +3178,52 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         });
     }
     if (self.bin_file.options.module) |module| {
-        {
-            var it = module.failed_files.iterator();
-            while (it.next()) |entry| {
-                if (entry.value_ptr.*) |msg| {
-                    try addModuleErrorMsg(module, &bundle, msg.*);
-                } else {
-                    // Must be ZIR errors. Note that this may include AST errors.
-                    // addZirErrorMessages asserts that the tree is loaded.
-                    _ = try entry.key_ptr.*.getTree(gpa);
-                    try addZirErrorMessages(&bundle, entry.key_ptr.*);
-                }
-            }
-        }
-        {
-            var it = module.failed_embed_files.iterator();
-            while (it.next()) |entry| {
-                const msg = entry.value_ptr.*;
+        for (module.failed_files.keys(), module.failed_files.values()) |file, error_msg| {
+            if (error_msg) |msg| {
                 try addModuleErrorMsg(module, &bundle, msg.*);
+            } else {
+                // Must be ZIR errors. Note that this may include AST errors.
+                // addZirErrorMessages asserts that the tree is loaded.
+                _ = try file.getTree(gpa);
+                try addZirErrorMessages(&bundle, file);
             }
         }
-        {
-            var it = module.failed_decls.iterator();
-            while (it.next()) |entry| {
-                const decl_index = entry.key_ptr.*;
-                // Skip errors for Decls within files that had a parse failure.
-                // We'll try again once parsing succeeds.
-                if (module.declFileScope(decl_index).okToReportErrors()) {
-                    try addModuleErrorMsg(module, &bundle, entry.value_ptr.*.*);
-                    if (module.cimport_errors.get(entry.key_ptr.*)) |errors| {
-                        for (errors.getMessages()) |err_msg_index| {
-                            const err_msg = errors.getErrorMessage(err_msg_index);
-                            try bundle.addRootErrorMessage(.{
-                                .msg = try bundle.addString(errors.nullTerminatedString(err_msg.msg)),
-                                .src_loc = if (err_msg.src_loc != .none) blk: {
-                                    const src_loc = errors.getSourceLocation(err_msg.src_loc);
-                                    break :blk try bundle.addSourceLocation(.{
-                                        .src_path = try bundle.addString(errors.nullTerminatedString(src_loc.src_path)),
-                                        .span_start = src_loc.span_start,
-                                        .span_main = src_loc.span_main,
-                                        .span_end = src_loc.span_end,
-                                        .line = src_loc.line,
-                                        .column = src_loc.column,
-                                        .source_line = if (src_loc.source_line != 0) try bundle.addString(errors.nullTerminatedString(src_loc.source_line)) else 0,
-                                    });
-                                } else .none,
-                            });
-                        }
+        for (module.failed_embed_files.values()) |error_msg| {
+            try addModuleErrorMsg(module, &bundle, error_msg.*);
+        }
+        for (module.failed_decls.keys(), module.failed_decls.values()) |decl_index, error_msg| {
+            // Skip errors for Decls within files that had a parse failure.
+            // We'll try again once parsing succeeds.
+            if (module.declFileScope(decl_index).okToReportErrors()) {
+                try addModuleErrorMsg(module, &bundle, error_msg.*);
+                if (module.cimport_errors.get(decl_index)) |errors| {
+                    for (errors.getMessages()) |err_msg_index| {
+                        const err_msg = errors.getErrorMessage(err_msg_index);
+                        try bundle.addRootErrorMessage(.{
+                            .msg = try bundle.addString(errors.nullTerminatedString(err_msg.msg)),
+                            .src_loc = if (err_msg.src_loc != .none) blk: {
+                                const src_loc = errors.getSourceLocation(err_msg.src_loc);
+                                break :blk try bundle.addSourceLocation(.{
+                                    .src_path = try bundle.addString(errors.nullTerminatedString(src_loc.src_path)),
+                                    .span_start = src_loc.span_start,
+                                    .span_main = src_loc.span_main,
+                                    .span_end = src_loc.span_end,
+                                    .line = src_loc.line,
+                                    .column = src_loc.column,
+                                    .source_line = if (src_loc.source_line != 0) try bundle.addString(errors.nullTerminatedString(src_loc.source_line)) else 0,
+                                });
+                            } else .none,
+                        });
                     }
                 }
             }
         }
         if (module.emit_h) |emit_h| {
-            var it = emit_h.failed_decls.iterator();
-            while (it.next()) |entry| {
-                const decl_index = entry.key_ptr.*;
+            for (emit_h.failed_decls.keys(), emit_h.failed_decls.values()) |decl_index, error_msg| {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
                 if (module.declFileScope(decl_index).okToReportErrors()) {
-                    try addModuleErrorMsg(module, &bundle, entry.value_ptr.*.*);
+                    try addModuleErrorMsg(module, &bundle, error_msg.*);
                 }
             }
         }
