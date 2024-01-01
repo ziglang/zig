@@ -2216,39 +2216,6 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     // -femit-llvm-bc, and -femit-asm, in the case of C objects.
     comp.emitOthers();
 
-    {
-        if (comp.bin_file) |lf| {
-            // This is needed before reading the error flags.
-            lf.flush(comp, main_progress_node) catch |err| switch (err) {
-                error.FlushFailure => {}, // error reported through link_error_flags
-                error.LLDReportedFailure => {}, // error reported via lockAndParseLldStderr
-                else => |e| return e,
-            };
-        }
-
-        if (comp.module) |zcu| {
-            try link.File.C.flushEmitH(zcu);
-
-            if (zcu.llvm_object) |llvm_object| {
-                if (build_options.only_c) unreachable;
-                const default_emit = switch (comp.cache_use) {
-                    .whole => |whole| .{
-                        .directory = whole.tmp_artifact_directory.?,
-                        .sub_path = "dummy",
-                    },
-                    .incremental => |incremental| .{
-                        .directory = incremental.artifact_directory,
-                        .sub_path = "dummy",
-                    },
-                };
-                try emitLlvmObject(comp, arena, default_emit, null, llvm_object, main_progress_node);
-            }
-        }
-    }
-
-    if (comp.totalErrorCount() != 0) return;
-    try maybeGenerateAutodocs(comp, main_progress_node);
-
     switch (comp.cache_use) {
         .whole => |whole| {
             const digest = man.final();
@@ -2261,14 +2228,31 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                 whole.tmp_artifact_directory = null;
             } else unreachable;
 
-            if (comp.bin_file) |lf| {
-                lf.destroy();
-                comp.bin_file = null;
-            }
-
             const s = std.fs.path.sep_str;
             const tmp_dir_sub_path = "tmp" ++ s ++ Package.Manifest.hex64(tmp_dir_rand_int);
             const o_sub_path = "o" ++ s ++ digest;
+
+            // Work around windows `AccessDenied` if any files within this
+            // directory are open by closing and reopening the file handles.
+            const need_writable_dance = w: {
+                if (builtin.os.tag == .windows) {
+                    if (comp.bin_file) |lf| {
+                        // We cannot just call `makeExecutable` as it makes a false
+                        // assumption that we have a file handle open only when linking
+                        // an executable file. This used to be true when our linkers
+                        // were incapable of emitting relocatables and static archive.
+                        // Now that they are capable, we need to unconditionally close
+                        // the file handle and re-open it in the follow up call to
+                        // `makeWritable`.
+                        if (lf.file) |f| {
+                            f.close();
+                            lf.file = null;
+                            break :w true;
+                        }
+                    }
+                }
+                break :w false;
+            };
 
             renameTmpIntoCache(comp.local_cache_directory, tmp_dir_sub_path, o_sub_path) catch |err| {
                 return comp.setMiscFailure(
@@ -2283,15 +2267,75 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             };
             comp.wholeCacheModeSetBinFilePath(whole, &digest);
 
+            // The linker flush functions need to know the final output path
+            // for debug info purposes because executable debug info contains
+            // references object file paths.
+            if (comp.bin_file) |lf| {
+                lf.emit = .{
+                    .directory = comp.local_cache_directory,
+                    .sub_path = whole.bin_sub_path.?,
+                };
+
+                // Has to be after the `wholeCacheModeSetBinFilePath` above.
+                if (need_writable_dance) {
+                    try lf.makeWritable();
+                }
+            }
+
+            try flush(comp, arena, main_progress_node);
+            if (comp.totalErrorCount() != 0) return;
+
             // Failure here only means an unnecessary cache miss.
             man.writeManifest() catch |err| {
                 log.warn("failed to write cache manifest: {s}", .{@errorName(err)});
             };
 
+            if (comp.bin_file) |lf| {
+                lf.destroy();
+                comp.bin_file = null;
+            }
+
             assert(whole.lock == null);
             whole.lock = man.toOwnedLock();
         },
-        .incremental => {},
+        .incremental => {
+            try flush(comp, arena, main_progress_node);
+            if (comp.totalErrorCount() != 0) return;
+        },
+    }
+}
+
+fn flush(comp: *Compilation, arena: Allocator, prog_node: *std.Progress.Node) !void {
+    if (comp.bin_file) |lf| {
+        // This is needed before reading the error flags.
+        lf.flush(comp, prog_node) catch |err| switch (err) {
+            error.FlushFailure => {}, // error reported through link_error_flags
+            error.LLDReportedFailure => {}, // error reported via lockAndParseLldStderr
+            else => |e| return e,
+        };
+    }
+
+    if (comp.module) |zcu| {
+        try link.File.C.flushEmitH(zcu);
+
+        if (zcu.llvm_object) |llvm_object| {
+            if (build_options.only_c) unreachable;
+            const default_emit = switch (comp.cache_use) {
+                .whole => |whole| .{
+                    .directory = whole.tmp_artifact_directory.?,
+                    .sub_path = "dummy",
+                },
+                .incremental => |incremental| .{
+                    .directory = incremental.artifact_directory,
+                    .sub_path = "dummy",
+                },
+            };
+            try emitLlvmObject(comp, arena, default_emit, null, llvm_object, prog_node);
+        }
+    }
+
+    if (comp.totalErrorCount() == 0) {
+        try maybeGenerateAutodocs(comp, prog_node);
     }
 }
 
