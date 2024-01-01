@@ -6338,6 +6338,9 @@ test "optional pointers" {
       There is also a third kind of type conversion called {#link|Peer Type Resolution#} for
       the case when a result type must be decided given multiple operand types.
       </p>
+      <p>
+	  If you want the casting behavior of C, use `std.zig.c_translation.cast`.
+      </p>
       {#header_open|Type Coercion#}
       <p>
       Type coercion occurs when one type is expected, but different type is provided:
