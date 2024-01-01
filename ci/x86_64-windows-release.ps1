@@ -75,15 +75,15 @@ Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."
 CheckLastExitCode
 
 & "stage3-release\bin\zig.exe" build-obj `
-  ..\lib\compiler_rt.zig `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   -ofmt=c `
   -OReleaseSmall `
   --name compiler_rt `
   -femit-bin="compiler_rt-x86_64-windows-msvc.c" `
-  --mod build_options::config.zig `
-  --deps build_options `
-  -target x86_64-windows-msvc
+  --dep build_options `
+  -target x86_64-windows-msvc `
+  --mod root ..\lib\compiler_rt.zig `
+  --mod build_options config.zig
 CheckLastExitCode
 
 Import-Module "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
