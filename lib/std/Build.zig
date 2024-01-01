@@ -438,6 +438,16 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                     .used = false,
                 }) catch @panic("OOM");
             },
+            []const []const u8 => {
+                var list = ArrayList([]const u8).initCapacity(allocator, v.len) catch @panic("OOM");
+                list.appendSliceAssumeCapacity(v);
+
+                user_input_options.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .list = list },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
             else => switch (@typeInfo(T)) {
                 .Bool => {
                     user_input_options.put(field.name, .{
