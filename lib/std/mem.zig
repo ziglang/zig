@@ -975,7 +975,7 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
                 // First block may be unaligned
                 const start_addr = @intFromPtr(&p[i]);
                 const offset_in_page = start_addr & (std.mem.page_size - 1);
-                if (offset_in_page < std.mem.page_size - @sizeOf(Block)) {
+                if (offset_in_page <= std.mem.page_size - @sizeOf(Block)) {
                     // Will not read past the end of a page, full block.
                     const block: Block = p[i..][0..block_len].*;
                     const matches = block == mask;
