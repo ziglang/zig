@@ -112,7 +112,7 @@ typedef char bool;
 #define zig_never_tail zig_never_tail_unavailable
 #endif
 
-#if zig_has_attribute(always_inline)
+#if zig_has_attribute(musttail)
 #define zig_always_tail __attribute__((musttail))
 #else
 #define zig_always_tail zig_always_tail_unavailable
@@ -180,19 +180,55 @@ typedef char bool;
 #define zig_extern extern
 #endif
 
-#if zig_has_attribute(alias)
-#define zig_export(sig, symbol, name) zig_extern sig __attribute__((alias(symbol)))
-#elif _MSC_VER
-#if _M_X64
-#define zig_export(sig, symbol, name) sig;\
-    __pragma(comment(linker, "/alternatename:" name "=" symbol ))
-#else /*_M_X64 */
-#define zig_export(sig, symbol, name) sig;\
-    __pragma(comment(linker, "/alternatename:_" name "=_" symbol ))
-#endif /*_M_X64 */
+#if _MSC_VER
+#define zig_extern_mangled zig_extern
 #else
-#define zig_export(sig, symbol, name) __asm(name " = " symbol)
+#if zig_has_attribute(visibility)
+#define zig_extern_mangled zig_extern __attribute__((visibility("hidden")))
+#else
+#define zig_extern_mangled zig_extern
 #endif
+#endif
+
+#if _MSC_VER
+#if _M_X64
+#define zig_export(sig, symbol, name) zig_extern sig;\
+    __pragma(comment(linker, "/alternatename:" name "=" #symbol ))
+#else /*_M_X64 */
+#define zig_export(sig, symbol, name) zig_extern sig;\
+    __pragma(comment(linker, "/alternatename:" name "=" #symbol ))
+#endif /*_M_X64 */
+#else /* _MSC_VER */
+#if __APPLE__
+#define zig_export(sig, symbol, name) zig_extern sig;\
+    __asm("_" name " = _" #symbol)
+#else /* __APPLE__ */
+#define zig_export(sig, symbol, name) zig_extern sig;\
+    __asm(name " = " #symbol)
+#endif /* __APPLE__ */
+#endif /* _MSC_VER */
+
+#if _MSC_VER
+#if _M_X64
+#define zig_import(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type fn_name sig_args;\
+    __pragma(comment(linker, "/alternatename:" #fn_name "=" #libc_name ));
+#else /*_M_X64 */
+#define zig_import(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type fn_name sig_args;\
+    __pragma(comment(linker, "/alternatename:_" #fn_name "=_" #libc_name ));
+#endif /*_M_X64 */
+#define zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args) zig_import(Type, fn_name, sig_args, call_args)
+#else /* _MSC_VER */
+#if __APPLE__
+#define zig_import(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type fn_name sig_args __asm("_" #libc_name);
+#else /* __APPLE__ */
+#define zig_import(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type fn_name sig_args __asm(#libc_name);
+#endif /* __APPLE__ */
+#define zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type libc_name sig_args; \
+    static inline Type fn_name sig_args { return libc_name call_args; }
+#endif
+
+#define zig_expand_import_0(Type, fn_name, libc_name, sig_args, call_args) zig_import(Type, fn_name, libc_name, sig_args, call_args)
+#define zig_expand_import_1(Type, fn_name, libc_name, sig_args, call_args) zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args)
 
 #if zig_has_attribute(weak) || defined(zig_gnuc)
 #define zig_weak_linkage __attribute__((weak))
@@ -3093,6 +3129,7 @@ ypedef uint32_t zig_f32;
 
 #define zig_has_f64 1
 #define zig_libc_name_f64(name) name
+
 #if _MSC_VER
 #define zig_init_special_f64(sign, name, arg, repr) sign zig_make_f64(zig_msvc_flt_##name, )
 #else
@@ -3318,6 +3355,7 @@ zig_float_negate_builtin(128, zig_make_u128, (UINT64_C(1) << 63, UINT64_C(0)))
         return lhs operator rhs; \
     }
 
+#define zig_expand_has_builtin(b) zig_has_builtin(b)
 #define zig_common_float_builtins(w) \
     zig_convert_builtin( int64_t,  int64_t, fix,     zig_f##w, zig_f##w, ) \
     zig_convert_builtin(zig_i128, zig_i128, fix,     zig_f##w, zig_f##w, ) \
@@ -3336,31 +3374,31 @@ zig_float_negate_builtin(128, zig_make_u128, (UINT64_C(1) << 63, UINT64_C(0)))
     zig_expand_concat(zig_float_binary_builtin_,  zig_has_f##w)(f##w, sub, -) \
     zig_expand_concat(zig_float_binary_builtin_,  zig_has_f##w)(f##w, mul, *) \
     zig_expand_concat(zig_float_binary_builtin_,  zig_has_f##w)(f##w, div, /) \
-    zig_extern zig_f##w zig_libc_name_f##w(sqrt)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(sin)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(cos)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(tan)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(exp)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(exp2)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(log)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(log2)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(log10)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(fabs)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(floor)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(ceil)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(round)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(trunc)(zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(fmod)(zig_f##w, zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(fmin)(zig_f##w, zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(fmax)(zig_f##w, zig_f##w); \
-    zig_extern zig_f##w zig_libc_name_f##w(fma)(zig_f##w, zig_f##w, zig_f##w); \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(sqrt)))(zig_f##w, zig_float_fn_f##w##_sqrt, zig_libc_name_f##w(sqrt), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(sin)))(zig_f##w, zig_float_fn_f##w##_sin, zig_libc_name_f##w(sin), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(cos)))(zig_f##w, zig_float_fn_f##w##_cos, zig_libc_name_f##w(cos), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(tan)))(zig_f##w, zig_float_fn_f##w##_tan, zig_libc_name_f##w(tan), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(exp)))(zig_f##w, zig_float_fn_f##w##_exp, zig_libc_name_f##w(exp), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(exp2)))(zig_f##w, zig_float_fn_f##w##_exp2, zig_libc_name_f##w(exp2), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(log)))(zig_f##w, zig_float_fn_f##w##_log, zig_libc_name_f##w(log), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(log2)))(zig_f##w, zig_float_fn_f##w##_log2, zig_libc_name_f##w(log2), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(log10)))(zig_f##w, zig_float_fn_f##w##_log10, zig_libc_name_f##w(log10), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(fabs)))(zig_f##w, zig_float_fn_f##w##_fabs, zig_libc_name_f##w(fabs), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(floor)))(zig_f##w, zig_float_fn_f##w##_floor, zig_libc_name_f##w(floor), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(ceil)))(zig_f##w, zig_float_fn_f##w##_ceil, zig_libc_name_f##w(ceil), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(round)))(zig_f##w, zig_float_fn_f##w##_round, zig_libc_name_f##w(round), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(trunc)))(zig_f##w, zig_float_fn_f##w##_trunc, zig_libc_name_f##w(trunc), (zig_f##w x), (x)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(fmod)))(zig_f##w, zig_float_fn_f##w##_fmod, zig_libc_name_f##w(fmod), (zig_f##w x, zig_f##w y), (x, y)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(fmin)))(zig_f##w, zig_float_fn_f##w##_fmin, zig_libc_name_f##w(fmin), (zig_f##w x, zig_f##w y), (x, y)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(fmax)))(zig_f##w, zig_float_fn_f##w##_fmax, zig_libc_name_f##w(fmax), (zig_f##w x, zig_f##w y), (x, y)) \
+    zig_expand_concat(zig_expand_import_, zig_expand_has_builtin(zig_libc_name_f##w(fma)))(zig_f##w, zig_float_fn_f##w##_fma, zig_libc_name_f##w(fma), (zig_f##w x, zig_f##w y, zig_f##w z), (x, y, z)) \
 \
     static inline zig_f##w zig_div_trunc_f##w(zig_f##w lhs, zig_f##w rhs) { \
-        return zig_libc_name_f##w(trunc)(zig_div_f##w(lhs, rhs)); \
+        return zig_float_fn_f##w##_trunc(zig_div_f##w(lhs, rhs)); \
     } \
 \
     static inline zig_f##w zig_div_floor_f##w(zig_f##w lhs, zig_f##w rhs) { \
-        return zig_libc_name_f##w(floor)(zig_div_f##w(lhs, rhs)); \
+        return zig_float_fn_f##w##_floor(zig_div_f##w(lhs, rhs)); \
     } \
 \
     static inline zig_f##w zig_mod_f##w(zig_f##w lhs, zig_f##w rhs) { \
@@ -3464,7 +3502,7 @@ zig_float_builtins(64)
     zig_##Type zig_atomicrmw_desired; \
     zig_atomic_load(zig_atomicrmw_expected, obj, memory_order_relaxed, Type, ReprType); \
     do { \
-        zig_atomicrmw_desired = zig_libc_name_##Type(fmin)(zig_atomicrmw_expected, arg); \
+        zig_atomicrmw_desired = zig_float_fn_##Type##_fmin(zig_atomicrmw_expected, arg); \
     } while (!zig_cmpxchg_weak(obj, zig_atomicrmw_expected, zig_atomicrmw_desired, order, memory_order_relaxed, Type, ReprType)); \
     res = zig_atomicrmw_expected; \
 } while (0)
@@ -3473,7 +3511,7 @@ zig_float_builtins(64)
     zig_##Type zig_atomicrmw_desired; \
     zig_atomic_load(zig_atomicrmw_expected, obj, memory_order_relaxed, Type, ReprType); \
     do { \
-        zig_atomicrmw_desired = zig_libc_name_##Type(fmax)(zig_atomicrmw_expected, arg); \
+        zig_atomicrmw_desired = zig_float_fn_##Type##_fmax(zig_atomicrmw_expected, arg); \
     } while (!zig_cmpxchg_weak(obj, zig_atomicrmw_expected, zig_atomicrmw_desired, order, memory_order_relaxed, Type, ReprType)); \
     res = zig_atomicrmw_expected; \
 } while (0)
