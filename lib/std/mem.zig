@@ -3284,9 +3284,9 @@ pub fn indexOfMinMax(comptime T: type, slice: []const T) IndexOfMinMaxResult {
 pub const IndexOfMinMaxResult = struct { index_min: usize, index_max: usize };
 
 test "indexOfMinMax" {
-    try testing.expectEqual(indexOfMinMax(u8, "abcdefg"), IndexOfMinMaxResult{ .index_min = 0, .index_max = 6 });
-    try testing.expectEqual(indexOfMinMax(u8, "gabcdef"), IndexOfMinMaxResult{ .index_min = 1, .index_max = 0 });
-    try testing.expectEqual(indexOfMinMax(u8, "a"), IndexOfMinMaxResult{ .index_min = 0, .index_max = 0 });
+    try testing.expectEqual(IndexOfMinMaxResult{ .index_min = 0, .index_max = 6 }, indexOfMinMax(u8, "abcdefg"));
+    try testing.expectEqual(IndexOfMinMaxResult{ .index_min = 1, .index_max = 0 }, indexOfMinMax(u8, "gabcdef"));
+    try testing.expectEqual(IndexOfMinMaxResult{ .index_min = 0, .index_max = 0 }, indexOfMinMax(u8, "a"));
 }
 
 pub fn swap(comptime T: type, a: *T, b: *T) void {
