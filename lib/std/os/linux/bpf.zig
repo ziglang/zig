@@ -887,7 +887,7 @@ pub const Cmd = enum(usize) {
     map_get_next_key,
 
     /// Verify and load an eBPF program, returning a new file descriptor
-    /// associated with  the  program.   The close-on-exec file descriptor flag
+    /// associated with the program.  The close-on-exec file descriptor flag
     /// is automatically enabled for the new file descriptor.
     ///
     /// uses ProgLoadAttr
@@ -1027,9 +1027,9 @@ pub const MapType = enum(u32) {
     ///     memory and can be submitted with commit() or discarded with
     ///     discard()
     ///
-    /// ringbuf_output() will incurr an extra memory copy, but allows to submit
+    /// ringbuf_output() will incur an extra memory copy, but allows to submit
     /// records of the length that's not known beforehand, and is an easy
-    /// replacement for perf_event_outptu().
+    /// replacement for perf_event_output().
     ///
     /// ringbuf_reserve() avoids the extra memory copy but requires a known size
     /// of memory beforehand.
