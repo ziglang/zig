@@ -5,13 +5,12 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target: std.zig.CrossTarget = .{};
 
     const obj = b.addObject(.{
         .name = "main",
         .root_source_file = .{ .path = "main.zig" },
         .optimize = optimize,
-        .target = target,
+        .target = b.host,
     });
     _ = obj.getEmittedLlvmIr();
     _ = obj.getEmittedLlvmBc();

@@ -227,7 +227,8 @@ pub fn grow(self: *Atom, elf_file: *Elf) !void {
 pub fn free(self: *Atom, elf_file: *Elf) void {
     log.debug("freeAtom {d} ({s})", .{ self.atom_index, self.name(elf_file) });
 
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const shndx = self.outputShndx().?;
     const meta = elf_file.last_atom_and_free_list_table.getPtr(shndx).?;
     const free_list = &meta.free_list;
@@ -352,7 +353,8 @@ pub fn markFdesDead(self: Atom, elf_file: *Elf) void {
 }
 
 pub fn addReloc(self: Atom, elf_file: *Elf, reloc: elf.Elf64_Rela) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const file_ptr = self.file(elf_file).?;
     assert(file_ptr == .zig_object);
     const zig_object = file_ptr.zig_object;
@@ -375,8 +377,8 @@ pub fn scanRelocsRequiresCode(self: Atom, elf_file: *Elf) bool {
 }
 
 pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype) !void {
-    const is_static = elf_file.isStatic();
-    const is_dyn_lib = elf_file.isDynLib();
+    const is_static = elf_file.base.isStatic();
+    const is_dyn_lib = elf_file.base.isDynLib();
     const file_ptr = self.file(elf_file).?;
     const rels = self.relocs(elf_file);
     var i: usize = 0;
@@ -543,7 +545,7 @@ fn scanReloc(
             try self.reportPicError(symbol, rel, elf_file),
 
         .copyrel => {
-            if (elf_file.base.options.z_nocopyreloc) {
+            if (elf_file.z_nocopyreloc) {
                 if (symbol.isAbs(elf_file))
                     try self.reportNoPicError(symbol, rel, elf_file)
                 else
@@ -553,9 +555,9 @@ fn scanReloc(
         },
 
         .dyn_copyrel => {
-            if (is_writeable or elf_file.base.options.z_nocopyreloc) {
+            if (is_writeable or elf_file.z_nocopyreloc) {
                 if (!is_writeable) {
-                    if (elf_file.base.options.z_notext) {
+                    if (elf_file.z_notext) {
                         elf_file.has_text_reloc = true;
                     } else {
                         try self.reportTextRelocError(symbol, rel, elf_file);
@@ -587,7 +589,7 @@ fn scanReloc(
 
         .dynrel, .baserel, .ifunc => {
             if (!is_writeable) {
-                if (elf_file.base.options.z_notext) {
+                if (elf_file.z_notext) {
                     elf_file.has_text_reloc = true;
                 } else {
                     try self.reportTextRelocError(symbol, rel, elf_file);
@@ -657,11 +659,12 @@ fn dynAbsRelocAction(symbol: *const Symbol, elf_file: *Elf) RelocAction {
 }
 
 fn outputType(elf_file: *Elf) u2 {
-    assert(!elf_file.isRelocatable());
-    return switch (elf_file.base.options.output_mode) {
+    const comp = elf_file.base.comp;
+    assert(!elf_file.base.isRelocatable());
+    return switch (elf_file.base.comp.config.output_mode) {
         .Obj => unreachable,
         .Lib => 0,
-        .Exe => if (elf_file.base.options.pie) 1 else 2,
+        .Exe => if (comp.config.pie) 1 else 2,
     };
 }
 
@@ -746,6 +749,8 @@ fn reportUndefined(
     rel: elf.Elf64_Rela,
     undefs: anytype,
 ) !void {
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const rel_esym = switch (self.file(elf_file).?) {
         .zig_object => |x| x.elfSym(rel.r_sym()).*,
         .object => |x| x.symtab.items[rel.r_sym()],
@@ -760,7 +765,7 @@ fn reportUndefined(
     {
         const gop = try undefs.getOrPut(sym_index);
         if (!gop.found_existing) {
-            gop.value_ptr.* = std.ArrayList(Atom.Index).init(elf_file.base.allocator);
+            gop.value_ptr.* = std.ArrayList(Atom.Index).init(gpa);
         }
         try gop.value_ptr.append(self.atom_index);
     }
@@ -956,6 +961,8 @@ fn resolveDynAbsReloc(
     elf_file: *Elf,
     writer: anytype,
 ) !void {
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const P = self.value + rel.r_offset;
     const A = rel.r_addend;
     const S = @as(i64, @intCast(target.address(.{}, elf_file)));
@@ -966,7 +973,7 @@ fn resolveDynAbsReloc(
         .shared_object => unreachable,
         inline else => |x| x.num_dynrelocs,
     };
-    try elf_file.rela_dyn.ensureUnusedCapacity(elf_file.base.allocator, num_dynrelocs);
+    try elf_file.rela_dyn.ensureUnusedCapacity(gpa, num_dynrelocs);
 
     switch (action) {
         .@"error",
@@ -979,7 +986,7 @@ fn resolveDynAbsReloc(
         => try writer.writeInt(i32, @as(i32, @truncate(S + A)), .little),
 
         .dyn_copyrel => {
-            if (is_writeable or elf_file.base.options.z_nocopyreloc) {
+            if (is_writeable or elf_file.z_nocopyreloc) {
                 elf_file.addRelaDynAssumeCapacity(.{
                     .offset = P,
                     .sym = target.extra(elf_file).?.dynamic,

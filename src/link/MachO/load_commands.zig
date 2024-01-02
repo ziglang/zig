@@ -1,6 +1,3 @@
-/// Default implicit entrypoint symbol name.
-pub const default_entry_point: []const u8 = "_main";
-
 /// Default path to dyld.
 pub const default_dyld_path: [*:0]const u8 = "/usr/lib/dyld";
 
@@ -17,7 +14,9 @@ const CalcLCsSizeCtx = struct {
     wants_function_starts: bool = true,
 };
 
-fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx, assume_max_path_len: bool) !u32 {
+fn calcLCsSize(m: *MachO, ctx: CalcLCsSizeCtx, assume_max_path_len: bool) !u32 {
+    const comp = m.base.comp;
+    const gpa = comp.gpa;
     var has_text_segment: bool = false;
     var sizeofcmds: u64 = 0;
     for (ctx.segments) |seg| {
@@ -46,15 +45,15 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
         false,
     );
     // LC_MAIN
-    if (options.output_mode == .Exe) {
+    if (comp.config.output_mode == .Exe) {
         sizeofcmds += @sizeOf(macho.entry_point_command);
     }
     // LC_ID_DYLIB
-    if (options.output_mode == .Lib and options.link_mode == .Dynamic) {
+    if (comp.config.output_mode == .Lib and comp.config.link_mode == .Dynamic) {
         sizeofcmds += blk: {
-            const emit = options.emit.?;
-            const install_name = options.install_name orelse try emit.directory.join(gpa, &.{emit.sub_path});
-            defer if (options.install_name == null) gpa.free(install_name);
+            const emit = m.base.emit;
+            const install_name = m.install_name orelse try emit.directory.join(gpa, &.{emit.sub_path});
+            defer if (m.install_name == null) gpa.free(install_name);
             break :blk calcInstallNameLen(
                 @sizeOf(macho.dylib_command),
                 install_name,
@@ -64,7 +63,7 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
     }
     // LC_RPATH
     {
-        var it = RpathIterator.init(gpa, options.rpath_list);
+        var it = RpathIterator.init(gpa, m.base.rpath_list);
         defer it.deinit();
         while (try it.next()) |rpath| {
             sizeofcmds += calcInstallNameLen(
@@ -78,7 +77,8 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
     sizeofcmds += @sizeOf(macho.source_version_command);
     // LC_BUILD_VERSION or LC_VERSION_MIN_ or nothing
     {
-        const platform = Platform.fromTarget(options.target);
+        const target = comp.root_mod.resolved_target.result;
+        const platform = Platform.fromTarget(target);
         if (platform.isBuildVersionCompatible()) {
             // LC_BUILD_VERSION
             sizeofcmds += @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
@@ -100,19 +100,19 @@ fn calcLCsSize(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx
         );
     }
     // LC_CODE_SIGNATURE
-    if (MachO.requiresCodeSignature(options)) {
+    if (m.requiresCodeSignature()) {
         sizeofcmds += @sizeOf(macho.linkedit_data_command);
     }
 
-    return @as(u32, @intCast(sizeofcmds));
+    return @intCast(sizeofcmds);
 }
 
-pub fn calcMinHeaderPad(gpa: Allocator, options: *const link.Options, ctx: CalcLCsSizeCtx) !u64 {
-    var padding: u32 = (try calcLCsSize(gpa, options, ctx, false)) + (options.headerpad_size orelse 0);
+pub fn calcMinHeaderPad(m: *MachO, ctx: CalcLCsSizeCtx) !u64 {
+    var padding: u32 = (try calcLCsSize(m, ctx, false)) + m.headerpad_size;
     log.debug("minimum requested headerpad size 0x{x}", .{padding + @sizeOf(macho.mach_header_64)});
 
-    if (options.headerpad_max_install_names) {
-        const min_headerpad_size: u32 = try calcLCsSize(gpa, options, ctx, true);
+    if (m.headerpad_max_install_names) {
+        const min_headerpad_size: u32 = try calcLCsSize(m, ctx, true);
         log.debug("headerpad_max_install_names minimum headerpad size 0x{x}", .{
             min_headerpad_size + @sizeOf(macho.mach_header_64),
         });
@@ -189,17 +189,20 @@ fn writeDylibLC(ctx: WriteDylibLCCtx, lc_writer: anytype) !void {
     }
 }
 
-pub fn writeDylibIdLC(gpa: Allocator, options: *const link.Options, lc_writer: anytype) !void {
-    assert(options.output_mode == .Lib and options.link_mode == .Dynamic);
-    const emit = options.emit.?;
-    const install_name = options.install_name orelse try emit.directory.join(gpa, &.{emit.sub_path});
-    defer if (options.install_name == null) gpa.free(install_name);
-    const curr = options.version orelse std.SemanticVersion{
+pub fn writeDylibIdLC(macho_file: *MachO, lc_writer: anytype) !void {
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
+    assert(comp.config.output_mode == .Lib and comp.config.link_mode == .Dynamic);
+    const emit = macho_file.base.emit;
+    const install_name = macho_file.install_name orelse
+        try emit.directory.join(gpa, &.{emit.sub_path});
+    defer if (macho_file.install_name == null) gpa.free(install_name);
+    const curr = comp.version orelse std.SemanticVersion{
         .major = 1,
         .minor = 0,
         .patch = 0,
     };
-    const compat = options.compatibility_version orelse std.SemanticVersion{
+    const compat = macho_file.compatibility_version orelse std.SemanticVersion{
         .major = 1,
         .minor = 0,
         .patch = 0,
@@ -237,8 +240,11 @@ const RpathIterator = struct {
     }
 };
 
-pub fn writeRpathLCs(gpa: Allocator, options: *const link.Options, lc_writer: anytype) !void {
-    var it = RpathIterator.init(gpa, options.rpath_list);
+pub fn writeRpathLCs(macho_file: *MachO, lc_writer: anytype) !void {
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
+
+    var it = RpathIterator.init(gpa, macho_file.base.rpath_list);
     defer it.deinit();
 
     while (try it.next()) |rpath| {
@@ -467,16 +473,17 @@ pub inline fn appleVersionToSemanticVersion(version: u32) std.SemanticVersion {
     };
 }
 
-pub fn inferSdkVersion(gpa: Allocator, comp: *const Compilation) ?std.SemanticVersion {
+pub fn inferSdkVersion(macho_file: *MachO) ?std.SemanticVersion {
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
+
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const options = comp.bin_file.options;
-
-    const sdk_layout = options.darwin_sdk_layout orelse return null;
+    const sdk_layout = macho_file.sdk_layout orelse return null;
     const sdk_dir = switch (sdk_layout) {
-        .sdk => options.sysroot.?,
+        .sdk => comp.sysroot.?,
         .vendored => std.fs.path.join(arena, &.{ comp.zig_lib_directory.path.?, "libc", "darwin" }) catch return null,
     };
     if (readSdkVersionFromSettings(arena, sdk_dir)) |ver| {

@@ -4,7 +4,7 @@ pub const requires_symlinks = true;
 
 pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target: std.zig.CrossTarget = .{ .os_tag = .macos };
+    const target = b.resolveTargetQuery(.{ .os_tag = .macos });
 
     const test_step = b.step("test", "Test the program");
     b.default_step = test_step;
@@ -44,7 +44,7 @@ pub fn build(b: *std.Build) void {
 fn createScenario(
     b: *std.Build,
     optimize: std.builtin.OptimizeMode,
-    target: std.zig.CrossTarget,
+    target: std.Build.ResolvedTarget,
     name: []const u8,
 ) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{

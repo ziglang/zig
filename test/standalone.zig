@@ -2,7 +2,7 @@ pub const SimpleCase = struct {
     src_path: []const u8,
     link_libc: bool = false,
     all_modes: bool = false,
-    target: std.zig.CrossTarget = .{},
+    target: std.Target.Query = .{},
     is_test: bool = false,
     is_exe: bool = true,
     /// Run only on this OS.
@@ -89,10 +89,6 @@ pub const build_cases = [_]BuildCase{
     //    .build_root = "test/standalone/issue_13970",
     //    .import = @import("standalone/issue_13970/build.zig"),
     //},
-    .{
-        .build_root = "test/standalone/main_pkg_path",
-        .import = @import("standalone/main_pkg_path/build.zig"),
-    },
     .{
         .build_root = "test/standalone/shared_library",
         .import = @import("standalone/shared_library/build.zig"),
@@ -261,6 +257,10 @@ pub const build_cases = [_]BuildCase{
     .{
         .build_root = "test/standalone/ios",
         .import = @import("standalone/ios/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/depend_on_main_mod",
+        .import = @import("standalone/depend_on_main_mod/build.zig"),
     },
 };
 

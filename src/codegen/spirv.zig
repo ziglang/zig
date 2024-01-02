@@ -191,13 +191,9 @@ pub const Object = struct {
         air: Air,
         liveness: Liveness,
     ) !void {
-        const target = mod.getTarget();
-        // We always want a structured control flow in shaders. This option is only relevant
-        // for OpenCL kernels.
-        const want_structured_cfg = switch (target.os.tag) {
-            .opencl => mod.comp.bin_file.options.want_structured_cfg orelse false,
-            else => true,
-        };
+        const decl = mod.declPtr(decl_index);
+        const namespace = mod.namespacePtr(decl.src_namespace);
+        const structured_cfg = namespace.file_scope.mod.structured_cfg;
 
         var decl_gen = DeclGen{
             .gpa = self.gpa,
@@ -208,7 +204,7 @@ pub const Object = struct {
             .air = air,
             .liveness = liveness,
             .type_map = &self.type_map,
-            .control_flow = switch (want_structured_cfg) {
+            .control_flow = switch (structured_cfg) {
                 true => .{ .structured = .{} },
                 false => .{ .unstructured = .{} },
             },

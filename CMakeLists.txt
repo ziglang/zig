@@ -480,22 +480,23 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/unordtf2.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/start.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/std.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/aarch64.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/amdgpu.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/arm.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/avr.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/bpf.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/hexagon.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/mips.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/msp430.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/nvptx.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/powerpc.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/riscv.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/sparc.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/s390x.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/wasm.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/target/x86.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/Query.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/aarch64.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/amdgpu.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/arm.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/avr.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/bpf.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/hexagon.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/mips.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/msp430.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/nvptx.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/powerpc.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/riscv.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/sparc.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/s390x.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/wasm.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Target/x86.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/Thread.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/Thread/Futex.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/Thread/Mutex.zig"
@@ -508,7 +509,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/zig.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/Ast.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/AstRlAnnotate.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/zig/CrossTarget.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/c_builtins.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/Parse.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/render.zig"
@@ -516,12 +516,12 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/zig/string_literal.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/system.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/system/NativePaths.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/zig/system/NativeTargetInfo.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/system/x86.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/tokenizer.zig"
     "${CMAKE_SOURCE_DIR}/src/Air.zig"
     "${CMAKE_SOURCE_DIR}/src/AstGen.zig"
     "${CMAKE_SOURCE_DIR}/src/Compilation.zig"
+    "${CMAKE_SOURCE_DIR}/src/Compilation/Config.zig"
     "${CMAKE_SOURCE_DIR}/src/Liveness.zig"
     "${CMAKE_SOURCE_DIR}/src/Module.zig"
     "${CMAKE_SOURCE_DIR}/src/Package.zig"
@@ -810,18 +810,26 @@ endif()
 
 set(BUILD_ZIG2_ARGS
   "${CMAKE_SOURCE_DIR}/lib"
-  build-exe src/main.zig -ofmt=c -lc
-  -OReleaseSmall
-  --name zig2 -femit-bin="${ZIG2_C_SOURCE}"
-  --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
-  --mod "aro_options::src/stubs/aro_options.zig"
-  --mod "Builtins/Builtin.def::src/stubs/aro_builtins.zig"
-  --mod "Attribute/names.def::src/stubs/aro_names.zig"
-  --mod "Diagnostics/messages.def::src/stubs/aro_messages.zig"
-  --mod "aro_backend:build_options=aro_options:deps/aro/backend.zig"
-  --mod "aro:Builtins/Builtin.def,Attribute/names.def,Diagnostics/messages.def,build_options=aro_options,backend=aro_backend:deps/aro/aro.zig"
-  --deps build_options,aro
+  build-exe -ofmt=c -lc -OReleaseSmall
+  --name zig2
+  -femit-bin="${ZIG2_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
+  --dep "build_options"
+  --dep "aro"
+  --mod "root" "src/main.zig"
+  --mod "build_options" "${ZIG_CONFIG_ZIG_OUT}"
+  --mod "aro_options" "src/stubs/aro_options.zig"
+  --mod "Builtins/Builtin.def" "src/stubs/aro_builtins.zig"
+  --mod "Attribute/names.def" "src/stubs/aro_names.zig"
+  --mod "Diagnostics/messages.def" "src/stubs/aro_messages.zig"
+  --dep "build_options=aro_options"
+  --mod "aro_backend" "deps/aro/backend.zig"
+  --dep "Builtins/Builtin.def"
+  --dep "Attribute/names.def"
+  --dep "Diagnostics/messages.def"
+  --dep "build_options=aro_options"
+  --dep "backend=aro_backend"
+  --mod "aro" "deps/aro/aro.zig"
 )
 
 add_custom_command(
@@ -834,12 +842,13 @@ add_custom_command(
 
 set(BUILD_COMPILER_RT_ARGS
   "${CMAKE_SOURCE_DIR}/lib"
-  build-obj lib/compiler_rt.zig -ofmt=c
-  -OReleaseSmall
-  --name compiler_rt -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
-  --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
-  --deps build_options
+  build-obj -ofmt=c -OReleaseSmall
+  --name compiler_rt
+  -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
+  --dep "build_options"
+  --mod "root" "lib/compiler_rt.zig"
+  --mod "build_options" "${ZIG_CONFIG_ZIG_OUT}"
 )
 
 add_custom_command(

@@ -52,6 +52,7 @@ fn createScenario(
     const exe = b.addExecutable(.{
         .name = name,
         .optimize = optimize,
+        .target = b.host,
     });
     exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &[0][]const u8{} });
     exe.linkLibC();

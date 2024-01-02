@@ -752,6 +752,11 @@ test "fsync" {
 }
 
 test "getrlimit and setrlimit" {
+    if (builtin.target.os.tag == .macos) {
+        // https://github.com/ziglang/zig/issues/18395
+        return error.SkipZigTest;
+    }
+
     if (!@hasDecl(os.system, "rlimit")) {
         return error.SkipZigTest;
     }
