@@ -325,6 +325,10 @@ const known_options = [_]KnownOpt{
         .ident = "no_omit_frame_pointer",
     },
     .{
+        .name = "mrelax-relocations=no",
+        .ident = "no_relax_elf_relocations",
+    },
+    .{
         .name = "ffunction-sections",
         .ident = "function_sections",
     },

@@ -415,6 +415,7 @@ const usage_build_generic =
     \\  -mno-red-zone             Force-disable the "red-zone"
     \\  -fomit-frame-pointer      Omit the stack frame pointer
     \\  -fno-omit-frame-pointer   Store the stack frame pointer
+    \\  -mrelax-relocations=no    Do not emit relax relocations for ELF
     \\  -mexec-model=[value]      (WASI) Execution model
     \\  --name [name]             Override root name (not a file path)
     \\  -O [mode]                 Choose what to optimize for
@@ -829,6 +830,7 @@ fn buildOutputType(
     var want_stack_protector: ?u32 = null;
     var want_red_zone: ?bool = null;
     var omit_frame_pointer: ?bool = null;
+    var relax_elf_relocations: bool = true;
     var want_valgrind: ?bool = null;
     var want_tsan: ?bool = null;
     var want_compiler_rt: ?bool = null;
@@ -1337,6 +1339,8 @@ fn buildOutputType(
                         omit_frame_pointer = true;
                     } else if (mem.eql(u8, arg, "-fno-omit-frame-pointer")) {
                         omit_frame_pointer = false;
+                    } else if (mem.eql(u8, arg, "-mrelax-relocations=no")) {
+                        relax_elf_relocations = false;
                     } else if (mem.eql(u8, arg, "-fsanitize-c")) {
                         want_sanitize_c = true;
                     } else if (mem.eql(u8, arg, "-fno-sanitize-c")) {
@@ -1806,6 +1810,7 @@ fn buildOutputType(
                     .no_red_zone => want_red_zone = false,
                     .omit_frame_pointer => omit_frame_pointer = true,
                     .no_omit_frame_pointer => omit_frame_pointer = false,
+                    .no_relax_elf_relocations => relax_elf_relocations = false,
                     .function_sections => function_sections = true,
                     .no_function_sections => function_sections = false,
                     .data_sections => data_sections = true,
@@ -3499,6 +3504,7 @@ fn buildOutputType(
         .want_stack_protector = want_stack_protector,
         .want_red_zone = want_red_zone,
         .omit_frame_pointer = omit_frame_pointer,
+        .relax_elf_relocations = relax_elf_relocations,
         .want_valgrind = want_valgrind,
         .want_tsan = want_tsan,
         .want_compiler_rt = want_compiler_rt,
@@ -6004,6 +6010,7 @@ pub const ClangArgIterator = struct {
         no_red_zone,
         omit_frame_pointer,
         no_omit_frame_pointer,
+        no_relax_elf_relocations,
         function_sections,
         no_function_sections,
         data_sections,
