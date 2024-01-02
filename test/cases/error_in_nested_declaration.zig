@@ -1,3 +1,5 @@
+thisfileisautotranslatedfromc;
+
 const S = struct {
     b: u32,
     c: i32,
@@ -26,6 +28,6 @@ pub export fn entry2() void {
 // backend=llvm
 // target=native
 //
-// :17:12: error: C pointers cannot point to opaque types
-// :6:20: error: cannot @bitCast to '[]i32'
-// :6:20: note: use @ptrCast to cast from '[]u32'
+// :19:12: error: C pointers cannot point to opaque types
+// :8:20: error: cannot @bitCast to '[]i32'
+// :8:20: note: use @ptrCast to cast from '[]u32'

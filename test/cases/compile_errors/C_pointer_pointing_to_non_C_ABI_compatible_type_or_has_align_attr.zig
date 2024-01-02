@@ -1,3 +1,5 @@
+thisfileisautotranslatedfromc;
+
 const Foo = struct { a: u32 };
 export fn a() void {
     const T = [*c]Foo;
@@ -9,6 +11,6 @@ export fn a() void {
 // backend=stage2
 // target=native
 //
-// :3:19: error: C pointers cannot point to non-C-ABI-compatible type 'tmp.Foo'
-// :3:19: note: only extern structs and ABI sized packed structs are extern compatible
-// :1:13: note: struct declared here
+// :5:19: error: C pointers cannot point to non-C-ABI-compatible type 'tmp.Foo'
+// :5:19: note: only extern structs and ABI sized packed structs are extern compatible
+// :3:13: note: struct declared here

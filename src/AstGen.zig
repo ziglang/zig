@@ -410,22 +410,23 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
     const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     switch (node_tags[node]) {
-        .root => unreachable,
-        .@"usingnamespace" => unreachable,
-        .test_decl => unreachable,
-        .global_var_decl => unreachable,
-        .local_var_decl => unreachable,
-        .simple_var_decl => unreachable,
-        .aligned_var_decl => unreachable,
-        .switch_case => unreachable,
-        .switch_case_inline => unreachable,
-        .switch_case_one => unreachable,
-        .switch_case_inline_one => unreachable,
-        .container_field_init => unreachable,
-        .container_field_align => unreachable,
-        .container_field => unreachable,
-        .asm_output => unreachable,
-        .asm_input => unreachable,
+        .root,
+        .@"usingnamespace",
+        .test_decl,
+        .global_var_decl,
+        .local_var_decl,
+        .simple_var_decl,
+        .aligned_var_decl,
+        .switch_case,
+        .switch_case_inline,
+        .switch_case_one,
+        .switch_case_inline_one,
+        .container_field_init,
+        .container_field_align,
+        .container_field,
+        .asm_output,
+        .asm_input,
+        => unreachable,
 
         .assign,
         .assign_destructure,
@@ -3723,6 +3724,21 @@ fn ptrType(
 ) InnerError!Zir.Inst.Ref {
     if (ptr_info.size == .C and ptr_info.allowzero_token != null) {
         return gz.astgen.failTok(ptr_info.allowzero_token.?, "C pointers always allow address zero", .{});
+    }
+
+    if (ptr_info.size == .C and !gz.astgen.tree.is_autotranslated) {
+        return gz.astgen.failNodeNotes(
+            node,
+            "[*c] pointers are only allowed in auto-translated C code",
+            .{},
+            &[_]u32{
+                try gz.astgen.errNoteNode(
+                    node,
+                    "* and [*] pointers may be used where a [*c] pointer is expected",
+                    .{},
+                ),
+            },
+        );
     }
 
     const source_offset = gz.astgen.source_offset;

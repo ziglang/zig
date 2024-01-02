@@ -1,3 +1,5 @@
+thisfileisautotranslatedfromc;
+
 const std = @import("../../../std.zig");
 const kern = @import("kern.zig");
 

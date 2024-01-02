@@ -1,3 +1,5 @@
+thisfileisautotranslatedfromc;
+
 test "comptime slice-sentinel in bounds (unterminated)" {
     // array
     comptime {

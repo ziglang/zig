@@ -1049,6 +1049,7 @@ fn tokenizeAndPrintRaw(
             .keyword_allowzero,
             .keyword_while,
             .keyword_anytype,
+            .keyword_autotranslated,
             => {
                 try out.writeAll("<span class=\"tok-kw\">");
                 try writeEscaped(out, src[token.loc.start..token.loc.end]);

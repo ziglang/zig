@@ -11,6 +11,7 @@ errors: std.ArrayListUnmanaged(AstError),
 nodes: Ast.NodeList,
 extra_data: std.ArrayListUnmanaged(Node.Index),
 scratch: std.ArrayListUnmanaged(Node.Index),
+is_autotranslated: bool,
 
 const SmallSpan = union(enum) {
     zero_or_one: Node.Index,
@@ -366,6 +367,27 @@ fn parseContainerMembers(p: *Parse) !Members {
                     }
                     try p.scratch.append(p.gpa, top_level_decl);
                 }
+                trailing = p.token_tags[p.tok_i - 1] == .semicolon;
+            },
+            .keyword_autotranslated => {
+                const token = p.assertToken(.keyword_autotranslated);
+                p.expectSemicolon(.expected_semi_after_decl, false) catch |err| {
+                    switch (err) {
+                        error.OutOfMemory => return error.OutOfMemory,
+                        error.ParseError => continue,
+                    }
+                };
+
+                if (p.nodes.len != 1) {
+                    try p.warnMsg(.{
+                        .tag = .autotranslated_not_first_token,
+                        .token = token,
+                    });
+                    continue;
+                }
+
+                p.is_autotranslated = true;
+
                 trailing = p.token_tags[p.tok_i - 1] == .semicolon;
             },
             .eof, .r_brace => {

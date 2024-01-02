@@ -1,3 +1,5 @@
+thisfileisautotranslatedfromc;
+
 const FILE = extern struct {
     dummy_field: u8,
 };
