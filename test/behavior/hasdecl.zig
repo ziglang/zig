@@ -19,3 +19,12 @@ test "@hasDecl" {
     try expect(@hasDecl(Bar, "blah"));
     try expect(!@hasDecl(Bar, "nope"));
 }
+
+test "@hasDecl using a sliced string literal" {
+    try expect(@hasDecl(@This(), "std") == true);
+    try expect(@hasDecl(@This(), "std"[0..0]) == false);
+    try expect(@hasDecl(@This(), "std"[0..1]) == false);
+    try expect(@hasDecl(@This(), "std"[0..2]) == false);
+    try expect(@hasDecl(@This(), "std"[0..3]) == true);
+    try expect(@hasDecl(@This(), "std"[0..]) == true);
+}

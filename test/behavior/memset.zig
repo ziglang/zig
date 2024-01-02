@@ -156,3 +156,23 @@ test "@memset provides result type" {
     for (buf1) |s| try expect(s.x == 12);
     for (buf2) |s| try expect(s.x == 34);
 }
+
+test "zero keys with @memset" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Keys = struct {
+        up: bool,
+        down: bool,
+        left: bool,
+        right: bool,
+        var keys: @This() = undefined;
+    };
+    @memset(@as([*]u8, @ptrCast(&Keys.keys))[0..@sizeOf(@TypeOf(Keys.keys))], 0);
+    try expect(!Keys.keys.up);
+    try expect(!Keys.keys.down);
+    try expect(!Keys.keys.left);
+    try expect(!Keys.keys.right);
+}
