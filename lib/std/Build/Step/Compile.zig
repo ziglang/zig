@@ -897,44 +897,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const arena = b.allocator;
     const self = @fieldParentPtr(Compile, "step", step);
 
-    // Convert search prefixes to -I and -L arguments to be added at the end of
-    // each module's configuration.
-    var search_prefix_args: std.ArrayListUnmanaged([]const u8) = .{};
-    for (b.search_prefixes.items) |search_prefix| {
-        var prefix_dir = fs.cwd().openDir(search_prefix, .{}) catch |err| {
-            return step.fail("unable to open prefix directory '{s}': {s}", .{
-                search_prefix, @errorName(err),
-            });
-        };
-        defer prefix_dir.close();
-
-        // Avoid passing -L and -I flags for nonexistent directories.
-        // This prevents a warning, that should probably be upgraded to an error in Zig's
-        // CLI parsing code, when the linker sees an -L directory that does not exist.
-
-        if (prefix_dir.accessZ("lib", .{})) |_| {
-            try search_prefix_args.appendSlice(arena, &.{
-                "-L", try fs.path.join(arena, &.{ search_prefix, "lib" }),
-            });
-        } else |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return step.fail("unable to access '{s}/lib' directory: {s}", .{
-                search_prefix, @errorName(e),
-            }),
-        }
-
-        if (prefix_dir.accessZ("include", .{})) |_| {
-            try search_prefix_args.appendSlice(arena, &.{
-                "-I", try fs.path.join(arena, &.{ search_prefix, "include" }),
-            });
-        } else |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return step.fail("unable to access '{s}/include' directory: {s}", .{
-                search_prefix, @errorName(e),
-            }),
-        }
-    }
-
     var zig_args = ArrayList([]const u8).init(arena);
     defer zig_args.deinit();
 
@@ -1235,10 +1197,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             if (cli_named_modules.modules.getIndex(module)) |module_cli_index| {
                 const module_cli_name = cli_named_modules.names.keys()[module_cli_index];
                 try module.appendZigProcessFlags(&zig_args, step);
-                // These go after `appendZigProcessFlags` so that
-                // --search-prefix directories are prioritized lower than
-                // per-module settings.
-                try zig_args.appendSlice(search_prefix_args.items);
 
                 // --dep arguments
                 try zig_args.ensureUnusedCapacity(module.import_table.count() * 2);
@@ -1503,6 +1461,42 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     if (b.sysroot) |sysroot| {
         try zig_args.appendSlice(&[_][]const u8{ "--sysroot", sysroot });
+    }
+
+    // -I and -L arguments that appear after the last --mod argument apply to all modules.
+    for (b.search_prefixes.items) |search_prefix| {
+        var prefix_dir = fs.cwd().openDir(search_prefix, .{}) catch |err| {
+            return step.fail("unable to open prefix directory '{s}': {s}", .{
+                search_prefix, @errorName(err),
+            });
+        };
+        defer prefix_dir.close();
+
+        // Avoid passing -L and -I flags for nonexistent directories.
+        // This prevents a warning, that should probably be upgraded to an error in Zig's
+        // CLI parsing code, when the linker sees an -L directory that does not exist.
+
+        if (prefix_dir.accessZ("lib", .{})) |_| {
+            try zig_args.appendSlice(&.{
+                "-L", try fs.path.join(arena, &.{ search_prefix, "lib" }),
+            });
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return step.fail("unable to access '{s}/lib' directory: {s}", .{
+                search_prefix, @errorName(e),
+            }),
+        }
+
+        if (prefix_dir.accessZ("include", .{})) |_| {
+            try zig_args.appendSlice(&.{
+                "-I", try fs.path.join(arena, &.{ search_prefix, "include" }),
+            });
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return step.fail("unable to access '{s}/include' directory: {s}", .{
+                search_prefix, @errorName(e),
+            }),
+        }
     }
 
     if (self.rc_includes != .any) {

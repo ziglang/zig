@@ -3244,6 +3244,10 @@ fn buildOutputType(
         .pdb_out_path = pdb_out_path,
         .error_limit = error_limit,
         .native_system_include_paths = create_module.native_system_include_paths,
+        // Any leftover C compilation args (such as -I) apply globally rather
+        // than to any particular module. This feature can greatly reduce CLI
+        // noise when --search-prefix and --mod are combined.
+        .global_cc_argv = try cc_argv.toOwnedSlice(arena),
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const triple_name = try target.zigTriple(arena);
@@ -3421,9 +3425,9 @@ const CreateModule = struct {
     c_source_files: std.ArrayListUnmanaged(Compilation.CSourceFile),
     rc_source_files: std.ArrayListUnmanaged(Compilation.RcSourceFile),
 
-    // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
-    // This array is populated by zig cc frontend and then has to be converted to zig-style
-    // CPU features.
+    /// e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
+    /// This array is populated by zig cc frontend and then has to be converted to zig-style
+    /// CPU features.
     llvm_m_args: std.ArrayListUnmanaged([]const u8),
     sysroot: ?[]const u8,
     lib_dirs: std.ArrayListUnmanaged([]const u8),

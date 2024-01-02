@@ -165,6 +165,7 @@ last_update_was_cache_hit: bool = false,
 
 c_source_files: []const CSourceFile,
 rc_source_files: []const RcSourceFile,
+global_cc_argv: []const []const u8,
 cache_parent: *Cache,
 /// Path to own executable for invoking `zig clang`.
 self_exe_path: ?[]const u8,
@@ -1120,6 +1121,7 @@ pub const CreateOptions = struct {
     /// (Windows) PDB output path
     pdb_out_path: ?[]const u8 = null,
     error_limit: ?Compilation.Module.ErrorInt = null,
+    global_cc_argv: []const []const u8 = &.{},
 
     pub const Entry = link.File.OpenOptions.Entry;
 };
@@ -1515,6 +1517,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .wasi_emulated_libs = options.wasi_emulated_libs,
             .force_undefined_symbols = options.force_undefined_symbols,
             .link_eh_frame_hdr = link_eh_frame_hdr,
+            .global_cc_argv = options.global_cc_argv,
         };
 
         // Prevent some footguns by making the "any" fields of config reflect
@@ -2526,6 +2529,8 @@ fn addNonIncrementalStuffToCacheManifest(
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_asm);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
     cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_bc);
+
+    man.hash.addListOfBytes(comp.global_cc_argv);
 
     const opts = comp.cache_use.whole.lf_open_opts;
 
@@ -3941,6 +3946,7 @@ pub fn obtainCObjectCacheManifest(
     // that apply both to @cImport and compiling C objects. No linking stuff here!
     // Also nothing that applies only to compiling .zig code.
     cache_helpers.addModule(&man.hash, owner_mod);
+    man.hash.addListOfBytes(comp.global_cc_argv);
     man.hash.add(comp.config.link_libcpp);
 
     // When libc_installation is null it means that Zig generated this dir list
@@ -5411,6 +5417,7 @@ pub fn addCCArgs(
         }
     }
 
+    try argv.appendSlice(comp.global_cc_argv);
     try argv.appendSlice(mod.cc_argv);
 }
 
