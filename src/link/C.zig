@@ -291,7 +291,7 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
     };
     const c_value: codegen.CValue = .{ .constant = anon_decl };
     const alignment: Alignment = self.aligned_anon_decls.get(anon_decl) orelse .none;
-    codegen.genDeclValue(&object, tv, .local, c_value, alignment, .none) catch |err| switch (err) {
+    codegen.genDeclValue(&object, tv, false, c_value, alignment, .none) catch |err| switch (err) {
         error.AnalysisFail => {
             @panic("TODO: C backend AnalysisFail on anonymous decl");
             //try module.failed_decls.put(gpa, decl_index, object.dg.error_msg.?);

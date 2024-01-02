@@ -24758,7 +24758,9 @@ fn zirVarExtended(
         .decl = sema.owner_decl_index,
         .lib_name = try mod.intern_pool.getOrPutStringOpt(sema.gpa, lib_name),
         .is_extern = small.is_extern,
+        .is_const = small.is_const,
         .is_threadlocal = small.is_threadlocal,
+        .is_weak_linkage = false,
     } })));
 }
 
@@ -25262,6 +25264,7 @@ fn zirBuiltinExtern(
     if (options.linkage == .Weak and !ty.ptrAllowsZero(mod)) {
         ty = try mod.optionalType(ty.toIntern());
     }
+    const ptr_info = ty.ptrInfo(mod);
 
     // TODO check duplicate extern
 
@@ -25272,11 +25275,12 @@ fn zirBuiltinExtern(
 
     {
         const new_var = try mod.intern(.{ .variable = .{
-            .ty = ty.toIntern(),
+            .ty = ptr_info.child,
             .init = .none,
             .decl = sema.owner_decl_index,
+            .lib_name = options.library_name,
             .is_extern = true,
-            .is_const = true,
+            .is_const = ptr_info.flags.is_const,
             .is_threadlocal = options.is_thread_local,
             .is_weak_linkage = options.linkage == .Weak,
         } });
@@ -25284,7 +25288,7 @@ fn zirBuiltinExtern(
         new_decl.src_line = sema.owner_decl.src_line;
         // We only access this decl through the decl_ref with the correct type created
         // below, so this type doesn't matter
-        new_decl.ty = ty;
+        new_decl.ty = Type.fromInterned(ptr_info.child);
         new_decl.val = Value.fromInterned(new_var);
         new_decl.alignment = .none;
         new_decl.@"linksection" = .none;

@@ -4456,6 +4456,7 @@ fn globalVarDecl(
                 .align_inst = .none, // passed via the decls data
                 .init = init_inst,
                 .is_extern = false,
+                .is_const = !is_mutable,
                 .is_threadlocal = is_threadlocal,
             });
             break :vi var_inst;
@@ -4474,6 +4475,7 @@ fn globalVarDecl(
             .align_inst = .none, // passed via the decls data
             .init = .none,
             .is_extern = true,
+            .is_const = !is_mutable,
             .is_threadlocal = is_threadlocal,
         });
         break :vi var_inst;
@@ -11495,6 +11497,7 @@ const GenZir = struct {
         var_type: Zir.Inst.Ref,
         init: Zir.Inst.Ref,
         is_extern: bool,
+        is_const: bool,
         is_threadlocal: bool,
     }) !Zir.Inst.Ref {
         const astgen = gz.astgen;
@@ -11533,6 +11536,7 @@ const GenZir = struct {
                     .has_align = args.align_inst != .none,
                     .has_init = args.init != .none,
                     .is_extern = args.is_extern,
+                    .is_const = args.is_const,
                     .is_threadlocal = args.is_threadlocal,
                 }),
                 .operand = payload_index,
