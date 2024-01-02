@@ -84,3 +84,16 @@ test "type name of undefined" {
     const x = undefined;
     try expect(mem.eql(u8, @typeName(@TypeOf(x)), "@TypeOf(undefined)"));
 }
+
+var buf: []u8 = undefined;
+
+test "reslice of undefined global var slice" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    var stack_buf: [100]u8 = [_]u8{0} ** 100;
+    buf = &stack_buf;
+    const x = buf[0..1];
+    try @import("std").testing.expect(x.len == 1 and x[0] == 0);
+}
