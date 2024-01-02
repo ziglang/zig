@@ -315,13 +315,14 @@ pub fn open(
     return createEmpty(arena, comp, emit, options);
 }
 
-pub fn flush(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    const gpa = self.base.comp.gpa;
-    const output_mode = self.base.comp.config.output_mode;
+pub fn flush(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+    const output_mode = comp.config.output_mode;
 
-    if (output_mode == .Lib and self.base.comp.config.link_mode == .Static) {
+    if (output_mode == .Lib and comp.config.link_mode == .Static) {
         if (build_options.have_llvm) {
-            return self.base.linkAsArchive(comp, prog_node);
+            return self.base.linkAsArchive(arena, prog_node);
         } else {
             try comp.link_errors.ensureUnusedCapacity(gpa, 1);
             comp.link_errors.appendAssumeCapacity(.{
@@ -332,19 +333,17 @@ pub fn flush(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) li
     }
 
     switch (self.mode) {
-        .zld => return zld.linkWithZld(self, comp, prog_node),
-        .incremental => return self.flushModule(comp, prog_node),
+        .zld => return zld.linkWithZld(self, arena, prog_node),
+        .incremental => return self.flushModule(arena, prog_node),
     }
 }
 
-pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const comp = self.base.comp;
     const gpa = comp.gpa;
-    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
 
     if (self.llvm_object) |llvm_object| {
         try self.base.emitLlvmObject(arena, llvm_object, prog_node);

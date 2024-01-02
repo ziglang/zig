@@ -547,19 +547,22 @@ pub const File = struct {
 
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
-    pub fn flush(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) FlushError!void {
+    /// `arena` has the lifetime of the call to `Compilation.update`.
+    pub fn flush(base: *File, arena: Allocator, prog_node: *std.Progress.Node) FlushError!void {
         if (build_options.only_c) {
             assert(base.tag == .c);
-            return @fieldParentPtr(C, "base", base).flush(comp, prog_node);
+            return @fieldParentPtr(C, "base", base).flush(arena, prog_node);
         }
+        const comp = base.comp;
         if (comp.clang_preprocessor_mode == .yes) {
+            const gpa = comp.gpa;
             const emit = base.emit;
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
             // Until then, we do `lld -r -o output.o input.o` even though the output is the same
             // as the input. For the preprocessing case (`zig cc -E -o foo`) we copy the file
             // to the final location. See also the corresponding TODO in Coff linking.
-            const full_out_path = try emit.directory.join(comp.gpa, &[_][]const u8{emit.sub_path});
-            defer comp.gpa.free(full_out_path);
+            const full_out_path = try emit.directory.join(gpa, &[_][]const u8{emit.sub_path});
+            defer gpa.free(full_out_path);
             assert(comp.c_object_table.count() == 1);
             const the_key = comp.c_object_table.keys()[0];
             const cached_pp_file_path = the_key.status.success.object_path;
@@ -571,25 +574,25 @@ pub const File = struct {
         const output_mode = comp.config.output_mode;
         const link_mode = comp.config.link_mode;
         if (use_lld and output_mode == .Lib and link_mode == .Static) {
-            return base.linkAsArchive(comp, prog_node);
+            return base.linkAsArchive(arena, prog_node);
         }
         switch (base.tag) {
             inline else => |tag| {
-                return @fieldParentPtr(tag.Type(), "base", base).flush(comp, prog_node);
+                return @fieldParentPtr(tag.Type(), "base", base).flush(arena, prog_node);
             },
         }
     }
 
     /// Commit pending changes and write headers. Works based on `effectiveOutputMode`
     /// rather than final output mode.
-    pub fn flushModule(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) FlushError!void {
+    pub fn flushModule(base: *File, arena: Allocator, prog_node: *std.Progress.Node) FlushError!void {
         switch (base.tag) {
             .c => {
-                return @fieldParentPtr(C, "base", base).flushModule(comp, prog_node);
+                return @fieldParentPtr(C, "base", base).flushModule(arena, prog_node);
             },
             inline else => |tag| {
                 if (build_options.only_c) unreachable;
-                return @fieldParentPtr(tag.Type(), "base", base).flushModule(comp, prog_node);
+                return @fieldParentPtr(tag.Type(), "base", base).flushModule(arena, prog_node);
             },
         }
     }
@@ -707,14 +710,12 @@ pub const File = struct {
         }
     }
 
-    pub fn linkAsArchive(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) FlushError!void {
+    pub fn linkAsArchive(base: *File, arena: Allocator, prog_node: *std.Progress.Node) FlushError!void {
         const tracy = trace(@src());
         defer tracy.end();
 
+        const comp = base.comp;
         const gpa = comp.gpa;
-        var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-        defer arena_allocator.deinit();
-        const arena = arena_allocator.allocator();
 
         const directory = base.emit.directory; // Just an alias to make it shorter to type.
         const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
@@ -724,7 +725,7 @@ pub const File = struct {
         // If there is no Zig code to compile, then we should skip flushing the output file
         // because it will not be part of the linker line anyway.
         const zcu_obj_path: ?[]const u8 = if (opt_zcu != null) blk: {
-            try base.flushModule(comp, prog_node);
+            try base.flushModule(arena, prog_node);
 
             const dirname = fs.path.dirname(full_out_path_z) orelse ".";
             break :blk try fs.path.join(arena, &.{ dirname, base.zcu_object_sub_path.? });

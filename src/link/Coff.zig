@@ -1706,28 +1706,26 @@ fn resolveGlobalSymbol(self: *Coff, current: SymbolWithLoc) !void {
     gop.value_ptr.* = current;
 }
 
-pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
+pub fn flush(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+    const comp = self.base.comp;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
     if (use_lld) {
-        return lld.linkWithLLD(self, comp, prog_node);
+        return lld.linkWithLLD(self, arena, prog_node);
     }
-    switch (self.base.comp.config.output_mode) {
-        .Exe, .Obj => return self.flushModule(comp, prog_node),
+    switch (comp.config.output_mode) {
+        .Exe, .Obj => return self.flushModule(arena, prog_node),
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 }
 
-pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const comp = self.base.comp;
     const gpa = comp.gpa;
 
     if (self.llvm_object) |llvm_object| {
-        var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-        defer arena_allocator.deinit();
-        const arena = arena_allocator.allocator();
-
         try self.base.emitLlvmObject(arena, llvm_object, prog_node);
         return;
     }

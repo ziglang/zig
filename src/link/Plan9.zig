@@ -608,8 +608,9 @@ fn allocateGotIndex(self: *Plan9) usize {
     }
 }
 
-pub fn flush(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
+pub fn flush(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+    const comp = self.base.comp;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
     assert(!use_lld);
 
     switch (link.File.effectiveOutputMode(use_lld, comp.config.output_mode)) {
@@ -618,7 +619,7 @@ pub fn flush(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) li
         .Obj => return error.TODOImplementPlan9Objs,
         .Lib => return error.TODOImplementWritingLibFiles,
     }
-    return self.flushModule(comp, prog_node);
+    return self.flushModule(arena, prog_node);
 }
 
 pub fn changeLine(l: *std.ArrayList(u8), delta_line: i32) !void {
@@ -666,11 +667,14 @@ fn atomCount(self: *Plan9) usize {
     return data_decl_count + fn_decl_count + unnamed_const_count + lazy_atom_count + extern_atom_count + anon_atom_count;
 }
 
-pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
 
+    _ = arena; // Has the same lifetime as the call to Compilation.update.
+
+    const comp = self.base.comp;
     const gpa = comp.gpa;
     const target = comp.root_mod.resolved_target.result;
 

@@ -3480,32 +3480,28 @@ fn resetState(wasm: *Wasm) void {
     wasm.debug_pubtypes_index = null;
 }
 
-pub fn flush(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flush(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+    const comp = wasm.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const use_llvm = comp.config.use_llvm;
 
     if (use_lld) {
-        return wasm.linkWithLLD(comp, prog_node);
+        return wasm.linkWithLLD(arena, prog_node);
     } else if (use_llvm) {
-        return wasm.linkWithZld(comp, prog_node);
+        return wasm.linkWithZld(arena, prog_node);
     } else {
-        return wasm.flushModule(comp, prog_node);
+        return wasm.flushModule(arena, prog_node);
     }
 }
 
 /// Uses the in-house linker to link one or multiple object -and archive files into a WebAssembly binary.
-fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
+fn linkWithZld(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = comp.gpa;
+    const comp = wasm.base.comp;
     const shared_memory = comp.config.shared_memory;
     const import_memory = comp.config.import_memory;
-
-    // Used for all temporary memory allocated during flushin
-    var arena_instance = std.heap.ArenaAllocator.init(gpa);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
 
     const directory = wasm.base.emit.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{wasm.base.emit.sub_path});
@@ -3516,7 +3512,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (opt_zcu != null) blk: {
         assert(use_llvm); // `linkWithZld` should never be called when the Wasm backend is used
-        try wasm.flushModule(comp, prog_node);
+        try wasm.flushModule(arena, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, wasm.base.zcu_object_sub_path.? });
@@ -3708,15 +3704,11 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     }
 }
 
-pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = comp.gpa;
-    // Used for all temporary memory allocated during flushin
-    var arena_instance = std.heap.ArenaAllocator.init(gpa);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
+    const comp = wasm.base.comp;
 
     if (wasm.llvm_object) |llvm_object| {
         try wasm.base.emitLlvmObject(arena, llvm_object, prog_node);
@@ -4589,19 +4581,17 @@ fn emitImport(wasm: *Wasm, writer: anytype, import: types.Import) !void {
     }
 }
 
-fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const comp = wasm.base.comp;
     const shared_memory = comp.config.shared_memory;
     const export_memory = comp.config.export_memory;
     const import_memory = comp.config.import_memory;
     const target = comp.root_mod.resolved_target.result;
 
     const gpa = comp.gpa;
-    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
 
     const directory = wasm.base.emit.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{wasm.base.emit.sub_path});
@@ -4609,7 +4599,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
-        try wasm.flushModule(comp, prog_node);
+        try wasm.flushModule(arena, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, wasm.base.zcu_object_sub_path.? });

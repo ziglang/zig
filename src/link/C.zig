@@ -376,8 +376,8 @@ pub fn updateDeclLineNumber(self: *C, module: *Module, decl_index: InternPool.De
     _ = decl_index;
 }
 
-pub fn flush(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) !void {
-    return self.flushModule(comp, prog_node);
+pub fn flush(self: *C, arena: Allocator, prog_node: *std.Progress.Node) !void {
+    return self.flushModule(arena, prog_node);
 }
 
 fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
@@ -393,7 +393,9 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
     return defines;
 }
 
-pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flushModule(self: *C, arena: Allocator, prog_node: *std.Progress.Node) !void {
+    _ = arena; // Has the same lifetime as the call to Compilation.update.
+
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -401,7 +403,8 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    const gpa = self.base.comp.gpa;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
     const module = self.base.comp.module.?;
 
     {

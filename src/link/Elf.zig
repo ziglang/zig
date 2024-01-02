@@ -1026,22 +1026,20 @@ pub fn markDirty(self: *Elf, shdr_index: u16) void {
     }
 }
 
-pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
     if (use_lld) {
-        return self.linkWithLLD(comp, prog_node);
+        return self.linkWithLLD(arena, prog_node);
     }
-    try self.flushModule(comp, prog_node);
+    try self.flushModule(arena, prog_node);
 }
 
-pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const comp = self.base.comp;
     const gpa = comp.gpa;
-    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
 
     if (self.llvm_object) |llvm_object| {
         try self.base.emitLlvmObject(arena, llvm_object, prog_node);
@@ -2349,22 +2347,20 @@ fn scanRelocs(self: *Elf) !void {
     }
 }
 
-fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.comp.gpa;
-    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
 
     const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (self.base.comp.module != null) blk: {
-        try self.flushModule(comp, prog_node);
+    const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
+        try self.flushModule(arena, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, self.base.zcu_object_sub_path.? });
@@ -2378,15 +2374,15 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     sub_prog_node.context.refresh();
     defer sub_prog_node.end();
 
-    const output_mode = self.base.comp.config.output_mode;
+    const output_mode = comp.config.output_mode;
     const is_obj = output_mode == .Obj;
     const is_lib = output_mode == .Lib;
-    const link_mode = self.base.comp.config.link_mode;
+    const link_mode = comp.config.link_mode;
     const is_dyn_lib = link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
     const have_dynamic_linker = comp.config.link_libc and
         link_mode == .Dynamic and is_exe_or_dyn_lib;
-    const target = self.base.comp.root_mod.resolved_target.result;
+    const target = comp.root_mod.resolved_target.result;
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
@@ -2459,8 +2455,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(self.hash_style);
         // strip does not need to go into the linker hash because it is part of the hash namespace
         if (comp.config.link_libc) {
-            man.hash.add(self.base.comp.libc_installation != null);
-            if (self.base.comp.libc_installation) |libc_installation| {
+            man.hash.add(comp.libc_installation != null);
+            if (comp.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
             }
             if (have_dynamic_linker) {
@@ -2469,7 +2465,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
         man.hash.addOptionalBytes(self.soname);
         man.hash.addOptional(comp.version);
-        try link.hashAddSystemLibs(&man, self.base.comp.system_libs);
+        try link.hashAddSystemLibs(&man, comp.system_libs);
         man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
         man.hash.add(self.base.allow_shlib_undefined);
         man.hash.add(self.bind_global_refs_locally);
@@ -2743,7 +2739,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (self.each_lib_rpath) {
             var test_path = std.ArrayList(u8).init(arena);
             for (self.lib_dirs) |lib_dir_path| {
-                for (self.base.comp.system_libs.keys()) |link_lib| {
+                for (comp.system_libs.keys()) |link_lib| {
                     if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
                         continue;
                     if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
@@ -2771,7 +2767,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
 
         if (comp.config.link_libc) {
-            if (self.base.comp.libc_installation) |libc_installation| {
+            if (comp.libc_installation) |libc_installation| {
                 try argv.append("-L");
                 try argv.append(libc_installation.crt_dir.?);
             }
@@ -2841,8 +2837,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
-            const system_libs = self.base.comp.system_libs.keys();
-            const system_libs_values = self.base.comp.system_libs.values();
+            const system_libs = comp.system_libs.keys();
+            const system_libs_values = comp.system_libs.values();
 
             // Worst-case, we need an --as-needed argument for every lib, as well
             // as one before and one after.
@@ -2890,7 +2886,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             // libc dep
             comp.link_error_flags.missing_libc = false;
             if (comp.config.link_libc) {
-                if (self.base.comp.libc_installation != null) {
+                if (comp.libc_installation != null) {
                     const needs_grouping = link_mode == .Static;
                     if (needs_grouping) try argv.append("--start-group");
                     try argv.appendSlice(target_util.libcFullLinkFlags(target));
@@ -2939,7 +2935,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-Bsymbolic");
         }
 
-        if (self.base.comp.verbose_link) {
+        if (comp.verbose_link) {
             // Skip over our own name so that the LLD linker name is the first argv item.
             Compilation.dump_argv(argv.items[1..]);
         }

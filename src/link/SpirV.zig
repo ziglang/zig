@@ -173,14 +173,16 @@ pub fn freeDecl(self: *SpirV, decl_index: InternPool.DeclIndex) void {
     _ = decl_index;
 }
 
-pub fn flush(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    return self.flushModule(comp, prog_node);
+pub fn flush(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+    return self.flushModule(arena, prog_node);
 }
 
-pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
+
+    _ = arena; // Has the same lifetime as the call to Compilation.update.
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -191,6 +193,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
 
     const spv = &self.object.spv;
 
+    const comp = self.base.comp;
     const gpa = comp.gpa;
     const target = comp.getTarget();
 

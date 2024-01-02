@@ -17,14 +17,12 @@ const Allocator = mem.Allocator;
 const Coff = @import("../Coff.zig");
 const Compilation = @import("../../Compilation.zig");
 
-pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const comp = self.base.comp;
     const gpa = comp.gpa;
-    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
 
     const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
@@ -32,7 +30,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
-        try self.flushModule(comp, prog_node);
+        try self.flushModule(arena, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, self.base.zcu_object_sub_path.? });

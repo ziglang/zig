@@ -1,27 +1,24 @@
 pub fn linkWithZld(
     macho_file: *MachO,
-    comp: *Compilation,
+    arena: Allocator,
     prog_node: *std.Progress.Node,
 ) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = macho_file.base.comp.gpa;
-    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
+    const target = comp.root_mod.resolved_target.result;
     const emit = macho_file.base.emit;
-
-    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
 
     const directory = emit.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{emit.sub_path});
-    const opt_zcu = macho_file.base.comp.module;
+    const opt_zcu = comp.module;
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (opt_zcu != null) blk: {
-        try macho_file.flushModule(comp, prog_node);
+        try macho_file.flushModule(arena, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, macho_file.base.zcu_object_sub_path.? });
@@ -35,8 +32,8 @@ pub fn linkWithZld(
     sub_prog_node.context.refresh();
     defer sub_prog_node.end();
 
-    const output_mode = macho_file.base.comp.config.output_mode;
-    const link_mode = macho_file.base.comp.config.link_mode;
+    const output_mode = comp.config.output_mode;
+    const link_mode = comp.config.link_mode;
     const cpu_arch = target.cpu.arch;
     const is_lib = output_mode == .Lib;
     const is_dyn_lib = link_mode == .Dynamic and is_lib;
@@ -50,7 +47,7 @@ pub fn linkWithZld(
 
     var digest: [Cache.hex_digest_len]u8 = undefined;
 
-    const objects = macho_file.base.comp.objects;
+    const objects = comp.objects;
 
     if (!macho_file.base.disable_lld_caching) {
         man = comp.cache_parent.obtain();
@@ -76,7 +73,7 @@ pub fn linkWithZld(
         man.hash.add(macho_file.headerpad_max_install_names);
         man.hash.add(macho_file.base.gc_sections);
         man.hash.add(macho_file.dead_strip_dylibs);
-        man.hash.add(macho_file.base.comp.root_mod.strip);
+        man.hash.add(comp.root_mod.strip);
         try MachO.hashAddFrameworks(&man, macho_file.frameworks);
         man.hash.addListOfBytes(macho_file.base.rpath_list);
         if (is_dyn_lib) {
@@ -406,7 +403,7 @@ pub fn linkWithZld(
         try macho_file.createDyldPrivateAtom();
         try macho_file.createTentativeDefAtoms();
 
-        if (macho_file.base.comp.config.output_mode == .Exe) {
+        if (comp.config.output_mode == .Exe) {
             const global = macho_file.getEntryPoint().?;
             if (macho_file.getSymbol(global).undf()) {
                 // We do one additional check here in case the entry point was found in one of the dylibs.

@@ -2311,7 +2311,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
 fn flush(comp: *Compilation, arena: Allocator, prog_node: *std.Progress.Node) !void {
     if (comp.bin_file) |lf| {
         // This is needed before reading the error flags.
-        lf.flush(comp, prog_node) catch |err| switch (err) {
+        lf.flush(arena, prog_node) catch |err| switch (err) {
             error.FlushFailure => {}, // error reported through link_error_flags
             error.LLDReportedFailure => {}, // error reported via lockAndParseLldStderr
             else => |e| return e,
