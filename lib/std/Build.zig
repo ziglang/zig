@@ -1551,7 +1551,7 @@ pub fn fmt(self: *Build, comptime format: []const u8, args: anytype) []u8 {
 
 pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []const u8) ![]const u8 {
     // TODO report error for ambiguous situations
-    const exe_extension = @as(Target.Query, .{}).exeFileExt();
+    const exe_extension = self.host.result.exeFileExt();
     for (self.search_prefixes.items) |search_prefix| {
         for (names) |name| {
             if (fs.path.isAbsolute(name)) {
