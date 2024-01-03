@@ -1218,7 +1218,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 // In such case, there will be only one module, so we can leave
                 // off the naming here.
                 if (module.root_source_file) |lp| {
-                    const src = lp.getPath2(b, step);
+                    const src = lp.getPath2(module.owner, step);
                     try zig_args.appendSlice(&.{ "--mod", module_cli_name, src });
                 }
             }
