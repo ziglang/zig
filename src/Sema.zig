@@ -16019,9 +16019,12 @@ fn analyzeArithmetic(
     };
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
+
     if (block.wantSafety() and want_safety and scalar_tag == .Int) {
         if (mod.backendSupportsFeature(.safety_checked_instructions)) {
-            _ = try sema.preparePanicId(block, .integer_overflow);
+            if (air_tag != air_tag_safe) {
+                _ = try sema.preparePanicId(block, .integer_overflow);
+            }
             return block.addBinOp(air_tag_safe, casted_lhs, casted_rhs);
         } else {
             const maybe_op_ov: ?Air.Inst.Tag = switch (air_tag) {
