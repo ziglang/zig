@@ -5041,6 +5041,8 @@ fn zirValidatePtrArrayInit(
         // Determine whether the value stored to this pointer is comptime-known.
 
         if (array_ty.isTuple(mod)) {
+            if (array_ty.structFieldIsComptime(i, mod))
+                try sema.resolveStructFieldInits(array_ty);
             if (try array_ty.structFieldValueComptime(mod, i)) |opv| {
                 element_vals[i] = opv.toIntern();
                 continue;
@@ -27059,6 +27061,8 @@ fn tupleFieldValByIndex(
     const mod = sema.mod;
     const field_ty = tuple_ty.structFieldType(field_index, mod);
 
+    if (tuple_ty.structFieldIsComptime(field_index, mod))
+        try sema.resolveStructFieldInits(tuple_ty);
     if (try tuple_ty.structFieldValueComptime(mod, field_index)) |default_value| {
         return Air.internedToRef(default_value.toIntern());
     }
@@ -27076,10 +27080,6 @@ fn tupleFieldValByIndex(
             }.toIntern()),
             else => unreachable,
         };
-    }
-
-    if (try tuple_ty.structFieldValueComptime(mod, field_index)) |default_val| {
-        return Air.internedToRef(default_val.toIntern());
     }
 
     try sema.requireRuntimeBlock(block, src, null);
@@ -27506,6 +27506,8 @@ fn tupleFieldPtr(
         },
     });
 
+    if (tuple_ty.structFieldIsComptime(field_index, mod))
+        try sema.resolveStructFieldInits(tuple_ty);
     if (try tuple_ty.structFieldValueComptime(mod, field_index)) |default_val| {
         return Air.internedToRef((try mod.intern(.{ .ptr = .{
             .ty = ptr_field_ty.toIntern(),
@@ -27556,6 +27558,8 @@ fn tupleField(
 
     const field_ty = tuple_ty.structFieldType(field_index, mod);
 
+    if (tuple_ty.structFieldIsComptime(field_index, mod))
+        try sema.resolveStructFieldInits(tuple_ty);
     if (try tuple_ty.structFieldValueComptime(mod, field_index)) |default_value| {
         return Air.internedToRef(default_value.toIntern()); // comptime field
     }
