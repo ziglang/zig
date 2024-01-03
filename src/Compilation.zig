@@ -1131,11 +1131,17 @@ fn addModuleTableToCacheHash(
     arena: Allocator,
     hash: *Cache.HashHelper,
     root_mod: *Package.Module,
+    main_mod: *Package.Module,
     hash_type: union(enum) { path_bytes, files: *Cache.Manifest },
 ) (error{OutOfMemory} || std.os.GetCwdError)!void {
     var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .{};
     defer seen_table.deinit(gpa);
+
+    // root_mod and main_mod may be the same pointer. In fact they usually are.
+    // However in the case of `zig test` or `zig build` they will be different,
+    // and it's possible for one to not reference the other via the import table.
     try seen_table.put(gpa, root_mod, {});
+    try seen_table.put(gpa, main_mod, {});
 
     const SortByName = struct {
         names: []const []const u8,
@@ -1612,7 +1618,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 // do want to namespace different source file names because they are
                 // likely different compilations and therefore this would be likely to
                 // cause cache hits.
-                try addModuleTableToCacheHash(gpa, arena, &hash, main_mod, .path_bytes);
+                try addModuleTableToCacheHash(gpa, arena, &hash, options.root_mod, main_mod, .path_bytes);
 
                 // In the case of incremental cache mode, this `artifact_directory`
                 // is computed based on a hash of non-linker inputs, and it is where all
@@ -2467,7 +2473,7 @@ fn addNonIncrementalStuffToCacheManifest(
     if (comp.module) |mod| {
         const main_zig_file = try mod.main_mod.root.joinString(arena, mod.main_mod.root_src_path);
         _ = try man.addFile(main_zig_file, null);
-        try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.main_mod, .{ .files = man });
+        try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.root_mod, mod.main_mod, .{ .files = man });
 
         // Synchronize with other matching comments: ZigOnlyHashStuff
         man.hash.add(comp.config.test_evented_io);
