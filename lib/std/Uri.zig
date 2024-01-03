@@ -6,13 +6,13 @@ const std = @import("std.zig");
 const testing = std.testing;
 
 scheme: []const u8,
-user: ?[]const u8,
-password: ?[]const u8,
-host: ?[]const u8,
-port: ?u16,
+user: ?[]const u8 = null,
+password: ?[]const u8 = null,
+host: ?[]const u8 = null,
+port: ?u16 = null,
 path: []const u8,
-query: ?[]const u8,
-fragment: ?[]const u8,
+query: ?[]const u8 = null,
+fragment: ?[]const u8 = null,
 
 /// Applies URI encoding and replaces all reserved characters with their respective %XX code.
 pub fn escapeString(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {

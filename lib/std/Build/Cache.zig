@@ -270,7 +270,7 @@ pub const HashHelper = struct {
                     .none => {},
                 }
             },
-            std.Build.Step.Compile.BuildId => switch (x) {
+            std.zig.BuildId => switch (x) {
                 .none, .fast, .uuid, .sha1, .md5 => hh.add(std.meta.activeTag(x)),
                 .hexstring => |hex_string| hh.addBytes(hex_string.toSlice()),
             },
@@ -304,6 +304,20 @@ pub const HashHelper = struct {
         var bin_digest: BinDigest = undefined;
         hh.hasher.final(&bin_digest);
 
+        var out_digest: [hex_digest_len]u8 = undefined;
+        _ = fmt.bufPrint(
+            &out_digest,
+            "{s}",
+            .{fmt.fmtSliceHexLower(&bin_digest)},
+        ) catch unreachable;
+        return out_digest;
+    }
+
+    pub fn oneShot(bytes: []const u8) [hex_digest_len]u8 {
+        var hasher: Hasher = hasher_init;
+        hasher.update(bytes);
+        var bin_digest: BinDigest = undefined;
+        hasher.final(&bin_digest);
         var out_digest: [hex_digest_len]u8 = undefined;
         _ = fmt.bufPrint(
             &out_digest,

@@ -94,7 +94,7 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
         .dylib_symlinks = if (options.dylib_symlinks orelse (dest_dir != null and
             artifact.isDynamicLibrary() and
             artifact.version != null and
-            artifact.target.wantSharedLibSymLinks())) .{
+            std.Build.wantSharedLibSymLinks(artifact.rootModuleTarget()))) .{
             .major_only_filename = artifact.major_only_filename.?,
             .name_only_filename = artifact.name_only_filename.?,
         } else null,

@@ -17,7 +17,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .name = "no-export",
         .root_source_file = .{ .path = "main.zig" },
         .optimize = optimize,
-        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
     });
     no_export.entry = .disabled;
     no_export.use_llvm = false;
@@ -27,7 +27,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .name = "dynamic",
         .root_source_file = .{ .path = "main.zig" },
         .optimize = optimize,
-        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
     });
     dynamic_export.entry = .disabled;
     dynamic_export.rdynamic = true;
@@ -38,10 +38,10 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .name = "force",
         .root_source_file = .{ .path = "main.zig" },
         .optimize = optimize,
-        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
     });
     force_export.entry = .disabled;
-    force_export.export_symbol_names = &.{"foo"};
+    force_export.root_module.export_symbol_names = &.{"foo"};
     force_export.use_llvm = false;
     force_export.use_lld = false;
 

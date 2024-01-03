@@ -24,7 +24,6 @@ const SpirV = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 
@@ -47,48 +46,73 @@ base: link.File,
 
 object: codegen.Object,
 
-pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
-    const self = try gpa.create(SpirV);
+pub const base_tag: link.File.Tag = .spirv;
+
+pub fn createEmpty(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*SpirV {
+    const gpa = comp.gpa;
+    const target = comp.root_mod.resolved_target.result;
+
+    const self = try arena.create(SpirV);
     self.* = .{
         .base = .{
             .tag = .spirv,
-            .options = options,
+            .comp = comp,
+            .emit = emit,
+            .gc_sections = options.gc_sections orelse false,
+            .print_gc_sections = options.print_gc_sections,
+            .stack_size = options.stack_size orelse 0,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
-            .allocator = gpa,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
         },
         .object = codegen.Object.init(gpa),
     };
     errdefer self.deinit();
 
-    // TODO: Figure out where to put all of these
-    switch (options.target.cpu.arch) {
+    switch (target.cpu.arch) {
         .spirv32, .spirv64 => {},
-        else => return error.TODOArchNotSupported,
+        else => unreachable, // Caught by Compilation.Config.resolve.
     }
 
-    switch (options.target.os.tag) {
+    switch (target.os.tag) {
         .opencl, .glsl450, .vulkan => {},
-        else => return error.TODOOsNotSupported,
+        else => unreachable, // Caught by Compilation.Config.resolve.
     }
 
-    if (options.target.abi != .none) {
-        return error.TODOAbiNotSupported;
-    }
+    assert(target.abi != .none); // Caught by Compilation.Config.resolve.
 
     return self;
 }
 
-pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*SpirV {
-    assert(options.target.ofmt == .spirv);
+pub fn open(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*SpirV {
+    const target = comp.root_mod.resolved_target.result;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
 
-    if (options.use_llvm) return error.LLVM_BackendIsTODO_ForSpirV; // TODO: LLVM Doesn't support SpirV at all.
-    if (options.use_lld) return error.LLD_LinkingIsTODO_ForSpirV; // TODO: LLD Doesn't support SpirV at all.
+    assert(!use_llvm); // Caught by Compilation.Config.resolve.
+    assert(!use_lld); // Caught by Compilation.Config.resolve.
+    assert(target.ofmt == .spirv); // Caught by Compilation.Config.resolve.
 
-    const spirv = try createEmpty(allocator, options);
+    const spirv = try createEmpty(arena, comp, emit, options);
     errdefer spirv.base.destroy();
 
     // TODO: read the file and keep valid parts instead of truncating
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
+    const file = try emit.directory.handle.createFile(emit.sub_path, .{
+        .truncate = true,
+        .read = true,
+    });
     spirv.base.file = file;
     return spirv;
 }
@@ -149,18 +173,16 @@ pub fn freeDecl(self: *SpirV, decl_index: InternPool.DeclIndex) void {
     _ = decl_index;
 }
 
-pub fn flush(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    if (build_options.have_llvm and self.base.options.use_lld) {
-        return error.LLD_LinkingIsTODO_ForSpirV; // TODO: LLD Doesn't support SpirV at all.
-    } else {
-        return self.flushModule(comp, prog_node);
-    }
+pub fn flush(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+    return self.flushModule(arena, prog_node);
 }
 
-pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
+
+    _ = arena; // Has the same lifetime as the call to Compilation.update.
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -171,7 +193,10 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
 
     const spv = &self.object.spv;
 
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
     const target = comp.getTarget();
+
     try writeCapabilities(spv, target);
     try writeMemoryModel(spv, target);
 
@@ -183,7 +208,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
     defer error_info.deinit();
 
     try error_info.appendSlice("zig_errors");
-    const module = self.base.options.module.?;
+    const module = self.base.comp.module.?;
     for (module.global_error_set.keys()) |name_nts| {
         const name = module.intern_pool.stringToSlice(name_nts);
         // Errors can contain pretty much any character - to encode them in a string we must escape
@@ -191,11 +216,11 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
         // We're using : as separator, which is a reserved character.
 
-        const escaped_name = try std.Uri.escapeString(self.base.allocator, name);
-        defer self.base.allocator.free(escaped_name);
+        const escaped_name = try std.Uri.escapeString(gpa, name);
+        defer gpa.free(escaped_name);
         try error_info.writer().print(":{s}", .{escaped_name});
     }
-    try spv.sections.debug_strings.emit(spv.gpa, .OpSourceExtension, .{
+    try spv.sections.debug_strings.emit(gpa, .OpSourceExtension, .{
         .extension = error_info.items,
     });
 
@@ -203,6 +228,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
 }
 
 fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
+    const gpa = spv.gpa;
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
         .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .GenericPointer },
@@ -212,13 +238,15 @@ fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     };
 
     for (caps) |cap| {
-        try spv.sections.capabilities.emit(spv.gpa, .OpCapability, .{
+        try spv.sections.capabilities.emit(gpa, .OpCapability, .{
             .capability = cap,
         });
     }
 }
 
 fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
+    const gpa = spv.gpa;
+
     const addressing_model = switch (target.os.tag) {
         .opencl => switch (target.cpu.arch) {
             .spirv32 => spec.AddressingModel.Physical32,
@@ -237,7 +265,7 @@ fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
     };
 
     // TODO: Put this in a proper section.
-    try spv.sections.extensions.emit(spv.gpa, .OpMemoryModel, .{
+    try spv.sections.extensions.emit(gpa, .OpMemoryModel, .{
         .addressing_model = addressing_model,
         .memory_model = memory_model,
     });

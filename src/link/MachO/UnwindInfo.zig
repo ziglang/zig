@@ -184,7 +184,8 @@ pub fn deinit(info: *UnwindInfo) void {
 pub fn scanRelocs(macho_file: *MachO) !void {
     if (macho_file.unwind_info_section_index == null) return;
 
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
     for (macho_file.objects.items, 0..) |*object, object_id| {
         const unwind_records = object.getUnwindRecords();
         for (object.exec_atoms.items) |atom_index| {
@@ -196,13 +197,13 @@ pub fn scanRelocs(macho_file: *MachO) !void {
                 if (!UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) {
                     if (getPersonalityFunctionReloc(macho_file, @as(u32, @intCast(object_id)), record_id)) |rel| {
                         // Personality function; add GOT pointer.
-                        const target = Atom.parseRelocTarget(macho_file, .{
+                        const reloc_target = Atom.parseRelocTarget(macho_file, .{
                             .object_id = @as(u32, @intCast(object_id)),
                             .rel = rel,
                             .code = mem.asBytes(&record),
                             .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
                         });
-                        try macho_file.addGotEntry(target);
+                        try macho_file.addGotEntry(reloc_target);
                     }
                 }
             }
@@ -213,7 +214,8 @@ pub fn scanRelocs(macho_file: *MachO) !void {
 pub fn collect(info: *UnwindInfo, macho_file: *MachO) !void {
     if (macho_file.unwind_info_section_index == null) return;
 
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
 
     var records = std.ArrayList(macho.compact_unwind_entry).init(info.gpa);
     defer records.deinit();
@@ -247,15 +249,15 @@ pub fn collect(info: *UnwindInfo, macho_file: *MachO) !void {
                             @as(u32, @intCast(object_id)),
                             record_id,
                         )) |rel| {
-                            const target = Atom.parseRelocTarget(macho_file, .{
+                            const reloc_target = Atom.parseRelocTarget(macho_file, .{
                                 .object_id = @as(u32, @intCast(object_id)),
                                 .rel = rel,
                                 .code = mem.asBytes(&record),
                                 .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
                             });
-                            const personality_index = info.getPersonalityFunction(target) orelse inner: {
+                            const personality_index = info.getPersonalityFunction(reloc_target) orelse inner: {
                                 const personality_index = info.personalities_count;
-                                info.personalities[personality_index] = target;
+                                info.personalities[personality_index] = reloc_target;
                                 info.personalities_count += 1;
                                 break :inner personality_index;
                             };
@@ -265,13 +267,13 @@ pub fn collect(info: *UnwindInfo, macho_file: *MachO) !void {
                         }
 
                         if (getLsdaReloc(macho_file, @as(u32, @intCast(object_id)), record_id)) |rel| {
-                            const target = Atom.parseRelocTarget(macho_file, .{
+                            const reloc_target = Atom.parseRelocTarget(macho_file, .{
                                 .object_id = @as(u32, @intCast(object_id)),
                                 .rel = rel,
                                 .code = mem.asBytes(&record),
                                 .base_offset = @as(i32, @intCast(record_id * @sizeOf(macho.compact_unwind_entry))),
                             });
-                            record.lsda = @as(u64, @bitCast(target));
+                            record.lsda = @as(u64, @bitCast(reloc_target));
                         }
                     }
                     break :blk record;
@@ -557,13 +559,14 @@ pub fn write(info: *UnwindInfo, macho_file: *MachO) !void {
     const text_sect = macho_file.sections.items(.header)[text_sect_id];
 
     var personalities: [max_personalities]u32 = undefined;
-    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = target.cpu.arch;
 
     log.debug("Personalities:", .{});
-    for (info.personalities[0..info.personalities_count], 0..) |target, i| {
-        const addr = macho_file.getGotEntryAddress(target).?;
+    for (info.personalities[0..info.personalities_count], 0..) |reloc_target, i| {
+        const addr = macho_file.getGotEntryAddress(reloc_target).?;
         personalities[i] = @as(u32, @intCast(addr - seg.vmaddr));
-        log.debug("  {d}: 0x{x} ({s})", .{ i, personalities[i], macho_file.getSymbolName(target) });
+        log.debug("  {d}: 0x{x} ({s})", .{ i, personalities[i], macho_file.getSymbolName(reloc_target) });
     }
 
     for (info.records.items) |*rec| {

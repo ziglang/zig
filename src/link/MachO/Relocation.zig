@@ -58,11 +58,12 @@ pub fn isStubTrampoline(self: Relocation, macho_file: *MachO) bool {
 }
 
 pub fn getTargetBaseAddress(self: Relocation, macho_file: *MachO) ?u64 {
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
     if (self.isStubTrampoline(macho_file)) {
         const index = macho_file.stub_table.lookup.get(self.target) orelse return null;
         const header = macho_file.sections.items(.header)[macho_file.stubs_section_index.?];
         return header.addr +
-            index * @import("stubs.zig").stubSize(macho_file.base.options.target.cpu.arch);
+            index * @import("stubs.zig").stubSize(target.cpu.arch);
     }
     switch (self.type) {
         .got, .got_page, .got_pageoff => {
@@ -84,7 +85,8 @@ pub fn getTargetBaseAddress(self: Relocation, macho_file: *MachO) ?u64 {
 }
 
 pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, code: []u8) void {
-    const arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const arch = target.cpu.arch;
     const atom = macho_file.getAtom(atom_index);
     const source_sym = atom.getSymbol(macho_file);
     const source_addr = source_sym.n_value + self.offset;

@@ -165,9 +165,6 @@ fn printLiteral(out: anytype, val: anytype, indent: u8) !void {
     }
 }
 
-/// deprecated: use `addOptionPath`
-pub const addOptionFileSource = addOptionPath;
-
 /// The value is the path in the cache dir.
 /// Adds a dependency automatically.
 pub fn addOptionPath(
@@ -189,8 +186,7 @@ pub fn addOptionArtifact(self: *Options, name: []const u8, artifact: *Step.Compi
 
 pub fn createModule(self: *Options) *std.Build.Module {
     return self.step.owner.createModule(.{
-        .source_file = self.getOutput(),
-        .dependencies = &.{},
+        .root_source_file = self.getOutput(),
     });
 }
 
@@ -298,7 +294,10 @@ test Options {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+    const host: std.Build.ResolvedTarget = .{
+        .query = .{},
+        .result = try std.zig.system.resolveTargetQuery(.{}),
+    };
 
     var cache: std.Build.Cache = .{
         .gpa = arena.allocator(),

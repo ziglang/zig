@@ -15,9 +15,6 @@ pub const Style = union(enum) {
     /// Start with nothing, like blank, and output a nasm .asm file.
     nasm,
 
-    /// deprecated: use `getPath`
-    pub const getFileSource = getPath;
-
     pub fn getPath(style: Style) ?std.Build.LazyPath {
         switch (style) {
             .autoconf, .cmake => |s| return s,
@@ -106,9 +103,6 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
 pub fn addValues(self: *ConfigHeader, values: anytype) void {
     return addValuesInner(self, values) catch @panic("OOM");
 }
-
-/// deprecated: use `getOutput`
-pub const getFileSource = getOutput;
 
 pub fn getOutput(self: *ConfigHeader) std.Build.LazyPath {
     return .{ .generated = &self.output_file };

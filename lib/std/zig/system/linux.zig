@@ -5,10 +5,7 @@ const io = std.io;
 const fs = std.fs;
 const fmt = std.fmt;
 const testing = std.testing;
-
 const Target = std.Target;
-const CrossTarget = std.zig.CrossTarget;
-
 const assert = std.debug.assert;
 
 const SparcCpuinfoImpl = struct {

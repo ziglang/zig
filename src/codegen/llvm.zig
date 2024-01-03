@@ -15,6 +15,7 @@ const link = @import("../link.zig");
 const Compilation = @import("../Compilation.zig");
 const build_options = @import("build_options");
 const Module = @import("../Module.zig");
+const Zcu = Module;
 const InternPool = @import("../InternPool.zig");
 const Package = @import("../Package.zig");
 const TypedValue = @import("../TypedValue.zig");
@@ -821,7 +822,7 @@ pub const Object = struct {
     type_map: TypeMap,
     di_type_map: DITypeMap,
     /// The LLVM global table which holds the names corresponding to Zig errors.
-    /// Note that the values are not added until flushModule, when all errors in
+    /// Note that the values are not added until `emit`, when all errors in
     /// the compilation are known.
     error_name_table: Builder.Variable.Index,
     /// This map is usually very close to empty. It tracks only the cases when a
@@ -849,27 +850,25 @@ pub const Object = struct {
 
     pub const TypeMap = std.AutoHashMapUnmanaged(InternPool.Index, Builder.Type);
 
-    /// This is an ArrayHashMap as opposed to a HashMap because in `flushModule` we
+    /// This is an ArrayHashMap as opposed to a HashMap because in `emit` we
     /// want to iterate over it while adding entries to it.
     pub const DITypeMap = std.AutoArrayHashMapUnmanaged(InternPool.Index, AnnotatedDITypePtr);
 
-    pub fn create(gpa: Allocator, options: link.Options) !*Object {
-        const obj = try gpa.create(Object);
-        errdefer gpa.destroy(obj);
-        obj.* = try Object.init(gpa, options);
-        return obj;
-    }
-
-    pub fn init(gpa: Allocator, options: link.Options) !Object {
-        const llvm_target_triple = try targetTriple(gpa, options.target);
-        defer gpa.free(llvm_target_triple);
+    pub fn create(arena: Allocator, comp: *Compilation) !*Object {
+        if (build_options.only_c) unreachable;
+        const gpa = comp.gpa;
+        const target = comp.root_mod.resolved_target.result;
+        const llvm_target_triple = try targetTriple(arena, target);
+        const strip = comp.root_mod.strip;
+        const optimize_mode = comp.root_mod.optimize_mode;
+        const pic = comp.root_mod.pic;
 
         var builder = try Builder.init(.{
             .allocator = gpa,
-            .use_lib_llvm = options.use_lib_llvm,
-            .strip = options.strip or !options.use_lib_llvm, // TODO
-            .name = options.root_name,
-            .target = options.target,
+            .use_lib_llvm = comp.config.use_lib_llvm,
+            .strip = strip or !comp.config.use_lib_llvm, // TODO
+            .name = comp.root_name,
+            .target = target,
             .triple = llvm_target_triple,
         });
         errdefer builder.deinit();
@@ -877,10 +876,11 @@ pub const Object = struct {
         var target_machine: if (build_options.have_llvm) *llvm.TargetMachine else void = undefined;
         var target_data: if (build_options.have_llvm) *llvm.TargetData else void = undefined;
         if (builder.useLibLlvm()) {
-            if (!options.strip) {
-                switch (options.target.ofmt) {
-                    .coff => builder.llvm.module.?.addModuleCodeViewFlag(),
-                    else => builder.llvm.module.?.addModuleDebugInfoFlag(options.dwarf_format == std.dwarf.Format.@"64"),
+            debug_info: {
+                switch (comp.config.debug_format) {
+                    .strip => break :debug_info,
+                    .code_view => builder.llvm.module.?.addModuleCodeViewFlag(),
+                    .dwarf => |f| builder.llvm.module.?.addModuleDebugInfoFlag(f == .@"64"),
                 }
                 builder.llvm.di_builder = builder.llvm.module.?.createDIBuilder(true);
 
@@ -898,26 +898,29 @@ pub const Object = struct {
                 // very location dependent.
                 // TODO: the only concern I have with this is WASI as either host or target, should
                 // we leave the paths as relative then?
+                // TODO: This is totally wrong. In dwarf, paths are encoded as relative to
+                // a particular directory, and then the directory path is specified elsewhere.
+                // In the compiler frontend we have it stored correctly in this
+                // way already, but here we throw all that sweet information
+                // into the garbage can by converting into absolute paths. What
+                // a terrible tragedy.
                 const compile_unit_dir_z = blk: {
-                    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-                    if (options.module) |mod| m: {
-                        const d = try mod.root_mod.root.joinStringZ(builder.gpa, "");
+                    if (comp.module) |zcu| m: {
+                        const d = try zcu.root_mod.root.joinStringZ(arena, "");
                         if (d.len == 0) break :m;
                         if (std.fs.path.isAbsolute(d)) break :blk d;
-                        const abs = std.fs.realpath(d, &buf) catch break :blk d;
-                        builder.gpa.free(d);
-                        break :blk try builder.gpa.dupeZ(u8, abs);
+                        const realpath = std.fs.realpathAlloc(arena, d) catch break :blk d;
+                        break :blk try arena.dupeZ(u8, realpath);
                     }
-                    const cwd = try std.process.getCwd(&buf);
-                    break :blk try builder.gpa.dupeZ(u8, cwd);
+                    const cwd = try std.process.getCwdAlloc(arena);
+                    break :blk try arena.dupeZ(u8, cwd);
                 };
-                defer builder.gpa.free(compile_unit_dir_z);
 
                 builder.llvm.di_compile_unit = builder.llvm.di_builder.?.createCompileUnit(
                     DW.LANG.C99,
-                    builder.llvm.di_builder.?.createFile(options.root_name, compile_unit_dir_z),
+                    builder.llvm.di_builder.?.createFile(comp.root_name, compile_unit_dir_z),
                     producer.slice(&builder).?,
-                    options.optimize_mode != .Debug,
+                    optimize_mode != .Debug,
                     "", // flags
                     0, // runtime version
                     "", // split name
@@ -926,19 +929,19 @@ pub const Object = struct {
                 );
             }
 
-            const opt_level: llvm.CodeGenOptLevel = if (options.optimize_mode == .Debug)
+            const opt_level: llvm.CodeGenOptLevel = if (optimize_mode == .Debug)
                 .None
             else
                 .Aggressive;
 
-            const reloc_mode: llvm.RelocMode = if (options.pic)
+            const reloc_mode: llvm.RelocMode = if (pic)
                 .PIC
-            else if (options.link_mode == .Dynamic)
+            else if (comp.config.link_mode == .Dynamic)
                 llvm.RelocMode.DynamicNoPIC
             else
                 .Static;
 
-            const code_model: llvm.CodeModel = switch (options.machine_code_model) {
+            const code_model: llvm.CodeModel = switch (comp.root_mod.code_model) {
                 .default => .Default,
                 .tiny => .Tiny,
                 .small => .Small,
@@ -953,15 +956,15 @@ pub const Object = struct {
             target_machine = llvm.TargetMachine.create(
                 builder.llvm.target.?,
                 builder.target_triple.slice(&builder).?,
-                if (options.target.cpu.model.llvm_name) |s| s.ptr else null,
-                options.llvm_cpu_features,
+                if (target.cpu.model.llvm_name) |s| s.ptr else null,
+                comp.root_mod.resolved_target.llvm_cpu_features.?,
                 opt_level,
                 reloc_mode,
                 code_model,
-                options.function_sections,
-                options.data_sections,
+                comp.function_sections,
+                comp.data_sections,
                 float_abi,
-                if (target_util.llvmMachineAbi(options.target)) |s| s.ptr else null,
+                if (target_util.llvmMachineAbi(target)) |s| s.ptr else null,
             );
             errdefer target_machine.dispose();
 
@@ -970,15 +973,15 @@ pub const Object = struct {
 
             builder.llvm.module.?.setModuleDataLayout(target_data);
 
-            if (options.pic) builder.llvm.module.?.setModulePICLevel();
-            if (options.pie) builder.llvm.module.?.setModulePIELevel();
+            if (pic) builder.llvm.module.?.setModulePICLevel();
+            if (comp.config.pie) builder.llvm.module.?.setModulePIELevel();
             if (code_model != .Default) builder.llvm.module.?.setModuleCodeModel(code_model);
 
-            if (options.opt_bisect_limit >= 0) {
-                builder.llvm.context.setOptBisectLimit(std.math.lossyCast(c_int, options.opt_bisect_limit));
+            if (comp.llvm_opt_bisect_limit >= 0) {
+                builder.llvm.context.setOptBisectLimit(comp.llvm_opt_bisect_limit);
             }
 
-            builder.data_layout = try builder.fmt("{}", .{DataLayoutBuilder{ .target = options.target }});
+            builder.data_layout = try builder.fmt("{}", .{DataLayoutBuilder{ .target = target }});
             if (std.debug.runtime_safety) {
                 const rep = target_data.stringRep();
                 defer llvm.disposeMessage(rep);
@@ -989,16 +992,17 @@ pub const Object = struct {
             }
         }
 
-        return .{
+        const obj = try arena.create(Object);
+        obj.* = .{
             .gpa = gpa,
             .builder = builder,
-            .module = options.module.?,
+            .module = comp.module.?,
             .di_map = .{},
             .di_builder = if (builder.useLibLlvm()) builder.llvm.di_builder else null, // TODO
             .di_compile_unit = if (builder.useLibLlvm()) builder.llvm.di_compile_unit else null,
             .target_machine = target_machine,
             .target_data = target_data,
-            .target = options.target,
+            .target = target,
             .decl_map = .{},
             .anon_decl_map = .{},
             .named_enum_map = .{},
@@ -1009,9 +1013,11 @@ pub const Object = struct {
             .null_opt_usize = .no_init,
             .struct_field_map = .{},
         };
+        return obj;
     }
 
-    pub fn deinit(self: *Object, gpa: Allocator) void {
+    pub fn deinit(self: *Object) void {
+        const gpa = self.gpa;
         self.di_map.deinit(gpa);
         self.di_type_map.deinit(gpa);
         if (self.builder.useLibLlvm()) {
@@ -1026,22 +1032,6 @@ pub const Object = struct {
         self.builder.deinit();
         self.struct_field_map.deinit(gpa);
         self.* = undefined;
-    }
-
-    pub fn destroy(self: *Object, gpa: Allocator) void {
-        self.deinit(gpa);
-        gpa.destroy(self);
-    }
-
-    fn locPath(
-        arena: Allocator,
-        opt_loc: ?Compilation.EmitLoc,
-        cache_directory: Compilation.Directory,
-    ) !?[*:0]u8 {
-        const loc = opt_loc orelse return null;
-        const directory = loc.directory orelse cache_directory;
-        const slice = try directory.joinZ(arena, &[_][]const u8{loc.basename});
-        return slice.ptr;
     }
 
     fn genErrorNameTable(o: *Object) Allocator.Error!void {
@@ -1182,12 +1172,22 @@ pub const Object = struct {
         }
     }
 
-    pub fn flushModule(self: *Object, comp: *Compilation, prog_node: *std.Progress.Node) !void {
-        var sub_prog_node = prog_node.start("LLVM Emit Object", 0);
-        sub_prog_node.activate();
-        sub_prog_node.context.refresh();
-        defer sub_prog_node.end();
+    pub const EmitOptions = struct {
+        pre_ir_path: ?[]const u8,
+        pre_bc_path: ?[]const u8,
+        bin_path: ?[*:0]const u8,
+        asm_path: ?[*:0]const u8,
+        post_ir_path: ?[*:0]const u8,
+        post_bc_path: ?[*:0]const u8,
 
+        is_debug: bool,
+        is_small: bool,
+        time_report: bool,
+        sanitize_thread: bool,
+        lto: bool,
+    };
+
+    pub fn emit(self: *Object, options: EmitOptions) !void {
         try self.resolveExportExternCollisions();
         try self.genErrorNameTable();
         try self.genCmpLtErrorsLenFunction();
@@ -1213,7 +1213,7 @@ pub const Object = struct {
             dib.finalize();
         }
 
-        if (comp.verbose_llvm_ir) |path| {
+        if (options.pre_ir_path) |path| {
             if (std.mem.eql(u8, path, "-")) {
                 self.builder.dump();
             } else {
@@ -1221,91 +1221,72 @@ pub const Object = struct {
             }
         }
 
-        if (comp.verbose_llvm_bc) |path| _ = try self.builder.writeBitcodeToFile(path);
-
-        var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
-        defer arena_allocator.deinit();
-        const arena = arena_allocator.allocator();
-
-        const mod = comp.bin_file.options.module.?;
-        const cache_dir = mod.zig_cache_artifact_directory;
+        if (options.pre_bc_path) |path| _ = try self.builder.writeBitcodeToFile(path);
 
         if (std.debug.runtime_safety and !try self.builder.verify()) {
-            if (try locPath(arena, comp.emit_llvm_ir, cache_dir)) |emit_llvm_ir_path|
-                _ = self.builder.printToFileZ(emit_llvm_ir_path);
             @panic("LLVM module verification failed");
         }
 
-        var emit_bin_path: ?[*:0]const u8 = if (comp.bin_file.options.emit) |emit|
-            try emit.basenamePath(arena, try arena.dupeZ(u8, comp.bin_file.intermediary_basename.?))
-        else
-            null;
-
-        const emit_asm_path = try locPath(arena, comp.emit_asm, cache_dir);
-        var emit_llvm_ir_path = try locPath(arena, comp.emit_llvm_ir, cache_dir);
-        const emit_llvm_bc_path = try locPath(arena, comp.emit_llvm_bc, cache_dir);
-
-        const emit_asm_msg = emit_asm_path orelse "(none)";
-        const emit_bin_msg = emit_bin_path orelse "(none)";
-        const emit_llvm_ir_msg = emit_llvm_ir_path orelse "(none)";
-        const emit_llvm_bc_msg = emit_llvm_bc_path orelse "(none)";
+        const emit_asm_msg = options.asm_path orelse "(none)";
+        const emit_bin_msg = options.bin_path orelse "(none)";
+        const post_llvm_ir_msg = options.post_ir_path orelse "(none)";
+        const post_llvm_bc_msg = options.post_bc_path orelse "(none)";
         log.debug("emit LLVM object asm={s} bin={s} ir={s} bc={s}", .{
-            emit_asm_msg, emit_bin_msg, emit_llvm_ir_msg, emit_llvm_bc_msg,
+            emit_asm_msg, emit_bin_msg, post_llvm_ir_msg, post_llvm_bc_msg,
         });
 
-        if (emit_asm_path == null and emit_bin_path == null and
-            emit_llvm_ir_path == null and emit_llvm_bc_path == null) return;
+        if (options.asm_path == null and options.bin_path == null and
+            options.post_ir_path == null and options.post_bc_path == null) return;
 
-        if (!self.builder.useLibLlvm()) {
-            log.err("emitting without libllvm not implemented", .{});
-            return error.FailedToEmit;
-        }
+        if (!self.builder.useLibLlvm()) unreachable; // caught in Compilation.Config.resolve
 
         // Unfortunately, LLVM shits the bed when we ask for both binary and assembly.
         // So we call the entire pipeline multiple times if this is requested.
         var error_message: [*:0]const u8 = undefined;
-        if (emit_asm_path != null and emit_bin_path != null) {
+        var emit_bin_path = options.bin_path;
+        var post_ir_path = options.post_ir_path;
+        if (options.asm_path != null and options.bin_path != null) {
             if (self.target_machine.emitToFile(
                 self.builder.llvm.module.?,
                 &error_message,
-                comp.bin_file.options.optimize_mode == .Debug,
-                comp.bin_file.options.optimize_mode == .ReleaseSmall,
-                comp.time_report,
-                comp.bin_file.options.tsan,
-                comp.bin_file.options.lto,
+                options.is_debug,
+                options.is_small,
+                options.time_report,
+                options.sanitize_thread,
+                options.lto,
                 null,
                 emit_bin_path,
-                emit_llvm_ir_path,
+                post_ir_path,
                 null,
             )) {
                 defer llvm.disposeMessage(error_message);
 
                 log.err("LLVM failed to emit bin={s} ir={s}: {s}", .{
-                    emit_bin_msg, emit_llvm_ir_msg, error_message,
+                    emit_bin_msg, post_llvm_ir_msg, error_message,
                 });
                 return error.FailedToEmit;
             }
             emit_bin_path = null;
-            emit_llvm_ir_path = null;
+            post_ir_path = null;
         }
 
         if (self.target_machine.emitToFile(
             self.builder.llvm.module.?,
             &error_message,
-            comp.bin_file.options.optimize_mode == .Debug,
-            comp.bin_file.options.optimize_mode == .ReleaseSmall,
-            comp.time_report,
-            comp.bin_file.options.tsan,
-            comp.bin_file.options.lto,
-            emit_asm_path,
+            options.is_debug,
+            options.is_small,
+            options.time_report,
+            options.sanitize_thread,
+            options.lto,
+            options.asm_path,
             emit_bin_path,
-            emit_llvm_ir_path,
-            emit_llvm_bc_path,
+            post_ir_path,
+            options.post_bc_path,
         )) {
             defer llvm.disposeMessage(error_message);
 
             log.err("LLVM failed to emit asm={s} bin={s} ir={s} bc={s}: {s}", .{
-                emit_asm_msg,  emit_bin_msg, emit_llvm_ir_msg, emit_llvm_bc_msg,
+                emit_asm_msg,  emit_bin_msg, post_llvm_ir_msg, post_llvm_bc_msg,
                 error_message,
             });
             return error.FailedToEmit;
@@ -1314,17 +1295,19 @@ pub const Object = struct {
 
     pub fn updateFunc(
         o: *Object,
-        mod: *Module,
+        zcu: *Module,
         func_index: InternPool.Index,
         air: Air,
         liveness: Liveness,
     ) !void {
-        const func = mod.funcInfo(func_index);
+        const func = zcu.funcInfo(func_index);
         const decl_index = func.owner_decl;
-        const decl = mod.declPtr(decl_index);
-        const fn_info = mod.typeToFunc(decl.ty).?;
-        const target = mod.getTarget();
-        const ip = &mod.intern_pool;
+        const decl = zcu.declPtr(decl_index);
+        const namespace = zcu.namespacePtr(decl.src_namespace);
+        const owner_mod = namespace.file_scope.mod;
+        const fn_info = zcu.typeToFunc(decl.ty).?;
+        const target = zcu.getTarget();
+        const ip = &zcu.intern_pool;
 
         var dg: DeclGen = .{
             .object = o,
@@ -1359,7 +1342,7 @@ pub const Object = struct {
         }
 
         // TODO: disable this if safety is off for the function scope
-        const ssp_buf_size = mod.comp.bin_file.options.stack_protector;
+        const ssp_buf_size = owner_mod.stack_protector;
         if (ssp_buf_size != 0) {
             try attributes.addFnAttr(.sspstrong, &o.builder);
             try attributes.addFnAttr(.{ .string = .{
@@ -1369,7 +1352,7 @@ pub const Object = struct {
         }
 
         // TODO: disable this if safety is off for the function scope
-        if (mod.comp.bin_file.options.stack_check) {
+        if (owner_mod.stack_check) {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("probe-stack"),
                 .value = try o.builder.string("__zig_probe_stack"),
@@ -1392,20 +1375,22 @@ pub const Object = struct {
         var llvm_arg_i: u32 = 0;
 
         // This gets the LLVM values from the function and stores them in `dg.args`.
-        const sret = firstParamSRet(fn_info, mod);
+        const sret = firstParamSRet(fn_info, zcu);
         const ret_ptr: Builder.Value = if (sret) param: {
             const param = wip.arg(llvm_arg_i);
             llvm_arg_i += 1;
             break :param param;
         } else .none;
 
-        if (ccAbiPromoteInt(fn_info.cc, mod, Type.fromInterned(fn_info.return_type))) |s| switch (s) {
+        if (ccAbiPromoteInt(fn_info.cc, zcu, Type.fromInterned(fn_info.return_type))) |s| switch (s) {
             .signed => try attributes.addRetAttr(.signext, &o.builder),
             .unsigned => try attributes.addRetAttr(.zeroext, &o.builder),
         };
 
-        const err_return_tracing = Type.fromInterned(fn_info.return_type).isError(mod) and
-            mod.comp.bin_file.options.error_return_tracing;
+        const comp = zcu.comp;
+
+        const err_return_tracing = Type.fromInterned(fn_info.return_type).isError(zcu) and
+            comp.config.any_error_tracing;
 
         const err_ret_trace: Builder.Value = if (err_return_tracing) param: {
             const param = wip.arg(llvm_arg_i);
@@ -1433,8 +1418,8 @@ pub const Object = struct {
                         const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[param_index]);
                         const param = wip.arg(llvm_arg_i);
 
-                        if (isByRef(param_ty, mod)) {
-                            const alignment = param_ty.abiAlignment(mod).toLlvm();
+                        if (isByRef(param_ty, zcu)) {
+                            const alignment = param_ty.abiAlignment(zcu).toLlvm();
                             const param_llvm_ty = param.typeOfWip(&wip);
                             const arg_ptr = try buildAllocaInner(&wip, false, param_llvm_ty, alignment, target);
                             _ = try wip.store(.normal, param, arg_ptr, alignment);
@@ -1450,12 +1435,12 @@ pub const Object = struct {
                         const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
                         const param_llvm_ty = try o.lowerType(param_ty);
                         const param = wip.arg(llvm_arg_i);
-                        const alignment = param_ty.abiAlignment(mod).toLlvm();
+                        const alignment = param_ty.abiAlignment(zcu).toLlvm();
 
                         try o.addByRefParamAttrs(&attributes, llvm_arg_i, alignment, it.byval_attr, param_llvm_ty);
                         llvm_arg_i += 1;
 
-                        if (isByRef(param_ty, mod)) {
+                        if (isByRef(param_ty, zcu)) {
                             args.appendAssumeCapacity(param);
                         } else {
                             args.appendAssumeCapacity(try wip.load(.normal, param_llvm_ty, param, alignment, ""));
@@ -1465,12 +1450,12 @@ pub const Object = struct {
                         const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
                         const param_llvm_ty = try o.lowerType(param_ty);
                         const param = wip.arg(llvm_arg_i);
-                        const alignment = param_ty.abiAlignment(mod).toLlvm();
+                        const alignment = param_ty.abiAlignment(zcu).toLlvm();
 
                         try attributes.addParamAttr(llvm_arg_i, .noundef, &o.builder);
                         llvm_arg_i += 1;
 
-                        if (isByRef(param_ty, mod)) {
+                        if (isByRef(param_ty, zcu)) {
                             args.appendAssumeCapacity(param);
                         } else {
                             args.appendAssumeCapacity(try wip.load(.normal, param_llvm_ty, param, alignment, ""));
@@ -1483,11 +1468,11 @@ pub const Object = struct {
                         llvm_arg_i += 1;
 
                         const param_llvm_ty = try o.lowerType(param_ty);
-                        const alignment = param_ty.abiAlignment(mod).toLlvm();
+                        const alignment = param_ty.abiAlignment(zcu).toLlvm();
                         const arg_ptr = try buildAllocaInner(&wip, false, param_llvm_ty, alignment, target);
                         _ = try wip.store(.normal, param, arg_ptr, alignment);
 
-                        args.appendAssumeCapacity(if (isByRef(param_ty, mod))
+                        args.appendAssumeCapacity(if (isByRef(param_ty, zcu))
                             arg_ptr
                         else
                             try wip.load(.normal, param_llvm_ty, arg_ptr, alignment, ""));
@@ -1495,14 +1480,14 @@ pub const Object = struct {
                     .slice => {
                         assert(!it.byval_attr);
                         const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
-                        const ptr_info = param_ty.ptrInfo(mod);
+                        const ptr_info = param_ty.ptrInfo(zcu);
 
                         if (math.cast(u5, it.zig_index - 1)) |i| {
                             if (@as(u1, @truncate(fn_info.noalias_bits >> i)) != 0) {
                                 try attributes.addParamAttr(llvm_arg_i, .@"noalias", &o.builder);
                             }
                         }
-                        if (param_ty.zigTypeTag(mod) != .Optional) {
+                        if (param_ty.zigTypeTag(zcu) != .Optional) {
                             try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
                         }
                         if (ptr_info.flags.is_const) {
@@ -1511,7 +1496,7 @@ pub const Object = struct {
                         const elem_align = (if (ptr_info.flags.alignment != .none)
                             @as(InternPool.Alignment, ptr_info.flags.alignment)
                         else
-                            Type.fromInterned(ptr_info.child).abiAlignment(mod).max(.@"1")).toLlvm();
+                            Type.fromInterned(ptr_info.child).abiAlignment(zcu).max(.@"1")).toLlvm();
                         try attributes.addParamAttr(llvm_arg_i, .{ .@"align" = elem_align }, &o.builder);
                         const ptr_param = wip.arg(llvm_arg_i);
                         llvm_arg_i += 1;
@@ -1528,7 +1513,7 @@ pub const Object = struct {
                         const field_types = it.types_buffer[0..it.types_len];
                         const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
                         const param_llvm_ty = try o.lowerType(param_ty);
-                        const param_alignment = param_ty.abiAlignment(mod).toLlvm();
+                        const param_alignment = param_ty.abiAlignment(zcu).toLlvm();
                         const arg_ptr = try buildAllocaInner(&wip, false, param_llvm_ty, param_alignment, target);
                         const llvm_ty = try o.builder.structType(.normal, field_types);
                         for (0..field_types.len) |field_i| {
@@ -1540,7 +1525,7 @@ pub const Object = struct {
                             _ = try wip.store(.normal, param, field_ptr, alignment);
                         }
 
-                        const is_by_ref = isByRef(param_ty, mod);
+                        const is_by_ref = isByRef(param_ty, zcu);
                         args.appendAssumeCapacity(if (is_by_ref)
                             arg_ptr
                         else
@@ -1558,11 +1543,11 @@ pub const Object = struct {
                         const param = wip.arg(llvm_arg_i);
                         llvm_arg_i += 1;
 
-                        const alignment = param_ty.abiAlignment(mod).toLlvm();
+                        const alignment = param_ty.abiAlignment(zcu).toLlvm();
                         const arg_ptr = try buildAllocaInner(&wip, false, param_llvm_ty, alignment, target);
                         _ = try wip.store(.normal, param, arg_ptr, alignment);
 
-                        args.appendAssumeCapacity(if (isByRef(param_ty, mod))
+                        args.appendAssumeCapacity(if (isByRef(param_ty, zcu))
                             arg_ptr
                         else
                             try wip.load(.normal, param_llvm_ty, arg_ptr, alignment, ""));
@@ -1573,11 +1558,11 @@ pub const Object = struct {
                         const param = wip.arg(llvm_arg_i);
                         llvm_arg_i += 1;
 
-                        const alignment = param_ty.abiAlignment(mod).toLlvm();
+                        const alignment = param_ty.abiAlignment(zcu).toLlvm();
                         const arg_ptr = try buildAllocaInner(&wip, false, param_llvm_ty, alignment, target);
                         _ = try wip.store(.normal, param, arg_ptr, alignment);
 
-                        args.appendAssumeCapacity(if (isByRef(param_ty, mod))
+                        args.appendAssumeCapacity(if (isByRef(param_ty, zcu))
                             arg_ptr
                         else
                             try wip.load(.normal, param_llvm_ty, arg_ptr, alignment, ""));
@@ -1592,11 +1577,11 @@ pub const Object = struct {
         var di_scope: ?if (build_options.have_llvm) *llvm.DIScope else noreturn = null;
 
         if (o.di_builder) |dib| {
-            di_file = try o.getDIFile(gpa, mod.namespacePtr(decl.src_namespace).file_scope);
+            di_file = try o.getDIFile(gpa, namespace.file_scope);
 
             const line_number = decl.src_line + 1;
-            const is_internal_linkage = decl.val.getExternFunc(mod) == null and
-                !mod.decl_exports.contains(decl_index);
+            const is_internal_linkage = decl.val.getExternFunc(zcu) == null and
+                !zcu.decl_exports.contains(decl_index);
             const noret_bit: c_uint = if (fn_info.return_type == .noreturn_type)
                 llvm.DIFlags.NoReturn
             else
@@ -1613,7 +1598,7 @@ pub const Object = struct {
                 true, // is definition
                 line_number + func.lbrace_line, // scope line
                 llvm.DIFlags.StaticMember | noret_bit,
-                mod.comp.bin_file.options.optimize_mode != .Debug,
+                owner_mod.optimize_mode != .Debug,
                 null, // decl_subprogram
             );
             try o.di_map.put(gpa, decl, subprogram.toNode());
@@ -1634,7 +1619,7 @@ pub const Object = struct {
             .arg_index = 0,
             .func_inst_table = .{},
             .blocks = .{},
-            .sync_scope = if (mod.comp.bin_file.options.single_threaded) .singlethread else .system,
+            .sync_scope = if (owner_mod.single_threaded) .singlethread else .system,
             .di_scope = di_scope,
             .di_file = di_file,
             .base_line = dg.decl.src_line,
@@ -1648,7 +1633,7 @@ pub const Object = struct {
         fg.genBody(air.getMainBody()) catch |err| switch (err) {
             error.CodegenFail => {
                 decl.analysis = .codegen_failure;
-                try mod.failed_decls.put(mod.gpa, decl_index, dg.err_msg.?);
+                try zcu.failed_decls.put(zcu.gpa, decl_index, dg.err_msg.?);
                 dg.err_msg = null;
                 return;
             },
@@ -1657,7 +1642,7 @@ pub const Object = struct {
 
         try fg.wip.finish();
 
-        try o.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+        try o.updateExports(zcu, .{ .decl_index = decl_index }, zcu.getDeclExports(decl_index));
     }
 
     pub fn updateDecl(self: *Object, module: *Module, decl_index: InternPool.DeclIndex) !void {
@@ -1695,6 +1680,7 @@ pub const Object = struct {
         // because we call `updateExports` at the end of `updateFunc` and `updateDecl`.
         const global_index = self.decl_map.get(decl_index) orelse return;
         const decl = mod.declPtr(decl_index);
+        const comp = mod.comp;
         if (decl.isExtern(mod)) {
             const decl_name = decl_name: {
                 const decl_name = mod.intern_pool.stringToSlice(decl.name);
@@ -1719,7 +1705,8 @@ pub const Object = struct {
             try global_index.rename(decl_name, &self.builder);
             global_index.setLinkage(.external, &self.builder);
             global_index.setUnnamedAddr(.default, &self.builder);
-            if (mod.wantDllExports()) global_index.setDllStorageClass(.default, &self.builder);
+            if (comp.config.dll_export_fns)
+                global_index.setDllStorageClass(.default, &self.builder);
             if (self.di_map.get(decl)) |di_node| {
                 const decl_name_slice = decl_name.slice(&self.builder).?;
                 if (try decl.isFunction(mod)) {
@@ -1785,11 +1772,14 @@ pub const Object = struct {
             );
             try global_index.rename(fqn, &self.builder);
             global_index.setLinkage(.internal, &self.builder);
-            if (mod.wantDllExports()) global_index.setDllStorageClass(.default, &self.builder);
+            if (comp.config.dll_export_fns)
+                global_index.setDllStorageClass(.default, &self.builder);
             global_index.setUnnamedAddr(.unnamed_addr, &self.builder);
             if (decl.val.getVariable(mod)) |decl_var| {
+                const decl_namespace = mod.namespacePtr(decl.src_namespace);
+                const single_threaded = decl_namespace.file_scope.mod.single_threaded;
                 global_index.ptrConst(&self.builder).kind.variable.setThreadLocal(
-                    if (decl_var.is_threadlocal and !mod.comp.bin_file.options.single_threaded)
+                    if (decl_var.is_threadlocal and !single_threaded)
                         .generaldynamic
                     else
                         .default,
@@ -1842,7 +1832,9 @@ pub const Object = struct {
         exports: []const *Module.Export,
     ) link.File.UpdateExportsError!void {
         global_index.setUnnamedAddr(.default, &o.builder);
-        if (mod.wantDllExports()) global_index.setDllStorageClass(.dllexport, &o.builder);
+        const comp = mod.comp;
+        if (comp.config.dll_export_fns)
+            global_index.setDllStorageClass(.dllexport, &o.builder);
         global_index.setLinkage(switch (exports[0].opts.linkage) {
             .Internal => unreachable,
             .Strong => .external,
@@ -2821,7 +2813,7 @@ pub const Object = struct {
                 }
 
                 if (Type.fromInterned(fn_info.return_type).isError(mod) and
-                    o.module.comp.bin_file.options.error_return_tracing)
+                    o.module.comp.config.any_error_tracing)
                 {
                     const ptr_ty = try mod.singleMutPtrType(try o.getStackTraceType());
                     try param_di_types.append(try o.lowerDebugType(ptr_ty, .full));
@@ -2899,7 +2891,7 @@ pub const Object = struct {
     fn getStackTraceType(o: *Object) Allocator.Error!Type {
         const mod = o.module;
 
-        const std_mod = mod.main_mod.deps.get("std").?;
+        const std_mod = mod.std_mod;
         const std_file = (mod.importPkg(std_mod) catch unreachable).file;
 
         const builtin_str = try mod.intern_pool.getOrPutString(mod.gpa, "builtin");
@@ -2934,22 +2926,24 @@ pub const Object = struct {
         o: *Object,
         decl_index: InternPool.DeclIndex,
     ) Allocator.Error!Builder.Function.Index {
-        const mod = o.module;
-        const ip = &mod.intern_pool;
+        const zcu = o.module;
+        const ip = &zcu.intern_pool;
         const gpa = o.gpa;
-        const decl = mod.declPtr(decl_index);
+        const decl = zcu.declPtr(decl_index);
+        const namespace = zcu.namespacePtr(decl.src_namespace);
+        const owner_mod = namespace.file_scope.mod;
         const zig_fn_type = decl.ty;
         const gop = try o.decl_map.getOrPut(gpa, decl_index);
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.function;
 
         assert(decl.has_tv);
-        const fn_info = mod.typeToFunc(zig_fn_type).?;
-        const target = mod.getTarget();
-        const sret = firstParamSRet(fn_info, mod);
+        const fn_info = zcu.typeToFunc(zig_fn_type).?;
+        const target = owner_mod.resolved_target.result;
+        const sret = firstParamSRet(fn_info, zcu);
 
         const function_index = try o.builder.addFunction(
             try o.lowerType(zig_fn_type),
-            try o.builder.string(ip.stringToSlice(try decl.getFullyQualifiedName(mod))),
+            try o.builder.string(ip.stringToSlice(try decl.getFullyQualifiedName(zcu))),
             toLlvmAddressSpace(decl.@"addrspace", target),
         );
         gop.value_ptr.* = function_index.ptrConst(&o.builder).global;
@@ -2957,7 +2951,7 @@ pub const Object = struct {
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
 
-        const is_extern = decl.isExtern(mod);
+        const is_extern = decl.isExtern(zcu);
         if (!is_extern) {
             function_index.setLinkage(.internal, &o.builder);
             function_index.setUnnamedAddr(.unnamed_addr, &o.builder);
@@ -2967,7 +2961,7 @@ pub const Object = struct {
                     .kind = try o.builder.string("wasm-import-name"),
                     .value = try o.builder.string(ip.stringToSlice(decl.name)),
                 } }, &o.builder);
-                if (ip.stringToSliceUnwrap(decl.getOwnedExternFunc(mod).?.lib_name)) |lib_name| {
+                if (ip.stringToSliceUnwrap(decl.getOwnedExternFunc(zcu).?.lib_name)) |lib_name| {
                     if (!std.mem.eql(u8, lib_name, "c")) try attributes.addFnAttr(.{ .string = .{
                         .kind = try o.builder.string("wasm-import-module"),
                         .value = try o.builder.string(lib_name),
@@ -2988,8 +2982,8 @@ pub const Object = struct {
             llvm_arg_i += 1;
         }
 
-        const err_return_tracing = Type.fromInterned(fn_info.return_type).isError(mod) and
-            mod.comp.bin_file.options.error_return_tracing;
+        const err_return_tracing = Type.fromInterned(fn_info.return_type).isError(zcu) and
+            zcu.comp.config.any_error_tracing;
 
         if (err_return_tracing) {
             try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
@@ -3010,7 +3004,7 @@ pub const Object = struct {
             function_index.setAlignment(fn_info.alignment.toLlvm(), &o.builder);
 
         // Function attributes that are independent of analysis results of the function body.
-        try o.addCommonFnAttributes(&attributes);
+        try o.addCommonFnAttributes(&attributes, owner_mod);
 
         if (fn_info.return_type == .noreturn_type) try attributes.addFnAttr(.noreturn, &o.builder);
 
@@ -3023,14 +3017,14 @@ pub const Object = struct {
                 .byval => {
                     const param_index = it.zig_index - 1;
                     const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[param_index]);
-                    if (!isByRef(param_ty, mod)) {
+                    if (!isByRef(param_ty, zcu)) {
                         try o.addByValParamAttrs(&attributes, param_ty, param_index, fn_info, it.llvm_index - 1);
                     }
                 },
                 .byref => {
                     const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[it.zig_index - 1]);
                     const param_llvm_ty = try o.lowerType(param_ty);
-                    const alignment = param_ty.abiAlignment(mod);
+                    const alignment = param_ty.abiAlignment(zcu);
                     try o.addByRefParamAttrs(&attributes, it.llvm_index - 1, alignment.toLlvm(), it.byval_attr, param_llvm_ty);
                 },
                 .byref_mut => try attributes.addParamAttr(it.llvm_index - 1, .noundef, &o.builder),
@@ -3056,13 +3050,14 @@ pub const Object = struct {
     fn addCommonFnAttributes(
         o: *Object,
         attributes: *Builder.FunctionAttributes.Wip,
+        owner_mod: *Package.Module,
     ) Allocator.Error!void {
         const comp = o.module.comp;
 
-        if (!comp.bin_file.options.red_zone) {
+        if (!owner_mod.red_zone) {
             try attributes.addFnAttr(.noredzone, &o.builder);
         }
-        if (comp.bin_file.options.omit_frame_pointer) {
+        if (owner_mod.omit_frame_pointer) {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("frame-pointer"),
                 .value = try o.builder.string("none"),
@@ -3074,12 +3069,10 @@ pub const Object = struct {
             } }, &o.builder);
         }
         try attributes.addFnAttr(.nounwind, &o.builder);
-        if (comp.unwind_tables) {
+        if (owner_mod.unwind_tables) {
             try attributes.addFnAttr(.{ .uwtable = Builder.Attribute.UwTable.default }, &o.builder);
         }
-        if (comp.bin_file.options.skip_linker_dependencies or
-            comp.bin_file.options.no_builtin)
-        {
+        if (comp.skip_linker_dependencies or comp.no_builtin) {
             // The intent here is for compiler-rt and libc functions to not generate
             // infinite recursion. For example, if we are compiling the memcpy function,
             // and llvm detects that the body is equivalent to memcpy, it may replace the
@@ -3087,26 +3080,27 @@ pub const Object = struct {
             // overflow instead of performing memcpy.
             try attributes.addFnAttr(.nobuiltin, &o.builder);
         }
-        if (comp.bin_file.options.optimize_mode == .ReleaseSmall) {
+        if (owner_mod.optimize_mode == .ReleaseSmall) {
             try attributes.addFnAttr(.minsize, &o.builder);
             try attributes.addFnAttr(.optsize, &o.builder);
         }
-        if (comp.bin_file.options.tsan) {
+        if (owner_mod.sanitize_thread) {
             try attributes.addFnAttr(.sanitize_thread, &o.builder);
         }
-        if (comp.getTarget().cpu.model.llvm_name) |s| {
+        const target = owner_mod.resolved_target.result;
+        if (target.cpu.model.llvm_name) |s| {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("target-cpu"),
                 .value = try o.builder.string(s),
             } }, &o.builder);
         }
-        if (comp.bin_file.options.llvm_cpu_features) |s| {
+        if (owner_mod.resolved_target.llvm_cpu_features) |s| {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("target-features"),
                 .value = try o.builder.string(std.mem.span(s)),
             } }, &o.builder);
         }
-        if (comp.getTarget().cpu.arch.isBpf()) {
+        if (target.cpu.arch.isBpf()) {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("no-builtins"),
                 .value = .empty,
@@ -3176,7 +3170,8 @@ pub const Object = struct {
             variable_index.setLinkage(.external, &o.builder);
             variable_index.setUnnamedAddr(.default, &o.builder);
             if (decl.val.getVariable(mod)) |decl_var| {
-                const single_threaded = mod.comp.bin_file.options.single_threaded;
+                const decl_namespace = mod.namespacePtr(decl.src_namespace);
+                const single_threaded = decl_namespace.file_scope.mod.single_threaded;
                 variable_index.setThreadLocal(
                     if (decl_var.is_threadlocal and !single_threaded) .generaldynamic else .default,
                     &o.builder,
@@ -3679,7 +3674,7 @@ pub const Object = struct {
         }
 
         if (Type.fromInterned(fn_info.return_type).isError(mod) and
-            mod.comp.bin_file.options.error_return_tracing)
+            mod.comp.config.any_error_tracing)
         {
             const ptr_ty = try mod.singleMutPtrType(try o.getStackTraceType());
             try llvm_params.append(o.gpa, try o.lowerType(ptr_ty));
@@ -4648,6 +4643,100 @@ pub const Object = struct {
             .field_index = @intCast(field_index),
         });
     }
+
+    fn getCmpLtErrorsLenFunction(o: *Object) !Builder.Function.Index {
+        const name = try o.builder.string(lt_errors_fn_name);
+        if (o.builder.getGlobal(name)) |llvm_fn| return llvm_fn.ptrConst(&o.builder).kind.function;
+
+        const zcu = o.module;
+        const target = zcu.root_mod.resolved_target.result;
+        const function_index = try o.builder.addFunction(
+            try o.builder.fnType(.i1, &.{try o.errorIntType()}, .normal),
+            name,
+            toLlvmAddressSpace(.generic, target),
+        );
+
+        var attributes: Builder.FunctionAttributes.Wip = .{};
+        defer attributes.deinit(&o.builder);
+        try o.addCommonFnAttributes(&attributes, zcu.root_mod);
+
+        function_index.setLinkage(.internal, &o.builder);
+        function_index.setCallConv(.fastcc, &o.builder);
+        function_index.setAttributes(try attributes.finish(&o.builder), &o.builder);
+        return function_index;
+    }
+
+    fn getEnumTagNameFunction(o: *Object, enum_ty: Type) !Builder.Function.Index {
+        const zcu = o.module;
+        const ip = &zcu.intern_pool;
+        const enum_type = ip.indexToKey(enum_ty.toIntern()).enum_type;
+
+        // TODO: detect when the type changes and re-emit this function.
+        const gop = try o.decl_map.getOrPut(o.gpa, enum_type.decl);
+        if (gop.found_existing) return gop.value_ptr.ptrConst(&o.builder).kind.function;
+        errdefer assert(o.decl_map.remove(enum_type.decl));
+
+        const usize_ty = try o.lowerType(Type.usize);
+        const ret_ty = try o.lowerType(Type.slice_const_u8_sentinel_0);
+        const fqn = try zcu.declPtr(enum_type.decl).getFullyQualifiedName(zcu);
+        const target = zcu.root_mod.resolved_target.result;
+        const function_index = try o.builder.addFunction(
+            try o.builder.fnType(ret_ty, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
+            try o.builder.fmt("__zig_tag_name_{}", .{fqn.fmt(ip)}),
+            toLlvmAddressSpace(.generic, target),
+        );
+
+        var attributes: Builder.FunctionAttributes.Wip = .{};
+        defer attributes.deinit(&o.builder);
+        try o.addCommonFnAttributes(&attributes, zcu.root_mod);
+
+        function_index.setLinkage(.internal, &o.builder);
+        function_index.setCallConv(.fastcc, &o.builder);
+        function_index.setAttributes(try attributes.finish(&o.builder), &o.builder);
+        gop.value_ptr.* = function_index.ptrConst(&o.builder).global;
+
+        var wip = try Builder.WipFunction.init(&o.builder, function_index);
+        defer wip.deinit();
+        wip.cursor = .{ .block = try wip.block(0, "Entry") };
+
+        const bad_value_block = try wip.block(1, "BadValue");
+        const tag_int_value = wip.arg(0);
+        var wip_switch =
+            try wip.@"switch"(tag_int_value, bad_value_block, @intCast(enum_type.names.len));
+        defer wip_switch.finish(&wip);
+
+        for (0..enum_type.names.len) |field_index| {
+            const name = try o.builder.string(ip.stringToSlice(enum_type.names.get(ip)[field_index]));
+            const name_init = try o.builder.stringNullConst(name);
+            const name_variable_index =
+                try o.builder.addVariable(.empty, name_init.typeOf(&o.builder), .default);
+            try name_variable_index.setInitializer(name_init, &o.builder);
+            name_variable_index.setLinkage(.private, &o.builder);
+            name_variable_index.setMutability(.constant, &o.builder);
+            name_variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
+            name_variable_index.setAlignment(comptime Builder.Alignment.fromByteUnits(1), &o.builder);
+
+            const name_val = try o.builder.structValue(ret_ty, &.{
+                name_variable_index.toConst(&o.builder),
+                try o.builder.intConst(usize_ty, name.slice(&o.builder).?.len),
+            });
+
+            const return_block = try wip.block(1, "Name");
+            const this_tag_int_value = try o.lowerValue(
+                (try zcu.enumValueFieldIndex(enum_ty, @intCast(field_index))).toIntern(),
+            );
+            try wip_switch.addCase(this_tag_int_value, return_block, &wip);
+
+            wip.cursor = .{ .block = return_block };
+            _ = try wip.ret(name_val);
+        }
+
+        wip.cursor = .{ .block = bad_value_block };
+        _ = try wip.@"unreachable"();
+
+        try wip.finish();
+        return function_index;
+    }
 };
 
 pub const DeclGen = struct {
@@ -4655,6 +4744,13 @@ pub const DeclGen = struct {
     decl: *Module.Decl,
     decl_index: InternPool.DeclIndex,
     err_msg: ?*Module.ErrorMsg,
+
+    fn ownerModule(dg: DeclGen) *Package.Module {
+        const o = dg.object;
+        const zcu = o.module;
+        const namespace = zcu.namespacePtr(dg.decl.src_namespace);
+        return namespace.file_scope.mod;
+    }
 
     fn todo(dg: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
@@ -5144,7 +5240,7 @@ pub const FuncGen = struct {
         };
 
         const err_return_tracing = return_type.isError(mod) and
-            o.module.comp.bin_file.options.error_return_tracing;
+            o.module.comp.config.any_error_tracing;
         if (err_return_tracing) {
             assert(self.err_ret_trace != .none);
             try llvm_args.append(self.err_ret_trace);
@@ -5616,7 +5712,7 @@ pub const FuncGen = struct {
         const o = self.dg.object;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand = try self.resolveInst(un_op);
-        const llvm_fn = try self.getCmpLtErrorsLenFunction();
+        const llvm_fn = try o.getCmpLtErrorsLenFunction();
         return self.wip.call(
             .normal,
             .fastcc,
@@ -6549,11 +6645,13 @@ pub const FuncGen = struct {
         const dib = o.di_builder orelse return .none;
         const ty_fn = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
 
-        const mod = o.module;
-        const func = mod.funcInfo(ty_fn.func);
+        const zcu = o.module;
+        const func = zcu.funcInfo(ty_fn.func);
         const decl_index = func.owner_decl;
-        const decl = mod.declPtr(decl_index);
-        const di_file = try o.getDIFile(self.gpa, mod.namespacePtr(decl.src_namespace).file_scope);
+        const decl = zcu.declPtr(decl_index);
+        const namespace = zcu.namespacePtr(decl.src_namespace);
+        const owner_mod = namespace.file_scope.mod;
+        const di_file = try o.getDIFile(self.gpa, zcu.namespacePtr(decl.src_namespace).file_scope);
         self.di_file = di_file;
         const line_number = decl.src_line + 1;
         const cur_debug_location = self.wip.llvm.builder.getCurrentDebugLocation2();
@@ -6564,18 +6662,18 @@ pub const FuncGen = struct {
             .base_line = self.base_line,
         });
 
-        const fqn = try decl.getFullyQualifiedName(mod);
+        const fqn = try decl.getFullyQualifiedName(zcu);
 
-        const is_internal_linkage = !mod.decl_exports.contains(decl_index);
-        const fn_ty = try mod.funcType(.{
+        const is_internal_linkage = !zcu.decl_exports.contains(decl_index);
+        const fn_ty = try zcu.funcType(.{
             .param_types = &.{},
             .return_type = .void_type,
         });
         const fn_di_ty = try o.lowerDebugType(fn_ty, .full);
         const subprogram = dib.createFunction(
             di_file.toScope(),
-            mod.intern_pool.stringToSlice(decl.name),
-            mod.intern_pool.stringToSlice(fqn),
+            zcu.intern_pool.stringToSlice(decl.name),
+            zcu.intern_pool.stringToSlice(fqn),
             di_file,
             line_number,
             fn_di_ty,
@@ -6583,7 +6681,7 @@ pub const FuncGen = struct {
             true, // is definition
             line_number + func.lbrace_line, // scope line
             llvm.DIFlags.StaticMember,
-            mod.comp.bin_file.options.optimize_mode != .Debug,
+            owner_mod.optimize_mode != .Debug,
             null, // decl_subprogram
         );
 
@@ -6678,11 +6776,12 @@ pub const FuncGen = struct {
             null;
         const debug_loc = llvm.getDebugLoc(self.prev_dbg_line, self.prev_dbg_column, self.di_scope.?, inlined_at);
         const insert_block = self.wip.cursor.block.toLlvm(&self.wip);
-        const mod = o.module;
-        if (isByRef(operand_ty, mod)) {
+        const zcu = o.module;
+        const owner_mod = self.dg.ownerModule();
+        if (isByRef(operand_ty, zcu)) {
             _ = dib.insertDeclareAtEnd(operand.toLlvm(&self.wip), di_local_var, debug_loc, insert_block);
-        } else if (o.module.comp.bin_file.options.optimize_mode == .Debug) {
-            const alignment = operand_ty.abiAlignment(mod).toLlvm();
+        } else if (owner_mod.optimize_mode == .Debug) {
+            const alignment = operand_ty.abiAlignment(zcu).toLlvm();
             const alloca = try self.buildAlloca(operand.typeOfWip(&self.wip), alignment);
             _ = try self.wip.store(.normal, operand, alloca, alignment);
             _ = dib.insertDeclareAtEnd(alloca.toLlvm(&self.wip), di_local_var, debug_loc, insert_block);
@@ -8731,9 +8830,10 @@ pub const FuncGen = struct {
 
             const debug_loc = llvm.getDebugLoc(lbrace_line, lbrace_col, self.di_scope.?, null);
             const insert_block = self.wip.cursor.block.toLlvm(&self.wip);
+            const owner_mod = self.dg.ownerModule();
             if (isByRef(inst_ty, mod)) {
                 _ = dib.insertDeclareAtEnd(arg_val.toLlvm(&self.wip), di_local_var, debug_loc, insert_block);
-            } else if (o.module.comp.bin_file.options.optimize_mode == .Debug) {
+            } else if (owner_mod.optimize_mode == .Debug) {
                 const alignment = inst_ty.abiAlignment(mod).toLlvm();
                 const alloca = try self.buildAlloca(arg_val.typeOfWip(&self.wip), alignment);
                 _ = try self.wip.store(.normal, arg_val, alloca, alignment);
@@ -8823,7 +8923,8 @@ pub const FuncGen = struct {
                 len,
                 if (ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal,
             );
-            if (safety and mod.comp.bin_file.options.valgrind) {
+            const owner_mod = self.dg.ownerModule();
+            if (safety and owner_mod.valgrind) {
                 try self.valgrindMarkUndef(dest_ptr, len);
             }
             return .none;
@@ -9139,7 +9240,8 @@ pub const FuncGen = struct {
                 } else {
                     _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
                 }
-                if (safety and mod.comp.bin_file.options.valgrind) {
+                const owner_mod = self.dg.ownerModule();
+                if (safety and owner_mod.valgrind) {
                     try self.valgrindMarkUndef(dest_ptr, len);
                 }
                 return .none;
@@ -9490,24 +9592,25 @@ pub const FuncGen = struct {
 
     fn getIsNamedEnumValueFunction(self: *FuncGen, enum_ty: Type) !Builder.Function.Index {
         const o = self.dg.object;
-        const mod = o.module;
-        const enum_type = mod.intern_pool.indexToKey(enum_ty.toIntern()).enum_type;
+        const zcu = o.module;
+        const enum_type = zcu.intern_pool.indexToKey(enum_ty.toIntern()).enum_type;
 
         // TODO: detect when the type changes and re-emit this function.
         const gop = try o.named_enum_map.getOrPut(o.gpa, enum_type.decl);
         if (gop.found_existing) return gop.value_ptr.*;
         errdefer assert(o.named_enum_map.remove(enum_type.decl));
 
-        const fqn = try mod.declPtr(enum_type.decl).getFullyQualifiedName(mod);
+        const fqn = try zcu.declPtr(enum_type.decl).getFullyQualifiedName(zcu);
+        const target = zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(.i1, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
-            try o.builder.fmt("__zig_is_named_enum_value_{}", .{fqn.fmt(&mod.intern_pool)}),
-            toLlvmAddressSpace(.generic, mod.getTarget()),
+            try o.builder.fmt("__zig_is_named_enum_value_{}", .{fqn.fmt(&zcu.intern_pool)}),
+            toLlvmAddressSpace(.generic, target),
         );
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
-        try o.addCommonFnAttributes(&attributes);
+        try o.addCommonFnAttributes(&attributes, zcu.root_mod);
 
         function_index.setLinkage(.internal, &o.builder);
         function_index.setCallConv(.fastcc, &o.builder);
@@ -9526,7 +9629,7 @@ pub const FuncGen = struct {
 
         for (0..enum_type.names.len) |field_index| {
             const this_tag_int_value = try o.lowerValue(
-                (try mod.enumValueFieldIndex(enum_ty, @intCast(field_index))).toIntern(),
+                (try zcu.enumValueFieldIndex(enum_ty, @intCast(field_index))).toIntern(),
             );
             try wip_switch.addCase(this_tag_int_value, named_block, &wip);
         }
@@ -9546,7 +9649,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(un_op);
         const enum_ty = self.typeOf(un_op);
 
-        const llvm_fn = try self.getEnumTagNameFunction(enum_ty);
+        const llvm_fn = try o.getEnumTagNameFunction(enum_ty);
         return self.wip.call(
             .normal,
             .fastcc,
@@ -9556,100 +9659,6 @@ pub const FuncGen = struct {
             &.{operand},
             "",
         );
-    }
-
-    fn getEnumTagNameFunction(self: *FuncGen, enum_ty: Type) !Builder.Function.Index {
-        const o = self.dg.object;
-        const mod = o.module;
-        const ip = &mod.intern_pool;
-        const enum_type = ip.indexToKey(enum_ty.toIntern()).enum_type;
-
-        // TODO: detect when the type changes and re-emit this function.
-        const gop = try o.decl_map.getOrPut(o.gpa, enum_type.decl);
-        if (gop.found_existing) return gop.value_ptr.ptrConst(&o.builder).kind.function;
-        errdefer assert(o.decl_map.remove(enum_type.decl));
-
-        const usize_ty = try o.lowerType(Type.usize);
-        const ret_ty = try o.lowerType(Type.slice_const_u8_sentinel_0);
-        const fqn = try mod.declPtr(enum_type.decl).getFullyQualifiedName(mod);
-        const function_index = try o.builder.addFunction(
-            try o.builder.fnType(ret_ty, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
-            try o.builder.fmt("__zig_tag_name_{}", .{fqn.fmt(ip)}),
-            toLlvmAddressSpace(.generic, mod.getTarget()),
-        );
-
-        var attributes: Builder.FunctionAttributes.Wip = .{};
-        defer attributes.deinit(&o.builder);
-        try o.addCommonFnAttributes(&attributes);
-
-        function_index.setLinkage(.internal, &o.builder);
-        function_index.setCallConv(.fastcc, &o.builder);
-        function_index.setAttributes(try attributes.finish(&o.builder), &o.builder);
-        gop.value_ptr.* = function_index.ptrConst(&o.builder).global;
-
-        var wip = try Builder.WipFunction.init(&o.builder, function_index);
-        defer wip.deinit();
-        wip.cursor = .{ .block = try wip.block(0, "Entry") };
-
-        const bad_value_block = try wip.block(1, "BadValue");
-        const tag_int_value = wip.arg(0);
-        var wip_switch =
-            try wip.@"switch"(tag_int_value, bad_value_block, @intCast(enum_type.names.len));
-        defer wip_switch.finish(&wip);
-
-        for (0..enum_type.names.len) |field_index| {
-            const name = try o.builder.string(ip.stringToSlice(enum_type.names.get(ip)[field_index]));
-            const name_init = try o.builder.stringNullConst(name);
-            const name_variable_index =
-                try o.builder.addVariable(.empty, name_init.typeOf(&o.builder), .default);
-            try name_variable_index.setInitializer(name_init, &o.builder);
-            name_variable_index.setLinkage(.private, &o.builder);
-            name_variable_index.setMutability(.constant, &o.builder);
-            name_variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
-            name_variable_index.setAlignment(comptime Builder.Alignment.fromByteUnits(1), &o.builder);
-
-            const name_val = try o.builder.structValue(ret_ty, &.{
-                name_variable_index.toConst(&o.builder),
-                try o.builder.intConst(usize_ty, name.slice(&o.builder).?.len),
-            });
-
-            const return_block = try wip.block(1, "Name");
-            const this_tag_int_value = try o.lowerValue(
-                (try mod.enumValueFieldIndex(enum_ty, @intCast(field_index))).toIntern(),
-            );
-            try wip_switch.addCase(this_tag_int_value, return_block, &wip);
-
-            wip.cursor = .{ .block = return_block };
-            _ = try wip.ret(name_val);
-        }
-
-        wip.cursor = .{ .block = bad_value_block };
-        _ = try wip.@"unreachable"();
-
-        try wip.finish();
-        return function_index;
-    }
-
-    fn getCmpLtErrorsLenFunction(self: *FuncGen) !Builder.Function.Index {
-        const o = self.dg.object;
-
-        const name = try o.builder.string(lt_errors_fn_name);
-        if (o.builder.getGlobal(name)) |llvm_fn| return llvm_fn.ptrConst(&o.builder).kind.function;
-
-        const function_index = try o.builder.addFunction(
-            try o.builder.fnType(.i1, &.{try o.errorIntType()}, .normal),
-            name,
-            toLlvmAddressSpace(.generic, o.module.getTarget()),
-        );
-
-        var attributes: Builder.FunctionAttributes.Wip = .{};
-        defer attributes.deinit(&o.builder);
-        try o.addCommonFnAttributes(&attributes);
-
-        function_index.setLinkage(.internal, &o.builder);
-        function_index.setCallConv(.fastcc, &o.builder);
-        function_index.setAttributes(try attributes.finish(&o.builder), &o.builder);
-        return function_index;
     }
 
     fn airErrorName(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {

@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
     const obj = b.addObject(.{
         .name = "exports",
         .root_source_file = .{ .path = "exports.zig" },
-        .target = .{},
+        .target = b.host,
         .optimize = optimize,
     });
     const main = b.addTest(.{

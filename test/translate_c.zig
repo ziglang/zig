@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const tests = @import("tests.zig");
-const CrossTarget = std.zig.CrossTarget;
 
 // ********************************************************
 // *                                                      *
@@ -1846,7 +1845,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn foo5(a: [*c]f32) callconv(.Thiscall) void;
     });
 
-    cases.addWithTarget("Calling convention", CrossTarget.parse(.{
+    cases.addWithTarget("Calling convention", std.Target.Query.parse(.{
         .arch_os_abi = "arm-linux-none",
         .cpu_features = "generic+v8_5a",
     }) catch unreachable,
@@ -1857,7 +1856,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn foo2(a: [*c]f32) callconv(.AAPCSVFP) void;
     });
 
-    cases.addWithTarget("Calling convention", CrossTarget.parse(.{
+    cases.addWithTarget("Calling convention", std.Target.Query.parse(.{
         .arch_os_abi = "aarch64-linux-none",
         .cpu_features = "generic+v8_5a",
     }) catch unreachable,
