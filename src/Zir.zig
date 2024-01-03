@@ -2610,8 +2610,9 @@ pub const Inst = struct {
             has_align: bool,
             has_init: bool,
             is_extern: bool,
+            is_const: bool,
             is_threadlocal: bool,
-            _: u11 = undefined,
+            _: u10 = undefined,
         };
     };
 
