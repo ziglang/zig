@@ -1297,7 +1297,7 @@ pub fn addTranslateCases(
     var dir = try b.build_root.handle.openDir("test/cases", .{ .iterate = true });
     defer dir.close();
 
-    translate_cases.addFromDir(dir);
+    translate_cases.addFromDir(dir, b);
     translate_cases.lowerToTranslateSteps(
         b,
         parent_step,

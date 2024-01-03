@@ -544,7 +544,7 @@ pub fn lowerToTranslateSteps(
     opt_test_filter: ?[]const u8,
     translate_options: TranslateOptions,
 ) void {
-    const host = std.zig.system.NativeTargetInfo.detect(.{}) catch |err|
+    const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
         std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
 
     for (self.translate.items) |case| switch (case.kind) {
@@ -559,9 +559,7 @@ pub fn lowerToTranslateSteps(
                 continue; // Pass test.
             }
 
-            const target_info = std.zig.system.NativeTargetInfo.detect(case.target) catch |err|
-                std.debug.panic("unable to detect target host: {s}\n", .{@errorName(err)});
-            if (host.getExternalExecutor(&target_info, .{ .link_libc = true }) != .native) {
+            if (getExternalExecutor(host, &case.target.result, .{ .link_libc = true }) != .native) {
                 // We wouldn't be able to run the compiled C code.
                 continue; // Pass test.
             }
