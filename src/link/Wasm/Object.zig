@@ -883,6 +883,8 @@ fn assertEnd(reader: anytype) !void {
 
 /// Parses an object file into atoms, for code and data sections
 pub fn parseSymbolIntoAtom(object: *Object, object_index: u16, symbol_index: u32, wasm: *Wasm) !Atom.Index {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
     const symbol = &object.symtable[symbol_index];
     const relocatable_data: RelocatableData = switch (symbol.tag) {
         .function => object.relocatable_data.get(.code).?[symbol.index - object.importedCountByKind(.function)],
@@ -900,7 +902,7 @@ pub fn parseSymbolIntoAtom(object: *Object, object_index: u16, symbol_index: u32
     };
     const final_index = try wasm.getMatchingSegment(object_index, symbol_index);
     const atom_index = @as(Atom.Index, @intCast(wasm.managed_atoms.items.len));
-    const atom = try wasm.managed_atoms.addOne(wasm.base.allocator);
+    const atom = try wasm.managed_atoms.addOne(gpa);
     atom.* = Atom.empty;
     try wasm.appendAtomAtIndex(final_index, atom_index);
 
@@ -910,7 +912,7 @@ pub fn parseSymbolIntoAtom(object: *Object, object_index: u16, symbol_index: u32
     atom.alignment = relocatable_data.getAlignment(object);
     atom.code = std.ArrayListUnmanaged(u8).fromOwnedSlice(relocatable_data.data[0..relocatable_data.size]);
     atom.original_offset = relocatable_data.offset;
-    try wasm.symbol_atom.putNoClobber(wasm.base.allocator, atom.symbolLoc(), atom_index);
+    try wasm.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), atom_index);
     const segment: *Wasm.Segment = &wasm.segments.items[final_index];
     if (relocatable_data.type == .data) { //code section and custom sections are 1-byte aligned
         segment.alignment = segment.alignment.max(atom.alignment);
@@ -927,7 +929,7 @@ pub fn parseSymbolIntoAtom(object: *Object, object_index: u16, symbol_index: u32
                 .R_WASM_TABLE_INDEX_SLEB,
                 .R_WASM_TABLE_INDEX_SLEB64,
                 => {
-                    try wasm.function_table.put(wasm.base.allocator, .{
+                    try wasm.function_table.put(gpa, .{
                         .file = object_index,
                         .index = reloc.index,
                     }, 0);
@@ -938,7 +940,7 @@ pub fn parseSymbolIntoAtom(object: *Object, object_index: u16, symbol_index: u32
                     const sym = object.symtable[reloc.index];
                     if (sym.tag != .global) {
                         try wasm.got_symbols.append(
-                            wasm.base.allocator,
+                            gpa,
                             .{ .file = object_index, .index = reloc.index },
                         );
                     }

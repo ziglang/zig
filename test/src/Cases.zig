@@ -76,7 +76,7 @@ pub const Case = struct {
     name: []const u8,
     /// The platform the test targets. For non-native platforms, an emulator
     /// such as QEMU is required for tests to complete.
-    target: CrossTarget,
+    target: std.Build.ResolvedTarget,
     /// In order to be able to run e.g. Execution updates, this must be set
     /// to Executable.
     output_mode: std.builtin.OutputMode,
@@ -155,7 +155,7 @@ pub const Translate = struct {
     name: []const u8,
 
     input: [:0]const u8,
-    target: CrossTarget,
+    target: std.Build.ResolvedTarget,
     link_libc: bool,
     c_frontend: CFrontend,
     kind: union(enum) {
@@ -171,7 +171,7 @@ pub const Translate = struct {
 pub fn addExe(
     ctx: *Cases,
     name: []const u8,
-    target: CrossTarget,
+    target: std.Build.ResolvedTarget,
 ) *Case {
     ctx.cases.append(Case{
         .name = name,
@@ -184,16 +184,16 @@ pub fn addExe(
 }
 
 /// Adds a test case for Zig input, producing an executable
-pub fn exe(ctx: *Cases, name: []const u8, target: CrossTarget) *Case {
+pub fn exe(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
     return ctx.addExe(name, target);
 }
 
-pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target: CrossTarget) *Case {
-    var target_adjusted = target;
-    target_adjusted.ofmt = .c;
+pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target_query: std.Target.Query, b: *std.Build) *Case {
+    var adjusted_query = target_query;
+    adjusted_query.ofmt = .c;
     ctx.cases.append(Case{
         .name = name,
-        .target = target_adjusted,
+        .target = b.resolveTargetQuery(adjusted_query),
         .updates = std.ArrayList(Update).init(ctx.cases.allocator),
         .output_mode = .Exe,
         .deps = std.ArrayList(DepModule).init(ctx.arena),
@@ -202,7 +202,7 @@ pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target: CrossTarget) *Cas
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
 
-pub fn noEmitUsingLlvmBackend(ctx: *Cases, name: []const u8, target: CrossTarget) *Case {
+pub fn noEmitUsingLlvmBackend(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
     ctx.cases.append(Case{
         .name = name,
         .target = target,
@@ -217,7 +217,7 @@ pub fn noEmitUsingLlvmBackend(ctx: *Cases, name: []const u8, target: CrossTarget
 
 /// Adds a test case that uses the LLVM backend to emit an executable.
 /// Currently this implies linking libc, because only then we can generate a testable executable.
-pub fn exeUsingLlvmBackend(ctx: *Cases, name: []const u8, target: CrossTarget) *Case {
+pub fn exeUsingLlvmBackend(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
     ctx.cases.append(Case{
         .name = name,
         .target = target,
@@ -233,7 +233,7 @@ pub fn exeUsingLlvmBackend(ctx: *Cases, name: []const u8, target: CrossTarget) *
 pub fn addObj(
     ctx: *Cases,
     name: []const u8,
-    target: CrossTarget,
+    target: std.Build.ResolvedTarget,
 ) *Case {
     ctx.cases.append(Case{
         .name = name,
@@ -248,7 +248,7 @@ pub fn addObj(
 pub fn addTest(
     ctx: *Cases,
     name: []const u8,
-    target: CrossTarget,
+    target: std.Build.ResolvedTarget,
 ) *Case {
     ctx.cases.append(Case{
         .name = name,
@@ -262,17 +262,17 @@ pub fn addTest(
 }
 
 /// Adds a test case for Zig input, producing an object file.
-pub fn obj(ctx: *Cases, name: []const u8, target: CrossTarget) *Case {
+pub fn obj(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
     return ctx.addObj(name, target);
 }
 
 /// Adds a test case for ZIR input, producing an object file.
-pub fn objZIR(ctx: *Cases, name: []const u8, target: CrossTarget) *Case {
+pub fn objZIR(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
     return ctx.addObj(name, target, .ZIR);
 }
 
 /// Adds a test case for Zig or ZIR input, producing C code.
-pub fn addC(ctx: *Cases, name: []const u8, target: CrossTarget) *Case {
+pub fn addC(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
     var target_adjusted = target;
     target_adjusted.ofmt = std.Target.ObjectFormat.c;
     ctx.cases.append(Case{
@@ -308,7 +308,7 @@ pub fn compareOutput(
 pub fn addTransform(
     ctx: *Cases,
     name: []const u8,
-    target: CrossTarget,
+    target: std.Build.ResolvedTarget,
     src: [:0]const u8,
     result: [:0]const u8,
 ) void {
@@ -320,7 +320,7 @@ pub fn addTransform(
 pub fn transform(
     ctx: *Cases,
     name: []const u8,
-    target: CrossTarget,
+    target: std.Build.ResolvedTarget,
     src: [:0]const u8,
     result: [:0]const u8,
 ) void {
@@ -330,7 +330,7 @@ pub fn transform(
 pub fn addError(
     ctx: *Cases,
     name: []const u8,
-    target: CrossTarget,
+    target: std.Build.ResolvedTarget,
     src: [:0]const u8,
     expected_errors: []const []const u8,
 ) void {
@@ -343,7 +343,7 @@ pub fn addError(
 pub fn compileError(
     ctx: *Cases,
     name: []const u8,
-    target: CrossTarget,
+    target: std.Build.ResolvedTarget,
     src: [:0]const u8,
     expected_errors: []const []const u8,
 ) void {
@@ -355,7 +355,7 @@ pub fn compileError(
 pub fn addCompile(
     ctx: *Cases,
     name: []const u8,
-    target: CrossTarget,
+    target: std.Build.ResolvedTarget,
     src: [:0]const u8,
 ) void {
     ctx.addObj(name, target).addCompile(src);
@@ -368,9 +368,9 @@ pub fn addCompile(
 /// Each file should include a test manifest as a contiguous block of comments at
 /// the end of the file. The first line should be the test type, followed by a set of
 /// key-value config values, followed by a blank line, then the expected output.
-pub fn addFromDir(ctx: *Cases, dir: std.fs.Dir) void {
+pub fn addFromDir(ctx: *Cases, dir: std.fs.Dir, b: *std.Build) void {
     var current_file: []const u8 = "none";
-    ctx.addFromDirInner(dir, &current_file) catch |err| {
+    ctx.addFromDirInner(dir, &current_file, b) catch |err| {
         std.debug.panicExtra(
             @errorReturnTrace(),
             @returnAddress(),
@@ -386,6 +386,7 @@ fn addFromDirInner(
     /// This is kept up to date with the currently being processed file so
     /// that if any errors occur the caller knows it happened during this file.
     current_file: *[]const u8,
+    b: *std.Build,
 ) !void {
     var it = try iterable_dir.walk(ctx.arena);
     var filenames = std.ArrayList([]const u8).init(ctx.arena);
@@ -422,7 +423,7 @@ fn addFromDirInner(
         var manifest = try TestManifest.parse(ctx.arena, src);
 
         const backends = try manifest.getConfigForKeyAlloc(ctx.arena, "backend", Backend);
-        const targets = try manifest.getConfigForKeyAlloc(ctx.arena, "target", CrossTarget);
+        const targets = try manifest.getConfigForKeyAlloc(ctx.arena, "target", std.Target.Query);
         const c_frontends = try manifest.getConfigForKeyAlloc(ctx.arena, "c_frontend", CFrontend);
         const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
         const link_libc = try manifest.getConfigForKeyAssertSingle("link_libc", bool);
@@ -430,12 +431,12 @@ fn addFromDirInner(
 
         if (manifest.type == .translate_c) {
             for (c_frontends) |c_frontend| {
-                for (targets) |target| {
+                for (targets) |target_query| {
                     const output = try manifest.trailingLinesSplit(ctx.arena);
                     try ctx.translate.append(.{
                         .name = std.fs.path.stem(filename),
                         .c_frontend = c_frontend,
-                        .target = target,
+                        .target = b.resolveTargetQuery(target_query),
                         .link_libc = link_libc,
                         .input = src,
                         .kind = .{ .translate = output },
@@ -446,12 +447,12 @@ fn addFromDirInner(
         }
         if (manifest.type == .run_translated_c) {
             for (c_frontends) |c_frontend| {
-                for (targets) |target| {
+                for (targets) |target_query| {
                     const output = try manifest.trailingSplit(ctx.arena);
                     try ctx.translate.append(.{
                         .name = std.fs.path.stem(filename),
                         .c_frontend = c_frontend,
-                        .target = target,
+                        .target = b.resolveTargetQuery(target_query),
                         .link_libc = link_libc,
                         .input = src,
                         .kind = .{ .run = output },
@@ -464,16 +465,18 @@ fn addFromDirInner(
         var cases = std.ArrayList(usize).init(ctx.arena);
 
         // Cross-product to get all possible test combinations
-        for (backends) |backend| {
-            for (targets) |target| {
+        for (targets) |target_query| {
+            const resolved_target = b.resolveTargetQuery(target_query);
+            const target = resolved_target.result;
+            for (backends) |backend| {
                 if (backend == .stage2 and
-                    target.getCpuArch() != .wasm32 and target.getCpuArch() != .x86_64)
+                    target.cpu.arch != .wasm32 and target.cpu.arch != .x86_64)
                 {
                     // Other backends don't support new liveness format
                     continue;
                 }
-                if (backend == .stage2 and target.getOsTag() == .macos and
-                    target.getCpuArch() == .x86_64 and builtin.cpu.arch == .aarch64)
+                if (backend == .stage2 and target.os.tag == .macos and
+                    target.cpu.arch == .x86_64 and builtin.cpu.arch == .aarch64)
                 {
                     // Rosetta has issues with ZLD
                     continue;
@@ -482,7 +485,7 @@ fn addFromDirInner(
                 const next = ctx.cases.items.len;
                 try ctx.cases.append(.{
                     .name = std.fs.path.stem(filename),
-                    .target = target,
+                    .target = resolved_target,
                     .backend = backend,
                     .updates = std.ArrayList(Cases.Update).init(ctx.cases.allocator),
                     .is_test = is_test,
@@ -538,7 +541,7 @@ pub fn lowerToBuildSteps(
     cases_dir_path: []const u8,
     incremental_exe: *std.Build.Step.Compile,
 ) void {
-    const host = std.zig.system.NativeTargetInfo.detect(.{}) catch |err|
+    const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
         std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
 
     for (self.incremental_cases.items) |incr_case| {
@@ -622,8 +625,8 @@ pub fn lowerToBuildSteps(
         }
 
         for (case.deps.items) |dep| {
-            artifact.addAnonymousModule(dep.name, .{
-                .source_file = file_sources.get(dep.path).?,
+            artifact.root_module.addAnonymousImport(dep.name, .{
+                .root_source_file = file_sources.get(dep.path).?,
             });
         }
 
@@ -644,10 +647,8 @@ pub fn lowerToBuildSteps(
                 parent_step.dependOn(&artifact.step);
             },
             .Execution => |expected_stdout| no_exec: {
-                const run = if (case.target.ofmt == .c) run_step: {
-                    const target_info = std.zig.system.NativeTargetInfo.detect(case.target) catch |err|
-                        std.debug.panic("unable to detect target host: {s}\n", .{@errorName(err)});
-                    if (host.getExternalExecutor(&target_info, .{ .link_libc = true }) != .native) {
+                const run = if (case.target.result.ofmt == .c) run_step: {
+                    if (getExternalExecutor(host, &case.target.result, .{ .link_libc = true }) != .native) {
                         // We wouldn't be able to run the compiled C code.
                         break :no_exec;
                     }
@@ -666,7 +667,7 @@ pub fn lowerToBuildSteps(
                         "--",
                         "-lc",
                         "-target",
-                        case.target.zigTriple(b.allocator) catch @panic("OOM"),
+                        case.target.result.zigTriple(b.allocator) catch @panic("OOM"),
                     });
                     run_c.addArtifactArg(artifact);
                     break :run_step run_c;
@@ -692,9 +693,7 @@ pub fn lowerToBuildSteps(
                 continue; // Pass test.
             }
 
-            const target_info = std.zig.system.NativeTargetInfo.detect(case.target) catch |err|
-                std.debug.panic("unable to detect target host: {s}\n", .{@errorName(err)});
-            if (host.getExternalExecutor(&target_info, .{ .link_libc = true }) != .native) {
+            if (getExternalExecutor(host, &case.target.result, .{ .link_libc = true }) != .native) {
                 // We wouldn't be able to run the compiled C code.
                 continue; // Pass test.
             }
@@ -1159,9 +1158,9 @@ const TestManifest = struct {
     }
 
     fn getDefaultParser(comptime T: type) ParseFn(T) {
-        if (T == CrossTarget) return struct {
+        if (T == std.Target.Query) return struct {
             fn parse(str: []const u8) anyerror!T {
-                return CrossTarget.parse(.{ .arch_os_abi = str });
+                return std.Target.Query.parse(.{ .arch_os_abi = str });
             }
         }.parse;
 
@@ -1198,7 +1197,8 @@ const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const CrossTarget = std.zig.CrossTarget;
+const getExternalExecutor = std.zig.system.getExternalExecutor;
+
 const Compilation = @import("../../src/Compilation.zig");
 const zig_h = @import("../../src/link.zig").File.C.zig_h;
 const introspect = @import("../../src/introspect.zig");
@@ -1287,7 +1287,7 @@ pub fn main() !void {
 
             if (cases.items.len == 0) {
                 const backends = try manifest.getConfigForKeyAlloc(arena, "backend", Backend);
-                const targets = try manifest.getConfigForKeyAlloc(arena, "target", CrossTarget);
+                const targets = try manifest.getConfigForKeyAlloc(arena, "target", std.Target.Query);
                 const c_frontends = try manifest.getConfigForKeyAlloc(ctx.arena, "c_frontend", CFrontend);
                 const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
                 const link_libc = try manifest.getConfigForKeyAssertSingle("link_libc", bool);
@@ -1295,12 +1295,12 @@ pub fn main() !void {
 
                 if (manifest.type == .translate_c) {
                     for (c_frontends) |c_frontend| {
-                        for (targets) |target| {
+                        for (targets) |target_query| {
                             const output = try manifest.trailingLinesSplit(ctx.arena);
                             try ctx.translate.append(.{
                                 .name = std.fs.path.stem(filename),
                                 .c_frontend = c_frontend,
-                                .target = target,
+                                .target = resolveTargetQuery(target_query),
                                 .is_test = is_test,
                                 .link_libc = link_libc,
                                 .input = src,
@@ -1312,12 +1312,12 @@ pub fn main() !void {
                 }
                 if (manifest.type == .run_translated_c) {
                     for (c_frontends) |c_frontend| {
-                        for (targets) |target| {
+                        for (targets) |target_query| {
                             const output = try manifest.trailingSplit(ctx.arena);
                             try ctx.translate.append(.{
                                 .name = std.fs.path.stem(filename),
                                 .c_frontend = c_frontend,
-                                .target = target,
+                                .target = resolveTargetQuery(target_query),
                                 .is_test = is_test,
                                 .link_libc = link_libc,
                                 .output = output,
@@ -1385,8 +1385,16 @@ pub fn main() !void {
     return runCases(&ctx, zig_exe_path);
 }
 
+fn resolveTargetQuery(query: std.Target.Query) std.Build.ResolvedTarget {
+    return .{
+        .query = query,
+        .target = std.zig.system.resolveTargetQuery(query) catch
+            @panic("unable to resolve target query"),
+    };
+}
+
 fn runCases(self: *Cases, zig_exe_path: []const u8) !void {
-    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+    const host = try std.zig.system.resolveTargetQuery(.{});
 
     var progress = std.Progress{};
     const root_node = progress.start("compiler", self.cases.items.len);
@@ -1467,7 +1475,7 @@ fn runOneCase(
     zig_exe_path: []const u8,
     thread_pool: *ThreadPool,
     global_cache_directory: Compilation.Directory,
-    host: std.zig.system.NativeTargetInfo,
+    host: std.Target,
 ) !void {
     const tmp_src_path = "tmp.zig";
     const enable_rosetta = build_options.enable_rosetta;
@@ -1477,8 +1485,7 @@ fn runOneCase(
     const enable_darling = build_options.enable_darling;
     const glibc_runtimes_dir: ?[]const u8 = build_options.glibc_runtimes_dir;
 
-    const target_info = try std.zig.system.NativeTargetInfo.detect(case.target);
-    const target = target_info.target;
+    const target = try std.zig.system.resolveTargetQuery(case.target);
 
     var arena_allocator = std.heap.ArenaAllocator.init(allocator);
     defer arena_allocator.deinit();
@@ -1568,7 +1575,7 @@ fn runOneCase(
         .keep_source_files_loaded = true,
         .is_native_os = case.target.isNativeOs(),
         .is_native_abi = case.target.isNativeAbi(),
-        .dynamic_linker = target_info.dynamic_linker.get(),
+        .dynamic_linker = target.dynamic_linker.get(),
         .link_libc = case.link_libc,
         .use_llvm = use_llvm,
         .self_exe_path = zig_exe_path,
@@ -1704,7 +1711,7 @@ fn runOneCase(
                         .{ &tmp.sub_path, bin_name },
                     );
                     if (case.target.ofmt != null and case.target.ofmt.? == .c) {
-                        if (host.getExternalExecutor(target_info, .{ .link_libc = true }) != .native) {
+                        if (getExternalExecutor(host, &target, .{ .link_libc = true }) != .native) {
                             // We wouldn't be able to run the compiled C code.
                             continue :update; // Pass test.
                         }
@@ -1723,7 +1730,7 @@ fn runOneCase(
                         if (zig_lib_directory.path) |p| {
                             try argv.appendSlice(&.{ "-I", p });
                         }
-                    } else switch (host.getExternalExecutor(target_info, .{ .link_libc = case.link_libc })) {
+                    } else switch (getExternalExecutor(host, &target, .{ .link_libc = case.link_libc })) {
                         .native => {
                             if (case.backend == .stage2 and case.target.getCpuArch().isArmOrThumb()) {
                                 // https://github.com/ziglang/zig/issues/13623

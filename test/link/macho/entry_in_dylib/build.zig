@@ -16,7 +16,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const lib = b.addSharedLibrary(.{
         .name = "bootstrap",
         .optimize = optimize,
-        .target = .{ .os_tag = .macos },
+        .target = b.resolveTargetQuery(.{ .os_tag = .macos }),
     });
     lib.addCSourceFile(.{ .file = .{ .path = "bootstrap.c" }, .flags = &.{} });
     lib.linkLibC();
@@ -25,7 +25,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const exe = b.addExecutable(.{
         .name = "main",
         .optimize = optimize,
-        .target = .{ .os_tag = .macos },
+        .target = b.resolveTargetQuery(.{ .os_tag = .macos }),
     });
     exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkLibrary(lib);

@@ -7,11 +7,11 @@ pub fn build(b: *std.Build) void {
     const c_obj = b.addObject(.{
         .name = "c_obj",
         .optimize = .Debug,
-        .target = .{
+        .target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
             .cpu_model = .{ .explicit = &std.Target.wasm.cpu.bleeding_edge },
             .os_tag = .freestanding,
-        },
+        }),
     });
     c_obj.addCSourceFile(.{ .file = .{ .path = "foo.c" }, .flags = &.{} });
 
@@ -21,11 +21,11 @@ pub fn build(b: *std.Build) void {
         .name = "lib",
         .root_source_file = .{ .path = "main.zig" },
         .optimize = .Debug,
-        .target = .{
+        .target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
             .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },
             .os_tag = .freestanding,
-        },
+        }),
     });
     lib.entry = .disabled;
     lib.use_llvm = false;

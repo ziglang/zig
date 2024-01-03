@@ -14,7 +14,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const lib = b.addExecutable(.{
         .name = "lib",
         .root_source_file = .{ .path = "lib.zig" },
-        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
         .optimize = optimize,
     });
     lib.entry = .disabled;

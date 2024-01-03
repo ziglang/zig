@@ -20,11 +20,11 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .root_source_file = .{ .path = "main.zig" },
         .optimize = optimize,
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+        .strip = false,
     });
     lib.entry = .disabled;
     lib.use_llvm = false;
     lib.use_lld = false;
-    lib.strip = false;
 
     const check = lib.checkObject();
     check.checkInHeaders();

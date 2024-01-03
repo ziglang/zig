@@ -156,6 +156,88 @@ fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !vo
     try testing.expectEqualStrings(target_path, given);
 }
 
+test "File.stat on a File that is a symlink returns Kind.sym_link" {
+    // This test requires getting a file descriptor of a symlink which
+    // is not possible on all targets
+    switch (builtin.target.os.tag) {
+        .windows, .linux => {},
+        else => return error.SkipZigTest,
+    }
+
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            const dir_target_path = try ctx.transformPath("subdir");
+            try ctx.dir.makeDir(dir_target_path);
+
+            ctx.dir.symLink(dir_target_path, "symlink", .{ .is_directory = true }) catch |err| switch (err) {
+                // Symlink requires admin privileges on windows, so this test can legitimately fail.
+                error.AccessDenied => return error.SkipZigTest,
+                else => return err,
+            };
+
+            var symlink = switch (builtin.target.os.tag) {
+                .windows => windows_symlink: {
+                    const w = std.os.windows;
+
+                    const sub_path_w = try std.os.windows.cStrToPrefixedFileW(ctx.dir.fd, "symlink");
+
+                    var result = Dir{
+                        .fd = undefined,
+                    };
+
+                    const path_len_bytes = @as(u16, @intCast(sub_path_w.span().len * 2));
+                    var nt_name = w.UNICODE_STRING{
+                        .Length = path_len_bytes,
+                        .MaximumLength = path_len_bytes,
+                        .Buffer = @constCast(&sub_path_w.data),
+                    };
+                    var attr = w.OBJECT_ATTRIBUTES{
+                        .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
+                        .RootDirectory = if (fs.path.isAbsoluteWindowsW(sub_path_w.span())) null else ctx.dir.fd,
+                        .Attributes = 0,
+                        .ObjectName = &nt_name,
+                        .SecurityDescriptor = null,
+                        .SecurityQualityOfService = null,
+                    };
+                    var io: w.IO_STATUS_BLOCK = undefined;
+                    const rc = w.ntdll.NtCreateFile(
+                        &result.fd,
+                        w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA | w.SYNCHRONIZE | w.FILE_TRAVERSE,
+                        &attr,
+                        &io,
+                        null,
+                        w.FILE_ATTRIBUTE_NORMAL,
+                        w.FILE_SHARE_READ | w.FILE_SHARE_WRITE,
+                        w.FILE_OPEN,
+                        // FILE_OPEN_REPARSE_POINT is the important thing here
+                        w.FILE_OPEN_REPARSE_POINT | w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT,
+                        null,
+                        0,
+                    );
+
+                    switch (rc) {
+                        .SUCCESS => break :windows_symlink result,
+                        else => return w.unexpectedStatus(rc),
+                    }
+                },
+                .linux => linux_symlink: {
+                    const sub_path_c = try os.toPosixPath("symlink");
+                    // the O_NOFOLLOW | O_PATH combination can obtain a fd to a symlink
+                    // note that if O_DIRECTORY is set, then this will error with ENOTDIR
+                    const flags = os.O.NOFOLLOW | os.O.PATH | os.O.RDONLY | os.O.CLOEXEC;
+                    const fd = try os.openatZ(ctx.dir.fd, &sub_path_c, flags, 0);
+                    break :linux_symlink Dir{ .fd = fd };
+                },
+                else => unreachable,
+            };
+            defer symlink.close();
+
+            const stat = try symlink.stat();
+            try testing.expectEqual(File.Kind.sym_link, stat.kind);
+        }
+    }.impl);
+}
+
 test "relative symlink to parent directory" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -915,6 +997,57 @@ test "openSelfExe" {
 
     const self_exe_file = try std.fs.openSelfExe(.{});
     self_exe_file.close();
+}
+
+test "deleteTree does not follow symlinks" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("b");
+    {
+        var a = try tmp.dir.makeOpenPath("a", .{});
+        defer a.close();
+
+        a.symLink("../b", "b", .{ .is_directory = true }) catch |err| switch (err) {
+            // Symlink requires admin privileges on windows, so this test can legitimately fail.
+            error.AccessDenied => return error.SkipZigTest,
+            else => return err,
+        };
+    }
+
+    try tmp.dir.deleteTree("a");
+
+    try testing.expectError(error.FileNotFound, tmp.dir.access("a", .{}));
+    try tmp.dir.access("b", .{});
+}
+
+test "deleteTree on a symlink" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Symlink to a file
+    try tmp.dir.writeFile("file", "");
+    tmp.dir.symLink("file", "filelink", .{}) catch |err| switch (err) {
+        // Symlink requires admin privileges on windows, so this test can legitimately fail.
+        error.AccessDenied => return error.SkipZigTest,
+        else => return err,
+    };
+
+    try tmp.dir.deleteTree("filelink");
+    try testing.expectError(error.FileNotFound, tmp.dir.access("filelink", .{}));
+    try tmp.dir.access("file", .{});
+
+    // Symlink to a directory
+    try tmp.dir.makePath("dir");
+    tmp.dir.symLink("dir", "dirlink", .{ .is_directory = true }) catch |err| switch (err) {
+        // Symlink requires admin privileges on windows, so this test can legitimately fail.
+        error.AccessDenied => return error.SkipZigTest,
+        else => return err,
+    };
+
+    try tmp.dir.deleteTree("dirlink");
+    try testing.expectError(error.FileNotFound, tmp.dir.access("dirlink", .{}));
+    try tmp.dir.access("dir", .{});
 }
 
 test "makePath, put some files in it, deleteTree" {

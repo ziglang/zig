@@ -60,6 +60,8 @@ static const char *get_host_os(void) {
     return "macos";
 #elif defined(__linux__)
     return "linux";
+#elif defined(__FreeBSD__)
+    return "freebsd";
 #else
 #error TODO implement get_host_os in this build script for this target
 #endif
@@ -136,18 +138,29 @@ int main(int argc, char **argv) {
 
     {
         const char *child_argv[] = {
-            "./zig1", "lib", "build-exe", "src/main.zig",
+            "./zig1", "lib", "build-exe",
             "-ofmt=c", "-lc", "-OReleaseSmall",
             "--name", "zig2", "-femit-bin=zig2.c",
-            "--mod", "build_options::config.zig",
-            "--mod", "aro_options::src/stubs/aro_options.zig",
-            "--mod", "Builtins/Builtin.def::src/stubs/aro_builtins.zig",
-            "--mod", "Attribute/names.def::src/stubs/aro_names.zig",
-            "--mod", "Diagnostics/messages.def::src/stubs/aro_messages.zig",
-            "--mod", "aro_backend:build_options=aro_options:deps/aro/backend.zig",
-            "--mod", "aro:Builtins/Builtin.def,Attribute/names.def,Diagnostics/messages.def,build_options=aro_options,backend=aro_backend:deps/aro/aro.zig",
-            "--deps", "build_options,aro",
             "-target", host_triple,
+            "--dep", "build_options",
+            "--dep", "aro",
+            "--mod", "root", "src/main.zig",
+
+            "--mod", "build_options", "config.zig",
+            "--mod", "aro_options", "src/stubs/aro_options.zig",
+            "--mod", "Builtins/Builtin.def", "src/stubs/aro_builtins.zig",
+            "--mod", "Attribute/names.def", "src/stubs/aro_names.zig",
+            "--mod", "Diagnostics/messages.def", "src/stubs/aro_messages.zig",
+
+            "--dep", "build_options=aro_options",
+            "--mod", "aro_backend", "deps/aro/backend.zig",
+
+            "--dep", "Builtins/Builtin.def",
+            "--dep", "Attribute/names.def",
+            "--dep", "Diagnostics/messages.def",
+            "--dep", "build_options=aro_options",
+            "--dep", "backend=aro_backend",
+            "--mod", "aro", "deps/aro/aro.zig",
             NULL,
         };
         print_and_run(child_argv);
@@ -155,12 +168,13 @@ int main(int argc, char **argv) {
 
     {
         const char *child_argv[] = {
-            "./zig1", "lib", "build-obj", "lib/compiler_rt.zig",
+            "./zig1", "lib", "build-obj",
             "-ofmt=c", "-OReleaseSmall",
             "--name", "compiler_rt", "-femit-bin=compiler_rt.c",
-            "--mod", "build_options::config.zig",
-            "--deps", "build_options",
             "-target", host_triple,
+            "--dep", "build_options",
+            "--mod", "root", "lib/compiler_rt.zig",
+            "--mod", "build_options", "config.zig",
             NULL,
         };
         print_and_run(child_argv);
