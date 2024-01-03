@@ -458,7 +458,7 @@ pub fn build(b: *std.Build) !void {
         .llvm_has_csky = llvm_has_csky,
         .llvm_has_arc = llvm_has_arc,
         .llvm_has_xtensa = llvm_has_xtensa,
-    });
+    }, .{ .skip_run_translated_c = skip_run_translated_c });
     test_step.dependOn(test_cases_step);
 
     test_step.dependOn(tests.addModuleTests(b, .{
@@ -512,9 +512,9 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(tests.addStackTraceTests(b, test_filter, optimization_modes));
     test_step.dependOn(tests.addCliTests(b));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, optimization_modes));
-    test_step.dependOn(tests.addTranslateCTests(b, test_filter));
+    test_step.dependOn(try tests.addTranslateCTests(b, test_filter));
     if (!skip_run_translated_c) {
-        test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
+        test_step.dependOn(try tests.addRunTranslatedCTests(b, test_filter, target));
     }
 
     test_step.dependOn(tests.addModuleTests(b, .{

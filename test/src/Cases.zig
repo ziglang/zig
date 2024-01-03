@@ -530,6 +530,85 @@ pub fn init(gpa: Allocator, arena: Allocator) Cases {
     };
 }
 
+pub const TranslateOptions = struct {
+    skip_translate_c: bool = false,
+    skip_run_translated_c: bool = false,
+};
+pub fn lowerToTranslateSteps(
+    self: *Cases,
+    b: *std.Build,
+    parent_step: *std.Build.Step,
+    opt_test_filter: ?[]const u8,
+    translate_options: TranslateOptions,
+) void {
+    const host = std.zig.system.NativeTargetInfo.detect(.{}) catch |err|
+        std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
+
+    for (self.translate.items) |case| switch (case.kind) {
+        .run => |output| {
+            const annotated_case_name = b.fmt("run-translated-c  {s}", .{case.name});
+            if (translate_options.skip_run_translated_c) continue;
+            if (opt_test_filter) |filter| {
+                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) continue;
+            }
+            if (!std.process.can_spawn) {
+                std.debug.print("Unable to spawn child processes on {s}, skipping test.\n", .{@tagName(builtin.os.tag)});
+                continue; // Pass test.
+            }
+
+            const target_info = std.zig.system.NativeTargetInfo.detect(case.target) catch |err|
+                std.debug.panic("unable to detect target host: {s}\n", .{@errorName(err)});
+            if (host.getExternalExecutor(&target_info, .{ .link_libc = true }) != .native) {
+                // We wouldn't be able to run the compiled C code.
+                continue; // Pass test.
+            }
+
+            const write_src = b.addWriteFiles();
+            const file_source = write_src.add("tmp.c", case.input);
+
+            const translate_c = b.addTranslateC(.{
+                .source_file = file_source,
+                .optimize = .Debug,
+                .target = case.target,
+                .link_libc = case.link_libc,
+                .use_clang = case.c_frontend == .clang,
+            });
+            translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
+
+            const run_exe = translate_c.addExecutable(.{});
+            run_exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
+            run_exe.linkLibC();
+            const run = b.addRunArtifact(run_exe);
+            run.step.name = b.fmt("{s} run", .{annotated_case_name});
+            run.expectStdOutEqual(output);
+
+            parent_step.dependOn(&run.step);
+        },
+        .translate => |output| {
+            const annotated_case_name = b.fmt("zig translate-c {s}", .{case.name});
+            if (translate_options.skip_translate_c) continue;
+            if (opt_test_filter) |filter| {
+                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) continue;
+            }
+
+            const write_src = b.addWriteFiles();
+            const file_source = write_src.add("tmp.c", case.input);
+
+            const translate_c = b.addTranslateC(.{
+                .source_file = file_source,
+                .optimize = .Debug,
+                .target = case.target,
+                .link_libc = case.link_libc,
+                .use_clang = case.c_frontend == .clang,
+            });
+            translate_c.step.name = annotated_case_name;
+
+            const check_file = translate_c.addCheckFile(output);
+            parent_step.dependOn(&check_file.step);
+        },
+    };
+}
+
 pub fn lowerToBuildSteps(
     self: *Cases,
     b: *std.Build,
@@ -680,68 +759,6 @@ pub fn lowerToBuildSteps(
             .Header => @panic("TODO"),
         }
     }
-
-    for (self.translate.items) |case| switch (case.kind) {
-        .run => |output| {
-            const annotated_case_name = b.fmt("run-translated-c  {s}", .{case.name});
-            if (opt_test_filter) |filter| {
-                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) continue;
-            }
-            if (!std.process.can_spawn) {
-                std.debug.print("Unable to spawn child processes on {s}, skipping test.\n", .{@tagName(builtin.os.tag)});
-                continue; // Pass test.
-            }
-
-            const target_info = std.zig.system.NativeTargetInfo.detect(case.target) catch |err|
-                std.debug.panic("unable to detect target host: {s}\n", .{@errorName(err)});
-            if (host.getExternalExecutor(&target_info, .{ .link_libc = true }) != .native) {
-                // We wouldn't be able to run the compiled C code.
-                continue; // Pass test.
-            }
-
-            const write_src = b.addWriteFiles();
-            const file_source = write_src.add("tmp.c", case.input);
-
-            const translate_c = b.addTranslateC(.{
-                .source_file = file_source,
-                .optimize = .Debug,
-                .target = case.target,
-                .link_libc = case.link_libc,
-                .use_clang = case.c_frontend == .clang,
-            });
-            translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
-
-            const run_exe = translate_c.addExecutable(.{});
-            run_exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
-            run_exe.linkLibC();
-            const run = b.addRunArtifact(run_exe);
-            run.step.name = b.fmt("{s} run", .{annotated_case_name});
-            run.expectStdOutEqual(output);
-
-            parent_step.dependOn(&run.step);
-        },
-        .translate => |output| {
-            const annotated_case_name = b.fmt("zig translate-c {s}", .{case.name});
-            if (opt_test_filter) |filter| {
-                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) continue;
-            }
-
-            const write_src = b.addWriteFiles();
-            const file_source = write_src.add("tmp.c", case.input);
-
-            const translate_c = b.addTranslateC(.{
-                .source_file = file_source,
-                .optimize = .Debug,
-                .target = case.target,
-                .link_libc = case.link_libc,
-                .use_clang = case.c_frontend == .clang,
-            });
-            translate_c.step.name = annotated_case_name;
-
-            const check_file = translate_c.addCheckFile(output);
-            parent_step.dependOn(&check_file.step);
-        },
-    };
 }
 
 /// Sort test filenames in-place, so that incremental test cases ("foo.0.zig",

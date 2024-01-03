@@ -984,7 +984,7 @@ pub fn addAssembleAndLinkTests(b: *std.Build, test_filter: ?[]const u8, optimize
     return cases.step;
 }
 
-pub fn addTranslateCTests(b: *std.Build, test_filter: ?[]const u8) *Step {
+pub fn addTranslateCTests(b: *std.Build, test_filter: ?[]const u8) !*Step {
     const cases = b.allocator.create(TranslateCContext) catch @panic("OOM");
     cases.* = TranslateCContext{
         .b = b,
@@ -995,6 +995,8 @@ pub fn addTranslateCTests(b: *std.Build, test_filter: ?[]const u8) *Step {
 
     translate_c.addCases(cases);
 
+    try addTranslateCases(b, cases.step, test_filter, .{ .skip_run_translated_c = true });
+
     return cases.step;
 }
 
@@ -1002,7 +1004,7 @@ pub fn addRunTranslatedCTests(
     b: *std.Build,
     test_filter: ?[]const u8,
     target: std.zig.CrossTarget,
-) *Step {
+) !*Step {
     const cases = b.allocator.create(RunTranslatedCContext) catch @panic("OOM");
     cases.* = .{
         .b = b,
@@ -1013,6 +1015,8 @@ pub fn addRunTranslatedCTests(
     };
 
     run_translated_c.addCases(cases);
+
+    try addTranslateCases(b, cases.step, test_filter, .{ .skip_translate_c = true });
 
     return cases.step;
 }
@@ -1282,12 +1286,36 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
     return step;
 }
 
+pub fn addTranslateCases(
+    b: *std.Build,
+    parent_step: *Step,
+    opt_test_filter: ?[]const u8,
+    translate_options: @import("src/Cases.zig").TranslateOptions,
+) !void {
+    const arena = b.allocator;
+    const gpa = b.allocator;
+
+    var translate_cases = @import("src/Cases.zig").init(gpa, arena);
+
+    var dir = try b.build_root.handle.openDir("test/cases", .{ .iterate = true });
+    defer dir.close();
+
+    translate_cases.addFromDir(dir);
+    translate_cases.lowerToTranslateSteps(
+        b,
+        parent_step,
+        opt_test_filter,
+        translate_options,
+    );
+}
+
 pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
     opt_test_filter: ?[]const u8,
     check_case_exe: *std.Build.Step.Compile,
     build_options: @import("cases.zig").BuildOptions,
+    translate_options: @import("src/Cases.zig").TranslateOptions,
 ) !void {
     const arena = b.allocator;
     const gpa = b.allocator;
@@ -1299,6 +1327,8 @@ pub fn addCases(
 
     cases.addFromDir(dir);
     try @import("cases.zig").addCases(&cases, build_options);
+
+    cases.lowerToTranslateSteps(b, parent_step, opt_test_filter, translate_options);
 
     const cases_dir_path = try b.build_root.join(b.allocator, &.{ "test", "cases" });
     cases.lowerToBuildSteps(
