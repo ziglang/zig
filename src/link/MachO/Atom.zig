@@ -253,7 +253,8 @@ pub fn addRelocation(macho_file: *MachO, atom_index: Index, reloc: Relocation) !
 }
 
 pub fn addRelocations(macho_file: *MachO, atom_index: Index, relocs: []const Relocation) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const gop = try macho_file.relocs.getOrPut(gpa, atom_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
@@ -269,7 +270,8 @@ pub fn addRelocations(macho_file: *MachO, atom_index: Index, relocs: []const Rel
 }
 
 pub fn addRebase(macho_file: *MachO, atom_index: Index, offset: u32) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const atom = macho_file.getAtom(atom_index);
     log.debug("  (adding rebase at offset 0x{x} in %{?d})", .{ offset, atom.getSymbolIndex() });
     const gop = try macho_file.rebases.getOrPut(gpa, atom_index);
@@ -280,7 +282,8 @@ pub fn addRebase(macho_file: *MachO, atom_index: Index, offset: u32) !void {
 }
 
 pub fn addBinding(macho_file: *MachO, atom_index: Index, binding: Binding) !void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const atom = macho_file.getAtom(atom_index);
     log.debug("  (adding binding to symbol {s} at offset 0x{x} in %{?d})", .{
         macho_file.getSymbolName(binding.target),
@@ -307,7 +310,8 @@ pub fn resolveRelocations(
 }
 
 pub fn freeRelocations(macho_file: *MachO, atom_index: Index) void {
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     var removed_relocs = macho_file.relocs.fetchOrderedRemove(atom_index);
     if (removed_relocs) |*relocs| relocs.value.deinit(gpa);
     var removed_rebases = macho_file.rebases.fetchOrderedRemove(atom_index);
@@ -387,7 +391,8 @@ pub fn calcInnerSymbolOffset(macho_file: *MachO, atom_index: Index, sym_index: u
 }
 
 pub fn scanAtomRelocs(macho_file: *MachO, atom_index: Index, relocs: []align(1) const macho.relocation_info) !void {
-    const arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const arch = target.cpu.arch;
     const atom = macho_file.getAtom(atom_index);
     assert(atom.getFile() != null); // synthetic atoms do not have relocs
 
@@ -434,6 +439,7 @@ pub fn parseRelocTarget(macho_file: *MachO, ctx: struct {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
     const object = &macho_file.objects.items[ctx.object_id];
     log.debug("parsing reloc target in object({d}) '{s}' ", .{ ctx.object_id, object.name });
 
@@ -447,7 +453,7 @@ pub fn parseRelocTarget(macho_file: *MachO, ctx: struct {
             else
                 mem.readInt(u32, ctx.code[rel_offset..][0..4], .little);
         } else blk: {
-            assert(macho_file.base.options.target.cpu.arch == .x86_64);
+            assert(target.cpu.arch == .x86_64);
             const correction: u3 = switch (@as(macho.reloc_type_x86_64, @enumFromInt(ctx.rel.r_type))) {
                 .X86_64_RELOC_SIGNED => 0,
                 .X86_64_RELOC_SIGNED_1 => 1,
@@ -467,18 +473,18 @@ pub fn parseRelocTarget(macho_file: *MachO, ctx: struct {
 
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = ctx.object_id + 1 };
     const sym = macho_file.getSymbol(sym_loc);
-    const target = if (sym.sect() and !sym.ext())
+    const reloc_target = if (sym.sect() and !sym.ext())
         sym_loc
     else if (object.getGlobal(sym_index)) |global_index|
         macho_file.globals.items[global_index]
     else
         sym_loc;
     log.debug("  | target %{d} ('{s}') in object({?d})", .{
-        target.sym_index,
-        macho_file.getSymbolName(target),
-        target.getFile(),
+        reloc_target.sym_index,
+        macho_file.getSymbolName(reloc_target),
+        reloc_target.getFile(),
     });
-    return target;
+    return reloc_target;
 }
 
 pub fn getRelocTargetAtomIndex(macho_file: *MachO, target: SymbolWithLoc) ?Index {
@@ -599,7 +605,8 @@ pub fn resolveRelocs(
     atom_code: []u8,
     atom_relocs: []align(1) const macho.relocation_info,
 ) !void {
-    const arch = macho_file.base.options.target.cpu.arch;
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    const arch = target.cpu.arch;
     const atom = macho_file.getAtom(atom_index);
     assert(atom.getFile() != null); // synthetic atoms do not have relocs
 
@@ -1192,7 +1199,8 @@ pub fn getAtomRelocs(macho_file: *MachO, atom_index: Index) []const macho.reloca
 }
 
 pub fn relocRequiresGot(macho_file: *MachO, rel: macho.relocation_info) bool {
-    switch (macho_file.base.options.target.cpu.arch) {
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    switch (target.cpu.arch) {
         .aarch64 => switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
             .ARM64_RELOC_GOT_LOAD_PAGE21,
             .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
@@ -1211,7 +1219,8 @@ pub fn relocRequiresGot(macho_file: *MachO, rel: macho.relocation_info) bool {
 }
 
 pub fn relocIsTlv(macho_file: *MachO, rel: macho.relocation_info) bool {
-    switch (macho_file.base.options.target.cpu.arch) {
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    switch (target.cpu.arch) {
         .aarch64 => switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
             .ARM64_RELOC_TLVP_LOAD_PAGE21,
             .ARM64_RELOC_TLVP_LOAD_PAGEOFF12,
@@ -1227,7 +1236,8 @@ pub fn relocIsTlv(macho_file: *MachO, rel: macho.relocation_info) bool {
 }
 
 pub fn relocIsStub(macho_file: *MachO, rel: macho.relocation_info) bool {
-    switch (macho_file.base.options.target.cpu.arch) {
+    const target = macho_file.base.comp.root_mod.resolved_target.result;
+    switch (target.cpu.arch) {
         .aarch64 => switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
             .ARM64_RELOC_BRANCH26 => return true,
             else => return false,

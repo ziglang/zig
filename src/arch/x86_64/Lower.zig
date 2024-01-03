@@ -1,6 +1,9 @@
 //! This file contains the functionality for lowering x86_64 MIR to Instructions
 
 bin_file: *link.File,
+output_mode: std.builtin.OutputMode,
+link_mode: std.builtin.LinkMode,
+pic: bool,
 allocator: Allocator,
 mir: Mir,
 cc: std.builtin.CallingConvention,
@@ -336,10 +339,10 @@ fn isTls(sym: bits.Symbol, ctx: *link.File) bool {
 }
 
 fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
-    const is_obj_or_static_lib = switch (lower.bin_file.options.output_mode) {
+    const is_obj_or_static_lib = switch (lower.output_mode) {
         .Exe => false,
         .Obj => true,
-        .Lib => lower.bin_file.options.link_mode == .Static,
+        .Lib => lower.link_mode == .Static,
     };
 
     const emit_prefix = prefix;
@@ -358,7 +361,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
 
                     if (isTls(sym, lower.bin_file)) {
                         // TODO handle extern TLS vars, i.e., emit GD model
-                        if (lower.bin_file.options.pic) {
+                        if (lower.pic) {
                             // Here, we currently assume local dynamic TLS vars, and so
                             // we emit LD model.
                             _ = lower.reloc(.{ .linker_tlsld = sym });
@@ -403,7 +406,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                     }
 
                     _ = lower.reloc(.{ .linker_reloc = sym });
-                    break :op if (lower.bin_file.options.pic) switch (mnemonic) {
+                    break :op if (lower.pic) switch (mnemonic) {
                         .lea => {
                             break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                         },

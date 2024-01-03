@@ -599,7 +599,7 @@ pub fn categorizeOperand(
 
         .br => {
             const br = air_datas[@intFromEnum(inst)].br;
-            if (br.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .noret);
+            if (br.operand == operand_ref) return matchOperandSmallIndex(l, operand, 0, .noret);
             return .noret;
         },
         .assembly => {

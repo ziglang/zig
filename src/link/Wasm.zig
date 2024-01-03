@@ -37,6 +37,12 @@ pub const Relocation = types.Relocation;
 pub const base_tag: link.File.Tag = .wasm;
 
 base: link.File,
+entry_name: ?[]const u8,
+import_symbols: bool,
+export_symbol_names: []const []const u8,
+global_base: ?u64,
+initial_memory: ?u64,
+max_memory: ?u64,
 /// Output name of the file
 name: []const u8,
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
@@ -190,6 +196,9 @@ synthetic_functions: std.ArrayListUnmanaged(Atom.Index) = .{},
 
 /// Map for storing anonymous declarations. Each anonymous decl maps to its Atom's index.
 anon_decls: std.AutoArrayHashMapUnmanaged(InternPool.Index, Atom.Index) = .{},
+
+import_table: bool,
+export_table: bool,
 
 pub const Alignment = types.Alignment;
 
@@ -363,63 +372,126 @@ pub const StringTable = struct {
     }
 };
 
-pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
-    assert(options.target.ofmt == .wasm);
+pub fn open(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*Wasm {
+    // TODO: restore saved linker state, don't truncate the file, and
+    // participate in incremental compilation.
+    return createEmpty(arena, comp, emit, options);
+}
 
-    if (options.use_llvm and options.use_lld) {
-        return createEmpty(allocator, options);
+pub fn createEmpty(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*Wasm {
+    const gpa = comp.gpa;
+    const target = comp.root_mod.resolved_target.result;
+    assert(target.ofmt == .wasm);
+
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
+    const output_mode = comp.config.output_mode;
+    const shared_memory = comp.config.shared_memory;
+    const wasi_exec_model = comp.config.wasi_exec_model;
+
+    // If using LLD to link, this code should produce an object file so that it
+    // can be passed to LLD.
+    // If using LLVM to generate the object file for the zig compilation unit,
+    // we need a place to put the object file so that it can be subsequently
+    // handled.
+    const zcu_object_sub_path = if (!use_lld and !use_llvm)
+        null
+    else
+        try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
+
+    const wasm = try arena.create(Wasm);
+    wasm.* = .{
+        .base = .{
+            .tag = .wasm,
+            .comp = comp,
+            .emit = emit,
+            .zcu_object_sub_path = zcu_object_sub_path,
+            .gc_sections = options.gc_sections orelse (output_mode != .Obj),
+            .print_gc_sections = options.print_gc_sections,
+            .stack_size = options.stack_size orelse std.wasm.page_size * 16, // 1MB
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
+            .file = null,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
+        },
+        .name = undefined,
+        .import_table = options.import_table,
+        .export_table = options.export_table,
+        .import_symbols = options.import_symbols,
+        .export_symbol_names = options.export_symbol_names,
+        .global_base = options.global_base,
+        .initial_memory = options.initial_memory,
+        .max_memory = options.max_memory,
+
+        .entry_name = switch (options.entry) {
+            .disabled => null,
+            .default => if (output_mode != .Exe) null else defaultEntrySymbolName(wasi_exec_model),
+            .enabled => defaultEntrySymbolName(wasi_exec_model),
+            .named => |name| name,
+        },
+    };
+    if (use_llvm and comp.config.have_zcu) {
+        wasm.llvm_object = try LlvmObject.create(arena, comp);
+    }
+    errdefer wasm.base.destroy();
+
+    if (use_lld and (use_llvm or !comp.config.have_zcu)) {
+        // LLVM emits the object file (if any); LLD links it into the final product.
+        return wasm;
     }
 
-    const wasm_bin = try createEmpty(allocator, options);
-    errdefer wasm_bin.base.destroy();
+    // What path should this Wasm linker code output to?
+    // If using LLD to link, this code should produce an object file so that it
+    // can be passed to LLD.
+    const sub_path = if (use_lld) zcu_object_sub_path.? else emit.sub_path;
 
-    // We are not using LLD at this point, so ensure we set the intermediary basename
-    if (build_options.have_llvm and options.use_llvm and options.module != null) {
-        // TODO this intermediary_basename isn't enough; in the case of `zig build-exe`,
-        // we also want to put the intermediary object file in the cache while the
-        // main emit directory is the cwd.
-        wasm_bin.base.intermediary_basename = try std.fmt.allocPrint(allocator, "{s}{s}", .{
-            options.emit.?.sub_path, options.target.ofmt.fileExt(options.target.cpu.arch),
-        });
-    }
-
-    // TODO: read the file and keep valid parts instead of truncating
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{
+    const file = try emit.directory.handle.createFile(sub_path, .{
         .truncate = true,
         .read = true,
         .mode = if (fs.has_executable_bit)
-            if (options.target.os.tag == .wasi and options.output_mode == .Exe)
+            if (target.os.tag == .wasi and output_mode == .Exe)
                 fs.File.default_mode | 0b001_000_000
             else
                 fs.File.default_mode
         else
             0,
     });
-    wasm_bin.base.file = file;
-    wasm_bin.name = sub_path;
+    wasm.base.file = file;
+    wasm.name = sub_path;
 
     // create stack pointer symbol
     {
-        const loc = try wasm_bin.createSyntheticSymbol("__stack_pointer", .global);
-        const symbol = loc.getSymbol(wasm_bin);
+        const loc = try wasm.createSyntheticSymbol("__stack_pointer", .global);
+        const symbol = loc.getSymbol(wasm);
         // For object files we will import the stack pointer symbol
-        if (options.output_mode == .Obj) {
+        if (output_mode == .Obj) {
             symbol.setUndefined(true);
-            symbol.index = @as(u32, @intCast(wasm_bin.imported_globals_count));
-            wasm_bin.imported_globals_count += 1;
-            try wasm_bin.imports.putNoClobber(
-                allocator,
+            symbol.index = @intCast(wasm.imported_globals_count);
+            wasm.imported_globals_count += 1;
+            try wasm.imports.putNoClobber(
+                gpa,
                 loc,
                 .{
-                    .module_name = try wasm_bin.string_table.put(allocator, wasm_bin.host_name),
+                    .module_name = try wasm.string_table.put(gpa, wasm.host_name),
                     .name = symbol.name,
                     .kind = .{ .global = .{ .valtype = .i32, .mutable = true } },
                 },
             );
         } else {
-            symbol.index = @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len);
+            symbol.index = @intCast(wasm.imported_globals_count + wasm.wasm_globals.items.len);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
-            const global = try wasm_bin.wasm_globals.addOne(allocator);
+            const global = try wasm.wasm_globals.addOne(gpa);
             global.* = .{
                 .global_type = .{
                     .valtype = .i32,
@@ -432,25 +504,25 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 
     // create indirect function pointer symbol
     {
-        const loc = try wasm_bin.createSyntheticSymbol("__indirect_function_table", .table);
-        const symbol = loc.getSymbol(wasm_bin);
+        const loc = try wasm.createSyntheticSymbol("__indirect_function_table", .table);
+        const symbol = loc.getSymbol(wasm);
         const table: std.wasm.Table = .{
             .limits = .{ .flags = 0, .min = 0, .max = undefined }, // will be overwritten during `mapFunctionTable`
             .reftype = .funcref,
         };
-        if (options.output_mode == .Obj or options.import_table) {
+        if (output_mode == .Obj or options.import_table) {
             symbol.setUndefined(true);
-            symbol.index = @intCast(wasm_bin.imported_tables_count);
-            wasm_bin.imported_tables_count += 1;
-            try wasm_bin.imports.put(allocator, loc, .{
-                .module_name = try wasm_bin.string_table.put(allocator, wasm_bin.host_name),
+            symbol.index = @intCast(wasm.imported_tables_count);
+            wasm.imported_tables_count += 1;
+            try wasm.imports.put(gpa, loc, .{
+                .module_name = try wasm.string_table.put(gpa, wasm.host_name),
                 .name = symbol.name,
                 .kind = .{ .table = table },
             });
         } else {
-            symbol.index = @as(u32, @intCast(wasm_bin.imported_tables_count + wasm_bin.tables.items.len));
-            try wasm_bin.tables.append(allocator, table);
-            if (options.export_table) {
+            symbol.index = @as(u32, @intCast(wasm.imported_tables_count + wasm.tables.items.len));
+            try wasm.tables.append(gpa, table);
+            if (wasm.export_table) {
                 symbol.setFlag(.WASM_SYM_EXPORTED);
             } else {
                 symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
@@ -460,8 +532,8 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 
     // create __wasm_call_ctors
     {
-        const loc = try wasm_bin.createSyntheticSymbol("__wasm_call_ctors", .function);
-        const symbol = loc.getSymbol(wasm_bin);
+        const loc = try wasm.createSyntheticSymbol("__wasm_call_ctors", .function);
+        const symbol = loc.getSymbol(wasm);
         symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
         // we do not know the function index until after we merged all sections.
         // Therefore we set `symbol.index` and create its corresponding references
@@ -469,90 +541,68 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     }
 
     // shared-memory symbols for TLS support
-    if (wasm_bin.base.options.shared_memory) {
+    if (shared_memory) {
         {
-            const loc = try wasm_bin.createSyntheticSymbol("__tls_base", .global);
-            const symbol = loc.getSymbol(wasm_bin);
+            const loc = try wasm.createSyntheticSymbol("__tls_base", .global);
+            const symbol = loc.getSymbol(wasm);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
-            symbol.index = @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len);
-            try wasm_bin.wasm_globals.append(wasm_bin.base.allocator, .{
+            symbol.index = @intCast(wasm.imported_globals_count + wasm.wasm_globals.items.len);
+            try wasm.wasm_globals.append(gpa, .{
                 .global_type = .{ .valtype = .i32, .mutable = true },
                 .init = .{ .i32_const = undefined },
             });
         }
         {
-            const loc = try wasm_bin.createSyntheticSymbol("__tls_size", .global);
-            const symbol = loc.getSymbol(wasm_bin);
+            const loc = try wasm.createSyntheticSymbol("__tls_size", .global);
+            const symbol = loc.getSymbol(wasm);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
-            symbol.index = @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len);
-            try wasm_bin.wasm_globals.append(wasm_bin.base.allocator, .{
+            symbol.index = @intCast(wasm.imported_globals_count + wasm.wasm_globals.items.len);
+            try wasm.wasm_globals.append(gpa, .{
                 .global_type = .{ .valtype = .i32, .mutable = false },
                 .init = .{ .i32_const = undefined },
             });
         }
         {
-            const loc = try wasm_bin.createSyntheticSymbol("__tls_align", .global);
-            const symbol = loc.getSymbol(wasm_bin);
+            const loc = try wasm.createSyntheticSymbol("__tls_align", .global);
+            const symbol = loc.getSymbol(wasm);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
-            symbol.index = @intCast(wasm_bin.imported_globals_count + wasm_bin.wasm_globals.items.len);
-            try wasm_bin.wasm_globals.append(wasm_bin.base.allocator, .{
+            symbol.index = @intCast(wasm.imported_globals_count + wasm.wasm_globals.items.len);
+            try wasm.wasm_globals.append(gpa, .{
                 .global_type = .{ .valtype = .i32, .mutable = false },
                 .init = .{ .i32_const = undefined },
             });
         }
         {
-            const loc = try wasm_bin.createSyntheticSymbol("__wasm_init_tls", .function);
-            const symbol = loc.getSymbol(wasm_bin);
+            const loc = try wasm.createSyntheticSymbol("__wasm_init_tls", .function);
+            const symbol = loc.getSymbol(wasm);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
         }
     }
 
-    // if (!options.strip and options.module != null) {
-    //     wasm_bin.dwarf = Dwarf.init(allocator, &wasm_bin.base, .dwarf32);
-    //     try wasm_bin.initDebugSections();
-    // }
-
-    return wasm_bin;
-}
-
-pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
-    const wasm = try gpa.create(Wasm);
-    errdefer gpa.destroy(wasm);
-    wasm.* = .{
-        .base = .{
-            .tag = .wasm,
-            .options = options,
-            .file = null,
-            .allocator = gpa,
-        },
-        .name = undefined,
-    };
-
-    if (options.use_llvm) {
-        wasm.llvm_object = try LlvmObject.create(gpa, options);
-    }
     return wasm;
 }
 
 /// For a given name, creates a new global synthetic symbol.
 /// Leaves index undefined and the default flags (0).
 fn createSyntheticSymbol(wasm: *Wasm, name: []const u8, tag: Symbol.Tag) !SymbolLoc {
-    const name_offset = try wasm.string_table.put(wasm.base.allocator, name);
+    const gpa = wasm.base.comp.gpa;
+    const name_offset = try wasm.string_table.put(gpa, name);
     return wasm.createSyntheticSymbolOffset(name_offset, tag);
 }
 
 fn createSyntheticSymbolOffset(wasm: *Wasm, name_offset: u32, tag: Symbol.Tag) !SymbolLoc {
     const sym_index = @as(u32, @intCast(wasm.symbols.items.len));
     const loc: SymbolLoc = .{ .index = sym_index, .file = null };
-    try wasm.symbols.append(wasm.base.allocator, .{
+    const gpa = wasm.base.comp.gpa;
+    try wasm.symbols.append(gpa, .{
         .name = name_offset,
         .flags = 0,
         .tag = tag,
         .index = undefined,
         .virtual_address = undefined,
     });
-    try wasm.resolved_symbols.putNoClobber(wasm.base.allocator, loc, {});
-    try wasm.globals.put(wasm.base.allocator, name_offset, loc);
+    try wasm.resolved_symbols.putNoClobber(gpa, loc, {});
+    try wasm.globals.put(gpa, name_offset, loc);
     return loc;
 }
 
@@ -589,12 +639,13 @@ fn parseObjectFile(wasm: *Wasm, path: []const u8) !bool {
     const file = try fs.cwd().openFile(path, .{});
     errdefer file.close();
 
-    var object = Object.create(wasm.base.allocator, file, path, null) catch |err| switch (err) {
+    const gpa = wasm.base.comp.gpa;
+    var object = Object.create(gpa, file, path, null) catch |err| switch (err) {
         error.InvalidMagicByte, error.NotObjectFile => return false,
         else => |e| return e,
     };
-    errdefer object.deinit(wasm.base.allocator);
-    try wasm.objects.append(wasm.base.allocator, object);
+    errdefer object.deinit(gpa);
+    try wasm.objects.append(gpa, object);
     return true;
 }
 
@@ -602,27 +653,29 @@ fn parseObjectFile(wasm: *Wasm, path: []const u8) !bool {
 /// When the index was not found, a new `Atom` will be created, and its index will be returned.
 /// The newly created Atom is empty with default fields as specified by `Atom.empty`.
 pub fn getOrCreateAtomForDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex) !Atom.Index {
-    const gop = try wasm.decls.getOrPut(wasm.base.allocator, decl_index);
+    const gpa = wasm.base.comp.gpa;
+    const gop = try wasm.decls.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         const atom_index = try wasm.createAtom();
         gop.value_ptr.* = atom_index;
         const atom = wasm.getAtom(atom_index);
         const symbol = atom.symbolLoc().getSymbol(wasm);
-        const mod = wasm.base.options.module.?;
+        const mod = wasm.base.comp.module.?;
         const decl = mod.declPtr(decl_index);
         const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
-        symbol.name = try wasm.string_table.put(wasm.base.allocator, full_name);
+        symbol.name = try wasm.string_table.put(gpa, full_name);
     }
     return gop.value_ptr.*;
 }
 
 /// Creates a new empty `Atom` and returns its `Atom.Index`
 fn createAtom(wasm: *Wasm) !Atom.Index {
-    const index = @as(Atom.Index, @intCast(wasm.managed_atoms.items.len));
-    const atom = try wasm.managed_atoms.addOne(wasm.base.allocator);
+    const gpa = wasm.base.comp.gpa;
+    const index: Atom.Index = @intCast(wasm.managed_atoms.items.len);
+    const atom = try wasm.managed_atoms.addOne(gpa);
     atom.* = Atom.empty;
     atom.sym_index = try wasm.allocateSymbol();
-    try wasm.symbol_atom.putNoClobber(wasm.base.allocator, .{ .file = null, .index = atom.sym_index }, index);
+    try wasm.symbol_atom.putNoClobber(gpa, .{ .file = null, .index = atom.sym_index }, index);
 
     return index;
 }
@@ -644,6 +697,8 @@ pub inline fn getAtomPtr(wasm: *Wasm, index: Atom.Index) *Atom {
 /// When false, it will only link with object files that contain symbols that
 /// are referenced by other object files or Zig code.
 fn parseArchive(wasm: *Wasm, path: []const u8, force_load: bool) !bool {
+    const gpa = wasm.base.comp.gpa;
+
     const file = try fs.cwd().openFile(path, .{});
     errdefer file.close();
 
@@ -651,25 +706,25 @@ fn parseArchive(wasm: *Wasm, path: []const u8, force_load: bool) !bool {
         .file = file,
         .name = path,
     };
-    archive.parse(wasm.base.allocator) catch |err| switch (err) {
+    archive.parse(gpa) catch |err| switch (err) {
         error.EndOfStream, error.NotArchive => {
-            archive.deinit(wasm.base.allocator);
+            archive.deinit(gpa);
             return false;
         },
         else => |e| return e,
     };
 
     if (!force_load) {
-        errdefer archive.deinit(wasm.base.allocator);
-        try wasm.archives.append(wasm.base.allocator, archive);
+        errdefer archive.deinit(gpa);
+        try wasm.archives.append(gpa, archive);
         return true;
     }
-    defer archive.deinit(wasm.base.allocator);
+    defer archive.deinit(gpa);
 
     // In this case we must force link all embedded object files within the archive
     // We loop over all symbols, and then group them by offset as the offset
     // notates where the object file starts.
-    var offsets = std.AutoArrayHashMap(u32, void).init(wasm.base.allocator);
+    var offsets = std.AutoArrayHashMap(u32, void).init(gpa);
     defer offsets.deinit();
     for (archive.toc.values()) |symbol_offsets| {
         for (symbol_offsets.items) |sym_offset| {
@@ -678,8 +733,8 @@ fn parseArchive(wasm: *Wasm, path: []const u8, force_load: bool) !bool {
     }
 
     for (offsets.keys()) |file_offset| {
-        const object = try wasm.objects.addOne(wasm.base.allocator);
-        object.* = try archive.parseObject(wasm.base.allocator, file_offset);
+        const object = try wasm.objects.addOne(gpa);
+        object.* = try archive.parseObject(gpa, file_offset);
     }
 
     return true;
@@ -695,6 +750,7 @@ fn requiresTLSReloc(wasm: *const Wasm) bool {
 }
 
 fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
+    const gpa = wasm.base.comp.gpa;
     const object: Object = wasm.objects.items[object_index];
     log.debug("Resolving symbols in object: '{s}'", .{object.name});
 
@@ -708,7 +764,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
         if (mem.eql(u8, sym_name, "__indirect_function_table")) {
             continue;
         }
-        const sym_name_index = try wasm.string_table.put(wasm.base.allocator, sym_name);
+        const sym_name_index = try wasm.string_table.put(gpa, sym_name);
 
         if (symbol.isLocal()) {
             if (symbol.isUndefined()) {
@@ -716,17 +772,17 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
                 log.err("  symbol '{s}' defined in '{s}'", .{ sym_name, object.name });
                 return error.UndefinedLocal;
             }
-            try wasm.resolved_symbols.putNoClobber(wasm.base.allocator, location, {});
+            try wasm.resolved_symbols.putNoClobber(gpa, location, {});
             continue;
         }
 
-        const maybe_existing = try wasm.globals.getOrPut(wasm.base.allocator, sym_name_index);
+        const maybe_existing = try wasm.globals.getOrPut(gpa, sym_name_index);
         if (!maybe_existing.found_existing) {
             maybe_existing.value_ptr.* = location;
-            try wasm.resolved_symbols.putNoClobber(wasm.base.allocator, location, {});
+            try wasm.resolved_symbols.putNoClobber(gpa, location, {});
 
             if (symbol.isUndefined()) {
-                try wasm.undefs.putNoClobber(wasm.base.allocator, sym_name_index, location);
+                try wasm.undefs.putNoClobber(gpa, sym_name_index, location);
             }
             continue;
         }
@@ -753,7 +809,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
                 return error.SymbolCollision;
             }
 
-            try wasm.discarded.put(wasm.base.allocator, location, existing_loc);
+            try wasm.discarded.put(gpa, location, existing_loc);
             continue; // Do not overwrite defined symbols with undefined symbols
         }
 
@@ -791,7 +847,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
             }
 
             // both undefined so skip overwriting existing symbol and discard the new symbol
-            try wasm.discarded.put(wasm.base.allocator, location, existing_loc);
+            try wasm.discarded.put(gpa, location, existing_loc);
             continue;
         }
 
@@ -822,7 +878,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
         // symbol is weak and the new one isn't, in which case we *do* overwrite it.
         if (existing_sym.isWeak() and symbol.isWeak()) blk: {
             if (existing_sym.isUndefined() and !symbol.isUndefined()) break :blk;
-            try wasm.discarded.put(wasm.base.allocator, location, existing_loc);
+            try wasm.discarded.put(gpa, location, existing_loc);
             continue;
         }
 
@@ -830,10 +886,10 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
         log.debug("Overwriting symbol '{s}'", .{sym_name});
         log.debug("  old definition in '{s}'", .{existing_file_path});
         log.debug("  new definition in '{s}'", .{object.name});
-        try wasm.discarded.putNoClobber(wasm.base.allocator, existing_loc, location);
+        try wasm.discarded.putNoClobber(gpa, existing_loc, location);
         maybe_existing.value_ptr.* = location;
-        try wasm.globals.put(wasm.base.allocator, sym_name_index, location);
-        try wasm.resolved_symbols.put(wasm.base.allocator, location, {});
+        try wasm.globals.put(gpa, sym_name_index, location);
+        try wasm.resolved_symbols.put(gpa, location, {});
         assert(wasm.resolved_symbols.swapRemove(existing_loc));
         if (existing_sym.isUndefined()) {
             _ = wasm.undefs.swapRemove(sym_name_index);
@@ -842,6 +898,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
 }
 
 fn resolveSymbolsInArchives(wasm: *Wasm) !void {
+    const gpa = wasm.base.comp.gpa;
     if (wasm.archives.items.len == 0) return;
 
     log.debug("Resolving symbols in archives", .{});
@@ -860,9 +917,9 @@ fn resolveSymbolsInArchives(wasm: *Wasm) !void {
             // Symbol is found in unparsed object file within current archive.
             // Parse object and and resolve symbols again before we check remaining
             // undefined symbols.
-            const object_file_index = @as(u16, @intCast(wasm.objects.items.len));
-            const object = try archive.parseObject(wasm.base.allocator, offset.items[0]);
-            try wasm.objects.append(wasm.base.allocator, object);
+            const object_file_index: u16 = @intCast(wasm.objects.items.len);
+            const object = try archive.parseObject(gpa, offset.items[0]);
+            try wasm.objects.append(gpa, object);
             try wasm.resolveSymbolsInObject(object_file_index);
 
             // continue loop for any remaining undefined symbols that still exist
@@ -880,6 +937,11 @@ fn writeI32Const(writer: anytype, val: u32) !void {
 }
 
 fn setupInitMemoryFunction(wasm: *Wasm) !void {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const shared_memory = comp.config.shared_memory;
+    const import_memory = comp.config.import_memory;
+
     // Passive segments are used to avoid memory being reinitialized on each
     // thread's instantiation. These passive segments are initialized and
     // dropped in __wasm_init_memory, which is registered as the start function
@@ -889,21 +951,21 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
         return;
     }
 
-    const flag_address: u32 = if (wasm.base.options.shared_memory) address: {
+    const flag_address: u32 = if (shared_memory) address: {
         // when we have passive initialization segments and shared memory
         // `setupMemory` will create this symbol and set its virtual address.
         const loc = wasm.findGlobalSymbol("__wasm_init_memory_flag").?;
         break :address loc.getSymbol(wasm).virtual_address;
     } else 0;
 
-    var function_body = std.ArrayList(u8).init(wasm.base.allocator);
+    var function_body = std.ArrayList(u8).init(gpa);
     defer function_body.deinit();
     const writer = function_body.writer();
 
     // we have 0 locals
     try leb.writeULEB128(writer, @as(u32, 0));
 
-    if (wasm.base.options.shared_memory) {
+    if (shared_memory) {
         // destination blocks
         // based on values we jump to corresponding label
         try writer.writeByte(std.wasm.opcode(.block)); // $drop
@@ -937,14 +999,14 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
     var segment_index: u32 = 0;
     while (it.next()) |entry| : (segment_index += 1) {
         const segment: Segment = wasm.segments.items[entry.value_ptr.*];
-        if (segment.needsPassiveInitialization(wasm.base.options.import_memory, entry.key_ptr.*)) {
+        if (segment.needsPassiveInitialization(import_memory, entry.key_ptr.*)) {
             // For passive BSS segments we can simple issue a memory.fill(0).
             // For non-BSS segments we do a memory.init.  Both these
             // instructions take as their first argument the destination
             // address.
             try writeI32Const(writer, segment.offset);
 
-            if (wasm.base.options.shared_memory and std.mem.eql(u8, entry.key_ptr.*, ".tdata")) {
+            if (shared_memory and std.mem.eql(u8, entry.key_ptr.*, ".tdata")) {
                 // When we initialize the TLS segment we also set the `__tls_base`
                 // global.  This allows the runtime to use this static copy of the
                 // TLS data for the first/main thread.
@@ -969,7 +1031,7 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
         }
     }
 
-    if (wasm.base.options.shared_memory) {
+    if (shared_memory) {
         // we set the init memory flag to value '2'
         try writeI32Const(writer, flag_address);
         try writeI32Const(writer, 2);
@@ -1012,12 +1074,12 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
     while (it.next()) |entry| : (segment_index += 1) {
         const name = entry.key_ptr.*;
         const segment: Segment = wasm.segments.items[entry.value_ptr.*];
-        if (segment.needsPassiveInitialization(wasm.base.options.import_memory, name) and
+        if (segment.needsPassiveInitialization(import_memory, name) and
             !std.mem.eql(u8, name, ".bss"))
         {
             // The TLS region should not be dropped since its is needed
             // during the initialization of each thread (__wasm_init_tls).
-            if (wasm.base.options.shared_memory and std.mem.eql(u8, name, ".tdata")) {
+            if (shared_memory and std.mem.eql(u8, name, ".tdata")) {
                 continue;
             }
 
@@ -1040,14 +1102,18 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
 /// Constructs a synthetic function that performs runtime relocations for
 /// TLS symbols. This function is called by `__wasm_init_tls`.
 fn setupTLSRelocationsFunction(wasm: *Wasm) !void {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const shared_memory = comp.config.shared_memory;
+
     // When we have TLS GOT entries and shared memory is enabled,
     // we must perform runtime relocations or else we don't create the function.
-    if (!wasm.base.options.shared_memory or !wasm.requiresTLSReloc()) {
+    if (!shared_memory or !wasm.requiresTLSReloc()) {
         return;
     }
 
     // const loc = try wasm.createSyntheticSymbol("__wasm_apply_global_tls_relocs");
-    var function_body = std.ArrayList(u8).init(wasm.base.allocator);
+    var function_body = std.ArrayList(u8).init(gpa);
     defer function_body.deinit();
     const writer = function_body.writer();
 
@@ -1086,7 +1152,10 @@ fn validateFeatures(
     to_emit: *[@typeInfo(types.Feature.Tag).Enum.fields.len]bool,
     emit_features_count: *u32,
 ) !void {
-    const cpu_features = wasm.base.options.target.cpu.features;
+    const comp = wasm.base.comp;
+    const target = comp.root_mod.resolved_target.result;
+    const shared_memory = comp.config.shared_memory;
+    const cpu_features = target.cpu.features;
     const infer = cpu_features.isEmpty(); // when the user did not define any features, we infer them from linked objects.
     const known_features_count = @typeInfo(types.Feature.Tag).Enum.fields.len;
 
@@ -1156,7 +1225,7 @@ fn validateFeatures(
         return error.InvalidFeatureSet;
     }
 
-    if (wasm.base.options.shared_memory) {
+    if (shared_memory) {
         const disallowed_feature = disallowed[@intFromEnum(types.Feature.Tag.shared_mem)];
         if (@as(u1, @truncate(disallowed_feature)) != 0) {
             log.err(
@@ -1221,10 +1290,14 @@ fn validateFeatures(
 /// if one or multiple undefined references exist. When none exist, the symbol will
 /// not be created, ensuring we don't unneccesarily emit unreferenced symbols.
 fn resolveLazySymbols(wasm: *Wasm) !void {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const shared_memory = comp.config.shared_memory;
+
     if (wasm.string_table.getOffset("__heap_base")) |name_offset| {
         if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
             const loc = try wasm.createSyntheticSymbolOffset(name_offset, .data);
-            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            try wasm.discarded.putNoClobber(gpa, kv.value, loc);
             _ = wasm.resolved_symbols.swapRemove(loc); // we don't want to emit this symbol, only use it for relocations.
         }
     }
@@ -1232,21 +1305,21 @@ fn resolveLazySymbols(wasm: *Wasm) !void {
     if (wasm.string_table.getOffset("__heap_end")) |name_offset| {
         if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
             const loc = try wasm.createSyntheticSymbolOffset(name_offset, .data);
-            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            try wasm.discarded.putNoClobber(gpa, kv.value, loc);
             _ = wasm.resolved_symbols.swapRemove(loc);
         }
     }
 
-    if (!wasm.base.options.shared_memory) {
+    if (!shared_memory) {
         if (wasm.string_table.getOffset("__tls_base")) |name_offset| {
             if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
                 const loc = try wasm.createSyntheticSymbolOffset(name_offset, .global);
-                try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+                try wasm.discarded.putNoClobber(gpa, kv.value, loc);
                 _ = wasm.resolved_symbols.swapRemove(kv.value);
                 const symbol = loc.getSymbol(wasm);
                 symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
                 symbol.index = @intCast(wasm.imported_globals_count + wasm.wasm_globals.items.len);
-                try wasm.wasm_globals.append(wasm.base.allocator, .{
+                try wasm.wasm_globals.append(gpa, .{
                     .global_type = .{ .valtype = .i32, .mutable = true },
                     .init = .{ .i32_const = undefined },
                 });
@@ -1256,7 +1329,7 @@ fn resolveLazySymbols(wasm: *Wasm) !void {
     if (wasm.string_table.getOffset("__zig_errors_len")) |name_offset| {
         if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
             const loc = try wasm.createSyntheticSymbolOffset(name_offset, .data);
-            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            try wasm.discarded.putNoClobber(gpa, kv.value, loc);
             _ = wasm.resolved_symbols.swapRemove(kv.value);
         }
     }
@@ -1270,8 +1343,9 @@ pub fn findGlobalSymbol(wasm: *Wasm, name: []const u8) ?SymbolLoc {
 }
 
 fn checkUndefinedSymbols(wasm: *const Wasm) !void {
-    if (wasm.base.options.output_mode == .Obj) return;
-    if (wasm.base.options.import_symbols) return;
+    const comp = wasm.base.comp;
+    if (comp.config.output_mode == .Obj) return;
+    if (wasm.import_symbols) return;
 
     var found_undefined_symbols = false;
     for (wasm.undefs.values()) |undef| {
@@ -1292,8 +1366,8 @@ fn checkUndefinedSymbols(wasm: *const Wasm) !void {
 }
 
 pub fn deinit(wasm: *Wasm) void {
-    const gpa = wasm.base.allocator;
-    if (wasm.llvm_object) |llvm_object| llvm_object.destroy(gpa);
+    const gpa = wasm.base.comp.gpa;
+    if (wasm.llvm_object) |llvm_object| llvm_object.deinit();
 
     for (wasm.func_types.items) |*func_type| {
         func_type.deinit(gpa);
@@ -1378,7 +1452,9 @@ pub fn deinit(wasm: *Wasm) void {
 /// Allocates a new symbol and returns its index.
 /// Will re-use slots when a symbol was freed at an earlier stage.
 pub fn allocateSymbol(wasm: *Wasm) !u32 {
-    try wasm.symbols.ensureUnusedCapacity(wasm.base.allocator, 1);
+    const gpa = wasm.base.comp.gpa;
+
+    try wasm.symbols.ensureUnusedCapacity(gpa, 1);
     const symbol: Symbol = .{
         .name = std.math.maxInt(u32), // will be set after updateDecl as well as during atom creation for decls
         .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
@@ -1404,6 +1480,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: InternPool.Index, air: 
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = wasm.base.comp.gpa;
     const func = mod.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
@@ -1414,7 +1491,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: InternPool.Index, air: 
     // var decl_state: ?Dwarf.DeclState = if (wasm.dwarf) |*dwarf| try dwarf.initDeclState(mod, decl_index) else null;
     // defer if (decl_state) |*ds| ds.deinit();
 
-    var code_writer = std.ArrayList(u8).init(wasm.base.allocator);
+    var code_writer = std.ArrayList(u8).init(gpa);
     defer code_writer.deinit();
     // const result = try codegen.generateFunction(
     //     &wasm.base,
@@ -1477,6 +1554,7 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: InternPool.DeclIndex) !
         return;
     }
 
+    const gpa = wasm.base.comp.gpa;
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const atom = wasm.getAtomPtr(atom_index);
     atom.clear();
@@ -1489,7 +1567,7 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: InternPool.DeclIndex) !
     }
     const val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
 
-    var code_writer = std.ArrayList(u8).init(wasm.base.allocator);
+    var code_writer = std.ArrayList(u8).init(gpa);
     defer code_writer.deinit();
 
     const res = try codegen.generateSymbol(
@@ -1528,16 +1606,17 @@ pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: InternPool.De
 }
 
 fn finishUpdateDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex, code: []const u8, symbol_tag: Symbol.Tag) !void {
-    const mod = wasm.base.options.module.?;
+    const gpa = wasm.base.comp.gpa;
+    const mod = wasm.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const atom_index = wasm.decls.get(decl_index).?;
     const atom = wasm.getAtomPtr(atom_index);
     const symbol = &wasm.symbols.items[atom.sym_index];
     const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
-    symbol.name = try wasm.string_table.put(wasm.base.allocator, full_name);
+    symbol.name = try wasm.string_table.put(gpa, full_name);
     symbol.tag = symbol_tag;
-    try atom.code.appendSlice(wasm.base.allocator, code);
-    try wasm.resolved_symbols.put(wasm.base.allocator, atom.symbolLoc(), {});
+    try atom.code.appendSlice(gpa, code);
+    try wasm.resolved_symbols.put(gpa, atom.symbolLoc(), {});
 
     atom.size = @intCast(code.len);
     if (code.len == 0) return;
@@ -1591,7 +1670,8 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
 /// Returns the symbol index of the local
 /// The given `decl` is the parent decl whom owns the constant.
 pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
-    const mod = wasm.base.options.module.?;
+    const gpa = wasm.base.comp.gpa;
+    const mod = wasm.base.comp.module.?;
     assert(tv.ty.zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
     const decl = mod.declPtr(decl_index);
 
@@ -1599,14 +1679,14 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: InternPool.Dec
     const parent_atom = wasm.getAtom(parent_atom_index);
     const local_index = parent_atom.locals.items.len;
     const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
-    const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__unnamed_{s}_{d}", .{
+    const name = try std.fmt.allocPrintZ(gpa, "__unnamed_{s}_{d}", .{
         fqn, local_index,
     });
-    defer wasm.base.allocator.free(name);
+    defer gpa.free(name);
 
     switch (try wasm.lowerConst(name, tv, decl.srcLoc(mod))) {
         .ok => |atom_index| {
-            try wasm.getAtomPtr(parent_atom_index).locals.append(wasm.base.allocator, atom_index);
+            try wasm.getAtomPtr(parent_atom_index).locals.append(gpa, atom_index);
             return wasm.getAtom(atom_index).getSymbolIndex().?;
         },
         .fail => |em| {
@@ -1623,24 +1703,25 @@ const LowerConstResult = union(enum) {
 };
 
 fn lowerConst(wasm: *Wasm, name: []const u8, tv: TypedValue, src_loc: Module.SrcLoc) !LowerConstResult {
-    const mod = wasm.base.options.module.?;
+    const gpa = wasm.base.comp.gpa;
+    const mod = wasm.base.comp.module.?;
 
     // Create and initialize a new local symbol and atom
     const atom_index = try wasm.createAtom();
-    var value_bytes = std.ArrayList(u8).init(wasm.base.allocator);
+    var value_bytes = std.ArrayList(u8).init(gpa);
     defer value_bytes.deinit();
 
     const code = code: {
         const atom = wasm.getAtomPtr(atom_index);
         atom.alignment = tv.ty.abiAlignment(mod);
         wasm.symbols.items[atom.sym_index] = .{
-            .name = try wasm.string_table.put(wasm.base.allocator, name),
+            .name = try wasm.string_table.put(gpa, name),
             .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
             .tag = .data,
             .index = undefined,
             .virtual_address = undefined,
         };
-        try wasm.resolved_symbols.putNoClobber(wasm.base.allocator, atom.symbolLoc(), {});
+        try wasm.resolved_symbols.putNoClobber(gpa, atom.symbolLoc(), {});
 
         const result = try codegen.generateSymbol(
             &wasm.base,
@@ -1663,7 +1744,7 @@ fn lowerConst(wasm: *Wasm, name: []const u8, tv: TypedValue, src_loc: Module.Src
 
     const atom = wasm.getAtomPtr(atom_index);
     atom.size = @intCast(code.len);
-    try atom.code.appendSlice(wasm.base.allocator, code);
+    try atom.code.appendSlice(gpa, code);
     return .{ .ok = atom_index };
 }
 
@@ -1673,8 +1754,9 @@ fn lowerConst(wasm: *Wasm, name: []const u8, tv: TypedValue, src_loc: Module.Src
 /// and then returns the index to it.
 pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !u32 {
     _ = lib_name;
-    const name_index = try wasm.string_table.put(wasm.base.allocator, name);
-    const gop = try wasm.globals.getOrPut(wasm.base.allocator, name_index);
+    const gpa = wasm.base.comp.gpa;
+    const name_index = try wasm.string_table.put(gpa, name);
+    const gop = try wasm.globals.getOrPut(gpa, name_index);
     if (gop.found_existing) {
         return gop.value_ptr.*.index;
     }
@@ -1691,14 +1773,14 @@ pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !u3
 
     const sym_index = if (wasm.symbols_free_list.popOrNull()) |index| index else blk: {
         const index: u32 = @intCast(wasm.symbols.items.len);
-        try wasm.symbols.ensureUnusedCapacity(wasm.base.allocator, 1);
+        try wasm.symbols.ensureUnusedCapacity(gpa, 1);
         wasm.symbols.items.len += 1;
         break :blk index;
     };
     wasm.symbols.items[sym_index] = symbol;
     gop.value_ptr.* = .{ .index = sym_index, .file = null };
-    try wasm.resolved_symbols.put(wasm.base.allocator, gop.value_ptr.*, {});
-    try wasm.undefs.putNoClobber(wasm.base.allocator, name_index, gop.value_ptr.*);
+    try wasm.resolved_symbols.put(gpa, gop.value_ptr.*, {});
+    try wasm.undefs.putNoClobber(gpa, name_index, gop.value_ptr.*);
     return sym_index;
 }
 
@@ -1709,7 +1791,9 @@ pub fn getDeclVAddr(
     decl_index: InternPool.DeclIndex,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    const mod = wasm.base.options.module.?;
+    const target = wasm.base.comp.root_mod.resolved_target.result;
+    const gpa = wasm.base.comp.gpa;
+    const mod = wasm.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
 
     const target_atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
@@ -1718,24 +1802,24 @@ pub fn getDeclVAddr(
     assert(reloc_info.parent_atom_index != 0);
     const atom_index = wasm.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
     const atom = wasm.getAtomPtr(atom_index);
-    const is_wasm32 = wasm.base.options.target.cpu.arch == .wasm32;
+    const is_wasm32 = target.cpu.arch == .wasm32;
     if (decl.ty.zigTypeTag(mod) == .Fn) {
         assert(reloc_info.addend == 0); // addend not allowed for function relocations
         // We found a function pointer, so add it to our table,
         // as function pointers are not allowed to be stored inside the data section.
         // They are instead stored in a function table which are called by index.
         try wasm.addTableFunction(target_symbol_index);
-        try atom.relocs.append(wasm.base.allocator, .{
+        try atom.relocs.append(gpa, .{
             .index = target_symbol_index,
-            .offset = @as(u32, @intCast(reloc_info.offset)),
+            .offset = @intCast(reloc_info.offset),
             .relocation_type = if (is_wasm32) .R_WASM_TABLE_INDEX_I32 else .R_WASM_TABLE_INDEX_I64,
         });
     } else {
-        try atom.relocs.append(wasm.base.allocator, .{
+        try atom.relocs.append(gpa, .{
             .index = target_symbol_index,
-            .offset = @as(u32, @intCast(reloc_info.offset)),
+            .offset = @intCast(reloc_info.offset),
             .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_I32 else .R_WASM_MEMORY_ADDR_I64,
-            .addend = @as(i32, @intCast(reloc_info.addend)),
+            .addend = @intCast(reloc_info.addend),
         });
     }
     // we do not know the final address at this point,
@@ -1751,9 +1835,10 @@ pub fn lowerAnonDecl(
     explicit_alignment: Alignment,
     src_loc: Module.SrcLoc,
 ) !codegen.Result {
-    const gop = try wasm.anon_decls.getOrPut(wasm.base.allocator, decl_val);
+    const gpa = wasm.base.comp.gpa;
+    const gop = try wasm.anon_decls.getOrPut(gpa, decl_val);
     if (!gop.found_existing) {
-        const mod = wasm.base.options.module.?;
+        const mod = wasm.base.comp.module.?;
         const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
         const tv: TypedValue = .{ .ty = ty, .val = Value.fromInterned(decl_val) };
         var name_buf: [32]u8 = undefined;
@@ -1779,13 +1864,15 @@ pub fn lowerAnonDecl(
 }
 
 pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
+    const gpa = wasm.base.comp.gpa;
+    const target = wasm.base.comp.root_mod.resolved_target.result;
     const atom_index = wasm.anon_decls.get(decl_val).?;
     const target_symbol_index = wasm.getAtom(atom_index).getSymbolIndex().?;
 
     const parent_atom_index = wasm.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
     const parent_atom = wasm.getAtomPtr(parent_atom_index);
-    const is_wasm32 = wasm.base.options.target.cpu.arch == .wasm32;
-    const mod = wasm.base.options.module.?;
+    const is_wasm32 = target.cpu.arch == .wasm32;
+    const mod = wasm.base.comp.module.?;
     const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
     if (ty.zigTypeTag(mod) == .Fn) {
         assert(reloc_info.addend == 0); // addend not allowed for function relocations
@@ -1793,17 +1880,17 @@ pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: lin
         // as function pointers are not allowed to be stored inside the data section.
         // They are instead stored in a function table which are called by index.
         try wasm.addTableFunction(target_symbol_index);
-        try parent_atom.relocs.append(wasm.base.allocator, .{
+        try parent_atom.relocs.append(gpa, .{
             .index = target_symbol_index,
-            .offset = @as(u32, @intCast(reloc_info.offset)),
+            .offset = @intCast(reloc_info.offset),
             .relocation_type = if (is_wasm32) .R_WASM_TABLE_INDEX_I32 else .R_WASM_TABLE_INDEX_I64,
         });
     } else {
-        try parent_atom.relocs.append(wasm.base.allocator, .{
+        try parent_atom.relocs.append(gpa, .{
             .index = target_symbol_index,
-            .offset = @as(u32, @intCast(reloc_info.offset)),
+            .offset = @intCast(reloc_info.offset),
             .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_I32 else .R_WASM_MEMORY_ADDR_I64,
-            .addend = @as(i32, @intCast(reloc_info.addend)),
+            .addend = @intCast(reloc_info.addend),
         });
     }
 
@@ -1814,7 +1901,12 @@ pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: lin
     return target_symbol_index;
 }
 
-pub fn deleteDeclExport(wasm: *Wasm, decl_index: InternPool.DeclIndex) void {
+pub fn deleteDeclExport(
+    wasm: *Wasm,
+    decl_index: InternPool.DeclIndex,
+    name: InternPool.NullTerminatedString,
+) void {
+    _ = name;
     if (wasm.llvm_object) |_| return;
     const atom_index = wasm.decls.get(decl_index) orelse return;
     const sym_index = wasm.getAtom(atom_index).sym_index;
@@ -1839,8 +1931,6 @@ pub fn updateExports(
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (wasm.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
-
-    if (wasm.base.options.emit == null) return;
 
     const decl_index = switch (exported) {
         .decl_index => |i| i,
@@ -1880,7 +1970,7 @@ pub fn updateExports(
         };
         const exported_atom_index = try wasm.getOrCreateAtomForDecl(exported_decl_index);
         const exported_atom = wasm.getAtom(exported_atom_index);
-        const export_name = try wasm.string_table.put(wasm.base.allocator, mod.intern_pool.stringToSlice(exp.opts.name));
+        const export_name = try wasm.string_table.put(gpa, mod.intern_pool.stringToSlice(exp.opts.name));
         const sym_loc = exported_atom.symbolLoc();
         const symbol = sym_loc.getSymbol(wasm);
         symbol.setGlobal(true);
@@ -1915,7 +2005,7 @@ pub fn updateExports(
 
             if (!existing_sym.isUndefined()) blk: {
                 if (symbol.isWeak()) {
-                    try wasm.discarded.put(wasm.base.allocator, existing_loc, sym_loc);
+                    try wasm.discarded.put(gpa, existing_loc, sym_loc);
                     continue; // to-be-exported symbol is weak, so we keep the existing symbol
                 }
 
@@ -1939,18 +2029,18 @@ pub fn updateExports(
             }
 
             // in this case the existing symbol must be replaced either because it's weak or undefined.
-            try wasm.discarded.put(wasm.base.allocator, existing_loc, sym_loc);
+            try wasm.discarded.put(gpa, existing_loc, sym_loc);
             _ = wasm.imports.remove(existing_loc);
             _ = wasm.undefs.swapRemove(existing_sym.name);
         }
 
         // Ensure the symbol will be exported using the given name
         if (!mod.intern_pool.stringEqlSlice(exp.opts.name, sym_loc.getName(wasm))) {
-            try wasm.export_names.put(wasm.base.allocator, sym_loc, export_name);
+            try wasm.export_names.put(gpa, sym_loc, export_name);
         }
 
         try wasm.globals.put(
-            wasm.base.allocator,
+            gpa,
             export_name,
             sym_loc,
         );
@@ -1959,18 +2049,19 @@ pub fn updateExports(
 
 pub fn freeDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex) void {
     if (wasm.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
-    const mod = wasm.base.options.module.?;
+    const gpa = wasm.base.comp.gpa;
+    const mod = wasm.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const atom_index = wasm.decls.get(decl_index).?;
     const atom = wasm.getAtomPtr(atom_index);
-    wasm.symbols_free_list.append(wasm.base.allocator, atom.sym_index) catch {};
+    wasm.symbols_free_list.append(gpa, atom.sym_index) catch {};
     _ = wasm.decls.remove(decl_index);
     wasm.symbols.items[atom.sym_index].tag = .dead;
     for (atom.locals.items) |local_atom_index| {
         const local_atom = wasm.getAtom(local_atom_index);
         const local_symbol = &wasm.symbols.items[local_atom.sym_index];
         local_symbol.tag = .dead; // also for any local symbol
-        wasm.symbols_free_list.append(wasm.base.allocator, local_atom.sym_index) catch {};
+        wasm.symbols_free_list.append(gpa, local_atom.sym_index) catch {};
         assert(wasm.resolved_symbols.swapRemove(local_atom.symbolLoc()));
         assert(wasm.symbol_atom.remove(local_atom.symbolLoc()));
     }
@@ -1999,8 +2090,9 @@ pub fn freeDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex) void {
 
 /// Appends a new entry to the indirect function table
 pub fn addTableFunction(wasm: *Wasm, symbol_index: u32) !void {
-    const index = @as(u32, @intCast(wasm.function_table.count()));
-    try wasm.function_table.put(wasm.base.allocator, .{ .file = null, .index = symbol_index }, index);
+    const gpa = wasm.base.comp.gpa;
+    const index: u32 = @intCast(wasm.function_table.count());
+    try wasm.function_table.put(gpa, .{ .file = null, .index = symbol_index }, index);
 }
 
 /// Assigns indexes to all indirect functions.
@@ -2019,7 +2111,7 @@ fn mapFunctionTable(wasm: *Wasm) void {
         }
     }
 
-    if (wasm.base.options.import_table or wasm.base.options.output_mode == .Obj) {
+    if (wasm.import_table or wasm.base.comp.config.output_mode == .Obj) {
         const sym_loc = wasm.findGlobalSymbol("__indirect_function_table").?;
         const import = wasm.imports.getPtr(sym_loc).?;
         import.kind.table.limits.min = index - 1; // we start at index 1.
@@ -2048,6 +2140,7 @@ pub fn addOrUpdateImport(
     /// is asserted instead.
     type_index: ?u32,
 ) !void {
+    const gpa = wasm.base.comp.gpa;
     assert(symbol_index != 0);
     // For the import name, we use the decl's name, rather than the fully qualified name
     // Also mangle the name when the lib name is set and not equal to "C" so imports with the same
@@ -2055,11 +2148,11 @@ pub fn addOrUpdateImport(
     const mangle_name = lib_name != null and
         !std.mem.eql(u8, lib_name.?, "c");
     const full_name = if (mangle_name) full_name: {
-        break :full_name try std.fmt.allocPrint(wasm.base.allocator, "{s}|{s}", .{ name, lib_name.? });
+        break :full_name try std.fmt.allocPrint(gpa, "{s}|{s}", .{ name, lib_name.? });
     } else name;
-    defer if (mangle_name) wasm.base.allocator.free(full_name);
+    defer if (mangle_name) gpa.free(full_name);
 
-    const decl_name_index = try wasm.string_table.put(wasm.base.allocator, full_name);
+    const decl_name_index = try wasm.string_table.put(gpa, full_name);
     const symbol: *Symbol = &wasm.symbols.items[symbol_index];
     symbol.setUndefined(true);
     symbol.setGlobal(true);
@@ -2068,12 +2161,12 @@ pub fn addOrUpdateImport(
         // we specified a specific name for the symbol that does not match the import name
         symbol.setFlag(.WASM_SYM_EXPLICIT_NAME);
     }
-    const global_gop = try wasm.globals.getOrPut(wasm.base.allocator, decl_name_index);
+    const global_gop = try wasm.globals.getOrPut(gpa, decl_name_index);
     if (!global_gop.found_existing) {
         const loc: SymbolLoc = .{ .file = null, .index = symbol_index };
         global_gop.value_ptr.* = loc;
-        try wasm.resolved_symbols.put(wasm.base.allocator, loc, {});
-        try wasm.undefs.putNoClobber(wasm.base.allocator, decl_name_index, loc);
+        try wasm.resolved_symbols.put(gpa, loc, {});
+        try wasm.undefs.putNoClobber(gpa, decl_name_index, loc);
     } else if (global_gop.value_ptr.*.index != symbol_index) {
         // We are not updating a symbol, but found an existing global
         // symbol with the same name. This means we always favor the
@@ -2081,21 +2174,21 @@ pub fn addOrUpdateImport(
         // We can also skip storing the import as we will not output
         // this symbol.
         return wasm.discarded.put(
-            wasm.base.allocator,
+            gpa,
             .{ .file = null, .index = symbol_index },
             global_gop.value_ptr.*,
         );
     }
 
     if (type_index) |ty_index| {
-        const gop = try wasm.imports.getOrPut(wasm.base.allocator, .{ .index = symbol_index, .file = null });
+        const gop = try wasm.imports.getOrPut(gpa, .{ .index = symbol_index, .file = null });
         const module_name = if (lib_name) |l_name| blk: {
             break :blk l_name;
         } else wasm.host_name;
         if (!gop.found_existing) {
             gop.value_ptr.* = .{
-                .module_name = try wasm.string_table.put(wasm.base.allocator, module_name),
-                .name = try wasm.string_table.put(wasm.base.allocator, name),
+                .module_name = try wasm.string_table.put(gpa, module_name),
+                .name = try wasm.string_table.put(gpa, name),
                 .kind = .{ .function = ty_index },
             };
         }
@@ -2132,10 +2225,13 @@ const Kind = union(enum) {
 
 /// Parses an Atom and inserts its metadata into the corresponding sections.
 fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const shared_memory = comp.config.shared_memory;
+    const import_memory = comp.config.import_memory;
     const atom = wasm.getAtomPtr(atom_index);
     const symbol = (SymbolLoc{ .file = null, .index = atom.sym_index }).getSymbol(wasm);
-    const do_garbage_collect = wasm.base.options.gc_sections orelse
-        (wasm.base.options.output_mode != .Obj);
+    const do_garbage_collect = wasm.base.gc_sections;
 
     if (symbol.isDead() and do_garbage_collect) {
         // Prevent unreferenced symbols from being parsed.
@@ -2147,7 +2243,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
             const index: u32 = @intCast(wasm.functions.count() + wasm.imported_functions_count);
             const type_index = wasm.atom_types.get(atom_index).?;
             try wasm.functions.putNoClobber(
-                wasm.base.allocator,
+                gpa,
                 .{ .file = null, .index = index },
                 .{ .func = .{ .type_index = type_index }, .sym_index = atom.sym_index },
             );
@@ -2156,7 +2252,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
 
             if (wasm.code_section_index == null) {
                 wasm.code_section_index = @intCast(wasm.segments.items.len);
-                try wasm.segments.append(wasm.base.allocator, .{
+                try wasm.segments.append(gpa, .{
                     .alignment = atom.alignment,
                     .size = atom.size,
                     .offset = 0,
@@ -2167,11 +2263,11 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
             break :result wasm.code_section_index.?;
         },
         .data => result: {
-            const segment_name = try std.mem.concat(wasm.base.allocator, u8, &.{
+            const segment_name = try std.mem.concat(gpa, u8, &.{
                 kind.segmentName(),
                 wasm.string_table.get(symbol.name),
             });
-            errdefer wasm.base.allocator.free(segment_name);
+            errdefer gpa.free(segment_name);
             const segment_info: types.Segment = .{
                 .name = segment_name,
                 .alignment = atom.alignment,
@@ -2183,27 +2279,27 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
             // we set the entire region of it to zeroes.
             // We do not have to do this when exporting the memory (the default) because the runtime
             // will do it for us, and we do not emit the bss segment at all.
-            if ((wasm.base.options.output_mode == .Obj or wasm.base.options.import_memory) and kind.data == .uninitialized) {
+            if ((wasm.base.comp.config.output_mode == .Obj or import_memory) and kind.data == .uninitialized) {
                 @memset(atom.code.items, 0);
             }
 
-            const should_merge = wasm.base.options.output_mode != .Obj;
-            const gop = try wasm.data_segments.getOrPut(wasm.base.allocator, segment_info.outputName(should_merge));
+            const should_merge = wasm.base.comp.config.output_mode != .Obj;
+            const gop = try wasm.data_segments.getOrPut(gpa, segment_info.outputName(should_merge));
             if (gop.found_existing) {
                 const index = gop.value_ptr.*;
                 wasm.segments.items[index].size += atom.size;
 
                 symbol.index = @intCast(wasm.segment_info.getIndex(index).?);
                 // segment info already exists, so free its memory
-                wasm.base.allocator.free(segment_name);
+                gpa.free(segment_name);
                 break :result index;
             } else {
                 const index: u32 = @intCast(wasm.segments.items.len);
                 var flags: u32 = 0;
-                if (wasm.base.options.shared_memory) {
+                if (shared_memory) {
                     flags |= @intFromEnum(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
                 }
-                try wasm.segments.append(wasm.base.allocator, .{
+                try wasm.segments.append(gpa, .{
                     .alignment = atom.alignment,
                     .size = 0,
                     .offset = 0,
@@ -2212,7 +2308,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
                 gop.value_ptr.* = index;
 
                 const info_index: u32 = @intCast(wasm.segment_info.count());
-                try wasm.segment_info.put(wasm.base.allocator, index, segment_info);
+                try wasm.segment_info.put(gpa, index, segment_info);
                 symbol.index = info_index;
                 break :result index;
             }
@@ -2228,6 +2324,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
 /// From a given index, append the given `Atom` at the back of the linked list.
 /// Simply inserts it into the map of atoms when it doesn't exist yet.
 pub fn appendAtomAtIndex(wasm: *Wasm, index: u32, atom_index: Atom.Index) !void {
+    const gpa = wasm.base.comp.gpa;
     const atom = wasm.getAtomPtr(atom_index);
     if (wasm.atoms.getPtr(index)) |last_index_ptr| {
         const last = wasm.getAtomPtr(last_index_ptr.*);
@@ -2235,7 +2332,7 @@ pub fn appendAtomAtIndex(wasm: *Wasm, index: u32, atom_index: Atom.Index) !void 
         atom.prev = last_index_ptr.*;
         last_index_ptr.* = atom_index;
     } else {
-        try wasm.atoms.putNoClobber(wasm.base.allocator, index, atom_index);
+        try wasm.atoms.putNoClobber(gpa, index, atom_index);
     }
 }
 
@@ -2344,7 +2441,7 @@ fn allocateVirtualAddresses(wasm: *Wasm) void {
         };
 
         const atom = wasm.getAtom(atom_index);
-        const merge_segment = wasm.base.options.output_mode != .Obj;
+        const merge_segment = wasm.base.comp.config.output_mode != .Obj;
         const segment_info = if (atom.file) |object_index| blk: {
             break :blk wasm.objects.items[object_index].segment_info;
         } else wasm.segment_info.values();
@@ -2363,12 +2460,13 @@ fn allocateVirtualAddresses(wasm: *Wasm) void {
 }
 
 fn sortDataSegments(wasm: *Wasm) !void {
+    const gpa = wasm.base.comp.gpa;
     var new_mapping: std.StringArrayHashMapUnmanaged(u32) = .{};
-    try new_mapping.ensureUnusedCapacity(wasm.base.allocator, wasm.data_segments.count());
-    errdefer new_mapping.deinit(wasm.base.allocator);
+    try new_mapping.ensureUnusedCapacity(gpa, wasm.data_segments.count());
+    errdefer new_mapping.deinit(gpa);
 
-    const keys = try wasm.base.allocator.dupe([]const u8, wasm.data_segments.keys());
-    defer wasm.base.allocator.free(keys);
+    const keys = try gpa.dupe([]const u8, wasm.data_segments.keys());
+    defer gpa.free(keys);
 
     const SortContext = struct {
         fn sort(_: void, lhs: []const u8, rhs: []const u8) bool {
@@ -2388,7 +2486,7 @@ fn sortDataSegments(wasm: *Wasm) !void {
         const segment_index = wasm.data_segments.get(key).?;
         new_mapping.putAssumeCapacity(key, segment_index);
     }
-    wasm.data_segments.deinit(wasm.base.allocator);
+    wasm.data_segments.deinit(gpa);
     wasm.data_segments = new_mapping;
 }
 
@@ -2401,8 +2499,9 @@ fn sortDataSegments(wasm: *Wasm) !void {
 /// original functions and their types. We need to know the type to verify it doesn't
 /// contain any parameters.
 fn setupInitFunctions(wasm: *Wasm) !void {
+    const gpa = wasm.base.comp.gpa;
     for (wasm.objects.items, 0..) |object, file_index| {
-        try wasm.init_funcs.ensureUnusedCapacity(wasm.base.allocator, object.init_funcs.len);
+        try wasm.init_funcs.ensureUnusedCapacity(gpa, object.init_funcs.len);
         for (object.init_funcs) |init_func| {
             const symbol = object.symtable[init_func.symbol_index];
             const ty: std.wasm.Type = if (symbol.isUndefined()) ty: {
@@ -2439,9 +2538,10 @@ fn setupInitFunctions(wasm: *Wasm) !void {
 /// Generates an atom containing the global error set' size.
 /// This will only be generated if the symbol exists.
 fn setupErrorsLen(wasm: *Wasm) !void {
+    const gpa = wasm.base.comp.gpa;
     const loc = wasm.findGlobalSymbol("__zig_errors_len") orelse return;
 
-    const errors_len = wasm.base.options.module.?.global_error_set.count();
+    const errors_len = wasm.base.comp.module.?.global_error_set.count();
     // overwrite existing atom if it already exists (maybe the error set has increased)
     // if not, allcoate a new atom.
     const atom_index = if (wasm.symbol_atom.get(loc)) |index| blk: {
@@ -2456,19 +2556,19 @@ fn setupErrorsLen(wasm: *Wasm) !void {
             prev_atom.next = atom.next;
             atom.prev = null;
         }
-        atom.deinit(wasm.base.allocator);
+        atom.deinit(gpa);
         break :blk index;
     } else new_atom: {
         const atom_index: Atom.Index = @intCast(wasm.managed_atoms.items.len);
-        try wasm.symbol_atom.put(wasm.base.allocator, loc, atom_index);
-        try wasm.managed_atoms.append(wasm.base.allocator, undefined);
+        try wasm.symbol_atom.put(gpa, loc, atom_index);
+        try wasm.managed_atoms.append(gpa, undefined);
         break :new_atom atom_index;
     };
     const atom = wasm.getAtomPtr(atom_index);
     atom.* = Atom.empty;
     atom.sym_index = loc.index;
     atom.size = 2;
-    try atom.code.writer(wasm.base.allocator).writeInt(u16, @intCast(errors_len), .little);
+    try atom.code.writer(gpa).writeInt(u16, @intCast(errors_len), .little);
 
     try wasm.parseAtom(atom_index, .{ .data = .read_only });
 }
@@ -2480,16 +2580,17 @@ fn setupErrorsLen(wasm: *Wasm) !void {
 /// references to the function stored in the symbol have been finalized so we end
 /// up calling the resolved function.
 fn initializeCallCtorsFunction(wasm: *Wasm) !void {
+    const gpa = wasm.base.comp.gpa;
     // No code to emit, so also no ctors to call
     if (wasm.code_section_index == null) {
         // Make sure to remove it from the resolved symbols so we do not emit
         // it within any section. TODO: Remove this once we implement garbage collection.
         const loc = wasm.findGlobalSymbol("__wasm_call_ctors").?;
-        std.debug.assert(wasm.resolved_symbols.swapRemove(loc));
+        assert(wasm.resolved_symbols.swapRemove(loc));
         return;
     }
 
-    var function_body = std.ArrayList(u8).init(wasm.base.allocator);
+    var function_body = std.ArrayList(u8).init(gpa);
     defer function_body.deinit();
     const writer = function_body.writer();
 
@@ -2531,6 +2632,7 @@ fn createSyntheticFunction(
     func_ty: std.wasm.Type,
     function_body: *std.ArrayList(u8),
 ) !void {
+    const gpa = wasm.base.comp.gpa;
     const loc = wasm.findGlobalSymbol(symbol_name) orelse
         try wasm.createSyntheticSymbol(symbol_name, .function);
     const symbol = loc.getSymbol(wasm);
@@ -2541,7 +2643,7 @@ fn createSyntheticFunction(
     // create function with above type
     const func_index = wasm.imported_functions_count + @as(u32, @intCast(wasm.functions.count()));
     try wasm.functions.putNoClobber(
-        wasm.base.allocator,
+        gpa,
         .{ .file = null, .index = func_index },
         .{ .func = .{ .type_index = ty_index }, .sym_index = loc.index },
     );
@@ -2549,7 +2651,7 @@ fn createSyntheticFunction(
 
     // create the atom that will be output into the final binary
     const atom_index = @as(Atom.Index, @intCast(wasm.managed_atoms.items.len));
-    const atom = try wasm.managed_atoms.addOne(wasm.base.allocator);
+    const atom = try wasm.managed_atoms.addOne(gpa);
     atom.* = .{
         .size = @as(u32, @intCast(function_body.items.len)),
         .offset = 0,
@@ -2562,7 +2664,7 @@ fn createSyntheticFunction(
         .original_offset = 0,
     };
     try wasm.appendAtomAtIndex(wasm.code_section_index.?, atom_index);
-    try wasm.symbol_atom.putNoClobber(wasm.base.allocator, loc, atom_index);
+    try wasm.symbol_atom.putNoClobber(gpa, loc, atom_index);
 
     // `allocateAtoms` has already been called, set the atom's offset manually.
     // This is fine to do manually as we insert the atom at the very end.
@@ -2582,10 +2684,11 @@ pub fn createFunction(
     function_body: *std.ArrayList(u8),
     relocations: *std.ArrayList(Relocation),
 ) !u32 {
+    const gpa = wasm.base.comp.gpa;
     const loc = try wasm.createSyntheticSymbol(symbol_name, .function);
 
-    const atom_index = @as(Atom.Index, @intCast(wasm.managed_atoms.items.len));
-    const atom = try wasm.managed_atoms.addOne(wasm.base.allocator);
+    const atom_index: Atom.Index = @intCast(wasm.managed_atoms.items.len);
+    const atom = try wasm.managed_atoms.addOne(gpa);
     atom.* = .{
         .size = @intCast(function_body.items.len),
         .offset = 0,
@@ -2607,9 +2710,9 @@ pub fn createFunction(
         break :idx index;
     };
     try wasm.appendAtomAtIndex(section_index, atom_index);
-    try wasm.symbol_atom.putNoClobber(wasm.base.allocator, loc, atom_index);
-    try wasm.atom_types.put(wasm.base.allocator, atom_index, try wasm.putOrGetFuncType(func_ty));
-    try wasm.synthetic_functions.append(wasm.base.allocator, atom_index);
+    try wasm.symbol_atom.putNoClobber(gpa, loc, atom_index);
+    try wasm.atom_types.put(gpa, atom_index, try wasm.putOrGetFuncType(func_ty));
+    try wasm.synthetic_functions.append(gpa, atom_index);
 
     return loc.index;
 }
@@ -2622,9 +2725,13 @@ fn setupStartSection(wasm: *Wasm) !void {
 }
 
 fn initializeTLSFunction(wasm: *Wasm) !void {
-    if (!wasm.base.options.shared_memory) return;
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const shared_memory = comp.config.shared_memory;
 
-    var function_body = std.ArrayList(u8).init(wasm.base.allocator);
+    if (!shared_memory) return;
+
+    var function_body = std.ArrayList(u8).init(gpa);
     defer function_body.deinit();
     const writer = function_body.writer();
 
@@ -2684,6 +2791,7 @@ fn initializeTLSFunction(wasm: *Wasm) !void {
 }
 
 fn setupImports(wasm: *Wasm) !void {
+    const gpa = wasm.base.comp.gpa;
     log.debug("Merging imports", .{});
     var discarded_it = wasm.discarded.keyIterator();
     while (discarded_it.next()) |discarded| {
@@ -2718,12 +2826,12 @@ fn setupImports(wasm: *Wasm) !void {
         // We copy the import to a new import to ensure the names contain references
         // to the internal string table, rather than of the object file.
         const new_imp: types.Import = .{
-            .module_name = try wasm.string_table.put(wasm.base.allocator, object.string_table.get(import.module_name)),
-            .name = try wasm.string_table.put(wasm.base.allocator, object.string_table.get(import.name)),
+            .module_name = try wasm.string_table.put(gpa, object.string_table.get(import.module_name)),
+            .name = try wasm.string_table.put(gpa, object.string_table.get(import.name)),
             .kind = import.kind,
         };
         // TODO: De-duplicate imports when they contain the same names and type
-        try wasm.imports.putNoClobber(wasm.base.allocator, symbol_loc, new_imp);
+        try wasm.imports.putNoClobber(gpa, symbol_loc, new_imp);
     }
 
     // Assign all indexes of the imports to their representing symbols
@@ -2764,7 +2872,9 @@ fn setupImports(wasm: *Wasm) !void {
 /// Takes the global, function and table section from each linked object file
 /// and merges it into a single section for each.
 fn mergeSections(wasm: *Wasm) !void {
-    var removed_duplicates = std.ArrayList(SymbolLoc).init(wasm.base.allocator);
+    const gpa = wasm.base.comp.gpa;
+
+    var removed_duplicates = std.ArrayList(SymbolLoc).init(gpa);
     defer removed_duplicates.deinit();
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
@@ -2791,7 +2901,7 @@ fn mergeSections(wasm: *Wasm) !void {
         switch (symbol.tag) {
             .function => {
                 const gop = try wasm.functions.getOrPut(
-                    wasm.base.allocator,
+                    gpa,
                     .{ .file = sym_loc.file, .index = symbol.index },
                 );
                 if (gop.found_existing) {
@@ -2800,7 +2910,7 @@ fn mergeSections(wasm: *Wasm) !void {
                     // we only emit a single function, instead of duplicates.
                     symbol.unmark();
                     try wasm.discarded.putNoClobber(
-                        wasm.base.allocator,
+                        gpa,
                         sym_loc,
                         .{ .file = gop.key_ptr.*.file, .index = gop.value_ptr.*.sym_index },
                     );
@@ -2813,12 +2923,12 @@ fn mergeSections(wasm: *Wasm) !void {
             .global => {
                 const original_global = object.globals[index];
                 symbol.index = @as(u32, @intCast(wasm.wasm_globals.items.len)) + wasm.imported_globals_count;
-                try wasm.wasm_globals.append(wasm.base.allocator, original_global);
+                try wasm.wasm_globals.append(gpa, original_global);
             },
             .table => {
                 const original_table = object.tables[index];
                 symbol.index = @as(u32, @intCast(wasm.tables.items.len)) + wasm.imported_tables_count;
-                try wasm.tables.append(wasm.base.allocator, original_table);
+                try wasm.tables.append(gpa, original_table);
             },
             else => unreachable,
         }
@@ -2838,10 +2948,11 @@ fn mergeSections(wasm: *Wasm) !void {
 /// 'types' section, while assigning the type index to the representing
 /// section (import, export, function).
 fn mergeTypes(wasm: *Wasm) !void {
+    const gpa = wasm.base.comp.gpa;
     // A map to track which functions have already had their
     // type inserted. If we do this for the same function multiple times,
     // it will be overwritten with the incorrect type.
-    var dirty = std.AutoHashMap(u32, void).init(wasm.base.allocator);
+    var dirty = std.AutoHashMap(u32, void).init(gpa);
     try dirty.ensureUnusedCapacity(@as(u32, @intCast(wasm.functions.count())));
     defer dirty.deinit();
 
@@ -2873,10 +2984,12 @@ fn mergeTypes(wasm: *Wasm) !void {
 }
 
 fn setupExports(wasm: *Wasm) !void {
-    if (wasm.base.options.output_mode == .Obj) return;
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    if (comp.config.output_mode == .Obj) return;
     log.debug("Building exports from symbols", .{});
 
-    const force_exp_names = wasm.base.options.export_symbol_names;
+    const force_exp_names = wasm.export_symbol_names;
     if (force_exp_names.len > 0) {
         var failed_exports = false;
 
@@ -2898,16 +3011,16 @@ fn setupExports(wasm: *Wasm) !void {
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const symbol = sym_loc.getSymbol(wasm);
-        if (!symbol.isExported(wasm.base.options.rdynamic)) continue;
+        if (!symbol.isExported(comp.config.rdynamic)) continue;
 
         const sym_name = sym_loc.getName(wasm);
         const export_name = if (wasm.export_names.get(sym_loc)) |name| name else blk: {
             if (sym_loc.file == null) break :blk symbol.name;
-            break :blk try wasm.string_table.put(wasm.base.allocator, sym_name);
+            break :blk try wasm.string_table.put(gpa, sym_name);
         };
         const exp: types.Export = if (symbol.tag == .data) exp: {
             const global_index = @as(u32, @intCast(wasm.imported_globals_count + wasm.wasm_globals.items.len));
-            try wasm.wasm_globals.append(wasm.base.allocator, .{
+            try wasm.wasm_globals.append(gpa, .{
                 .global_type = .{ .valtype = .i32, .mutable = false },
                 .init = .{ .i32_const = @as(i32, @intCast(symbol.virtual_address)) },
             });
@@ -2926,15 +3039,16 @@ fn setupExports(wasm: *Wasm) !void {
             wasm.string_table.get(exp.name),
             exp.index,
         });
-        try wasm.exports.append(wasm.base.allocator, exp);
+        try wasm.exports.append(gpa, exp);
     }
 
     log.debug("Completed building exports. Total count: ({d})", .{wasm.exports.items.len});
 }
 
 fn setupStart(wasm: *Wasm) !void {
+    const comp = wasm.base.comp;
     // do not export entry point if user set none or no default was set.
-    const entry_name = wasm.base.options.entry orelse return;
+    const entry_name = wasm.entry_name orelse return;
 
     const symbol_loc = wasm.findGlobalSymbol(entry_name) orelse {
         log.err("Entry symbol '{s}' missing, use '-fno-entry' to suppress", .{entry_name});
@@ -2948,33 +3062,33 @@ fn setupStart(wasm: *Wasm) !void {
     }
 
     // Ensure the symbol is exported so host environment can access it
-    if (wasm.base.options.output_mode != .Obj) {
+    if (comp.config.output_mode != .Obj) {
         symbol.setFlag(.WASM_SYM_EXPORTED);
     }
 }
 
 /// Sets up the memory section of the wasm module, as well as the stack.
 fn setupMemory(wasm: *Wasm) !void {
+    const comp = wasm.base.comp;
+    const shared_memory = comp.config.shared_memory;
     log.debug("Setting up memory layout", .{});
     const page_size = std.wasm.page_size; // 64kb
-    // Use the user-provided stack size or else we use 1MB by default
-    const stack_size = wasm.base.options.stack_size_override orelse page_size * 16;
     const stack_alignment: Alignment = .@"16"; // wasm's stack alignment as specified by tool-convention
     const heap_alignment: Alignment = .@"16"; // wasm's heap alignment as specified by tool-convention
 
     // Always place the stack at the start by default
     // unless the user specified the global-base flag
     var place_stack_first = true;
-    var memory_ptr: u64 = if (wasm.base.options.global_base) |base| blk: {
+    var memory_ptr: u64 = if (wasm.global_base) |base| blk: {
         place_stack_first = false;
         break :blk base;
     } else 0;
 
-    const is_obj = wasm.base.options.output_mode == .Obj;
+    const is_obj = comp.config.output_mode == .Obj;
 
     if (place_stack_first and !is_obj) {
         memory_ptr = stack_alignment.forward(memory_ptr);
-        memory_ptr += stack_size;
+        memory_ptr += wasm.base.stack_size;
         // We always put the stack pointer global at index 0
         wasm.wasm_globals.items[0].init.i32_const = @as(i32, @bitCast(@as(u32, @intCast(memory_ptr))));
     }
@@ -2997,7 +3111,7 @@ fn setupMemory(wasm: *Wasm) !void {
             }
             if (wasm.findGlobalSymbol("__tls_base")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = if (wasm.base.options.shared_memory)
+                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = if (shared_memory)
                     @as(i32, 0)
                 else
                     @as(i32, @intCast(memory_ptr));
@@ -3010,7 +3124,7 @@ fn setupMemory(wasm: *Wasm) !void {
     }
 
     // create the memory init flag which is used by the init memory function
-    if (wasm.base.options.shared_memory and wasm.hasPassiveInitializationSegments()) {
+    if (shared_memory and wasm.hasPassiveInitializationSegments()) {
         // align to pointer size
         memory_ptr = mem.alignForward(u64, memory_ptr, 4);
         const loc = try wasm.createSyntheticSymbol("__wasm_init_memory_flag", .data);
@@ -3021,7 +3135,7 @@ fn setupMemory(wasm: *Wasm) !void {
 
     if (!place_stack_first and !is_obj) {
         memory_ptr = stack_alignment.forward(memory_ptr);
-        memory_ptr += stack_size;
+        memory_ptr += wasm.base.stack_size;
         wasm.wasm_globals.items[0].init.i32_const = @as(i32, @bitCast(@as(u32, @intCast(memory_ptr))));
     }
 
@@ -3036,7 +3150,7 @@ fn setupMemory(wasm: *Wasm) !void {
     // For now we only support wasm32 by setting the maximum allowed memory size 2^32-1
     const max_memory_allowed: u64 = (1 << 32) - 1;
 
-    if (wasm.base.options.initial_memory) |initial_memory| {
+    if (wasm.initial_memory) |initial_memory| {
         if (!std.mem.isAlignedGeneric(u64, initial_memory, page_size)) {
             log.err("Initial memory must be {d}-byte aligned", .{page_size});
             return error.MissAlignment;
@@ -3062,7 +3176,7 @@ fn setupMemory(wasm: *Wasm) !void {
         symbol.virtual_address = @as(u32, @intCast(memory_ptr));
     }
 
-    if (wasm.base.options.max_memory) |max_memory| {
+    if (wasm.max_memory) |max_memory| {
         if (!std.mem.isAlignedGeneric(u64, max_memory, page_size)) {
             log.err("Maximum memory must be {d}-byte aligned", .{page_size});
             return error.MissAlignment;
@@ -3077,7 +3191,7 @@ fn setupMemory(wasm: *Wasm) !void {
         }
         wasm.memories.limits.max = @as(u32, @intCast(max_memory / page_size));
         wasm.memories.limits.setFlag(.WASM_LIMITS_FLAG_HAS_MAX);
-        if (wasm.base.options.shared_memory) {
+        if (shared_memory) {
             wasm.memories.limits.setFlag(.WASM_LIMITS_FLAG_IS_SHARED);
         }
         log.debug("Maximum memory pages: {?d}", .{wasm.memories.limits.max});
@@ -3088,29 +3202,32 @@ fn setupMemory(wasm: *Wasm) !void {
 /// index of the segment within the final data section. When the segment does not yet
 /// exist, a new one will be initialized and appended. The new index will be returned in that case.
 pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, symbol_index: u32) !u32 {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
     const object: Object = wasm.objects.items[object_index];
     const symbol = object.symtable[symbol_index];
-    const index = @as(u32, @intCast(wasm.segments.items.len));
+    const index: u32 = @intCast(wasm.segments.items.len);
+    const shared_memory = comp.config.shared_memory;
 
     switch (symbol.tag) {
         .data => {
             const segment_info = object.segment_info[symbol.index];
-            const merge_segment = wasm.base.options.output_mode != .Obj;
-            const result = try wasm.data_segments.getOrPut(wasm.base.allocator, segment_info.outputName(merge_segment));
+            const merge_segment = comp.config.output_mode != .Obj;
+            const result = try wasm.data_segments.getOrPut(gpa, segment_info.outputName(merge_segment));
             if (!result.found_existing) {
                 result.value_ptr.* = index;
                 var flags: u32 = 0;
-                if (wasm.base.options.shared_memory) {
+                if (shared_memory) {
                     flags |= @intFromEnum(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
                 }
-                try wasm.segments.append(wasm.base.allocator, .{
+                try wasm.segments.append(gpa, .{
                     .alignment = .@"1",
                     .size = 0,
                     .offset = 0,
                     .flags = flags,
                 });
-                try wasm.segment_info.putNoClobber(wasm.base.allocator, index, .{
-                    .name = try wasm.base.allocator.dupe(u8, segment_info.name),
+                try wasm.segment_info.putNoClobber(gpa, index, .{
+                    .name = try gpa.dupe(u8, segment_info.name),
                     .alignment = segment_info.alignment,
                     .flags = segment_info.flags,
                 });
@@ -3183,7 +3300,8 @@ pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, symbol_index: u32) !u3
 
 /// Appends a new segment with default field values
 fn appendDummySegment(wasm: *Wasm) !void {
-    try wasm.segments.append(wasm.base.allocator, .{
+    const gpa = wasm.base.comp.gpa;
+    try wasm.segments.append(gpa, .{
         .alignment = .@"1",
         .size = 0,
         .offset = 0,
@@ -3203,14 +3321,15 @@ pub fn getErrorTableSymbol(wasm: *Wasm) !u32 {
     // and then return said symbol's index. The final table will be populated
     // during `flush` when we know all possible error names.
 
+    const gpa = wasm.base.comp.gpa;
     const atom_index = try wasm.createAtom();
     const atom = wasm.getAtomPtr(atom_index);
     const slice_ty = Type.slice_const_u8_sentinel_0;
-    const mod = wasm.base.options.module.?;
+    const mod = wasm.base.comp.module.?;
     atom.alignment = slice_ty.abiAlignment(mod);
     const sym_index = atom.sym_index;
 
-    const sym_name = try wasm.string_table.put(wasm.base.allocator, "__zig_err_name_table");
+    const sym_name = try wasm.string_table.put(gpa, "__zig_err_name_table");
     const symbol = &wasm.symbols.items[sym_index];
     symbol.* = .{
         .name = sym_name,
@@ -3222,7 +3341,7 @@ pub fn getErrorTableSymbol(wasm: *Wasm) !u32 {
     symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
     symbol.mark();
 
-    try wasm.resolved_symbols.put(wasm.base.allocator, atom.symbolLoc(), {});
+    try wasm.resolved_symbols.put(gpa, atom.symbolLoc(), {});
 
     log.debug("Error name table was created with symbol index: ({d})", .{sym_index});
     wasm.error_table_symbol = sym_index;
@@ -3234,6 +3353,7 @@ pub fn getErrorTableSymbol(wasm: *Wasm) !u32 {
 /// This creates a table that consists of pointers and length to each error name.
 /// The table is what is being pointed to within the runtime bodies that are generated.
 fn populateErrorNameTable(wasm: *Wasm) !void {
+    const gpa = wasm.base.comp.gpa;
     const symbol_index = wasm.error_table_symbol orelse return;
     const atom_index = wasm.symbol_atom.get(.{ .file = null, .index = symbol_index }).?;
 
@@ -3243,7 +3363,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
     const names_atom_index = try wasm.createAtom();
     const names_atom = wasm.getAtomPtr(names_atom_index);
     names_atom.alignment = .@"1";
-    const sym_name = try wasm.string_table.put(wasm.base.allocator, "__zig_err_names");
+    const sym_name = try wasm.string_table.put(gpa, "__zig_err_names");
     const names_symbol = &wasm.symbols.items[names_atom.sym_index];
     names_symbol.* = .{
         .name = sym_name,
@@ -3259,7 +3379,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
 
     // Addend for each relocation to the table
     var addend: u32 = 0;
-    const mod = wasm.base.options.module.?;
+    const mod = wasm.base.comp.module.?;
     for (mod.global_error_set.keys()) |error_name_nts| {
         const atom = wasm.getAtomPtr(atom_index);
 
@@ -3269,10 +3389,10 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
         const slice_ty = Type.slice_const_u8_sentinel_0;
         const offset = @as(u32, @intCast(atom.code.items.len));
         // first we create the data for the slice of the name
-        try atom.code.appendNTimes(wasm.base.allocator, 0, 4); // ptr to name, will be relocated
-        try atom.code.writer(wasm.base.allocator).writeInt(u32, len - 1, .little);
+        try atom.code.appendNTimes(gpa, 0, 4); // ptr to name, will be relocated
+        try atom.code.writer(gpa).writeInt(u32, len - 1, .little);
         // create relocation to the error name
-        try atom.relocs.append(wasm.base.allocator, .{
+        try atom.relocs.append(gpa, .{
             .index = names_atom.sym_index,
             .relocation_type = .R_WASM_MEMORY_ADDR_I32,
             .offset = offset,
@@ -3282,7 +3402,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
         addend += len;
 
         // as we updated the error name table, we now store the actual name within the names atom
-        try names_atom.code.ensureUnusedCapacity(wasm.base.allocator, len);
+        try names_atom.code.ensureUnusedCapacity(gpa, len);
         names_atom.code.appendSliceAssumeCapacity(error_name);
         names_atom.code.appendAssumeCapacity(0);
 
@@ -3291,8 +3411,8 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
     names_atom.size = addend;
 
     const name_loc = names_atom.symbolLoc();
-    try wasm.resolved_symbols.put(wasm.base.allocator, name_loc, {});
-    try wasm.symbol_atom.put(wasm.base.allocator, name_loc, names_atom_index);
+    try wasm.resolved_symbols.put(gpa, name_loc, {});
+    try wasm.symbol_atom.put(gpa, name_loc, names_atom_index);
 
     // link the atoms with the rest of the binary so they can be allocated
     // and relocations will be performed.
@@ -3304,7 +3424,8 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
 /// This initializes the index, appends a new segment,
 /// and finally, creates a managed `Atom`.
 pub fn createDebugSectionForIndex(wasm: *Wasm, index: *?u32, name: []const u8) !Atom.Index {
-    const new_index = @as(u32, @intCast(wasm.segments.items.len));
+    const gpa = wasm.base.comp.gpa;
+    const new_index: u32 = @intCast(wasm.segments.items.len);
     index.* = new_index;
     try wasm.appendDummySegment();
 
@@ -3312,7 +3433,7 @@ pub fn createDebugSectionForIndex(wasm: *Wasm, index: *?u32, name: []const u8) !
     const atom = wasm.getAtomPtr(atom_index);
     wasm.symbols.items[atom.sym_index] = .{
         .tag = .section,
-        .name = try wasm.string_table.put(wasm.base.allocator, name),
+        .name = try wasm.string_table.put(gpa, name),
         .index = 0,
         .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
     };
@@ -3322,8 +3443,10 @@ pub fn createDebugSectionForIndex(wasm: *Wasm, index: *?u32, name: []const u8) !
 }
 
 fn resetState(wasm: *Wasm) void {
+    const gpa = wasm.base.comp.gpa;
+
     for (wasm.segment_info.values()) |segment_info| {
-        wasm.base.allocator.free(segment_info.name);
+        gpa.free(segment_info.name);
     }
 
     var atom_it = wasm.decls.valueIterator();
@@ -3357,49 +3480,44 @@ fn resetState(wasm: *Wasm) void {
     wasm.debug_pubtypes_index = null;
 }
 
-pub fn flush(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    if (wasm.base.options.emit == null) {
-        if (wasm.llvm_object) |llvm_object| {
-            return try llvm_object.flushModule(comp, prog_node);
-        }
-        return;
-    }
+pub fn flush(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+    const comp = wasm.base.comp;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
 
-    if (build_options.have_llvm and wasm.base.options.use_lld) {
-        return wasm.linkWithLLD(comp, prog_node);
-    } else if (wasm.base.options.use_llvm and !wasm.base.options.use_lld) {
-        return wasm.linkWithZld(comp, prog_node);
+    if (use_lld) {
+        return wasm.linkWithLLD(arena, prog_node);
+    } else if (use_llvm) {
+        return wasm.linkWithZld(arena, prog_node);
     } else {
-        return wasm.flushModule(comp, prog_node);
+        return wasm.flushModule(arena, prog_node);
     }
 }
 
 /// Uses the in-house linker to link one or multiple object -and archive files into a WebAssembly binary.
-fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
+fn linkWithZld(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = wasm.base.allocator;
-    const options = wasm.base.options;
+    const comp = wasm.base.comp;
+    const shared_memory = comp.config.shared_memory;
+    const import_memory = comp.config.import_memory;
 
-    // Used for all temporary memory allocated during flushin
-    var arena_instance = std.heap.ArenaAllocator.init(gpa);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
-
-    const directory = options.emit.?.directory; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{options.emit.?.sub_path});
+    const directory = wasm.base.emit.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{wasm.base.emit.sub_path});
+    const opt_zcu = comp.module;
+    const use_llvm = comp.config.use_llvm;
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (options.module != null) blk: {
-        assert(options.use_llvm); // `linkWithZld` should never be called when the Wasm backend is used
-        try wasm.flushModule(comp, prog_node);
+    const module_obj_path: ?[]const u8 = if (opt_zcu != null) blk: {
+        assert(use_llvm); // `linkWithZld` should never be called when the Wasm backend is used
+        try wasm.flushModule(arena, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, wasm.base.intermediary_basename.? });
+            break :blk try fs.path.join(arena, &.{ dirname, wasm.base.zcu_object_sub_path.? });
         } else {
-            break :blk wasm.base.intermediary_basename.?;
+            break :blk wasm.base.zcu_object_sub_path.?;
         }
     } else null;
 
@@ -3416,12 +3534,14 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     const id_symlink_basename = "zld.id";
 
     var man: Cache.Manifest = undefined;
-    defer if (!options.disable_lld_caching) man.deinit();
+    defer if (!wasm.base.disable_lld_caching) man.deinit();
     var digest: [Cache.hex_digest_len]u8 = undefined;
+
+    const objects = comp.objects;
 
     // NOTE: The following section must be maintained to be equal
     // as the section defined in `linkWithLLD`
-    if (!options.disable_lld_caching) {
+    if (!wasm.base.disable_lld_caching) {
         man = comp.cache_parent.obtain();
 
         // We are about to obtain this lock, so here we give other processes a chance first.
@@ -3429,7 +3549,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
 
         comptime assert(Compilation.link_hash_implementation_version == 10);
 
-        for (options.objects) |obj| {
+        for (objects) |obj| {
             _ = try man.addFile(obj.path, null);
             man.hash.add(obj.must_link);
         }
@@ -3438,19 +3558,19 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFile(compiler_rt_path);
-        man.hash.addOptionalBytes(options.entry);
-        man.hash.addOptional(options.stack_size_override);
-        man.hash.add(wasm.base.options.build_id);
-        man.hash.add(options.import_memory);
-        man.hash.add(options.import_table);
-        man.hash.add(options.export_table);
-        man.hash.addOptional(options.initial_memory);
-        man.hash.addOptional(options.max_memory);
-        man.hash.add(options.shared_memory);
-        man.hash.addOptional(options.global_base);
-        man.hash.add(options.export_symbol_names.len);
+        man.hash.addOptionalBytes(wasm.entry_name);
+        man.hash.add(wasm.base.stack_size);
+        man.hash.add(wasm.base.build_id);
+        man.hash.add(import_memory);
+        man.hash.add(shared_memory);
+        man.hash.add(wasm.import_table);
+        man.hash.add(wasm.export_table);
+        man.hash.addOptional(wasm.initial_memory);
+        man.hash.addOptional(wasm.max_memory);
+        man.hash.addOptional(wasm.global_base);
+        man.hash.add(wasm.export_symbol_names.len);
         // strip does not need to go into the linker hash because it is part of the hash namespace
-        for (options.export_symbol_names) |symbol_name| {
+        for (wasm.export_symbol_names) |symbol_name| {
             man.hash.addBytes(symbol_name);
         }
 
@@ -3485,30 +3605,36 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
 
     // Positional arguments to the linker such as object files and static archives.
     var positionals = std.ArrayList([]const u8).init(arena);
-    try positionals.ensureUnusedCapacity(options.objects.len);
+    try positionals.ensureUnusedCapacity(objects.len);
+
+    const target = comp.root_mod.resolved_target.result;
+    const output_mode = comp.config.output_mode;
+    const link_mode = comp.config.link_mode;
+    const link_libc = comp.config.link_libc;
+    const link_libcpp = comp.config.link_libcpp;
+    const wasi_exec_model = comp.config.wasi_exec_model;
 
     // When the target os is WASI, we allow linking with WASI-LIBC
-    if (options.target.os.tag == .wasi) {
-        const is_exe_or_dyn_lib = wasm.base.options.output_mode == .Exe or
-            (wasm.base.options.output_mode == .Lib and wasm.base.options.link_mode == .Dynamic);
+    if (target.os.tag == .wasi) {
+        const is_exe_or_dyn_lib = output_mode == .Exe or
+            (output_mode == .Lib and link_mode == .Dynamic);
         if (is_exe_or_dyn_lib) {
-            const wasi_emulated_libs = wasm.base.options.wasi_emulated_libs;
-            for (wasi_emulated_libs) |crt_file| {
+            for (comp.wasi_emulated_libs) |crt_file| {
                 try positionals.append(try comp.get_libc_crt_file(
                     arena,
                     wasi_libc.emulatedLibCRFileLibName(crt_file),
                 ));
             }
 
-            if (wasm.base.options.link_libc) {
+            if (link_libc) {
                 try positionals.append(try comp.get_libc_crt_file(
                     arena,
-                    wasi_libc.execModelCrtFileFullName(wasm.base.options.wasi_exec_model),
+                    wasi_libc.execModelCrtFileFullName(wasi_exec_model),
                 ));
                 try positionals.append(try comp.get_libc_crt_file(arena, "libc.a"));
             }
 
-            if (wasm.base.options.link_libcpp) {
+            if (link_libcpp) {
                 try positionals.append(comp.libcxx_static_lib.?.full_object_path);
                 try positionals.append(comp.libcxxabi_static_lib.?.full_object_path);
             }
@@ -3519,7 +3645,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         try positionals.append(path);
     }
 
-    for (options.objects) |object| {
+    for (objects) |object| {
         try positionals.append(object.path);
     }
 
@@ -3562,7 +3688,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     try wasm.setupExports();
     try wasm.writeToFile(enabled_features, emit_features_count, arena);
 
-    if (!wasm.base.options.disable_lld_caching) {
+    if (!wasm.base.disable_lld_caching) {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
@@ -3578,12 +3704,15 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     }
 }
 
-pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const comp = wasm.base.comp;
+
     if (wasm.llvm_object) |llvm_object| {
-        return try llvm_object.flushModule(comp, prog_node);
+        try wasm.base.emitLlvmObject(arena, llvm_object, prog_node);
+        return;
     }
 
     var sub_prog_node = prog_node.start("Wasm Flush", 0);
@@ -3593,16 +3722,13 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     // ensure the error names table is populated when an error name is referenced
     try wasm.populateErrorNameTable();
 
-    // Used for all temporary memory allocated during flushin
-    var arena_instance = std.heap.ArenaAllocator.init(wasm.base.allocator);
-    defer arena_instance.deinit();
-    const arena = arena_instance.allocator();
+    const objects = comp.objects;
 
     // Positional arguments to the linker such as object files and static archives.
     var positionals = std.ArrayList([]const u8).init(arena);
-    try positionals.ensureUnusedCapacity(wasm.base.options.objects.len);
+    try positionals.ensureUnusedCapacity(objects.len);
 
-    for (wasm.base.options.objects) |object| {
+    for (objects) |object| {
         positionals.appendAssumeCapacity(object.path);
     }
 
@@ -3634,7 +3760,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     try wasm.markReferences();
     try wasm.setupErrorsLen();
     try wasm.setupImports();
-    if (wasm.base.options.module) |mod| {
+    if (comp.module) |mod| {
         var decl_it = wasm.decls.iterator();
         while (decl_it.next()) |entry| {
             const decl = mod.declPtr(entry.key_ptr.*);
@@ -3649,8 +3775,12 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
                 } else if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
                     // for safe build modes, we store the atom in the data segment,
                     // whereas for unsafe build modes we store it in bss.
-                    const is_initialized = wasm.base.options.optimize_mode == .Debug or
-                        wasm.base.options.optimize_mode == .ReleaseSafe;
+                    const decl_namespace = mod.namespacePtr(decl.src_namespace);
+                    const optimize_mode = decl_namespace.file_scope.mod.optimize_mode;
+                    const is_initialized = switch (optimize_mode) {
+                        .Debug, .ReleaseSafe => true,
+                        .ReleaseFast, .ReleaseSmall => false,
+                    };
                     try wasm.parseAtom(atom_index, .{ .data = if (is_initialized) .initialized else .uninitialized });
                 } else {
                     // when the decl is all zeroes, we store the atom in the bss segment,
@@ -3685,7 +3815,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
 
         if (wasm.dwarf) |*dwarf| {
-            try dwarf.flushModule(wasm.base.options.module.?);
+            try dwarf.flushModule(comp.module.?);
         }
     }
 
@@ -3711,6 +3841,14 @@ fn writeToFile(
     feature_count: u32,
     arena: Allocator,
 ) !void {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const use_llvm = comp.config.use_llvm;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const shared_memory = comp.config.shared_memory;
+    const import_memory = comp.config.import_memory;
+    const export_memory = comp.config.export_memory;
+
     // Size of each section header
     const header_size = 5 + 1;
     // The amount of sections that will be written
@@ -3719,9 +3857,9 @@ fn writeToFile(
     var code_section_index: ?u32 = null;
     // Index of the data section. Used to tell relocation table where the section lives.
     var data_section_index: ?u32 = null;
-    const is_obj = wasm.base.options.output_mode == .Obj or (!wasm.base.options.use_llvm and wasm.base.options.use_lld);
+    const is_obj = comp.config.output_mode == .Obj or (!use_llvm and use_lld);
 
-    var binary_bytes = std.ArrayList(u8).init(wasm.base.allocator);
+    var binary_bytes = std.ArrayList(u8).init(gpa);
     defer binary_bytes.deinit();
     const binary_writer = binary_bytes.writer();
 
@@ -3759,8 +3897,6 @@ fn writeToFile(
     }
 
     // Import section
-    const import_memory = wasm.base.options.import_memory or is_obj;
-    const export_memory = wasm.base.options.export_memory;
     if (wasm.imports.count() != 0 or import_memory) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
@@ -3774,8 +3910,8 @@ fn writeToFile(
         if (import_memory) {
             const mem_name = if (is_obj) "__linear_memory" else "memory";
             const mem_imp: types.Import = .{
-                .module_name = try wasm.string_table.put(wasm.base.allocator, wasm.host_name),
-                .name = try wasm.string_table.put(wasm.base.allocator, mem_name),
+                .module_name = try wasm.string_table.put(gpa, wasm.host_name),
+                .name = try wasm.string_table.put(gpa, mem_name),
                 .kind = .{ .memory = wasm.memories.limits },
             };
             try wasm.emitImport(binary_writer, mem_imp);
@@ -3937,7 +4073,7 @@ fn writeToFile(
 
     // When the shared-memory option is enabled, we *must* emit the 'data count' section.
     const data_segments_count = wasm.data_segments.count() - @intFromBool(wasm.data_segments.contains(".bss") and !import_memory);
-    if (data_segments_count != 0 and wasm.base.options.shared_memory) {
+    if (data_segments_count != 0 and shared_memory) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
         try writeVecSectionHeader(
             binary_bytes.items,
@@ -3955,7 +4091,7 @@ fn writeToFile(
         var atom_index = wasm.atoms.get(code_index).?;
 
         // The code section must be sorted in line with the function order.
-        var sorted_atoms = try std.ArrayList(*const Atom).initCapacity(wasm.base.allocator, wasm.functions.count());
+        var sorted_atoms = try std.ArrayList(*const Atom).initCapacity(gpa, wasm.functions.count());
         defer sorted_atoms.deinit();
 
         while (true) {
@@ -3966,7 +4102,7 @@ fn writeToFile(
             sorted_atoms.appendAssumeCapacity(atom); // found more code atoms than functions
             atom_index = atom.prev orelse break;
         }
-        std.debug.assert(wasm.functions.count() == sorted_atoms.items.len);
+        assert(wasm.functions.count() == sorted_atoms.items.len);
 
         const atom_sort_fn = struct {
             fn sort(ctx: *const Wasm, lhs: *const Atom, rhs: *const Atom) bool {
@@ -4079,14 +4215,14 @@ fn writeToFile(
         if (data_section_index) |data_index| {
             try wasm.emitDataRelocations(&binary_bytes, data_index, symbol_table);
         }
-    } else if (!wasm.base.options.strip) {
+    } else if (comp.config.debug_format != .strip) {
         try wasm.emitNameSection(&binary_bytes, arena);
     }
 
-    if (!wasm.base.options.strip) {
+    if (comp.config.debug_format != .strip) {
         // The build id must be computed on the main sections only,
         // so we have to do it now, before the debug sections.
-        switch (wasm.base.options.build_id) {
+        switch (wasm.base.build_id) {
             .none => {},
             .fast => {
                 var id: [16]u8 = undefined;
@@ -4112,7 +4248,7 @@ fn writeToFile(
         }
 
         // if (wasm.dwarf) |*dwarf| {
-        //     const mod = wasm.base.options.module.?;
+        //     const mod = comp.module.?;
         //     try dwarf.writeDbgAbbrev();
         //     // for debug info and ranges, the address is always 0,
         //     // as locations are always offsets relative to 'code' section.
@@ -4121,7 +4257,7 @@ fn writeToFile(
         //     try dwarf.writeDbgLineHeader();
         // }
 
-        var debug_bytes = std.ArrayList(u8).init(wasm.base.allocator);
+        var debug_bytes = std.ArrayList(u8).init(gpa);
         defer debug_bytes.deinit();
 
         const DebugSection = struct {
@@ -4299,6 +4435,8 @@ fn emitFeaturesSection(binary_bytes: *std.ArrayList(u8), enabled_features: []con
 }
 
 fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem.Allocator) !void {
+    const comp = wasm.base.comp;
+    const import_memory = comp.config.import_memory;
     const Name = struct {
         index: u32,
         name: []const u8,
@@ -4337,7 +4475,7 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem
     for (wasm.data_segments.keys()) |key| {
         // bss section is not emitted when this condition holds true, so we also
         // do not output a name for it.
-        if (!wasm.base.options.import_memory and std.mem.eql(u8, key, ".bss")) continue;
+        if (!import_memory and std.mem.eql(u8, key, ".bss")) continue;
         segments.appendAssumeCapacity(.{ .index = data_segment_index, .name = key });
         data_segment_index += 1;
     }
@@ -4362,8 +4500,10 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem
 }
 
 fn emitNameSubsection(wasm: *Wasm, section_id: std.wasm.NameSubsection, names: anytype, writer: anytype) !void {
+    const gpa = wasm.base.comp.gpa;
+
     // We must emit subsection size, so first write to a temporary list
-    var section_list = std.ArrayList(u8).init(wasm.base.allocator);
+    var section_list = std.ArrayList(u8).init(gpa);
     defer section_list.deinit();
     const sub_writer = section_list.writer();
 
@@ -4441,26 +4581,30 @@ fn emitImport(wasm: *Wasm, writer: anytype, import: types.Import) !void {
     }
 }
 
-fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    var arena_allocator = std.heap.ArenaAllocator.init(wasm.base.allocator);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
+    const comp = wasm.base.comp;
+    const shared_memory = comp.config.shared_memory;
+    const export_memory = comp.config.export_memory;
+    const import_memory = comp.config.import_memory;
+    const target = comp.root_mod.resolved_target.result;
 
-    const directory = wasm.base.options.emit.?.directory; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{wasm.base.options.emit.?.sub_path});
+    const gpa = comp.gpa;
+
+    const directory = wasm.base.emit.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{wasm.base.emit.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (wasm.base.options.module != null) blk: {
-        try wasm.flushModule(comp, prog_node);
+    const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
+        try wasm.flushModule(arena, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, wasm.base.intermediary_basename.? });
+            break :blk try fs.path.join(arena, &.{ dirname, wasm.base.zcu_object_sub_path.? });
         } else {
-            break :blk wasm.base.intermediary_basename.?;
+            break :blk wasm.base.zcu_object_sub_path.?;
         }
     } else null;
 
@@ -4469,23 +4613,21 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
     sub_prog_node.context.refresh();
     defer sub_prog_node.end();
 
-    const is_obj = wasm.base.options.output_mode == .Obj;
+    const is_obj = comp.config.output_mode == .Obj;
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |lib| break :blk lib.full_object_path;
         if (comp.compiler_rt_obj) |obj| break :blk obj.full_object_path;
         break :blk null;
     };
 
-    const target = wasm.base.options.target;
-
     const id_symlink_basename = "lld.id";
 
     var man: Cache.Manifest = undefined;
-    defer if (!wasm.base.options.disable_lld_caching) man.deinit();
+    defer if (!wasm.base.disable_lld_caching) man.deinit();
 
     var digest: [Cache.hex_digest_len]u8 = undefined;
 
-    if (!wasm.base.options.disable_lld_caching) {
+    if (!wasm.base.disable_lld_caching) {
         man = comp.cache_parent.obtain();
 
         // We are about to obtain this lock, so here we give other processes a chance first.
@@ -4493,7 +4635,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 
         comptime assert(Compilation.link_hash_implementation_version == 10);
 
-        for (wasm.base.options.objects) |obj| {
+        for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);
             man.hash.add(obj.must_link);
         }
@@ -4502,20 +4644,20 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFile(compiler_rt_path);
-        man.hash.addOptionalBytes(wasm.base.options.entry);
-        man.hash.addOptional(wasm.base.options.stack_size_override);
-        man.hash.add(wasm.base.options.build_id);
-        man.hash.add(wasm.base.options.import_memory);
-        man.hash.add(wasm.base.options.export_memory);
-        man.hash.add(wasm.base.options.import_table);
-        man.hash.add(wasm.base.options.export_table);
-        man.hash.addOptional(wasm.base.options.initial_memory);
-        man.hash.addOptional(wasm.base.options.max_memory);
-        man.hash.add(wasm.base.options.shared_memory);
-        man.hash.addOptional(wasm.base.options.global_base);
-        man.hash.add(wasm.base.options.export_symbol_names.len);
+        man.hash.addOptionalBytes(wasm.entry_name);
+        man.hash.add(wasm.base.stack_size);
+        man.hash.add(wasm.base.build_id);
+        man.hash.add(import_memory);
+        man.hash.add(export_memory);
+        man.hash.add(wasm.import_table);
+        man.hash.add(wasm.export_table);
+        man.hash.addOptional(wasm.initial_memory);
+        man.hash.addOptional(wasm.max_memory);
+        man.hash.add(shared_memory);
+        man.hash.addOptional(wasm.global_base);
+        man.hash.add(wasm.export_symbol_names.len);
         // strip does not need to go into the linker hash because it is part of the hash namespace
-        for (wasm.base.options.export_symbol_names) |symbol_name| {
+        for (wasm.export_symbol_names) |symbol_name| {
             man.hash.addBytes(symbol_name);
         }
 
@@ -4553,8 +4695,8 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
-            if (wasm.base.options.objects.len != 0)
-                break :blk wasm.base.options.objects[0].path;
+            if (comp.objects.len != 0)
+                break :blk comp.objects[0].path;
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -4573,7 +4715,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         }
     } else {
         // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(wasm.base.allocator);
+        var argv = std.ArrayList([]const u8).init(gpa);
         defer argv.deinit();
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
@@ -4582,59 +4724,57 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, linker_command });
         try argv.append("--error-limit=0");
 
-        if (wasm.base.options.lto) {
-            switch (wasm.base.options.optimize_mode) {
+        if (comp.config.lto) {
+            switch (comp.root_mod.optimize_mode) {
                 .Debug => {},
                 .ReleaseSmall => try argv.append("-O2"),
                 .ReleaseFast, .ReleaseSafe => try argv.append("-O3"),
             }
         }
 
-        if (wasm.base.options.import_memory) {
+        if (import_memory) {
             try argv.append("--import-memory");
         }
 
-        if (wasm.base.options.export_memory) {
+        if (export_memory) {
             try argv.append("--export-memory");
         }
 
-        if (wasm.base.options.import_table) {
-            assert(!wasm.base.options.export_table);
+        if (wasm.import_table) {
+            assert(!wasm.export_table);
             try argv.append("--import-table");
         }
 
-        if (wasm.base.options.export_table) {
-            assert(!wasm.base.options.import_table);
+        if (wasm.export_table) {
+            assert(!wasm.import_table);
             try argv.append("--export-table");
         }
 
-        if (wasm.base.options.gc_sections) |gc| {
-            // For wasm-ld we only need to specify '--no-gc-sections' when the user explicitly
-            // specified it as garbage collection is enabled by default.
-            if (!gc) {
-                try argv.append("--no-gc-sections");
-            }
+        // For wasm-ld we only need to specify '--no-gc-sections' when the user explicitly
+        // specified it as garbage collection is enabled by default.
+        if (!wasm.base.gc_sections) {
+            try argv.append("--no-gc-sections");
         }
 
-        if (wasm.base.options.strip) {
+        if (comp.config.debug_format == .strip) {
             try argv.append("-s");
         }
 
-        if (wasm.base.options.initial_memory) |initial_memory| {
+        if (wasm.initial_memory) |initial_memory| {
             const arg = try std.fmt.allocPrint(arena, "--initial-memory={d}", .{initial_memory});
             try argv.append(arg);
         }
 
-        if (wasm.base.options.max_memory) |max_memory| {
+        if (wasm.max_memory) |max_memory| {
             const arg = try std.fmt.allocPrint(arena, "--max-memory={d}", .{max_memory});
             try argv.append(arg);
         }
 
-        if (wasm.base.options.shared_memory) {
+        if (shared_memory) {
             try argv.append("--shared-memory");
         }
 
-        if (wasm.base.options.global_base) |global_base| {
+        if (wasm.global_base) |global_base| {
             const arg = try std.fmt.allocPrint(arena, "--global-base={d}", .{global_base});
             try argv.append(arg);
         } else {
@@ -4646,42 +4786,39 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         }
 
         // Users are allowed to specify which symbols they want to export to the wasm host.
-        for (wasm.base.options.export_symbol_names) |symbol_name| {
+        for (wasm.export_symbol_names) |symbol_name| {
             const arg = try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name});
             try argv.append(arg);
         }
 
-        if (wasm.base.options.rdynamic) {
+        if (comp.config.rdynamic) {
             try argv.append("--export-dynamic");
         }
 
-        if (wasm.base.options.entry) |entry| {
-            try argv.append("--entry");
-            try argv.append(entry);
+        if (wasm.entry_name) |entry_name| {
+            try argv.appendSlice(&.{ "--entry", entry_name });
         } else {
             try argv.append("--no-entry");
         }
 
-        // Increase the default stack size to a more reasonable value of 1MB instead of
-        // the default of 1 Wasm page being 64KB, unless overridden by the user.
-        try argv.append("-z");
-        const stack_size = wasm.base.options.stack_size_override orelse std.wasm.page_size * 16;
-        const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
-        try argv.append(arg);
+        try argv.appendSlice(&.{
+            "-z",
+            try std.fmt.allocPrint(arena, "stack-size={d}", .{wasm.base.stack_size}),
+        });
 
-        if (wasm.base.options.import_symbols) {
+        if (wasm.import_symbols) {
             try argv.append("--allow-undefined");
         }
 
-        if (wasm.base.options.output_mode == .Lib and wasm.base.options.link_mode == .Dynamic) {
+        if (comp.config.output_mode == .Lib and comp.config.link_mode == .Dynamic) {
             try argv.append("--shared");
         }
-        if (wasm.base.options.pie) {
+        if (comp.config.pie) {
             try argv.append("--pie");
         }
 
         // XXX - TODO: add when wasm-ld supports --build-id.
-        // if (wasm.base.options.build_id) {
+        // if (wasm.base.build_id) {
         //     try argv.append("--build-id=tree");
         // }
 
@@ -4692,26 +4829,25 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         }
 
         if (target.os.tag == .wasi) {
-            const is_exe_or_dyn_lib = wasm.base.options.output_mode == .Exe or
-                (wasm.base.options.output_mode == .Lib and wasm.base.options.link_mode == .Dynamic);
+            const is_exe_or_dyn_lib = comp.config.output_mode == .Exe or
+                (comp.config.output_mode == .Lib and comp.config.link_mode == .Dynamic);
             if (is_exe_or_dyn_lib) {
-                const wasi_emulated_libs = wasm.base.options.wasi_emulated_libs;
-                for (wasi_emulated_libs) |crt_file| {
+                for (comp.wasi_emulated_libs) |crt_file| {
                     try argv.append(try comp.get_libc_crt_file(
                         arena,
                         wasi_libc.emulatedLibCRFileLibName(crt_file),
                     ));
                 }
 
-                if (wasm.base.options.link_libc) {
+                if (comp.config.link_libc) {
                     try argv.append(try comp.get_libc_crt_file(
                         arena,
-                        wasi_libc.execModelCrtFileFullName(wasm.base.options.wasi_exec_model),
+                        wasi_libc.execModelCrtFileFullName(comp.config.wasi_exec_model),
                     ));
                     try argv.append(try comp.get_libc_crt_file(arena, "libc.a"));
                 }
 
-                if (wasm.base.options.link_libcpp) {
+                if (comp.config.link_libcpp) {
                     try argv.append(comp.libcxx_static_lib.?.full_object_path);
                     try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
                 }
@@ -4720,7 +4856,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 
         // Positional arguments to the linker such as object files.
         var whole_archive = false;
-        for (wasm.base.options.objects) |obj| {
+        for (comp.objects) |obj| {
             if (obj.must_link and !whole_archive) {
                 try argv.append("-whole-archive");
                 whole_archive = true;
@@ -4742,9 +4878,9 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append(p);
         }
 
-        if (wasm.base.options.output_mode != .Obj and
-            !wasm.base.options.skip_linker_dependencies and
-            !wasm.base.options.link_libc)
+        if (comp.config.output_mode != .Obj and
+            !comp.skip_linker_dependencies and
+            !comp.config.link_libc)
         {
             try argv.append(comp.libc_static_lib.?.full_object_path);
         }
@@ -4753,7 +4889,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append(p);
         }
 
-        if (wasm.base.options.verbose_link) {
+        if (comp.verbose_link) {
             // Skip over our own name so that the LLD linker name is the first argv item.
             Compilation.dump_argv(argv.items[1..]);
         }
@@ -4828,7 +4964,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         // it, and then can react to that in the same way as trying to run an ELF file
         // from a foreign CPU architecture.
         if (fs.has_executable_bit and target.os.tag == .wasi and
-            wasm.base.options.output_mode == .Exe)
+            comp.config.output_mode == .Exe)
         {
             // TODO: what's our strategy for reporting linker errors from this function?
             // report a nice error here with the file path if it fails instead of
@@ -4838,7 +4974,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         }
     }
 
-    if (!wasm.base.options.disable_lld_caching) {
+    if (!wasm.base.disable_lld_caching) {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
@@ -5089,10 +5225,13 @@ fn emitDataRelocations(
 }
 
 fn hasPassiveInitializationSegments(wasm: *const Wasm) bool {
+    const comp = wasm.base.comp;
+    const import_memory = comp.config.import_memory;
+
     var it = wasm.data_segments.iterator();
     while (it.next()) |entry| {
         const segment: Segment = wasm.segments.items[entry.value_ptr.*];
-        if (segment.needsPassiveInitialization(wasm.base.options.import_memory, entry.key_ptr.*)) {
+        if (segment.needsPassiveInitialization(import_memory, entry.key_ptr.*)) {
             return true;
         }
     }
@@ -5113,14 +5252,15 @@ pub fn putOrGetFuncType(wasm: *Wasm, func_type: std.wasm.Type) !u32 {
     if (wasm.getTypeIndex(func_type)) |index| {
         return index;
     }
+    const gpa = wasm.base.comp.gpa;
 
     // functype does not exist.
-    const index = @as(u32, @intCast(wasm.func_types.items.len));
-    const params = try wasm.base.allocator.dupe(std.wasm.Valtype, func_type.params);
-    errdefer wasm.base.allocator.free(params);
-    const returns = try wasm.base.allocator.dupe(std.wasm.Valtype, func_type.returns);
-    errdefer wasm.base.allocator.free(returns);
-    try wasm.func_types.append(wasm.base.allocator, .{
+    const index: u32 = @intCast(wasm.func_types.items.len);
+    const params = try gpa.dupe(std.wasm.Valtype, func_type.params);
+    errdefer gpa.free(params);
+    const returns = try gpa.dupe(std.wasm.Valtype, func_type.returns);
+    errdefer gpa.free(returns);
+    try wasm.func_types.append(gpa, .{
         .params = params,
         .returns = returns,
     });
@@ -5131,9 +5271,10 @@ pub fn putOrGetFuncType(wasm: *Wasm, func_type: std.wasm.Type) !u32 {
 /// Asserts declaration has an associated `Atom`.
 /// Returns the index into the list of types.
 pub fn storeDeclType(wasm: *Wasm, decl_index: InternPool.DeclIndex, func_type: std.wasm.Type) !u32 {
+    const gpa = wasm.base.comp.gpa;
     const atom_index = wasm.decls.get(decl_index).?;
     const index = try wasm.putOrGetFuncType(func_type);
-    try wasm.atom_types.put(wasm.base.allocator, atom_index, index);
+    try wasm.atom_types.put(gpa, atom_index, index);
     return index;
 }
 
@@ -5142,19 +5283,20 @@ pub fn storeDeclType(wasm: *Wasm, decl_index: InternPool.DeclIndex, func_type: s
 fn markReferences(wasm: *Wasm) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const do_garbage_collect = wasm.base.options.gc_sections orelse
-        (wasm.base.options.output_mode != .Obj);
+
+    const do_garbage_collect = wasm.base.gc_sections;
+    const comp = wasm.base.comp;
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const sym = sym_loc.getSymbol(wasm);
-        if (sym.isExported(wasm.base.options.rdynamic) or sym.isNoStrip() or !do_garbage_collect) {
+        if (sym.isExported(comp.config.rdynamic) or sym.isNoStrip() or !do_garbage_collect) {
             try wasm.mark(sym_loc);
             continue;
         }
 
         // Debug sections may require to be parsed and marked when it contains
         // relocations to alive symbols.
-        if (sym.tag == .section and !wasm.base.options.strip) {
+        if (sym.tag == .section and comp.config.debug_format != .strip) {
             const file = sym_loc.file orelse continue; // Incremental debug info is done independently
             const object = &wasm.objects.items[file];
             const atom_index = try Object.parseSymbolIntoAtom(object, file, sym_loc.index, wasm);
@@ -5199,4 +5341,11 @@ fn mark(wasm: *Wasm, loc: SymbolLoc) !void {
         const target_loc: SymbolLoc = .{ .index = reloc.index, .file = loc.file };
         try wasm.mark(target_loc.finalLoc(wasm));
     }
+}
+
+fn defaultEntrySymbolName(wasi_exec_model: std.builtin.WasiExecModel) []const u8 {
+    return switch (wasi_exec_model) {
+        .reactor => "_initialize",
+        .command => "_start",
+    };
 }

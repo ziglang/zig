@@ -94,7 +94,8 @@ pub fn freeListEligible(self: Atom, coff_file: *const Coff) bool {
 }
 
 pub fn addRelocation(coff_file: *Coff, atom_index: Index, reloc: Relocation) !void {
-    const gpa = coff_file.base.allocator;
+    const comp = coff_file.base.comp;
+    const gpa = comp.gpa;
     log.debug("  (adding reloc of type {s} to target %{d})", .{ @tagName(reloc.type), reloc.target.sym_index });
     const gop = try coff_file.relocs.getOrPut(gpa, atom_index);
     if (!gop.found_existing) {
@@ -104,7 +105,8 @@ pub fn addRelocation(coff_file: *Coff, atom_index: Index, reloc: Relocation) !vo
 }
 
 pub fn addBaseRelocation(coff_file: *Coff, atom_index: Index, offset: u32) !void {
-    const gpa = coff_file.base.allocator;
+    const comp = coff_file.base.comp;
+    const gpa = comp.gpa;
     log.debug("  (adding base relocation at offset 0x{x} in %{d})", .{
         offset,
         coff_file.getAtom(atom_index).getSymbolIndex().?,
@@ -117,7 +119,8 @@ pub fn addBaseRelocation(coff_file: *Coff, atom_index: Index, offset: u32) !void
 }
 
 pub fn freeRelocations(coff_file: *Coff, atom_index: Index) void {
-    const gpa = coff_file.base.allocator;
+    const comp = coff_file.base.comp;
+    const gpa = comp.gpa;
     var removed_relocs = coff_file.relocs.fetchOrderedRemove(atom_index);
     if (removed_relocs) |*relocs| relocs.value.deinit(gpa);
     var removed_base_relocs = coff_file.base_relocs.fetchOrderedRemove(atom_index);

@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
     });
     lib.entry = .disabled;
     lib.use_lld = false;
-    lib.export_symbol_names = &.{ "foo", "bar" };
+    lib.root_module.export_symbol_names = &.{ "foo", "bar" };
     lib.global_base = 0; // put data section at address 0 to make data symbols easier to parse
 
     const check_lib = lib.checkObject();

@@ -2416,15 +2416,21 @@ fn copy_file(fd_in: posix.fd_t, fd_out: posix.fd_t, maybe_size: ?u64) CopyFileRa
 
 pub const AtomicFileOptions = struct {
     mode: File.Mode = File.default_mode,
+    make_path: bool = false,
 };
 
-/// Directly access the `.file` field, and then call `AtomicFile.finish`
-/// to atomically replace `dest_path` with contents.
-/// Always call `AtomicFile.deinit` to clean up, regardless of whether `AtomicFile.finish` succeeded.
-/// `dest_path` must remain valid until `AtomicFile.deinit` is called.
+/// Directly access the `.file` field, and then call `AtomicFile.finish` to
+/// atomically replace `dest_path` with contents.
+/// Always call `AtomicFile.deinit` to clean up, regardless of whether
+/// `AtomicFile.finish` succeeded. `dest_path` must remain valid until
+/// `AtomicFile.deinit` is called.
 pub fn atomicFile(self: Dir, dest_path: []const u8, options: AtomicFileOptions) !AtomicFile {
     if (fs.path.dirname(dest_path)) |dirname| {
-        const dir = try self.openDir(dirname, .{});
+        const dir = if (options.make_path)
+            try self.makeOpenPath(dirname, .{})
+        else
+            try self.openDir(dirname, .{});
+
         return AtomicFile.init(fs.path.basename(dest_path), options.mode, dir, true);
     } else {
         return AtomicFile.init(dest_path, options.mode, self, false);

@@ -112,6 +112,7 @@ fn simpleExe(
     const exe = b.addExecutable(.{
         .name = name,
         .optimize = optimize,
+        .target = b.host,
     });
     exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &.{} });
     exe.linkLibC();
