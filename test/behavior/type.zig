@@ -482,6 +482,39 @@ test "Type.Union from regular enum" {
     _ = @typeInfo(T).Union;
 }
 
+test "Type.Union from empty regular enum" {
+    const E = enum {};
+    const U = @Type(.{
+        .Union = .{
+            .layout = .Auto,
+            .tag_type = E,
+            .fields = &.{},
+            .decls = &.{},
+        },
+    });
+    try testing.expectEqual(@sizeOf(U), 0);
+}
+
+test "Type.Union from empty Type.Enum" {
+    const E = @Type(.{
+        .Enum = .{
+            .tag_type = u0,
+            .fields = &.{},
+            .decls = &.{},
+            .is_exhaustive = true,
+        },
+    });
+    const U = @Type(.{
+        .Union = .{
+            .layout = .Auto,
+            .tag_type = E,
+            .fields = &.{},
+            .decls = &.{},
+        },
+    });
+    try testing.expectEqual(@sizeOf(U), 0);
+}
+
 test "Type.Fn" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
