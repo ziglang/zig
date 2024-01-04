@@ -3039,10 +3039,10 @@ test "basic slices" {
     const array_ptr_len = array[runtime_start..][0..length];
     try expect(@TypeOf(array_ptr_len) == *[length]i32);
 
-    // Using the address-of operator on a slice gives a single-item pointer,
-    // while using the `ptr` field gives a many-item pointer.
-    try expect(@TypeOf(slice.ptr) == [*]i32);
+    // Using the address-of operator on a slice gives a single-item pointer.
     try expect(@TypeOf(&slice[0]) == *i32);
+    // Using the `ptr` field gives a many-item pointer.
+    try expect(@TypeOf(slice.ptr) == [*]i32);
     try expect(@intFromPtr(slice.ptr) == @intFromPtr(&slice[0]));
 
     // Slices have array bounds checking. If you try to access something out

@@ -1005,11 +1005,11 @@ pub const Key = union(enum) {
         ty: Index,
         init: Index,
         decl: DeclIndex,
-        lib_name: OptionalNullTerminatedString = .none,
-        is_extern: bool = false,
-        is_const: bool = false,
-        is_threadlocal: bool = false,
-        is_weak_linkage: bool = false,
+        lib_name: OptionalNullTerminatedString,
+        is_extern: bool,
+        is_const: bool,
+        is_threadlocal: bool,
+        is_weak_linkage: bool,
     };
 
     pub const ExternFunc = struct {

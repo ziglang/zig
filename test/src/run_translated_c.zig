@@ -11,7 +11,7 @@ pub const RunTranslatedCContext = struct {
     step: *std.Build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
-    target: std.zig.CrossTarget,
+    target: std.Build.ResolvedTarget,
 
     const TestCase = struct {
         name: []const u8,
@@ -86,7 +86,7 @@ pub const RunTranslatedCContext = struct {
         }
         const translate_c = b.addTranslateC(.{
             .source_file = write_src.files.items[0].getPath(),
-            .target = .{},
+            .target = b.host,
             .optimize = .Debug,
         });
 

@@ -103,6 +103,10 @@ pub fn ComptimeStringMapWithEql(
 
         /// Returns the value for the key if any, else null.
         pub fn get(str: []const u8) ?V {
+            return precomputed.sorted_kvs[getIndex(str) orelse return null].value;
+        }
+
+        pub fn getIndex(str: []const u8) ?usize {
             if (str.len < precomputed.min_len or str.len > precomputed.max_len)
                 return null;
 
@@ -112,7 +116,7 @@ pub fn ComptimeStringMapWithEql(
                 if (kv.key.len != str.len)
                     return null;
                 if (eql(kv.key, str))
-                    return kv.value;
+                    return i;
                 i += 1;
                 if (i >= precomputed.sorted_kvs.len)
                     return null;

@@ -12,7 +12,8 @@ pub fn deinit(self: *LinkerDefined, allocator: Allocator) void {
 }
 
 pub fn addGlobal(self: *LinkerDefined, name: [:0]const u8, elf_file: *Elf) !u32 {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     try self.symtab.ensureUnusedCapacity(gpa, 1);
     try self.symbols.ensureUnusedCapacity(gpa, 1);
     const name_off = @as(u32, @intCast(self.strtab.items.len));

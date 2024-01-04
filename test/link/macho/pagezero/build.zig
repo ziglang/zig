@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target: std.zig.CrossTarget = .{ .os_tag = .macos };
+    const target = b.resolveTargetQuery(.{ .os_tag = .macos });
 
     {
         const exe = b.addExecutable(.{

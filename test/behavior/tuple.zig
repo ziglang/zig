@@ -480,3 +480,11 @@ test "empty tuple type" {
     const s: S = .{};
     try expect(s.len == 0);
 }
+
+test "tuple with comptime fields with non empty initializer" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const a: struct { comptime comptime_int = 0 } = .{0};
+    _ = a;
+}
