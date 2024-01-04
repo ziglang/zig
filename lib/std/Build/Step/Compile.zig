@@ -33,6 +33,7 @@ version: ?std.SemanticVersion,
 kind: Kind,
 major_only_filename: ?[]const u8,
 name_only_filename: ?[]const u8,
+linker_map_file: ?[]const u8,
 // keep in sync with src/link.zig:CompressDebugSections
 compress_debug_sections: enum { none, zlib, zstd } = .none,
 verbose_link: bool,
@@ -310,6 +311,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .rdynamic = false,
         .installed_path = null,
         .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
+        .linker_map_file = null,
 
         .emit_directory = null,
         .generated_docs = null,
@@ -1431,6 +1433,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
     if (self.global_base) |global_base| {
         try zig_args.append(b.fmt("--global-base={d}", .{global_base}));
+    }
+    if (self.linker_map_file) |map_file| {
+        try zig_args.append(b.fmt("-Map={s}", .{map_file}));
     }
 
     if (self.wasi_exec_model) |model| {

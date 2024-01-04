@@ -94,6 +94,8 @@ pub fn testAll(b: *Build) *Step {
     elf_step.dependOn(testLinkOrder(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLdScript(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLdScriptPathError(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testMapFlag(b, .{ .use_llvm = false, .target = glibc_target }));
+    elf_step.dependOn(testMapFlag(b, .{ .use_llvm = true, .target = glibc_target }));
     elf_step.dependOn(testMismatchedCpuArchitectureError(b, .{ .target = glibc_target }));
     // https://github.com/ziglang/zig/issues/17451
     // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = glibc_target }));
@@ -2004,6 +2006,27 @@ fn testLdScriptPathError(b: *Build, opts: Options) *Step {
             .contains = "error: missing library dependency: GNU ld script '/?/liba.so' requires 'libfoo.so', but file not found",
         },
     );
+
+    return test_step;
+}
+
+fn testMapFlag(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "map-flag", opts);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const tmp_dir_path = tmp.dir.realpathAlloc(b.allocator, ".")
+        catch @panic("failed to get tmpdir path");
+    const map_file_path = b.pathJoin(&.{tmp_dir_path, "linkermap.map"});
+
+    const exe = addExecutable(b, "main", opts);
+    addCSourceBytes(exe, "int main() { return 0; }", &.{});
+    exe.linker_map_file = map_file_path;
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
 
     return test_step;
 }
