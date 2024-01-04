@@ -9163,6 +9163,11 @@ test "@setRuntimeSafety" {
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).Int.bits){#endsyntax#} bits.
               This is because {#syntax#}shift_amt >= @typeInfo(T).Int.bits{#endsyntax#} is undefined behavior.
       </p>
+      <p>
+      {#syntax#}comptime_int{#endsyntax#} is modeled as an integer with an infinite number of bits,
+      meaning that in such case, {#syntax#}@shlExact{#endsyntax#} always produces a result and
+      cannot produce a compile error.
+      </p>
       {#see_also|@shrExact|@shlWithOverflow#}
       {#header_close#}
 
