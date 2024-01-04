@@ -2,7 +2,6 @@ const std = @import("std");
 const Step = std.Build.Step;
 const fs = std.fs;
 const mem = std.mem;
-const CrossTarget = std.zig.CrossTarget;
 
 const TranslateC = @This();
 
@@ -13,7 +12,7 @@ source: std.Build.LazyPath,
 include_dirs: std.ArrayList([]const u8),
 c_macros: std.ArrayList([]const u8),
 out_basename: []const u8,
-target: CrossTarget,
+target: std.Build.ResolvedTarget,
 optimize: std.builtin.OptimizeMode,
 output_file: std.Build.GeneratedFile,
 link_libc: bool,
@@ -21,7 +20,7 @@ use_clang: bool,
 
 pub const Options = struct {
     source_file: std.Build.LazyPath,
-    target: CrossTarget,
+    target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     link_libc: bool = true,
     use_clang: bool = true,
@@ -54,7 +53,7 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
 pub const AddExecutableOptions = struct {
     name: ?[]const u8 = null,
     version: ?std.SemanticVersion = null,
-    target: ?CrossTarget = null,
+    target: ?std.Build.ResolvedTarget = null,
     optimize: ?std.builtin.OptimizeMode = null,
     linkage: ?Step.Compile.Linkage = null,
 };
@@ -139,9 +138,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try argv_list.append("--listen=-");
 
-    if (!self.target.isNative()) {
+    if (!self.target.query.isNative()) {
         try argv_list.append("-target");
-        try argv_list.append(try self.target.zigTriple(b.allocator));
+        try argv_list.append(try self.target.query.zigTriple(b.allocator));
     }
 
     switch (self.optimize) {

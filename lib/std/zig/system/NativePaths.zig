@@ -5,7 +5,6 @@ const process = std.process;
 const mem = std.mem;
 
 const NativePaths = @This();
-const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 
 arena: Allocator,
 include_dirs: std.ArrayListUnmanaged([]const u8) = .{},
@@ -14,8 +13,7 @@ framework_dirs: std.ArrayListUnmanaged([]const u8) = .{},
 rpaths: std.ArrayListUnmanaged([]const u8) = .{},
 warnings: std.ArrayListUnmanaged([]const u8) = .{},
 
-pub fn detect(arena: Allocator, native_info: NativeTargetInfo) !NativePaths {
-    const native_target = native_info.target;
+pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
     var self: NativePaths = .{ .arena = arena };
     var is_nix = false;
     if (process.getEnvVarOwned(arena, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {

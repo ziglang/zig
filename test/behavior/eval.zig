@@ -876,27 +876,27 @@ test "two comptime calls with array default initialized to undefined" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
-        const CrossTarget = struct {
-            dynamic_linker: DynamicLinker = DynamicLinker{},
+        const A = struct {
+            c: B = B{},
 
-            pub fn parse() void {
-                var result: CrossTarget = .{};
-                result.getCpuArch();
+            pub fn d() void {
+                var f: A = .{};
+                f.e();
             }
 
-            pub fn getCpuArch(self: CrossTarget) void {
-                _ = self;
+            pub fn e(g: A) void {
+                _ = g;
             }
         };
 
-        const DynamicLinker = struct {
+        const B = struct {
             buffer: [255]u8 = undefined,
         };
     };
 
     comptime {
-        S.CrossTarget.parse();
-        S.CrossTarget.parse();
+        S.A.d();
+        S.A.d();
     }
 }
 

@@ -3039,10 +3039,10 @@ test "basic slices" {
     const array_ptr_len = array[runtime_start..][0..length];
     try expect(@TypeOf(array_ptr_len) == *[length]i32);
 
-    // Using the address-of operator on a slice gives a single-item pointer,
-    // while using the `ptr` field gives a many-item pointer.
-    try expect(@TypeOf(slice.ptr) == [*]i32);
+    // Using the address-of operator on a slice gives a single-item pointer.
     try expect(@TypeOf(&slice[0]) == *i32);
+    // Using the `ptr` field gives a many-item pointer.
+    try expect(@TypeOf(slice.ptr) == [*]i32);
     try expect(@intFromPtr(slice.ptr) == @intFromPtr(&slice[0]));
 
     // Slices have array bounds checking. If you try to access something out
@@ -9162,6 +9162,11 @@ test "@setRuntimeSafety" {
       <p>
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).Int.bits){#endsyntax#} bits.
               This is because {#syntax#}shift_amt >= @typeInfo(T).Int.bits{#endsyntax#} is undefined behavior.
+      </p>
+      <p>
+      {#syntax#}comptime_int{#endsyntax#} is modeled as an integer with an infinite number of bits,
+      meaning that in such case, {#syntax#}@shlExact{#endsyntax#} always produces a result and
+      cannot produce a compile error.
       </p>
       {#see_also|@shrExact|@shlWithOverflow#}
       {#header_close#}

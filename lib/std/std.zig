@@ -47,7 +47,7 @@ pub const StringArrayHashMap = array_hash_map.StringArrayHashMap;
 pub const StringArrayHashMapUnmanaged = array_hash_map.StringArrayHashMapUnmanaged;
 /// deprecated: use `DoublyLinkedList`.
 pub const TailQueue = DoublyLinkedList;
-pub const Target = @import("target.zig").Target;
+pub const Target = @import("Target.zig");
 pub const Thread = @import("Thread.zig");
 pub const Treap = @import("treap.zig").Treap;
 pub const Tz = tz.Tz;
@@ -193,9 +193,6 @@ pub const wasm = @import("wasm.zig");
 pub const zig = @import("zig.zig");
 
 pub const start = @import("start.zig");
-
-/// deprecated: use `Build`.
-pub const build = Build;
 
 const root = @import("root");
 const options_override = if (@hasDecl(root, "std_options")) root.std_options else struct {};

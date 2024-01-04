@@ -173,17 +173,17 @@ test "correct sizeOf and offsets in packed structs" {
         try expectEqual(true, s1.bool_d);
         try expectEqual(true, s1.bool_e);
         try expectEqual(true, s1.bool_f);
-        try expectEqual(@as(u1, 1), s1.u1_a);
+        try expectEqual(1, s1.u1_a);
         try expectEqual(false, s1.bool_g);
-        try expectEqual(@as(u1, 0), s1.u1_b);
-        try expectEqual(@as(u3, 3), s1.u3_a);
-        try expectEqual(@as(u10, 0b1101000101), s1.u10_a);
-        try expectEqual(@as(u10, 0b0001001000), s1.u10_b);
+        try expectEqual(0, s1.u1_b);
+        try expectEqual(3, s1.u3_a);
+        try expectEqual(0b1101000101, s1.u10_a);
+        try expectEqual(0b0001001000, s1.u10_b);
 
         const s2 = @as(packed struct { x: u1, y: u7, z: u24 }, @bitCast(@as(u32, 0xd5c71ff4)));
-        try expectEqual(@as(u1, 0), s2.x);
-        try expectEqual(@as(u7, 0b1111010), s2.y);
-        try expectEqual(@as(u24, 0xd5c71f), s2.z);
+        try expectEqual(0, s2.x);
+        try expectEqual(0b1111010, s2.y);
+        try expectEqual(0xd5c71f, s2.z);
     }
 }
 
@@ -208,12 +208,12 @@ test "nested packed structs" {
 
     if (native_endian == .little) {
         const s3 = @as(S3Padded, @bitCast(@as(u64, 0xe952d5c71ff4))).s3;
-        try expectEqual(@as(u8, 0xf4), s3.x.a);
-        try expectEqual(@as(u8, 0x1f), s3.x.b);
-        try expectEqual(@as(u8, 0xc7), s3.x.c);
-        try expectEqual(@as(u8, 0xd5), s3.y.d);
-        try expectEqual(@as(u8, 0x52), s3.y.e);
-        try expectEqual(@as(u8, 0xe9), s3.y.f);
+        try expectEqual(0xf4, s3.x.a);
+        try expectEqual(0x1f, s3.x.b);
+        try expectEqual(0xc7, s3.x.c);
+        try expectEqual(0xd5, s3.y.d);
+        try expectEqual(0x52, s3.y.e);
+        try expectEqual(0xe9, s3.y.f);
     }
 
     const S4 = packed struct { a: i32, b: i8 };
@@ -249,8 +249,8 @@ test "regular in irregular packed struct" {
     foo.bar.a = 235;
     foo.bar.b = 42;
 
-    try expectEqual(@as(u16, 235), foo.bar.a);
-    try expectEqual(@as(u8, 42), foo.bar.b);
+    try expectEqual(235, foo.bar.a);
+    try expectEqual(42, foo.bar.b);
 }
 
 test "nested packed struct unaligned" {
@@ -456,12 +456,12 @@ test "nested packed struct field pointers" {
     const ptr_p0_c = &S2.s.p0.c;
     const ptr_p1_a = &S2.s.p1.a;
     const ptr_p1_b = &S2.s.p1.b;
-    try expectEqual(@as(u8, 1), ptr_base.*);
-    try expectEqual(@as(u4, 2), ptr_p0_a.*);
-    try expectEqual(@as(u4, 3), ptr_p0_b.*);
-    try expectEqual(@as(u8, 4), ptr_p0_c.*);
-    try expectEqual(@as(u7, 5), ptr_p1_a.*);
-    try expectEqual(@as(u8, 6), ptr_p1_b.*);
+    try expectEqual(1, ptr_base.*);
+    try expectEqual(2, ptr_p0_a.*);
+    try expectEqual(3, ptr_p0_b.*);
+    try expectEqual(4, ptr_p0_c.*);
+    try expectEqual(5, ptr_p1_a.*);
+    try expectEqual(6, ptr_p1_b.*);
 }
 
 test "load pointer from packed struct" {
@@ -1033,12 +1033,12 @@ test "modify nested packed struct aligned field" {
 
     var opts = Options{};
     opts.pretty_print.indent += 1;
-    try std.testing.expectEqual(@as(u17, 0b00000000100100000), @bitCast(opts));
+    try std.testing.expectEqual(0b00000000100100000, @as(u17, @bitCast(opts)));
     try std.testing.expect(!opts.foo);
     try std.testing.expect(!opts.bar);
     try std.testing.expect(!opts.pretty_print.enabled);
-    try std.testing.expectEqual(@as(u4, 4), opts.pretty_print.num_spaces);
-    try std.testing.expectEqual(@as(u8, 1), opts.pretty_print.indent);
+    try std.testing.expectEqual(4, opts.pretty_print.num_spaces);
+    try std.testing.expectEqual(1, opts.pretty_print.indent);
     try std.testing.expect(!opts.baz);
 }
 

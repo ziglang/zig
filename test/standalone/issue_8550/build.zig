@@ -5,13 +5,13 @@ pub fn build(b: *std.Build) !void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target = std.zig.CrossTarget{
+    const target = b.resolveTargetQuery(.{
         .os_tag = .freestanding,
         .cpu_arch = .arm,
         .cpu_model = .{
             .explicit = &std.Target.arm.cpu.arm1176jz_s,
         },
-    };
+    });
 
     const kernel = b.addExecutable(.{
         .name = "kernel",

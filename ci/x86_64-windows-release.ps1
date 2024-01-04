@@ -23,7 +23,6 @@ function CheckLastExitCode {
 
 # Make the `zig version` number consistent.
 # This will affect the `zig build` command below which uses `git describe`.
-git config core.abbrev 9
 git fetch --tags
 
 if ((git rev-parse --is-shallow-repository) -eq "true") {
@@ -76,15 +75,15 @@ Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."
 CheckLastExitCode
 
 & "stage3-release\bin\zig.exe" build-obj `
-  ..\lib\compiler_rt.zig `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   -ofmt=c `
   -OReleaseSmall `
   --name compiler_rt `
   -femit-bin="compiler_rt-x86_64-windows-msvc.c" `
-  --mod build_options::config.zig `
-  --deps build_options `
-  -target x86_64-windows-msvc
+  --dep build_options `
+  -target x86_64-windows-msvc `
+  --mod root ..\lib\compiler_rt.zig `
+  --mod build_options config.zig
 CheckLastExitCode
 
 Import-Module "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
@@ -96,9 +95,8 @@ Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\2022\E
 CheckLastExitCode
 
 Write-Output "Build and run behavior tests with msvc..."
-Write-Output "Skipped due to https://github.com/ziglang/zig/issues/17817"
-#& cl.exe -I..\lib test-x86_64-windows-msvc.c compiler_rt-x86_64-windows-msvc.c /W3 /Z7 -link -nologo -debug -subsystem:console kernel32.lib ntdll.lib libcmt.lib
-#CheckLastExitCode
-#
-#& .\test-x86_64-windows-msvc.exe
-#CheckLastExitCode
+& cl.exe -I..\lib test-x86_64-windows-msvc.c compiler_rt-x86_64-windows-msvc.c /W3 /Z7 -link -nologo -debug -subsystem:console kernel32.lib ntdll.lib libcmt.lib
+CheckLastExitCode
+
+& .\test-x86_64-windows-msvc.exe
+CheckLastExitCode
