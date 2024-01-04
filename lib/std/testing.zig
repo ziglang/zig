@@ -52,8 +52,13 @@ pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void 
 /// This function is intended to be used only in tests. When the two values are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
 /// then returns a test failure error.
-/// `actual` is casted to the type of `expected`.
-pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
+/// `actual` and `expected` are coerced to a common type using peer type resolution.
+pub inline fn expectEqual(expected: anytype, actual: anytype) !void {
+    const T = @TypeOf(expected, actual);
+    return expectEqualInner(T, expected, actual);
+}
+
+fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
         .Opaque,
@@ -224,9 +229,13 @@ pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anyt
 /// to show exactly how they are not equal, then returns a test failure error.
 /// See `math.approxEqAbs` for more information on the tolerance parameter.
 /// The types must be floating-point.
-pub fn expectApproxEqAbs(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
-    const T = @TypeOf(expected);
+/// `actual` and `expected` are coerced to a common type using peer type resolution.
+pub inline fn expectApproxEqAbs(expected: anytype, actual: anytype, tolerance: anytype) !void {
+    const T = @TypeOf(expected, actual, tolerance);
+    return expectApproxEqAbsInner(T, expected, actual, tolerance);
+}
 
+fn expectApproxEqAbsInner(comptime T: type, expected: T, actual: T, tolerance: T) !void {
     switch (@typeInfo(T)) {
         .Float => if (!math.approxEqAbs(T, expected, actual, tolerance)) {
             print("actual {}, not within absolute tolerance {} of expected {}\n", .{ actual, tolerance, expected });
@@ -256,9 +265,13 @@ test "expectApproxEqAbs" {
 /// to show exactly how they are not equal, then returns a test failure error.
 /// See `math.approxEqRel` for more information on the tolerance parameter.
 /// The types must be floating-point.
-pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
-    const T = @TypeOf(expected);
+/// `actual` and `expected` are coerced to a common type using peer type resolution.
+pub inline fn expectApproxEqRel(expected: anytype, actual: anytype, tolerance: anytype) !void {
+    const T = @TypeOf(expected, actual, tolerance);
+    return expectApproxEqRelInner(T, expected, actual, tolerance);
+}
 
+fn expectApproxEqRelInner(comptime T: type, expected: T, actual: T, tolerance: T) !void {
     switch (@typeInfo(T)) {
         .Float => if (!math.approxEqRel(T, expected, actual, tolerance)) {
             print("actual {}, not within relative tolerance {} of expected {}\n", .{ actual, tolerance, expected });
@@ -653,17 +666,22 @@ pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) 
 /// This function is intended to be used only in tests. When the two values are not
 /// deeply equal, prints diagnostics to stderr to show exactly how they are not equal,
 /// then returns a test failure error.
-/// `actual` is casted to the type of `expected`.
+/// `actual` and `expected` are coerced to a common type using peer type resolution.
 ///
 /// Deeply equal is defined as follows:
-/// Primitive types are deeply equal if they are equal using  `==` operator.
+/// Primitive types are deeply equal if they are equal using `==` operator.
 /// Struct values are deeply equal if their corresponding fields are deeply equal.
 /// Container types(like Array/Slice/Vector) deeply equal when their corresponding elements are deeply equal.
 /// Pointer values are deeply equal if values they point to are deeply equal.
 ///
 /// Note: Self-referential structs are supported (e.g. things like std.SinglyLinkedList)
 /// but may cause infinite recursion or stack overflow when a container has a pointer to itself.
-pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) error{TestExpectedEqual}!void {
+pub inline fn expectEqualDeep(expected: anytype, actual: anytype) error{TestExpectedEqual}!void {
+    const T = @TypeOf(expected, actual);
+    return expectEqualDeepInner(T, expected, actual);
+}
+
+fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpectedEqual}!void {
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
         .Opaque,
