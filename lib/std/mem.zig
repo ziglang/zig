@@ -3262,7 +3262,7 @@ test "indexOfMax" {
 /// Finds the indices of the smallest and largest number in a slice. O(n).
 /// Returns an anonymous struct with the fields `index_min` and `index_max`.
 /// `slice` must not be empty.
-pub fn indexOfMinMax(comptime T: type, slice: []const T) struct { index_min: usize, index_max: usize } {
+pub fn indexOfMinMax(comptime T: type, slice: []const T) IndexOfMinMaxResult {
     assert(slice.len > 0);
     var minVal = slice[0];
     var maxVal = slice[0];
@@ -3281,10 +3281,12 @@ pub fn indexOfMinMax(comptime T: type, slice: []const T) struct { index_min: usi
     return .{ .index_min = minIdx, .index_max = maxIdx };
 }
 
+pub const IndexOfMinMaxResult = struct { index_min: usize, index_max: usize };
+
 test "indexOfMinMax" {
-    try testing.expectEqual(indexOfMinMax(u8, "abcdefg"), .{ .index_min = 0, .index_max = 6 });
-    try testing.expectEqual(indexOfMinMax(u8, "gabcdef"), .{ .index_min = 1, .index_max = 0 });
-    try testing.expectEqual(indexOfMinMax(u8, "a"), .{ .index_min = 0, .index_max = 0 });
+    try testing.expectEqual(IndexOfMinMaxResult{ .index_min = 0, .index_max = 6 }, indexOfMinMax(u8, "abcdefg"));
+    try testing.expectEqual(IndexOfMinMaxResult{ .index_min = 1, .index_max = 0 }, indexOfMinMax(u8, "gabcdef"));
+    try testing.expectEqual(IndexOfMinMaxResult{ .index_min = 0, .index_max = 0 }, indexOfMinMax(u8, "a"));
 }
 
 pub fn swap(comptime T: type, a: *T, b: *T) void {
