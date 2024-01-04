@@ -222,7 +222,7 @@ fn series(comptime T: type, abs: T) T {
 }
 
 // precise sin(pi * x)
-// but not for very small x and integer x, we handle those already
+// but not for integer x or |x| < 2^-54, we handle those already
 fn sinpi(comptime T: type, x: T) T {
     const xmod2 = @mod(x, 2); // [0, 2]
     const n = (@as(u8, @intFromFloat(4 * xmod2)) + 1) / 2; // {0, 1, 2, 3, 4}
@@ -241,7 +241,7 @@ const expectEqual = std.testing.expectEqual;
 const expectApproxEqRel = std.testing.expectApproxEqRel;
 
 test "math.gamma" {
-    inline for (&.{f32, f64}) |T| {
+    inline for (&.{ f32, f64 }) |T| {
         const eps = @sqrt(std.math.floatEps(T));
         try expectApproxEqRel(@as(T, 120), gamma(T, 6), eps);
         try expectApproxEqRel(@as(T, 362880), gamma(T, 10), eps);
@@ -262,7 +262,7 @@ test "math.gamma" {
 }
 
 test "math.gamma.special" {
-    inline for (&.{f32, f64}) |T| {
+    inline for (&.{ f32, f64 }) |T| {
         try expect(std.math.isNan(gamma(T, -std.math.nan(T))));
         try expect(std.math.isNan(gamma(T, std.math.nan(T))));
         try expect(std.math.isNan(gamma(T, -std.math.inf(T))));
@@ -274,9 +274,9 @@ test "math.gamma.special" {
         try expectEqual(-std.math.inf(T), gamma(T, -0.0));
         try expectEqual(std.math.inf(T), gamma(T, 0.0));
 
-        try expectEqual(@as(T, -0.0), gamma(T, -200.5));
-        try expectEqual(@as(T, 0.0), gamma(T, -201.5));
-        try expectEqual(@as(T, -0.0), gamma(T, -202.5));
+        try expect(std.math.isNegativeZero(gamma(T, -200.5)));
+        try expect(std.math.isPositiveZero(gamma(T, -201.5)));
+        try expect(std.math.isNegativeZero(gamma(T, -202.5)));
 
         try expectEqual(std.math.inf(T), gamma(T, 200));
         try expectEqual(std.math.inf(T), gamma(T, 201));
@@ -287,7 +287,7 @@ test "math.gamma.special" {
 }
 
 test "math.lgamma" {
-    inline for (&.{f32, f64}) |T| {
+    inline for (&.{ f32, f64 }) |T| {
         const eps = @sqrt(std.math.floatEps(T));
         try expectApproxEqRel(@as(T, @log(24.0)), lgamma(T, 5), eps);
         try expectApproxEqRel(@as(T, @log(20922789888000.0)), lgamma(T, 17), eps);
@@ -308,7 +308,7 @@ test "math.lgamma" {
 }
 
 test "math.lgamma.special" {
-    inline for (&.{f32, f64}) |T| {
+    inline for (&.{ f32, f64 }) |T| {
         try expect(std.math.isNan(lgamma(T, -std.math.nan(T))));
         try expect(std.math.isNan(lgamma(T, std.math.nan(T))));
 
@@ -322,7 +322,7 @@ test "math.lgamma.special" {
         try expectEqual(std.math.inf(T), lgamma(T, -0.0));
         try expectEqual(std.math.inf(T), lgamma(T, 0.0));
 
-        try expectEqual(@as(T, 0.0), lgamma(T, 1));
-        try expectEqual(@as(T, 0.0), lgamma(T, 2));
+        try expect(std.math.isPositiveZero(lgamma(T, 1)));
+        try expect(std.math.isPositiveZero(lgamma(T, 2)));
     }
 }
