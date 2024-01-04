@@ -67,6 +67,7 @@ pub const File = struct {
     allow_shlib_undefined: bool,
     stack_size: u64,
 
+    allow_undefined_version: bool = false,
     /// Prevents other processes from clobbering files in the output directory
     /// of this linking operation.
     lock: ?Cache.Lock = null,
@@ -113,7 +114,7 @@ pub const File = struct {
         minor_subsystem_version: ?u16,
         gc_sections: ?bool,
         allow_shlib_undefined: ?bool,
-        allow_undefined_version: ?bool = null,
+        allow_undefined_version: ?bool,
         subsystem: ?std.Target.SubSystem,
         linker_script: ?[]const u8,
         version_script: ?[]const u8,

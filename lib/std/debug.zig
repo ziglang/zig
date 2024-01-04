@@ -853,8 +853,8 @@ test "machoSearchSymbols" {
         .{ .addr = 300, .strx = undefined, .size = undefined, .ofile = undefined },
     };
 
-    try testing.expectEqual(@as(?*const MachoSymbol, null), machoSearchSymbols(&symbols, 0));
-    try testing.expectEqual(@as(?*const MachoSymbol, null), machoSearchSymbols(&symbols, 99));
+    try testing.expectEqual(null, machoSearchSymbols(&symbols, 0));
+    try testing.expectEqual(null, machoSearchSymbols(&symbols, 99));
     try testing.expectEqual(&symbols[0], machoSearchSymbols(&symbols, 100).?);
     try testing.expectEqual(&symbols[0], machoSearchSymbols(&symbols, 150).?);
     try testing.expectEqual(&symbols[0], machoSearchSymbols(&symbols, 199).?);

@@ -110,7 +110,6 @@ test {
     _ = @import("behavior/bugs/12551.zig");
     _ = @import("behavior/bugs/12571.zig");
     _ = @import("behavior/bugs/12644.zig");
-    _ = @import("behavior/bugs/12680.zig");
     _ = @import("behavior/bugs/12723.zig");
     _ = @import("behavior/bugs/12776.zig");
     _ = @import("behavior/bugs/12786.zig");
@@ -175,6 +174,7 @@ test {
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/if.zig");
     _ = @import("behavior/import.zig");
+    _ = @import("behavior/import_c_keywords.zig");
     _ = @import("behavior/incomplete_struct_param_tld.zig");
     _ = @import("behavior/inline_switch.zig");
     _ = @import("behavior/int128.zig");
@@ -251,9 +251,7 @@ test {
     }
 
     if (builtin.zig_backend != .stage2_arm and
-        builtin.zig_backend != .stage2_x86_64 and
         builtin.zig_backend != .stage2_aarch64 and
-        builtin.zig_backend != .stage2_c and
         builtin.zig_backend != .stage2_spirv64)
     {
         _ = @import("behavior/export_keyword.zig");

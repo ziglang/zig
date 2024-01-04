@@ -243,7 +243,7 @@ pub fn addDepFileOutputArg(self: *Run, basename: []const u8) std.Build.LazyPath 
 /// Add a prefixed path argument to a dep file (.d) for the child process to
 /// write its discovered additional dependencies.
 /// Only one dep file argument is allowed by instance.
-pub fn addPrefixedDepFileOutputArg(self: *Run, prefix: []const u8, basename: []const u8) void {
+pub fn addPrefixedDepFileOutputArg(self: *Run, prefix: []const u8, basename: []const u8) std.Build.LazyPath {
     assert(self.dep_output_file == null);
 
     const b = self.step.owner;
@@ -258,6 +258,8 @@ pub fn addPrefixedDepFileOutputArg(self: *Run, prefix: []const u8, basename: []c
     self.dep_output_file = dep_file;
 
     self.argv.append(.{ .output = dep_file }) catch @panic("OOM");
+
+    return .{ .generated = &dep_file.generated_file };
 }
 
 pub fn addArg(self: *Run, arg: []const u8) void {
@@ -448,6 +450,10 @@ fn checksContainStderr(checks: []const StdIo.Check) bool {
     return false;
 }
 
+const IndexedOutput = struct {
+    index: usize,
+    output: *Output,
+};
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
     const arena = b.allocator;
@@ -455,10 +461,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const has_side_effects = self.hasSideEffects();
 
     var argv_list = ArrayList([]const u8).init(arena);
-    var output_placeholders = ArrayList(struct {
-        index: usize,
-        output: *Output,
-    }).init(arena);
+    var output_placeholders = ArrayList(IndexedOutput).init(arena);
 
     var man = b.cache.obtain();
     defer man.deinit();
@@ -540,32 +543,25 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (try step.cacheHit(&man)) {
         // cache hit, skip running command
         const digest = man.final();
-        for (output_placeholders.items) |placeholder| {
-            placeholder.output.generated_file.path = try b.cache_root.join(arena, &.{
-                "o", &digest, placeholder.output.basename,
-            });
-        }
 
-        if (self.captured_stdout) |output| {
-            output.generated_file.path = try b.cache_root.join(arena, &.{
-                "o", &digest, output.basename,
-            });
-        }
-
-        if (self.captured_stderr) |output| {
-            output.generated_file.path = try b.cache_root.join(arena, &.{
-                "o", &digest, output.basename,
-            });
-        }
+        try populateGeneratedPaths(
+            arena,
+            output_placeholders.items,
+            self.captured_stdout,
+            self.captured_stderr,
+            b.cache_root,
+            &digest,
+        );
 
         step.result_cached = true;
         return;
     }
 
-    const digest = man.final();
+    const rand_int = std.crypto.random.int(u64);
+    const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.Build.hex64(rand_int);
 
     for (output_placeholders.items) |placeholder| {
-        const output_components = .{ "o", &digest, placeholder.output.basename };
+        const output_components = .{ tmp_dir_path, placeholder.output.basename };
         const output_sub_path = try fs.path.join(arena, &output_components);
         const output_sub_dir_path = fs.path.dirname(output_sub_path).?;
         b.cache_root.handle.makePath(output_sub_dir_path) catch |err| {
@@ -582,12 +578,83 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         argv_list.items[placeholder.index] = cli_arg;
     }
 
-    try runCommand(self, argv_list.items, has_side_effects, &digest, prog_node);
+    try runCommand(self, argv_list.items, has_side_effects, tmp_dir_path, prog_node);
 
     if (self.dep_output_file) |dep_output_file|
         try man.addDepFilePost(std.fs.cwd(), dep_output_file.generated_file.getPath());
 
+    const digest = man.final();
+
+    const any_output = output_placeholders.items.len > 0 or
+        self.captured_stdout != null or self.captured_stderr != null;
+
+    // Rename into place
+    if (any_output) {
+        const o_sub_path = "o" ++ fs.path.sep_str ++ &digest;
+
+        b.cache_root.handle.rename(tmp_dir_path, o_sub_path) catch |err| {
+            if (err == error.PathAlreadyExists) {
+                b.cache_root.handle.deleteTree(o_sub_path) catch |del_err| {
+                    return step.fail("unable to remove dir '{}'{s}: {s}", .{
+                        b.cache_root,
+                        tmp_dir_path,
+                        @errorName(del_err),
+                    });
+                };
+                b.cache_root.handle.rename(tmp_dir_path, o_sub_path) catch |retry_err| {
+                    return step.fail("unable to rename dir '{}{s}' to '{}{s}': {s}", .{
+                        b.cache_root,          tmp_dir_path,
+                        b.cache_root,          o_sub_path,
+                        @errorName(retry_err),
+                    });
+                };
+            } else {
+                return step.fail("unable to rename dir '{}{s}' to '{}{s}': {s}", .{
+                    b.cache_root,    tmp_dir_path,
+                    b.cache_root,    o_sub_path,
+                    @errorName(err),
+                });
+            }
+        };
+    }
+
     try step.writeManifest(&man);
+
+    try populateGeneratedPaths(
+        arena,
+        output_placeholders.items,
+        self.captured_stdout,
+        self.captured_stderr,
+        b.cache_root,
+        &digest,
+    );
+}
+
+fn populateGeneratedPaths(
+    arena: std.mem.Allocator,
+    output_placeholders: []const IndexedOutput,
+    captured_stdout: ?*Output,
+    captured_stderr: ?*Output,
+    cache_root: Build.Cache.Directory,
+    digest: *const Build.Cache.HexDigest,
+) !void {
+    for (output_placeholders) |placeholder| {
+        placeholder.output.generated_file.path = try cache_root.join(arena, &.{
+            "o", digest, placeholder.output.basename,
+        });
+    }
+
+    if (captured_stdout) |output| {
+        output.generated_file.path = try cache_root.join(arena, &.{
+            "o", digest, output.basename,
+        });
+    }
+
+    if (captured_stderr) |output| {
+        output.generated_file.path = try cache_root.join(arena, &.{
+            "o", digest, output.basename,
+        });
+    }
 }
 
 fn formatTerm(
@@ -639,7 +706,7 @@ fn runCommand(
     self: *Run,
     argv: []const []const u8,
     has_side_effects: bool,
-    digest: ?*const [std.Build.Cache.hex_digest_len]u8,
+    tmp_dir_path: ?[]const u8,
     prog_node: *std.Progress.Node,
 ) !void {
     const step = &self.step;
@@ -812,7 +879,7 @@ fn runCommand(
         },
     }) |stream| {
         if (stream.captured) |output| {
-            const output_components = .{ "o", digest.?, output.basename };
+            const output_components = .{ tmp_dir_path.?, output.basename };
             const output_path = try b.cache_root.join(arena, &output_components);
             output.generated_file.path = output_path;
 

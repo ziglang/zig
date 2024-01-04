@@ -2468,7 +2468,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
         try link.hashAddSystemLibs(&man, comp.system_libs);
         man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
         man.hash.add(self.base.allow_shlib_undefined);
-        man.hash.addOptional(self.base.options.allow_undefined_version);
+        man.hash.add(self.base.allow_undefined_version);
         man.hash.add(self.bind_global_refs_locally);
         man.hash.add(self.compress_debug_sections);
         man.hash.add(comp.config.any_sanitize_thread);
@@ -2612,12 +2612,12 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             try argv.append(arg);
         }
 
-        const allow_undefined_version = self.base.options.allow_undefined_version orelse false;
-        if (allow_undefined_version) {
+        if (self.base.allow_undefined_version) {
             try argv.append("--undefined-version");
         } else {
             try argv.append("--no-undefined-version");
         }
+
         if (self.base.gc_sections) {
             try argv.append("--gc-sections");
         }
@@ -2930,6 +2930,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
 
         if (self.base.allow_shlib_undefined) {
             try argv.append("--allow-shlib-undefined");
+        }
+
+        if (self.base.allow_undefined_version) {
+            try argv.append("--allow-undefined-version");
         }
 
         switch (self.compress_debug_sections) {

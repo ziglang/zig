@@ -5041,6 +5041,8 @@ fn zirValidatePtrArrayInit(
         // Determine whether the value stored to this pointer is comptime-known.
 
         if (array_ty.isTuple(mod)) {
+            if (array_ty.structFieldIsComptime(i, mod))
+                try sema.resolveStructFieldInits(array_ty);
             if (try array_ty.structFieldValueComptime(mod, i)) |opv| {
                 element_vals[i] = opv.toIntern();
                 continue;
@@ -24758,7 +24760,9 @@ fn zirVarExtended(
         .decl = sema.owner_decl_index,
         .lib_name = try mod.intern_pool.getOrPutStringOpt(sema.gpa, lib_name),
         .is_extern = small.is_extern,
+        .is_const = small.is_const,
         .is_threadlocal = small.is_threadlocal,
+        .is_weak_linkage = false,
     } })));
 }
 
@@ -25262,6 +25266,7 @@ fn zirBuiltinExtern(
     if (options.linkage == .Weak and !ty.ptrAllowsZero(mod)) {
         ty = try mod.optionalType(ty.toIntern());
     }
+    const ptr_info = ty.ptrInfo(mod);
 
     // TODO check duplicate extern
 
@@ -25272,11 +25277,12 @@ fn zirBuiltinExtern(
 
     {
         const new_var = try mod.intern(.{ .variable = .{
-            .ty = ty.toIntern(),
+            .ty = ptr_info.child,
             .init = .none,
             .decl = sema.owner_decl_index,
+            .lib_name = options.library_name,
             .is_extern = true,
-            .is_const = true,
+            .is_const = ptr_info.flags.is_const,
             .is_threadlocal = options.is_thread_local,
             .is_weak_linkage = options.linkage == .Weak,
         } });
@@ -25284,7 +25290,7 @@ fn zirBuiltinExtern(
         new_decl.src_line = sema.owner_decl.src_line;
         // We only access this decl through the decl_ref with the correct type created
         // below, so this type doesn't matter
-        new_decl.ty = ty;
+        new_decl.ty = Type.fromInterned(ptr_info.child);
         new_decl.val = Value.fromInterned(new_var);
         new_decl.alignment = .none;
         new_decl.@"linksection" = .none;
@@ -27059,6 +27065,8 @@ fn tupleFieldValByIndex(
     const mod = sema.mod;
     const field_ty = tuple_ty.structFieldType(field_index, mod);
 
+    if (tuple_ty.structFieldIsComptime(field_index, mod))
+        try sema.resolveStructFieldInits(tuple_ty);
     if (try tuple_ty.structFieldValueComptime(mod, field_index)) |default_value| {
         return Air.internedToRef(default_value.toIntern());
     }
@@ -27076,10 +27084,6 @@ fn tupleFieldValByIndex(
             }.toIntern()),
             else => unreachable,
         };
-    }
-
-    if (try tuple_ty.structFieldValueComptime(mod, field_index)) |default_val| {
-        return Air.internedToRef(default_val.toIntern());
     }
 
     try sema.requireRuntimeBlock(block, src, null);
@@ -27506,6 +27510,8 @@ fn tupleFieldPtr(
         },
     });
 
+    if (tuple_ty.structFieldIsComptime(field_index, mod))
+        try sema.resolveStructFieldInits(tuple_ty);
     if (try tuple_ty.structFieldValueComptime(mod, field_index)) |default_val| {
         return Air.internedToRef((try mod.intern(.{ .ptr = .{
             .ty = ptr_field_ty.toIntern(),
@@ -27556,6 +27562,8 @@ fn tupleField(
 
     const field_ty = tuple_ty.structFieldType(field_index, mod);
 
+    if (tuple_ty.structFieldIsComptime(field_index, mod))
+        try sema.resolveStructFieldInits(tuple_ty);
     if (try tuple_ty.structFieldValueComptime(mod, field_index)) |default_value| {
         return Air.internedToRef(default_value.toIntern()); // comptime field
     }
