@@ -7155,6 +7155,12 @@ fn accessLibPath(
 ) !bool {
     const sep = fs.path.sep_str;
 
+    if (mem.startsWith(u8, lib_name, ":")) {
+        try test_path.writer().print("{s}" ++ sep ++ "{s}", .{ lib_dir_path, lib_name[1..] });
+        try checked_paths.writer().print("\n  {s}", .{test_path.items});
+        return true;
+    }
+
     if (target.isDarwin() and link_mode == .Dynamic) tbd: {
         // Prefer .tbd over .dylib.
         test_path.clearRetainingCapacity();

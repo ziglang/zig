@@ -1825,7 +1825,14 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         argv.appendAssumeCapacity("--as-needed");
         var as_needed = true;
 
-        for (self.base.comp.system_libs.values()) |lib_info| {
+        const system_libs = self.base.comp.system_libs.keys();
+        const system_libs_values = self.base.comp.system_libs.values();
+
+        for (system_libs, system_libs_values) |lib_name, lib_info| {
+            if (mem.startsWith(u8, lib_name, ":")) {
+                continue;
+            }
+
             const lib_as_needed = !lib_info.needed;
             switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
                 0b00, 0b11 => {},
@@ -2799,6 +2806,17 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             }
         }
 
+        if (is_exe_or_dyn_lib) {
+            const system_libs = comp.system_libs.keys();
+
+            for (system_libs) |lib_name| {
+                if (mem.startsWith(u8, lib_name, ":")) {
+                    try argv.append("-l");
+                    try argv.append(lib_name);
+                }
+            }
+        }
+
         // Positional arguments to the linker such as object files.
         var whole_archive = false;
         for (comp.objects) |obj| {
@@ -2854,7 +2872,11 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             argv.appendAssumeCapacity("--as-needed");
             var as_needed = true;
 
-            for (system_libs_values) |lib_info| {
+            for (system_libs, system_libs_values) |lib_name, lib_info| {
+                if (mem.startsWith(u8, lib_name, ":")) {
+                    continue;
+                }
+
                 const lib_as_needed = !lib_info.needed;
                 switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
                     0b00, 0b11 => {},

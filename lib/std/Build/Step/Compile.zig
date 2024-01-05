@@ -822,6 +822,10 @@ pub fn addRPath(self: *Compile, directory_path: LazyPath) void {
     self.root_module.addRPath(directory_path);
 }
 
+pub fn addRPathSpecial(self: *Compile, bytes: []const u8) void {
+    self.root_module.addRPathSpecial(bytes);
+}
+
 pub fn addSystemFrameworkPath(self: *Compile, directory_path: LazyPath) void {
     self.root_module.addSystemFrameworkPath(directory_path);
 }
