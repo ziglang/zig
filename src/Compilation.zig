@@ -1821,7 +1821,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
             const static_lib_jobs = [_]Job{
                 .{ .mingw_crt_file = .mingw32_lib },
-                .{ .mingw_crt_file = .msvcrt_os_lib },
                 .{ .mingw_crt_file = .mingwex_lib },
                 .{ .mingw_crt_file = .uuid_lib },
             };

@@ -14,7 +14,6 @@ pub const CRTFile = enum {
     crt2_o,
     dllcrt2_o,
     mingw32_lib,
-    msvcrt_os_lib,
     mingwex_lib,
     uuid_lib,
 };
@@ -34,12 +33,9 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             try args.appendSlice(&[_][]const u8{
                 "-D_SYSCRT=1",
                 "-DCRTDLL=1",
-                "-U__CRTDLL__",
-                "-D__MSVCRT__",
-                // Uncomment these 3 things for crtu
+                // Uncommenting this makes mingw-w64 look for wmain instead of main.
                 //"-DUNICODE",
                 //"-D_UNICODE",
-                //"-DWPRFLAG=1",
             });
             var files = [_]Compilation.CSourceFile{
                 .{
@@ -59,8 +55,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             try args.appendSlice(&[_][]const u8{
                 "-D_SYSCRT=1",
                 "-DCRTDLL=1",
-                "-U__CRTDLL__",
-                "-D__MSVCRT__",
             });
             var files = [_]Compilation.CSourceFile{
                 .{
@@ -105,56 +99,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 };
             }
             return comp.build_crt_file("mingw32", .Lib, .@"mingw-w64 mingw32.lib", prog_node, &c_source_files);
-        },
-
-        .msvcrt_os_lib => {
-            const extra_flags = try arena.dupe([]const u8, &[_][]const u8{
-                "-DHAVE_CONFIG_H",
-                "-D__LIBMSVCRT__",
-                "-D__LIBMSVCRT_OS__",
-
-                "-I",
-                try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", "include" }),
-
-                "-std=gnu99",
-                "-D_CRTBLD",
-                "-D__MSVCRT_VERSION__=0x700",
-                "-D__USE_MINGW_ANSI_STDIO=0",
-
-                "-isystem",
-                try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "any-windows-any" }),
-            });
-            var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
-
-            for (msvcrt_common_src) |dep| {
-                (try c_source_files.addOne()).* = .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", dep }),
-                    .extra_flags = extra_flags,
-                    .owner = undefined,
-                };
-            }
-            if (comp.getTarget().cpu.arch == .x86) {
-                for (msvcrt_i386_src) |dep| {
-                    (try c_source_files.addOne()).* = .{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                            "libc", "mingw", dep,
-                        }),
-                        .extra_flags = extra_flags,
-                        .owner = undefined,
-                    };
-                }
-            } else {
-                for (msvcrt_other_src) |dep| {
-                    (try c_source_files.addOne()).* = .{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                            "libc", "mingw", dep,
-                        }),
-                        .extra_flags = extra_flags,
-                        .owner = undefined,
-                    };
-                }
-            }
-            return comp.build_crt_file("msvcrt-os", .Lib, .@"mingw-w64 msvcrt-os.lib", prog_node, c_source_files.items);
         },
 
         .mingwex_lib => {
@@ -542,78 +486,7 @@ const mingw32_lib_deps = [_][]const u8{
     "cxa_thread_atexit.c",
     "tls_atexit.c",
 };
-const msvcrt_common_src = [_][]const u8{
-    "misc" ++ path.sep_str ++ "_create_locale.c",
-    "misc" ++ path.sep_str ++ "_free_locale.c",
-    "misc" ++ path.sep_str ++ "onexit_table.c",
-    "misc" ++ path.sep_str ++ "register_tls_atexit.c",
-    "stdio" ++ path.sep_str ++ "acrt_iob_func.c",
-    "stdio" ++ path.sep_str ++ "snprintf_alias.c",
-    "stdio" ++ path.sep_str ++ "vsnprintf_alias.c",
-    "stdio" ++ path.sep_str ++ "_vscprintf.c",
-    "misc" ++ path.sep_str ++ "_configthreadlocale.c",
-    "misc" ++ path.sep_str ++ "_get_current_locale.c",
-    "misc" ++ path.sep_str ++ "invalid_parameter_handler.c",
-    "misc" ++ path.sep_str ++ "output_format.c",
-    "misc" ++ path.sep_str ++ "purecall.c",
-    "secapi" ++ path.sep_str ++ "_access_s.c",
-    "secapi" ++ path.sep_str ++ "_cgets_s.c",
-    "secapi" ++ path.sep_str ++ "_cgetws_s.c",
-    "secapi" ++ path.sep_str ++ "_chsize_s.c",
-    "secapi" ++ path.sep_str ++ "_controlfp_s.c",
-    "secapi" ++ path.sep_str ++ "_cprintf_s.c",
-    "secapi" ++ path.sep_str ++ "_cprintf_s_l.c",
-    "secapi" ++ path.sep_str ++ "_ctime32_s.c",
-    "secapi" ++ path.sep_str ++ "_ctime64_s.c",
-    "secapi" ++ path.sep_str ++ "_cwprintf_s.c",
-    "secapi" ++ path.sep_str ++ "_cwprintf_s_l.c",
-    "secapi" ++ path.sep_str ++ "_gmtime32_s.c",
-    "secapi" ++ path.sep_str ++ "_gmtime64_s.c",
-    "secapi" ++ path.sep_str ++ "_localtime32_s.c",
-    "secapi" ++ path.sep_str ++ "_localtime64_s.c",
-    "secapi" ++ path.sep_str ++ "_mktemp_s.c",
-    "secapi" ++ path.sep_str ++ "_sopen_s.c",
-    "secapi" ++ path.sep_str ++ "_strdate_s.c",
-    "secapi" ++ path.sep_str ++ "_strtime_s.c",
-    "secapi" ++ path.sep_str ++ "_umask_s.c",
-    "secapi" ++ path.sep_str ++ "_vcprintf_s.c",
-    "secapi" ++ path.sep_str ++ "_vcprintf_s_l.c",
-    "secapi" ++ path.sep_str ++ "_vcwprintf_s.c",
-    "secapi" ++ path.sep_str ++ "_vcwprintf_s_l.c",
-    "secapi" ++ path.sep_str ++ "_vscprintf_p.c",
-    "secapi" ++ path.sep_str ++ "_vscwprintf_p.c",
-    "secapi" ++ path.sep_str ++ "_vswprintf_p.c",
-    "secapi" ++ path.sep_str ++ "_waccess_s.c",
-    "secapi" ++ path.sep_str ++ "_wasctime_s.c",
-    "secapi" ++ path.sep_str ++ "_wctime32_s.c",
-    "secapi" ++ path.sep_str ++ "_wctime64_s.c",
-    "secapi" ++ path.sep_str ++ "_wstrtime_s.c",
-    "secapi" ++ path.sep_str ++ "_wmktemp_s.c",
-    "secapi" ++ path.sep_str ++ "_wstrdate_s.c",
-    "secapi" ++ path.sep_str ++ "asctime_s.c",
-    "secapi" ++ path.sep_str ++ "memcpy_s.c",
-    "secapi" ++ path.sep_str ++ "memmove_s.c",
-    "secapi" ++ path.sep_str ++ "rand_s.c",
-    "secapi" ++ path.sep_str ++ "sprintf_s.c",
-    "secapi" ++ path.sep_str ++ "strerror_s.c",
-    "secapi" ++ path.sep_str ++ "vsprintf_s.c",
-    "secapi" ++ path.sep_str ++ "wmemcpy_s.c",
-    "secapi" ++ path.sep_str ++ "wmemmove_s.c",
-    "stdio" ++ path.sep_str ++ "mingw_lock.c",
-};
-const msvcrt_i386_src = [_][]const u8{
-    "misc" ++ path.sep_str ++ "lc_locale_func.c",
-    "misc" ++ path.sep_str ++ "___mb_cur_max_func.c",
-    "misc" ++ path.sep_str ++ "wassert.c",
-};
 
-const msvcrt_other_src = [_][]const u8{
-    "misc" ++ path.sep_str ++ "__p___argv.c",
-    "misc" ++ path.sep_str ++ "__p__acmdln.c",
-    "misc" ++ path.sep_str ++ "__p__commode.c",
-    "misc" ++ path.sep_str ++ "__p__fmode.c",
-    "misc" ++ path.sep_str ++ "__p__wcmdln.c",
-};
 const mingwex_generic_src = [_][]const u8{
     "complex" ++ path.sep_str ++ "_cabs.c",
     "complex" ++ path.sep_str ++ "cabs.c",
@@ -669,6 +542,7 @@ const mingwex_generic_src = [_][]const u8{
     "complex" ++ path.sep_str ++ "ctanl.c",
     "crt" ++ path.sep_str ++ "dllentry.c",
     "crt" ++ path.sep_str ++ "dllmain.c",
+    "crt" ++ path.sep_str ++ "ucrtbase_compat.c",
     "gdtoa" ++ path.sep_str ++ "arithchk.c",
     "gdtoa" ++ path.sep_str ++ "dmisc.c",
     "gdtoa" ++ path.sep_str ++ "dtoa.c",
@@ -848,6 +722,7 @@ const mingwex_generic_src = [_][]const u8{
     "misc" ++ path.sep_str ++ "wmemmove.c",
     "misc" ++ path.sep_str ++ "wmempcpy.c",
     "misc" ++ path.sep_str ++ "wmemset.c",
+    "misc" ++ path.sep_str ++ "__initenv.c",
     "stdio" ++ path.sep_str ++ "_Exit.c",
     "stdio" ++ path.sep_str ++ "_findfirst64i32.c",
     "stdio" ++ path.sep_str ++ "_findnext64i32.c",
@@ -878,40 +753,31 @@ const mingwex_generic_src = [_][]const u8{
     "stdio" ++ path.sep_str ++ "lltoa.c",
     "stdio" ++ path.sep_str ++ "lltow.c",
     "stdio" ++ path.sep_str ++ "lseek64.c",
-    "stdio" ++ path.sep_str ++ "mingw_asprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_fprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_fprintfw.c",
-    "stdio" ++ path.sep_str ++ "mingw_fscanf.c",
-    "stdio" ++ path.sep_str ++ "mingw_fwscanf.c",
-    "stdio" ++ path.sep_str ++ "mingw_pformat.c",
-    "stdio" ++ path.sep_str ++ "mingw_pformatw.c",
-    "stdio" ++ path.sep_str ++ "mingw_printf.c",
-    "stdio" ++ path.sep_str ++ "mingw_printfw.c",
-    "stdio" ++ path.sep_str ++ "mingw_scanf.c",
-    "stdio" ++ path.sep_str ++ "mingw_snprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_snprintfw.c",
-    "stdio" ++ path.sep_str ++ "mingw_sprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_sprintfw.c",
-    "stdio" ++ path.sep_str ++ "mingw_sscanf.c",
-    "stdio" ++ path.sep_str ++ "mingw_swscanf.c",
-    "stdio" ++ path.sep_str ++ "mingw_vasprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_vfprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_vfprintfw.c",
-    "stdio" ++ path.sep_str ++ "mingw_vfscanf.c",
-    "stdio" ++ path.sep_str ++ "mingw_vprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_vprintfw.c",
-    "stdio" ++ path.sep_str ++ "mingw_vsnprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_vsnprintfw.c",
-    "stdio" ++ path.sep_str ++ "mingw_vsprintf.c",
-    "stdio" ++ path.sep_str ++ "mingw_vsprintfw.c",
-    "stdio" ++ path.sep_str ++ "mingw_wscanf.c",
-    "stdio" ++ path.sep_str ++ "mingw_wvfscanf.c",
     "stdio" ++ path.sep_str ++ "scanf.S",
     "stdio" ++ path.sep_str ++ "snprintf.c",
     "stdio" ++ path.sep_str ++ "snwprintf.c",
     "stdio" ++ path.sep_str ++ "strtof.c",
     "stdio" ++ path.sep_str ++ "strtok_r.c",
     "stdio" ++ path.sep_str ++ "truncate.c",
+    "stdio" ++ path.sep_str ++ "ucrt__snwprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt__vscprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt__vsnprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt__vsnwprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_fprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_fscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_fwprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_printf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_scanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_snprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_sprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_sscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vfprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vfscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vsnprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vsprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vsscanf.c",
     "stdio" ++ path.sep_str ++ "ulltoa.c",
     "stdio" ++ path.sep_str ++ "ulltow.c",
     "stdio" ++ path.sep_str ++ "vasprintf.c",
@@ -1136,9 +1002,9 @@ const uuid_src = [_][]const u8{
 };
 
 pub const always_link_libs = [_][]const u8{
+    "ucrtbase",
     "advapi32",
     "kernel32",
-    "msvcrt",
     "ntdll",
     "shell32",
     "user32",
