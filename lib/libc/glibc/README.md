@@ -1,15 +1,13 @@
 # Zig GNU C Library ("glibc") Support
 
-*Date*: November, 2023
-
 Zig supports building binaries that will dynamically link against the
 [GNU C Library ("glibc")](https://www.gnu.org/software/libc/) when run.
 This support extends across a range of glibc versions.
 
 By default, Zig binaries will not depend on any external C library, but
-they can be linked against one with the `-lc` option.  The compilation
-target defines which C library: `musl` for the
-[musl C library](https://musl.libc.org/) or `gnu` for the GNU C library.
+they can be linked against one with the `-lc` option.  The target ABI defines
+which C library: `musl` for the [musl C library](https://musl.libc.org/) or
+`gnu` for the GNU C library.
 
 A specific GNU C library version can be chosen with an appropriate
 `-target`.  For example, `-target native-native-gnu.2.19` will use the
@@ -30,7 +28,7 @@ do not reference an actual implementation.
 ## Targets
 
 The GNU C Library supports a very wide set of platforms and architectures.
-The current Zig support for glibc only supports Linux.
+The current Zig support for glibc only includes Linux.
 
 Zig supports glibc versions back to v2.17 (2012) as the Zig standard
 library depends on symbols that were introduced in 2.17.
@@ -58,7 +56,7 @@ family of functions).
 
 The related Zig https://github.com/ziglang/universal-headers is a project
 designed to more robustly build multi-version header files suitable for
-compliation across a variety of target C library versions.
+compilation across a variety of target C library versions.
 
 ## Glibc static C-Runtime object files and libraries
 

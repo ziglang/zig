@@ -164,7 +164,7 @@ pub fn canBuildLibC(target: std.Target) bool {
                 return ver.min.order(libc.os_ver.?) != .lt;
             }
             // Ensure glibc (aka *-linux-gnu) version is supported
-            if ((target.os.tag == .linux) and target.abi.isGnu()) {
+            if (target.isGnuLibC()) {
                 const min_glibc_ver = libc.glibc_min orelse glibc_min_version;
                 const target_glibc_ver = target.os.version_range.linux.glibc;
                 return target_glibc_ver.order(min_glibc_ver) != .lt;
