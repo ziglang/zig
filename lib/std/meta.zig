@@ -362,9 +362,7 @@ pub fn fields(comptime T: type) switch (@typeInfo(T)) {
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
 } {
     return switch (@typeInfo(T)) {
-        .Struct => |info| info.fields,
-        .Union => |info| info.fields,
-        .Enum => |info| info.fields,
+        inline .Struct, .Union, .Enum => |info| info.fields,
         .ErrorSet => |errors| errors.?, // must be non global error set
         else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
     };
