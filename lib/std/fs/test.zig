@@ -1131,12 +1131,23 @@ test "makepath relative walks" {
 
     try tmp.dir.makePath(relPath);
 
-    // verify created directories exist:
-    try expectDir(tmp.dir, "first" ++ fs.path.sep_str ++ "A");
-    try expectDir(tmp.dir, "first" ++ fs.path.sep_str ++ "B");
-    try expectDir(tmp.dir, "first" ++ fs.path.sep_str ++ "C");
-    try expectDir(tmp.dir, "second");
-    try expectDir(tmp.dir, "third");
+    // How .. is handled is different on Windows than non-Windows
+    switch (builtin.os.tag) {
+        .windows => {
+            // On Windows, .. is resolved before passing the path to NtCreateFile,
+            // meaning everything except `first/C` drops out.
+            try expectDir(tmp.dir, "first" ++ fs.path.sep_str ++ "C");
+            try testing.expectError(error.FileNotFound, tmp.dir.access("second", .{}));
+            try testing.expectError(error.FileNotFound, tmp.dir.access("third", .{}));
+        },
+        else => {
+            try expectDir(tmp.dir, "first" ++ fs.path.sep_str ++ "A");
+            try expectDir(tmp.dir, "first" ++ fs.path.sep_str ++ "B");
+            try expectDir(tmp.dir, "first" ++ fs.path.sep_str ++ "C");
+            try expectDir(tmp.dir, "second");
+            try expectDir(tmp.dir, "third");
+        },
+    }
 }
 
 test "makepath ignores '.'" {
