@@ -13247,32 +13247,20 @@ fn zirShl(
             }
             break :rs rhs_src;
         };
-
-        const val = switch (air_tag) {
+        const val = if (scalar_ty.zigTypeTag(mod) == .ComptimeInt)
+            try lhs_val.shl(rhs_val, lhs_ty, sema.arena, mod)
+        else switch (air_tag) {
             .shl_exact => val: {
                 const shifted = try lhs_val.shlWithOverflow(rhs_val, lhs_ty, sema.arena, mod);
-                if (scalar_ty.zigTypeTag(mod) == .ComptimeInt) {
-                    break :val shifted.wrapped_result;
-                }
                 if (shifted.overflow_bit.compareAllWithZero(.eq, mod)) {
                     break :val shifted.wrapped_result;
                 }
                 return sema.fail(block, src, "operation caused overflow", .{});
             },
-
-            .shl_sat => if (scalar_ty.zigTypeTag(mod) == .ComptimeInt)
-                try lhs_val.shl(rhs_val, lhs_ty, sema.arena, mod)
-            else
-                try lhs_val.shlSat(rhs_val, lhs_ty, sema.arena, mod),
-
-            .shl => if (scalar_ty.zigTypeTag(mod) == .ComptimeInt)
-                try lhs_val.shl(rhs_val, lhs_ty, sema.arena, mod)
-            else
-                try lhs_val.shlTrunc(rhs_val, lhs_ty, sema.arena, mod),
-
+            .shl_sat => try lhs_val.shlSat(rhs_val, lhs_ty, sema.arena, mod),
+            .shl => try lhs_val.shlTrunc(rhs_val, lhs_ty, sema.arena, mod),
             else => unreachable,
         };
-
         return Air.internedToRef(val.toIntern());
     } else lhs_src;
 
@@ -20900,7 +20888,7 @@ fn zirReify(
                     enum_field_names[i] = field_name;
                 }
 
-                if (explicit_tags_seen.len > 0) {
+                if (enum_tag_ty != .none) {
                     const tag_info = ip.indexToKey(enum_tag_ty).enum_type;
                     const enum_index = tag_info.nameIndex(ip, field_name) orelse {
                         const msg = msg: {
@@ -20914,6 +20902,7 @@ fn zirReify(
                         };
                         return sema.failWithOwnedErrorMsg(block, msg);
                     };
+                    assert(explicit_tags_seen.len == tag_info.names.len);
                     // No check for duplicate because the check already happened in order
                     // to create the enum type in the first place.
                     assert(!explicit_tags_seen[enum_index]);
@@ -20979,13 +20968,14 @@ fn zirReify(
                 }
             }
 
-            if (explicit_tags_seen.len > 0) {
+            if (enum_tag_ty != .none) {
                 const tag_info = ip.indexToKey(enum_tag_ty).enum_type;
                 if (tag_info.names.len > fields_len) {
                     const msg = msg: {
                         const msg = try sema.errMsg(block, src, "enum field(s) missing in union", .{});
                         errdefer msg.destroy(gpa);
 
+                        assert(explicit_tags_seen.len == tag_info.names.len);
                         for (tag_info.names.get(ip), 0..) |field_name, field_index| {
                             if (explicit_tags_seen[field_index]) continue;
                             try sema.addFieldErrNote(Type.fromInterned(enum_tag_ty), field_index, msg, "field '{}' missing, declared here", .{

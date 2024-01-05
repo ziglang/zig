@@ -20,7 +20,7 @@ pub const Lib = struct {
 };
 
 pub const ABI = struct {
-    all_versions: []const Version,
+    all_versions: []const Version, // all defined versions (one abilist from v2.0.0 up to current)
     all_targets: []const target_util.ArchOsAbi,
     /// The bytes from the file verbatim, starting from the u16 number
     /// of function inclusions.
@@ -172,6 +172,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
 
     const target = comp.root_mod.resolved_target.result;
     const target_ver = target.os.version_range.linux.glibc;
+    const nonshared_stat = target_ver.order(.{ .major = 2, .minor = 32, .patch = 0 }) != .gt;
     const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33, .patch = 0 }) != .gt;
 
     // In all cases in this function, we add the C compiler flags to
@@ -276,54 +277,72 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
         },
         .libc_nonshared_a => {
             const s = path.sep_str;
-            const linux_prefix = lib_libc_glibc ++
-                "sysdeps" ++ s ++ "unix" ++ s ++ "sysv" ++ s ++ "linux" ++ s;
-            const Flavor = enum { nonshared, shared };
             const Dep = struct {
                 path: []const u8,
-                flavor: Flavor = .shared,
-                exclude: bool = false,
+                include: bool = true,
             };
             const deps = [_]Dep{
+                .{ .path = lib_libc_glibc ++ "stdlib" ++ s ++ "atexit.c" },
+                .{ .path = lib_libc_glibc ++ "stdlib" ++ s ++ "at_quick_exit.c" },
+                .{ .path = lib_libc_glibc ++ "sysdeps" ++ s ++ "pthread" ++ s ++ "pthread_atfork.c" },
+                .{ .path = lib_libc_glibc ++ "debug" ++ s ++ "stack_chk_fail_local.c" },
+
+                // libc_nonshared.a redirected stat functions to xstat until glibc 2.33,
+                // when they were finally versioned like other symbols.
                 .{
-                    .path = lib_libc_glibc ++ "stdlib" ++ s ++ "atexit.c",
-                    .flavor = .nonshared,
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "stat-2.32.c",
+                    .include = nonshared_stat,
                 },
                 .{
-                    .path = lib_libc_glibc ++ "stdlib" ++ s ++ "at_quick_exit.c",
-                    .flavor = .nonshared,
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "fstat-2.32.c",
+                    .include = nonshared_stat,
                 },
                 .{
-                    .path = lib_libc_glibc ++ "sysdeps" ++ s ++ "pthread" ++ s ++ "pthread_atfork.c",
-                    .flavor = .nonshared,
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "lstat-2.32.c",
+                    .include = nonshared_stat,
                 },
                 .{
-                    .path = lib_libc_glibc ++ "debug" ++ s ++ "stack_chk_fail_local.c",
-                    .flavor = .nonshared,
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "stat64-2.32.c",
+                    .include = nonshared_stat,
                 },
-                .{ .path = lib_libc_glibc ++ "csu" ++ s ++ "errno.c" },
+                .{
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "fstat64-2.32.c",
+                    .include = nonshared_stat,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "lstat64-2.32.c",
+                    .include = nonshared_stat,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "fstatat-2.32.c",
+                    .include = nonshared_stat,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "fstatat64-2.32.c",
+                    .include = nonshared_stat,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "mknodat-2.32.c",
+                    .include = nonshared_stat,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "mknod-2.32.c",
+                    .include = nonshared_stat,
+                },
+
+                // __libc_start_main used to require statically linked init/fini callbacks
+                // until glibc 2.34 when they were assimilated into the shared library.
                 .{
                     .path = lib_libc_glibc ++ "csu" ++ s ++ "elf-init-2.33.c",
-                    .exclude = !start_old_init_fini,
+                    .include = start_old_init_fini,
                 },
-                .{ .path = linux_prefix ++ "stat.c" },
-                .{ .path = linux_prefix ++ "fstat.c" },
-                .{ .path = linux_prefix ++ "lstat.c" },
-                .{ .path = linux_prefix ++ "stat64.c" },
-                .{ .path = linux_prefix ++ "fstat64.c" },
-                .{ .path = linux_prefix ++ "lstat64.c" },
-                .{ .path = linux_prefix ++ "fstatat.c" },
-                .{ .path = linux_prefix ++ "fstatat64.c" },
-                .{ .path = linux_prefix ++ "mknodat.c" },
-                .{ .path = lib_libc_glibc ++ "io" ++ s ++ "mknod.c" },
-                .{ .path = linux_prefix ++ "stat_t64_cp.c" },
             };
 
             var files_buf: [deps.len]Compilation.CSourceFile = undefined;
             var files_index: usize = 0;
 
             for (deps) |dep| {
-                if (dep.exclude) continue;
+                if (!dep.include) continue;
 
                 var args = std.ArrayList([]const u8).init(arena);
                 try args.appendSlice(&[_][]const u8{
@@ -347,13 +366,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                     try args.append("-DCAN_USE_REGISTER_ASM_EBP");
                 }
 
-                const shared_def = switch (dep.flavor) {
-                    .nonshared => "-DLIBC_NONSHARED=1",
-                    // glibc passes `-DSHARED` for these. However, empirically if
-                    // we do that here we will see undefined symbols such as `__GI_memcpy`.
-                    // So we pass the same thing as for nonshared.
-                    .shared => "-DLIBC_NONSHARED=1",
-                };
                 try args.appendSlice(&[_][]const u8{
                     "-D_LIBC_REENTRANT",
                     "-include",
@@ -363,7 +375,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                     "-include",
                     try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
                     "-DPIC",
-                    shared_def,
+                    "-DLIBC_NONSHARED=1",
                     "-DTOP_NAMESPACE=glibc",
                 });
                 files_buf[files_index] = .{

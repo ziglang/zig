@@ -1314,6 +1314,8 @@ test "exact shift left" {
 
     try testShlExact(0b00110101);
     try comptime testShlExact(0b00110101);
+
+    if (@shlExact(1, 1) != 2) @compileError("should be 2");
 }
 fn testShlExact(x: u8) !void {
     const shifted = @shlExact(x, 2);

@@ -8,9 +8,12 @@ const windows = std.os.windows;
 const system = std.os.system;
 
 pub const DynLib = switch (builtin.os.tag) {
-    .linux => if (builtin.link_libc) DlDynlib else ElfDynLib,
+    .linux => if (!builtin.link_libc or builtin.abi == .musl and builtin.link_mode == .Static)
+        ElfDynLib
+    else
+        DlDynLib,
     .windows => WindowsDynLib,
-    .macos, .tvos, .watchos, .ios, .freebsd, .netbsd, .openbsd, .dragonfly, .solaris, .illumos => DlDynlib,
+    .macos, .tvos, .watchos, .ios, .freebsd, .netbsd, .openbsd, .dragonfly, .solaris, .illumos => DlDynLib,
     else => void,
 };
 
@@ -352,30 +355,30 @@ pub const WindowsDynLib = struct {
     }
 };
 
-pub const DlDynlib = struct {
+pub const DlDynLib = struct {
     pub const Error = error{FileNotFound};
 
     handle: *anyopaque,
 
-    pub fn open(path: []const u8) !DlDynlib {
+    pub fn open(path: []const u8) !DlDynLib {
         const path_c = try os.toPosixPath(path);
         return openZ(&path_c);
     }
 
-    pub fn openZ(path_c: [*:0]const u8) !DlDynlib {
-        return DlDynlib{
+    pub fn openZ(path_c: [*:0]const u8) !DlDynLib {
+        return DlDynLib{
             .handle = system.dlopen(path_c, system.RTLD.LAZY) orelse {
                 return error.FileNotFound;
             },
         };
     }
 
-    pub fn close(self: *DlDynlib) void {
+    pub fn close(self: *DlDynLib) void {
         _ = system.dlclose(self.handle);
         self.* = undefined;
     }
 
-    pub fn lookup(self: *DlDynlib, comptime T: type, name: [:0]const u8) ?T {
+    pub fn lookup(self: *DlDynLib, comptime T: type, name: [:0]const u8) ?T {
         // dlsym (and other dl-functions) secretly take shadow parameter - return address on stack
         // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=66826
         if (@call(.never_tail, system.dlsym, .{ self.handle, name.ptr })) |symbol| {
