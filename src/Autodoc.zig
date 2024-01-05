@@ -1606,6 +1606,56 @@ fn walkInstruction(
                 .expr = .{ .binOpIndex = binop_index },
             };
         },
+        .array_mul => {
+            const pl_node = data[@intFromEnum(inst)].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.ArrayMul, pl_node.payload_index);
+
+            const binop_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
+
+            const lhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.lhs,
+                false,
+                call_ctx,
+            );
+            const rhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.rhs,
+                false,
+                call_ctx,
+            );
+            const res_ty: ?DocData.WalkResult = if (extra.data.res_ty != .none)
+                try self.walkRef(
+                    file,
+                    parent_scope,
+                    parent_src,
+                    extra.data.res_ty,
+                    false,
+                    call_ctx,
+                )
+            else
+                null;
+
+            const lhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, lhs.expr);
+            const rhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, rhs.expr);
+            self.exprs.items[binop_index] = .{ .binOp = .{
+                .name = @tagName(tags[@intFromEnum(inst)]),
+                .lhs = lhs_index,
+                .rhs = rhs_index,
+            } };
+
+            return DocData.WalkResult{
+                .typeRef = if (res_ty) |rt| rt.expr else null,
+                .expr = .{ .binOpIndex = binop_index },
+            };
+        },
         // compare operators
         .cmp_eq,
         .cmp_neq,
