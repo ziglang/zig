@@ -1559,11 +1559,11 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
     const filename = try fs.path.resolve(gpa, &.{ cwd, sub_path });
     defer gpa.free(filename);
 
+    defer fs.deleteFileAbsolute(filename) catch {}; // createFileAbsolute can leave files on failures
     const file1 = try fs.createFileAbsolute(filename, .{
         .lock = .exclusive,
         .lock_nonblocking = true,
     });
-    defer fs.deleteFileAbsolute(filename) catch {};
 
     const file2 = fs.createFileAbsolute(filename, .{
         .lock = .exclusive,
