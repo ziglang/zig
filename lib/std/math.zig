@@ -120,7 +120,7 @@ pub const epsilon = @compileError("Deprecated: use `floatEps` instead");
 ///
 /// NaN values are never considered equal to any value.
 pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
-    assert(@typeInfo(T) == .Float);
+    assert(@typeInfo(T) == .Float or @typeInfo(T) == .ComptimeFloat);
     assert(tolerance >= 0);
 
     // Fast path for equal values (and signed zeros and infinites).
@@ -148,7 +148,7 @@ pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
 ///
 /// NaN values are never considered equal to any value.
 pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
-    assert(@typeInfo(T) == .Float);
+    assert(@typeInfo(T) == .Float or @typeInfo(T) == .ComptimeFloat);
     assert(tolerance > 0);
 
     // Fast path for equal values (and signed zeros and infinites).
@@ -183,6 +183,24 @@ test "approxEqAbs and approxEqRel" {
         try testing.expect(approxEqRel(T, -min_value, -min_value, sqrt_eps_value));
         try testing.expect(approxEqAbs(T, min_value, 0.0, eps_value * 2));
         try testing.expect(approxEqAbs(T, -min_value, 0.0, eps_value * 2));
+    }
+
+    comptime {
+        // `comptime_float` is guaranteed to have the same precision and operations of
+        // the largest other floating point type, which is f128 but it doesn't have a
+        // defined layout so we can't rely on `@bitCast` to construct the smallest
+        // possible epsilon value like we do in the tests above. In the same vein, we
+        // also can't represent a max/min, `NaN` or `Inf` values.
+        const eps_value = 1e-4;
+        const sqrt_eps_value = sqrt(eps_value);
+
+        try testing.expect(approxEqAbs(comptime_float, 0.0, 0.0, eps_value));
+        try testing.expect(approxEqAbs(comptime_float, -0.0, -0.0, eps_value));
+        try testing.expect(approxEqAbs(comptime_float, 0.0, -0.0, eps_value));
+        try testing.expect(approxEqRel(comptime_float, 1.0, 1.0, sqrt_eps_value));
+        try testing.expect(!approxEqRel(comptime_float, 1.0, 0.0, sqrt_eps_value));
+        try testing.expect(!approxEqAbs(comptime_float, 1.0 + 2 * eps_value, 1.0, eps_value));
+        try testing.expect(approxEqAbs(comptime_float, 1.0 + 1 * eps_value, 1.0, eps_value));
     }
 }
 
