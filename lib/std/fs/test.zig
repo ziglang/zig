@@ -317,14 +317,14 @@ test "openDirAbsolute" {
     }
 }
 
-test "openDir cwd parent .." {
+test "openDir cwd parent '..'" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var dir = try fs.cwd().openDir("..", .{});
     defer dir.close();
 }
 
-test "openDir non-cwd parent .." {
+test "openDir non-cwd parent '..'" {
     switch (builtin.os.tag) {
         .wasi, .netbsd, .openbsd => return error.SkipZigTest,
         else => {},
@@ -1674,7 +1674,7 @@ test "walker without fully iterating" {
     try testing.expectEqual(@as(usize, 1), num_walked);
 }
 
-test ". and .. in fs.Dir functions" {
+test "'.' and '..' in fs.Dir functions" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
 
     if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) {
@@ -1714,7 +1714,7 @@ test ". and .. in fs.Dir functions" {
     }.impl);
 }
 
-test ". and .. in absolute functions" {
+test "'.' and '..' in absolute functions" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
