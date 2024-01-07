@@ -3939,15 +3939,11 @@ pub fn importFile(
     defer gpa.free(resolved_root_path);
 
     const sub_file_path = p: {
-        if (mem.startsWith(u8, resolved_path, resolved_root_path)) {
-            // +1 for the directory separator here.
-            break :p try gpa.dupe(u8, resolved_path[resolved_root_path.len + 1 ..]);
-        }
-        if (mem.eql(u8, resolved_root_path, ".") and
-            !isUpDir(resolved_path) and
-            !std.fs.path.isAbsolute(resolved_path))
-        {
-            break :p try gpa.dupe(u8, resolved_path);
+        const relative = try std.fs.path.relative(gpa, resolved_root_path, resolved_path);
+        errdefer gpa.free(relative);
+
+        if (!isUpDir(relative) and !std.fs.path.isAbsolute(relative)) {
+            break :p relative;
         }
         return error.ImportOutsideModulePath;
     };
@@ -4038,15 +4034,11 @@ pub fn embedFile(
     defer gpa.free(resolved_root_path);
 
     const sub_file_path = p: {
-        if (mem.startsWith(u8, resolved_path, resolved_root_path)) {
-            // +1 for the directory separator here.
-            break :p try gpa.dupe(u8, resolved_path[resolved_root_path.len + 1 ..]);
-        }
-        if (mem.eql(u8, resolved_root_path, ".") and
-            !isUpDir(resolved_path) and
-            !std.fs.path.isAbsolute(resolved_path))
-        {
-            break :p try gpa.dupe(u8, resolved_path);
+        const relative = try std.fs.path.relative(gpa, resolved_root_path, resolved_path);
+        errdefer gpa.free(relative);
+
+        if (!isUpDir(relative) and !std.fs.path.isAbsolute(relative)) {
+            break :p relative;
         }
         return error.ImportOutsideModulePath;
     };

@@ -180,6 +180,10 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/dep_shared_builtin/build.zig"),
     },
     .{
+        .build_root = "test/standalone/dirname",
+        .import = @import("standalone/dirname/build.zig"),
+    },
+    .{
         .build_root = "test/standalone/empty_env",
         .import = @import("standalone/empty_env/build.zig"),
     },

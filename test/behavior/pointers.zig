@@ -555,3 +555,68 @@ test "result type found through optional pointer" {
     try expect(ptr2.?[0] == 123);
     try expect(ptr2.?[1] == 0xCD);
 }
+
+const Box0 = struct {
+    items: [4]Item,
+
+    const Item = struct {
+        num: u32,
+    };
+};
+const Box1 = struct {
+    items: [4]Item,
+
+    const Item = struct {};
+};
+const Box2 = struct {
+    items: [4]Item,
+
+    const Item = struct {
+        nothing: void,
+    };
+};
+
+fn mutable() !void {
+    var box0: Box0 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box0.items[0..])).Pointer.is_const == false);
+
+    var box1: Box1 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box1.items[0..])).Pointer.is_const == false);
+
+    var box2: Box2 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box2.items[0..])).Pointer.is_const == false);
+}
+
+fn constant() !void {
+    const box0: Box0 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box0.items[0..])).Pointer.is_const == true);
+
+    const box1: Box1 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box1.items[0..])).Pointer.is_const == true);
+
+    const box2: Box2 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box2.items[0..])).Pointer.is_const == true);
+}
+
+test "pointer-to-array constness for zero-size elements, var" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    try mutable();
+    try comptime mutable();
+}
+
+test "pointer-to-array constness for zero-size elements, const" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    try constant();
+    try comptime constant();
+}
+
+test "cast pointers with zero sized elements" {
+    const a: *void = undefined;
+    const b: *[1]void = a;
+    _ = b;
+    const c: *[0]u8 = undefined;
+    const d: []u8 = c;
+    _ = d;
+}

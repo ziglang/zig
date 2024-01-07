@@ -1,4 +1,4 @@
-const x = @extern(*const fn() callconv(.C) void, .{ .name = "foo" });
+const x = @extern(*const fn () callconv(.C) void, .{ .name = "foo" });
 
 export fn entry0() void {
     comptime x();

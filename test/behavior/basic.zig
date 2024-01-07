@@ -1219,3 +1219,184 @@ test "integer compare" {
         try comptime S.doTheTestSigned(T);
     }
 }
+
+test "reference to inferred local variable works as expected" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const Crasher = struct {
+        lets_crash: u64 = 0,
+    };
+
+    var a: Crasher = undefined;
+    const crasher_ptr = &a;
+    var crasher_local = crasher_ptr.*;
+    const crasher_local_ptr = &crasher_local;
+    crasher_local_ptr.lets_crash = 1;
+
+    try expect(crasher_local.lets_crash != a.lets_crash);
+}
+
+test "@Type returned from block" {
+    const T = comptime b: {
+        break :b @Type(.{ .Int = .{
+            .signedness = .unsigned,
+            .bits = 8,
+        } });
+    };
+    try std.testing.expect(T == u8);
+}
+
+test "comptime variable initialized with addresses of literals" {
+    comptime var st = .{
+        .foo = &1,
+        .bar = &2,
+    };
+    _ = &st;
+
+    inline for (@typeInfo(@TypeOf(st)).Struct.fields) |field| {
+        _ = field;
+    }
+}
+
+test "pointer to tuple field can be dereferenced at comptime" {
+    comptime {
+        const tuple_with_ptrs = .{ &0, &0 };
+        const field_ptr = (&tuple_with_ptrs.@"0");
+        _ = field_ptr.*;
+    }
+}
+
+test "proper value is returned from labeled block" {
+    const S = struct {
+        fn hash(v: *u32, key: anytype) void {
+            const Key = @TypeOf(key);
+            if (@typeInfo(Key) == .ErrorSet) {
+                v.* += 1;
+                return;
+            }
+            switch (@typeInfo(Key)) {
+                .ErrorUnion => blk: {
+                    const payload = key catch |err| {
+                        hash(v, err);
+                        break :blk;
+                    };
+
+                    hash(v, payload);
+                },
+
+                else => unreachable,
+            }
+        }
+    };
+    const g: error{Test}!void = error.Test;
+
+    var v: u32 = 0;
+    S.hash(&v, g);
+    try expect(v == 1);
+}
+
+test "const inferred array of slices" {
+    const T = struct { v: bool };
+
+    const decls = [_][]const T{
+        &[_]T{
+            .{ .v = false },
+        },
+    };
+    _ = decls;
+}
+
+test "var inferred array of slices" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const T = struct { v: bool };
+
+    var decls = [_][]const T{
+        &[_]T{
+            .{ .v = false },
+        },
+    };
+    _ = &decls;
+}
+
+test "copy array of self-referential struct" {
+    const ListNode = struct {
+        next: ?*const @This() = null,
+    };
+    comptime var nodes = [_]ListNode{ .{}, .{} };
+    nodes[0].next = &nodes[1];
+    const copied_nodes = nodes;
+    _ = copied_nodes;
+}
+
+test "break out of block based on comptime known values" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const source = "A-";
+
+        fn parseNote() ?i32 {
+            const letter = source[0];
+            const modifier = source[1];
+
+            const semitone = blk: {
+                if (letter == 'C' and modifier == '-') break :blk @as(i32, 0);
+                if (letter == 'C' and modifier == '#') break :blk @as(i32, 1);
+                if (letter == 'D' and modifier == '-') break :blk @as(i32, 2);
+                if (letter == 'D' and modifier == '#') break :blk @as(i32, 3);
+                if (letter == 'E' and modifier == '-') break :blk @as(i32, 4);
+                if (letter == 'F' and modifier == '-') break :blk @as(i32, 5);
+                if (letter == 'F' and modifier == '#') break :blk @as(i32, 6);
+                if (letter == 'G' and modifier == '-') break :blk @as(i32, 7);
+                if (letter == 'G' and modifier == '#') break :blk @as(i32, 8);
+                if (letter == 'A' and modifier == '-') break :blk @as(i32, 9);
+                if (letter == 'A' and modifier == '#') break :blk @as(i32, 10);
+                if (letter == 'B' and modifier == '-') break :blk @as(i32, 11);
+                return null;
+            };
+
+            return semitone;
+        }
+    };
+    const result = S.parseNote();
+    try std.testing.expect(result.? == 9);
+}
+
+test "allocation and looping over 3-byte integer" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .macos) {
+        return error.SkipZigTest; // TODO
+    }
+
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .wasm32) {
+        return error.SkipZigTest; // TODO
+    }
+
+    try expect(@sizeOf(u24) == 4);
+    try expect(@sizeOf([1]u24) == 4);
+    try expect(@alignOf(u24) == 4);
+    try expect(@alignOf([1]u24) == 4);
+
+    var x = try std.testing.allocator.alloc(u24, 2);
+    defer std.testing.allocator.free(x);
+    try expect(x.len == 2);
+    x[0] = 0xFFFFFF;
+    x[1] = 0xFFFFFF;
+
+    const bytes = std.mem.sliceAsBytes(x);
+    try expect(@TypeOf(bytes) == []align(4) u8);
+    try expect(bytes.len == 8);
+
+    for (bytes) |*b| {
+        b.* = 0x00;
+    }
+
+    try expect(x[0] == 0x00);
+    try expect(x[1] == 0x00);
+}

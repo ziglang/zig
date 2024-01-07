@@ -495,3 +495,17 @@ test "variable of optional of noreturn" {
     _ = &null_opv;
     try std.testing.expectEqual(@as(?noreturn, null), null_opv);
 }
+
+test "copied optional doesn't alias source" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var opt_x: ?[3]f32 = [_]f32{0.0} ** 3;
+
+    const x = opt_x.?;
+    opt_x.?[0] = 15.0;
+
+    try expect(x[0] == 0.0);
+}
