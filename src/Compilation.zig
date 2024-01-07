@@ -5100,7 +5100,10 @@ pub fn addCCArgs(
     if (target.os.tag == .windows) switch (ext) {
         .c, .cpp, .m, .mm, .h, .cu, .rc, .assembly, .assembly_with_cpp => {
             const minver: u16 = @truncate(@intFromEnum(target.os.getVersionRange().windows.min) >> 16);
-            try argv.append(try std.fmt.allocPrint(argv.allocator, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}));
+            try argv.appendSlice(&.{
+                try std.fmt.allocPrint(arena, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}),
+                "-D__MSVCRT_VERSION__=0xE00", // use ucrt
+            });
         },
         else => {},
     };
