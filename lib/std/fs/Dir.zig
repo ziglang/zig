@@ -1111,6 +1111,14 @@ pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) !void {
 /// Returns success if the path already exists and is a directory.
 /// This function is not atomic, and if it returns an error, the file system may
 /// have been modified regardless.
+///
+/// Paths containing `..` components are handled differently depending on the platform:
+/// - On Windows, `..` are resolved before the path is passed to NtCreateFile, meaning
+///   a `sub_path` like "first/../second" will resolve to "second" and only a
+///   `./second` directory will be created.
+/// - On other platforms, `..` are not resolved before the path is passed to `mkdirat`,
+///   meaning a `sub_path` like "first/../second" will create both a `./first`
+///   and a `./second` directory.
 pub fn makePath(self: Dir, sub_path: []const u8) !void {
     var it = try fs.path.componentIterator(sub_path);
     var component = it.last() orelse return;

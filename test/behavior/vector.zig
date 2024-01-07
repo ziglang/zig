@@ -1530,3 +1530,39 @@ test "index into comptime-known vector is comptime-known" {
     const vec: @Vector(2, f16) = [2]f16{ 1.5, 3.5 };
     if (vec[0] != 1.5) @compileError("vec should be comptime");
 }
+
+test "arithmetic on zero-length vectors" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    {
+        const a = @Vector(0, i32){};
+        const b = @Vector(0, i32){};
+        _ = a + b;
+    }
+    {
+        const a = @Vector(0, i32){};
+        const b = @Vector(0, i32){};
+        _ = a - b;
+    }
+}
+
+test "@reduce on bool vector" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    if (comptime builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.endian() == .big) {
+        // https://github.com/ziglang/zig/issues/13782
+        return error.SkipZigTest;
+    }
+
+    const a = @Vector(2, bool){ true, true };
+    const b = @Vector(1, bool){true};
+    try std.testing.expect(@reduce(.And, a));
+    try std.testing.expect(@reduce(.And, b));
+}

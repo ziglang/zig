@@ -912,3 +912,67 @@ test "modify slice length at comptime" {
     try expectEqualSlices(u8, &.{10}, a);
     try expectEqualSlices(u8, &.{ 10, 20 }, b);
 }
+
+test "slicing zero length array field of struct" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        a: [0]usize,
+        fn foo(self: *@This(), start: usize, end: usize) []usize {
+            return self.a[start..end];
+        }
+    };
+    var s: S = undefined;
+    try expect(s.foo(0, 0).len == 0);
+}
+
+test "slicing slices gives correct result" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const foo = "1234";
+    const bar = foo[0..4];
+    try expectEqualStrings("1234", bar);
+    try expectEqualStrings("2", bar[1..2]);
+    try expectEqualStrings("3", bar[2..3]);
+    try expectEqualStrings("4", bar[3..4]);
+    try expectEqualStrings("34", bar[2..4]);
+}
+
+test "get address of element of zero-sized slice" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn destroy(_: *void) void {}
+    };
+
+    var slice: []void = undefined;
+    S.destroy(&slice[0]);
+}
+
+test "sentinel-terminated 0-length slices" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const u32s: [4]u32 = [_]u32{ 0, 1, 2, 3 };
+
+    var index: u8 = 2;
+    _ = &index;
+    const slice = u32s[index..index :2];
+    const array_ptr = u32s[2..2 :2];
+    const comptime_known_array_value = u32s[2..2 :2].*;
+    var runtime_array_value = u32s[2..2 :2].*;
+    _ = &runtime_array_value;
+
+    try expect(slice[0] == 2);
+    try expect(array_ptr[0] == 2);
+    try expect(comptime_known_array_value[0] == 2);
+    try expect(runtime_array_value[0] == 2);
+}
