@@ -2327,7 +2327,7 @@ fn transCCast(
 
         switch (cIntTypeCmp(dst_type, src_type)) {
             .lt => {
-                // @truncate(SameSignSmallerInt, src_int_expr)
+                // @as(SameSignSmallerInt, @truncate(src_int_expr))
                 const ty_node = try transQualTypeIntWidthOf(c, dst_type, src_type_is_signed);
                 src_int_expr = try Tag.as.create(c.arena, .{
                     .lhs = ty_node,
@@ -2357,8 +2357,19 @@ fn transCCast(
             .rhs = try Tag.bit_cast.create(c.arena, expr),
         });
     }
-    if (cIsInteger(dst_type) and qualTypeIsPtr(src_type)) {
-        // @intCast(dest_type, @intFromPtr(val))
+    if (qualTypeIsPtr(src_type) and cIsInteger(dst_type)) {
+        // 1. Cast ptr to usize
+        // 2. Cast usize to integral
+        //
+        // Cases:
+        // 1. u128 <- ptr | @as(u128, @bitCast(@as(u128, @intFromPtr(ptr))))
+        // 2. i128 <- ptr | @as(i128, @bitCast(@as(u128, @intFromPtr(ptr))))
+        // 3. u64  <- ptr | @as(u64, @bitCast(@intFromPtr(ptr)))
+        // 4. i64  <- ptr | @as(i64, @bitCast(@intFromPtr(ptr)))
+        // 5. u16  <- ptr | @as(u16, @bitCast(@as(u16, @truncate(@intFromPtr))))
+        // 6. i16  <- ptr | @as(i16, @bitCast(@as(u16, @truncate(@intFromPtr))))
+        //
+        // @as(dest_type, @intCast(@intFromPtr(val)))
         const int_from_ptr = try Tag.int_from_ptr.create(c.arena, expr);
         return Tag.as.create(c.arena, .{
             .lhs = dst_node,
@@ -2366,7 +2377,17 @@ fn transCCast(
         });
     }
     if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
+        // 1. Cast integral to usize
+        // 2. Cast usize to ptr
         // @as(dest_type, @ptrFromInt(val))
+        // Cases:
+        // 0. ptr <- usize | @ptrFromInt(usize)
+        // 1. ptr <- u128  | @as(ptr, @ptrFromInt(@as(usize, @truncate(u128))))
+        // 3. ptr <- u64   | @as(ptr, @ptrFromInt(@as(usize, u64)))
+        // 5. ptr <- u16   | @as(ptr, @ptrFromInt(@as(usize, u16)))
+        // 2. ptr <- i128  | @as(ptr, @ptrFromInt(@as(usize, @bitCast(@as(isize, @truncate(i128))))))
+        // 4. ptr <- i64   | @as(ptr, @ptrFromInt(@as(usize, @bitCast(i64))))
+        // 6. ptr <- i16   | @as(ptr, @ptrFromInt(@as(usize, @bitCast(@as(isize, i16)))))
         return Tag.as.create(c.arena, .{
             .lhs = dst_node,
             .rhs = try Tag.ptr_from_int.create(c.arena, expr),
