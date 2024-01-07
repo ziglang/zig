@@ -3461,7 +3461,7 @@ fn createModule(
     index: usize,
     parent: ?*Package.Module,
     zig_lib_directory: Cache.Directory,
-) Allocator.Error!*Package.Module {
+) !*Package.Module {
     const cli_mod = &create_module.modules.values()[index];
     if (cli_mod.resolved) |m| return m;
 
@@ -7175,15 +7175,45 @@ fn accessLibPath(
 
     main_check: {
         test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
-            lib_dir_path,
-            target.libPrefix(),
-            lib_name,
-            switch (link_mode) {
-                .Static => target.staticLibSuffix(),
-                .Dynamic => target.dynamicLibSuffix(),
-            },
-        });
+        if (target.os.tag == .openbsd and link_mode == .Dynamic) {
+            const dir = fs.cwd().openDir(lib_dir_path, .{}) catch |err| {
+                switch (err) {
+                    error.NotDir, error.FileNotFound => return false,
+                    else => return err,
+                }
+            };
+            var iter = dir.iterate();
+
+            const allocator = @import("std").heap.page_allocator;
+
+            while (try iter.next()) |file| {
+                const name = try std.fmt.allocPrint(allocator, "lib{s}.so", .{lib_name});
+                defer allocator.free(name);
+                if (!std.mem.containsAtLeast(u8, file.name, 1, name) or file.kind == .directory) {
+                    continue;
+                }
+                const path = try std.fmt.allocPrint(allocator, "{s}" ++ sep ++ "{s}", .{
+                    lib_dir_path,
+                    file.name,
+                });
+                defer allocator.free(path);
+
+                try test_path.writer().print("{s}", .{path});
+                return true;
+            }
+
+            return false;
+        } else {
+            try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
+                lib_dir_path,
+                target.libPrefix(),
+                lib_name,
+                switch (link_mode) {
+                    .Static => target.staticLibSuffix(),
+                    .Dynamic => target.dynamicLibSuffix(),
+                },
+            });
+        }
         try checked_paths.writer().print("\n  {s}", .{test_path.items});
         fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
             error.FileNotFound => break :main_check,
