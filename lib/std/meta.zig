@@ -1015,7 +1015,7 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
         @setEvalBranchQuota(10_000);
         var num_buf: [128]u8 = undefined;
         tuple_fields[i] = .{
-            .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
+            .name = std.fmt.bufPrintZ(&num_buf, "{d}", .{i}) catch unreachable,
             .type = T,
             .default_value = null,
             .is_comptime = false,
