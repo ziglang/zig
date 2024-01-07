@@ -545,7 +545,7 @@ test "Dir.Iterator but dir is deleted during iteration" {
     var iterator = subdir.iterate();
 
     // Create something to iterate over within the subdir
-    try tmp.dir.makePath("subdir/b");
+    try tmp.dir.makePath("subdir" ++ fs.path.sep_str ++ "b");
 
     // Then, before iterating, delete the directory that we're iterating.
     // This is a contrived reproduction, but this could happen outside of the program, in another thread, etc.
@@ -754,7 +754,7 @@ test "deleteDir" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const test_dir_path = try ctx.transformPath("test_dir");
-            const test_file_path = try ctx.transformPath("test_dir" ++ std.fs.path.sep_str ++ "test_file");
+            const test_file_path = try ctx.transformPath("test_dir" ++ fs.path.sep_str ++ "test_file");
 
             // deleting a non-existent directory
             try testing.expectError(error.FileNotFound, ctx.dir.deleteDir(test_dir_path));
@@ -1087,6 +1087,88 @@ test "makePath in a directory that no longer exists" {
     try tmp.parent_dir.deleteTree(&tmp.sub_path);
 
     try testing.expectError(error.FileNotFound, tmp.dir.makePath("sub-path"));
+}
+
+fn expectDir(dir: Dir, path: []const u8) !void {
+    var d = try dir.openDir(path, .{});
+    d.close();
+}
+
+test "makepath existing directories" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makeDir("A");
+    const tmpA = try tmp.dir.openDir("A", .{});
+    try tmpA.makeDir("B");
+
+    const testPath = "A" ++ fs.path.sep_str ++ "B" ++ fs.path.sep_str ++ "C";
+    try tmp.dir.makePath(testPath);
+
+    try expectDir(tmp.dir, testPath);
+}
+
+test "makepath through existing valid symlink" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makeDir("realfolder");
+    try tmp.dir.symLink("." ++ fs.path.sep_str ++ "realfolder", "working-symlink", .{});
+
+    try tmp.dir.makePath("working-symlink" ++ fs.path.sep_str ++ "in-realfolder");
+
+    try expectDir(tmp.dir, "realfolder" ++ fs.path.sep_str ++ "in-realfolder");
+}
+
+test "makepath relative walks" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const relPath = try fs.path.join(testing.allocator, &.{
+        "first", "..", "second", "..", "third", "..", "first", "A", "..", "B", "..", "C",
+    });
+    defer testing.allocator.free(relPath);
+
+    try tmp.dir.makePath(relPath);
+
+    // How .. is handled is different on Windows than non-Windows
+    switch (builtin.os.tag) {
+        .windows => {
+            // On Windows, .. is resolved before passing the path to NtCreateFile,
+            // meaning everything except `first/C` drops out.
+            try expectDir(tmp.dir, "first" ++ fs.path.sep_str ++ "C");
+            try testing.expectError(error.FileNotFound, tmp.dir.access("second", .{}));
+            try testing.expectError(error.FileNotFound, tmp.dir.access("third", .{}));
+        },
+        else => {
+            try expectDir(tmp.dir, "first" ++ fs.path.sep_str ++ "A");
+            try expectDir(tmp.dir, "first" ++ fs.path.sep_str ++ "B");
+            try expectDir(tmp.dir, "first" ++ fs.path.sep_str ++ "C");
+            try expectDir(tmp.dir, "second");
+            try expectDir(tmp.dir, "third");
+        },
+    }
+}
+
+test "makepath ignores '.'" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Path to create, with "." elements:
+    const dotPath = try fs.path.join(testing.allocator, &.{
+        "first", ".", "second", ".", "third",
+    });
+    defer testing.allocator.free(dotPath);
+
+    // Path to expect to find:
+    const expectedPath = try fs.path.join(testing.allocator, &.{
+        "first", "second", "third",
+    });
+    defer testing.allocator.free(expectedPath);
+
+    try tmp.dir.makePath(dotPath);
+
+    try expectDir(tmp.dir, expectedPath);
 }
 
 fn testFilenameLimits(iterable_dir: Dir, maxed_filename: []const u8) !void {
@@ -1496,6 +1578,7 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
         .lock = .exclusive,
         .lock_nonblocking = true,
     });
+    defer fs.deleteFileAbsolute(filename) catch {};
 
     const file2 = fs.createFileAbsolute(filename, .{
         .lock = .exclusive,
@@ -1503,8 +1586,6 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
     });
     file1.close();
     try testing.expectError(error.WouldBlock, file2);
-
-    try fs.deleteFileAbsolute(filename);
 }
 
 test "walker" {
@@ -1520,9 +1601,9 @@ test "walker" {
         .{"dir2"},
         .{"dir3"},
         .{"dir4"},
-        .{"dir3" ++ std.fs.path.sep_str ++ "sub1"},
-        .{"dir3" ++ std.fs.path.sep_str ++ "sub2"},
-        .{"dir3" ++ std.fs.path.sep_str ++ "sub2" ++ std.fs.path.sep_str ++ "subsub1"},
+        .{"dir3" ++ fs.path.sep_str ++ "sub1"},
+        .{"dir3" ++ fs.path.sep_str ++ "sub2"},
+        .{"dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1"},
     });
 
     const expected_basenames = std.ComptimeStringMap(void, .{
