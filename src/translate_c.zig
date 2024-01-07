@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const math = std.math;
 const meta = std.meta;
+const target = @import("builtin").target;
 const CallingConvention = std.builtin.CallingConvention;
 const clang = @import("clang.zig");
 const aro = @import("aro");
@@ -2358,22 +2359,37 @@ fn transCCast(
         });
     }
     if (qualTypeIsPtr(src_type) and cIsInteger(dst_type)) {
-        // 1. Cast ptr to usize
-        // 2. Cast usize to integral
+        // 1. Truncate if destination integer is wider than pointer
+        // 2. Cast to unsigned int of destination size
+        // 3. If dest int is signed, bitcast.
         //
         // Cases:
-        // 1. u128 <- ptr | @as(u128, @bitCast(@as(u128, @intFromPtr(ptr))))
-        // 2. i128 <- ptr | @as(i128, @bitCast(@as(u128, @intFromPtr(ptr))))
-        // 3. u64  <- ptr | @as(u64, @bitCast(@intFromPtr(ptr)))
-        // 4. i64  <- ptr | @as(i64, @bitCast(@intFromPtr(ptr)))
-        // 5. u16  <- ptr | @as(u16, @bitCast(@as(u16, @truncate(@intFromPtr))))
-        // 6. i16  <- ptr | @as(i16, @bitCast(@as(u16, @truncate(@intFromPtr))))
-        //
-        // @as(dest_type, @intCast(@intFromPtr(val)))
-        const int_from_ptr = try Tag.int_from_ptr.create(c.arena, expr);
+        // 1. u128 <- ptr | @as(u128, @intFromPtr(ptr)))
+        // 2. u64  <- ptr | @as(u64, @intFromPtr(ptr))
+        // 3. u16  <- ptr | @as(u16, @truncate(@intFromPtr(ptr)))
+        // 4. i128 <- ptr | @as(i128, @bitCast(@as(u128, @intFromPtr(ptr))))
+        // 5. i64  <- ptr | @as(i64, @bitCast(@intFromPtr(ptr)))
+        // 6. i16  <- ptr | @as(i16, @bitCast(@as(u16, @truncate(@intFromPtr(ptr)))))
+        var src_ptr_expr = try Tag.int_from_ptr.create(c.arena, expr);
+
+        // @truncate(@intFromPtr(ptr))
+        const src_ptr_width = std.Target.ptrBitWidth(target);
+        const dst_int_width = try qualTypeIntBitWidth(c, dst_type);
+        if (src_ptr_width < dst_int_width) {
+            src_ptr_expr = try Tag.truncate.create(c.arena, src_ptr_expr);
+        }
+
+        //@as(UnsignedIntWithDestSize, usizeFromPtr)
+        if (cIsUnsignedInteger(dst_type)) {
+            const ty_node = try transQualTypeIntWidthOf(c, dst_type, false);
+            return Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = src_ptr_expr });
+        }
+
+        const ty_node = try transQualTypeIntWidthOf(c, dst_type, false);
+        src_ptr_expr = try Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = src_ptr_expr });
         return Tag.as.create(c.arena, .{
             .lhs = dst_node,
-            .rhs = try Tag.int_cast.create(c.arena, int_from_ptr),
+            .rhs = try Tag.bit_cast.create(c.arena, src_ptr_expr),
         });
     }
     if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
@@ -4233,6 +4249,7 @@ fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType) !u32 {
 
     switch (ty.getTypeClass()) {
         .Builtin => {
+            const c_type_bit_size = std.Target.c_type_bit_size;
             const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(ty));
 
             switch (builtin_ty.getKind()) {
@@ -4241,6 +4258,12 @@ fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType) !u32 {
                 .Char_S,
                 .SChar,
                 => return 8,
+                .UShort, .Short => return c_type_bit_size(target, .short),
+                .UInt, .Int => return c_type_bit_size(target, .int),
+                .ULong, .Long => return c_type_bit_size(target, .long),
+                .ULongLong, .LongLong => return c_type_bit_size(target, .longlong),
+                .Char16 => return 16,
+                .Char32 => return 32,
                 .UInt128,
                 .Int128,
                 => return 128,

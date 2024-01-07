@@ -1,6 +1,6 @@
 #include <stdint.h>
 
-void run() {
+void main() {
   short s = -80;
   short* s_ptr = &s;
   unsigned short us = 160;
