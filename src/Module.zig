@@ -834,6 +834,9 @@ pub const File = struct {
     multi_pkg: bool = false,
     /// List of references to this file, used for multi-package errors.
     references: std.ArrayListUnmanaged(Reference) = .{},
+    /// The hash of the path to this file, used to store `InternPool.TrackedInst`.
+    /// undefined until `zir_loaded == true`.
+    path_digest: Cache.BinDigest = undefined,
 
     /// Used by change detection algorithm, after astgen, contains the
     /// set of decls that existed in the previous ZIR but not in the new one.
@@ -2594,7 +2597,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     const stat = try source_file.stat();
 
     const want_local_cache = file.mod == mod.main_mod;
-    const digest = hash: {
+    const bin_digest = hash: {
         var path_hash: Cache.HashHelper = .{};
         path_hash.addBytes(build_options.version);
         path_hash.add(builtin.zig_backend);
@@ -2603,7 +2606,19 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
             path_hash.addBytes(file.mod.root.sub_path);
         }
         path_hash.addBytes(file.sub_file_path);
-        break :hash path_hash.final();
+        var bin: Cache.BinDigest = undefined;
+        path_hash.hasher.final(&bin);
+        break :hash bin;
+    };
+    file.path_digest = bin_digest;
+    const hex_digest = hex: {
+        var hex: Cache.HexDigest = undefined;
+        _ = std.fmt.bufPrint(
+            &hex,
+            "{s}",
+            .{std.fmt.fmtSliceHexLower(&bin_digest)},
+        ) catch unreachable;
+        break :hex hex;
     };
     const cache_directory = if (want_local_cache) mod.local_zir_cache else mod.global_zir_cache;
     const zir_dir = cache_directory.handle;
@@ -2613,7 +2628,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         .never_loaded, .retryable_failure => lock: {
             // First, load the cached ZIR code, if any.
             log.debug("AstGen checking cache: {s} (local={}, digest={s})", .{
-                file.sub_file_path, want_local_cache, &digest,
+                file.sub_file_path, want_local_cache, &hex_digest,
             });
 
             break :lock .shared;
@@ -2640,7 +2655,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     // version. Likewise if we're working on AstGen and another process asks for
     // the cached file, they'll get it.
     const cache_file = while (true) {
-        break zir_dir.createFile(&digest, .{
+        break zir_dir.createFile(&hex_digest, .{
             .read = true,
             .truncate = false,
             .lock = lock,
@@ -2826,7 +2841,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     };
     cache_file.writevAll(&iovecs) catch |err| {
         log.warn("unable to write cached ZIR code for {}{s} to {}{s}: {s}", .{
-            file.mod.root, file.sub_file_path, cache_directory, &digest, @errorName(err),
+            file.mod.root, file.sub_file_path, cache_directory, &hex_digest, @errorName(err),
         });
     };
 
@@ -2935,89 +2950,22 @@ fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File)
     return zir;
 }
 
-/// Patch ups:
-/// * Struct.zir_index
-/// * Decl.zir_index
-/// * Fn.zir_body_inst
-/// * Decl.zir_decl_index
-fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
-    const gpa = mod.gpa;
-    const new_zir = file.zir;
+fn updateZirRefs(zcu: *Module, file: *File, old_zir: Zir) !void {
+    const gpa = zcu.gpa;
 
-    // The root decl will be null if the previous ZIR had AST errors.
-    const root_decl = file.root_decl.unwrap() orelse return;
-
-    // Maps from old ZIR to new ZIR, declaration, struct_decl, enum_decl, etc. Any instruction which
-    // creates a namespace, and any `declaration` instruction, gets mapped from old to new here.
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
     defer inst_map.deinit(gpa);
 
-    try mapOldZirToNew(gpa, old_zir, new_zir, &inst_map);
+    try mapOldZirToNew(gpa, old_zir, file.zir, &inst_map);
 
-    // Walk the Decl graph, updating ZIR indexes, strings, and populating
-    // the deleted and outdated lists.
-
-    var decl_stack: ArrayListUnmanaged(Decl.Index) = .{};
-    defer decl_stack.deinit(gpa);
-
-    try decl_stack.append(gpa, root_decl);
-
-    file.deleted_decls.clearRetainingCapacity();
-    file.outdated_decls.clearRetainingCapacity();
-
-    // The root decl is always outdated; otherwise we would not have had
-    // to re-generate ZIR for the File.
-    try file.outdated_decls.append(gpa, root_decl);
-
-    const ip = &mod.intern_pool;
-
-    while (decl_stack.popOrNull()) |decl_index| {
-        const decl = mod.declPtr(decl_index);
-        // Anonymous decls and the root decl have this set to 0. We still need
-        // to walk them but we do not need to modify this value.
-        // Anonymous decls should not be marked outdated. They will be re-generated
-        // if their owner decl is marked outdated.
-        if (decl.zir_decl_index.unwrap()) |old_zir_decl_index| {
-            const new_zir_decl_index = inst_map.get(old_zir_decl_index) orelse {
-                try file.deleted_decls.append(gpa, decl_index);
-                continue;
-            };
-            const old_hash = decl.contentsHashZir(old_zir);
-            decl.zir_decl_index = new_zir_decl_index.toOptional();
-            const new_hash = decl.contentsHashZir(new_zir);
-            if (!std.zig.srcHashEql(old_hash, new_hash)) {
-                try file.outdated_decls.append(gpa, decl_index);
-            }
-        }
-
-        if (!decl.owns_tv) continue;
-
-        if (decl.getOwnedStruct(mod)) |struct_type| {
-            struct_type.setZirIndex(ip, inst_map.get(struct_type.zir_index) orelse {
-                try file.deleted_decls.append(gpa, decl_index);
-                continue;
-            });
-        }
-
-        if (decl.getOwnedUnion(mod)) |union_type| {
-            union_type.setZirIndex(ip, inst_map.get(union_type.zir_index) orelse {
-                try file.deleted_decls.append(gpa, decl_index);
-                continue;
-            });
-        }
-
-        if (decl.getOwnedFunction(mod)) |func| {
-            func.zirBodyInst(ip).* = inst_map.get(func.zir_body_inst) orelse {
-                try file.deleted_decls.append(gpa, decl_index);
-                continue;
-            };
-        }
-
-        if (decl.getOwnedInnerNamespace(mod)) |namespace| {
-            for (namespace.decls.keys()) |sub_decl| {
-                try decl_stack.append(gpa, sub_decl);
-            }
-        }
+    // TODO: this should be done after all AstGen workers complete, to avoid
+    // iterating over this full set for every updated file.
+    for (zcu.intern_pool.tracked_insts.keys()) |*ti| {
+        if (!std.mem.eql(u8, &ti.path_digest, &file.path_digest)) continue;
+        ti.inst = inst_map.get(ti.inst) orelse {
+            // TODO: invalidate this `TrackedInst` via the dependency mechanism
+            continue;
+        };
     }
 }
 
@@ -3494,7 +3442,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     const struct_ty = sema.getStructType(
         new_decl_index,
         new_namespace_index,
-        .main_struct_inst,
+        try mod.intern_pool.trackZir(gpa, file, .main_struct_inst),
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
@@ -4472,7 +4420,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     };
     defer inner_block.instructions.deinit(gpa);
 
-    const fn_info = sema.code.getFnInfo(func.zirBodyInst(ip).*);
+    const fn_info = sema.code.getFnInfo(func.zirBodyInst(ip).resolve(ip));
 
     // Here we are performing "runtime semantic analysis" for a function body, which means
     // we must map the parameter ZIR instructions to `arg` AIR instructions.
@@ -6125,7 +6073,7 @@ pub fn getParamName(mod: *Module, func_index: InternPool.Index, index: u32) [:0]
     const tags = file.zir.instructions.items(.tag);
     const data = file.zir.instructions.items(.data);
 
-    const param_body = file.zir.getParamBody(func.zir_body_inst);
+    const param_body = file.zir.getParamBody(func.zir_body_inst.resolve(&mod.intern_pool));
     const param = param_body[index];
 
     return switch (tags[@intFromEnum(param)]) {
