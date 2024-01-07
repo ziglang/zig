@@ -2,14 +2,14 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
-const Module = @import("Module.zig");
+const Zcu = @import("Module.zig");
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
 const InternPool = @import("InternPool.zig");
 
-pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) void {
+pub fn write(stream: anytype, zcu: *Zcu, air: Air, liveness: ?Liveness) void {
     const instruction_bytes = air.instructions.len *
         // Here we don't use @sizeOf(Air.Inst.Data) because it would include
         // the debug safety tag but we want to measure release size.
@@ -42,8 +42,8 @@ pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) vo
     // zig fmt: on
 
     var writer: Writer = .{
-        .module = module,
-        .gpa = module.gpa,
+        .zcu = zcu,
+        .gpa = zcu.gpa,
         .air = air,
         .liveness = liveness,
         .indent = 2,
@@ -55,13 +55,13 @@ pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) vo
 pub fn writeInst(
     stream: anytype,
     inst: Air.Inst.Index,
-    module: *Module,
+    zcu: *Zcu,
     air: Air,
     liveness: ?Liveness,
 ) void {
     var writer: Writer = .{
-        .module = module,
-        .gpa = module.gpa,
+        .zcu = zcu,
+        .gpa = zcu.gpa,
         .air = air,
         .liveness = liveness,
         .indent = 2,
@@ -70,16 +70,16 @@ pub fn writeInst(
     writer.writeInst(stream, inst) catch return;
 }
 
-pub fn dump(module: *Module, air: Air, liveness: ?Liveness) void {
-    write(std.io.getStdErr().writer(), module, air, liveness);
+pub fn dump(zcu: *Zcu, air: Air, liveness: ?Liveness) void {
+    write(std.io.getStdErr().writer(), zcu, air, liveness);
 }
 
-pub fn dumpInst(inst: Air.Inst.Index, module: *Module, air: Air, liveness: ?Liveness) void {
-    writeInst(std.io.getStdErr().writer(), inst, module, air, liveness);
+pub fn dumpInst(inst: Air.Inst.Index, zcu: *Zcu, air: Air, liveness: ?Liveness) void {
+    writeInst(std.io.getStdErr().writer(), inst, zcu, air, liveness);
 }
 
 const Writer = struct {
-    module: *Module,
+    zcu: *Zcu,
     gpa: Allocator,
     air: Air,
     liveness: ?Liveness,
@@ -347,7 +347,7 @@ const Writer = struct {
     }
 
     fn writeType(w: *Writer, s: anytype, ty: Type) !void {
-        return ty.print(s, w.module);
+        return ty.print(s, w.zcu);
     }
 
     fn writeTy(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -409,10 +409,10 @@ const Writer = struct {
     }
 
     fn writeAggregateInit(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const mod = w.module;
+        const zcu = w.zcu;
         const ty_pl = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const vector_ty = ty_pl.ty.toType();
-        const len = @as(usize, @intCast(vector_ty.arrayLen(mod)));
+        const len = @as(usize, @intCast(vector_ty.arrayLen(zcu)));
         const elements = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[ty_pl.payload..][0..len]));
 
         try w.writeType(s, vector_ty);
@@ -489,11 +489,11 @@ const Writer = struct {
     }
 
     fn writeSelect(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const mod = w.module;
+        const zcu = w.zcu;
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = w.air.extraData(Air.Bin, pl_op.payload).data;
 
-        const elem_ty = w.typeOfIndex(inst).childType(mod);
+        const elem_ty = w.typeOfIndex(inst).childType(zcu);
         try w.writeType(s, elem_ty);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 0, pl_op.operand);
@@ -665,8 +665,8 @@ const Writer = struct {
     fn writeDbgInline(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_fn = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
         const func_index = ty_fn.func;
-        const owner_decl = w.module.funcOwnerDeclPtr(func_index);
-        try s.print("{}", .{owner_decl.name.fmt(&w.module.intern_pool)});
+        const owner_decl = w.zcu.funcOwnerDeclPtr(func_index);
+        try s.print("{}", .{owner_decl.name.fmt(&w.zcu.intern_pool)});
     }
 
     fn writeDbgVar(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -939,11 +939,11 @@ const Writer = struct {
         if (@intFromEnum(operand) < InternPool.static_len) {
             return s.print("@{}", .{operand});
         } else if (operand.toInterned()) |ip_index| {
-            const mod = w.module;
-            const ty = Type.fromInterned(mod.intern_pool.indexToKey(ip_index).typeOf());
+            const zcu = w.zcu;
+            const ty = Type.fromInterned(zcu.intern_pool.indexToKey(ip_index).typeOf());
             try s.print("<{}, {}>", .{
-                ty.fmt(mod),
-                Value.fromInterned(ip_index).fmtValue(ty, mod),
+                ty.fmt(zcu),
+                Value.fromInterned(ip_index).fmtValue(ty, zcu),
             });
         } else {
             return w.writeInstIndex(s, operand.toIndex().?, dies);
@@ -962,7 +962,7 @@ const Writer = struct {
     }
 
     fn typeOfIndex(w: *Writer, inst: Air.Inst.Index) Type {
-        const mod = w.module;
-        return w.air.typeOfIndex(inst, &mod.intern_pool);
+        const zcu = w.zcu;
+        return w.air.typeOfIndex(inst, &zcu.intern_pool);
     }
 };

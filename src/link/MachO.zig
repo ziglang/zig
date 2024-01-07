@@ -257,7 +257,7 @@ pub fn createEmpty(
     });
     self.base.file = file;
 
-    if (comp.config.debug_format != .strip and comp.module != null) {
+    if (comp.config.debug_format != .strip and comp.zcu != null) {
         // Create dSYM bundle.
         log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
 
@@ -355,7 +355,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     defer sub_prog_node.end();
 
     const output_mode = comp.config.output_mode;
-    const module = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    const module = comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented;
     const target = comp.root_mod.resolved_target.result;
 
     if (self.lazy_syms.getPtr(.none)) |metadata| {
@@ -2212,17 +2212,17 @@ pub fn addTlvPtrEntry(self: *MachO, reloc_target: SymbolWithLoc) !void {
     }
 }
 
-pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *MachO, zcu: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(zcu, func_index, air, liveness);
     const tracy = trace(@src());
     defer tracy.end();
 
-    const func = mod.funcInfo(func_index);
+    const func = zcu.funcInfo(func_index);
     const decl_index = func.owner_decl;
-    const decl = mod.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
 
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
     self.freeUnnamedConsts(decl_index);
@@ -2233,23 +2233,23 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
     defer code_buffer.deinit();
 
     var decl_state = if (self.d_sym) |*d_sym|
-        try d_sym.dwarf.initDeclState(mod, decl_index)
+        try d_sym.dwarf.initDeclState(zcu, decl_index)
     else
         null;
     defer if (decl_state) |*ds| ds.deinit();
 
     const res = if (decl_state) |*ds|
-        try codegen.generateFunction(&self.base, decl.srcLoc(mod), func_index, air, liveness, &code_buffer, .{
+        try codegen.generateFunction(&self.base, decl.srcLoc(zcu), func_index, air, liveness, &code_buffer, .{
             .dwarf = ds,
         })
     else
-        try codegen.generateFunction(&self.base, decl.srcLoc(mod), func_index, air, liveness, &code_buffer, .none);
+        try codegen.generateFunction(&self.base, decl.srcLoc(zcu), func_index, air, liveness, &code_buffer, .none);
 
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try zcu.failed_decls.put(zcu.gpa, decl_index, em);
             return;
         },
     };
@@ -2258,7 +2258,7 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
 
     if (decl_state) |*ds| {
         try self.d_sym.?.dwarf.commitDeclState(
-            mod,
+            zcu,
             decl_index,
             addr,
             self.getAtom(atom_index).size,
@@ -2268,27 +2268,27 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
     // needs to be updated.
-    try self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    try self.updateExports(zcu, .{ .decl_index = decl_index }, zcu.getDeclExports(decl_index));
 }
 
 pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.comp.module.?;
+    const zcu = self.base.comp.zcu.?;
     const gop = try self.unnamed_const_atoms.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
     const unnamed_consts = gop.value_ptr;
-    const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const decl = zcu.declPtr(decl_index);
+    const decl_name = zcu.intern_pool.stringToSlice(try decl.getFullyQualifiedName(zcu));
     const index = unnamed_consts.items.len;
     const name = try std.fmt.allocPrint(gpa, "___unnamed_{s}_{d}", .{ decl_name, index });
     defer gpa.free(name);
-    const atom_index = switch (try self.lowerConst(name, typed_value, typed_value.ty.abiAlignment(mod), self.data_const_section_index.?, decl.srcLoc(mod))) {
+    const atom_index = switch (try self.lowerConst(name, typed_value, typed_value.ty.abiAlignment(zcu), self.data_const_section_index.?, decl.srcLoc(zcu))) {
         .ok => |atom_index| atom_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try zcu.failed_decls.put(zcu.gpa, decl_index, em);
             log.debug("{s}", .{em.msg});
             return error.CodegenFail;
         },
@@ -2351,36 +2351,36 @@ fn lowerConst(
     return .{ .ok = atom_index };
 }
 
-pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDecl(self: *MachO, zcu: *Module, decl_index: InternPool.DeclIndex) !void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(zcu, decl_index);
     const tracy = trace(@src());
     defer tracy.end();
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
-    const decl = mod.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
 
-    if (decl.val.getExternFunc(mod)) |_| {
+    if (decl.val.getExternFunc(zcu)) |_| {
         return;
     }
 
-    if (decl.isExtern(mod)) {
+    if (decl.isExtern(zcu)) {
         // TODO make this part of getGlobalSymbol
-        const name = mod.intern_pool.stringToSlice(decl.name);
+        const name = zcu.intern_pool.stringToSlice(decl.name);
         const sym_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
         defer gpa.free(sym_name);
         _ = try self.addUndefined(sym_name, .{ .add_got = true });
         return;
     }
 
-    const is_threadlocal = if (decl.val.getVariable(mod)) |variable|
+    const is_threadlocal = if (decl.val.getVariable(zcu)) |variable|
         variable.is_threadlocal and comp.config.any_non_single_threaded
     else
         false;
-    if (is_threadlocal) return self.updateThreadlocalVariable(mod, decl_index);
+    if (is_threadlocal) return self.updateThreadlocalVariable(zcu, decl_index);
 
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
     const sym_index = self.getAtom(atom_index).getSymbolIndex().?;
@@ -2390,14 +2390,14 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) 
     defer code_buffer.deinit();
 
     var decl_state: ?Dwarf.DeclState = if (self.d_sym) |*d_sym|
-        try d_sym.dwarf.initDeclState(mod, decl_index)
+        try d_sym.dwarf.initDeclState(zcu, decl_index)
     else
         null;
     defer if (decl_state) |*ds| ds.deinit();
 
-    const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
+    const decl_val = if (decl.val.getVariable(zcu)) |variable| Value.fromInterned(variable.init) else decl.val;
     const res = if (decl_state) |*ds|
-        try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
+        try codegen.generateSymbol(&self.base, decl.srcLoc(zcu), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .{
@@ -2406,7 +2406,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) 
             .parent_atom_index = sym_index,
         })
     else
-        try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
+        try codegen.generateSymbol(&self.base, decl.srcLoc(zcu), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .none, .{
@@ -2417,7 +2417,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) 
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try zcu.failed_decls.put(zcu.gpa, decl_index, em);
             return;
         },
     };
@@ -2425,7 +2425,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) 
 
     if (decl_state) |*ds| {
         try self.d_sym.?.dwarf.commitDeclState(
-            mod,
+            zcu,
             decl_index,
             addr,
             self.getAtom(atom_index).size,
@@ -2435,7 +2435,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) 
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
     // needs to be updated.
-    try self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    try self.updateExports(zcu, .{ .decl_index = decl_index }, zcu.getDeclExports(decl_index));
 }
 
 fn updateLazySymbolAtom(
@@ -2445,7 +2445,7 @@ fn updateLazySymbolAtom(
     section_index: u8,
 ) !void {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.comp.module.?;
+    const zcu = self.base.comp.zcu.?;
 
     var required_alignment: Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -2454,7 +2454,7 @@ fn updateLazySymbolAtom(
     const name_str_index = blk: {
         const name = try std.fmt.allocPrint(gpa, "___lazy_{s}_{}", .{
             @tagName(sym.kind),
-            sym.ty.fmt(mod),
+            sym.ty.fmt(zcu),
         });
         defer gpa.free(name);
         break :blk try self.strtab.insert(gpa, name);
@@ -2464,8 +2464,8 @@ fn updateLazySymbolAtom(
     const atom = self.getAtomPtr(atom_index);
     const local_sym_index = atom.getSymbolIndex().?;
 
-    const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
-        mod.declPtr(owner_decl).srcLoc(mod)
+    const src = if (sym.ty.getOwnerDeclOrNull(zcu)) |owner_decl|
+        zcu.declPtr(owner_decl).srcLoc(zcu)
     else
         Module.SrcLoc{
             .file_scope = undefined,
@@ -2509,9 +2509,9 @@ fn updateLazySymbolAtom(
 }
 
 pub fn getOrCreateAtomForLazySymbol(self: *MachO, sym: File.LazySymbol) !Atom.Index {
-    const mod = self.base.comp.module.?;
+    const zcu = self.base.comp.zcu.?;
     const gpa = self.base.comp.gpa;
-    const gop = try self.lazy_syms.getOrPut(gpa, sym.getDecl(mod));
+    const gop = try self.lazy_syms.getOrPut(gpa, sym.getDecl(zcu));
     errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
     if (!gop.found_existing) gop.value_ptr.* = .{};
     const metadata: struct { atom: *Atom.Index, state: *LazySymbolMetadata.State } = switch (sym.kind) {
@@ -2533,7 +2533,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *MachO, sym: File.LazySymbol) !Atom.In
     metadata.state.* = .pending_flush;
     const atom = metadata.atom.*;
     // anyerror needs to be deferred until flushModule
-    if (sym.getDecl(mod) != .none) try self.updateLazySymbolAtom(sym, atom, switch (sym.kind) {
+    if (sym.getDecl(zcu) != .none) try self.updateLazySymbolAtom(sym, atom, switch (sym.kind) {
         .code => self.text_section_index.?,
         .const_data => self.data_const_section_index.?,
     });
@@ -2541,7 +2541,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *MachO, sym: File.LazySymbol) !Atom.In
 }
 
 fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: InternPool.DeclIndex) !void {
-    const mod = self.base.comp.module.?;
+    const zcu = self.base.comp.zcu.?;
     // Lowering a TLV on macOS involves two stages:
     // 1. first we lower the initializer into appopriate section (__thread_data or __thread_bss)
     // 2. next, we create a corresponding threadlocal variable descriptor in __thread_vars
@@ -2565,9 +2565,9 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: InternPo
 
     const decl = module.declPtr(decl_index);
     const decl_metadata = self.decls.get(decl_index).?;
-    const decl_val = Value.fromInterned(decl.val.getVariable(mod).?.init);
+    const decl_val = Value.fromInterned(decl.val.getVariable(zcu).?.init);
     const res = if (decl_state) |*ds|
-        try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
+        try codegen.generateSymbol(&self.base, decl.srcLoc(zcu), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .{
@@ -2576,7 +2576,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: InternPo
             .parent_atom_index = init_sym_index,
         })
     else
-        try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
+        try codegen.generateSymbol(&self.base, decl.srcLoc(zcu), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .none, .{
@@ -2592,9 +2592,9 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: InternPo
         },
     };
 
-    const required_alignment = decl.getAlignment(mod);
+    const required_alignment = decl.getAlignment(zcu);
 
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(module));
+    const decl_name = zcu.intern_pool.stringToSlice(try decl.getFullyQualifiedName(module));
 
     const init_sym_name = try std.fmt.allocPrint(gpa, "{s}$tlv$init", .{decl_name});
     defer gpa.free(init_sym_name);
@@ -2652,16 +2652,16 @@ pub fn getOrCreateAtomForDecl(self: *MachO, decl_index: InternPool.DeclIndex) !A
 }
 
 fn getDeclOutputSection(self: *MachO, decl_index: InternPool.DeclIndex) u8 {
-    const decl = self.base.comp.module.?.declPtr(decl_index);
+    const decl = self.base.comp.zcu.?.declPtr(decl_index);
     const ty = decl.ty;
     const val = decl.val;
-    const mod = self.base.comp.module.?;
-    const zig_ty = ty.zigTypeTag(mod);
+    const zcu = self.base.comp.zcu.?;
+    const zig_ty = ty.zigTypeTag(zcu);
     const any_non_single_threaded = self.base.comp.config.any_non_single_threaded;
     const optimize_mode = self.base.comp.root_mod.optimize_mode;
     const sect_id: u8 = blk: {
         // TODO finish and audit this function
-        if (val.isUndefDeep(mod)) {
+        if (val.isUndefDeep(zcu)) {
             if (optimize_mode == .ReleaseFast or optimize_mode == .ReleaseSmall) {
                 @panic("TODO __DATA,__bss");
             } else {
@@ -2669,7 +2669,7 @@ fn getDeclOutputSection(self: *MachO, decl_index: InternPool.DeclIndex) u8 {
             }
         }
 
-        if (val.getVariable(mod)) |variable| {
+        if (val.getVariable(zcu)) |variable| {
             if (variable.is_threadlocal and any_non_single_threaded) {
                 break :blk self.thread_data_section_index.?;
             }
@@ -2680,7 +2680,7 @@ fn getDeclOutputSection(self: *MachO, decl_index: InternPool.DeclIndex) u8 {
             // TODO: what if this is a function pointer?
             .Fn => break :blk self.text_section_index.?,
             else => {
-                if (val.getVariable(mod)) |_| {
+                if (val.getVariable(zcu)) |_| {
                     break :blk self.data_section_index.?;
                 }
                 break :blk self.data_const_section_index.?;
@@ -2692,12 +2692,12 @@ fn getDeclOutputSection(self: *MachO, decl_index: InternPool.DeclIndex) u8 {
 
 fn updateDeclCode(self: *MachO, decl_index: InternPool.DeclIndex, code: []u8) !u64 {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
+    const zcu = self.base.comp.zcu.?;
+    const decl = zcu.declPtr(decl_index);
 
-    const required_alignment = decl.getAlignment(mod);
+    const required_alignment = decl.getAlignment(zcu);
 
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const decl_name = zcu.intern_pool.stringToSlice(try decl.getFullyQualifiedName(zcu));
 
     const decl_metadata = self.decls.get(decl_index).?;
     const atom_index = decl_metadata.atom;
@@ -2769,7 +2769,7 @@ pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: InternPoo
 
 pub fn updateExports(
     self: *MachO,
-    mod: *Module,
+    zcu: *Module,
     exported: Module.Exported,
     exports: []const *Module.Export,
 ) File.UpdateExportsError!void {
@@ -2777,7 +2777,7 @@ pub fn updateExports(
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |llvm_object|
-        return llvm_object.updateExports(mod, exported, exports);
+        return llvm_object.updateExports(zcu, exported, exports);
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -2791,14 +2791,14 @@ pub fn updateExports(
         },
         .value => |value| self.anon_decls.getPtr(value) orelse blk: {
             const first_exp = exports[0];
-            const res = try self.lowerAnonDecl(value, .none, first_exp.getSrcLoc(mod));
+            const res = try self.lowerAnonDecl(value, .none, first_exp.getSrcLoc(zcu));
             switch (res) {
                 .ok => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Module.processExportsInner
                     // handle the error?
-                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
+                    try zcu.failed_exports.ensureUnusedCapacity(zcu.gpa, 1);
+                    zcu.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
                     return;
                 },
             }
@@ -2811,17 +2811,17 @@ pub fn updateExports(
 
     for (exports) |exp| {
         const exp_name = try std.fmt.allocPrint(gpa, "_{}", .{
-            exp.opts.name.fmt(&mod.intern_pool),
+            exp.opts.name.fmt(&zcu.intern_pool),
         });
         defer gpa.free(exp_name);
 
         log.debug("adding new export '{s}'", .{exp_name});
 
         if (exp.opts.section.unwrap()) |section_name| {
-            if (!mod.intern_pool.stringEqlSlice(section_name, "__text")) {
-                try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
+            if (!zcu.intern_pool.stringEqlSlice(section_name, "__text")) {
+                try zcu.failed_exports.putNoClobber(zcu.gpa, exp, try Module.ErrorMsg.create(
                     gpa,
-                    exp.getSrcLoc(mod),
+                    exp.getSrcLoc(zcu),
                     "Unimplemented: ExportOptions.section",
                     .{},
                 ));
@@ -2830,9 +2830,9 @@ pub fn updateExports(
         }
 
         if (exp.opts.linkage == .LinkOnce) {
-            try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
+            try zcu.failed_exports.putNoClobber(zcu.gpa, exp, try Module.ErrorMsg.create(
                 gpa,
-                exp.getSrcLoc(mod),
+                exp.getSrcLoc(zcu),
                 "Unimplemented: GlobalLinkage.LinkOnce",
                 .{},
             ));
@@ -2885,9 +2885,9 @@ pub fn updateExports(
                 // TODO: this needs rethinking
                 const global = self.getGlobal(exp_name).?;
                 if (global_sym_loc.sym_index != global.sym_index and global.getFile() != null) {
-                    _ = try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
+                    _ = try zcu.failed_exports.put(zcu.gpa, exp, try Module.ErrorMsg.create(
                         gpa,
-                        exp.getSrcLoc(mod),
+                        exp.getSrcLoc(zcu),
                         \\LinkError: symbol '{s}' defined multiple times
                     ,
                         .{exp_name},
@@ -2908,8 +2908,8 @@ pub fn deleteDeclExport(
     const metadata = self.decls.getPtr(decl_index) orelse return;
 
     const gpa = self.base.comp.gpa;
-    const mod = self.base.comp.module.?;
-    const exp_name = try std.fmt.allocPrint(gpa, "_{s}", .{mod.intern_pool.stringToSlice(name)});
+    const zcu = self.base.comp.zcu.?;
+    const exp_name = try std.fmt.allocPrint(gpa, "_{s}", .{zcu.intern_pool.stringToSlice(name)});
     defer gpa.free(exp_name);
     const sym_index = metadata.getExportPtr(self, exp_name) orelse return;
 
@@ -2947,8 +2947,8 @@ fn freeUnnamedConsts(self: *MachO, decl_index: InternPool.DeclIndex) void {
 pub fn freeDecl(self: *MachO, decl_index: InternPool.DeclIndex) void {
     if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     const gpa = self.base.comp.gpa;
-    const mod = self.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
+    const zcu = self.base.comp.zcu.?;
+    const decl = zcu.declPtr(decl_index);
 
     log.debug("freeDecl {*}", .{decl});
 
@@ -2990,10 +2990,10 @@ pub fn lowerAnonDecl(
     src_loc: Module.SrcLoc,
 ) !codegen.Result {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.comp.module.?;
-    const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
+    const zcu = self.base.comp.zcu.?;
+    const ty = Type.fromInterned(zcu.intern_pool.typeOf(decl_val));
     const decl_alignment = switch (explicit_alignment) {
-        .none => ty.abiAlignment(mod),
+        .none => ty.abiAlignment(zcu),
         else => explicit_alignment,
     };
     if (self.anon_decls.get(decl_val)) |metadata| {

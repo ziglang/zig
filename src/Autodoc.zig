@@ -4,8 +4,8 @@ const build_options = @import("build_options");
 const Ast = std.zig.Ast;
 const Autodoc = @This();
 const Compilation = @import("Compilation.zig");
-const CompilationModule = @import("Module.zig");
-const File = CompilationModule.File;
+const Zcu = @import("Module.zig");
+const File = Zcu.File;
 const Module = @import("Package.zig").Module;
 const Tokenizer = std.zig.Tokenizer;
 const InternPool = @import("InternPool.zig");
@@ -14,7 +14,7 @@ const Ref = Zir.Inst.Ref;
 const log = std.log.scoped(.autodoc);
 const renderer = @import("autodoc/render_source.zig");
 
-comp_module: *CompilationModule,
+comp_module: *Zcu,
 arena: std.mem.Allocator,
 
 // The goal of autodoc is to fill up these arrays
@@ -81,16 +81,16 @@ const Section = struct {
     };
 };
 
-pub fn generate(cm: *CompilationModule, output_dir: std.fs.Dir) !void {
-    var arena_allocator = std.heap.ArenaAllocator.init(cm.gpa);
+pub fn generate(zcu: *Zcu, output_dir: std.fs.Dir) !void {
+    var arena_allocator = std.heap.ArenaAllocator.init(zcu.gpa);
     defer arena_allocator.deinit();
     var autodoc: Autodoc = .{
-        .comp_module = cm,
+        .comp_module = zcu,
         .arena = arena_allocator.allocator(),
     };
     try autodoc.generateZirData(output_dir);
 
-    const lib_dir = cm.comp.zig_lib_directory.handle;
+    const lib_dir = zcu.comp.zig_lib_directory.handle;
     try lib_dir.copyFile("docs/main.js", output_dir, "main.js", .{});
     try lib_dir.copyFile("docs/ziglexer.js", output_dir, "ziglexer.js", .{});
     try lib_dir.copyFile("docs/commonmark.js", output_dir, "commonmark.js", .{});

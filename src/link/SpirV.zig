@@ -208,7 +208,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     defer error_info.deinit();
 
     try error_info.appendSlice("zig_errors");
-    const module = self.base.comp.module.?;
+    const module = self.base.comp.zcu.?;
     for (module.global_error_set.keys()) |name_nts| {
         const name = module.intern_pool.stringToSlice(name_nts);
         // Errors can contain pretty much any character - to encode them in a string we must escape

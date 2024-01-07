@@ -11,7 +11,7 @@ const Air = @This();
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const InternPool = @import("InternPool.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Module.zig");
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
@@ -796,10 +796,10 @@ pub const Inst = struct {
 
         /// Returns `true` if and only if the operand, an integer with
         /// the same size as the error integer type, is less than the
-        /// total number of errors in the Module.
+        /// total number of errors in the Zcu.
         /// Result type is always `bool`.
         /// Uses the `un_op` field.
-        /// Note that the number of errors in the Module cannot be considered stable until
+        /// Note that the number of errors in the Zcu cannot be considered stable until
         /// flush().
         cmp_lt_errors_len,
 
@@ -1567,12 +1567,12 @@ pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
 }
 
 /// Returns `null` if runtime-known.
-pub fn value(air: Air, inst: Inst.Ref, mod: *Module) !?Value {
+pub fn value(air: Air, inst: Inst.Ref, zcu: *Zcu) !?Value {
     if (inst.toInterned()) |ip_index| {
         return Value.fromInterned(ip_index);
     }
     const index = inst.toIndex().?;
-    return air.typeOfIndex(index, &mod.intern_pool).onePossibleValue(mod);
+    return air.typeOfIndex(index, &zcu.intern_pool).onePossibleValue(zcu);
 }
 
 pub fn nullTerminatedString(air: Air, index: usize) [:0]const u8 {

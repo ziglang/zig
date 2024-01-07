@@ -14,7 +14,7 @@ const Cache = std.Build.Cache;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const Liveness = @import("Liveness.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Module.zig");
 const InternPool = @import("InternPool.zig");
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
@@ -400,16 +400,16 @@ pub const File = struct {
     }
 
     /// May be called before or after updateExports for any given Decl.
-    pub fn updateDecl(base: *File, module: *Module, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
-        const decl = module.declPtr(decl_index);
+    pub fn updateDecl(base: *File, zcu: *Zcu, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
+        const decl = zcu.declPtr(decl_index);
         assert(decl.has_tv);
         switch (base.tag) {
             .c => {
-                return @fieldParentPtr(C, "base", base).updateDecl(module, decl_index);
+                return @fieldParentPtr(C, "base", base).updateDecl(zcu, decl_index);
             },
             inline else => |tag| {
                 if (build_options.only_c) unreachable;
-                return @fieldParentPtr(tag.Type(), "base", base).updateDecl(module, decl_index);
+                return @fieldParentPtr(tag.Type(), "base", base).updateDecl(zcu, decl_index);
             },
         }
     }
@@ -417,23 +417,23 @@ pub const File = struct {
     /// May be called before or after updateExports for any given Decl.
     pub fn updateFunc(
         base: *File,
-        module: *Module,
+        zcu: *Zcu,
         func_index: InternPool.Index,
         air: Air,
         liveness: Liveness,
     ) UpdateDeclError!void {
         switch (base.tag) {
             .c => {
-                return @fieldParentPtr(C, "base", base).updateFunc(module, func_index, air, liveness);
+                return @fieldParentPtr(C, "base", base).updateFunc(zcu, func_index, air, liveness);
             },
             inline else => |tag| {
                 if (build_options.only_c) unreachable;
-                return @fieldParentPtr(tag.Type(), "base", base).updateFunc(module, func_index, air, liveness);
+                return @fieldParentPtr(tag.Type(), "base", base).updateFunc(zcu, func_index, air, liveness);
             },
         }
     }
 
-    pub fn updateDeclLineNumber(base: *File, module: *Module, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
+    pub fn updateDeclLineNumber(base: *File, module: *Zcu, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
         assert(decl.has_tv);
         switch (base.tag) {
@@ -597,7 +597,7 @@ pub const File = struct {
         }
     }
 
-    /// Called when a Decl is deleted from the Module.
+    /// Called when a Decl is deleted from the Zcu.
     pub fn freeDecl(base: *File, decl_index: InternPool.DeclIndex) void {
         switch (base.tag) {
             .c => {
@@ -621,17 +621,17 @@ pub const File = struct {
     /// May be called before or after updateDecl for any given Decl.
     pub fn updateExports(
         base: *File,
-        module: *Module,
-        exported: Module.Exported,
-        exports: []const *Module.Export,
+        zcu: *Zcu,
+        exported: Zcu.Exported,
+        exports: []const *Zcu.Export,
     ) UpdateExportsError!void {
         switch (base.tag) {
             .c => {
-                return @fieldParentPtr(C, "base", base).updateExports(module, exported, exports);
+                return @fieldParentPtr(C, "base", base).updateExports(zcu, exported, exports);
             },
             inline else => |tag| {
                 if (build_options.only_c) unreachable;
-                return @fieldParentPtr(tag.Type(), "base", base).updateExports(module, exported, exports);
+                return @fieldParentPtr(tag.Type(), "base", base).updateExports(zcu, exported, exports);
             },
         }
     }
@@ -666,7 +666,7 @@ pub const File = struct {
         base: *File,
         decl_val: InternPool.Index,
         decl_align: InternPool.Alignment,
-        src_loc: Module.SrcLoc,
+        src_loc: Zcu.SrcLoc,
     ) !LowerResult {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
@@ -720,7 +720,7 @@ pub const File = struct {
         const directory = base.emit.directory; // Just an alias to make it shorter to type.
         const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
         const full_out_path_z = try arena.dupeZ(u8, full_out_path);
-        const opt_zcu = comp.module;
+        const opt_zcu = comp.zcu;
 
         // If there is no Zig code to compile, then we should skip flushing the output file
         // because it will not be part of the linker line anyway.
@@ -918,14 +918,14 @@ pub const File = struct {
         kind: Kind,
         ty: Type,
 
-        pub fn initDecl(kind: Kind, decl: ?InternPool.DeclIndex, mod: *Module) LazySymbol {
+        pub fn initDecl(kind: Kind, decl: ?InternPool.DeclIndex, mod: *Zcu) LazySymbol {
             return .{ .kind = kind, .ty = if (decl) |decl_index|
                 mod.declPtr(decl_index).val.toType()
             else
                 Type.anyerror };
         }
 
-        pub fn getDecl(self: LazySymbol, mod: *Module) InternPool.OptionalDeclIndex {
+        pub fn getDecl(self: LazySymbol, mod: *Zcu) InternPool.OptionalDeclIndex {
             return InternPool.OptionalDeclIndex.init(self.ty.getOwnerDeclOrNull(mod));
         }
     };

@@ -11,7 +11,7 @@ const log = std.log.scoped(.link);
 
 pub const Atom = @import("Wasm/Atom.zig");
 const Dwarf = @import("Dwarf.zig");
-const Module = @import("../Module.zig");
+const Zcu = @import("../Module.zig");
 const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
@@ -660,9 +660,9 @@ pub fn getOrCreateAtomForDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex) !At
         gop.value_ptr.* = atom_index;
         const atom = wasm.getAtom(atom_index);
         const symbol = atom.symbolLoc().getSymbol(wasm);
-        const mod = wasm.base.comp.module.?;
-        const decl = mod.declPtr(decl_index);
-        const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+        const zcu = wasm.base.comp.zcu.?;
+        const decl = zcu.declPtr(decl_index);
+        const full_name = zcu.intern_pool.stringToSlice(try decl.getFullyQualifiedName(zcu));
         symbol.name = try wasm.string_table.put(gpa, full_name);
     }
     return gop.value_ptr.*;
@@ -1471,31 +1471,31 @@ pub fn allocateSymbol(wasm: *Wasm) !u32 {
     return index;
 }
 
-pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(wasm: *Wasm, zcu: *Zcu, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(zcu, func_index, air, liveness);
 
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = wasm.base.comp.gpa;
-    const func = mod.funcInfo(func_index);
+    const func = zcu.funcInfo(func_index);
     const decl_index = func.owner_decl;
-    const decl = mod.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const atom = wasm.getAtomPtr(atom_index);
     atom.clear();
 
-    // var decl_state: ?Dwarf.DeclState = if (wasm.dwarf) |*dwarf| try dwarf.initDeclState(mod, decl_index) else null;
+    // var decl_state: ?Dwarf.DeclState = if (wasm.dwarf) |*dwarf| try dwarf.initDeclState(zcu, decl_index) else null;
     // defer if (decl_state) |*ds| ds.deinit();
 
     var code_writer = std.ArrayList(u8).init(gpa);
     defer code_writer.deinit();
     // const result = try codegen.generateFunction(
     //     &wasm.base,
-    //     decl.srcLoc(mod),
+    //     decl.srcLoc(zcu),
     //     func,
     //     air,
     //     liveness,
@@ -1504,7 +1504,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: InternPool.Index, air: 
     // );
     const result = try codegen.generateFunction(
         &wasm.base,
-        decl.srcLoc(mod),
+        decl.srcLoc(zcu),
         func_index,
         air,
         liveness,
@@ -1516,14 +1516,14 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: InternPool.Index, air: 
         .ok => code_writer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try zcu.failed_decls.put(zcu.gpa, decl_index, em);
             return;
         },
     };
 
     // if (wasm.dwarf) |*dwarf| {
     //     try dwarf.commitDeclState(
-    //         mod,
+    //         zcu,
     //         decl_index,
     //         // Actual value will be written after relocation.
     //         // For Wasm, this is the offset relative to the code section
@@ -1538,19 +1538,19 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: InternPool.Index, air: 
 
 // Generate code for the Decl, storing it in memory to be later written to
 // the file on flush().
-pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDecl(wasm: *Wasm, zcu: *Zcu, decl_index: InternPool.DeclIndex) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateDecl(zcu, decl_index);
 
     const tracy = trace(@src());
     defer tracy.end();
 
-    const decl = mod.declPtr(decl_index);
-    if (decl.val.getFunction(mod)) |_| {
+    const decl = zcu.declPtr(decl_index);
+    if (decl.val.getFunction(zcu)) |_| {
         return;
-    } else if (decl.val.getExternFunc(mod)) |_| {
+    } else if (decl.val.getExternFunc(zcu)) |_| {
         return;
     }
 
@@ -1559,20 +1559,20 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: InternPool.DeclIndex) !
     const atom = wasm.getAtomPtr(atom_index);
     atom.clear();
 
-    if (decl.isExtern(mod)) {
-        const variable = decl.getOwnedVariable(mod).?;
-        const name = mod.intern_pool.stringToSlice(decl.name);
-        const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+    if (decl.isExtern(zcu)) {
+        const variable = decl.getOwnedVariable(zcu).?;
+        const name = zcu.intern_pool.stringToSlice(decl.name);
+        const lib_name = zcu.intern_pool.stringToSliceUnwrap(variable.lib_name);
         return wasm.addOrUpdateImport(name, atom.sym_index, lib_name, null);
     }
-    const val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
+    const val = if (decl.val.getVariable(zcu)) |variable| Value.fromInterned(variable.init) else decl.val;
 
     var code_writer = std.ArrayList(u8).init(gpa);
     defer code_writer.deinit();
 
     const res = try codegen.generateSymbol(
         &wasm.base,
-        decl.srcLoc(mod),
+        decl.srcLoc(zcu),
         .{ .ty = decl.ty, .val = val },
         &code_writer,
         .none,
@@ -1583,7 +1583,7 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: InternPool.DeclIndex) !
         .ok => code_writer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try zcu.failed_decls.put(zcu.gpa, decl_index, em);
             return;
         },
     };
@@ -1591,28 +1591,28 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: InternPool.DeclIndex) !
     return wasm.finishUpdateDecl(decl_index, code, .data);
 }
 
-pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDeclLineNumber(wasm: *Wasm, zcu: *Zcu, decl_index: InternPool.DeclIndex) !void {
     if (wasm.llvm_object) |_| return;
     if (wasm.dwarf) |*dw| {
         const tracy = trace(@src());
         defer tracy.end();
 
-        const decl = mod.declPtr(decl_index);
-        const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+        const decl = zcu.declPtr(decl_index);
+        const decl_name = zcu.intern_pool.stringToSlice(try decl.getFullyQualifiedName(zcu));
 
         log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
-        try dw.updateDeclLineNumber(mod, decl_index);
+        try dw.updateDeclLineNumber(zcu, decl_index);
     }
 }
 
 fn finishUpdateDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex, code: []const u8, symbol_tag: Symbol.Tag) !void {
     const gpa = wasm.base.comp.gpa;
-    const mod = wasm.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
+    const zcu = wasm.base.comp.zcu.?;
+    const decl = zcu.declPtr(decl_index);
     const atom_index = wasm.decls.get(decl_index).?;
     const atom = wasm.getAtomPtr(atom_index);
     const symbol = &wasm.symbols.items[atom.sym_index];
-    const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const full_name = zcu.intern_pool.stringToSlice(try decl.getFullyQualifiedName(zcu));
     symbol.name = try wasm.string_table.put(gpa, full_name);
     symbol.tag = symbol_tag;
     try atom.code.appendSlice(gpa, code);
@@ -1620,7 +1620,7 @@ fn finishUpdateDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex, code: []const
 
     atom.size = @intCast(code.len);
     if (code.len == 0) return;
-    atom.alignment = decl.getAlignment(mod);
+    atom.alignment = decl.getAlignment(zcu);
 }
 
 /// From a given symbol location, returns its `wasm.GlobalType`.
@@ -1671,27 +1671,27 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
 /// The given `decl` is the parent decl whom owns the constant.
 pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
     const gpa = wasm.base.comp.gpa;
-    const mod = wasm.base.comp.module.?;
-    assert(tv.ty.zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
-    const decl = mod.declPtr(decl_index);
+    const zcu = wasm.base.comp.zcu.?;
+    assert(tv.ty.zigTypeTag(zcu) != .Fn); // cannot create local symbols for functions
+    const decl = zcu.declPtr(decl_index);
 
     const parent_atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const parent_atom = wasm.getAtom(parent_atom_index);
     const local_index = parent_atom.locals.items.len;
-    const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const fqn = zcu.intern_pool.stringToSlice(try decl.getFullyQualifiedName(zcu));
     const name = try std.fmt.allocPrintZ(gpa, "__unnamed_{s}_{d}", .{
         fqn, local_index,
     });
     defer gpa.free(name);
 
-    switch (try wasm.lowerConst(name, tv, decl.srcLoc(mod))) {
+    switch (try wasm.lowerConst(name, tv, decl.srcLoc(zcu))) {
         .ok => |atom_index| {
             try wasm.getAtomPtr(parent_atom_index).locals.append(gpa, atom_index);
             return wasm.getAtom(atom_index).getSymbolIndex().?;
         },
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try zcu.failed_decls.put(zcu.gpa, decl_index, em);
             return error.CodegenFail;
         },
     }
@@ -1699,12 +1699,12 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: InternPool.Dec
 
 const LowerConstResult = union(enum) {
     ok: Atom.Index,
-    fail: *Module.ErrorMsg,
+    fail: *Zcu.ErrorMsg,
 };
 
-fn lowerConst(wasm: *Wasm, name: []const u8, tv: TypedValue, src_loc: Module.SrcLoc) !LowerConstResult {
+fn lowerConst(wasm: *Wasm, name: []const u8, tv: TypedValue, src_loc: Zcu.SrcLoc) !LowerConstResult {
     const gpa = wasm.base.comp.gpa;
-    const mod = wasm.base.comp.module.?;
+    const zcu = wasm.base.comp.zcu.?;
 
     // Create and initialize a new local symbol and atom
     const atom_index = try wasm.createAtom();
@@ -1713,7 +1713,7 @@ fn lowerConst(wasm: *Wasm, name: []const u8, tv: TypedValue, src_loc: Module.Src
 
     const code = code: {
         const atom = wasm.getAtomPtr(atom_index);
-        atom.alignment = tv.ty.abiAlignment(mod);
+        atom.alignment = tv.ty.abiAlignment(zcu);
         wasm.symbols.items[atom.sym_index] = .{
             .name = try wasm.string_table.put(gpa, name),
             .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
@@ -1793,8 +1793,8 @@ pub fn getDeclVAddr(
 ) !u64 {
     const target = wasm.base.comp.root_mod.resolved_target.result;
     const gpa = wasm.base.comp.gpa;
-    const mod = wasm.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
+    const zcu = wasm.base.comp.zcu.?;
+    const decl = zcu.declPtr(decl_index);
 
     const target_atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const target_symbol_index = wasm.getAtom(target_atom_index).sym_index;
@@ -1803,7 +1803,7 @@ pub fn getDeclVAddr(
     const atom_index = wasm.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
     const atom = wasm.getAtomPtr(atom_index);
     const is_wasm32 = target.cpu.arch == .wasm32;
-    if (decl.ty.zigTypeTag(mod) == .Fn) {
+    if (decl.ty.zigTypeTag(zcu) == .Fn) {
         assert(reloc_info.addend == 0); // addend not allowed for function relocations
         // We found a function pointer, so add it to our table,
         // as function pointers are not allowed to be stored inside the data section.
@@ -1833,13 +1833,13 @@ pub fn lowerAnonDecl(
     wasm: *Wasm,
     decl_val: InternPool.Index,
     explicit_alignment: Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Zcu.SrcLoc,
 ) !codegen.Result {
     const gpa = wasm.base.comp.gpa;
     const gop = try wasm.anon_decls.getOrPut(gpa, decl_val);
     if (!gop.found_existing) {
-        const mod = wasm.base.comp.module.?;
-        const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
+        const zcu = wasm.base.comp.zcu.?;
+        const ty = Type.fromInterned(zcu.intern_pool.typeOf(decl_val));
         const tv: TypedValue = .{ .ty = ty, .val = Value.fromInterned(decl_val) };
         var name_buf: [32]u8 = undefined;
         const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
@@ -1872,9 +1872,9 @@ pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: lin
     const parent_atom_index = wasm.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
     const parent_atom = wasm.getAtomPtr(parent_atom_index);
     const is_wasm32 = target.cpu.arch == .wasm32;
-    const mod = wasm.base.comp.module.?;
-    const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
-    if (ty.zigTypeTag(mod) == .Fn) {
+    const zcu = wasm.base.comp.zcu.?;
+    const ty = Type.fromInterned(zcu.intern_pool.typeOf(decl_val));
+    if (ty.zigTypeTag(zcu) == .Fn) {
         assert(reloc_info.addend == 0); // addend not allowed for function relocations
         // We found a function pointer, so add it to our table,
         // as function pointers are not allowed to be stored inside the data section.
@@ -1923,14 +1923,14 @@ pub fn deleteDeclExport(
 
 pub fn updateExports(
     wasm: *Wasm,
-    mod: *Module,
-    exported: Module.Exported,
-    exports: []const *Module.Export,
+    zcu: *Zcu,
+    exported: Zcu.Exported,
+    exports: []const *Zcu.Export,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateExports(zcu, exported, exports);
 
     const decl_index = switch (exported) {
         .decl_index => |i| i,
@@ -1939,17 +1939,17 @@ pub fn updateExports(
             @panic("TODO: implement Wasm linker code for exporting a constant value");
         },
     };
-    const decl = mod.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const atom = wasm.getAtom(atom_index);
     const atom_sym = atom.symbolLoc().getSymbol(wasm).*;
-    const gpa = mod.gpa;
+    const gpa = zcu.gpa;
 
     for (exports) |exp| {
-        if (mod.intern_pool.stringToSliceUnwrap(exp.opts.section)) |section| {
-            try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+        if (zcu.intern_pool.stringToSliceUnwrap(exp.opts.section)) |section| {
+            try zcu.failed_exports.putNoClobber(gpa, exp, try Zcu.ErrorMsg.create(
                 gpa,
-                decl.srcLoc(mod),
+                decl.srcLoc(zcu),
                 "Unimplemented: ExportOptions.section '{s}'",
                 .{section},
             ));
@@ -1958,9 +1958,9 @@ pub fn updateExports(
 
         const exported_decl_index = switch (exp.exported) {
             .value => {
-                try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                try zcu.failed_exports.putNoClobber(gpa, exp, try Zcu.ErrorMsg.create(
                     gpa,
-                    decl.srcLoc(mod),
+                    decl.srcLoc(zcu),
                     "Unimplemented: exporting a named constant value",
                     .{},
                 ));
@@ -1970,7 +1970,7 @@ pub fn updateExports(
         };
         const exported_atom_index = try wasm.getOrCreateAtomForDecl(exported_decl_index);
         const exported_atom = wasm.getAtom(exported_atom_index);
-        const export_name = try wasm.string_table.put(gpa, mod.intern_pool.stringToSlice(exp.opts.name));
+        const export_name = try wasm.string_table.put(gpa, zcu.intern_pool.stringToSlice(exp.opts.name));
         const sym_loc = exported_atom.symbolLoc();
         const symbol = sym_loc.getSymbol(wasm);
         symbol.setGlobal(true);
@@ -1989,9 +1989,9 @@ pub fn updateExports(
             },
             .Strong => {}, // symbols are strong by default
             .LinkOnce => {
-                try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                try zcu.failed_exports.putNoClobber(gpa, exp, try Zcu.ErrorMsg.create(
                     gpa,
-                    decl.srcLoc(mod),
+                    decl.srcLoc(zcu),
                     "Unimplemented: LinkOnce",
                     .{},
                 ));
@@ -2016,14 +2016,14 @@ pub fn updateExports(
                 // When both the to-be-exported symbol and the already existing symbol
                 // are strong symbols, we have a linker error.
                 // In the other case we replace one with the other.
-                try mod.failed_exports.put(gpa, exp, try Module.ErrorMsg.create(
+                try zcu.failed_exports.put(gpa, exp, try Zcu.ErrorMsg.create(
                     gpa,
-                    decl.srcLoc(mod),
+                    decl.srcLoc(zcu),
                     \\LinkError: symbol '{}' defined multiple times
                     \\  first definition in '{s}'
                     \\  next definition in '{s}'
                 ,
-                    .{ exp.opts.name.fmt(&mod.intern_pool), wasm.name, wasm.name },
+                    .{ exp.opts.name.fmt(&zcu.intern_pool), wasm.name, wasm.name },
                 ));
                 continue;
             }
@@ -2035,7 +2035,7 @@ pub fn updateExports(
         }
 
         // Ensure the symbol will be exported using the given name
-        if (!mod.intern_pool.stringEqlSlice(exp.opts.name, sym_loc.getName(wasm))) {
+        if (!zcu.intern_pool.stringEqlSlice(exp.opts.name, sym_loc.getName(wasm))) {
             try wasm.export_names.put(gpa, sym_loc, export_name);
         }
 
@@ -2050,8 +2050,8 @@ pub fn updateExports(
 pub fn freeDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex) void {
     if (wasm.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
     const gpa = wasm.base.comp.gpa;
-    const mod = wasm.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
+    const zcu = wasm.base.comp.zcu.?;
+    const decl = zcu.declPtr(decl_index);
     const atom_index = wasm.decls.get(decl_index).?;
     const atom = wasm.getAtomPtr(atom_index);
     wasm.symbols_free_list.append(gpa, atom.sym_index) catch {};
@@ -2066,7 +2066,7 @@ pub fn freeDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex) void {
         assert(wasm.symbol_atom.remove(local_atom.symbolLoc()));
     }
 
-    if (decl.isExtern(mod)) {
+    if (decl.isExtern(zcu)) {
         _ = wasm.imports.remove(atom.symbolLoc());
     }
     _ = wasm.resolved_symbols.swapRemove(atom.symbolLoc());
@@ -2541,7 +2541,7 @@ fn setupErrorsLen(wasm: *Wasm) !void {
     const gpa = wasm.base.comp.gpa;
     const loc = wasm.findGlobalSymbol("__zig_errors_len") orelse return;
 
-    const errors_len = wasm.base.comp.module.?.global_error_set.count();
+    const errors_len = wasm.base.comp.zcu.?.global_error_set.count();
     // overwrite existing atom if it already exists (maybe the error set has increased)
     // if not, allcoate a new atom.
     const atom_index = if (wasm.symbol_atom.get(loc)) |index| blk: {
@@ -3325,8 +3325,8 @@ pub fn getErrorTableSymbol(wasm: *Wasm) !u32 {
     const atom_index = try wasm.createAtom();
     const atom = wasm.getAtomPtr(atom_index);
     const slice_ty = Type.slice_const_u8_sentinel_0;
-    const mod = wasm.base.comp.module.?;
-    atom.alignment = slice_ty.abiAlignment(mod);
+    const zcu = wasm.base.comp.zcu.?;
+    atom.alignment = slice_ty.abiAlignment(zcu);
     const sym_index = atom.sym_index;
 
     const sym_name = try wasm.string_table.put(gpa, "__zig_err_name_table");
@@ -3379,11 +3379,11 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
 
     // Addend for each relocation to the table
     var addend: u32 = 0;
-    const mod = wasm.base.comp.module.?;
-    for (mod.global_error_set.keys()) |error_name_nts| {
+    const zcu = wasm.base.comp.zcu.?;
+    for (zcu.global_error_set.keys()) |error_name_nts| {
         const atom = wasm.getAtomPtr(atom_index);
 
-        const error_name = mod.intern_pool.stringToSlice(error_name_nts);
+        const error_name = zcu.intern_pool.stringToSlice(error_name_nts);
         const len = @as(u32, @intCast(error_name.len + 1)); // names are 0-termianted
 
         const slice_ty = Type.slice_const_u8_sentinel_0;
@@ -3398,7 +3398,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
             .offset = offset,
             .addend = @as(i32, @intCast(addend)),
         });
-        atom.size += @as(u32, @intCast(slice_ty.abiSize(mod)));
+        atom.size += @as(u32, @intCast(slice_ty.abiSize(zcu)));
         addend += len;
 
         // as we updated the error name table, we now store the actual name within the names atom
@@ -3505,7 +3505,7 @@ fn linkWithZld(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) lin
 
     const directory = wasm.base.emit.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{wasm.base.emit.sub_path});
-    const opt_zcu = comp.module;
+    const opt_zcu = comp.zcu;
     const use_llvm = comp.config.use_llvm;
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
@@ -3760,22 +3760,22 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node)
     try wasm.markReferences();
     try wasm.setupErrorsLen();
     try wasm.setupImports();
-    if (comp.module) |mod| {
+    if (comp.zcu) |zcu| {
         var decl_it = wasm.decls.iterator();
         while (decl_it.next()) |entry| {
-            const decl = mod.declPtr(entry.key_ptr.*);
-            if (decl.isExtern(mod)) continue;
+            const decl = zcu.declPtr(entry.key_ptr.*);
+            if (decl.isExtern(zcu)) continue;
             const atom_index = entry.value_ptr.*;
             const atom = wasm.getAtomPtr(atom_index);
-            if (decl.ty.zigTypeTag(mod) == .Fn) {
+            if (decl.ty.zigTypeTag(zcu) == .Fn) {
                 try wasm.parseAtom(atom_index, .function);
-            } else if (decl.getOwnedVariable(mod)) |variable| {
+            } else if (decl.getOwnedVariable(zcu)) |variable| {
                 if (variable.is_const) {
                     try wasm.parseAtom(atom_index, .{ .data = .read_only });
-                } else if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
+                } else if (Value.fromInterned(variable.init).isUndefDeep(zcu)) {
                     // for safe build modes, we store the atom in the data segment,
                     // whereas for unsafe build modes we store it in bss.
-                    const decl_namespace = mod.namespacePtr(decl.src_namespace);
+                    const decl_namespace = zcu.namespacePtr(decl.src_namespace);
                     const optimize_mode = decl_namespace.file_scope.mod.optimize_mode;
                     const is_initialized = switch (optimize_mode) {
                         .Debug, .ReleaseSafe => true,
@@ -3801,8 +3801,8 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node)
         }
         // parse anonymous declarations
         for (wasm.anon_decls.keys(), wasm.anon_decls.values()) |decl_val, atom_index| {
-            const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
-            if (ty.zigTypeTag(mod) == .Fn) {
+            const ty = Type.fromInterned(zcu.intern_pool.typeOf(decl_val));
+            if (ty.zigTypeTag(zcu) == .Fn) {
                 try wasm.parseAtom(atom_index, .function);
             } else {
                 try wasm.parseAtom(atom_index, .{ .data = .read_only });
@@ -3815,7 +3815,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node)
         }
 
         if (wasm.dwarf) |*dwarf| {
-            try dwarf.flushModule(comp.module.?);
+            try dwarf.flushModule(comp.zcu.?);
         }
     }
 
@@ -4248,11 +4248,11 @@ fn writeToFile(
         }
 
         // if (wasm.dwarf) |*dwarf| {
-        //     const mod = comp.module.?;
+        //     const zcu = comp.zcu.?;
         //     try dwarf.writeDbgAbbrev();
         //     // for debug info and ranges, the address is always 0,
         //     // as locations are always offsets relative to 'code' section.
-        //     try dwarf.writeDbgInfoHeader(mod, 0, code_section_size);
+        //     try dwarf.writeDbgInfoHeader(zcu, 0, code_section_size);
         //     try dwarf.writeDbgAranges(0, code_section_size);
         //     try dwarf.writeDbgLineHeader();
         // }
@@ -4598,7 +4598,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) !vo
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
+    const module_obj_path: ?[]const u8 = if (comp.zcu != null) blk: {
         try wasm.flushModule(arena, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {

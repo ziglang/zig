@@ -24,7 +24,7 @@ const wasi_libc = @import("wasi_libc.zig");
 const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Module.zig");
 const AstGen = @import("AstGen.zig");
 const mingw = @import("mingw.zig");
 const Server = std.zig.Server;
@@ -379,7 +379,7 @@ const usage_build_generic =
     \\  .cxx .cc .C .cpp .stub    C++ source code (requires LLVM extensions)
     \\                      .m    Objective-C source code (requires LLVM extensions)
     \\                     .mm    Objective-C++ source code (requires LLVM extensions)
-    \\                     .bc    LLVM IR Module (requires LLVM extensions)
+    \\                     .bc    LLVM IR Zcu (requires LLVM extensions)
     \\                     .cu    Cuda source code (requires LLVM extensions)
     \\
     \\General Options:
@@ -440,7 +440,7 @@ const usage_build_generic =
     \\  -fno-structured-cfg       (SPIR-V) force SPIR-V kernels to not use structured control flow
     \\  -mexec-model=[value]      (WASI) Execution model
     \\
-    \\Per-Module Compile Options:
+    \\Per-Zcu Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
     \\  -O [mode]                 Choose what to optimize for
     \\    Debug                   (default) Optimizations off, safety on
@@ -567,7 +567,7 @@ const usage_build_generic =
     \\  --shared-memory                (WebAssembly) use shared linear memory
     \\  --global-base=[addr]           (WebAssembly) where to start to place global data
     \\
-    \\Per-Module Link Options:
+    \\Per-Zcu Link Options:
     \\  -l[lib], --library [lib]       Link against system library (only if actually used)
     \\  -needed-l[lib],                Link against system library (even if unused)
     \\    --needed-library [lib]
@@ -890,7 +890,7 @@ fn buildOutputType(
     var contains_res_file: bool = false;
     var reference_trace: ?u32 = null;
     var pdb_out_path: ?[]const u8 = null;
-    var error_limit: ?Module.ErrorInt = null;
+    var error_limit: ?Zcu.ErrorInt = null;
     // These are before resolving sysroot.
     var extra_cflags: std.ArrayListUnmanaged([]const u8) = .{};
     var extra_rcflags: std.ArrayListUnmanaged([]const u8) = .{};
@@ -1089,7 +1089,7 @@ fn buildOutputType(
                         rc_source_files_owner_index = create_module.rc_source_files.items.len;
                     } else if (mem.eql(u8, arg, "--error-limit")) {
                         const next_arg = args_iter.nextOrFatal();
-                        error_limit = std.fmt.parseUnsigned(Module.ErrorInt, next_arg, 0) catch |err| {
+                        error_limit = std.fmt.parseUnsigned(Zcu.ErrorInt, next_arg, 0) catch |err| {
                             fatal("unable to parse error limit '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "-cflags")) {
@@ -5456,7 +5456,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             );
 
             {
-                // We need a Module for each package's build.zig.
+                // We need a Zcu for each package's build.zig.
                 const hashes = job_queue.table.keys();
                 const fetches = job_queue.table.values();
                 try deps_mod.deps.ensureUnusedCapacity(arena, @intCast(hashes.len));
@@ -5730,7 +5730,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
         defer tree.deinit(gpa);
 
         if (check_ast_flag) {
-            var file: Module.File = .{
+            var file: Zcu.File = .{
                 .status = .never_loaded,
                 .source_loaded = true,
                 .zir_loaded = false,
@@ -5936,7 +5936,7 @@ fn fmtPathFile(
     }
 
     if (fmt.check_ast) {
-        var file: Module.File = .{
+        var file: Zcu.File = .{
             .status = .never_loaded,
             .source_loaded = true,
             .zir_loaded = false,
@@ -6020,7 +6020,7 @@ pub fn putAstErrorsIntoBundle(
     path: []const u8,
     wip_errors: *std.zig.ErrorBundle.Wip,
 ) Allocator.Error!void {
-    var file: Module.File = .{
+    var file: Zcu.File = .{
         .status = .never_loaded,
         .source_loaded = true,
         .zir_loaded = false,
@@ -6553,7 +6553,7 @@ pub fn cmdAstCheck(
         }
     }
 
-    var file: Module.File = .{
+    var file: Zcu.File = .{
         .status = .never_loaded,
         .source_loaded = false,
         .tree_loaded = false,
@@ -6690,7 +6690,7 @@ pub fn cmdDumpZir(
     };
     defer f.close();
 
-    var file: Module.File = .{
+    var file: Zcu.File = .{
         .status = .never_loaded,
         .source_loaded = false,
         .tree_loaded = false,
@@ -6699,7 +6699,7 @@ pub fn cmdDumpZir(
         .source = undefined,
         .stat = undefined,
         .tree = undefined,
-        .zir = try Module.loadZirCache(gpa, f),
+        .zir = try Zcu.loadZirCache(gpa, f),
         .mod = undefined,
         .root_decl = .none,
     };
@@ -6756,7 +6756,7 @@ pub fn cmdChangelist(
     if (stat.size > max_src_size)
         return error.FileTooBig;
 
-    var file: Module.File = .{
+    var file: Zcu.File = .{
         .status = .never_loaded,
         .source_loaded = false,
         .tree_loaded = false,
@@ -6847,7 +6847,7 @@ pub fn cmdChangelist(
     var extra_map: std.AutoHashMapUnmanaged(Zir.ExtraIndex, Zir.ExtraIndex) = .{};
     defer extra_map.deinit(gpa);
 
-    try Module.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map, &extra_map);
+    try Zcu.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map, &extra_map);
 
     var bw = io.bufferedWriter(io.getStdOut().writer());
     const stdout = bw.writer();

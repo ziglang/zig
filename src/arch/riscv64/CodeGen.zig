@@ -226,7 +226,7 @@ pub fn generate(
     debug_output: DebugInfoOutput,
 ) CodeGenError!Result {
     const gpa = lf.comp.gpa;
-    const zcu = lf.comp.module.?;
+    const zcu = lf.comp.zcu.?;
     const func = zcu.funcInfo(func_index);
     const fn_owner_decl = zcu.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
@@ -349,8 +349,8 @@ pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
 }
 
 fn gen(self: *Self) !void {
-    const mod = self.bin_file.comp.module.?;
-    const cc = self.fn_type.fnCallingConvention(mod);
+    const zcu = self.bin_file.comp.zcu.?;
+    const cc = self.fn_type.fnCallingConvention(zcu);
     if (cc != .Naked) {
         // TODO Finish function prologue and epilogue for riscv64.
 
@@ -473,8 +473,8 @@ fn gen(self: *Self) !void {
 }
 
 fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
-    const mod = self.bin_file.comp.module.?;
-    const ip = &mod.intern_pool;
+    const zcu = self.bin_file.comp.zcu.?;
+    const ip = &zcu.intern_pool;
     const air_tags = self.air.instructions.items(.tag);
 
     for (body) |inst| {
@@ -804,23 +804,23 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: Alignme
 
 /// Use a pointer instruction as the basis for allocating stack memory.
 fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
-    const mod = self.bin_file.comp.module.?;
-    const elem_ty = self.typeOfIndex(inst).childType(mod);
-    const abi_size = math.cast(u32, elem_ty.abiSize(mod)) orelse {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
+    const zcu = self.bin_file.comp.zcu.?;
+    const elem_ty = self.typeOfIndex(inst).childType(zcu);
+    const abi_size = math.cast(u32, elem_ty.abiSize(zcu)) orelse {
+        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(zcu)});
     };
     // TODO swap this for inst.ty.ptrAlign
-    const abi_align = elem_ty.abiAlignment(mod);
+    const abi_align = elem_ty.abiAlignment(zcu);
     return self.allocMem(inst, abi_size, abi_align);
 }
 
 fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
-    const mod = self.bin_file.comp.module.?;
+    const zcu = self.bin_file.comp.zcu.?;
     const elem_ty = self.typeOfIndex(inst);
-    const abi_size = math.cast(u32, elem_ty.abiSize(mod)) orelse {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
+    const abi_size = math.cast(u32, elem_ty.abiSize(zcu)) orelse {
+        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(zcu)});
     };
-    const abi_align = elem_ty.abiAlignment(mod);
+    const abi_align = elem_ty.abiAlignment(zcu);
     self.stack_align = self.stack_align.max(abi_align);
 
     if (reg_ok) {
@@ -892,11 +892,11 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
 
-    const mod = self.bin_file.comp.module.?;
+    const zcu = self.bin_file.comp.zcu.?;
     const operand_ty = self.typeOf(ty_op.operand);
     const operand = try self.resolveInst(ty_op.operand);
-    const info_a = operand_ty.intInfo(mod);
-    const info_b = self.typeOfIndex(inst).intInfo(mod);
+    const info_a = operand_ty.intInfo(zcu);
+    const info_b = self.typeOfIndex(inst).intInfo(zcu);
     if (info_a.signedness != info_b.signedness)
         return self.fail("TODO gen intcast sign safety in semantic analysis", .{});
 
@@ -1068,18 +1068,18 @@ fn binOp(
     lhs_ty: Type,
     rhs_ty: Type,
 ) InnerError!MCValue {
-    const mod = self.bin_file.comp.module.?;
+    const zcu = self.bin_file.comp.zcu.?;
     switch (tag) {
         // Arithmetic operations on integers and floats
         .add,
         .sub,
         => {
-            switch (lhs_ty.zigTypeTag(mod)) {
+            switch (lhs_ty.zigTypeTag(zcu)) {
                 .Float => return self.fail("TODO binary operations on floats", .{}),
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
                 .Int => {
-                    assert(lhs_ty.eql(rhs_ty, mod));
-                    const int_info = lhs_ty.intInfo(mod);
+                    assert(lhs_ty.eql(rhs_ty, zcu));
+                    const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
                         // TODO immediate operands
                         return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
@@ -1093,14 +1093,14 @@ fn binOp(
         .ptr_add,
         .ptr_sub,
         => {
-            switch (lhs_ty.zigTypeTag(mod)) {
+            switch (lhs_ty.zigTypeTag(zcu)) {
                 .Pointer => {
                     const ptr_ty = lhs_ty;
-                    const elem_ty = switch (ptr_ty.ptrSize(mod)) {
-                        .One => ptr_ty.childType(mod).childType(mod), // ptr to array, so get array element type
-                        else => ptr_ty.childType(mod),
+                    const elem_ty = switch (ptr_ty.ptrSize(zcu)) {
+                        .One => ptr_ty.childType(zcu).childType(zcu), // ptr to array, so get array element type
+                        else => ptr_ty.childType(zcu),
                     };
-                    const elem_size = elem_ty.abiSize(mod);
+                    const elem_size = elem_ty.abiSize(zcu);
 
                     if (elem_size == 1) {
                         const base_tag: Air.Inst.Tag = switch (tag) {
@@ -1220,7 +1220,7 @@ fn airRem(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airMod(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement mod for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement zcu for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1331,11 +1331,11 @@ fn airSaveErrReturnTraceIndex(self: *Self, inst: Air.Inst.Index) !void {
 fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const mod = self.bin_file.comp.module.?;
+        const zcu = self.bin_file.comp.zcu.?;
         const optional_ty = self.typeOfIndex(inst);
 
         // Optional with a zero-bit payload type is just a boolean true
-        if (optional_ty.abiSize(mod) == 1)
+        if (optional_ty.abiSize(zcu) == 1)
             break :result MCValue{ .immediate = 1 };
 
         return self.fail("TODO implement wrap optional for {}", .{self.target.cpu.arch});
@@ -1505,8 +1505,8 @@ fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_ind
 }
 
 fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
-    const mod = self.bin_file.comp.module.?;
-    const elem_ty = ptr_ty.childType(mod);
+    const zcu = self.bin_file.comp.zcu.?;
+    const elem_ty = ptr_ty.childType(zcu);
     switch (ptr) {
         .none => unreachable,
         .undef => unreachable,
@@ -1531,15 +1531,15 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
 }
 
 fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.comp.module.?;
+    const zcu = self.bin_file.comp.zcu.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const elem_ty = self.typeOfIndex(inst);
     const result: MCValue = result: {
-        if (!elem_ty.hasRuntimeBits(mod))
+        if (!elem_ty.hasRuntimeBits(zcu))
             break :result MCValue.none;
 
         const ptr = try self.resolveInst(ty_op.operand);
-        const is_volatile = self.typeOf(ty_op.operand).isVolatilePtr(mod);
+        const is_volatile = self.typeOf(ty_op.operand).isVolatilePtr(zcu);
         if (self.liveness.isUnused(inst) and !is_volatile)
             break :result MCValue.dead;
 
@@ -1632,11 +1632,11 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
-    const mod = self.bin_file.comp.module.?;
+    const zcu = self.bin_file.comp.zcu.?;
     const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
     const ty = arg.ty.toType();
-    const owner_decl = mod.funcOwnerDeclIndex(self.func_index);
-    const name = mod.getParamName(self.func_index, arg.src_index);
+    const owner_decl = zcu.funcOwnerDeclIndex(self.func_index);
+    const name = zcu.getParamName(self.func_index, arg.src_index);
 
     switch (self.debug_output) {
         .dwarf => |dw| switch (mcv) {
@@ -1709,7 +1709,7 @@ fn airFence(self: *Self) !void {
 }
 
 fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
-    const mod = self.bin_file.comp.module.?;
+    const zcu = self.bin_file.comp.zcu.?;
     if (modifier == .always_tail) return self.fail("TODO implement tail calls for riscv64", .{});
     const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const fn_ty = self.typeOf(pl_op.operand);
@@ -1748,8 +1748,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             }
         }
 
-        if (try self.air.value(callee, mod)) |func_value| {
-            switch (mod.intern_pool.indexToKey(func_value.ip_index)) {
+        if (try self.air.value(callee, zcu)) |func_value| {
+            switch (zcu.intern_pool.indexToKey(func_value.ip_index)) {
                 .func => |func| {
                     const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                     const sym = elf_file.symbol(sym_index);
@@ -1811,8 +1811,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 }
 
 fn ret(self: *Self, mcv: MCValue) !void {
-    const mod = self.bin_file.comp.module.?;
-    const ret_ty = self.fn_type.fnReturnType(mod);
+    const zcu = self.bin_file.comp.zcu.?;
+    const ret_ty = self.fn_type.fnReturnType(zcu);
     try self.setRegOrMem(ret_ty, self.ret_mcv, mcv);
     // Just add space for an instruction, patch this later
     const index = try self.addInst(.{
@@ -1842,9 +1842,9 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
     const ty = self.typeOf(bin_op.lhs);
-    const mod = self.bin_file.comp.module.?;
-    assert(ty.eql(self.typeOf(bin_op.rhs), mod));
-    if (ty.zigTypeTag(mod) == .ErrorSet)
+    const zcu = self.bin_file.comp.zcu.?;
+    assert(ty.eql(self.typeOf(bin_op.rhs), zcu));
+    if (ty.zigTypeTag(zcu) == .ErrorSet)
         return self.fail("TODO implement cmp for errors", .{});
 
     const lhs = try self.resolveInst(bin_op.lhs);
@@ -1886,8 +1886,8 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
     const ty_fn = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
-    const mod = self.bin_file.comp.module.?;
-    const func = mod.funcInfo(ty_fn.func);
+    const zcu = self.bin_file.comp.zcu.?;
+    const func = zcu.funcInfo(ty_fn.func);
     // TODO emit debug info for function change
     _ = func;
     return self.finishAir(inst, .dead, .{ .none, .none, .none });
@@ -2124,8 +2124,8 @@ fn airBoolOp(self: *Self, inst: Air.Inst.Index) !void {
 fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
     const block_data = self.blocks.getPtr(block).?;
 
-    const mod = self.bin_file.comp.module.?;
-    if (self.typeOf(operand).hasRuntimeBits(mod)) {
+    const zcu = self.bin_file.comp.zcu.?;
+    if (self.typeOf(operand).hasRuntimeBits(zcu)) {
         const operand_mcv = try self.resolveInst(operand);
         const block_mcv = block_data.mcv;
         if (block_mcv == .none) {
@@ -2507,9 +2507,9 @@ fn airReduce(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.comp.module.?;
+    const zcu = self.bin_file.comp.zcu.?;
     const vector_ty = self.typeOfIndex(inst);
-    const len = vector_ty.vectorLen(mod);
+    const len = vector_ty.vectorLen(zcu);
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra[ty_pl.payload..][0..len]);
     const result: MCValue = res: {
@@ -2552,16 +2552,16 @@ fn airMulAdd(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
-    const mod = self.bin_file.comp.module.?;
+    const zcu = self.bin_file.comp.zcu.?;
 
     // If the type has no codegen bits, no need to store it.
     const inst_ty = self.typeOf(inst);
-    if (!inst_ty.hasRuntimeBits(mod))
+    if (!inst_ty.hasRuntimeBits(zcu))
         return MCValue{ .none = {} };
 
     const inst_index = inst.toIndex() orelse return self.genTypedValue(.{
         .ty = inst_ty,
-        .val = (try self.air.value(inst, mod)).?,
+        .val = (try self.air.value(inst, zcu)).?,
     });
 
     return self.getResolvedInstValue(inst_index);
@@ -2580,12 +2580,12 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
 }
 
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
-    const mod = self.bin_file.comp.module.?;
+    const zcu = self.bin_file.comp.zcu.?;
     const mcv: MCValue = switch (try codegen.genTypedValue(
         self.bin_file,
         self.src_loc,
         typed_value,
-        mod.funcOwnerDeclIndex(self.func_index),
+        zcu.funcOwnerDeclIndex(self.func_index),
     )) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
@@ -2616,9 +2616,9 @@ const CallMCValues = struct {
 
 /// Caller must call `CallMCValues.deinit`.
 fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
-    const mod = self.bin_file.comp.module.?;
-    const ip = &mod.intern_pool;
-    const fn_info = mod.typeToFunc(fn_ty).?;
+    const zcu = self.bin_file.comp.zcu.?;
+    const ip = &zcu.intern_pool;
+    const fn_info = zcu.typeToFunc(fn_ty).?;
     const cc = fn_info.cc;
     var result: CallMCValues = .{
         .args = try self.gpa.alloc(MCValue, fn_info.param_types.len),
@@ -2629,7 +2629,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
     };
     errdefer self.gpa.free(result.args);
 
-    const ret_ty = fn_ty.fnReturnType(mod);
+    const ret_ty = fn_ty.fnReturnType(zcu);
 
     switch (cc) {
         .Naked => {
@@ -2655,7 +2655,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             const argument_registers = [_]Register{ .a0, .a1, .a2, .a3, .a4, .a5, .a6, .a7 };
 
             for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
-                const param_size: u32 = @intCast(Type.fromInterned(ty).abiSize(mod));
+                const param_size: u32 = @intCast(Type.fromInterned(ty).abiSize(zcu));
                 if (param_size <= 8) {
                     if (next_register < argument_registers.len) {
                         result_arg.* = .{ .register = argument_registers[next_register] };
@@ -2685,14 +2685,14 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
         else => return self.fail("TODO implement function parameters for {} on riscv64", .{cc}),
     }
 
-    if (ret_ty.zigTypeTag(mod) == .NoReturn) {
+    if (ret_ty.zigTypeTag(zcu) == .NoReturn) {
         result.return_value = .{ .unreach = {} };
-    } else if (!ret_ty.hasRuntimeBits(mod)) {
+    } else if (!ret_ty.hasRuntimeBits(zcu)) {
         result.return_value = .{ .none = {} };
     } else switch (cc) {
         .Naked => unreachable,
         .Unspecified, .C => {
-            const ret_ty_size: u32 = @intCast(ret_ty.abiSize(mod));
+            const ret_ty_size: u32 = @intCast(ret_ty.abiSize(zcu));
             if (ret_ty_size <= 8) {
                 result.return_value = .{ .register = .a0 };
             } else if (ret_ty_size <= 16) {
@@ -2738,11 +2738,11 @@ fn parseRegName(name: []const u8) ?Register {
 }
 
 fn typeOf(self: *Self, inst: Air.Inst.Ref) Type {
-    const mod = self.bin_file.comp.module.?;
-    return self.air.typeOf(inst, &mod.intern_pool);
+    const zcu = self.bin_file.comp.zcu.?;
+    return self.air.typeOf(inst, &zcu.intern_pool);
 }
 
 fn typeOfIndex(self: *Self, inst: Air.Inst.Index) Type {
-    const mod = self.bin_file.comp.module.?;
-    return self.air.typeOfIndex(inst, &mod.intern_pool);
+    const zcu = self.bin_file.comp.zcu.?;
+    return self.air.typeOfIndex(inst, &zcu.intern_pool);
 }

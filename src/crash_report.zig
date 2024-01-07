@@ -6,10 +6,10 @@ const io = std.io;
 const print_zir = @import("print_zir.zig");
 const native_os = builtin.os.tag;
 
-const Module = @import("Module.zig");
+const Zcu = @import("Module.zig");
 const Sema = @import("Sema.zig");
 const Zir = @import("Zir.zig");
-const Decl = Module.Decl;
+const Decl = Zcu.Decl;
 
 pub const is_enabled = builtin.mode == .Debug;
 
@@ -88,18 +88,18 @@ fn dumpStatusReport() !void {
 
     const stderr = io.getStdErr().writer();
     const block: *Sema.Block = anal.block;
-    const mod = anal.sema.mod;
-    const block_src_decl = mod.declPtr(block.src_decl);
+    const zcu = anal.sema.zcu;
+    const block_src_decl = zcu.declPtr(block.src_decl);
 
     try stderr.writeAll("Analyzing ");
-    try writeFullyQualifiedDeclWithFile(mod, block_src_decl, stderr);
+    try writeFullyQualifiedDeclWithFile(zcu, block_src_decl, stderr);
     try stderr.writeAll("\n");
 
     print_zir.renderInstructionContext(
         allocator,
         anal.body,
         anal.body_index,
-        mod.namespacePtr(block.namespace).file_scope,
+        zcu.namespacePtr(block.namespace).file_scope,
         block_src_decl.src_node,
         6, // indent
         stderr,
@@ -108,20 +108,20 @@ fn dumpStatusReport() !void {
         else => |e| return e,
     };
     try stderr.writeAll("    For full context, use the command\n      zig ast-check -t ");
-    try writeFilePath(mod.namespacePtr(block.namespace).file_scope, stderr);
+    try writeFilePath(zcu.namespacePtr(block.namespace).file_scope, stderr);
     try stderr.writeAll("\n\n");
 
     var parent = anal.parent;
     while (parent) |curr| {
         fba.reset();
         try stderr.writeAll("  in ");
-        const curr_block_src_decl = mod.declPtr(curr.block.src_decl);
-        try writeFullyQualifiedDeclWithFile(mod, curr_block_src_decl, stderr);
+        const curr_block_src_decl = zcu.declPtr(curr.block.src_decl);
+        try writeFullyQualifiedDeclWithFile(zcu, curr_block_src_decl, stderr);
         try stderr.writeAll("\n    > ");
         print_zir.renderSingleInstruction(
             allocator,
             curr.body[curr.body_index],
-            mod.namespacePtr(curr.block.namespace).file_scope,
+            zcu.namespacePtr(curr.block.namespace).file_scope,
             curr_block_src_decl.src_node,
             6, // indent
             stderr,
@@ -139,7 +139,7 @@ fn dumpStatusReport() !void {
 
 var crash_heap: [16 * 4096]u8 = undefined;
 
-fn writeFilePath(file: *Module.File, writer: anytype) !void {
+fn writeFilePath(file: *Zcu.File, writer: anytype) !void {
     if (file.mod.root.root_dir.path) |path| {
         try writer.writeAll(path);
         try writer.writeAll(std.fs.path.sep_str);
@@ -151,10 +151,10 @@ fn writeFilePath(file: *Module.File, writer: anytype) !void {
     try writer.writeAll(file.sub_file_path);
 }
 
-fn writeFullyQualifiedDeclWithFile(mod: *Module, decl: *Decl, writer: anytype) !void {
-    try writeFilePath(decl.getFileScope(mod), writer);
+fn writeFullyQualifiedDeclWithFile(zcu: *Zcu, decl: *Decl, writer: anytype) !void {
+    try writeFilePath(decl.getFileScope(zcu), writer);
     try writer.writeAll(": ");
-    try decl.renderFullyQualifiedDebugName(mod, writer);
+    try decl.renderFullyQualifiedDebugName(zcu, writer);
 }
 
 pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, maybe_ret_addr: ?usize) noreturn {

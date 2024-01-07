@@ -201,7 +201,7 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
     const comp = macho_file.base.comp;
     // TODO This linker code currently assumes there is only 1 compilation unit
     // and it corresponds to the Zig source code.
-    const zcu = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    const zcu = comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented;
 
     for (self.relocs.items) |*reloc| {
         const sym = switch (reloc.type) {

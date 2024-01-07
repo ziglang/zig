@@ -161,7 +161,7 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
 pub fn flushModule(self: *ZigObject, elf_file: *Elf) !void {
     // Handle any lazy symbols that were emitted by incremental compilation.
     if (self.lazy_syms.getPtr(.none)) |metadata| {
-        const zcu = elf_file.base.comp.module.?;
+        const zcu = elf_file.base.comp.zcu.?;
 
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
@@ -188,7 +188,7 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf) !void {
     }
 
     if (self.dwarf) |*dw| {
-        const zcu = elf_file.base.comp.module.?;
+        const zcu = elf_file.base.comp.zcu.?;
         try dw.flushModule(zcu);
 
         // TODO I need to re-think how to handle ZigObject's debug sections AND debug sections
@@ -677,10 +677,10 @@ pub fn lowerAnonDecl(
     src_loc: Module.SrcLoc,
 ) !codegen.Result {
     const gpa = elf_file.base.comp.gpa;
-    const mod = elf_file.base.comp.module.?;
-    const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
+    const zcu = elf_file.base.comp.zcu.?;
+    const ty = Type.fromInterned(zcu.intern_pool.typeOf(decl_val));
     const decl_alignment = switch (explicit_alignment) {
-        .none => ty.abiAlignment(mod),
+        .none => ty.abiAlignment(zcu),
         else => explicit_alignment,
     };
     if (self.anon_decls.get(decl_val)) |metadata| {
@@ -725,8 +725,8 @@ pub fn getOrCreateMetadataForLazySymbol(
     lazy_sym: link.File.LazySymbol,
 ) !Symbol.Index {
     const gpa = elf_file.base.comp.gpa;
-    const mod = elf_file.base.comp.module.?;
-    const gop = try self.lazy_syms.getOrPut(gpa, lazy_sym.getDecl(mod));
+    const zcu = elf_file.base.comp.zcu.?;
+    const gop = try self.lazy_syms.getOrPut(gpa, lazy_sym.getDecl(zcu));
     errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
     if (!gop.found_existing) gop.value_ptr.* = .{};
     const metadata: struct {
@@ -755,7 +755,7 @@ pub fn getOrCreateMetadataForLazySymbol(
     metadata.state.* = .pending_flush;
     const symbol_index = metadata.symbol_index.*;
     // anyerror needs to be deferred until flushModule
-    if (lazy_sym.getDecl(mod) != .none) try self.updateLazySymbol(elf_file, lazy_sym, symbol_index);
+    if (lazy_sym.getDecl(zcu) != .none) try self.updateLazySymbol(elf_file, lazy_sym, symbol_index);
     return symbol_index;
 }
 
@@ -781,8 +781,8 @@ fn freeDeclMetadata(self: *ZigObject, elf_file: *Elf, sym_index: Symbol.Index) v
 
 pub fn freeDecl(self: *ZigObject, elf_file: *Elf, decl_index: InternPool.DeclIndex) void {
     const gpa = elf_file.base.comp.gpa;
-    const mod = elf_file.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
+    const zcu = elf_file.base.comp.zcu.?;
+    const decl = zcu.declPtr(decl_index);
 
     log.debug("freeDecl {*}", .{decl});
 
@@ -809,10 +809,10 @@ pub fn getOrCreateMetadataForDecl(
     if (!gop.found_existing) {
         const any_non_single_threaded = elf_file.base.comp.config.any_non_single_threaded;
         const symbol_index = try self.addAtom(elf_file);
-        const mod = elf_file.base.comp.module.?;
-        const decl = mod.declPtr(decl_index);
+        const zcu = elf_file.base.comp.zcu.?;
+        const decl = zcu.declPtr(decl_index);
         const sym = elf_file.symbol(symbol_index);
-        if (decl.getOwnedVariable(mod)) |variable| {
+        if (decl.getOwnedVariable(zcu)) |variable| {
             if (variable.is_threadlocal and any_non_single_threaded) {
                 sym.flags.is_tls = true;
             }
@@ -832,12 +832,12 @@ fn getDeclShdrIndex(
     code: []const u8,
 ) error{OutOfMemory}!u16 {
     _ = self;
-    const mod = elf_file.base.comp.module.?;
+    const zcu = elf_file.base.comp.zcu.?;
     const any_non_single_threaded = elf_file.base.comp.config.any_non_single_threaded;
-    const shdr_index = switch (decl.ty.zigTypeTag(mod)) {
+    const shdr_index = switch (decl.ty.zigTypeTag(zcu)) {
         .Fn => elf_file.zig_text_section_index.?,
         else => blk: {
-            if (decl.getOwnedVariable(mod)) |variable| {
+            if (decl.getOwnedVariable(zcu)) |variable| {
                 if (variable.is_threadlocal and any_non_single_threaded) {
                     const is_all_zeroes = for (code) |byte| {
                         if (byte != 0) break false;
@@ -857,7 +857,7 @@ fn getDeclShdrIndex(
                     });
                 }
                 if (variable.is_const) break :blk elf_file.zig_data_rel_ro_section_index.?;
-                if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
+                if (Value.fromInterned(variable.init).isUndefDeep(zcu)) {
                     // TODO: get the optimize_mode from the Module that owns the decl instead
                     // of using the root module here.
                     break :blk switch (elf_file.base.comp.root_mod.optimize_mode) {
@@ -889,13 +889,13 @@ fn updateDeclCode(
     stt_bits: u8,
 ) !void {
     const gpa = elf_file.base.comp.gpa;
-    const mod = elf_file.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const zcu = elf_file.base.comp.zcu.?;
+    const decl = zcu.declPtr(decl_index);
+    const decl_name = zcu.intern_pool.stringToSlice(try decl.getFullyQualifiedName(zcu));
 
     log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
 
-    const required_alignment = decl.getAlignment(mod);
+    const required_alignment = decl.getAlignment(zcu);
 
     const sym = elf_file.symbol(sym_index);
     const esym = &self.local_esyms.items(.elf_sym)[sym.esym_index];
@@ -987,13 +987,13 @@ fn updateTlv(
     code: []const u8,
 ) !void {
     const gpa = elf_file.base.comp.gpa;
-    const mod = elf_file.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const zcu = elf_file.base.comp.zcu.?;
+    const decl = zcu.declPtr(decl_index);
+    const decl_name = zcu.intern_pool.stringToSlice(try decl.getFullyQualifiedName(zcu));
 
     log.debug("updateTlv {s} ({*})", .{ decl_name, decl });
 
-    const required_alignment = decl.getAlignment(mod);
+    const required_alignment = decl.getAlignment(zcu);
 
     const sym = elf_file.symbol(sym_index);
     const esym = &self.local_esyms.items(.elf_sym)[sym.esym_index];
@@ -1033,7 +1033,7 @@ fn updateTlv(
 pub fn updateFunc(
     self: *ZigObject,
     elf_file: *Elf,
-    mod: *Module,
+    zcu: *Module,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
@@ -1042,9 +1042,9 @@ pub fn updateFunc(
     defer tracy.end();
 
     const gpa = elf_file.base.comp.gpa;
-    const func = mod.funcInfo(func_index);
+    const func = zcu.funcInfo(func_index);
     const decl_index = func.owner_decl;
-    const decl = mod.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
 
     const sym_index = try self.getOrCreateMetadataForDecl(elf_file, decl_index);
     self.freeUnnamedConsts(elf_file, decl_index);
@@ -1053,13 +1053,13 @@ pub fn updateFunc(
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(mod, decl_index) else null;
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(zcu, decl_index) else null;
     defer if (decl_state) |*ds| ds.deinit();
 
     const res = if (decl_state) |*ds|
         try codegen.generateFunction(
             &elf_file.base,
-            decl.srcLoc(mod),
+            decl.srcLoc(zcu),
             func_index,
             air,
             liveness,
@@ -1069,7 +1069,7 @@ pub fn updateFunc(
     else
         try codegen.generateFunction(
             &elf_file.base,
-            decl.srcLoc(mod),
+            decl.srcLoc(zcu),
             func_index,
             air,
             liveness,
@@ -1081,7 +1081,7 @@ pub fn updateFunc(
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try zcu.failed_decls.put(zcu.gpa, decl_index, em);
             return;
         },
     };
@@ -1092,7 +1092,7 @@ pub fn updateFunc(
     if (decl_state) |*ds| {
         const sym = elf_file.symbol(sym_index);
         try self.dwarf.?.commitDeclState(
-            mod,
+            zcu,
             decl_index,
             sym.value,
             sym.atom(elf_file).?.size,
@@ -1102,29 +1102,29 @@ pub fn updateFunc(
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateExports(elf_file, mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    return self.updateExports(elf_file, zcu, .{ .decl_index = decl_index }, zcu.getDeclExports(decl_index));
 }
 
 pub fn updateDecl(
     self: *ZigObject,
     elf_file: *Elf,
-    mod: *Module,
+    zcu: *Module,
     decl_index: InternPool.DeclIndex,
 ) link.File.UpdateDeclError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const decl = mod.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
 
-    if (decl.val.getExternFunc(mod)) |_| {
+    if (decl.val.getExternFunc(zcu)) |_| {
         return;
     }
 
-    if (decl.isExtern(mod)) {
+    if (decl.isExtern(zcu)) {
         // Extern variable gets a .got entry only.
-        const variable = decl.getOwnedVariable(mod).?;
-        const name = mod.intern_pool.stringToSlice(decl.name);
-        const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+        const variable = decl.getOwnedVariable(zcu).?;
+        const name = zcu.intern_pool.stringToSlice(decl.name);
+        const lib_name = zcu.intern_pool.stringToSliceUnwrap(variable.lib_name);
         const esym_index = try self.getGlobalSymbol(elf_file, name, lib_name);
         elf_file.symbol(self.symbol(esym_index)).flags.needs_got = true;
         return;
@@ -1137,13 +1137,13 @@ pub fn updateDecl(
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(mod, decl_index) else null;
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(zcu, decl_index) else null;
     defer if (decl_state) |*ds| ds.deinit();
 
     // TODO implement .debug_info for global variables
-    const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
+    const decl_val = if (decl.val.getVariable(zcu)) |variable| Value.fromInterned(variable.init) else decl.val;
     const res = if (decl_state) |*ds|
-        try codegen.generateSymbol(&elf_file.base, decl.srcLoc(mod), .{
+        try codegen.generateSymbol(&elf_file.base, decl.srcLoc(zcu), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .{
@@ -1152,7 +1152,7 @@ pub fn updateDecl(
             .parent_atom_index = sym_index,
         })
     else
-        try codegen.generateSymbol(&elf_file.base, decl.srcLoc(mod), .{
+        try codegen.generateSymbol(&elf_file.base, decl.srcLoc(zcu), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .none, .{
@@ -1163,7 +1163,7 @@ pub fn updateDecl(
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try zcu.failed_decls.put(zcu.gpa, decl_index, em);
             return;
         },
     };
@@ -1177,7 +1177,7 @@ pub fn updateDecl(
     if (decl_state) |*ds| {
         const sym = elf_file.symbol(sym_index);
         try self.dwarf.?.commitDeclState(
-            mod,
+            zcu,
             decl_index,
             sym.value,
             sym.atom(elf_file).?.size,
@@ -1187,7 +1187,7 @@ pub fn updateDecl(
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateExports(elf_file, mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    return self.updateExports(elf_file, zcu, .{ .decl_index = decl_index }, zcu.getDeclExports(decl_index));
 }
 
 fn updateLazySymbol(
@@ -1197,7 +1197,7 @@ fn updateLazySymbol(
     symbol_index: Symbol.Index,
 ) !void {
     const gpa = elf_file.base.comp.gpa;
-    const mod = elf_file.base.comp.module.?;
+    const zcu = elf_file.base.comp.zcu.?;
 
     var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1206,14 +1206,14 @@ fn updateLazySymbol(
     const name_str_index = blk: {
         const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
             @tagName(sym.kind),
-            sym.ty.fmt(mod),
+            sym.ty.fmt(zcu),
         });
         defer gpa.free(name);
         break :blk try self.strtab.insert(gpa, name);
     };
 
-    const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
-        mod.declPtr(owner_decl).srcLoc(mod)
+    const src = if (sym.ty.getOwnerDeclOrNull(zcu)) |owner_decl|
+        zcu.declPtr(owner_decl).srcLoc(zcu)
     else
         Module.SrcLoc{
             .file_scope = undefined,
@@ -1279,14 +1279,14 @@ pub fn lowerUnnamedConst(
     decl_index: InternPool.DeclIndex,
 ) !u32 {
     const gpa = elf_file.base.comp.gpa;
-    const mod = elf_file.base.comp.module.?;
+    const zcu = elf_file.base.comp.zcu.?;
     const gop = try self.unnamed_consts.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
     const unnamed_consts = gop.value_ptr;
-    const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const decl = zcu.declPtr(decl_index);
+    const decl_name = zcu.intern_pool.stringToSlice(try decl.getFullyQualifiedName(zcu));
     const index = unnamed_consts.items.len;
     const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
     defer gpa.free(name);
@@ -1294,14 +1294,14 @@ pub fn lowerUnnamedConst(
         elf_file,
         name,
         typed_value,
-        typed_value.ty.abiAlignment(mod),
+        typed_value.ty.abiAlignment(zcu),
         elf_file.zig_data_rel_ro_section_index.?,
-        decl.srcLoc(mod),
+        decl.srcLoc(zcu),
     )) {
         .ok => |sym_index| sym_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try zcu.failed_decls.put(zcu.gpa, decl_index, em);
             log.err("{s}", .{em.msg});
             return error.CodegenFail;
         },
@@ -1374,7 +1374,7 @@ fn lowerConst(
 pub fn updateExports(
     self: *ZigObject,
     elf_file: *Elf,
-    mod: *Module,
+    zcu: *Module,
     exported: Module.Exported,
     exports: []const *Module.Export,
 ) link.File.UpdateExportsError!void {
@@ -1389,14 +1389,14 @@ pub fn updateExports(
         },
         .value => |value| self.anon_decls.getPtr(value) orelse blk: {
             const first_exp = exports[0];
-            const res = try self.lowerAnonDecl(elf_file, value, .none, first_exp.getSrcLoc(mod));
+            const res = try self.lowerAnonDecl(elf_file, value, .none, first_exp.getSrcLoc(zcu));
             switch (res) {
                 .ok => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Module.processExportsInner
                     // handle the error?
-                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
+                    try zcu.failed_exports.ensureUnusedCapacity(zcu.gpa, 1);
+                    zcu.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
                     return;
                 },
             }
@@ -1410,11 +1410,11 @@ pub fn updateExports(
 
     for (exports) |exp| {
         if (exp.opts.section.unwrap()) |section_name| {
-            if (!mod.intern_pool.stringEqlSlice(section_name, ".text")) {
-                try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
+            if (!zcu.intern_pool.stringEqlSlice(section_name, ".text")) {
+                try zcu.failed_exports.ensureUnusedCapacity(zcu.gpa, 1);
+                zcu.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
                     gpa,
-                    exp.getSrcLoc(mod),
+                    exp.getSrcLoc(zcu),
                     "Unimplemented: ExportOptions.section",
                     .{},
                 ));
@@ -1426,10 +1426,10 @@ pub fn updateExports(
             .Strong => elf.STB_GLOBAL,
             .Weak => elf.STB_WEAK,
             .LinkOnce => {
-                try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
+                try zcu.failed_exports.ensureUnusedCapacity(zcu.gpa, 1);
+                zcu.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
                     gpa,
-                    exp.getSrcLoc(mod),
+                    exp.getSrcLoc(zcu),
                     "Unimplemented: GlobalLinkage.LinkOnce",
                     .{},
                 ));
@@ -1437,7 +1437,7 @@ pub fn updateExports(
             },
         };
         const stt_bits: u8 = @as(u4, @truncate(esym.st_info));
-        const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
+        const exp_name = zcu.intern_pool.stringToSlice(exp.opts.name);
         const name_off = try self.strtab.insert(gpa, exp_name);
         const global_esym_index = if (metadata.@"export"(self, exp_name)) |exp_index|
             exp_index.*
@@ -1461,19 +1461,19 @@ pub fn updateExports(
 /// Must be called only after a successful call to `updateDecl`.
 pub fn updateDeclLineNumber(
     self: *ZigObject,
-    mod: *Module,
+    zcu: *Module,
     decl_index: InternPool.DeclIndex,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const decl = zcu.declPtr(decl_index);
+    const decl_name = zcu.intern_pool.stringToSlice(try decl.getFullyQualifiedName(zcu));
 
     log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
 
     if (self.dwarf) |*dw| {
-        try dw.updateDeclLineNumber(mod, decl_index);
+        try dw.updateDeclLineNumber(zcu, decl_index);
     }
 }
 
@@ -1484,8 +1484,8 @@ pub fn deleteDeclExport(
     name: InternPool.NullTerminatedString,
 ) void {
     const metadata = self.decls.getPtr(decl_index) orelse return;
-    const mod = elf_file.base.comp.module.?;
-    const exp_name = mod.intern_pool.stringToSlice(name);
+    const zcu = elf_file.base.comp.zcu.?;
+    const exp_name = zcu.intern_pool.stringToSlice(name);
     const esym_index = metadata.@"export"(self, exp_name) orelse return;
     log.debug("deleting export '{s}'", .{exp_name});
     const esym = &self.global_esyms.items(.elf_sym)[esym_index.*];

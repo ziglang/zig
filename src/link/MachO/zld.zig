@@ -13,7 +13,7 @@ pub fn linkWithZld(
 
     const directory = emit.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{emit.sub_path});
-    const opt_zcu = comp.module;
+    const opt_zcu = comp.zcu;
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.

@@ -21,8 +21,7 @@ const Ast = std.zig.Ast;
 
 const InternPool = @import("InternPool.zig");
 const Zir = @This();
-const Module = @import("Module.zig");
-const LazySrcLoc = Module.LazySrcLoc;
+const LazySrcLoc = @import("Module.zig").LazySrcLoc;
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// In order to store references to strings in fewer bytes, we copy all

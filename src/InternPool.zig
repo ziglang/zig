@@ -1,7 +1,7 @@
 //! All interned objects have both a value and a type.
 //! This data structure is self-contained, with the following exceptions:
-//! * Module.Namespace has a pointer to Module.File
-//! * Module.Decl has a pointer to Module.CaptureScope
+//! * Zcu.Namespace has a pointer to Zcu.File
+//! * Zcu.Decl has a pointer to Zcu.CaptureScope
 
 /// Maps `Key` to `Index`. `Key` objects are not stored anywhere; they are
 /// constructed lazily.
@@ -30,12 +30,12 @@ string_bytes: std.ArrayListUnmanaged(u8) = .{},
 ///    serialization trivial.
 ///  * It provides a unique integer to be used for anonymous symbol names, avoiding
 ///    multi-threaded contention on an atomic counter.
-allocated_decls: std.SegmentedList(Module.Decl, 0) = .{},
+allocated_decls: std.SegmentedList(Zcu.Decl, 0) = .{},
 /// When a Decl object is freed from `allocated_decls`, it is pushed into this stack.
 decls_free_list: std.ArrayListUnmanaged(DeclIndex) = .{},
 
 /// Same pattern as with `allocated_decls`.
-allocated_namespaces: std.SegmentedList(Module.Namespace, 0) = .{},
+allocated_namespaces: std.SegmentedList(Zcu.Namespace, 0) = .{},
 /// Same pattern as with `decls_free_list`.
 namespaces_free_list: std.ArrayListUnmanaged(NamespaceIndex) = .{},
 
@@ -66,7 +66,7 @@ const Limb = std.math.big.Limb;
 const Hash = std.hash.Wyhash;
 
 const InternPool = @This();
-const Module = @import("Module.zig");
+const Zcu = @import("Module.zig");
 const Zir = @import("Zir.zig");
 
 const KeyAdapter = struct {
@@ -3184,7 +3184,7 @@ pub const FuncAnalysis = packed struct(u32) {
         /// inline, which means no runtime version of the function will be generated.
         inline_only,
         in_progress,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls
+        /// There will be a corresponding ErrorMsg in Zcu.failed_decls
         sema_failure,
         /// This function might be OK but it depends on another Decl which did not
         /// successfully complete semantic analysis.
@@ -7236,7 +7236,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
     const items_size = (1 + 4) * ip.items.len;
     const extra_size = 4 * ip.extra.items.len;
     const limbs_size = 8 * ip.limbs.items.len;
-    const decls_size = ip.allocated_decls.len * @sizeOf(Module.Decl);
+    const decls_size = ip.allocated_decls.len * @sizeOf(Zcu.Decl);
 
     // TODO: map overhead size is not taken into account
     const total_size = @sizeOf(InternPool) + items_size + extra_size + limbs_size + decls_size;
@@ -7311,7 +7311,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                 ints += info.fields_len; // offsets
                 break :b @sizeOf(u32) * ints;
             },
-            .type_struct_ns => @sizeOf(Module.Namespace),
+            .type_struct_ns => @sizeOf(Zcu.Namespace),
             .type_struct_anon => b: {
                 const info = ip.extraData(TypeStructAnon, data);
                 break :b @sizeOf(TypeStructAnon) + (@sizeOf(u32) * 3 * info.fields_len);
@@ -7597,22 +7597,22 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     try bw.flush();
 }
 
-pub fn declPtr(ip: *InternPool, index: DeclIndex) *Module.Decl {
+pub fn declPtr(ip: *InternPool, index: DeclIndex) *Zcu.Decl {
     return ip.allocated_decls.at(@intFromEnum(index));
 }
 
-pub fn declPtrConst(ip: *const InternPool, index: DeclIndex) *const Module.Decl {
+pub fn declPtrConst(ip: *const InternPool, index: DeclIndex) *const Zcu.Decl {
     return ip.allocated_decls.at(@intFromEnum(index));
 }
 
-pub fn namespacePtr(ip: *InternPool, index: NamespaceIndex) *Module.Namespace {
+pub fn namespacePtr(ip: *InternPool, index: NamespaceIndex) *Zcu.Namespace {
     return ip.allocated_namespaces.at(@intFromEnum(index));
 }
 
 pub fn createDecl(
     ip: *InternPool,
     gpa: Allocator,
-    initialization: Module.Decl,
+    initialization: Zcu.Decl,
 ) Allocator.Error!DeclIndex {
     if (ip.decls_free_list.popOrNull()) |index| {
         ip.allocated_decls.at(@intFromEnum(index)).* = initialization;
@@ -7634,7 +7634,7 @@ pub fn destroyDecl(ip: *InternPool, gpa: Allocator, index: DeclIndex) void {
 pub fn createNamespace(
     ip: *InternPool,
     gpa: Allocator,
-    initialization: Module.Namespace,
+    initialization: Zcu.Namespace,
 ) Allocator.Error!NamespaceIndex {
     if (ip.namespaces_free_list.popOrNull()) |index| {
         ip.allocated_namespaces.at(@intFromEnum(index)).* = initialization;

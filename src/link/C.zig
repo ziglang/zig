@@ -6,7 +6,7 @@ const fs = std.fs;
 
 const C = @This();
 const build_options = @import("build_options");
-const Module = @import("../Module.zig");
+const Zcu = @import("../Module.zig");
 const InternPool = @import("../InternPool.zig");
 const Alignment = InternPool.Alignment;
 const Compilation = @import("../Compilation.zig");
@@ -179,16 +179,16 @@ pub fn freeDecl(self: *C, decl_index: InternPool.DeclIndex) void {
 
 pub fn updateFunc(
     self: *C,
-    module: *Module,
+    zcu: *Zcu,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
 ) !void {
     const gpa = self.base.comp.gpa;
 
-    const func = module.funcInfo(func_index);
+    const func = zcu.funcInfo(func_index);
     const decl_index = func.owner_decl;
-    const decl = module.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
     const gop = try self.decl_table.getOrPut(gpa, decl_index);
     if (!gop.found_existing) gop.value_ptr.* = .{};
     const ctypes = &gop.value_ptr.ctypes;
@@ -208,10 +208,10 @@ pub fn updateFunc(
         .object = .{
             .dg = .{
                 .gpa = gpa,
-                .module = module,
+                .zcu = zcu,
                 .error_msg = null,
                 .pass = .{ .decl = decl_index },
-                .is_naked_fn = decl.ty.fnCallingConvention(module) == .Naked,
+                .is_naked_fn = decl.ty.fnCallingConvention(zcu) == .Naked,
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctypes = ctypes.*,
                 .anon_decl_deps = self.anon_decls,
@@ -234,7 +234,7 @@ pub fn updateFunc(
 
     codegen.genFunc(&function) catch |err| switch (err) {
         error.AnalysisFail => {
-            try module.failed_decls.put(gpa, decl_index, function.object.dg.error_msg.?);
+            try zcu.failed_decls.put(gpa, decl_index, function.object.dg.error_msg.?);
             return;
         },
         else => |e| return e,
@@ -251,7 +251,7 @@ pub fn updateFunc(
     gop.value_ptr.fwd_decl = try self.addString(function.object.dg.fwd_decl.items);
 }
 
-fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
+fn updateAnonDecl(self: *C, zcu: *Zcu, i: usize) !void {
     const gpa = self.base.comp.gpa;
     const anon_decl = self.anon_decls.keys()[i];
 
@@ -263,7 +263,7 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
     var object: codegen.Object = .{
         .dg = .{
             .gpa = gpa,
-            .module = module,
+            .zcu = zcu,
             .error_msg = null,
             .pass = .{ .anon = anon_decl },
             .is_naked_fn = false,
@@ -286,7 +286,7 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
     }
 
     const tv: @import("../TypedValue.zig") = .{
-        .ty = Type.fromInterned(module.intern_pool.typeOf(anon_decl)),
+        .ty = Type.fromInterned(zcu.intern_pool.typeOf(anon_decl)),
         .val = Value.fromInterned(anon_decl),
     };
     const c_value: codegen.CValue = .{ .constant = anon_decl };
@@ -294,7 +294,7 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
     codegen.genDeclValue(&object, tv, false, c_value, alignment, .none) catch |err| switch (err) {
         error.AnalysisFail => {
             @panic("TODO: C backend AnalysisFail on anonymous decl");
-            //try module.failed_decls.put(gpa, decl_index, object.dg.error_msg.?);
+            //try zcu.failed_decls.put(gpa, decl_index, object.dg.error_msg.?);
             //return;
         },
         else => |e| return e,
@@ -310,7 +310,7 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
     };
 }
 
-pub fn updateDecl(self: *C, module: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDecl(self: *C, zcu: *Zcu, decl_index: InternPool.DeclIndex) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -330,7 +330,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: InternPool.DeclIndex) !
     var object: codegen.Object = .{
         .dg = .{
             .gpa = gpa,
-            .module = module,
+            .zcu = zcu,
             .error_msg = null,
             .pass = .{ .decl = decl_index },
             .is_naked_fn = false,
@@ -353,7 +353,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: InternPool.DeclIndex) !
 
     codegen.genDecl(&object) catch |err| switch (err) {
         error.AnalysisFail => {
-            try module.failed_decls.put(gpa, decl_index, object.dg.error_msg.?);
+            try zcu.failed_decls.put(gpa, decl_index, object.dg.error_msg.?);
             return;
         },
         else => |e| return e,
@@ -368,11 +368,11 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: InternPool.DeclIndex) !
     gop.value_ptr.fwd_decl = try self.addString(object.dg.fwd_decl.items);
 }
 
-pub fn updateDeclLineNumber(self: *C, module: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDeclLineNumber(self: *C, zcu: *Zcu, decl_index: InternPool.DeclIndex) !void {
     // The C backend does not have the ability to fix line numbers without re-generating
     // the entire Decl.
     _ = self;
-    _ = module;
+    _ = zcu;
     _ = decl_index;
 }
 
@@ -399,18 +399,18 @@ pub fn flushModule(self: *C, arena: Allocator, prog_node: *std.Progress.Node) !v
     const tracy = trace(@src());
     defer tracy.end();
 
-    var sub_prog_node = prog_node.start("Flush Module", 0);
+    var sub_prog_node = prog_node.start("Flush Zcu", 0);
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
-    const module = self.base.comp.module.?;
+    const zcu = self.base.comp.zcu.?;
 
     {
         var i: usize = 0;
         while (i < self.anon_decls.count()) : (i += 1) {
-            try updateAnonDecl(self, module, i);
+            try updateAnonDecl(self, zcu, i);
         }
     }
 
@@ -420,7 +420,7 @@ pub fn flushModule(self: *C, arena: Allocator, prog_node: *std.Progress.Node) !v
     var f: Flush = .{};
     defer f.deinit(gpa);
 
-    const abi_defines = try self.abiDefines(module.getTarget());
+    const abi_defines = try self.abiDefines(zcu.getTarget());
     defer abi_defines.deinit();
 
     // Covers defines, zig.h, ctypes, asm, lazy fwd.
@@ -435,7 +435,7 @@ pub fn flushModule(self: *C, arena: Allocator, prog_node: *std.Progress.Node) !v
     {
         var asm_buf = f.asm_buf.toManaged(gpa);
         defer f.asm_buf = asm_buf.moveToUnmanaged();
-        try codegen.genGlobalAsm(module, asm_buf.writer());
+        try codegen.genGlobalAsm(zcu, asm_buf.writer());
         f.appendBufAssumeCapacity(asm_buf.items);
     }
 
@@ -452,8 +452,8 @@ pub fn flushModule(self: *C, arena: Allocator, prog_node: *std.Progress.Node) !v
     {
         var export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
         defer export_names.deinit(gpa);
-        try export_names.ensureTotalCapacity(gpa, @intCast(module.decl_exports.entries.len));
-        for (module.decl_exports.values()) |exports| for (exports.items) |@"export"|
+        try export_names.ensureTotalCapacity(gpa, @intCast(zcu.decl_exports.entries.len));
+        for (zcu.decl_exports.values()) |exports| for (exports.items) |@"export"|
             try export_names.put(gpa, @"export".opts.name, {});
 
         for (self.anon_decls.values()) |*decl_block| {
@@ -461,9 +461,9 @@ pub fn flushModule(self: *C, arena: Allocator, prog_node: *std.Progress.Node) !v
         }
 
         for (self.decl_table.keys(), self.decl_table.values()) |decl_index, *decl_block| {
-            assert(module.declPtr(decl_index).has_tv);
-            const decl = module.declPtr(decl_index);
-            const extern_symbol_name = if (decl.isExtern(module)) decl.name.toOptional() else .none;
+            assert(zcu.declPtr(decl_index).has_tv);
+            const decl = zcu.declPtr(decl_index);
+            const extern_symbol_name = if (decl.isExtern(zcu)) decl.name.toOptional() else .none;
             try self.flushDeclBlock(&f, decl_block, export_names, extern_symbol_name);
         }
     }
@@ -554,7 +554,7 @@ fn flushCTypes(
     decl_ctypes: codegen.CType.Store,
 ) FlushDeclError!void {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.comp.module.?;
+    const zcu = self.base.comp.zcu.?;
 
     const decl_ctypes_len = decl_ctypes.count();
     f.ctypes_map.clearRetainingCapacity();
@@ -621,7 +621,7 @@ fn flushCTypes(
             assert(decl_cty.hash(decl_ctypes.set) == global_cty.hash(global_ctypes.set));
         }
         try codegen.genTypeDecl(
-            mod,
+            zcu,
             writer,
             global_ctypes.set,
             global_idx,
@@ -642,7 +642,7 @@ fn flushErrDecls(self: *C, ctypes: *codegen.CType.Store) FlushDeclError!void {
     var object = codegen.Object{
         .dg = .{
             .gpa = gpa,
-            .module = self.base.comp.module.?,
+            .zcu = self.base.comp.zcu.?,
             .error_msg = null,
             .pass = .flush,
             .is_naked_fn = false,
@@ -684,7 +684,7 @@ fn flushLazyFn(
     var object = codegen.Object{
         .dg = .{
             .gpa = gpa,
-            .module = self.base.comp.module.?,
+            .zcu = self.base.comp.zcu.?,
             .error_msg = null,
             .pass = .flush,
             .is_naked_fn = false,
@@ -746,15 +746,15 @@ fn flushDeclBlock(
     }
 }
 
-pub fn flushEmitH(module: *Module) !void {
+pub fn flushEmitH(zcu: *Zcu) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const emit_h = module.emit_h orelse return;
+    const emit_h = zcu.emit_h orelse return;
 
     // We collect a list of buffers to write, and write them all at once with pwritev 😎
     const num_buffers = emit_h.decl_table.count() + 1;
-    var all_buffers = try std.ArrayList(std.os.iovec_const).initCapacity(module.gpa, num_buffers);
+    var all_buffers = try std.ArrayList(std.os.iovec_const).initCapacity(zcu.gpa, num_buffers);
     defer all_buffers.deinit();
 
     var file_size: u64 = zig_h.len;
@@ -777,7 +777,7 @@ pub fn flushEmitH(module: *Module) !void {
         }
     }
 
-    const directory = emit_h.loc.directory orelse module.comp.local_cache_directory;
+    const directory = emit_h.loc.directory orelse zcu.comp.local_cache_directory;
     const file = try directory.handle.createFile(emit_h.loc.basename, .{
         // We set the end position explicitly below; by not truncating the file, we possibly
         // make it easier on the file system by doing 1 reallocation instead of two.
@@ -791,12 +791,12 @@ pub fn flushEmitH(module: *Module) !void {
 
 pub fn updateExports(
     self: *C,
-    module: *Module,
-    exported: Module.Exported,
-    exports: []const *Module.Export,
+    zcu: *Zcu,
+    exported: Zcu.Exported,
+    exports: []const *Zcu.Export,
 ) !void {
     _ = exports;
     _ = exported;
-    _ = module;
+    _ = zcu;
     _ = self;
 }
