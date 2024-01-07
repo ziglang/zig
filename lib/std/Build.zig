@@ -608,6 +608,7 @@ pub const ExecutableOptions = struct {
     root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
     optimize: std.builtin.OptimizeMode = .Debug,
+    code_model: std.builtin.CodeModel = .default,
     linkage: ?Step.Compile.Linkage = null,
     max_rss: usize = 0,
     link_libc: ?bool = null,
@@ -644,6 +645,7 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
             .omit_frame_pointer = options.omit_frame_pointer,
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
+            .code_model = options.code_model,
         },
         .version = options.version,
         .kind = .exe,
@@ -662,6 +664,7 @@ pub const ObjectOptions = struct {
     /// To choose the same computer as the one building the package, pass the
     /// `host` field of the package's `Build` instance.
     target: ResolvedTarget,
+    code_model: std.builtin.CodeModel = .default,
     optimize: std.builtin.OptimizeMode,
     max_rss: usize = 0,
     link_libc: ?bool = null,
@@ -692,6 +695,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
             .omit_frame_pointer = options.omit_frame_pointer,
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
+            .code_model = options.code_model,
         },
         .kind = .obj,
         .max_rss = options.max_rss,
@@ -707,6 +711,7 @@ pub const SharedLibraryOptions = struct {
     /// `host` field of the package's `Build` instance.
     target: ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    code_model: std.builtin.CodeModel = .default,
     root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
@@ -744,6 +749,7 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
             .omit_frame_pointer = options.omit_frame_pointer,
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
+            .code_model = options.code_model,
         },
         .kind = .lib,
         .linkage = .dynamic,
@@ -763,6 +769,7 @@ pub const StaticLibraryOptions = struct {
     /// `host` field of the package's `Build` instance.
     target: ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    code_model: std.builtin.CodeModel = .default,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     link_libc: ?bool = null,
@@ -793,6 +800,7 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
             .omit_frame_pointer = options.omit_frame_pointer,
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
+            .code_model = options.code_model,
         },
         .kind = .lib,
         .linkage = .static,

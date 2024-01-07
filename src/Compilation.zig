@@ -6334,6 +6334,7 @@ fn buildOutputFromZig(
             .pic = comp.root_mod.pic,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
+            .code_model = comp.root_mod.code_model,
         },
         .global = config,
         .cc_argv = &.{},
