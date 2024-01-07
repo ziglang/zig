@@ -2388,7 +2388,7 @@ fn transCCast(
     }
     if (!cIsFloating(src_type) and cIsFloating(dst_type)) {
         var rhs = expr;
-        if (qualTypeIsBoolean(src_type)) rhs = try Tag.int_from_bool.create(c.arena, expr);
+        if (qualTypeIsBoolean(src_type) or isBoolRes(rhs)) rhs = try Tag.int_from_bool.create(c.arena, expr);
         // @as(dest_type, @floatFromInt(val))
         return Tag.as.create(c.arena, .{
             .lhs = dst_node,
