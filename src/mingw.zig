@@ -87,6 +87,9 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
 
                     "-std=gnu99",
                     "-D_CRTBLD",
+                    // According to Martin Storsjö,
+                    // > the files under mingw-w64-crt are designed to always
+                    // be built with __MSVCRT_VERSION__=0x700
                     "-D__MSVCRT_VERSION__=0x700",
                     "-D__USE_MINGW_ANSI_STDIO=0",
                 });
@@ -113,9 +116,11 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
 
                 "-std=gnu99",
                 "-D_CRTBLD",
+                // According to Martin Storsjö,
+                // > the files under mingw-w64-crt are designed to always
+                // be built with __MSVCRT_VERSION__=0x700
                 "-D__MSVCRT_VERSION__=0x700",
                 "-D__USE_MINGW_ANSI_STDIO=0",
-
                 "-isystem",
                 try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "any-windows-any" }),
             });
@@ -179,9 +184,11 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
 
                 "-std=gnu99",
                 "-D_CRTBLD",
+                // According to Martin Storsjö,
+                // > the files under mingw-w64-crt are designed to always
+                // be built with __MSVCRT_VERSION__=0x700
                 "-D__MSVCRT_VERSION__=0x700",
                 "-D__USE_MINGW_ANSI_STDIO=0",
-
                 "-isystem",
                 try comp.zig_lib_directory.join(arena, &[_][]const u8{
                     "libc", "include", "any-windows-any",
@@ -225,6 +232,9 @@ fn add_cc_args(
     try args.appendSlice(&[_][]const u8{
         "-std=gnu11",
         "-D_CRTBLD",
+        // According to Martin Storsjö,
+        // > the files under mingw-w64-crt are designed to always
+        // be built with __MSVCRT_VERSION__=0x700
         "-D__MSVCRT_VERSION__=0x700",
         "-D__USE_MINGW_ANSI_STDIO=0",
     });
