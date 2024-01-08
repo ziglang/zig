@@ -432,18 +432,17 @@ pub fn main() !void {
       </p>
       <p>
         Next, a {#link|public function|Functions#}, {#syntax#}pub fn{#endsyntax#}, named {#syntax#}main{#endsyntax#}
-        is declared. The {#syntax#}main{#endsyntax#} function is necessary because it tells the Zig compiler where the start of
-        the program exists. Programs designed to be executed will need a {#syntax#}pub fn main{#endsyntax#} function.
+        is declared. The {#syntax#}main{#endsyntax#} function is necessary because it tells the Zig compiler where the program starts. Programs
+        designed to be executed will need a {#syntax#}pub fn main{#endsyntax#} function.
       </p>
       <aside role="note" aria-label="Note about main function">
         <p>
-          For more advanced use cases, Zig offers other features to inform the compiler where the start of
-          the program exists. Also, libraries do not need a {#syntax#}pub fn main{#endsyntax#} function because
-          library code is called by other programs or libraries.
+          For more advanced use cases, Zig offers other features to inform the compiler where the program starts. Also, libraries do not need a
+          {#syntax#}pub fn main{#endsyntax#} function because library code is called by other programs or libraries.
         </p>
       </aside>
       <p>
-        A function is a block of any number of statements and expressions that, as a whole, perform a task.
+        A function is a block of any number of statements and expressions, that as a whole, perform a task.
         Functions may or may not return data after they are done performing their task. If a function
         cannot perform its task, it might return an error. Zig makes all of this explicit.
       </p>
@@ -469,32 +468,30 @@ pub fn main() !void {
       </aside>
       <p>
         In Zig, a function's block of statements and expressions are surrounded by an open curly-brace <code>{</code> and
-        close curly-brace <code>}</code>. Inside of the {#syntax#}main{#endsyntax#} function are expressions that perform
-        the task of outputting <samp>Hello, world!</samp> to standard output.
+        close curly-brace <code>}</code>. In <code class="file">hello.zig</code>, the {#syntax#}main{#endsyntax#} function
+        contains two statements.
       </p>
       <p>
-        First, a constant identifier, {#syntax#}stdout{#endsyntax#}, is initialized to represent standard output's
-        writer. Then, the program tries to print the <samp>Hello, world!</samp>
-        message to standard output.
+        In the first statement, a constant identifier, {#syntax#}stdout{#endsyntax#}, is initialized to represent standard output's
+        writer. In the second statement, the program tries to print the <samp>Hello, world!</samp> message to standard output.
       </p>
       <p>
-        Functions sometimes need information to perform their task. In Zig, information is passed
-        to functions between an open parenthesis {#syntax#}({#endsyntax#} and a close parenthesis {#syntax#}){#endsyntax#} placed after
-        the function's name. This information is also known as arguments. When there are
-        multiple arguments passed to a function, they are separated by commas {#syntax#},{#endsyntax#}.
+        Functions sometimes need inputs to perform their task. Inputs are passed, in between parentheses, to functions. These
+        inputs are also known as arguments. When multiple arguments are passed to a function, they are separated by commas.
       </p>
       <p>
-        The two arguments passed to the {#syntax#}stdout.print(){#endsyntax#} function, {#syntax#}"Hello, {s}!\n"{#endsyntax#}
-        and {#syntax#}.{"world"}{#endsyntax#}, are evaluated at {#link|compile-time|comptime#}. The code sample is
-        purposely written to show how to perform {#link|string|String Literals and Unicode Code Point Literals#}
-        substitution in the {#syntax#}print{#endsyntax#} function. The curly-braces inside of the first argument
-        are substituted with the compile-time known value inside of the second argument
-        (known as a {#link|tuple|Tuples#}). The <code>\n</code>
-        inside of the double-quotes of the first argument is the {#link|escape sequence|Escape Sequences#} for the
-        newline character. The {#link|try#} expression evaluates the result of {#syntax#}stdout.print{#endsyntax#}.
-        If the result is an error, then the {#syntax#}try{#endsyntax#} expression will return from
-        {#syntax#}main{#endsyntax#} with the error. Otherwise, the program will continue. In this case, there are no
-        more statements or expressions left to execute in the {#syntax#}main{#endsyntax#} function, so the program exits.
+        Two arguments are passed to the {#syntax#}stdout.print(){#endsyntax#} function: {#syntax#}"Hello, {s}!\n"{#endsyntax#}
+        and {#syntax#}.{"world"}{#endsyntax#}. The first argument is called a format string, which is a string containing one or
+        more placeholders. {#syntax#}"Hello, {s}!\n"{#endsyntax#} contains the placeholder {#syntax#}{s}{#endsyntax#}, which is
+        replaced with {#syntax#}"world"{#endsyntax#} from the second argument. The file <code class="file">string_literals.zig</code> in
+        {#link|String Literals and Unicode Code Point Literals|String Literals and Unicode Code Point Literals#} contains examples of format
+        strings that can be used with the {#syntax#}stdout.print(){#endsyntax#} function. The <code>\n</code> inside of
+        {#syntax#}"Hello, {s}!\n"{#endsyntax#} is the {#link|escape sequence|Escape Sequences#} for the newline character.
+      </p>
+      <p>
+        The {#link|try#} expression evaluates the result of {#syntax#}stdout.print{#endsyntax#}. If the result is an error, then the
+        {#syntax#}try{#endsyntax#} expression will return from {#syntax#}main{#endsyntax#} with the error. Otherwise, the program will continue.
+        In this case, there are no more statements or expressions left to execute in the {#syntax#}main{#endsyntax#} function, so the program exits.
       </p>
       <p>
         In Zig, the standard output writer's {#syntax#}print{#endsyntax#} function is allowed to fail because

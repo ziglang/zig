@@ -17259,10 +17259,11 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     const vals = try sema.arena.alloc(InternPool.Index, names.len);
                     for (vals, 0..) |*field_val, i| {
                         // TODO: write something like getCoercedInts to avoid needing to dupe
-                        const name = try sema.arena.dupe(u8, ip.stringToSlice(names.get(ip)[i]));
+                        const name = try sema.arena.dupeZ(u8, ip.stringToSlice(names.get(ip)[i]));
                         const name_val = v: {
                             const new_decl_ty = try mod.arrayType(.{
                                 .len = name.len,
+                                .sentinel = .zero_u8,
                                 .child = .u8_type,
                             });
                             const new_decl_val = try mod.intern(.{ .aggregate = .{
@@ -17270,17 +17271,17 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                 .storage = .{ .bytes = name },
                             } });
                             break :v try mod.intern(.{ .ptr = .{
-                                .ty = .slice_const_u8_type,
+                                .ty = .slice_const_u8_sentinel_0_type,
                                 .addr = .{ .anon_decl = .{
                                     .val = new_decl_val,
-                                    .orig_ty = .slice_const_u8_type,
+                                    .orig_ty = .slice_const_u8_sentinel_0_type,
                                 } },
                                 .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                             } });
                         };
 
                         const error_field_fields = .{
-                            // name: []const u8,
+                            // name: [:0]const u8,
                             name_val,
                         };
                         field_val.* = try mod.intern(.{ .aggregate = .{
@@ -17387,10 +17388,11 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 else
                     (try mod.intValue(Type.comptime_int, i)).toIntern();
                 // TODO: write something like getCoercedInts to avoid needing to dupe
-                const name = try sema.arena.dupe(u8, ip.stringToSlice(enum_type.names.get(ip)[i]));
+                const name = try sema.arena.dupeZ(u8, ip.stringToSlice(enum_type.names.get(ip)[i]));
                 const name_val = v: {
                     const new_decl_ty = try mod.arrayType(.{
                         .len = name.len,
+                        .sentinel = .zero_u8,
                         .child = .u8_type,
                     });
                     const new_decl_val = try mod.intern(.{ .aggregate = .{
@@ -17398,17 +17400,17 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         .storage = .{ .bytes = name },
                     } });
                     break :v try mod.intern(.{ .ptr = .{
-                        .ty = .slice_const_u8_type,
+                        .ty = .slice_const_u8_sentinel_0_type,
                         .addr = .{ .anon_decl = .{
                             .val = new_decl_val,
-                            .orig_ty = .slice_const_u8_type,
+                            .orig_ty = .slice_const_u8_sentinel_0_type,
                         } },
                         .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                     } });
                 };
 
                 const enum_field_fields = .{
-                    // name: []const u8,
+                    // name: [:0]const u8,
                     name_val,
                     // value: comptime_int,
                     value_val,
@@ -17512,10 +17514,11 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             for (union_field_vals, 0..) |*field_val, i| {
                 // TODO: write something like getCoercedInts to avoid needing to dupe
-                const name = try sema.arena.dupe(u8, ip.stringToSlice(union_obj.field_names.get(ip)[i]));
+                const name = try sema.arena.dupeZ(u8, ip.stringToSlice(union_obj.field_names.get(ip)[i]));
                 const name_val = v: {
                     const new_decl_ty = try mod.arrayType(.{
                         .len = name.len,
+                        .sentinel = .zero_u8,
                         .child = .u8_type,
                     });
                     const new_decl_val = try mod.intern(.{ .aggregate = .{
@@ -17523,10 +17526,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         .storage = .{ .bytes = name },
                     } });
                     break :v try mod.intern(.{ .ptr = .{
-                        .ty = .slice_const_u8_type,
+                        .ty = .slice_const_u8_sentinel_0_type,
                         .addr = .{ .anon_decl = .{
                             .val = new_decl_val,
-                            .orig_ty = .slice_const_u8_type,
+                            .orig_ty = .slice_const_u8_sentinel_0_type,
                         } },
                         .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                     } });
@@ -17539,7 +17542,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
                 const field_ty = union_obj.field_types.get(ip)[i];
                 const union_field_fields = .{
-                    // name: []const u8,
+                    // name: [:0]const u8,
                     name_val,
                     // type: type,
                     field_ty,
@@ -17658,11 +17661,12 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                 // TODO: write something like getCoercedInts to avoid needing to dupe
                                 const bytes = if (tuple.names.len != 0)
                                     // https://github.com/ziglang/zig/issues/15709
-                                    try sema.arena.dupe(u8, ip.stringToSlice(ip.indexToKey(ty.toIntern()).anon_struct_type.names.get(ip)[i]))
+                                    try sema.arena.dupeZ(u8, ip.stringToSlice(ip.indexToKey(ty.toIntern()).anon_struct_type.names.get(ip)[i]))
                                 else
-                                    try std.fmt.allocPrint(sema.arena, "{d}", .{i});
+                                    try std.fmt.allocPrintZ(sema.arena, "{d}", .{i});
                                 const new_decl_ty = try mod.arrayType(.{
                                     .len = bytes.len,
+                                    .sentinel = .zero_u8,
                                     .child = .u8_type,
                                 });
                                 const new_decl_val = try mod.intern(.{ .aggregate = .{
@@ -17670,10 +17674,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                     .storage = .{ .bytes = bytes },
                                 } });
                                 break :v try mod.intern(.{ .ptr = .{
-                                    .ty = .slice_const_u8_type,
+                                    .ty = .slice_const_u8_sentinel_0_type,
                                     .addr = .{ .anon_decl = .{
                                         .val = new_decl_val,
-                                        .orig_ty = .slice_const_u8_type,
+                                        .orig_ty = .slice_const_u8_sentinel_0_type,
                                     } },
                                     .len = (try mod.intValue(Type.usize, bytes.len)).toIntern(),
                                 } });
@@ -17685,7 +17689,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             const opt_default_val = if (is_comptime) Value.fromInterned(field_val) else null;
                             const default_val_ptr = try sema.optRefValue(opt_default_val);
                             const struct_field_fields = .{
-                                // name: []const u8,
+                                // name: [:0]const u8,
                                 name_val,
                                 // type: type,
                                 field_ty,
@@ -17713,7 +17717,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 for (struct_field_vals, 0..) |*field_val, i| {
                     // TODO: write something like getCoercedInts to avoid needing to dupe
                     const name = if (struct_type.fieldName(ip, i).unwrap()) |name_nts|
-                        try sema.arena.dupe(u8, ip.stringToSlice(name_nts))
+                        try sema.arena.dupeZ(u8, ip.stringToSlice(name_nts))
                     else
                         try std.fmt.allocPrintZ(sema.arena, "{d}", .{i});
                     const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
@@ -17722,6 +17726,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     const name_val = v: {
                         const new_decl_ty = try mod.arrayType(.{
                             .len = name.len,
+                            .sentinel = .zero_u8,
                             .child = .u8_type,
                         });
                         const new_decl_val = try mod.intern(.{ .aggregate = .{
@@ -17729,10 +17734,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             .storage = .{ .bytes = name },
                         } });
                         break :v try mod.intern(.{ .ptr = .{
-                            .ty = .slice_const_u8_type,
+                            .ty = .slice_const_u8_sentinel_0_type,
                             .addr = .{ .anon_decl = .{
                                 .val = new_decl_val,
-                                .orig_ty = .slice_const_u8_type,
+                                .orig_ty = .slice_const_u8_sentinel_0_type,
                             } },
                             .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                         } });
@@ -17750,7 +17755,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     };
 
                     const struct_field_fields = .{
-                        // name: []const u8,
+                        // name: [:0]const u8,
                         name_val,
                         // type: type,
                         field_ty.toIntern(),
@@ -17957,9 +17962,10 @@ fn typeInfoNamespaceDecls(
         if (decl.kind != .named or !decl.is_pub) continue;
         const name_val = v: {
             // TODO: write something like getCoercedInts to avoid needing to dupe
-            const name = try sema.arena.dupe(u8, ip.stringToSlice(decl.name));
+            const name = try sema.arena.dupeZ(u8, ip.stringToSlice(decl.name));
             const new_decl_ty = try mod.arrayType(.{
                 .len = name.len,
+                .sentinel = .zero_u8,
                 .child = .u8_type,
             });
             const new_decl_val = try mod.intern(.{ .aggregate = .{
@@ -17967,9 +17973,9 @@ fn typeInfoNamespaceDecls(
                 .storage = .{ .bytes = name },
             } });
             break :v try mod.intern(.{ .ptr = .{
-                .ty = .slice_const_u8_type,
+                .ty = .slice_const_u8_sentinel_0_type,
                 .addr = .{ .anon_decl = .{
-                    .orig_ty = .slice_const_u8_type,
+                    .orig_ty = .slice_const_u8_sentinel_0_type,
                     .val = new_decl_val,
                 } },
                 .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
@@ -17977,7 +17983,7 @@ fn typeInfoNamespaceDecls(
         };
 
         const fields = .{
-            //name: []const u8,
+            //name: [:0]const u8,
             name_val,
         };
         try decl_vals.append(try mod.intern(.{ .aggregate = .{

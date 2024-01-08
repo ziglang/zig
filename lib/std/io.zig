@@ -635,7 +635,7 @@ pub fn PollFiles(comptime StreamEnum: type) type {
     var struct_fields: [enum_fields.len]std.builtin.Type.StructField = undefined;
     for (&struct_fields, enum_fields) |*struct_field, enum_field| {
         struct_field.* = .{
-            .name = enum_field.name,
+            .name = enum_field.name ++ "",
             .type = fs.File,
             .default_value = null,
             .is_comptime = false,
