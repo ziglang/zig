@@ -7159,19 +7159,15 @@ fn accessLibPath(
 
     if (target.os.tag == .openbsd and link_mode == .Dynamic) {
         test_path.clearRetainingCapacity();
-        const dir = fs.cwd().openDir(lib_dir_path, .{}) catch |err| {
-            switch (err) {
-                error.NotDir, error.FileNotFound => return false,
-                else => return err,
-            }
+        var dir = fs.cwd().openDir(lib_dir_path, .{}) catch {
+            return false;
         };
+        defer dir.close();
         var iter = dir.iterate();
 
         const allocator = @import("std").heap.page_allocator;
 
-        while (iter.next() catch {
-            return false;
-        }) |file| {
+        while (try iter.next()) |file| {
             const name = try std.fmt.allocPrint(allocator, "lib{s}.so", .{lib_name});
             defer allocator.free(name);
             if (!std.mem.containsAtLeast(u8, file.name, 1, name) or file.kind == .directory) {
@@ -7183,7 +7179,8 @@ fn accessLibPath(
             });
             defer allocator.free(path);
 
-            try checked_paths.writer().print("{s}", .{path});
+            try test_path.writer().print("{s}", .{path});
+            try checked_paths.writer().print("\n  {s}", .{test_path.items});
             return true;
         }
 
