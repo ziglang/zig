@@ -3260,7 +3260,7 @@ pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, symbol_index: u32) !u3
                     break :blk index;
                 };
             } else if (mem.eql(u8, section_name, ".debug_ranges")) {
-                return wasm.debug_line_index orelse blk: {
+                return wasm.debug_ranges_index orelse blk: {
                     wasm.debug_ranges_index = index;
                     try wasm.appendDummySegment();
                     break :blk index;
@@ -5301,14 +5301,8 @@ fn markReferences(wasm: *Wasm) !void {
             const object = &wasm.objects.items[file];
             const atom_index = try Object.parseSymbolIntoAtom(object, file, sym_loc.index, wasm);
             const atom = wasm.getAtom(atom_index);
-            for (atom.relocs.items) |reloc| {
-                const target_loc: SymbolLoc = .{ .index = reloc.index, .file = atom.file };
-                const target_sym = target_loc.getSymbol(wasm);
-                if (target_sym.isAlive() or !do_garbage_collect) {
-                    sym.mark();
-                    continue; // Skip all other relocations as this debug atom is already marked now
-                }
-            }
+            const atom_sym = atom.symbolLoc().getSymbol(wasm);
+            atom_sym.mark();
         }
     }
 }
