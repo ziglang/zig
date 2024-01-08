@@ -782,7 +782,6 @@ const mingwex_generic_src = [_][]const u8{
     "math" ++ path.sep_str ++ "tgammal.c",
     "math" ++ path.sep_str ++ "truncl.c",
     "misc" ++ path.sep_str ++ "alarm.c",
-    "misc" ++ path.sep_str ++ "basename.c",
     "misc" ++ path.sep_str ++ "btowc.c",
     "misc" ++ path.sep_str ++ "delay-f.c",
     "misc" ++ path.sep_str ++ "delay-n.c",
