@@ -45,13 +45,16 @@ pub fn main() !void {
         while (try walker.next()) |entry| {
             if (entry.kind != .file) continue;
 
-            // Special exception to keep the copyright file.
-            if (std.mem.eql(u8, entry.path, "COPYING")) continue;
-
             src_crt_dir.copyFile(entry.path, dest_crt_dir, entry.path, .{}) catch |err| switch (err) {
                 error.FileNotFound => {
-                    std.log.warn("deleting {s}", .{entry.path});
-                    try dest_crt_dir.deleteFile(entry.path);
+                    const whitelisted = for (whitelist) |item| {
+                        if (std.mem.eql(u8, entry.path, item)) break true;
+                    } else false;
+
+                    if (!whitelisted) {
+                        std.log.warn("deleting {s}", .{entry.path});
+                        try dest_crt_dir.deleteFile(entry.path);
+                    }
                 },
                 else => {
                     std.log.err("unable to copy {s}: {s}", .{ entry.path, @errorName(err) });
@@ -104,6 +107,11 @@ pub fn main() !void {
 
     return std.process.cleanExit();
 }
+
+const whitelist = [_][]const u8{
+    "COPYING",
+    "include" ++ std.fs.path.sep_str ++ "config.h",
+};
 
 const ok_exts = [_][]const u8{
     ".def",
