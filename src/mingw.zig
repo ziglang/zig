@@ -954,7 +954,6 @@ const arm_common = [_][]const u8{
     "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "logb.c",
     "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "logbf.c",
     "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "logbl.c",
-    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "pow.c",
     "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "powf.c",
     "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "powl.c",
     "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "remainder.c",
