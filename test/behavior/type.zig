@@ -549,7 +549,7 @@ test "Type.Fn" {
 
 test "reified struct field name from optional payload" {
     comptime {
-        const m_name: ?[1]u8 = "a".*;
+        const m_name: ?[1:0]u8 = "a".*;
         if (m_name) |*name| {
             const T = @Type(.{ .Struct = .{
                 .layout = .Auto,
@@ -711,7 +711,7 @@ test "struct field names sliced at comptime from larger string" {
         while (it.next()) |name| {
             fields = fields ++ &[_]Type.StructField{.{
                 .alignment = 0,
-                .name = name,
+                .name = name ++ "",
                 .type = usize,
                 .default_value = null,
                 .is_comptime = false,

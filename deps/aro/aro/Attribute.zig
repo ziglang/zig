@@ -645,7 +645,7 @@ pub const Arguments = blk: {
     var union_fields: [decls.len]ZigType.UnionField = undefined;
     for (decls, &union_fields) |decl, *field| {
         field.* = .{
-            .name = decl.name,
+            .name = decl.name ++ "",
             .type = @field(attributes, decl.name),
             .alignment = 0,
         };

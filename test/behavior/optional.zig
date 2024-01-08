@@ -448,6 +448,23 @@ test "Optional slice size is optimized" {
     try expectEqualStrings(a.?, "hello");
 }
 
+test "Optional slice passed to function" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo(a: ?[]const u8) !void {
+            try std.testing.expectEqualStrings(a.?, "foo");
+        }
+        fn bar(a: ?[]allowzero const u8) !void {
+            try std.testing.expectEqualStrings(@ptrCast(a.?), "bar");
+        }
+    };
+    try S.foo("foo");
+    try S.bar("bar");
+}
+
 test "peer type resolution in nested if expressions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
