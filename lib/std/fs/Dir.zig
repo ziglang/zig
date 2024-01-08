@@ -1125,9 +1125,17 @@ pub fn makePath(self: Dir, sub_path: []const u8) !void {
     while (true) {
         self.makeDir(component.path) catch |err| switch (err) {
             error.PathAlreadyExists => {
-                // TODO stat the file and return an error if it's not a directory
+                // stat the file and return an error if it's not a directory
                 // this is important because otherwise a dangling symlink
                 // could cause an infinite loop
+                check_dir: {
+                    // workaround for windows, see https://github.com/ziglang/zig/issues/16738
+                    const fstat = self.statFile(component.path) catch |stat_err| switch (stat_err) {
+                        error.IsDir => break :check_dir,
+                        else => |e| return e,
+                    };
+                    if (fstat.kind != .directory) return error.NotDir;
+                }
             },
             error.FileNotFound => |e| {
                 component = it.previous() orelse return e;
