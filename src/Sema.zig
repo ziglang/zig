@@ -37559,20 +37559,31 @@ fn intAddScalar(sema: *Sema, lhs: Value, rhs: Value, scalar_ty: Type) !Value {
         if (res.overflow_bit.compareAllWithZero(.neq, mod)) return error.Overflow;
         return res.wrapped_result;
     }
-    // TODO is this a performance issue? maybe we should try the operation without
-    // resorting to BigInt first.
     const lhs_key: InternPool.Key = mod.intern_pool.indexToKey(lhs.toIntern());
     const rhs_key: InternPool.Key = mod.intern_pool.indexToKey(rhs.toIntern());
-    if (lhs_key.int.storage != .big_int and
-        rhs_key.int.storage != .big_int)
-    blk: {
-        const lhs_int: i64 = lhs.toSignedInt(mod);
-        const rhs_int: i64 = rhs.toSignedInt(mod);
-        const res = @addWithOverflow(lhs_int, rhs_int);
-        if (res[1] != 0) {
-            break :blk;
-        }
-        return mod.intValue_i64(scalar_ty, res[0]);
+    switch (lhs_key.int.storage) {
+        .i64 => |lhs_int| blk: {
+            if (rhs_key.int.storage != .i64) {
+                break :blk;
+            }
+            const res = @addWithOverflow(lhs_int, rhs_key.int.storage.i64);
+            if (res[1] != 0) {
+                break :blk;
+            }
+            return mod.intValue_i64(scalar_ty, res[0]);
+        },
+        .u64 => |lhs_int| blk: {
+            if (rhs_key.int.storage != .u64) {
+                break :blk;
+            }
+            const res = @addWithOverflow(lhs_int, rhs_key.int.storage.u64);
+            if (res[1] != 0) {
+                break :blk;
+            }
+            return mod.intValue_u64(scalar_ty, res[0]);
+        },
+        // TODO lazy_size, lazy_align
+        .big_int, .lazy_align, .lazy_size => {},
     }
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
@@ -37662,20 +37673,31 @@ fn intSubScalar(sema: *Sema, lhs: Value, rhs: Value, scalar_ty: Type) !Value {
         if (res.overflow_bit.compareAllWithZero(.neq, mod)) return error.Overflow;
         return res.wrapped_result;
     }
-    // TODO is this a performance issue? maybe we should try the operation without
-    // resorting to BigInt first.
     const lhs_key: InternPool.Key = mod.intern_pool.indexToKey(lhs.toIntern());
     const rhs_key: InternPool.Key = mod.intern_pool.indexToKey(rhs.toIntern());
-    if (lhs_key.int.storage != .big_int and
-        rhs_key.int.storage != .big_int)
-    blk: {
-        const lhs_int: i64 = lhs.toSignedInt(mod);
-        const rhs_int: i64 = rhs.toSignedInt(mod);
-        const res = @subWithOverflow(lhs_int, rhs_int);
-        if (res[1] != 0) {
-            break :blk;
-        }
-        return mod.intValue_i64(scalar_ty, res[0]);
+    switch (lhs_key.int.storage) {
+        .i64 => |lhs_int| blk: {
+            if (rhs_key.int.storage != .i64) {
+                break :blk;
+            }
+            const res = @subWithOverflow(lhs_int, rhs_key.int.storage.i64);
+            if (res[1] != 0) {
+                break :blk;
+            }
+            return mod.intValue_i64(scalar_ty, res[0]);
+        },
+        .u64 => |lhs_int| blk: {
+            if (rhs_key.int.storage != .u64) {
+                break :blk;
+            }
+            const res = @subWithOverflow(lhs_int, rhs_key.int.storage.u64);
+            if (res[1] != 0) {
+                break :blk;
+            }
+            return mod.intValue_u64(scalar_ty, res[0]);
+        },
+        // TODO lazy_size, lazy_align
+        .big_int, .lazy_align, .lazy_size => {},
     }
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
