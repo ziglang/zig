@@ -5086,12 +5086,17 @@ pub fn addCCArgs(
         try argv.append(libunwind_include_path);
     }
 
-    if (comp.config.link_libc and target.isGnuLibC()) {
-        const target_version = target.os.version_range.linux.glibc;
-        const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
-            target_version.minor,
-        });
-        try argv.append(glibc_minor_define);
+    if (comp.config.link_libc) {
+        if (target.isGnuLibC()) {
+            const target_version = target.os.version_range.linux.glibc;
+            const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
+                target_version.minor,
+            });
+            try argv.append(glibc_minor_define);
+        } else if (target.isMinGW()) {
+            try argv.append("-D__MSVCRT_VERSION__=0xE00"); // use ucrt
+
+        }
     }
 
     const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
@@ -5100,10 +5105,9 @@ pub fn addCCArgs(
     if (target.os.tag == .windows) switch (ext) {
         .c, .cpp, .m, .mm, .h, .cu, .rc, .assembly, .assembly_with_cpp => {
             const minver: u16 = @truncate(@intFromEnum(target.os.getVersionRange().windows.min) >> 16);
-            try argv.appendSlice(&.{
+            try argv.append(
                 try std.fmt.allocPrint(arena, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}),
-                "-D__MSVCRT_VERSION__=0xE00", // use ucrt
-            });
+            );
         },
         else => {},
     };
