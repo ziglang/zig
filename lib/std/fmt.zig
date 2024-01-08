@@ -10,6 +10,7 @@ const meta = std.meta;
 const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
 const expectFmt = std.testing.expectFmt;
+const fmtEscapes = std.zig.fmtEscapes;
 
 pub const default_max_depth = 3;
 
@@ -179,7 +180,7 @@ pub fn format(
         };
 
         const arg_to_print = comptime arg_state.nextArg(arg_pos) orelse
-            @compileError("too few arguments");
+            @compileError(comptimePrint("too few arguments in '{}'", .{fmtEscapes(fmt)}));
 
         try formatType(
             @field(args, fields_info[arg_to_print].name),
@@ -199,10 +200,10 @@ pub fn format(
         const missing_count = arg_state.args_len - @popCount(arg_state.used_args);
         switch (missing_count) {
             0 => unreachable,
-            1 => @compileError(comptimePrint("unused argument in '{}'", .{std.zig.fmtEscapes(fmt)})),
+            1 => @compileError(comptimePrint("unused argument in '{}'", .{fmtEscapes(fmt)})),
             else => @compileError(comptimePrint("{d} unused arguments in '{}'", .{
                 missing_count,
-                std.zig.fmtEscapes(fmt),
+                fmtEscapes(fmt),
             })),
         }
     }
