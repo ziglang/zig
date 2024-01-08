@@ -105,11 +105,15 @@ pub fn getSelfDebugInfo() !*DebugInfo {
 }
 
 /// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
-pub fn hexdump(bytes: []const u8) void {
-    hexdump_internal(bytes) catch {};
+/// Obtains the stderr mutex while dumping.
+pub fn dump_hex(bytes: []const u8) void {
+    stderr_mutex.lock();
+    defer stderr_mutex.unlock();
+    dump_hex_fallible(bytes) catch {};
 }
 
-fn hexdump_internal(bytes: []const u8) !void {
+/// Prints a hexadecimal view of the bytes, unbuffered, returning any error that occurs.
+pub fn dump_hex_fallible(bytes: []const u8) !void {
     const stderr = std.io.getStdErr();
     const ttyconf = std.io.tty.detectConfig(stderr);
     const writer = stderr.writer();
@@ -140,7 +144,7 @@ fn hexdump_internal(bytes: []const u8) !void {
             if (std.ascii.isPrint(byte)) {
                 try writer.writeByte(byte);
             } else {
-                // TODO: remove this `if` when https://github.com/ziglang/zig/issues/7600 is fixed
+                // Related: https://github.com/ziglang/zig/issues/7600
                 if (ttyconf == .windows_api) {
                     try writer.writeByte('.');
                     continue;
@@ -2830,4 +2834,8 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
             }
         }
     };
+}
+
+test {
+    _ = &dump_hex;
 }
