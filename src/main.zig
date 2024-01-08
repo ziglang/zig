@@ -7181,19 +7181,17 @@ fn accessLibPath(
         defer dir.close();
         var iter = dir.iterate();
 
-        const allocator = @import("std").heap.page_allocator;
-
         while (try iter.next()) |file| {
-            const name = try std.fmt.allocPrint(allocator, "lib{s}.so", .{lib_name});
-            defer allocator.free(name);
+            const name = try std.fmt.allocPrint(test_path.allocator, "lib{s}.so", .{lib_name});
+            defer test_path.allocator.free(name);
             if (!std.mem.containsAtLeast(u8, file.name, 1, name) or file.kind == .directory) {
                 continue;
             }
-            const path = try std.fmt.allocPrint(allocator, "{s}" ++ sep ++ "{s}", .{
+            const path = try std.fmt.allocPrint(test_path.allocator, "{s}" ++ sep ++ "{s}", .{
                 lib_dir_path,
                 file.name,
             });
-            defer allocator.free(path);
+            defer test_path.allocator.free(path);
 
             try test_path.writer().print("{s}", .{path});
             try checked_paths.writer().print("\n  {s}", .{test_path.items});
