@@ -1686,6 +1686,11 @@ pub fn main() void {
       it is doing something from this table, and nothing else.
       </p>
       {#header_open|Table of Operators#}
+      Note: Code that uses a binary operator (one that operates on two operands) must adhere to one of the following:
+      <ul>
+        <li>The code has whitespace between the binary operator and both operands (example: {#syntax#}1 + 2{#endsyntax#}).</li>
+        <li>The code has no whitespace between the binary operator and both operands (example: {#syntax#}1+2{#endsyntax#}).</li>
+      </ul>
       <div class="table-wrapper">
       <table>
         <caption>Table of Operators</caption>
