@@ -16,6 +16,7 @@ const FeatureOverride = struct {
     flatten: bool = false,
     zig_name: ?[]const u8 = null,
     desc: ?[]const u8 = null,
+    omit_deps: []const []const u8 = &.{},
     extra_deps: []const []const u8 = &.{},
 };
 
@@ -1114,18 +1115,8 @@ fn processOneTarget(job: Job) anyerror!void {
                 var deps = std.ArrayList([]const u8).init(arena);
                 var omit = false;
                 var flatten = false;
-                const implies = kv.value_ptr.object.get("Implies").?.array;
-                for (implies.items) |imply| {
-                    const other_key = imply.object.get("def").?.string;
-                    const other_obj = &root_map.getPtr(other_key).?.object;
-                    const other_llvm_name = other_obj.get("Name").?.string;
-                    const other_zig_name = (try llvmNameToZigNameOmit(
-                        arena,
-                        llvm_target,
-                        other_llvm_name,
-                    )) orelse continue;
-                    try deps.append(other_zig_name);
-                }
+                var omit_deps: []const []const u8 = &.{};
+                var extra_deps: []const []const u8 = &.{};
                 for (llvm_target.feature_overrides) |feature_override| {
                     if (mem.eql(u8, llvm_name, feature_override.llvm_name)) {
                         if (feature_override.omit) {
@@ -1142,11 +1133,29 @@ fn processOneTarget(job: Job) anyerror!void {
                         if (feature_override.desc) |override_desc| {
                             desc = override_desc;
                         }
-                        for (feature_override.extra_deps) |extra_dep| {
-                            try deps.append(extra_dep);
-                        }
+                        omit_deps = feature_override.omit_deps;
+                        extra_deps = feature_override.extra_deps;
                         break;
                     }
+                }
+                const implies = kv.value_ptr.object.get("Implies").?.array;
+                for (implies.items) |imply| {
+                    const other_key = imply.object.get("def").?.string;
+                    const other_obj = &root_map.getPtr(other_key).?.object;
+                    const other_llvm_name = other_obj.get("Name").?.string;
+                    const other_zig_name = (try llvmNameToZigNameOmit(
+                        arena,
+                        llvm_target,
+                        other_llvm_name,
+                    )) orelse continue;
+                    for (omit_deps) |omit_dep| {
+                        if (mem.eql(u8, other_zig_name, omit_dep)) break;
+                    } else {
+                        try deps.append(other_zig_name);
+                    }
+                }
+                for (extra_deps) |extra_dep| {
+                    try deps.append(extra_dep);
                 }
                 const feature: Feature = .{
                     .llvm_name = llvm_name,
@@ -1170,6 +1179,21 @@ fn processOneTarget(job: Job) anyerror!void {
 
                 var zig_name = try llvmNameToZigName(arena, llvm_name);
                 var deps = std.ArrayList([]const u8).init(arena);
+                var omit_deps: []const []const u8 = &.{};
+                var extra_deps: []const []const u8 = &.{};
+                for (llvm_target.feature_overrides) |feature_override| {
+                    if (mem.eql(u8, llvm_name, feature_override.llvm_name)) {
+                        if (feature_override.omit) {
+                            continue :root_it;
+                        }
+                        if (feature_override.zig_name) |override_name| {
+                            zig_name = override_name;
+                        }
+                        omit_deps = feature_override.omit_deps;
+                        extra_deps = feature_override.extra_deps;
+                        break;
+                    }
+                }
                 const features = kv.value_ptr.object.get("Features").?.array;
                 for (features.items) |feature| {
                     const feature_key = feature.object.get("def").?.string;
@@ -1181,7 +1205,14 @@ fn processOneTarget(job: Job) anyerror!void {
                         llvm_target,
                         feature_llvm_name,
                     )) orelse continue;
-                    try deps.append(feature_zig_name);
+                    for (omit_deps) |omit_dep| {
+                        if (mem.eql(u8, feature_zig_name, omit_dep)) break;
+                    } else {
+                        try deps.append(feature_zig_name);
+                    }
+                }
+                for (extra_deps) |extra_dep| {
+                    try deps.append(extra_dep);
                 }
                 const tune_features = kv.value_ptr.object.get("TuneFeatures").?.array;
                 for (tune_features.items) |feature| {
@@ -1228,7 +1259,7 @@ fn processOneTarget(job: Job) anyerror!void {
     mem.sort(Feature, all_features.items, {}, featureLessThan);
     mem.sort(Cpu, all_cpus.items, {}, cpuLessThan);
 
-    const target_sub_path = try fs.path.join(arena, &.{ "lib", "std", "target" });
+    const target_sub_path = try fs.path.join(arena, &.{ "lib", "std", "Target" });
     var target_dir = try job.zig_src_dir.makeOpenPath(target_sub_path, .{});
     defer target_dir.close();
 
