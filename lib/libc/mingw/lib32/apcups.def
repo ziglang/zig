@@ -1,0 +1,8 @@
+LIBRARY apcups.dll
+EXPORTS
+UPSCancelWait@0
+UPSGetState@0
+UPSInit@0
+UPSStop@0
+UPSTurnOff@4
+UPSWaitForStateChange@8

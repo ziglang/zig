@@ -537,6 +537,24 @@ pub fn build(b: *std.Build) !void {
 
     b.step("fmt", "Modify source files in place to have conforming formatting")
         .dependOn(&do_fmt.step);
+
+    const update_mingw_step = b.step("update-mingw", "Update zig's bundled mingw");
+    const opt_mingw_src_path = b.option([]const u8, "mingw-src", "path to mingw-w64 source directory");
+    const update_mingw_exe = b.addExecutable(.{
+        .name = "update_mingw",
+        .target = b.host,
+        .root_source_file = .{ .path = "tools/update_mingw.zig" },
+    });
+    const update_mingw_run = b.addRunArtifact(update_mingw_exe);
+    update_mingw_run.addDirectoryArg(.{ .path = "lib" });
+    if (opt_mingw_src_path) |mingw_src_path| {
+        update_mingw_run.addDirectoryArg(.{ .cwd_relative = mingw_src_path });
+    } else {
+        // Intentionally cause an error if this build step is requested.
+        update_mingw_run.addArg("--missing-mingw-source-directory");
+    }
+
+    update_mingw_step.dependOn(&update_mingw_run.step);
 }
 
 fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {

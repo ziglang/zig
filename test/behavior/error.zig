@@ -970,3 +970,59 @@ test "try used in recursive function with inferred error set" {
     };
     try expectError(error.a, Value.x(a));
 }
+
+test "generic inline function returns inferred error set" {
+    const S = struct {
+        inline fn retErr(comptime T: type) !T {
+            return error.AnError;
+        }
+
+        fn main0() !void {
+            _ = try retErr(u8);
+        }
+    };
+    S.main0() catch |e| {
+        try std.testing.expect(e == error.AnError);
+    };
+}
+
+test "function called at runtime is properly analyzed for inferred error set" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo() !void {
+            var a = true;
+            _ = &a;
+            if (a) return error.Foo;
+            return error.Bar;
+        }
+        fn bar() !void {
+            try @This().foo();
+        }
+    };
+
+    S.bar() catch |err| switch (err) {
+        error.Foo => {},
+        error.Bar => {},
+    };
+}
+
+test "generic type constructed from inferred error set of unresolved function" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn write(_: void, bytes: []const u8) !usize {
+            _ = bytes;
+            return 0;
+        }
+        const T = std.io.Writer(void, @typeInfo(@typeInfo(@TypeOf(write)).Fn.return_type.?).ErrorUnion.error_set, write);
+        fn writer() T {
+            return .{ .context = {} };
+        }
+    };
+    _ = std.io.multiWriter(.{S.writer()});
+}

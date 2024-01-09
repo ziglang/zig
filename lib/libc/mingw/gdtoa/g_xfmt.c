@@ -69,7 +69,7 @@ char *__g_xfmt (char *buf, void *V, int ndig, size_t bufsize)
 
 	if (ndig < 0)
 		ndig = 0;
-	if ((int) bufsize < ndig + 10)
+	if (bufsize < (size_t)(ndig + 10))
 		return 0;
 
 	L = (UShort *)V;
@@ -103,14 +103,14 @@ char *__g_xfmt (char *buf, void *V, int ndig, size_t bufsize)
 	if (ex != 0) {
 		if (ex == 0x7fff) {
 			/* Infinity or NaN */
-			if (bits[0] | bits[1])
-				b = strcp(buf, "NaN");
-			else {
+			if (!bits[0] && bits[1]== 0x80000000) {
 				b = buf;
 				if (sign)
 					*b++ = '-';
 				b = strcp(b, "Infinity");
 			}
+			else
+				b = strcp(buf, "NaN");
 			return b;
 		}
 		i = STRTOG_Normal;

@@ -67,7 +67,6 @@ pub const simple_cases = [_]SimpleCase{
     .{ .src_path = "tools/gen_stubs.zig" },
     .{ .src_path = "tools/generate_linux_syscalls.zig" },
     .{ .src_path = "tools/process_headers.zig" },
-    .{ .src_path = "tools/update-license-headers.zig" },
     .{ .src_path = "tools/update-linux-headers.zig" },
     .{ .src_path = "tools/update_clang_options.zig" },
     .{ .src_path = "tools/update_cpu_features.zig" },
@@ -178,6 +177,10 @@ pub const build_cases = [_]BuildCase{
     .{
         .build_root = "test/standalone/dep_shared_builtin",
         .import = @import("standalone/dep_shared_builtin/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/dirname",
+        .import = @import("standalone/dirname/build.zig"),
     },
     .{
         .build_root = "test/standalone/empty_env",

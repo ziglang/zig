@@ -200,3 +200,11 @@ test "if value shouldn't be load-elided if used later (optionals)" {
 
     try std.testing.expectEqual(c, 1);
 }
+
+test "variable type inferred from if expression" {
+    var a = if (true) {
+        return;
+    } else true;
+    _ = &a;
+    return error.TestFailed;
+}

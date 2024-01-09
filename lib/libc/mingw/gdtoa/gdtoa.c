@@ -103,7 +103,7 @@ static Bigint *bitstob (ULong *bits, int nbits, int *bbits)
  *	   calculation.
  */
 
-char *__gdtoa (FPI *fpi, int be, ULong *bits, int *kindp, int mode, int ndigits,
+char *__gdtoa (const FPI *fpi, int be, ULong *bits, int *kindp, int mode, int ndigits,
 							  int *decpt, char **rve)
 {
  /*	Arguments ndigits and decpt are similar to the second and third
@@ -270,7 +270,7 @@ char *__gdtoa (FPI *fpi, int be, ULong *bits, int *kindp, int mode, int ndigits,
 			break;
 		case 2:
 			leftright = 0;
-			/* no break */
+			/* fallthrough */
 		case 4:
 			if (ndigits <= 0)
 				ndigits = 1;
@@ -278,7 +278,7 @@ char *__gdtoa (FPI *fpi, int be, ULong *bits, int *kindp, int mode, int ndigits,
 			break;
 		case 3:
 			leftright = 0;
-			/* no break */
+			/* fallthrough */
 		case 5:
 			i = ndigits + k + 1;
 			ilim = i;
@@ -288,7 +288,9 @@ char *__gdtoa (FPI *fpi, int be, ULong *bits, int *kindp, int mode, int ndigits,
 	}
 	s = s0 = rv_alloc(i);
 
-	if ( (rdir = fpi->rounding - 1) !=0) {
+	if (mode <= 1)
+		rdir = 0;
+	else if ( (rdir = fpi->rounding - 1) !=0) {
 		if (rdir < 0)
 			rdir = 2;
 		if (kind & STRTOG_Neg)
@@ -393,7 +395,7 @@ char *__gdtoa (FPI *fpi, int be, ULong *bits, int *kindp, int mode, int ndigits,
 					else if (dval(&d) < ds - dval(&eps)) {
 						if (dval(&d))
 							inex = STRTOG_Inexlo;
-						goto clear_trailing0;
+						goto ret1;
 					}
 					break;
 				}
@@ -456,12 +458,8 @@ char *__gdtoa (FPI *fpi, int be, ULong *bits, int *kindp, int mode, int ndigits,
 						}
 					++*s++;
 				}
-				else {
+				else
 					inex = STRTOG_Inexlo;
- clear_trailing0:
-					while(*--s == '0'){}
-					++s;
-				}
 				break;
 			}
 		}
@@ -712,8 +710,6 @@ char *__gdtoa (FPI *fpi, int be, ULong *bits, int *kindp, int mode, int ndigits,
  chopzeros:
 		if (b->wds > 1 || b->x[0])
 			inex = STRTOG_Inexlo;
-		while(*--s == '0'){}
-		++s;
 	}
  ret:
 	Bfree(S);
@@ -723,6 +719,8 @@ char *__gdtoa (FPI *fpi, int be, ULong *bits, int *kindp, int mode, int ndigits,
 		Bfree(mhi);
 	}
  ret1:
+	while(s > s0 && s[-1] == '0')
+		--s;
 	Bfree(b);
 	*s = 0;
 	*decpt = k + 1;

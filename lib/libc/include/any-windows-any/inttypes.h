@@ -279,7 +279,7 @@ typedef struct {
 #define SCNuFAST8 "hhu"
 #endif /* __STDC_VERSION__ >= 199901 */
 
-#if (defined(__CRTDLL__) || __MSVCRT_VERSION__ < 0x200) && !defined(__USE_MINGW_ANSI_STDIO)
+#if (defined(__CRTDLL__) || __MSVCRT_VERSION__ < 0x200) && __USE_MINGW_ANSI_STDIO == 0
 /*
  * crtdll.dll and msvcrt10.dll do not support any 64-bit modifier.
  * Undef all previously defined 64-bit modifiers.

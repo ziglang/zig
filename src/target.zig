@@ -11,10 +11,13 @@ pub const ArchOsAbi = struct {
     os: std.Target.Os.Tag,
     abi: std.Target.Abi,
     os_ver: ?std.SemanticVersion = null,
+
+    // Minimum glibc version that provides support for the arch/os when ABI is GNU.
+    glibc_min: ?std.SemanticVersion = null,
 };
 
 pub const available_libcs = [_]ArchOsAbi{
-    .{ .arch = .aarch64_be, .os = .linux, .abi = .gnu },
+    .{ .arch = .aarch64_be, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 17, .patch = 0 } },
     .{ .arch = .aarch64_be, .os = .linux, .abi = .musl },
     .{ .arch = .aarch64_be, .os = .windows, .abi = .gnu },
     .{ .arch = .aarch64, .os = .linux, .abi = .gnu },
@@ -54,14 +57,14 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .mips, .os = .linux, .abi = .gnueabi },
     .{ .arch = .mips, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .mips, .os = .linux, .abi = .musl },
-    .{ .arch = .powerpc64le, .os = .linux, .abi = .gnu },
+    .{ .arch = .powerpc64le, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 19, .patch = 0 } },
     .{ .arch = .powerpc64le, .os = .linux, .abi = .musl },
     .{ .arch = .powerpc64, .os = .linux, .abi = .gnu },
     .{ .arch = .powerpc64, .os = .linux, .abi = .musl },
     .{ .arch = .powerpc, .os = .linux, .abi = .gnueabi },
     .{ .arch = .powerpc, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .powerpc, .os = .linux, .abi = .musl },
-    .{ .arch = .riscv64, .os = .linux, .abi = .gnu },
+    .{ .arch = .riscv64, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 27, .patch = 0 } },
     .{ .arch = .riscv64, .os = .linux, .abi = .musl },
     .{ .arch = .s390x, .os = .linux, .abi = .gnu },
     .{ .arch = .s390x, .os = .linux, .abi = .musl },
@@ -153,6 +156,12 @@ pub fn canBuildLibC(target: std.Target) bool {
             if (target.os.tag == .macos) {
                 const ver = target.os.version_range.semver;
                 return ver.min.order(libc.os_ver.?) != .lt;
+            }
+            // Ensure glibc (aka *-linux-gnu) version is supported
+            if (target.isGnuLibC()) {
+                const min_glibc_ver = libc.glibc_min orelse return true;
+                const target_glibc_ver = target.os.version_range.linux.glibc;
+                return target_glibc_ver.order(min_glibc_ver) != .lt;
             }
             return true;
         }
