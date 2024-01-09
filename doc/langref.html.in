@@ -11460,260 +11460,32 @@ pub fn main() !void {
       {#header_close#}
       {#header_open|Targets#}
       <p>
-      Zig supports generating code for all targets that LLVM supports. Here is
-      what it looks like to execute <code>zig targets</code> on a Linux x86_64
-      computer:
+      <strong>Target</strong> refers to the computer that will be used to run an executable.
+      It is composed of the CPU architecture, the set of enabled CPU features, operating system,
+      minimum and maximum operating system version, ABI, and ABI version.
       </p>
-      {#shell_samp#}$ zig targets
-Architectures:
-  arm
-    v8_4a
-    v8_3a
-    v8_2a
-    v8_1a
-    v8
-    v8r
-    v8m_baseline
-    v8m_mainline
-    v7
-    v7em
-    v7m
-    v7s
-    v7k
-    v7ve
-    v6
-    v6m
-    v6k
-    v6t2
-    v5
-    v5te
-    v4t
-  armeb
-    v8_4a
-    v8_3a
-    v8_2a
-    v8_1a
-    v8
-    v8r
-    v8m_baseline
-    v8m_mainline
-    v7
-    v7em
-    v7m
-    v7s
-    v7k
-    v7ve
-    v6
-    v6m
-    v6k
-    v6t2
-    v5
-    v5te
-    v4t
-  aarch64
-    v8_4a
-    v8_3a
-    v8_2a
-    v8_1a
-    v8
-    v8r
-    v8m_baseline
-    v8m_mainline
-  aarch64_be
-    v8_4a
-    v8_3a
-    v8_2a
-    v8_1a
-    v8
-    v8r
-    v8m_baseline
-    v8m_mainline
-  avr
-  bpfel
-  bpfeb
-  hexagon
-  mips
-  mipsel
-  mips64
-  mips64el
-  msp430
-  powerpc
-  powerpc64
-  powerpc64le
-  r600
-  amdgcn
-  riscv32
-  riscv64
-  sparc
-  sparc64
-  sparcel
-  s390x
-  thumb
-    v8_4a
-    v8_3a
-    v8_2a
-    v8_1a
-    v8
-    v8r
-    v8m_baseline
-    v8m_mainline
-    v7
-    v7em
-    v7m
-    v7s
-    v7k
-    v7ve
-    v6
-    v6m
-    v6k
-    v6t2
-    v5
-    v5te
-    v4t
-  thumbeb
-    v8_4a
-    v8_3a
-    v8_2a
-    v8_1a
-    v8
-    v8r
-    v8m_baseline
-    v8m_mainline
-    v7
-    v7em
-    v7m
-    v7s
-    v7k
-    v7ve
-    v6
-    v6m
-    v6k
-    v6t2
-    v5
-    v5te
-    v4t
-  x86
-  x86_64 (native)
-  xcore
-  nvptx
-  nvptx64
-  lanai
-  wasm32
-  wasm64
-
-Operating Systems:
-  freestanding
-  ananas
-  cloudabi
-  dragonfly
-  freebsd
-  fuchsia
-  ios
-  kfreebsd
-  linux (native)
-  lv2
-  macos
-  netbsd
-  openbsd
-  solaris
-  windows
-  haiku
-  minix
-  rtems
-  nacl
-  cnk
-  aix
-  cuda
-  nvcl
-  amdhsa
-  ps4
-  elfiamcu
-  tvos
-  wasi
-  watchos
-  mesa3d
-  contiki
-  amdpal
-  zen
-  uefi
-
-C ABIs:
-  none
-  gnu (native)
-  gnuabin32
-  gnuabi64
-  gnueabi
-  gnueabihf
-  gnux32
-  code16
-  eabi
-  eabihf
-  android
-  musl
-  musleabi
-  musleabihf
-  msvc
-  itanium
-  cygnus
-  coreclr
-  simulator
-
-Available libcs:
-  aarch64_be-linux-gnu
-  aarch64_be-linux-musl
-  aarch64-linux-gnu
-  aarch64-linux-musleabi
-  armeb-linux-gnueabi
-  armeb-linux-gnueabihf
-  armeb-linux-musleabi
-  armeb-linux-musleabihf
-  arm-linux-gnueabi
-  arm-linux-gnueabihf
-  arm-linux-musleabi
-  arm-linux-musleabihf
-  x86-linux-gnu
-  x86-linux-musl
-  mips64el-linux-gnuabi64
-  mips64el-linux-gnuabin32
-  mips64el-linux-musl
-  mips64-linux-gnuabi64
-  mips64-linux-gnuabin32
-  mips64-linux-musl
-  mipsel-linux-gnu
-  mipsel-linux-musl
-  mips-linux-gnu
-  mips-linux-musl
-  nios2-linux-gnu
-  powerpc64le-linux-gnu
-  powerpc64le-linux-musl
-  powerpc64-linux-gnu
-  powerpc64-linux-musl
-  powerpc-linux-gnu
-  powerpc-linux-musl
-  riscv32-linux-musl
-  riscv64-linux-gnu
-  riscv64-linux-musl
-  s390x-linux-gnu
-  s390x-linux-musl
-  sparc-linux-gnu
-  sparc64-linux-gnu
-  wasm32-freestanding-musl
-  wasm32-wasi-musl
-  x86_64-linux-gnu
-  x86_64-linux-gnux32
-  x86_64-linux-musl{#end_shell_samp#}
       <p>
-      The Zig Standard Library ({#syntax#}@import("std"){#endsyntax#}) has architecture, environment, and operating system
-      abstractions, and thus takes additional work to support more platforms.
-      Not all standard library code requires operating system abstractions, however,
-      so things such as generic data structures work on all above platforms.
+      Zig is a general-purpose programming language which means that it is designed to
+      generate optimal code for a large set of targets. The command <code>zig targets</code>
+      provides information about all of the targets the compiler is aware of.</p>
+      <p>When no target option is provided to the compiler, the default choice
+      is to target the <strong>host computer</strong>, meaning that the
+      resulting executable will be <em>unsuitable for copying to a different
+      computer</em>. In order to copy an executable to another computer, the compiler
+      needs to know about the target requirements via the <code>-target</code> option.
       </p>
-      <p>The current list of targets supported by the Zig Standard Library is:</p>
-      <ul>
-      <li>Linux x86_64</li>
-      <li>Windows x86_64</li>
-      <li>macOS x86_64</li>
-      </ul>
+      <p>
+      The Zig Standard Library ({#syntax#}@import("std"){#endsyntax#}) has
+      cross-platform abstractions, making the same source code viable on many targets.
+      Some code is more portable than other code. In general, Zig code is extremely
+      portable compared to other programming languages.
+      </p>
+      <p>
+      Each platform requires its own implementations to make Zig's
+      cross-platform abstractions work. These implementations are at various
+      degrees of completion. Each tagged release of the compiler comes with
+      release notes that provide the full support table for each target.
+      </p>
       {#header_close#}
       {#header_open|Style Guide#}
       <p>
