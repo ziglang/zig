@@ -581,19 +581,16 @@ pub fn generateCompdb(self: *std.Build) !void {
 
     var entry_paths_set_key_it = self.compdb_entry_paths_set.?.keyIterator();
     while (entry_paths_set_key_it.next()) |entry_path| {
-        const entry_path_abs = fs.cwd().realpathAlloc(self.allocator, entry_path.*) catch continue;
+        // 8MiB max size should be more than enough for a single entry in 99.99999+% of cases.
+        // TODO: Maybe this shouldn't silently skip entries that are too large?
+        const entry_file_contents_0: []u8 = fs.cwd().readFileAlloc(self.allocator, entry_path.*, (1024 * 1024 * 8)) catch continue;
+        defer self.allocator.free(entry_file_contents_0);
+        var entry_file_contents_1: []const u8 = entry_file_contents_0;
+        entry_file_contents_1 = mem.trim(u8, entry_file_contents_1, " \n\r,");
+        if (entry_file_contents_1.len == 0) continue;
+        entry_file_contents_1 = self.fmt("{s},", .{entry_file_contents_1});
 
-        const entry_file = fs.openFileAbsolute(entry_path_abs, .{}) catch continue;
-        defer entry_file.close();
-
-        const entry_file_stat = entry_file.stat() catch continue;
-
-        var entry_file_contents: []const u8 = entry_file.readToEndAlloc(self.allocator, entry_file_stat.size) catch continue;
-        entry_file_contents = mem.trim(u8, entry_file_contents, " \n\r,");
-        if (entry_file_contents.len == 0) continue;
-        entry_file_contents = self.fmt("{s},", .{entry_file_contents});
-
-        entry_strings.appendSlice(entry_file_contents) catch continue;
+        entry_strings.appendSlice(entry_file_contents_1) catch continue;
     }
 
     var entries_string: []const u8 = entry_strings.items;
