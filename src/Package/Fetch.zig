@@ -963,7 +963,7 @@ fn unpackResource(
                 return f.fail(f.location_tok, try eb.addString("missing 'Content-Type' header"));
 
             // Extract the MIME type, ignoring charset and boundary directives
-            const mime_type_end = if (std.mem.indexOf(u8, content_type, ";")) |i| i else content_type.len;
+            const mime_type_end = std.mem.indexOf(u8, content_type, ";") orelse content_type.len;
             const mime_type = content_type[0..mime_type_end];
 
             if (ascii.eqlIgnoreCase(mime_type, "application/x-tar"))
