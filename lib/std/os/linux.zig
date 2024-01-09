@@ -1553,6 +1553,16 @@ pub fn sched_getaffinity(pid: pid_t, size: usize, set: *cpu_set_t) usize {
     return 0;
 }
 
+pub fn sched_setaffinity(pid: pid_t, set: *const cpu_set_t) !void {
+    const size = @sizeOf(cpu_set_t);
+    const rc = syscall3(.sched_setaffinity, @as(usize, @bitCast(@as(isize, pid))), size, @intFromPtr(set));
+
+    switch (std.os.errno(rc)) {
+        .SUCCESS => return,
+        else => |err| return std.os.unexpectedErrno(err),
+    }
+}
+
 pub fn epoll_create() usize {
     return epoll_create1(0);
 }

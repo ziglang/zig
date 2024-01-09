@@ -1037,7 +1037,7 @@ pub fn init(lf: *File, format: Format) Dwarf {
         .format = format,
         .ptr_width = ptr_width,
         .dbg_line_header = switch (target.cpu.arch) {
-            .x86_64 => .{
+            .x86_64, .aarch64 => .{
                 .minimum_instruction_length = 1,
                 .maximum_operations_per_instruction = 1,
                 .default_is_stmt = true,
