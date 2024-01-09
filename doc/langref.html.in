@@ -5090,6 +5090,46 @@ test "defer unwinding" {
     deferUnwindExample();
 }
       {#code_end#}
+      {#code_begin|test|test_mutable_vars_defer#}
+const std = @import("std");
+
+const expect = std.testing.expect;
+
+// It's important to understand the semantics of `defer` when using mutable
+// variables. The `defer` statement captures the value of the variable at the
+// time the `defer` statement is executed, which is at the end of the current
+// scope. This means that if the variable is mutated after the `defer` statement
+// is defined but before the end of the scope, the `defer` statement will
+// execute with the mutated value.
+test "defer with mutable variables" {
+    var x: u8 = 42;
+    defer expect(x == 69) catch unreachable;
+    x += 27;
+}
+
+// Caller owns the slice.
+fn getSomeText(allocator: std.mem.Allocator) ![]u8 {
+    var buffer = std.ArrayList(u8).init(allocator);
+    try buffer.appendSlice(" Hello, world!\n");
+    return try buffer.toOwnedSlice();
+}
+
+test "defer with mutable variables implications" {
+    const allocator = std.testing.allocator;
+
+    var text: []const u8 = try getSomeText(allocator);
+    // The following `defer` would be a bug since `text` is no longer the same
+    // pointer after the `std.mem.trim()` call. It's very easy to make this
+    // mistake if you're not careful.
+    // defer allocator.free(text);
+
+    const text_handle = text;
+    // The following `defer` is correct since `text_handle` is a constant.
+    defer allocator.free(text_handle);
+
+    text = std.mem.trim(u8, text, " \n");
+}
+      {#code_end#}
       {#code_begin|test_err|test_invalid_defer|cannot return from defer expression#}
 // Inside a defer expression the return statement is not allowed.
 fn deferInvalidExample() !void {
