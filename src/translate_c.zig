@@ -2402,11 +2402,37 @@ fn transCCast(
         // 3. ptr <- u64   | @as(ptr, @ptrFromInt(@as(usize, u64)))
         // 5. ptr <- u16   | @as(ptr, @ptrFromInt(@as(usize, u16)))
         // 2. ptr <- i128  | @as(ptr, @ptrFromInt(@as(usize, @bitCast(@as(isize, @truncate(i128))))))
-        // 4. ptr <- i64   | @as(ptr, @ptrFromInt(@as(usize, @bitCast(i64))))
+        // 4. ptr <- i64   | @as(ptr, @ptrFromInt(@as(usize, @bitCast(@as(isize, i64)))))
         // 6. ptr <- i16   | @as(ptr, @ptrFromInt(@as(usize, @bitCast(@as(isize, i16)))))
+
+        var src_int_expr = expr;
+
+        // @truncate(ptr)
+        const src_int_width = try qualTypeIntBitWidth(c, src_type);
+        const dst_ptr_width = std.Target.ptrBitWidth(target);
+        if (src_int_width < dst_ptr_width) {
+            src_int_expr = try Tag.truncate.create(c.arena, src_int_expr);
+        }
+
+        // @bitCast(@as(isize, signedInt))
+        if (cIsSignedInteger(src_type)) {
+            const isize_node = try Tag.type.create(c.arena, "isize");
+            src_int_expr = try Tag.as.create(c.arena, .{
+                .lhs = isize_node,
+                .rhs = src_int_expr,
+            });
+        }
+
+        // @as(destPtrType, @ptrFromInt(@as(usize, int)))
+        src_int_expr = try Tag.as.create(c.arena, .{
+            .lhs = try Tag.type.create(c.arena, "usize"),
+            .rhs = src_int_expr,
+        });
+        src_int_expr = try Tag.ptr_from_int(c.arena, src_int_expr);
+
         return Tag.as.create(c.arena, .{
             .lhs = dst_node,
-            .rhs = try Tag.ptr_from_int.create(c.arena, expr),
+            .rhs = src_int_expr,
         });
     }
     if (cIsFloating(src_type) and cIsFloating(dst_type)) {
