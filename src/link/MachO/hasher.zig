@@ -67,7 +67,7 @@ const assert = std.debug.assert;
 const fs = std.fs;
 const mem = std.mem;
 const std = @import("std");
-const trace = @import("../tracy.zig").trace;
+const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const ThreadPool = std.Thread.Pool;

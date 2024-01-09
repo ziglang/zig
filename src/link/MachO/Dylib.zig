@@ -12,7 +12,7 @@ symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 dependents: std.ArrayListUnmanaged(Id) = .{},
 rpaths: std.StringArrayHashMapUnmanaged(void) = .{},
 umbrella: File.Index = 0,
-platform: ?MachO.Options.Platform = null,
+platform: ?MachO.Platform = null,
 
 needed: bool,
 weak: bool,
@@ -815,7 +815,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const tapi = @import("../tapi.zig");
-const trace = @import("../tracy.zig").trace;
+const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
 
 const Allocator = mem.Allocator;

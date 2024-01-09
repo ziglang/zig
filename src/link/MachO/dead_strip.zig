@@ -193,7 +193,7 @@ const log = std.log.scoped(.dead_strip);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
-const trace = @import("../tracy.zig").trace;
+const trace = @import("../../tracy.zig").trace;
 const track_live_log = std.log.scoped(.dead_strip_track_live);
 const std = @import("std");
 

@@ -12,7 +12,7 @@ strtab: []const u8 = &[0]u8{},
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 
-platform: ?MachO.Options.Platform = null,
+platform: ?MachO.Platform = null,
 dwarf_info: ?DwarfInfo = null,
 stab_files: std.ArrayListUnmanaged(StabFile) = .{},
 
@@ -2075,7 +2075,7 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
-const trace = @import("../tracy.zig").trace;
+const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
 
 const Allocator = mem.Allocator;
@@ -2088,6 +2088,5 @@ const LoadCommandIterator = macho.LoadCommandIterator;
 const MachO = @import("../MachO.zig");
 const Object = @This();
 const Relocation = @import("Relocation.zig");
-const StringTable = @import("../strtab.zig").StringTable;
 const Symbol = @import("Symbol.zig");
 const UnwindInfo = @import("UnwindInfo.zig");

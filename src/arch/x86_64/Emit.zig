@@ -49,21 +49,23 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .r_addend = -4,
                     });
                 } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
-                    // Add relocation to the decl.
-                    const atom_index =
-                        macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
-                    const target = if (link.File.MachO.global_symbol_bit & symbol.sym_index != 0)
-                        macho_file.getGlobalByIndex(link.File.MachO.global_symbol_mask & symbol.sym_index)
-                    else
-                        link.File.MachO.SymbolWithLoc{ .sym_index = symbol.sym_index };
-                    try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
-                        .type = .branch,
-                        .target = target,
-                        .offset = end_offset - 4,
-                        .addend = 0,
-                        .pcrel = true,
-                        .length = 2,
-                    });
+                    _ = macho_file;
+                    @panic("TODO emitMir");
+                    // // Add relocation to the decl.
+                    // const atom_index =
+                    //     macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
+                    // const target = if (link.File.MachO.global_symbol_bit & symbol.sym_index != 0)
+                    //     macho_file.getGlobalByIndex(link.File.MachO.global_symbol_mask & symbol.sym_index)
+                    // else
+                    //     link.File.MachO.SymbolWithLoc{ .sym_index = symbol.sym_index };
+                    // try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
+                    //     .type = .branch,
+                    //     .target = target,
+                    //     .offset = end_offset - 4,
+                    //     .addend = 0,
+                    //     .pcrel = true,
+                    //     .length = 2,
+                    // });
                 } else if (emit.lower.bin_file.cast(link.File.Coff)) |coff_file| {
                     // Add relocation to the decl.
                     const atom_index = coff_file.getAtomIndexForSymbol(
@@ -157,25 +159,27 @@ pub fn emitMir(emit: *Emit) Error!void {
                 => |symbol| if (emit.lower.bin_file.cast(link.File.Elf)) |_| {
                     unreachable;
                 } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
-                    const atom_index =
-                        macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
-                    const target = if (link.File.MachO.global_symbol_bit & symbol.sym_index != 0)
-                        macho_file.getGlobalByIndex(link.File.MachO.global_symbol_mask & symbol.sym_index)
-                    else
-                        link.File.MachO.SymbolWithLoc{ .sym_index = symbol.sym_index };
-                    try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
-                        .type = switch (lowered_relocs[0].target) {
-                            .linker_got => .got,
-                            .linker_direct => .signed,
-                            .linker_tlv => .tlv,
-                            else => unreachable,
-                        },
-                        .target = target,
-                        .offset = @intCast(end_offset - 4),
-                        .addend = 0,
-                        .pcrel = true,
-                        .length = 2,
-                    });
+                    _ = macho_file;
+                    @panic("TODO emitMir");
+                    // const atom_index =
+                    //     macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
+                    // const target = if (link.File.MachO.global_symbol_bit & symbol.sym_index != 0)
+                    //     macho_file.getGlobalByIndex(link.File.MachO.global_symbol_mask & symbol.sym_index)
+                    // else
+                    //     link.File.MachO.SymbolWithLoc{ .sym_index = symbol.sym_index };
+                    // try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
+                    //     .type = switch (lowered_relocs[0].target) {
+                    //         .linker_got => .got,
+                    //         .linker_direct => .signed,
+                    //         .linker_tlv => .tlv,
+                    //         else => unreachable,
+                    //     },
+                    //     .target = target,
+                    //     .offset = @intCast(end_offset - 4),
+                    //     .addend = 0,
+                    //     .pcrel = true,
+                    //     .length = 2,
+                    // });
                 } else if (emit.lower.bin_file.cast(link.File.Coff)) |coff_file| {
                     const atom_index = coff_file.getAtomIndexForSymbol(.{
                         .sym_index = symbol.atom_index,

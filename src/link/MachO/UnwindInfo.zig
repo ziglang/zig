@@ -670,7 +670,7 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
-const trace = @import("../tracy.zig").trace;
+const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");

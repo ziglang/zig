@@ -984,20 +984,22 @@ fn genDeclRef(
         }
         return GenResult.mcv(.{ .load_symbol = sym.esym_index });
     } else if (lf.cast(link.File.MachO)) |macho_file| {
+        _ = macho_file;
         if (is_extern) {
             // TODO make this part of getGlobalSymbol
-            const name = zcu.intern_pool.stringToSlice(decl.name);
-            const sym_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
-            defer gpa.free(sym_name);
-            const global_index = try macho_file.addUndefined(sym_name, .{ .add_got = true });
-            return GenResult.mcv(.{ .load_got = link.File.MachO.global_symbol_bit | global_index });
+            // const name = zcu.intern_pool.stringToSlice(decl.name);
+            // const sym_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
+            // defer gpa.free(sym_name);
+            // const global_index = try macho_file.addUndefined(sym_name, .{ .add_got = true });
+            // return GenResult.mcv(.{ .load_got = link.File.MachO.global_symbol_bit | global_index });
         }
-        const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
-        const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
-        if (is_threadlocal) {
-            return GenResult.mcv(.{ .load_tlv = sym_index });
-        }
-        return GenResult.mcv(.{ .load_got = sym_index });
+        // const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
+        // const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
+        // if (is_threadlocal) {
+        //     return GenResult.mcv(.{ .load_tlv = sym_index });
+        // }
+        // return GenResult.mcv(.{ .load_got = sym_index });
+        @panic("TODO genDeclRef");
     } else if (lf.cast(link.File.Coff)) |coff_file| {
         if (is_extern) {
             const name = zcu.intern_pool.stringToSlice(decl.name);
