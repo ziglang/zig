@@ -999,7 +999,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 switch (link_object) {
                     .static_path => |static_path| {
                         if (my_responsibility) {
-                            try zig_args.append(static_path.getPath(b));
+                            try zig_args.append(static_path.getPath2(module.owner, step));
                             total_linker_objects += 1;
                         }
                     },
@@ -1119,7 +1119,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("--");
                             prev_has_cflags = false;
                         }
-                        try zig_args.append(asm_file.getPath(b));
+                        try zig_args.append(asm_file.getPath2(module.owner, step));
                         total_linker_objects += 1;
                     },
 
@@ -1140,7 +1140,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("--");
                             prev_has_cflags = true;
                         }
-                        try zig_args.append(c_source_file.file.getPath(b));
+                        try zig_args.append(c_source_file.file.getPath2(module.owner, step));
                         total_linker_objects += 1;
                     },
 
@@ -1191,7 +1191,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("--");
                             prev_has_rcflags = true;
                         }
-                        try zig_args.append(rc_source_file.file.getPath(b));
+                        try zig_args.append(rc_source_file.file.getPath2(module.owner, step));
                         total_linker_objects += 1;
                     },
                 }
