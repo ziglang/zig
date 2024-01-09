@@ -461,7 +461,7 @@ const leb = std.leb;
 const log = std.log.scoped(.link);
 const mem = std.mem;
 const std = @import("std");
-const trace = @import("../tracy.zig").trace;
+const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const DwarfInfo = @This();

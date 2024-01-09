@@ -559,7 +559,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const std = @import("std");
-const trace = @import("../tracy.zig").trace;
+const trace = @import("../../tracy.zig").trace;
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");

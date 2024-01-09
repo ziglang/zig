@@ -160,14 +160,14 @@ const max_distance = (1 << (jump_bits - 1));
 /// and assume margin to be 5MiB.
 const max_allowed_distance = max_distance - 0x500_000;
 
-const aarch64 = @import("../aarch64.zig");
+const aarch64 = @import("../../arch/aarch64/bits.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const std = @import("std");
-const trace = @import("../tracy.zig").trace;
+const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");

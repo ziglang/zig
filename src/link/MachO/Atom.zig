@@ -449,7 +449,7 @@ fn resolveRelocInner(
             if (rel.getTargetSymbol(macho_file).flags.got) {
                 try writer.writeInt(i32, @intCast(G + A - P), .little);
             } else {
-                try relaxGotLoad(code[rel_offset - 3 ..]);
+                try x86_64.relaxGotLoad(code[rel_offset - 3 ..]);
                 try writer.writeInt(i32, @intCast(S + A - P), .little);
             }
         },
@@ -463,7 +463,7 @@ fn resolveRelocInner(
                 const S_: i64 = @intCast(sym.getTlvPtrAddress(macho_file));
                 try writer.writeInt(i32, @intCast(S_ + A - P), .little);
             } else {
-                try relaxTlv(code[rel_offset - 3 ..]);
+                try x86_64.relaxTlv(code[rel_offset - 3 ..]);
                 try writer.writeInt(i32, @intCast(S + A - P), .little);
             }
         },
@@ -631,43 +631,51 @@ fn resolveRelocInner(
     }
 }
 
-fn relaxGotLoad(code: []u8) error{RelaxFail}!void {
-    const old_inst = disassemble(code) orelse return error.RelaxFail;
-    switch (old_inst.encoding.mnemonic) {
-        .mov => {
-            const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops) catch return error.RelaxFail;
-            relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
-            encode(&.{inst}, code) catch return error.RelaxFail;
-        },
-        else => return error.RelaxFail,
+const x86_64 = struct {
+    fn relaxGotLoad(code: []u8) error{RelaxFail}!void {
+        const old_inst = disassemble(code) orelse return error.RelaxFail;
+        switch (old_inst.encoding.mnemonic) {
+            .mov => {
+                const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops) catch return error.RelaxFail;
+                relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+                encode(&.{inst}, code) catch return error.RelaxFail;
+            },
+            else => return error.RelaxFail,
+        }
     }
-}
 
-fn relaxTlv(code: []u8) error{RelaxFail}!void {
-    const old_inst = disassemble(code) orelse return error.RelaxFail;
-    switch (old_inst.encoding.mnemonic) {
-        .mov => {
-            const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops) catch return error.RelaxFail;
-            relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
-            encode(&.{inst}, code) catch return error.RelaxFail;
-        },
-        else => return error.RelaxFail,
+    fn relaxTlv(code: []u8) error{RelaxFail}!void {
+        const old_inst = disassemble(code) orelse return error.RelaxFail;
+        switch (old_inst.encoding.mnemonic) {
+            .mov => {
+                const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops) catch return error.RelaxFail;
+                relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+                encode(&.{inst}, code) catch return error.RelaxFail;
+            },
+            else => return error.RelaxFail,
+        }
     }
-}
 
-fn disassemble(code: []const u8) ?Instruction {
-    var disas = Disassembler.init(code);
-    const inst = disas.next() catch return null;
-    return inst;
-}
-
-fn encode(insts: []const Instruction, code: []u8) !void {
-    var stream = std.io.fixedBufferStream(code);
-    const writer = stream.writer();
-    for (insts) |inst| {
-        try inst.encode(writer, .{});
+    fn disassemble(code: []const u8) ?Instruction {
+        var disas = Disassembler.init(code);
+        const inst = disas.next() catch return null;
+        return inst;
     }
-}
+
+    fn encode(insts: []const Instruction, code: []u8) !void {
+        var stream = std.io.fixedBufferStream(code);
+        const writer = stream.writer();
+        for (insts) |inst| {
+            try inst.encode(writer, .{});
+        }
+    }
+
+    const bits = @import("../../arch/x86_64/bits.zig");
+    const encoder = @import("../../arch/x86_64/encoder.zig");
+    const Disassembler = @import("../../arch/x86_64/Disassembler.zig");
+    const Immediate = bits.Immediate;
+    const Instruction = encoder.Instruction;
+};
 
 pub fn calcNumRelocs(self: Atom, macho_file: *MachO) u32 {
     switch (macho_file.options.cpu_arch.?) {
@@ -879,24 +887,22 @@ pub const Loc = struct {
     len: usize = 0,
 };
 
-const aarch64 = @import("../aarch64.zig");
+pub const Alignment = @import("../../InternPool.zig").Alignment;
+
+const aarch64 = @import("../../arch/aarch64/bits.zig");
 const assert = std.debug.assert;
 const bind = @import("dyld_info/bind.zig");
-const dis_x86_64 = @import("dis_x86_64");
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const log = std.log.scoped(.link);
 const relocs_log = std.log.scoped(.relocs);
 const std = @import("std");
-const trace = @import("../tracy.zig").trace;
+const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Atom = @This();
-const Disassembler = dis_x86_64.Disassembler;
 const File = @import("file.zig").File;
-const Instruction = dis_x86_64.Instruction;
-const Immediate = dis_x86_64.Immediate;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
 const Relocation = @import("Relocation.zig");
