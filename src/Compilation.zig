@@ -2056,11 +2056,11 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             const is_hit = man.hit() catch |err| {
                 const i = man.failed_file_index orelse return err;
                 const pp = man.files.items[i].prefixed_path orelse return err;
-                const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
+                const prefix = man.cache.prefixes()[pp.prefix];
                 return comp.setMiscFailure(
                     .check_whole_cache,
-                    "unable to check cache: stat file '{}{s}{s}' failed: {s}",
-                    .{ comp.local_cache_directory, prefix, pp.sub_path, @errorName(err) },
+                    "unable to check cache: stat file '{}{s}' failed: {s}",
+                    .{ prefix, pp.sub_path, @errorName(err) },
                 );
             };
             if (is_hit) {
