@@ -1,7 +1,4 @@
-#include <stdbool.h>
-
 int main() {
-  bool b = true;
   float f;
   f = (float)(10.0f > 1.0f);
   return 0;
