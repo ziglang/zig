@@ -3449,7 +3449,7 @@ fn createModule(
     index: usize,
     parent: ?*Package.Module,
     zig_lib_directory: Cache.Directory,
-) !*Package.Module {
+) Allocator.Error!*Package.Module {
     const cli_mod = &create_module.modules.values()[index];
     if (cli_mod.resolved) |m| return m;
 
@@ -7165,7 +7165,9 @@ fn accessLibPath(
         defer dir.close();
         var iter = dir.iterate();
 
-        while (try iter.next()) |file| {
+        while (iter.next() catch {
+            return false;
+        }) |file| {
             const name = try std.fmt.allocPrint(test_path.allocator, "lib{s}.so", .{lib_name});
             defer test_path.allocator.free(name);
             if (!std.mem.containsAtLeast(u8, file.name, 1, name) or file.kind == .directory) {
