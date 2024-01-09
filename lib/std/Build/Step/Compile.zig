@@ -26,7 +26,7 @@ root_module: Module,
 
 name: []const u8,
 linker_script: ?LazyPath = null,
-version_script: ?[]const u8 = null,
+version_script: ?LazyPath = null,
 out_filename: []const u8,
 out_lib_filename: []const u8,
 linkage: ?Linkage = null,
@@ -479,6 +479,12 @@ pub const setLinkerScriptPath = setLinkerScript;
 pub fn setLinkerScript(self: *Compile, source: LazyPath) void {
     const b = self.step.owner;
     self.linker_script = source.dupe(b);
+    source.addStepDependencies(&self.step);
+}
+
+pub fn setVersionScript(self: *Compile, source: LazyPath) void {
+    const b = self.step.owner;
+    self.version_script = source.dupe(b);
     source.addStepDependencies(&self.step);
 }
 
@@ -1498,7 +1504,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     if (self.version_script) |version_script| {
         try zig_args.append("--version-script");
-        try zig_args.append(b.pathFromRoot(version_script));
+        try zig_args.append(version_script.getPath(b));
     }
 
     if (self.kind == .@"test") {

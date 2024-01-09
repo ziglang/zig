@@ -15,7 +15,7 @@ static int __cdecl emu_vscprintf(const char * __restrict__ format, va_list argli
 {
     char *buffer, *new_buffer;
     size_t size;
-    int ret;
+    int ret = -1;
 
     /* if format is a null pointer, _vscprintf() returns -1 and sets errno to EINVAL */
     if (!format) {

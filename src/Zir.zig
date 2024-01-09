@@ -93,6 +93,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
 
             Inst.Ref,
             Inst.Index,
+            NullTerminatedString,
             => @enumFromInt(code.extra[i]),
 
             i32,
@@ -112,18 +113,15 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
     };
 }
 
-/// TODO migrate to use this for type safety
 pub const NullTerminatedString = enum(u32) {
+    empty = 0,
+    unnamed_test_decl = 1,
+    decltest = 2,
     _,
 };
 
-/// TODO: migrate to nullTerminatedString2 for type safety
-pub fn nullTerminatedString(code: Zir, index: usize) [:0]const u8 {
-    return nullTerminatedString2(code, @enumFromInt(index));
-}
-
 /// Given an index into `string_bytes` returns the null-terminated string found there.
-pub fn nullTerminatedString2(code: Zir, index: NullTerminatedString) [:0]const u8 {
+pub fn nullTerminatedString(code: Zir, index: NullTerminatedString) [:0]const u8 {
     const start = @intFromEnum(index);
     var end: u32 = start;
     while (code.string_bytes[end] != 0) {
@@ -2298,17 +2296,17 @@ pub const Inst = struct {
         /// For strings which may contain null bytes.
         str: struct {
             /// Offset into `string_bytes`.
-            start: u32,
+            start: NullTerminatedString,
             /// Number of bytes in the string.
             len: u32,
 
             pub fn get(self: @This(), code: Zir) []const u8 {
-                return code.string_bytes[self.start..][0..self.len];
+                return code.string_bytes[@intFromEnum(self.start)..][0..self.len];
             }
         },
         str_tok: struct {
             /// Offset into `string_bytes`. Null-terminated.
-            start: u32,
+            start: NullTerminatedString,
             /// Offset from Decl AST token index.
             src_tok: u32,
 
@@ -2385,7 +2383,7 @@ pub const Inst = struct {
         },
         str_op: struct {
             /// Offset into `string_bytes`. Null-terminated.
-            str: u32,
+            str: NullTerminatedString,
             operand: Ref,
 
             pub fn getStr(self: @This(), zir: Zir) [:0]const u8 {
@@ -2466,11 +2464,11 @@ pub const Inst = struct {
     /// Trailing:
     /// 0. Output for every outputs_len
     /// 1. Input for every inputs_len
-    /// 2. clobber: u32 // index into string_bytes (null terminated) for every clobbers_len.
+    /// 2. clobber: NullTerminatedString // index into string_bytes (null terminated) for every clobbers_len.
     pub const Asm = struct {
         src_node: i32,
         // null-terminated string index
-        asm_source: u32,
+        asm_source: NullTerminatedString,
         /// 1 bit for each outputs_len: whether it uses `-> T` or not.
         ///   0b0 - operand is a pointer to where to store the output.
         ///   0b1 - operand is a type; asm expression has the output as the result.
@@ -2479,18 +2477,18 @@ pub const Inst = struct {
 
         pub const Output = struct {
             /// index into string_bytes (null terminated)
-            name: u32,
+            name: NullTerminatedString,
             /// index into string_bytes (null terminated)
-            constraint: u32,
+            constraint: NullTerminatedString,
             /// How to interpret this is determined by `output_type_bits`.
             operand: Ref,
         };
 
         pub const Input = struct {
             /// index into string_bytes (null terminated)
-            name: u32,
+            name: NullTerminatedString,
             /// index into string_bytes (null terminated)
-            constraint: u32,
+            constraint: NullTerminatedString,
             operand: Ref,
         };
     };
@@ -2524,7 +2522,7 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
+    /// 0. lib_name: NullTerminatedString, // null terminated string index, if has_lib_name is set
     /// if (has_align_ref and !has_align_body) {
     ///   1. align: Ref,
     /// }
@@ -2598,7 +2596,7 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
+    /// 0. lib_name: NullTerminatedString, // null terminated string index, if has_lib_name is set
     /// 1. align: Ref, // if has_align is set
     /// 2. init: Ref // if has_init is set
     /// The source node is obtained from the containing `block_inline`.
@@ -2672,7 +2670,7 @@ pub const Inst = struct {
         flags: Call.Flags,
         obj_ptr: Ref,
         /// Offset into `string_bytes`.
-        field_name_start: u32,
+        field_name_start: NullTerminatedString,
     };
 
     pub const TypeOfPeer = struct {
@@ -2871,7 +2869,7 @@ pub const Inst = struct {
     pub const Field = struct {
         lhs: Ref,
         /// Offset into `string_bytes`.
-        field_name_start: u32,
+        field_name_start: NullTerminatedString,
     };
 
     pub const FieldNamed = struct {
@@ -2900,7 +2898,7 @@ pub const Inst = struct {
     /// 7. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
-    ///        name: u32, // null terminated string index
+    ///        name: NullTerminatedString, // null terminated string index
     ///        - 0 means comptime or usingnamespace decl.
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        - 1 means test decl with no name.
@@ -2908,7 +2906,7 @@ pub const Inst = struct {
     ///        - if there is a 0 byte at the position `name` indexes, it indicates
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
-    ///        doc_comment: u32, 0 if no doc comment, if this is a decltest, doc_comment references the decl name in the string table
+    ///        doc_comment: u32, .empty if no doc comment, if this is a decltest, doc_comment references the decl name in the string table
     ///        align: Ref, // if corresponding bit is set
     ///        link_section_or_address_space: { // if corresponding bit is set.
     ///            link_section: Ref,
@@ -2923,7 +2921,7 @@ pub const Inst = struct {
     ///      0bX000: whether corresponding field has a type expression
     /// 9. fields: { // for every fields_len
     ///        field_name: u32, // if !is_tuple
-    ///        doc_comment: u32, // 0 if no doc comment
+    ///        doc_comment: NullTerminatedString, // .empty if no doc comment
     ///        field_type: Ref, // if corresponding bit is not set. none means anytype.
     ///        field_type_body_len: u32, // if corresponding bit is set
     ///        align_body_len: u32, // if corresponding bit is set
@@ -2996,14 +2994,14 @@ pub const Inst = struct {
     /// 6. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
-    ///        name: u32, // null terminated string index
+    ///        name: NullTerminatedString, // null terminated string index
     ///        - 0 means comptime or usingnamespace decl.
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        - 1 means test decl with no name.
     ///        - if there is a 0 byte at the position `name` indexes, it indicates
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
-    ///        doc_comment: u32, // 0 if no doc_comment
+    ///        doc_comment: u32, // .empty if no doc_comment
     ///        align: Ref, // if corresponding bit is set
     ///        link_section_or_address_space: { // if corresponding bit is set.
     ///            link_section: Ref,
@@ -3015,7 +3013,7 @@ pub const Inst = struct {
     ///    - the bit is whether corresponding field has an value expression
     /// 9. fields: { // for every fields_len
     ///        field_name: u32,
-    ///        doc_comment: u32, // 0 if no doc_comment
+    ///        doc_comment: u32, // .empty if no doc_comment
     ///        value: Ref, // if corresponding bit is set
     ///    }
     pub const EnumDecl = struct {
@@ -3046,14 +3044,14 @@ pub const Inst = struct {
     /// 6. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
-    ///        name: u32, // null terminated string index
+    ///        name: NullTerminatedString, // null terminated string index
     ///        - 0 means comptime or usingnamespace decl.
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        - 1 means test decl with no name.
     ///        - if there is a 0 byte at the position `name` indexes, it indicates
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
-    ///        doc_comment: u32, // 0 if no doc comment
+    ///        doc_comment: NullTerminatedString, // .empty if no doc comment
     ///        align: Ref, // if corresponding bit is set
     ///        link_section_or_address_space: { // if corresponding bit is set.
     ///            link_section: Ref,
@@ -3068,8 +3066,8 @@ pub const Inst = struct {
     ///      0b0X00: whether corresponding field has a tag value expression
     ///      0bX000: unused
     /// 9. fields: { // for every fields_len
-    ///        field_name: u32, // null terminated string index
-    ///        doc_comment: u32, // 0 if no doc comment
+    ///        field_name: NullTerminatedString, // null terminated string index
+    ///        doc_comment: NullTerminatedString, // .empty if no doc comment
     ///        field_type: Ref, // if corresponding bit is set
     ///        - if none, means `anytype`.
     ///        align: Ref, // if corresponding bit is set
@@ -3108,14 +3106,14 @@ pub const Inst = struct {
     /// 3. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
-    ///        name: u32, // null terminated string index
+    ///        name: NullTerminatedString, // null terminated string index
     ///        - 0 means comptime or usingnamespace decl.
     ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
     ///        - 1 means test decl with no name.
     ///        - if there is a 0 byte at the position `name` indexes, it indicates
     ///          this is a test decl, and the name starts at `name+1`.
     ///        value: Index,
-    ///        doc_comment: u32, // 0 if no doc comment,
+    ///        doc_comment: NullTerminatedString, // .empty if no doc comment,
     ///        align: Ref, // if corresponding bit is set
     ///        link_section_or_address_space: { // if corresponding bit is set.
     ///            link_section: Ref,
@@ -3133,8 +3131,8 @@ pub const Inst = struct {
 
     /// Trailing:
     /// { // for every fields_len
-    ///      field_name: u32 // null terminated string index
-    ///     doc_comment: u32 // null terminated string index
+    ///      field_name: NullTerminatedString // null terminated string index
+    ///     doc_comment: NullTerminatedString // null terminated string index
     /// }
     pub const ErrorSetDecl = struct {
         fields_len: u32,
@@ -3177,7 +3175,7 @@ pub const Inst = struct {
 
         pub const Item = struct {
             /// Null-terminated string table index.
-            field_name: u32,
+            field_name: NullTerminatedString,
             /// The field init expression to be used as the field value.
             init: Ref,
         };
@@ -3186,7 +3184,7 @@ pub const Inst = struct {
     pub const FieldType = struct {
         container_type: Ref,
         /// Offset into `string_bytes`, null terminated.
-        name_start: u32,
+        name_start: NullTerminatedString,
     };
 
     pub const FieldTypeRef = struct {
@@ -3266,9 +3264,9 @@ pub const Inst = struct {
     /// Trailing: inst: Index // for every body_len
     pub const Param = struct {
         /// Null-terminated string index.
-        name: u32,
-        /// 0 if no doc comment
-        doc_comment: u32,
+        name: NullTerminatedString,
+        /// Null-terminated string index.
+        doc_comment: NullTerminatedString,
         /// The body contains the type of the parameter.
         body_len: u32,
     };
@@ -3293,7 +3291,7 @@ pub const Inst = struct {
         /// If omitted, this is referring to a Decl via identifier, e.g. `a`.
         namespace: Ref,
         /// Null-terminated string index.
-        decl_name: u32,
+        decl_name: NullTerminatedString,
         options: Ref,
     };
 
@@ -3311,7 +3309,7 @@ pub const Inst = struct {
         /// It's a payload index of another `Item`.
         pub const Item = struct {
             /// null terminated string index
-            msg: u32,
+            msg: NullTerminatedString,
             node: Ast.Node.Index,
             /// If node is 0 then this will be populated.
             token: Ast.TokenIndex,
@@ -3335,7 +3333,7 @@ pub const Inst = struct {
 
         pub const Item = struct {
             /// null terminated string index
-            name: u32,
+            name: NullTerminatedString,
             /// points to the import name
             token: Ast.TokenIndex,
         };
@@ -3412,7 +3410,7 @@ pub const DeclIterator = struct {
 
         const sub_index: ExtraIndex = @enumFromInt(it.extra_index);
         it.extra_index += 5; // src_hash(4) + line(1)
-        const name = it.zir.nullTerminatedString(it.zir.extra[it.extra_index]);
+        const name = it.zir.nullTerminatedString(@enumFromInt(it.zir.extra[it.extra_index]));
         it.extra_index += 3; // name(1) + value(1) + doc_comment(1)
         it.extra_index += @as(u1, @truncate(flags >> 2)); // align
         it.extra_index += @as(u1, @truncate(flags >> 3)); // link_section
