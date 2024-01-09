@@ -380,6 +380,31 @@ const llvm_targets = [_]LlvmTarget{
                 .flatten = true,
             },
             .{
+                .llvm_name = "cortex-m4",
+                .omit_deps = &.{"vfp4d16sp"},
+            },
+            .{
+                .llvm_name = "cortex-m7",
+                .omit_deps = &.{"fp_armv8d16"},
+            },
+            .{
+                .llvm_name = "cortex-m33",
+                .omit_deps = &.{ "fp_armv8d16sp", "dsp" },
+            },
+            .{
+                .llvm_name = "cortex-m35p",
+                .omit_deps = &.{ "fp_armv8d16sp", "dsp" },
+            },
+            .{
+                .llvm_name = "cortex-m55",
+                .omit_deps = &.{ "mve_fp", "fp_armv8d16" },
+            },
+            .{
+                .llvm_name = "cortex-m85",
+                .omit_deps = &.{ "mve_fp", "pacbti", "fp_armv8d16" },
+                .extra_deps = &.{"trustzone"},
+            },
+            .{
                 .llvm_name = "cortex-x1c",
                 .flatten = true,
             },
