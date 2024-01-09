@@ -7201,7 +7201,7 @@ fn switchExprErrUnion(
         const is_multi_case = case.ast.values.len > 1 or
             (case.ast.values.len == 1 and node_tags[case.ast.values[0]] == .switch_range);
 
-        var dbg_var_name: ?u32 = null;
+        var dbg_var_name: Zir.NullTerminatedString = .empty;
         var dbg_var_inst: Zir.Inst.Ref = undefined;
         var err_scope: Scope.LocalVal = undefined;
         var capture_scope: Scope.LocalVal = undefined;
@@ -7294,8 +7294,8 @@ fn switchExprErrUnion(
             defer case_scope.unstack();
 
             try case_scope.addDbgBlockBegin();
-            if (dbg_var_name) |some| {
-                try case_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
+            if (dbg_var_name != .empty) {
+                try case_scope.addDbgVar(.dbg_var_val, dbg_var_name, dbg_var_inst);
             }
             const target_expr_node = case.ast.target_expr;
             const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_info, target_expr_node);
