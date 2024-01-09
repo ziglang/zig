@@ -2204,9 +2204,7 @@ pub const cpu = struct {
         .name = "cortex_m33",
         .llvm_name = "cortex-m33",
         .features = featureSet(&[_]Feature{
-            .dsp,
             .fix_cmse_cve_2021_35465,
-            .fp_armv8d16sp,
             .loop_align,
             .no_branch_predictor,
             .slowfpvfmx,
@@ -2219,9 +2217,7 @@ pub const cpu = struct {
         .name = "cortex_m35p",
         .llvm_name = "cortex-m35p",
         .features = featureSet(&[_]Feature{
-            .dsp,
             .fix_cmse_cve_2021_35465,
-            .fp_armv8d16sp,
             .loop_align,
             .no_branch_predictor,
             .slowfpvfmx,
@@ -2240,17 +2236,15 @@ pub const cpu = struct {
             .slowfpvmlx,
             .use_misched,
             .v7em,
-            .vfp4d16sp,
         }),
     };
     pub const cortex_m55 = CpuModel{
         .name = "cortex_m55",
         .llvm_name = "cortex-m55",
         .features = featureSet(&[_]Feature{
+            .dsp,
             .fix_cmse_cve_2021_35465,
-            .fp_armv8d16,
             .loop_align,
-            .mve_fp,
             .no_branch_predictor,
             .slowfpvmlx,
             .use_misched,
@@ -2261,7 +2255,6 @@ pub const cpu = struct {
         .name = "cortex_m7",
         .llvm_name = "cortex-m7",
         .features = featureSet(&[_]Feature{
-            .fp_armv8d16,
             .use_mipipeliner,
             .use_misched,
             .v7em,
@@ -2271,9 +2264,8 @@ pub const cpu = struct {
         .name = "cortex_m85",
         .llvm_name = "cortex-m85",
         .features = featureSet(&[_]Feature{
-            .fp_armv8d16,
-            .mve_fp,
-            .pacbti,
+            .dsp,
+            .trustzone,
             .use_misched,
             .v8_1m_main,
         }),
