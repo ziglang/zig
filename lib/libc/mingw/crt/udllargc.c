@@ -10,7 +10,6 @@
 #ifndef _UNICODE
 #define _UNICODE
 #endif
-#define WPRFLAG 1
 
 #include "dllargv.c"
 

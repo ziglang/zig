@@ -19,8 +19,10 @@ _stub (char *buffer, size_t numberOfElements, int errnum)
       f = (errno_t __cdecl (*)(char *, size_t, int))
             GetProcAddress (__mingw_get_msvcrt_handle (), "strerror_s");
       if (!f)
+      {
         f = _int_strerror_s;
-        __MINGW_IMP_SYMBOL(strerror_s) = f;
+      }
+      __MINGW_IMP_SYMBOL(strerror_s) = f;
     }
   return (*f)(buffer, numberOfElements, errnum);
 }

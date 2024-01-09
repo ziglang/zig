@@ -11,6 +11,7 @@ DhcpDeRegisterOptions@4
 DhcpDeRegisterParamChange@12
 DhcpDelPersistentRequestParams@8
 DhcpEnableDhcp@8
+DhcpEnableDhcpAdvanced@24
 DhcpEnableTracing@4
 DhcpEnumClasses@16
 DhcpEnumInterfaces@4
@@ -31,6 +32,7 @@ DhcpGlobalServiceSyncEvent DATA
 DhcpGlobalTerminateEvent DATA
 DhcpHandlePnPEvent@20
 DhcpIsEnabled@8
+DhcpIsMeteredDetected@8
 DhcpLeaseIpAddress@24
 DhcpLeaseIpAddressEx@32
 DhcpNotifyConfigChange@28

@@ -1177,7 +1177,11 @@ LWSTDAPI PathMatchSpecExW(LPCWSTR pszFile, LPCWSTR pszSpec, DWORD dwFlags);
 
 typedef struct {
   const IID *piid;
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+  DWORD dwOffset;
+#else
   int dwOffset;
+#endif
 } QITAB, *LPQITAB;
 typedef const QITAB *LPCQITAB;
 

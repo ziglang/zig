@@ -48,7 +48,7 @@
 
 extern char __RUNTIME_PSEUDO_RELOC_LIST__;
 extern char __RUNTIME_PSEUDO_RELOC_LIST_END__;
-extern IMAGE_DOS_HEADER __MINGW_LSYMBOL(_image_base__);
+extern IMAGE_DOS_HEADER __ImageBase;
 
 void _pei386_runtime_relocator (void);
 
@@ -480,6 +480,7 @@ do_pseudo_reloc (void * start, void * end, void * base)
      }
 }
 
+__attribute__((used)) /* required due to bug in gcc / ld */
 void
 _pei386_runtime_relocator (void)
 {
@@ -499,11 +500,7 @@ _pei386_runtime_relocator (void)
 
   do_pseudo_reloc (&__RUNTIME_PSEUDO_RELOC_LIST__,
 		   &__RUNTIME_PSEUDO_RELOC_LIST_END__,
-#ifdef __GNUC__
-		   &__MINGW_LSYMBOL(_image_base__)
-#else
 		   &__ImageBase
-#endif
 		   );
 #ifdef __MINGW64_VERSION_MAJOR
   restore_modified_sections ();

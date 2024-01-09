@@ -39,7 +39,7 @@ THIS SOFTWARE.
 
 double __strtod (const char *s, char **sp)
 {
-	static FPI fpi = { 53, 1-1023-53+1, 2046-1023-53+1, 1, SI, Int_max };
+	static FPI fpi = { 53, 1-1023-53+1, 2046-1023-53+1, 1, SI, Int_max /*unused*/ };
 	ULong bits[2];
 	Long expo;
 	int k;

@@ -1,0 +1,15 @@
+LIBRARY d3dim.dll
+EXPORTS
+;D3DFree
+;D3DMalloc
+;D3DRealloc
+Direct3DCreate@12
+;Direct3DCreateDevice
+;Direct3DCreateTexture
+;Direct3DGetSWRastZPixFmts
+Direct3D_HALCleanUp@8
+FlushD3DDevices@4
+FlushD3DDevices2@4
+PaletteAssociateNotify@16
+PaletteUpdateNotify@20
+SurfaceFlipNotify@4

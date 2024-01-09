@@ -178,6 +178,7 @@ InternalCreateIpForwardEntry2@8
 InternalCreateIpForwardEntry@4
 InternalCreateIpNetEntry2@8
 InternalCreateIpNetEntry@4
+InternalCreateOrRefIpForwardEntry2@8
 InternalCreateUnicastIpAddressEntry@8
 InternalDeleteAnycastIpAddressEntry@8
 InternalDeleteIpForwardEntry2@8

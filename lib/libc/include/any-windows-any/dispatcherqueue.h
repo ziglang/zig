@@ -9,6 +9,11 @@
 
 #include <windows.system.h>
 
+typedef ABI::Windows::System::IDispatcherQueue *PDISPATCHERQUEUE;
+typedef ABI::Windows::System::IDispatcherQueueController *PDISPATCHERQUEUECONTROLLER;
+
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_APP)
+
 enum DISPATCHERQUEUE_THREAD_APARTMENTTYPE {
     DQTAT_COM_NONE = 0,
     DQTAT_COM_ASTA = 1,
@@ -26,6 +31,8 @@ struct DispatcherQueueOptions {
     DISPATCHERQUEUE_THREAD_APARTMENTTYPE apartmentType;
 };
 
-EXTERN_C HRESULT WINAPI CreateDispatcherQueueController(DispatcherQueueOptions,ABI::Windows::System::IDispatcherQueueController**);
+EXTERN_C HRESULT WINAPI CreateDispatcherQueueController(DispatcherQueueOptions options, PDISPATCHERQUEUECONTROLLER *dispatcherQueueController);
+
+#endif /* WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_APP) */
 
 #endif /* _DISPATCHERQUEUE_H_ */

@@ -1,0 +1,6 @@
+LIBRARY d3d8.dll
+EXPORTS
+ValidatePixelShader@16
+ValidateVertexShader@20
+;DebugSetMute@0 ;unknown
+Direct3DCreate8@4
