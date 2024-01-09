@@ -3909,7 +3909,7 @@ fn createModule(
     for (create_module.rc_source_files.items[cli_mod.rc_source_files_start..cli_mod.rc_source_files_end]) |*item| item.owner = mod;
 
     for (cli_mod.deps) |dep| {
-        const dep_index = create_module.modules.getIndex(dep.value) orelse
+        const dep_index = create_module.modules.getIndex(dep.key) orelse
             fatal("module '{s}' depends on non-existent module '{s}'", .{ name, dep.key });
         const dep_mod = try createModule(gpa, arena, create_module, dep_index, mod, zig_lib_directory);
         try mod.deps.put(arena, dep.key, dep_mod);
