@@ -1089,6 +1089,16 @@ test "makePath in a directory that no longer exists" {
     try testing.expectError(error.FileNotFound, tmp.dir.makePath("sub-path"));
 }
 
+test "makePath but sub_path contains pre-existing file" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makeDir("foo");
+    try tmp.dir.writeFile("foo/bar", "");
+
+    try testing.expectError(error.NotDir, tmp.dir.makePath("foo/bar/baz"));
+}
+
 fn expectDir(dir: Dir, path: []const u8) !void {
     var d = try dir.openDir(path, .{});
     d.close();
