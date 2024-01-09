@@ -75,17 +75,42 @@ __FLT_ABI(catanh) (__FLT_TYPE __complex__ z)
   if (r_class == FP_ZERO && i_class == FP_ZERO)
     return z;
 
+  /* catanh(z) = 1/2 * clog(1+z) - 1/2 * clog(1-z) = 1/2 * clog((1+z)/(1-z)) */
+
+  /* Use identity clog(c) = 1/2*log(|c|^2) + i*arg(c) to calculate real and
+  imaginary parts separately. */
+
+  /* real part */
+  /* |c|^2 = (Im(z)^2 + (1+Re(z))^2)/(Im(z)^2 + (1-Re(z))^2) */
   i2 = __imag__ z * __imag__ z;
 
-  n = __FLT_CST(1.0) + __real__ z;
-  n = i2 + n * n;
+  if (__FLT_ABI(fabs) (__real__ z) <= __FLT_EPSILON)
+  {
+    /* |c|^2 = 1 + 4*Re(z)/(1+Im(z)^2) + O(Re(z)^2)  (Taylor series) */
+    __real__ ret = __FLT_CST(0.25) *
+      __FLT_ABI(log1p) (__FLT_CST(4.0)*(__real__ z) / (__FLT_CST(1.0) + i2));
+  }
+  else if ((__real__ z)*(__real__ z) <= __FLT_EPSILON)
+  {
+    /* |c|^2 = 1 + 4*Re(z)/(1+Im(z)^2) + 8*Re(z)^2/(1+Im(z)^2)^2 + O(Re(z)^3)  (Taylor series) */
+    d = __real__ z / (__FLT_CST(1.0) + i2);
+    __real__ ret = __FLT_CST(0.25) *
+      __FLT_ABI(log1p) (__FLT_CST(4.0) * d * (__FLT_CST(1.0) + __FLT_CST(2.0) * d));
+  }
+  else
+  {
+    n = __FLT_CST(1.0) + __real__ z;
+    n = i2 + n * n;
 
-  d = __FLT_CST(1.0) - __real__ z;
-  d = i2 + d * d;
+    d = __FLT_CST(1.0) - __real__ z;
+    d = i2 + d * d;
 
-  __real__ ret = __FLT_CST(0.25) * (__FLT_ABI(log) (n) - __FLT_ABI(log) (d));
+    __real__ ret = __FLT_CST(0.25) * (__FLT_ABI(log) (n) - __FLT_ABI(log) (d));
+  }
 
-  d = 1 - __real__ z * __real__ z - i2;
+  /* imaginary part */
+  /* z = (1 - Re(z)^2 - Im(z)^2 + 2i * Im(z) / ((1-Re(z))^2 + Im(z)^2) */
+  d = __FLT_CST(1.0) - __real__ z * __real__ z - i2;
 
   __imag__ ret = __FLT_CST(0.5) * __FLT_ABI(atan2) (__FLT_CST(2.0) * __imag__ z, d);
 

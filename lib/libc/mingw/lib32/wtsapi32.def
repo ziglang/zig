@@ -15,7 +15,11 @@ WTSEnumerateServersA@20
 WTSEnumerateServersW@20
 WTSEnumerateSessionsA@20
 WTSEnumerateSessionsW@20
+WTSEnumerateSessionsExA@20
+WTSEnumerateSessionsExW@20
 WTSFreeMemory@4
+WTSFreeMemoryExA@12
+WTSFreeMemoryExW@12
 WTSLogoffSession@12
 WTSOpenServerA@4
 WTSOpenServerW@4

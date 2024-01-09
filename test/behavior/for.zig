@@ -504,3 +504,24 @@ test "inferred alloc ptr of for loop" {
         try expectEqual(@as(?bool, true), opt);
     }
 }
+
+test "for loop results in a bool" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    try std.testing.expect(for ([1]u8{0}) |x| {
+        if (x == 0) break true;
+    } else false);
+}
+
+test "return from inline for" {
+    const S = struct {
+        fn do() bool {
+            inline for (.{"a"}) |_| {
+                if (true) return false;
+            }
+            return true;
+        }
+    };
+    try std.testing.expect(!S.do());
+}

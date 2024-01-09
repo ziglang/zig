@@ -3939,15 +3939,11 @@ pub fn importFile(
     defer gpa.free(resolved_root_path);
 
     const sub_file_path = p: {
-        if (mem.startsWith(u8, resolved_path, resolved_root_path)) {
-            // +1 for the directory separator here.
-            break :p try gpa.dupe(u8, resolved_path[resolved_root_path.len + 1 ..]);
-        }
-        if (mem.eql(u8, resolved_root_path, ".") and
-            !isUpDir(resolved_path) and
-            !std.fs.path.isAbsolute(resolved_path))
-        {
-            break :p try gpa.dupe(u8, resolved_path);
+        const relative = try std.fs.path.relative(gpa, resolved_root_path, resolved_path);
+        errdefer gpa.free(relative);
+
+        if (!isUpDir(relative) and !std.fs.path.isAbsolute(relative)) {
+            break :p relative;
         }
         return error.ImportOutsideModulePath;
     };
@@ -4038,15 +4034,11 @@ pub fn embedFile(
     defer gpa.free(resolved_root_path);
 
     const sub_file_path = p: {
-        if (mem.startsWith(u8, resolved_path, resolved_root_path)) {
-            // +1 for the directory separator here.
-            break :p try gpa.dupe(u8, resolved_path[resolved_root_path.len + 1 ..]);
-        }
-        if (mem.eql(u8, resolved_root_path, ".") and
-            !isUpDir(resolved_path) and
-            !std.fs.path.isAbsolute(resolved_path))
-        {
-            break :p try gpa.dupe(u8, resolved_path);
+        const relative = try std.fs.path.relative(gpa, resolved_root_path, resolved_path);
+        errdefer gpa.free(relative);
+
+        if (!isUpDir(relative) and !std.fs.path.isAbsolute(relative)) {
+            break :p relative;
         }
         return error.ImportOutsideModulePath;
     };
@@ -4206,7 +4198,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
 
     const line_off = zir.extra[decl_sub_index + 4];
     const line = iter.parent_decl.relativeToLine(line_off);
-    const decl_name_index = zir.extra[decl_sub_index + 5];
+    const decl_name_index: Zir.NullTerminatedString = @enumFromInt(zir.extra[decl_sub_index + 5]);
     const decl_doccomment_index = zir.extra[decl_sub_index + 7];
     const decl_zir_index = zir.extra[decl_sub_index + 6];
     const decl_block_inst_data = zir.instructions.items(.data)[decl_zir_index].pl_node;
@@ -4216,7 +4208,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     var is_named_test = false;
     var kind: Decl.Kind = .named;
     const decl_name: InternPool.NullTerminatedString = switch (decl_name_index) {
-        0 => name: {
+        .empty => name: {
             if (export_bit) {
                 const i = iter.usingnamespace_index;
                 iter.usingnamespace_index += 1;
@@ -4229,23 +4221,23 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
                 break :name try ip.getOrPutStringFmt(gpa, "comptime_{d}", .{i});
             }
         },
-        1 => name: {
+        .unnamed_test_decl => name: {
             const i = iter.unnamed_test_index;
             iter.unnamed_test_index += 1;
             kind = .@"test";
             break :name try ip.getOrPutStringFmt(gpa, "test_{d}", .{i});
         },
-        2 => name: {
+        .decltest => name: {
             is_named_test = true;
-            const test_name = zir.nullTerminatedString(decl_doccomment_index);
+            const test_name = zir.nullTerminatedString(@enumFromInt(decl_doccomment_index));
             kind = .@"test";
             break :name try ip.getOrPutStringFmt(gpa, "decltest.{s}", .{test_name});
         },
-        else => name: {
+        _ => name: {
             const raw_name = zir.nullTerminatedString(decl_name_index);
             if (raw_name.len == 0) {
                 is_named_test = true;
-                const test_name = zir.nullTerminatedString(decl_name_index + 1);
+                const test_name = zir.nullTerminatedString(@enumFromInt(@intFromEnum(decl_name_index) + 1));
                 kind = .@"test";
                 break :name try ip.getOrPutStringFmt(gpa, "test.{s}", .{test_name});
             } else {
@@ -4254,7 +4246,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
         },
     };
 
-    const is_exported = export_bit and decl_name_index != 0;
+    const is_exported = export_bit and decl_name_index != .empty;
     if (kind == .@"usingnamespace") try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1);
 
     // We create a Decl for it regardless of analysis status.
@@ -4279,8 +4271,8 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
         // test decls if in test mode, get analyzed.
         const decl_mod = namespace.file_scope.mod;
         const want_analysis = is_exported or switch (decl_name_index) {
-            0 => true, // comptime or usingnamespace decl
-            1 => blk: {
+            .empty => true, // comptime or usingnamespace decl
+            .unnamed_test_decl => blk: {
                 // test decl with no name. Skip the part where we check against
                 // the test name filter.
                 if (!comp.config.is_test) break :blk false;

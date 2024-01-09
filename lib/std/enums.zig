@@ -14,7 +14,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
     var fields: []const StructField = &[_]StructField{};
     for (std.meta.fields(E)) |field| {
         fields = fields ++ &[_]StructField{.{
-            .name = field.name,
+            .name = field.name ++ "",
             .type = Data,
             .default_value = if (field_default) |d| @as(?*const anyopaque, @ptrCast(&d)) else null,
             .is_comptime = false,

@@ -1,0 +1,8 @@
+LIBRARY wpprecorderum
+
+EXPORTS
+
+WppAutoLogGetDefaultHandle@4
+WppAutoLogStart
+WppAutoLogStop
+WppAutoLogTrace

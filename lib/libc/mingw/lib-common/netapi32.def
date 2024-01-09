@@ -70,10 +70,6 @@ I_NetDfsDeleteExitPoint
 I_NetDfsDeleteLocalPartition
 I_NetDfsFixLocalVolume
 I_NetDfsGetFtServers
-I_NetDatabaseDeltas
-I_NetDatabaseRedo
-I_NetDatabaseSync
-I_NetDatabaseSync2
 I_NetDfsGetVersion
 I_NetDfsIsThisADomainName
 I_NetDfsManagerReportSiteInfo
@@ -100,11 +96,6 @@ I_NetNameValidate
 I_NetPathCanonicalize
 I_NetPathCompare
 I_NetPathType
-I_NetLogonSamLogonEx
-I_NetLogonSamLogonWithFlags
-I_NetLogonSendToSam
-I_NetLogonUasLogoff
-I_NetLogonUasLogon
 I_NetServerAuthenticate
 I_NetServerAuthenticate2
 I_NetServerAuthenticate3

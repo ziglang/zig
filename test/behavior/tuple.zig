@@ -488,3 +488,76 @@ test "tuple with comptime fields with non empty initializer" {
     const a: struct { comptime comptime_int = 0 } = .{0};
     _ = a;
 }
+
+test "tuple with runtime value coerced into a slice with a sentinel" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn f(a: [:null]const ?u8) !void {
+            try expect(a[0] == 42);
+        }
+    };
+
+    const c: u8 = 42;
+    try S.f(&[_:null]?u8{c});
+    try S.f(&.{c});
+
+    var v: u8 = 42;
+    _ = &v;
+    try S.f(&[_:null]?u8{v});
+    try S.f(&.{v});
+}
+
+test "tuple implicitly coerced to optional/error union struct/union" {
+    const SomeUnion = union(enum) {
+        variant: u8,
+    };
+    const SomeStruct = struct {
+        struct_field: u8,
+    };
+    const OptEnum = struct {
+        opt_union: ?SomeUnion,
+    };
+    const ErrEnum = struct {
+        err_union: anyerror!SomeUnion,
+    };
+    const OptStruct = struct {
+        opt_struct: ?SomeStruct,
+    };
+    const ErrStruct = struct {
+        err_struct: anyerror!SomeStruct,
+    };
+
+    try expect((OptEnum{
+        .opt_union = .{
+            .variant = 1,
+        },
+    }).opt_union.?.variant == 1);
+
+    try expect(((ErrEnum{
+        .err_union = .{
+            .variant = 1,
+        },
+    }).err_union catch unreachable).variant == 1);
+
+    try expect((OptStruct{
+        .opt_struct = .{
+            .struct_field = 1,
+        },
+    }).opt_struct.?.struct_field == 1);
+
+    try expect(((ErrStruct{
+        .err_struct = .{
+            .struct_field = 1,
+        },
+    }).err_struct catch unreachable).struct_field == 1);
+}
+
+test "comptime fields in tuple can be initialized" {
+    const T = @TypeOf(.{ @as(i32, 0), @as(u32, 0) });
+    var a: T = .{ 0, 0 };
+    _ = &a;
+}

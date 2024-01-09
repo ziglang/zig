@@ -19,6 +19,7 @@
 #include	<stdlib.h>
 
 imaxdiv_t
+__cdecl
 imaxdiv(intmax_t numer, intmax_t denom)
 {
   imaxdiv_t	result;
@@ -26,6 +27,9 @@ imaxdiv(intmax_t numer, intmax_t denom)
   result.rem = numer % denom;
   return result;
 }
+imaxdiv_t (__cdecl *__MINGW_IMP_SYMBOL(imaxdiv))(intmax_t, intmax_t) = imaxdiv;
 
 lldiv_t __attribute__ ((alias ("imaxdiv")))
+__cdecl
 lldiv (long long, long long); 
+lldiv_t (__cdecl *__MINGW_IMP_SYMBOL(lldiv))(long long, long long) = lldiv;

@@ -2112,3 +2112,143 @@ test "pass nested union with rls" {
     _ = &c;
     try expectEqual(@as(u7, 32), Union.getC(.{ .b = .{ .c = c } }));
 }
+
+test "runtime union init, most-aligned field != largest" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const U = union(enum) {
+        x: u128,
+        y: [17]u8,
+
+        fn foo(val: @This()) !void {
+            try expect(val.x == 1);
+        }
+    };
+    var x: u8 = 1;
+    _ = &x;
+    try U.foo(.{ .x = x });
+
+    const val: U = @unionInit(U, "x", x);
+    try expect(val.x == 1);
+
+    const val2: U = .{ .x = x };
+    try expect(val2.x == 1);
+}
+
+test "copied union field doesn't alias source" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const U = union(enum) {
+        array: [10]u32,
+        other: u32,
+    };
+
+    var x = U{ .array = undefined };
+
+    x.array[1] = 0;
+    const a = x.array;
+    x.array[1] = 15;
+
+    try expect(a[1] == 0);
+}
+
+test "create union(enum) from other union(enum)" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const string = "hello world";
+    const TempRef = struct {
+        index: usize,
+        is_weak: bool,
+    };
+    const BuiltinEnum = struct {
+        name: []const u8,
+    };
+    const ParamType = union(enum) {
+        boolean,
+        buffer,
+        one_of: BuiltinEnum,
+    };
+    const EnumLiteral = struct {
+        label: []const u8,
+    };
+
+    const ExpressionResult = union(enum) {
+        temp_buffer: TempRef,
+        literal_boolean: bool,
+        literal_enum_value: []const u8,
+
+        fn commitCalleeParam(result: @This(), callee_param_type: ParamType) @This() {
+            switch (callee_param_type) {
+                .boolean => return result,
+                .buffer => return .{
+                    .temp_buffer = .{ .index = 0, .is_weak = false },
+                },
+                .one_of => return result,
+            }
+        }
+    };
+    const Expression = union(enum) {
+        literal_boolean: bool,
+        literal_enum_value: EnumLiteral,
+
+        fn genExpression(expr: @This()) !ExpressionResult {
+            switch (expr) {
+                .literal_boolean => |value| return .{
+                    .literal_boolean = value,
+                },
+                .literal_enum_value => |v| {
+                    try std.testing.expectEqualStrings(string, v.label);
+                    const result: ExpressionResult = .{
+                        .literal_enum_value = v.label,
+                    };
+                    switch (result) {
+                        .literal_enum_value => |w| {
+                            try std.testing.expectEqualStrings(string, w);
+                        },
+                        else => {},
+                    }
+                    return result;
+                },
+            }
+        }
+    };
+    const CallArg = struct {
+        value: Expression,
+    };
+
+    var param: ParamType = .{
+        .one_of = .{ .name = "name" },
+    };
+    _ = &param;
+    var arg: CallArg = .{
+        .value = .{
+            .literal_enum_value = .{
+                .label = string,
+            },
+        },
+    };
+    _ = &arg;
+
+    const result = try arg.value.genExpression();
+    switch (result) {
+        .literal_enum_value => |w| {
+            try std.testing.expectEqualStrings(string, w);
+        },
+        else => {},
+    }
+
+    const derp = result.commitCalleeParam(param);
+    switch (derp) {
+        .literal_enum_value => |w| {
+            try std.testing.expectEqualStrings(string, w);
+        },
+        else => {},
+    }
+}

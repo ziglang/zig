@@ -1131,11 +1131,17 @@ fn addModuleTableToCacheHash(
     arena: Allocator,
     hash: *Cache.HashHelper,
     root_mod: *Package.Module,
+    main_mod: *Package.Module,
     hash_type: union(enum) { path_bytes, files: *Cache.Manifest },
 ) (error{OutOfMemory} || std.os.GetCwdError)!void {
     var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .{};
     defer seen_table.deinit(gpa);
+
+    // root_mod and main_mod may be the same pointer. In fact they usually are.
+    // However in the case of `zig test` or `zig build` they will be different,
+    // and it's possible for one to not reference the other via the import table.
     try seen_table.put(gpa, root_mod, {});
+    try seen_table.put(gpa, main_mod, {});
 
     const SortByName = struct {
         names: []const []const u8,
@@ -1612,7 +1618,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 // do want to namespace different source file names because they are
                 // likely different compilations and therefore this would be likely to
                 // cause cache hits.
-                try addModuleTableToCacheHash(gpa, arena, &hash, main_mod, .path_bytes);
+                try addModuleTableToCacheHash(gpa, arena, &hash, options.root_mod, main_mod, .path_bytes);
 
                 // In the case of incremental cache mode, this `artifact_directory`
                 // is computed based on a hash of non-linker inputs, and it is where all
@@ -1815,7 +1821,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
             const static_lib_jobs = [_]Job{
                 .{ .mingw_crt_file = .mingw32_lib },
-                .{ .mingw_crt_file = .msvcrt_os_lib },
                 .{ .mingw_crt_file = .mingwex_lib },
                 .{ .mingw_crt_file = .uuid_lib },
             };
@@ -2050,11 +2055,11 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             const is_hit = man.hit() catch |err| {
                 const i = man.failed_file_index orelse return err;
                 const pp = man.files.items[i].prefixed_path orelse return err;
-                const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
+                const prefix = man.cache.prefixes()[pp.prefix];
                 return comp.setMiscFailure(
                     .check_whole_cache,
-                    "unable to check cache: stat file '{}{s}{s}' failed: {s}",
-                    .{ comp.local_cache_directory, prefix, pp.sub_path, @errorName(err) },
+                    "unable to check cache: stat file '{}{s}' failed: {s}",
+                    .{ prefix, pp.sub_path, @errorName(err) },
                 );
             };
             if (is_hit) {
@@ -2467,7 +2472,7 @@ fn addNonIncrementalStuffToCacheManifest(
     if (comp.module) |mod| {
         const main_zig_file = try mod.main_mod.root.joinString(arena, mod.main_mod.root_src_path);
         _ = try man.addFile(main_zig_file, null);
-        try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.main_mod, .{ .files = man });
+        try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.root_mod, mod.main_mod, .{ .files = man });
 
         // Synchronize with other matching comments: ZigOnlyHashStuff
         man.hash.add(comp.config.test_evented_io);
@@ -5081,12 +5086,17 @@ pub fn addCCArgs(
         try argv.append(libunwind_include_path);
     }
 
-    if (comp.config.link_libc and target.isGnuLibC()) {
-        const target_version = target.os.version_range.linux.glibc;
-        const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
-            target_version.minor,
-        });
-        try argv.append(glibc_minor_define);
+    if (comp.config.link_libc) {
+        if (target.isGnuLibC()) {
+            const target_version = target.os.version_range.linux.glibc;
+            const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
+                target_version.minor,
+            });
+            try argv.append(glibc_minor_define);
+        } else if (target.isMinGW()) {
+            try argv.append("-D__MSVCRT_VERSION__=0xE00"); // use ucrt
+
+        }
     }
 
     const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
@@ -5095,7 +5105,9 @@ pub fn addCCArgs(
     if (target.os.tag == .windows) switch (ext) {
         .c, .cpp, .m, .mm, .h, .cu, .rc, .assembly, .assembly_with_cpp => {
             const minver: u16 = @truncate(@intFromEnum(target.os.getVersionRange().windows.min) >> 16);
-            try argv.append(try std.fmt.allocPrint(argv.allocator, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}));
+            try argv.append(
+                try std.fmt.allocPrint(arena, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}),
+            );
         },
         else => {},
     };
@@ -6328,6 +6340,7 @@ fn buildOutputFromZig(
             .pic = comp.root_mod.pic,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
+            .code_model = comp.root_mod.code_model,
         },
         .global = config,
         .cc_argv = &.{},

@@ -772,6 +772,7 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
     PolicyDnsDomainInformationInt,
     PolicyLocalAccountDomainInformation,
     PolicyMachineAccountInformation,
+    PolicyMachineAccountInformation2,
     PolicyLastEntry
   } POLICY_INFORMATION_CLASS, *PPOLICY_INFORMATION_CLASS;
 
@@ -878,6 +879,12 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
     PSID Sid;
   } POLICY_MACHINE_ACCT_INFO, *PPOLICY_MACHINE_ACCT_INFO;
 
+  typedef struct _POLICY_MACHINE_ACCT_INFO2 {
+    ULONG Rid;
+    PSID Sid;
+    GUID ObjectGuid;
+  } POLICY_MACHINE_ACCT_INFO2, *PPOLICY_MACHINE_ACCT_INFO2;
+
   typedef enum _POLICY_NOTIFICATION_INFORMATION_CLASS {
     PolicyNotifyAuditEventsInformation = 1,
     PolicyNotifyAccountDomainInformation,
@@ -892,6 +899,11 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
 
   typedef PVOID LSA_HANDLE,*PLSA_HANDLE;
 
+#define LSAD_AES_CRYPT_SHA512_HASH_SIZE 64
+#define LSAD_AES_KEY_SIZE 16
+#define LSAD_AES_SALT_SIZE 16
+#define LSAD_AES_BLOCK_SIZE 16
+
   typedef enum _TRUSTED_INFORMATION_CLASS {
     TrustedDomainNameInformation = 1,
     TrustedControllersInformation,
@@ -905,7 +917,9 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
     TrustedDomainFullInformationInternal,
     TrustedDomainInformationEx2Internal,
     TrustedDomainFullInformation2Internal,
-    TrustedDomainSupportedEncryptionTypes
+    TrustedDomainSupportedEncryptionTypes,
+    TrustedDomainAuthInformationInternalAes,
+    TrustedDomainFullInformationInternalAes
   } TRUSTED_INFORMATION_CLASS,*PTRUSTED_INFORMATION_CLASS;
 
   typedef struct _TRUSTED_DOMAIN_NAME_INFO {
@@ -937,6 +951,7 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
 #define TRUST_TYPE_DOWNLEVEL 0x00000001
 #define TRUST_TYPE_UPLEVEL 0x00000002
 #define TRUST_TYPE_MIT 0x00000003
+#define TRUST_TYPE_AAD 0x00000005
 
 #define TRUST_ATTRIBUTE_NON_TRANSITIVE 0x00000001
 #define TRUST_ATTRIBUTE_UPLEVEL_ONLY 0x00000002
@@ -1021,7 +1036,12 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
   } TRUSTED_DOMAIN_SUPPORTED_ENCRYPTION_TYPES,*PTRUSTED_DOMAIN_SUPPORTED_ENCRYPTION_TYPES;
 
   typedef enum {
-    ForestTrustTopLevelName,ForestTrustTopLevelNameEx,ForestTrustDomainInfo,ForestTrustRecordTypeLast = ForestTrustDomainInfo
+    ForestTrustTopLevelName,
+    ForestTrustTopLevelNameEx,
+    ForestTrustDomainInfo,
+    ForestTrustBinaryInfo,
+    ForestTrustScannerInfo,
+    ForestTrustRecordTypeLast = ForestTrustScannerInfo
   } LSA_FOREST_TRUST_RECORD_TYPE;
 
 #define LSA_FTRECORD_DISABLED_REASONS (__MSABI_LONG(0x0000FFFF))
@@ -1035,11 +1055,24 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
 #define LSA_NB_DISABLED_ADMIN (__MSABI_LONG(0x00000004))
 #define LSA_NB_DISABLED_CONFLICT (__MSABI_LONG(0x00000008))
 
+#define LSA_SCANNER_INFO_DISABLE_AUTH_TARGET_VALIDATION (__MSABI_LONG(0x00000001))
+#define LSA_SCANNER_INFO_ADMIN_ALL_FLAGS (LSA_SCANNER_INFO_DISABLE_AUTH_TARGET_VALIDATION)
+
   typedef struct _LSA_FOREST_TRUST_DOMAIN_INFO {
     PSID Sid;
     LSA_UNICODE_STRING DnsName;
     LSA_UNICODE_STRING NetbiosName;
   } LSA_FOREST_TRUST_DOMAIN_INFO,*PLSA_FOREST_TRUST_DOMAIN_INFO;
+
+  typedef struct _LSA_FOREST_TRUST_SCANNER_INFO {
+#ifdef __WIDL__
+    [unique] PISID DomainSid;
+#else
+    PSID DomainSid;
+#endif
+    LSA_UNICODE_STRING DnsName;
+    LSA_UNICODE_STRING NetbiosName;
+  } LSA_FOREST_TRUST_SCANNER_INFO,*PLSA_FOREST_TRUST_SCANNER_INFO;
 
 #define MAX_FOREST_TRUST_BINARY_DATA_SIZE (128*1024)
 
@@ -1059,12 +1092,44 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
     } ForestTrustData;
   } LSA_FOREST_TRUST_RECORD,*PLSA_FOREST_TRUST_RECORD;
 
+  typedef struct _LSA_FOREST_TRUST_RECORD2 {
+    ULONG Flags;
+    LSA_FOREST_TRUST_RECORD_TYPE ForestTrustType;
+    LARGE_INTEGER Time;
+#ifdef __WIDL__
+    [switch_type(LSA_FOREST_TRUST_RECORD_TYPE), switch_is(ForestTrustType)]
+#endif
+    union {
+#ifdef __WIDL__
+        [case(ForestTrustTopLevelName, ForestTrustTopLevelNameEx)] LSA_UNICODE_STRING TopLevelName;
+        [case(ForestTrustDomainInfo)] LSA_FOREST_TRUST_DOMAIN_INFO DomainInfo;
+        [case(ForestTrustBinaryInfo)] LSA_FOREST_TRUST_BINARY_DATA BinaryData;
+        [case(ForestTrustScannerInfo)] LSA_FOREST_TRUST_SCANNER_INFO ScannerInfo;
+#else
+        LSA_UNICODE_STRING TopLevelName;
+        LSA_FOREST_TRUST_DOMAIN_INFO DomainInfo;
+        LSA_FOREST_TRUST_BINARY_DATA BinaryData;
+        LSA_FOREST_TRUST_SCANNER_INFO ScannerInfo;
+#endif
+    } ForestTrustData;
+  } LSA_FOREST_TRUST_RECORD2,*PLSA_FOREST_TRUST_RECORD2;
+
 #define MAX_RECORDS_IN_FOREST_TRUST_INFO 4000
 
   typedef struct _LSA_FOREST_TRUST_INFORMATION {
     ULONG RecordCount;
     PLSA_FOREST_TRUST_RECORD *Entries;
   } LSA_FOREST_TRUST_INFORMATION,*PLSA_FOREST_TRUST_INFORMATION;
+
+  typedef struct _LSA_FOREST_TRUST_INFORMATION2 {
+#ifdef __WIDL__
+    [range(0, MAX_RECORDS_IN_FOREST_TRUST_INFO)] ULONG RecordCount;
+    [size_is(RecordCount)] PLSA_FOREST_TRUST_RECORD2 *Entries;
+#else
+    ULONG RecordCount;
+    PLSA_FOREST_TRUST_RECORD2 *Entries;
+#endif
+  } LSA_FOREST_TRUST_INFORMATION2,*PLSA_FOREST_TRUST_INFORMATION2;
 
   typedef enum {
     CollisionTdo,CollisionXref,CollisionOther
@@ -1220,6 +1285,8 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
   NTSTATUS NTAPI LsaStorePrivateData(LSA_HANDLE PolicyHandle,PLSA_UNICODE_STRING KeyName,PLSA_UNICODE_STRING PrivateData);
   NTSTATUS NTAPI LsaRetrievePrivateData(LSA_HANDLE PolicyHandle,PLSA_UNICODE_STRING KeyName,PLSA_UNICODE_STRING *PrivateData);
   ULONG NTAPI LsaNtStatusToWinError(NTSTATUS Status);
+  NTSTATUS NTAPI LsaQueryForestTrustInformation2(LSA_HANDLE PolicyHandle,PLSA_UNICODE_STRING TrustedDomainName,LSA_FOREST_TRUST_RECORD_TYPE HighestRecordType,PLSA_FOREST_TRUST_INFORMATION2 *ForestTrustInfo);
+  NTSTATUS NTAPI LsaSetForestTrustInformation2(LSA_HANDLE PolicyHandle,PLSA_UNICODE_STRING TrustedDomainName,LSA_FOREST_TRUST_RECORD_TYPE HighestRecordType,PLSA_FOREST_TRUST_INFORMATION2 ForestTrustInfo,BOOLEAN CheckOnly,PLSA_FOREST_TRUST_COLLISION_INFORMATION *CollisionInfo);
 
 #ifndef _NTLSA_IFS_
 #define _NTLSA_IFS_
@@ -1763,6 +1830,9 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
 #define KERB_CHECKSUM_RC4_MD5 -136
 #define KERB_CHECKSUM_MD5_HMAC -137
 #define KERB_CHECKSUM_HMAC_MD5 -138
+#define KERB_CHECKSUM_SHA256 -139
+#define KERB_CHECKSUM_SHA384 -140
+#define KERB_CHECKSUM_SHA512 -141
 #define KERB_CHECKSUM_HMAC_SHA1_96_AES128_Ki -150
 #define KERB_CHECKSUM_HMAC_SHA1_96_AES256_Ki -151
 
@@ -1998,10 +2068,12 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
     KerbPinKdcMessage,
     KerbUnpinAllKdcsMessage,
     KerbQueryDomainExtendedPoliciesMessage,
-    KerbQueryS4U2ProxyCacheMessage,
+    KerbQueryS4U2ProxyCacheMessage
 #endif
 #if _WIN32_WINNT >= 0x0A00
-    KerbRetrieveKeyTabMessage
+    ,KerbRetrieveKeyTabMessage
+    ,KerbRefreshPolicyMessage
+    ,KerbPrintCloudKerberosDebugMessage
 #endif
   } KERB_PROTOCOL_MESSAGE_TYPE,*PKERB_PROTOCOL_MESSAGE_TYPE;
 
@@ -2286,7 +2358,56 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
     PUCHAR KeyTab;
   } KERB_RETRIEVE_KEY_TAB_RESPONSE, *PKERB_RETRIEVE_KEY_TAB_RESPONSE;
 
-#endif
+#define KERB_REFRESH_POLICY_KERBEROS 0x1
+#define KERB_REFRESH_POLICY_KDC 0x2
+
+  typedef struct _KERB_REFRESH_POLICY_REQUEST {
+    KERB_PROTOCOL_MESSAGE_TYPE MessageType;
+    ULONG Flags;
+  } KERB_REFRESH_POLICY_REQUEST, *PKERB_REFRESH_POLICY_REQUEST;
+
+  typedef struct _KERB_REFRESH_POLICY_RESPONSE {
+    KERB_PROTOCOL_MESSAGE_TYPE MessageType;
+    ULONG Flags;
+  } KERB_REFRESH_POLICY_RESPONSE, *PKERB_REFRESH_POLICY_RESPONSE;
+
+  typedef struct _KERB_CLOUD_KERBEROS_DEBUG_REQUEST {
+    KERB_PROTOCOL_MESSAGE_TYPE MessageType;
+    LUID LogonId;
+  } KERB_CLOUD_KERBEROS_DEBUG_REQUEST, *PKERB_CLOUD_KERBEROS_DEBUG_REQUEST;
+
+  typedef struct _KERB_CLOUD_KERBEROS_DEBUG_RESPONSE {
+    KERB_PROTOCOL_MESSAGE_TYPE MessageType;
+    ULONG Version;
+    ULONG Length;
+    ULONG Data[ANYSIZE_ARRAY];
+  } KERB_CLOUD_KERBEROS_DEBUG_RESPONSE, *PKERB_CLOUD_KERBEROS_DEBUG_RESPONSE;
+
+#define KERB_CLOUD_KERBEROS_DEBUG_DATA_VERSION 1
+
+  typedef struct _KERB_CLOUD_KERBEROS_DEBUG_DATA_V0 {
+    unsigned int EnabledByPolicy : 1;
+    unsigned int AsRepCallbackPresent : 1;
+    unsigned int AsRepCallbackUsed : 1;
+    unsigned int CloudReferralTgtAvailable : 1;
+    unsigned int SpnOracleConfigured : 1;
+    unsigned int KdcProxyPresent : 1;
+  } KERB_CLOUD_KERBEROS_DEBUG_DATA_V0, *PKERB_CLOUD_KERBEROS_DEBUG_DATA_V0;
+
+  typedef struct _KERB_CLOUD_KERBEROS_DEBUG_DATA {
+    unsigned int EnabledByPolicy : 1;
+    unsigned int AsRepCallbackPresent : 1;
+    unsigned int AsRepCallbackUsed : 1;
+    unsigned int CloudReferralTgtAvailable : 1;
+    unsigned int SpnOracleConfigured : 1;
+    unsigned int KdcProxyPresent : 1;
+    unsigned int PublicKeyCredsPresent : 1;
+    unsigned int PasswordKeysPresent : 1;
+    unsigned int PasswordPresent : 1;
+    unsigned int AsRepSourceCred : 8;
+  } KERB_CLOUD_KERBEROS_DEBUG_DATA, *PKERB_CLOUD_KERBEROS_DEBUG_DATA;
+
+#endif /* _WIN32_WINNT >= 0x0A00 */
 
   typedef struct _KERB_CHANGEPASSWORD_REQUEST {
     KERB_PROTOCOL_MESSAGE_TYPE MessageType;

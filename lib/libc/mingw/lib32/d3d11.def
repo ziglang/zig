@@ -43,7 +43,6 @@ D3DKMTGetSharedPrimaryHandle@4
 D3DKMTLock@4
 D3DKMTOpenAdapterFromHdc@4
 D3DKMTOpenResource@4
-D3DKMTPresent@4
 D3DKMTQueryAllocationResidency@4
 D3DKMTQueryResourceInfo@4
 D3DKMTRender@4

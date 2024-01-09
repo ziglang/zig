@@ -263,7 +263,11 @@ fn addShallowDependencies(m: *Module, dependee: *Module) void {
     };
 
     for (dependee.link_objects.items) |link_object| switch (link_object) {
-        .other_step => |compile| addStepDependencies(m, dependee, &compile.step),
+        .other_step => |compile| {
+            addStepDependencies(m, dependee, &compile.step);
+            for (compile.installed_headers.items) |install_step|
+                addStepDependenciesOnly(m, install_step);
+        },
 
         .static_path,
         .assembly_file,
