@@ -1,0 +1,9 @@
+LIBRARY dxapi.sys
+EXPORTS
+_DxApi@20
+_DxApiGetVersion@0
+;_DxApiInitialize@32
+;_DxAutoflipUpdate@20
+;_DxEnableIRQ@8
+;_DxLoseObject@8
+;_DxUpdateCapture@12

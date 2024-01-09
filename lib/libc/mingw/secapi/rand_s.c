@@ -16,6 +16,12 @@ static errno_t __cdecl init_rand_s(unsigned int*);
 
 errno_t (__cdecl *__MINGW_IMP_SYMBOL(rand_s))(unsigned int*) = init_rand_s;
 
+errno_t __cdecl
+rand_s(unsigned int *val)
+{
+    return __MINGW_IMP_SYMBOL(rand_s)(val);
+}
+
 static errno_t __cdecl init_rand_s(unsigned int *val)
 {
     int (__cdecl *func)(unsigned int*);

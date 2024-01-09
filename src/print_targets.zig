@@ -79,12 +79,9 @@ pub fn cmdTargets(
     try jws.objectField("glibc");
     try jws.beginArray();
     for (glibc_abi.all_versions) |ver| {
-        // Actual glibc minimum is architecture specific. This just covers the broadest minimum.
-        if (ver.order(target.glibc_min_version) != .lt) {
-            const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
-            defer allocator.free(tmp);
-            try jws.write(tmp);
-        }
+        const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
+        defer allocator.free(tmp);
+        try jws.write(tmp);
     }
     try jws.endArray();
 

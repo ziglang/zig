@@ -5315,7 +5315,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
             try ip.extra.ensureUnusedCapacity(
                 gpa,
-                @typeInfo(Tag.Aggregate).Struct.fields.len + @as(usize, @intCast(len_including_sentinel)),
+                @typeInfo(Tag.Aggregate).Struct.fields.len + @as(usize, @intCast(len_including_sentinel + 1)),
             );
             ip.items.appendAssumeCapacity(.{
                 .tag = .aggregate,

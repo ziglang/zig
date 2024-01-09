@@ -447,7 +447,7 @@ fn generateZirData(self: *Autodoc, output_dir: std.fs.Dir) !void {
 const Scope = struct {
     parent: ?*Scope,
     map: std.AutoHashMapUnmanaged(
-        u32, // index into the current file's string table (decl name)
+        Zir.NullTerminatedString, // index into the current file's string table (decl name)
         *DeclStatus,
     ) = .{},
 
@@ -464,7 +464,7 @@ const Scope = struct {
     /// Another reason is that in some places we use the pointer to uniquely
     /// refer to a decl, as we wait for it to be analyzed. This means that
     /// those pointers must stay stable.
-    pub fn resolveDeclName(self: Scope, string_table_idx: u32, file: *File, inst: Zir.Inst.OptionalIndex) *DeclStatus {
+    pub fn resolveDeclName(self: Scope, string_table_idx: Zir.NullTerminatedString, file: *File, inst: Zir.Inst.OptionalIndex) *DeclStatus {
         var cur: ?*const Scope = &self;
         return while (cur) |s| : (cur = s.parent) {
             break s.map.get(string_table_idx) orelse continue;
@@ -482,7 +482,7 @@ const Scope = struct {
     pub fn insertDeclRef(
         self: *Scope,
         arena: std.mem.Allocator,
-        decl_name_index: u32, // index into the current file's string table
+        decl_name_index: Zir.NullTerminatedString, // index into the current file's string table
         decl_status: DeclStatus,
     ) !void {
         const decl_status_ptr = try arena.create(DeclStatus);
@@ -1250,7 +1250,7 @@ fn walkInstruction(
             // @check
             const str = data[@intFromEnum(inst)].str; //.get(file.zir);
             const byte_count = str.len * @sizeOf(std.math.big.Limb);
-            const limb_bytes = file.zir.string_bytes[str.start..][0..byte_count];
+            const limb_bytes = file.zir.string_bytes[@intFromEnum(str.start)..][0..byte_count];
 
             const limbs = try self.arena.alloc(std.math.big.Limb, str.len);
             @memcpy(std.mem.sliceAsBytes(limbs)[0..limb_bytes.len], limb_bytes);
@@ -2167,7 +2167,7 @@ fn walkInstruction(
             // present in json
             var sentinel: ?DocData.Expr = null;
             if (ptr.flags.has_sentinel) {
-                const ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
+                const ref: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
                 const ref_result = try self.walkRef(
                     file,
                     parent_scope,
@@ -2182,7 +2182,7 @@ fn walkInstruction(
 
             var @"align": ?DocData.Expr = null;
             if (ptr.flags.has_align) {
-                const ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
+                const ref: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
                 const ref_result = try self.walkRef(
                     file,
                     parent_scope,
@@ -2196,7 +2196,7 @@ fn walkInstruction(
             }
             var address_space: ?DocData.Expr = null;
             if (ptr.flags.has_addrspace) {
-                const ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
+                const ref: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
                 const ref_result = try self.walkRef(
                     file,
                     parent_scope,
@@ -2210,7 +2210,7 @@ fn walkInstruction(
             }
             const bit_start: ?DocData.Expr = null;
             if (ptr.flags.has_bit_range) {
-                const ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
+                const ref: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
                 const ref_result = try self.walkRef(
                     file,
                     parent_scope,
@@ -2225,7 +2225,7 @@ fn walkInstruction(
 
             var host_size: ?DocData.Expr = null;
             if (ptr.flags.has_bit_range) {
-                const ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
+                const ref: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
                 const ref_result = try self.walkRef(
                     file,
                     parent_scope,
@@ -3041,10 +3041,10 @@ fn walkInstruction(
             );
             var idx = extra.end;
             for (fields) |*f| {
-                const name = file.zir.nullTerminatedString(file.zir.extra[idx]);
+                const name = file.zir.nullTerminatedString(@enumFromInt(file.zir.extra[idx]));
                 idx += 1;
 
-                const docs = file.zir.nullTerminatedString(file.zir.extra[idx]);
+                const docs = file.zir.nullTerminatedString(@enumFromInt(file.zir.extra[idx]));
                 idx += 1;
 
                 f.* = .{
@@ -3706,10 +3706,10 @@ fn walkInstruction(
                             const has_value = @as(u1, @truncate(cur_bit_bag)) != 0;
                             cur_bit_bag >>= 1;
 
-                            const field_name_index = file.zir.extra[extra_index];
+                            const field_name_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[extra_index]);
                             extra_index += 1;
 
-                            const doc_comment_index = file.zir.extra[extra_index];
+                            const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[extra_index]);
                             extra_index += 1;
 
                             const value_expr: ?DocData.Expr = if (has_value) blk: {
@@ -3730,7 +3730,7 @@ fn walkInstruction(
                             const field_name = file.zir.nullTerminatedString(field_name_index);
 
                             try field_name_indexes.append(self.arena, self.ast_nodes.items.len);
-                            const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
+                            const doc_comment: ?[]const u8 = if (doc_comment_index != .empty)
                                 file.zir.nullTerminatedString(doc_comment_index)
                             else
                                 null;
@@ -4085,10 +4085,13 @@ fn analyzeAllDecls(
     {
         var it = original_it;
         while (it.next()) |d| {
-            const decl_name_index = file.zir.extra[@intFromEnum(d.sub_index) + 5];
+            const decl_name_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[@intFromEnum(d.sub_index) + 5]);
             switch (decl_name_index) {
-                0, 1, 2 => continue,
-                else => if (file.zir.string_bytes[decl_name_index] == 0) {
+                .empty,
+                .unnamed_test_decl,
+                .decltest,
+                => continue,
+                _ => if (file.zir.nullTerminatedString(decl_name_index).len == 0) {
                     continue;
                 },
             }
@@ -4195,31 +4198,31 @@ fn analyzeDecl(
     // const line = file.zir.extra[extra_index];
 
     extra_index += 1;
-    const decl_name_index = file.zir.extra[extra_index];
+    const decl_name_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[extra_index]);
 
     extra_index += 1;
     const value_index: Zir.Inst.Index = @enumFromInt(file.zir.extra[extra_index]);
 
     extra_index += 1;
-    const doc_comment_index = file.zir.extra[extra_index];
+    const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[extra_index]);
 
     extra_index += 1;
     const align_inst: Zir.Inst.Ref = if (!has_align) .none else inst: {
-        const inst = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
+        const inst: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
         extra_index += 1;
         break :inst inst;
     };
     _ = align_inst;
 
     const section_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
-        const inst = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
+        const inst: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
         extra_index += 1;
         break :inst inst;
     };
     _ = section_inst;
 
     const addrspace_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
-        const inst = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
+        const inst: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
         extra_index += 1;
         break :inst inst;
     };
@@ -4230,9 +4233,9 @@ fn analyzeDecl(
     const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
 
     const name: []const u8 = switch (decl_name_index) {
-        0, 1, 2 => unreachable, // comptime or usingnamespace decl, decltest
-        else => blk: {
-            if (file.zir.string_bytes[decl_name_index] == 0) {
+        .empty, .unnamed_test_decl, .decltest => unreachable,
+        _ => blk: {
+            if (decl_name_index == .empty) {
                 // test decl
                 unreachable;
             }
@@ -4240,7 +4243,7 @@ fn analyzeDecl(
         },
     };
 
-    const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
+    const doc_comment: ?[]const u8 = if (doc_comment_index != .empty)
         file.zir.nullTerminatedString(doc_comment_index)
     else
         null;
@@ -4319,13 +4322,13 @@ fn analyzeUsingnamespaceDecl(
 
     const is_pub = @as(u1, @truncate(d.flags)) != 0;
     const value_index: Zir.Inst.Index = @enumFromInt(file.zir.extra[@intFromEnum(d.sub_index) + 6]);
-    const doc_comment_index = file.zir.extra[@intFromEnum(d.sub_index) + 7];
+    const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[@intFromEnum(d.sub_index) + 7]);
 
     // This is known to work because decl values are always block_inlines
     const value_pl_node = data[@intFromEnum(value_index)].pl_node;
     const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
 
-    const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
+    const doc_comment: ?[]const u8 = if (doc_comment_index != .empty)
         file.zir.nullTerminatedString(doc_comment_index)
     else
         null;
@@ -4379,14 +4382,14 @@ fn analyzeDecltest(
     const data = file.zir.instructions.items(.data);
 
     const value_index = file.zir.extra[@intFromEnum(d.sub_index) + 6];
-    const decl_name_index = file.zir.extra[@intFromEnum(d.sub_index) + 7];
+    const decl_name_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[@intFromEnum(d.sub_index) + 7]);
 
     const value_pl_node = data[value_index].pl_node;
     const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
 
     const test_source_code = try self.getBlockSource(file, parent_src, value_pl_node.src_node);
 
-    const decl_name: ?[]const u8 = if (decl_name_index != 0)
+    const decl_name: ?[]const u8 = if (decl_name_index != .empty)
         file.zir.nullTerminatedString(decl_name_index)
     else
         null;
@@ -5018,7 +5021,7 @@ fn analyzeFancyFunction(
             .param, .param_comptime => {
                 const pl_tok = data[@intFromEnum(param_index)].pl_tok;
                 const extra = file.zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
-                const doc_comment = if (extra.data.doc_comment != 0)
+                const doc_comment = if (extra.data.doc_comment != .empty)
                     file.zir.nullTerminatedString(extra.data.doc_comment)
                 else
                     "";
@@ -5056,13 +5059,14 @@ fn analyzeFancyFunction(
 
     var lib_name: []const u8 = "";
     if (extra.data.bits.has_lib_name) {
-        lib_name = file.zir.nullTerminatedString(file.zir.extra[extra_index]);
+        const lib_name_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[extra_index]);
+        lib_name = file.zir.nullTerminatedString(lib_name_index);
         extra_index += 1;
     }
 
     var align_index: ?usize = null;
     if (extra.data.bits.has_align_ref) {
-        const align_ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
+        const align_ref: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
         align_index = self.exprs.items.len;
         _ = try self.walkRef(
             file,
@@ -5086,7 +5090,7 @@ fn analyzeFancyFunction(
 
     var addrspace_index: ?usize = null;
     if (extra.data.bits.has_addrspace_ref) {
-        const addrspace_ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
+        const addrspace_ref: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
         addrspace_index = self.exprs.items.len;
         _ = try self.walkRef(
             file,
@@ -5110,7 +5114,7 @@ fn analyzeFancyFunction(
 
     var section_index: ?usize = null;
     if (extra.data.bits.has_section_ref) {
-        const section_ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
+        const section_ref: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
         section_index = self.exprs.items.len;
         _ = try self.walkRef(
             file,
@@ -5310,7 +5314,7 @@ fn analyzeFunction(
             .param, .param_comptime => {
                 const pl_tok = data[@intFromEnum(param_index)].pl_tok;
                 const extra = file.zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
-                const doc_comment = if (extra.data.doc_comment != 0)
+                const doc_comment = if (extra.data.doc_comment != .empty)
                     file.zir.nullTerminatedString(extra.data.doc_comment)
                 else
                     "";
@@ -5497,14 +5501,11 @@ fn collectUnionFieldInfo(
         cur_bit_bag >>= 1;
         _ = unused;
 
-        const field_name = file.zir.nullTerminatedString(file.zir.extra[extra_index]);
+        const field_name = file.zir.nullTerminatedString(@enumFromInt(file.zir.extra[extra_index]));
         extra_index += 1;
-        const doc_comment_index = file.zir.extra[extra_index];
+        const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[extra_index]);
         extra_index += 1;
-        const field_type = if (has_type)
-            @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]))
-        else
-            .void_type;
+        const field_type: Zir.Inst.Ref = if (has_type) @enumFromInt(file.zir.extra[extra_index]) else .void_type;
         if (has_type) extra_index += 1;
 
         if (has_align) extra_index += 1;
@@ -5526,7 +5527,7 @@ fn collectUnionFieldInfo(
         // ast node
         {
             try field_name_indexes.append(self.arena, self.ast_nodes.items.len);
-            const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
+            const doc_comment: ?[]const u8 = if (doc_comment_index != .empty)
                 file.zir.nullTerminatedString(doc_comment_index)
             else
                 null;
@@ -5559,8 +5560,8 @@ fn collectStructFieldInfo(
     const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
 
     const Field = struct {
-        field_name: ?u32,
-        doc_comment_index: u32,
+        field_name: Zir.NullTerminatedString,
+        doc_comment_index: Zir.NullTerminatedString,
         type_body_len: u32 = 0,
         align_body_len: u32 = 0,
         init_body_len: u32 = 0,
@@ -5587,13 +5588,13 @@ fn collectStructFieldInfo(
         const has_type_body = @as(u1, @truncate(cur_bit_bag)) != 0;
         cur_bit_bag >>= 1;
 
-        const field_name: ?u32 = if (!is_tuple) blk: {
+        const field_name: Zir.NullTerminatedString = if (!is_tuple) blk: {
             const fname = file.zir.extra[extra_index];
             extra_index += 1;
-            break :blk fname;
-        } else null;
+            break :blk @enumFromInt(fname);
+        } else .empty;
 
-        const doc_comment_index = file.zir.extra[extra_index];
+        const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[extra_index]);
         extra_index += 1;
 
         fields[field_i] = .{
@@ -5604,7 +5605,7 @@ fn collectStructFieldInfo(
         if (has_type_body) {
             fields[field_i].type_body_len = file.zir.extra[extra_index];
         } else {
-            fields[field_i].type_ref = @as(Zir.Inst.Ref, @enumFromInt(file.zir.extra[extra_index]));
+            fields[field_i].type_ref = @enumFromInt(file.zir.extra[extra_index]);
         }
         extra_index += 1;
 
@@ -5686,12 +5687,12 @@ fn collectStructFieldInfo(
         // ast node
         {
             try field_name_indexes.append(self.arena, self.ast_nodes.items.len);
-            const doc_comment: ?[]const u8 = if (field.doc_comment_index != 0)
+            const doc_comment: ?[]const u8 = if (field.doc_comment_index != .empty)
                 file.zir.nullTerminatedString(field.doc_comment_index)
             else
                 null;
-            const field_name: []const u8 = if (field.field_name) |f_name|
-                file.zir.nullTerminatedString(f_name)
+            const field_name: []const u8 = if (field.field_name != .empty)
+                file.zir.nullTerminatedString(field.field_name)
             else
                 "";
 

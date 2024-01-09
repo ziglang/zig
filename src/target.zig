@@ -12,10 +12,7 @@ pub const ArchOsAbi = struct {
     abi: std.Target.Abi,
     os_ver: ?std.SemanticVersion = null,
 
-    // Minimum glibc version that provides support for the arch/os (for
-    // .abi = .gnu).  For most entries, the .glibc_min is null,
-    // meaning the Zig minimum required by the standard library (see
-    // glibc_min_version) is sufficient.
+    // Minimum glibc version that provides support for the arch/os when ABI is GNU.
     glibc_min: ?std.SemanticVersion = null,
 };
 
@@ -81,9 +78,6 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .x86_64, .os = .windows, .abi = .gnu },
     .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 10, .minor = 7, .patch = 0 } },
 };
-
-/// Minimum glibc version, due to dependencies from the Zig standard library on glibc symbols
-pub const glibc_min_version: std.SemanticVersion = .{ .major = 2, .minor = 17, .patch = 0 };
 
 pub fn libCGenericName(target: std.Target) [:0]const u8 {
     switch (target.os.tag) {
@@ -165,7 +159,7 @@ pub fn canBuildLibC(target: std.Target) bool {
             }
             // Ensure glibc (aka *-linux-gnu) version is supported
             if (target.isGnuLibC()) {
-                const min_glibc_ver = libc.glibc_min orelse glibc_min_version;
+                const min_glibc_ver = libc.glibc_min orelse return true;
                 const target_glibc_ver = target.os.version_range.linux.glibc;
                 return target_glibc_ver.order(min_glibc_ver) != .lt;
             }

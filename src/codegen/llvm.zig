@@ -11197,7 +11197,9 @@ const ParamTypeIterator = struct {
             .Unspecified, .Inline => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
-                if (ty.isSlice(mod) or (ty.zigTypeTag(mod) == .Optional and ty.optionalChild(mod).isSlice(mod))) {
+                if (ty.isSlice(mod) or
+                    (ty.zigTypeTag(mod) == .Optional and ty.optionalChild(mod).isSlice(mod) and !ty.ptrAllowsZero(mod)))
+                {
                     it.llvm_index += 1;
                     return .slice;
                 } else if (isByRef(ty, mod)) {

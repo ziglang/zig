@@ -10,11 +10,10 @@
 
 #include <internal.h>
 
-#ifdef WPRFLAG
 int __CRTDECL
+#ifdef _UNICODE
 _wsetargv (void)
 #else
-int __CRTDECL
 _setargv (void)
 #endif
 {
