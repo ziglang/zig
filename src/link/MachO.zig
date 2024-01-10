@@ -1,5 +1,4 @@
 base: File,
-entry_name: ?[]const u8,
 
 /// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
 llvm_object: ?*LlvmObject = null,
@@ -47,9 +46,9 @@ atoms: std.ArrayListUnmanaged(Atom) = .{},
 
 sdk_layout: ?SdkLayout,
 /// Size of the __PAGEZERO segment.
-pagezero_vmsize: u64,
+pagezero_vmsize: ?u64,
 /// Minimum space for future expansion of the load commands.
-headerpad_size: u32,
+headerpad_size: ?u32,
 /// Set enough space as if all paths were MATPATHLEN.
 headerpad_max_install_names: bool,
 /// Remove dylibs that are unreachable by the entry point or exported symbols.
@@ -61,6 +60,8 @@ install_name: ?[]const u8,
 /// Path to entitlements file.
 entitlements: ?[]const u8,
 compatibility_version: ?std.SemanticVersion,
+/// Entry name
+entry_name: ?[]const u8,
 
 /// Hot-code swapping state.
 hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
@@ -128,8 +129,8 @@ pub fn createEmpty(
             .build_id = options.build_id,
             .rpath_list = options.rpath_list,
         },
-        .pagezero_vmsize = options.pagezero_size orelse default_pagezero_vmsize,
-        .headerpad_size = options.headerpad_size orelse default_headerpad_size,
+        .pagezero_vmsize = options.pagezero_size,
+        .headerpad_size = options.headerpad_size,
         .headerpad_max_install_names = options.headerpad_max_install_names,
         .dead_strip_dylibs = options.dead_strip_dylibs,
         .sdk_layout = options.darwin_sdk_layout,
@@ -249,9 +250,173 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
 
 /// --verbose-link output
 fn dumpArgv(self: *MachO, comp: *Compilation) !void {
-    _ = self;
-    _ = comp;
-    @panic("TODO dumpArgv");
+    const gpa = self.base.comp.gpa;
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const directory = self.base.emit.directory;
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
+    const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
+        if (fs.path.dirname(full_out_path)) |dirname| {
+            break :blk try fs.path.join(arena, &.{ dirname, path });
+        } else {
+            break :blk path;
+        }
+    } else null;
+
+    var argv = std.ArrayList([]const u8).init(arena);
+
+    try argv.append("zig");
+
+    if (self.base.isStaticLib()) {
+        try argv.append("ar");
+    } else {
+        try argv.append("ld");
+    }
+
+    if (self.base.isObject()) {
+        try argv.append("-r");
+    }
+
+    try argv.append("-o");
+    try argv.append(full_out_path);
+
+    if (self.base.isRelocatable()) {
+        for (comp.objects) |obj| {
+            try argv.append(obj.path);
+        }
+
+        for (comp.c_object_table.keys()) |key| {
+            try argv.append(key.status.success.object_path);
+        }
+
+        if (module_obj_path) |p| {
+            try argv.append(p);
+        }
+    } else {
+        if (!self.base.isStatic()) {
+            try argv.append("-dynamic");
+        }
+
+        if (self.base.isDynLib()) {
+            try argv.append("-dylib");
+
+            if (self.install_name) |install_name| {
+                try argv.append("-install_name");
+                try argv.append(install_name);
+            }
+        }
+
+        {
+            const platform = Platform.fromTarget(target);
+            try argv.append("-platform_version");
+            try argv.append(@tagName(platform.os_tag));
+            try argv.append(try std.fmt.allocPrint(arena, "{}", .{platform.version}));
+
+            const sdk_version: ?std.SemanticVersion = self.inferSdkVersion();
+            if (sdk_version) |ver| {
+                try argv.append(try std.fmt.allocPrint(arena, "{d}.{d}", .{ ver.major, ver.minor }));
+            } else {
+                try argv.append(try std.fmt.allocPrint(arena, "{}", .{platform.version}));
+            }
+        }
+
+        if (comp.sysroot) |syslibroot| {
+            try argv.append("-syslibroot");
+            try argv.append(syslibroot);
+        }
+
+        for (self.base.rpath_list) |rpath| {
+            try argv.append("-rpath");
+            try argv.append(rpath);
+        }
+
+        if (self.pagezero_vmsize) |size| {
+            try argv.append("-pagezero_size");
+            try argv.append(try std.fmt.allocPrint(arena, "0x{x}", .{size}));
+        }
+
+        if (self.headerpad_size) |size| {
+            try argv.append("-headerpad_size");
+            try argv.append(try std.fmt.allocPrint(arena, "0x{x}", .{size}));
+        }
+
+        if (self.headerpad_max_install_names) {
+            try argv.append("-headerpad_max_install_names");
+        }
+
+        if (self.base.gc_sections) {
+            try argv.append("-dead_strip");
+        }
+
+        if (self.dead_strip_dylibs) {
+            try argv.append("-dead_strip_dylibs");
+        }
+
+        if (self.entry_name) |entry_name| {
+            try argv.appendSlice(&.{ "-e", entry_name });
+        }
+
+        for (comp.objects) |obj| {
+            // TODO: verify this
+            if (obj.must_link) {
+                try argv.append("-force_load");
+            }
+            try argv.append(obj.path);
+        }
+
+        for (comp.c_object_table.keys()) |key| {
+            try argv.append(key.status.success.object_path);
+        }
+
+        if (module_obj_path) |p| {
+            try argv.append(p);
+        }
+
+        if (comp.compiler_rt_lib) |lib| try argv.append(lib.full_object_path);
+        if (comp.compiler_rt_obj) |obj| try argv.append(obj.full_object_path);
+
+        if (comp.config.link_libcpp) {
+            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
+            try argv.append(comp.libcxx_static_lib.?.full_object_path);
+        }
+
+        try argv.append("-o");
+        try argv.append(full_out_path);
+
+        try argv.append("-lSystem");
+
+        for (comp.system_libs.keys()) |l_name| {
+            const info = comp.system_libs.get(l_name).?;
+            const arg = if (info.needed)
+                try std.fmt.allocPrint(arena, "-needed-l{s}", .{l_name})
+            else if (info.weak)
+                try std.fmt.allocPrint(arena, "-weak-l{s}", .{l_name})
+            else
+                try std.fmt.allocPrint(arena, "-l{s}", .{l_name});
+            try argv.append(arg);
+        }
+
+        for (self.frameworks) |framework| {
+            const name = std.fs.path.stem(framework.path);
+            const arg = if (framework.needed)
+                try std.fmt.allocPrint(arena, "-needed_framework {s}", .{name})
+            else if (framework.weak)
+                try std.fmt.allocPrint(arena, "-weak_framework {s}", .{name})
+            else
+                try std.fmt.allocPrint(arena, "-framework {s}", .{name});
+            try argv.append(arg);
+        }
+
+        if (self.base.isDynLib() and self.base.allow_shlib_undefined) {
+            try argv.append("-undefined");
+            try argv.append("dynamic_lookup");
+        }
+    }
+
+    Compilation.dump_argv(argv.items);
 }
 
 /// XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
@@ -1034,38 +1199,6 @@ pub const Section = struct {
     free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
 };
 
-const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.OptionalDeclIndex, LazySymbolMetadata);
-
-const LazySymbolMetadata = struct {
-    const State = enum { unused, pending_flush, flushed };
-    text_atom: Atom.Index = undefined,
-    data_const_atom: Atom.Index = undefined,
-    text_state: State = .unused,
-    data_const_state: State = .unused,
-};
-
-const DeclMetadata = struct {
-    atom: Atom.Index,
-    section: u8,
-    /// A list of all exports aliases of this Decl.
-    /// TODO do we actually need this at all?
-    exports: std.ArrayListUnmanaged(u32) = .{},
-
-    fn getExport(m: DeclMetadata, macho_file: *const MachO, name: []const u8) ?u32 {
-        for (m.exports.items) |exp| {
-            if (mem.eql(u8, name, macho_file.getSymbolName(.{ .sym_index = exp }))) return exp;
-        }
-        return null;
-    }
-
-    fn getExportPtr(m: *DeclMetadata, macho_file: *MachO, name: []const u8) ?*u32 {
-        for (m.exports.items) |*exp| {
-            if (mem.eql(u8, name, macho_file.getSymbolName(.{ .sym_index = exp.* }))) return exp;
-        }
-        return null;
-    }
-};
-
 const HotUpdateState = struct {
     mach_task: ?std.os.darwin.MachTask = null,
 };
@@ -1091,18 +1224,32 @@ pub const null_sym = macho.nlist_64{
 };
 
 pub const Platform = struct {
-    platform: macho.PLATFORM,
-    version: Version,
+    os_tag: std.Target.Os.Tag,
+    abi: std.Target.Abi,
+    version: std.SemanticVersion,
 
     /// Using Apple's ld64 as our blueprint, `min_version` as well as `sdk_version` are set to
     /// the extracted minimum platform version.
     pub fn fromLoadCommand(lc: macho.LoadCommandIterator.LoadCommand) Platform {
         switch (lc.cmd()) {
             .BUILD_VERSION => {
-                const lc_cmd = lc.cast(macho.build_version_command).?;
+                const cmd = lc.cast(macho.build_version_command).?;
                 return .{
-                    .platform = lc_cmd.platform,
-                    .version = .{ .value = lc_cmd.minos },
+                    .os_tag = switch (cmd.platform) {
+                        .MACOS => .macos,
+                        .IOS, .IOSSIMULATOR => .ios,
+                        .TVOS, .TVOSSIMULATOR => .tvos,
+                        .WATCHOS, .WATCHOSSIMULATOR => .watchos,
+                        else => @panic("TODO"),
+                    },
+                    .abi = switch (cmd.platform) {
+                        .IOSSIMULATOR,
+                        .TVOSSIMULATOR,
+                        .WATCHOSSIMULATOR,
+                        => .simulator,
+                        else => .none,
+                    },
+                    .version = appleVersionToSemanticVersion(cmd.minos),
                 };
             },
             .VERSION_MIN_MACOSX,
@@ -1110,20 +1257,43 @@ pub const Platform = struct {
             .VERSION_MIN_TVOS,
             .VERSION_MIN_WATCHOS,
             => {
-                const lc_cmd = lc.cast(macho.version_min_command).?;
+                const cmd = lc.cast(macho.version_min_command).?;
                 return .{
-                    .platform = switch (lc.cmd()) {
-                        .VERSION_MIN_MACOSX => .MACOS,
-                        .VERSION_MIN_IPHONEOS => .IOS,
-                        .VERSION_MIN_TVOS => .TVOS,
-                        .VERSION_MIN_WATCHOS => .WATCHOS,
+                    .os_tag = switch (lc.cmd()) {
+                        .VERSION_MIN_MACOSX => .macos,
+                        .VERSION_MIN_IPHONEOS => .ios,
+                        .VERSION_MIN_TVOS => .tvos,
+                        .VERSION_MIN_WATCHOS => .watchos,
                         else => unreachable,
                     },
-                    .version = .{ .value = lc_cmd.version },
+                    .abi = .none,
+                    .version = appleVersionToSemanticVersion(cmd.version),
                 };
             },
             else => unreachable,
         }
+    }
+
+    pub fn fromTarget(target: std.Target) Platform {
+        return .{
+            .os_tag = target.os.tag,
+            .abi = target.abi,
+            .version = target.os.version_range.semver.min,
+        };
+    }
+
+    pub fn toAppleVersion(plat: Platform) u32 {
+        return semanticVersionToAppleVersion(plat.version);
+    }
+
+    pub fn toApplePlatform(plat: Platform) macho.PLATFORM {
+        return switch (plat.os_tag) {
+            .macos => .MACOS,
+            .ios => if (plat.abi == .simulator) .IOSSIMULATOR else .IOS,
+            .tvos => if (plat.abi == .simulator) .TVOSSIMULATOR else .TVOS,
+            .watchos => if (plat.abi == .simulator) .WATCHOSSIMULATOR else .WATCHOS,
+            else => unreachable,
+        };
     }
 
     pub fn isBuildVersionCompatible(plat: Platform) bool {
@@ -1134,76 +1304,152 @@ pub const Platform = struct {
         }
         return false;
     }
-};
 
-pub const Version = struct {
-    value: u32,
-
-    pub fn major(v: Version) u16 {
-        return @as(u16, @truncate(v.value >> 16));
-    }
-
-    pub fn minor(v: Version) u8 {
-        return @as(u8, @truncate(v.value >> 8));
-    }
-
-    pub fn patch(v: Version) u8 {
-        return @as(u8, @truncate(v.value));
-    }
-
-    pub fn parse(raw: []const u8) ?Version {
-        var parsed: [3]u16 = [_]u16{0} ** 3;
-        var count: usize = 0;
-        var it = std.mem.splitAny(u8, raw, ".");
-        while (it.next()) |comp| {
-            if (count >= 3) return null;
-            parsed[count] = std.fmt.parseInt(u16, comp, 10) catch return null;
-            count += 1;
+    pub fn isVersionMinCompatible(plat: Platform) bool {
+        inline for (supported_platforms) |sup_plat| {
+            if (sup_plat[0] == plat.os_tag and sup_plat[1] == plat.abi) {
+                return sup_plat[3] <= plat.toAppleVersion();
+            }
         }
-        if (count == 0) return null;
-        const maj = parsed[0];
-        const min = std.math.cast(u8, parsed[1]) orelse return null;
-        const pat = std.math.cast(u8, parsed[2]) orelse return null;
-        return Version.new(maj, min, pat);
+        return false;
     }
 
-    pub fn new(maj: u16, min: u8, pat: u8) Version {
-        return .{ .value = (@as(u32, @intCast(maj)) << 16) | (@as(u32, @intCast(min)) << 8) | pat };
+    pub fn fmtTarget(plat: Platform, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(formatTarget) {
+        return .{ .data = .{ .platform = plat, .cpu_arch = cpu_arch } };
     }
 
-    pub fn format(
-        v: Version,
+    const FmtCtx = struct {
+        platform: Platform,
+        cpu_arch: std.Target.Cpu.Arch,
+    };
+
+    pub fn formatTarget(
+        ctx: FmtCtx,
         comptime unused_fmt_string: []const u8,
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
         _ = unused_fmt_string;
         _ = options;
-        try writer.print("{d}.{d}.{d}", .{
-            v.major(),
-            v.minor(),
-            v.patch(),
-        });
+        try writer.print("{s}-{s}", .{ @tagName(ctx.cpu_arch), @tagName(ctx.platform.os_tag) });
+        if (ctx.platform.abi != .none) {
+            try writer.print("-{s}", .{@tagName(ctx.platform.abi)});
+        }
+    }
+
+    /// Caller owns the memory.
+    pub fn allocPrintTarget(plat: Platform, gpa: Allocator, cpu_arch: std.Target.Cpu.Arch) error{OutOfMemory}![]u8 {
+        var buffer = std.ArrayList(u8).init(gpa);
+        defer buffer.deinit();
+        try buffer.writer().print("{}", .{plat.fmtTarget(cpu_arch)});
+        return buffer.toOwnedSlice();
+    }
+
+    pub fn eqlTarget(plat: Platform, other: Platform) bool {
+        return plat.os_tag == other.os_tag and plat.abi == other.abi;
     }
 };
 
 const SupportedPlatforms = struct {
-    macho.PLATFORM, // Platform identifier
+    std.Target.Os.Tag,
+    std.Target.Abi,
     u32, // Min platform version for which to emit LC_BUILD_VERSION
     u32, // Min supported platform version
-    ?[]const u8, // Env var to look for
 };
 
 // Source: https://github.com/apple-oss-distributions/ld64/blob/59a99ab60399c5e6c49e6945a9e1049c42b71135/src/ld/PlatformSupport.cpp#L52
+// zig fmt: off
 const supported_platforms = [_]SupportedPlatforms{
-    .{ .MACOS, 0xA0E00, 0xA0800, "MACOSX_DEPLOYMENT_TARGET" },
-    .{ .IOS, 0xC0000, 0x70000, "IPHONEOS_DEPLOYMENT_TARGET" },
-    .{ .TVOS, 0xC0000, 0x70000, "TVOS_DEPLOYMENT_TARGET" },
-    .{ .WATCHOS, 0x50000, 0x20000, "WATCHOS_DEPLOYMENT_TARGET" },
-    .{ .IOSSIMULATOR, 0xD0000, 0x80000, null },
-    .{ .TVOSSIMULATOR, 0xD0000, 0x80000, null },
-    .{ .WATCHOSSIMULATOR, 0x60000, 0x20000, null },
+    .{ .macos,   .none,      0xA0E00, 0xA0800 },
+    .{ .ios,     .none,      0xC0000, 0x70000 },
+    .{ .tvos,    .none,      0xC0000, 0x70000 },
+    .{ .watchos, .none,      0x50000, 0x20000 },
+    .{ .ios,     .simulator, 0xD0000, 0x80000 },
+    .{ .tvos,    .simulator, 0xD0000, 0x80000 },
+    .{ .watchos, .simulator, 0x60000, 0x20000 },
 };
+// zig fmt: on
+
+inline fn semanticVersionToAppleVersion(version: std.SemanticVersion) u32 {
+    const major = version.major;
+    const minor = version.minor;
+    const patch = version.patch;
+    return (@as(u32, @intCast(major)) << 16) | (@as(u32, @intCast(minor)) << 8) | @as(u32, @intCast(patch));
+}
+
+pub inline fn appleVersionToSemanticVersion(version: u32) std.SemanticVersion {
+    return .{
+        .major = @as(u16, @truncate(version >> 16)),
+        .minor = @as(u8, @truncate(version >> 8)),
+        .patch = @as(u8, @truncate(version)),
+    };
+}
+
+fn inferSdkVersion(self: *MachO) ?std.SemanticVersion {
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    const sdk_layout = self.sdk_layout orelse return null;
+    const sdk_dir = switch (sdk_layout) {
+        .sdk => comp.sysroot.?,
+        .vendored => std.fs.path.join(arena, &.{ comp.zig_lib_directory.path.?, "libc", "darwin" }) catch return null,
+    };
+    if (readSdkVersionFromSettings(arena, sdk_dir)) |ver| {
+        return parseSdkVersion(ver);
+    } else |_| {
+        // Read from settings should always succeed when vendored.
+        if (sdk_layout == .vendored) @panic("zig installation bug: unable to parse SDK version");
+    }
+
+    // infer from pathname
+    const stem = std.fs.path.stem(sdk_dir);
+    const start = for (stem, 0..) |c, i| {
+        if (std.ascii.isDigit(c)) break i;
+    } else stem.len;
+    const end = for (stem[start..], start..) |c, i| {
+        if (std.ascii.isDigit(c) or c == '.') continue;
+        break i;
+    } else stem.len;
+    return parseSdkVersion(stem[start..end]);
+}
+
+// Official Apple SDKs ship with a `SDKSettings.json` located at the top of SDK fs layout.
+// Use property `MinimalDisplayName` to determine version.
+// The file/property is also available with vendored libc.
+fn readSdkVersionFromSettings(arena: Allocator, dir: []const u8) ![]const u8 {
+    const sdk_path = try std.fs.path.join(arena, &.{ dir, "SDKSettings.json" });
+    const contents = try std.fs.cwd().readFileAlloc(arena, sdk_path, std.math.maxInt(u16));
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena, contents, .{});
+    if (parsed.value.object.get("MinimalDisplayName")) |ver| return ver.string;
+    return error.SdkVersionFailure;
+}
+
+// Versions reported by Apple aren't exactly semantically valid as they usually omit
+// the patch component, so we parse SDK value by hand.
+fn parseSdkVersion(raw: []const u8) ?std.SemanticVersion {
+    var parsed: std.SemanticVersion = .{
+        .major = 0,
+        .minor = 0,
+        .patch = 0,
+    };
+
+    const parseNext = struct {
+        fn parseNext(it: anytype) ?u16 {
+            const nn = it.next() orelse return null;
+            return std.fmt.parseInt(u16, nn, 10) catch null;
+        }
+    }.parseNext;
+
+    var it = std.mem.splitAny(u8, raw, ".");
+    parsed.major = parseNext(&it) orelse return null;
+    parsed.minor = parseNext(&it) orelse return null;
+    parsed.patch = parseNext(&it) orelse 0;
+    return parsed;
+}
 
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
