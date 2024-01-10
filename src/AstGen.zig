@@ -3235,6 +3235,8 @@ fn varDecl(
             return &sub_scope.base;
         },
         .keyword_var => {
+            if (var_decl.comptime_token != null and gz.is_comptime)
+                return astgen.failTok(var_decl.comptime_token.?, "'comptime var' is redundant in comptime scope", .{});
             const is_comptime = var_decl.comptime_token != null or gz.is_comptime;
             var resolve_inferred_alloc: Zir.Inst.Ref = .none;
             const alloc: Zir.Inst.Ref, const result_info: ResultInfo = if (var_decl.ast.type_node != 0) a: {
