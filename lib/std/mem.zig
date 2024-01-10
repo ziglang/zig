@@ -665,7 +665,7 @@ fn eqlBytes(a: []const u8, b: []const u8) bool {
 
     // Figure out the fastest way to scan through the input in chunks.
     // Uses vectors when supported and falls back to usize/words when not.
-    const Scan = if (std.simd.suggestVectorSize(u8)) |vec_size|
+    const Scan = if (std.simd.suggestVectorLength(u8)) |vec_size|
         struct {
             pub const size = vec_size;
             pub const Chunk = @Vector(size, u8);
