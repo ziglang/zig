@@ -155,10 +155,10 @@ pub const Fde = struct {
         const pc_begin = std.mem.readInt(i64, data[8..][0..8], .little);
         const taddr: u64 = @intCast(@as(i64, @intCast(sect.addr + fde.offset + 8)) + pc_begin);
         fde.atom = object.findAtom(taddr) orelse {
-            macho_file.base.fatal("{}: {s},{s}: 0x{x}: invalid function reference in FDE", .{
-                object.fmtPath(), sect.segName(), sect.sectName(), fde.offset + 8,
+            try macho_file.reportParseError2(object.index, "{s},{s}: 0x{x}: invalid function reference in FDE", .{
+                sect.segName(), sect.sectName(), fde.offset + 8,
             });
-            return error.ParseFailed;
+            return error.MalformedObject;
         };
         const atom = fde.getAtom(macho_file);
         fde.atom_offset = @intCast(taddr - atom.getInputAddress(macho_file));
@@ -172,11 +172,10 @@ pub const Fde = struct {
         if (cie_index) |cie| {
             fde.cie = cie;
         } else {
-            macho_file.base.fatal("{}: no matching CIE found for FDE at offset {x}", .{
-                object.fmtPath(),
+            try macho_file.reportParseError2(object.index, "no matching CIE found for FDE at offset {x}", .{
                 fde.offset,
             });
-            return error.ParseFailed;
+            return error.MalformedObject;
         }
 
         const cie = fde.getCie(macho_file);
@@ -194,10 +193,10 @@ pub const Fde = struct {
             };
             const lsda_addr: u64 = @intCast(@as(i64, @intCast(sect.addr + fde.offset + fde.lsda_ptr_offset)) + lsda_ptr);
             fde.lsda = object.findAtom(lsda_addr) orelse {
-                macho_file.base.fatal("{}: {s},{s}: 0x{x}: invalid LSDA reference in FDE", .{
-                    object.fmtPath(), sect.segName(), sect.sectName(), fde.offset + fde.lsda_ptr_offset,
+                try macho_file.reportParseError2(object.index, "{s},{s}: 0x{x}: invalid LSDA reference in FDE", .{
+                    sect.segName(), sect.sectName(), fde.offset + fde.lsda_ptr_offset,
                 });
-                return error.ParseFailed;
+                return error.MalformedObject;
             };
             const lsda_atom = fde.getLsdaAtom(macho_file).?;
             fde.lsda_offset = @intCast(lsda_addr - lsda_atom.getInputAddress(macho_file));

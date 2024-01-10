@@ -31,6 +31,14 @@ num_weak_bind_relocs: u32 = 0,
 
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
+pub fn isObject(path: []const u8) !bool {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    const reader = file.reader();
+    const header = reader.readStruct(macho.mach_header_64) catch return false;
+    return header.filetype == macho.MH_OBJECT;
+}
+
 pub fn deinit(self: *Object, allocator: Allocator) void {
     for (self.sections.items(.relocs), self.sections.items(.subsections)) |*relocs, *sub| {
         relocs.deinit(allocator);
@@ -55,11 +63,24 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     var stream = std.io.fixedBufferStream(self.data);
     const reader = stream.reader();
 
     self.header = try reader.readStruct(macho.mach_header_64);
+
+    const this_cpu_arch: std.Target.Cpu.Arch = switch (self.header.?.cputype) {
+        macho.CPU_TYPE_ARM64 => .aarch64,
+        macho.CPU_TYPE_X86_64 => .x86_64,
+        else => |x| {
+            try macho_file.reportParseError2(self.index, "unknown cpu architecture: {d}", .{x});
+            return error.InvalidCpuArch;
+        },
+    };
+    if (macho_file.getTarget().cpu.arch != this_cpu_arch) {
+        try macho_file.reportParseError2(self.index, "invalid cpu architecture: {s}", .{@tagName(this_cpu_arch)});
+        return error.InvalidCpuArch;
+    }
 
     if (self.getLoadCommand(.SEGMENT_64)) |lc| {
         const sections = lc.getSections();
@@ -146,6 +167,20 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
     }
 
     self.initPlatform();
+
+    if (self.platform) |platform| {
+        if (!macho_file.platform.eqlTarget(platform)) {
+            try macho_file.reportParseError2(self.index, "invalid platform: {}", .{
+                platform.fmtTarget(macho_file.getTarget().cpu.arch),
+            });
+            return error.InvalidTarget;
+        }
+        if (macho_file.platform.version.order(platform.version) != .lt) {
+            try macho_file.reportParseError2(self.index, "object file built for newer platform: {}", .{platform});
+            return error.InvalidTarget;
+        }
+    }
+
     try self.initDwarfInfo(macho_file);
 
     for (self.atoms.items) |atom_index| {
@@ -175,7 +210,7 @@ inline fn isLiteral(sect: macho.section_64) bool {
 fn initSubsections(self: *Object, nlists: anytype, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.subsections), 0..) |sect, *subsections, n_sect| {
         if (isLiteral(sect)) continue;
@@ -243,7 +278,7 @@ fn initSubsections(self: *Object, nlists: anytype, macho_file: *MachO) !void {
 fn initSections(self: *Object, nlists: anytype, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const slice = self.sections.slice();
 
     try self.atoms.ensureUnusedCapacity(gpa, self.sections.items(.header).len);
@@ -299,12 +334,12 @@ const AddAtomArgs = struct {
 };
 
 fn addAtom(self: *Object, args: AddAtomArgs, macho_file: *MachO) !Atom.Index {
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const atom_index = try macho_file.addAtom();
     const atom = macho_file.getAtom(atom_index).?;
     atom.file = self.index;
     atom.atom_index = atom_index;
-    atom.name = try macho_file.string_intern.insert(gpa, args.name);
+    atom.name = try macho_file.strings.insert(gpa, args.name);
     atom.n_sect = args.n_sect;
     atom.size = args.size;
     atom.alignment = args.alignment;
@@ -319,7 +354,7 @@ fn initLiteralSections(self: *Object, macho_file: *MachO) !void {
     // TODO here we should split into equal-sized records, hash the contents, and then
     // deduplicate - ICF.
     // For now, we simply cover each literal section with one large atom.
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const slice = self.sections.slice();
 
     try self.atoms.ensureUnusedCapacity(gpa, self.sections.items(.header).len);
@@ -401,10 +436,10 @@ fn linkNlistToAtom(self: *Object, macho_file: *MachO) !void {
             if (self.findAtomInSection(nlist.n_value, nlist.n_sect - 1)) |atom_index| {
                 atom.* = atom_index;
             } else {
-                macho_file.base.fatal("{}: symbol {s} not attached to any (sub)section", .{
-                    self.fmtPath(), self.getString(nlist.n_strx),
+                try macho_file.reportParseError2(self.index, "symbol {s} not attached to any (sub)section", .{
+                    self.getString(nlist.n_strx),
                 });
-                return error.ParseFailed;
+                return error.MalformedObject;
             }
         }
     }
@@ -413,7 +448,7 @@ fn linkNlistToAtom(self: *Object, macho_file: *MachO) !void {
 fn initSymbols(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const slice = self.symtab.slice();
 
     try self.symbols.ensureUnusedCapacity(gpa, slice.items(.nlist).len);
@@ -421,7 +456,7 @@ fn initSymbols(self: *Object, macho_file: *MachO) !void {
     for (slice.items(.nlist), slice.items(.atom), 0..) |nlist, atom_index, i| {
         if (nlist.ext()) {
             const name = self.getString(nlist.n_strx);
-            const off = try macho_file.string_intern.insert(gpa, name);
+            const off = try macho_file.strings.insert(gpa, name);
             const gop = try macho_file.getOrCreateGlobal(off);
             self.symbols.addOneAssumeCapacity().* = gop.index;
             continue;
@@ -433,7 +468,7 @@ fn initSymbols(self: *Object, macho_file: *MachO) !void {
         const name = self.getString(nlist.n_strx);
         symbol.* = .{
             .value = nlist.n_value,
-            .name = try macho_file.string_intern.insert(gpa, name),
+            .name = try macho_file.strings.insert(gpa, name),
             .nlist_idx = @intCast(i),
             .atom = 0,
             .file = self.index,
@@ -482,7 +517,7 @@ fn initSymbolStabs(self: *Object, nlists: anytype, macho_file: *MachO) !void {
 
     if (start == end) return;
 
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const syms = self.symtab.items(.nlist);
     const sym_lookup = SymbolLookup{ .ctx = self, .entries = nlists };
 
@@ -490,11 +525,10 @@ fn initSymbolStabs(self: *Object, nlists: anytype, macho_file: *MachO) !void {
     while (i < end) : (i += 1) {
         const open = syms[i];
         if (open.n_type != macho.N_SO) {
-            macho_file.base.fatal("{}: unexpected symbol stab type 0x{x} as the first entry", .{
-                self.fmtPath(),
+            try macho_file.reportParseError2(self.index, "unexpected symbol stab type 0x{x} as the first entry", .{
                 open.n_type,
             });
-            return error.ParseFailed;
+            return error.MalformedObject;
         }
 
         while (i < end and syms[i].n_type == macho.N_SO and syms[i].n_sect != 0) : (i += 1) {}
@@ -522,11 +556,10 @@ fn initSymbolStabs(self: *Object, nlists: anytype, macho_file: *MachO) !void {
                     stab.symbol = sym_lookup.find(nlist.n_value);
                 },
                 else => {
-                    macho_file.base.fatal("{}: unhandled symbol stab type 0x{x}", .{
-                        self.fmtPath(),
+                    try macho_file.reportParseError2(self.index, "unhandled symbol stab type 0x{x}", .{
                         nlist.n_type,
                     });
-                    return error.ParseFailed;
+                    return error.MalformedObject;
                 },
             }
             try sf.stabs.append(gpa, stab);
@@ -548,7 +581,7 @@ fn sortAtoms(self: *Object, macho_file: *MachO) !void {
 fn initRelocs(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const cpu_arch = macho_file.options.cpu_arch.?;
+    const cpu_arch = macho_file.getTarget().cpu.arch;
     const slice = self.sections.slice();
 
     for (slice.items(.header), slice.items(.relocs), 0..) |sect, *out, n_sect| {
@@ -589,7 +622,7 @@ fn initRelocs(self: *Object, macho_file: *MachO) !void {
 fn initEhFrameRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const nlists = self.symtab.items(.nlist);
     const slice = self.sections.slice();
     const sect = slice.items(.header)[sect_id];
@@ -667,10 +700,10 @@ fn initEhFrameRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
                 const cie = for (self.cies.items) |*cie| {
                     if (cie.offset <= rel.offset and rel.offset < cie.offset + cie.getSize()) break cie;
                 } else {
-                    macho_file.base.fatal("{}: {s},{s}: 0x{x}: bad relocation", .{
-                        self.fmtPath(), sect.segName(), sect.sectName(), rel.offset,
+                    try macho_file.reportParseError2(self.index, "{s},{s}: 0x{x}: bad relocation", .{
+                        sect.segName(), sect.sectName(), rel.offset,
                     });
-                    return error.ParseFailed;
+                    return error.MalformedObject;
                 };
                 cie.personality = .{ .index = @intCast(rel.target), .offset = rel.offset - cie.offset };
             },
@@ -695,7 +728,7 @@ fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
         }
     };
 
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const data = self.getSectionData(sect_id);
     const nrecs = @divExact(data.len, @sizeOf(macho.compact_unwind_entry));
     const recs = @as([*]align(1) const macho.compact_unwind_entry, @ptrCast(data.ptr))[0..nrecs];
@@ -722,10 +755,10 @@ fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
 
         for (relocs[reloc_start..reloc_idx]) |rel| {
             if (rel.type != .unsigned or rel.meta.length != 3) {
-                macho_file.base.fatal("{}: {s},{s}: 0x{x}: bad relocation", .{
-                    self.fmtPath(), header.segName(), header.sectName(), rel.offset,
+                try macho_file.reportParseError2(self.index, "{s},{s}: 0x{x}: bad relocation", .{
+                    header.segName(), header.sectName(), rel.offset,
                 });
-                return error.ParseFailed;
+                return error.MalformedObject;
             }
             assert(rel.type == .unsigned and rel.meta.length == 3); // TODO error
             const offset = rel.offset - rec_start;
@@ -740,10 +773,10 @@ fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
                         const atom = out.getAtom(macho_file);
                         out.atom_offset = @intCast(rec.rangeStart - atom.getInputAddress(macho_file));
                     } else {
-                        macho_file.base.fatal("{}: {s},{s}: 0x{x}: bad relocation", .{
-                            self.fmtPath(), header.segName(), header.sectName(), rel.offset,
+                        try macho_file.reportParseError2(self.index, "{s},{s}: 0x{x}: bad relocation", .{
+                            header.segName(), header.sectName(), rel.offset,
                         });
-                        return error.ParseFailed;
+                        return error.MalformedObject;
                     },
                 },
                 16 => switch (rel.tag) { // personality function
@@ -753,10 +786,10 @@ fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
                     .local => if (sym_lookup.find(rec.personalityFunction)) |sym_index| {
                         out.personality = sym_index;
                     } else {
-                        macho_file.base.fatal("{}: {s},{s}: 0x{x}: bad relocation", .{
-                            self.fmtPath(), header.segName(), header.sectName(), rel.offset,
+                        try macho_file.reportParseError2(self.index, "{s},{s}: 0x{x}: bad relocation", .{
+                            header.segName(), header.sectName(), rel.offset,
                         });
-                        return error.ParseFailed;
+                        return error.MalformedObject;
                     },
                 },
                 24 => switch (rel.tag) { // lsda
@@ -769,10 +802,10 @@ fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
                         const atom = out.getLsdaAtom(macho_file).?;
                         out.lsda_offset = @intCast(rec.lsda - atom.getInputAddress(macho_file));
                     } else {
-                        macho_file.base.fatal("{}: {s},{s}: 0x{x}: bad relocation", .{
-                            self.fmtPath(), header.segName(), header.sectName(), rel.offset,
+                        try macho_file.reportParseError2(self.index, "{s},{s}: 0x{x}: bad relocation", .{
+                            header.segName(), header.sectName(), rel.offset,
                         });
-                        return error.ParseFailed;
+                        return error.MalformedObject;
                     },
                 },
                 else => {},
@@ -780,7 +813,7 @@ fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
         }
     }
 
-    if (!macho_file.options.relocatable) try self.synthesiseNullUnwindRecords(macho_file);
+    if (!macho_file.base.isObject()) try self.synthesiseNullUnwindRecords(macho_file);
 
     const sortFn = struct {
         fn sortFn(ctx: *MachO, lhs_index: UnwindInfo.Record.Index, rhs_index: UnwindInfo.Record.Index) bool {
@@ -818,7 +851,7 @@ fn synthesiseNullUnwindRecords(self: *Object, macho_file: *MachO) !void {
 
     const Superposition = struct { atom: Atom.Index, size: u64, cu: ?UnwindInfo.Record.Index = null, fde: ?Fde.Index = null };
 
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     var superposition = std.AutoArrayHashMap(u64, Superposition).init(gpa);
     defer superposition.deinit();
 
@@ -875,7 +908,7 @@ fn synthesiseNullUnwindRecords(self: *Object, macho_file: *MachO) !void {
                 rec.atom_offset = fde.atom_offset;
                 rec.fde = fde_index;
                 rec.file = fde.file;
-                switch (macho_file.options.cpu_arch.?) {
+                switch (macho_file.getTarget().cpu.arch) {
                     .x86_64 => rec.enc.setMode(macho.UNWIND_X86_64_MODE.DWARF),
                     .aarch64 => rec.enc.setMode(macho.UNWIND_ARM64_MODE.DWARF),
                     else => unreachable,
@@ -907,7 +940,7 @@ fn initPlatform(self: *Object) void {
             .VERSION_MIN_IPHONEOS,
             .VERSION_MIN_TVOS,
             .VERSION_MIN_WATCHOS,
-            => break MachO.Options.Platform.fromLoadCommand(cmd),
+            => break MachO.Platform.fromLoadCommand(cmd),
             else => {},
         }
     } else null;
@@ -921,7 +954,7 @@ fn initDwarfInfo(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
 
     var debug_info_index: ?usize = null;
     var debug_abbrev_index: ?usize = null;
@@ -942,8 +975,8 @@ fn initDwarfInfo(self: *Object, macho_file: *MachO) !void {
         .debug_str = if (debug_str_index) |index| self.getSectionData(@intCast(index)) else "",
     };
     dwarf_info.init(gpa) catch {
-        macho_file.base.fatal("{}: invalid __DWARF info found", .{self.fmtPath()});
-        return error.ParseFailed;
+        try macho_file.reportParseError2(self.index, "invalid __DWARF info found", .{});
+        return error.MalformedObject;
     };
     self.dwarf_info = dwarf_info;
 }
@@ -1060,7 +1093,7 @@ pub fn scanRelocs(self: Object, macho_file: *MachO) !void {
 pub fn convertTentativeDefinitions(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
 
     for (self.symbols.items, 0..) |index, i| {
         const sym = macho_file.getSymbol(index);
@@ -1079,7 +1112,7 @@ pub fn convertTentativeDefinitions(self: *Object, macho_file: *MachO) !void {
         defer gpa.free(name);
         const atom = macho_file.getAtom(atom_index).?;
         atom.atom_index = atom_index;
-        atom.name = try macho_file.string_intern.insert(gpa, name);
+        atom.name = try macho_file.strings.insert(gpa, name);
         atom.file = self.index;
         atom.size = nlist.n_value;
         atom.alignment = (nlist.n_desc >> 8) & 0x0f;
@@ -1130,7 +1163,7 @@ pub fn calcSymtabSize(self: *Object, macho_file: *MachO) !void {
         const name = sym.getName(macho_file);
         // TODO in -r mode, we actually want to merge symbol names and emit only one
         // work it out when emitting relocs
-        if (name.len > 0 and (name[0] == 'L' or name[0] == 'l') and !macho_file.options.relocatable) continue;
+        if (name.len > 0 and (name[0] == 'L' or name[0] == 'l') and !macho_file.base.isObject()) continue;
         sym.flags.output_symtab = true;
         if (sym.isLocal()) {
             try sym.addExtra(.{ .symtab = self.output_symtab_ctx.nlocals }, macho_file);
@@ -1171,7 +1204,7 @@ pub fn calcStabsSize(self: *Object, macho_file: *MachO) void {
             const file = sym.getFile(macho_file) orelse continue;
             if (file.getIndex() != self.index) continue;
             if (!sym.flags.output_symtab) continue;
-            if (macho_file.options.relocatable) {
+            if (macho_file.base.isObject()) {
                 const name = sym.getName(macho_file);
                 if (name.len > 0 and (name[0] == 'L' or name[0] == 'l')) continue;
             }
@@ -1329,7 +1362,7 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) void {
             const file = sym.getFile(macho_file) orelse continue;
             if (file.getIndex() != self.index) continue;
             if (!sym.flags.output_symtab) continue;
-            if (macho_file.options.relocatable) {
+            if (macho_file.base.isObject()) {
                 const name = sym.getName(macho_file);
                 if (name.len > 0 and (name[0] == 'L' or name[0] == 'l')) continue;
             }
@@ -1747,7 +1780,7 @@ const x86_64 = struct {
         out: *std.ArrayListUnmanaged(Relocation),
         macho_file: *MachO,
     ) !void {
-        const gpa = macho_file.base.allocator;
+        const gpa = macho_file.base.comp.gpa;
 
         const relocs = @as(
             [*]align(1) const macho.relocation_info,
@@ -1783,10 +1816,10 @@ const x86_64 = struct {
                 else
                     addend;
                 const target = self.findAtomInSection(@intCast(taddr), @intCast(nsect)) orelse {
-                    macho_file.base.fatal("{}: {s},{s}: 0x{x}: bad relocation", .{
-                        self.fmtPath(), sect.segName(), sect.sectName(), rel.r_address,
+                    try macho_file.reportParseError2(self.index, "{s},{s}: 0x{x}: bad relocation", .{
+                        sect.segName(), sect.sectName(), rel.r_address,
                     });
-                    return error.ParseFailed;
+                    return error.MalformedObject;
                 };
                 addend = taddr - @as(i64, @intCast(macho_file.getAtom(target).?.getInputAddress(macho_file)));
                 break :blk target;
@@ -1796,34 +1829,38 @@ const x86_64 = struct {
                 @as(macho.reloc_type_x86_64, @enumFromInt(relocs[i - 1].r_type)) == .X86_64_RELOC_SUBTRACTOR)
             blk: {
                 if (rel_type != .X86_64_RELOC_UNSIGNED) {
-                    macho_file.base.fatal("{}: {s},{s}: 0x{x}: X86_64_RELOC_SUBTRACTOR followed by {s}", .{
-                        self.fmtPath(), sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type),
+                    try macho_file.reportParseError2(self.index, "{s},{s}: 0x{x}: X86_64_RELOC_SUBTRACTOR followed by {s}", .{
+                        sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type),
                     });
-                    return error.ParseFailed;
+                    return error.MalformedObject;
                 }
                 break :blk true;
             } else false;
 
             const @"type": Relocation.Type = validateRelocType(rel, rel_type) catch |err| {
                 switch (err) {
-                    error.Pcrel => macho_file.base.fatal(
-                        "{}: {s},{s}: 0x{x}: PC-relative {s} relocation",
-                        .{ self.fmtPath(), sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type) },
+                    error.Pcrel => try macho_file.reportParseError2(
+                        self.index,
+                        "{s},{s}: 0x{x}: PC-relative {s} relocation",
+                        .{ sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type) },
                     ),
-                    error.NonPcrel => macho_file.base.fatal(
-                        "{}: {s},{s}: 0x{x}: non-PC-relative {s} relocation",
-                        .{ self.fmtPath(), sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type) },
+                    error.NonPcrel => try macho_file.reportParseError2(
+                        self.index,
+                        "{s},{s}: 0x{x}: non-PC-relative {s} relocation",
+                        .{ sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type) },
                     ),
-                    error.InvalidLength => macho_file.base.fatal(
-                        "{}: {s},{s}: 0x{x}: invalid length of {d} in {s} relocation",
-                        .{ self.fmtPath(), sect.segName(), sect.sectName(), rel_offset, @as(u8, 1) << rel.r_length, @tagName(rel_type) },
+                    error.InvalidLength => try macho_file.reportParseError2(
+                        self.index,
+                        "{s},{s}: 0x{x}: invalid length of {d} in {s} relocation",
+                        .{ sect.segName(), sect.sectName(), rel_offset, @as(u8, 1) << rel.r_length, @tagName(rel_type) },
                     ),
-                    error.NonExtern => macho_file.base.fatal(
-                        "{}: {s},{s}: 0x{x}: non-extern target in {s} relocation",
-                        .{ self.fmtPath(), sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type) },
+                    error.NonExtern => try macho_file.reportParseError2(
+                        self.index,
+                        "{s},{s}: 0x{x}: non-extern target in {s} relocation",
+                        .{ sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type) },
                     ),
                 }
-                return error.ParseFailed;
+                return error.MalformedObject;
             };
 
             out.appendAssumeCapacity(.{
@@ -1899,7 +1936,7 @@ const aarch64 = struct {
         out: *std.ArrayListUnmanaged(Relocation),
         macho_file: *MachO,
     ) !void {
-        const gpa = macho_file.base.allocator;
+        const gpa = macho_file.base.comp.gpa;
 
         const relocs = @as(
             [*]align(1) const macho.relocation_info,
@@ -1921,20 +1958,21 @@ const aarch64 = struct {
                     addend = rel.r_symbolnum;
                     i += 1;
                     if (i >= relocs.len) {
-                        macho_file.base.fatal("{}: {s},{s}: 0x{x}: unterminated ARM64_RELOC_ADDEND", .{
-                            self.fmtPath(), sect.segName(), sect.sectName(), rel_offset,
+                        try macho_file.reportParseError2(self.index, "{s},{s}: 0x{x}: unterminated ARM64_RELOC_ADDEND", .{
+                            sect.segName(), sect.sectName(), rel_offset,
                         });
-                        return error.ParseFailed;
+                        return error.MalformedObject;
                     }
                     rel = relocs[i];
                     switch (@as(macho.reloc_type_arm64, @enumFromInt(rel.r_type))) {
                         .ARM64_RELOC_PAGE21, .ARM64_RELOC_PAGEOFF12 => {},
                         else => |x| {
-                            macho_file.base.fatal(
-                                "{}: {s},{s}: 0x{x}: ARM64_RELOC_ADDEND followed by {s}",
-                                .{ self.fmtPath(), sect.segName(), sect.sectName(), rel_offset, @tagName(x) },
+                            try macho_file.reportParseError2(
+                                self.index,
+                                "{s},{s}: 0x{x}: ARM64_RELOC_ADDEND followed by {s}",
+                                .{ sect.segName(), sect.sectName(), rel_offset, @tagName(x) },
                             );
-                            return error.ParseFailed;
+                            return error.MalformedObject;
                         },
                     }
                 },
@@ -1958,10 +1996,10 @@ const aarch64 = struct {
                 else
                     addend;
                 const target = self.findAtomInSection(@intCast(taddr), @intCast(nsect)) orelse {
-                    macho_file.base.fatal("{}: {s},{s}: 0x{x}: bad relocation", .{
-                        self.fmtPath(), sect.segName(), sect.sectName(), rel.r_address,
+                    try macho_file.reportParseError2(self.index, "{s},{s}: 0x{x}: bad relocation", .{
+                        sect.segName(), sect.sectName(), rel.r_address,
                     });
-                    return error.ParseFailed;
+                    return error.MalformedObject;
                 };
                 addend = taddr - @as(i64, @intCast(macho_file.getAtom(target).?.getInputAddress(macho_file)));
                 break :blk target;
@@ -1971,34 +2009,38 @@ const aarch64 = struct {
                 @as(macho.reloc_type_arm64, @enumFromInt(relocs[i - 1].r_type)) == .ARM64_RELOC_SUBTRACTOR)
             blk: {
                 if (rel_type != .ARM64_RELOC_UNSIGNED) {
-                    macho_file.base.fatal("{}: {s},{s}: 0x{x}: ARM64_RELOC_SUBTRACTOR followed by {s}", .{
-                        self.fmtPath(), sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type),
+                    try macho_file.reportParseError2(self.index, "{s},{s}: 0x{x}: ARM64_RELOC_SUBTRACTOR followed by {s}", .{
+                        sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type),
                     });
-                    return error.ParseFailed;
+                    return error.MalformedObject;
                 }
                 break :blk true;
             } else false;
 
             const @"type": Relocation.Type = validateRelocType(rel, rel_type) catch |err| {
                 switch (err) {
-                    error.Pcrel => macho_file.base.fatal(
-                        "{}: {s},{s}: 0x{x}: PC-relative {s} relocation",
-                        .{ self.fmtPath(), sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type) },
+                    error.Pcrel => try macho_file.reportParseError2(
+                        self.index,
+                        "{s},{s}: 0x{x}: PC-relative {s} relocation",
+                        .{ sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type) },
                     ),
-                    error.NonPcrel => macho_file.base.fatal(
-                        "{}: {s},{s}: 0x{x}: non-PC-relative {s} relocation",
-                        .{ self.fmtPath(), sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type) },
+                    error.NonPcrel => try macho_file.reportParseError2(
+                        self.index,
+                        "{s},{s}: 0x{x}: non-PC-relative {s} relocation",
+                        .{ sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type) },
                     ),
-                    error.InvalidLength => macho_file.base.fatal(
-                        "{}: {s},{s}: 0x{x}: invalid length of {d} in {s} relocation",
-                        .{ self.fmtPath(), sect.segName(), sect.sectName(), rel_offset, @as(u8, 1) << rel.r_length, @tagName(rel_type) },
+                    error.InvalidLength => try macho_file.reportParseError2(
+                        self.index,
+                        "{s},{s}: 0x{x}: invalid length of {d} in {s} relocation",
+                        .{ sect.segName(), sect.sectName(), rel_offset, @as(u8, 1) << rel.r_length, @tagName(rel_type) },
                     ),
-                    error.NonExtern => macho_file.base.fatal(
-                        "{}: {s},{s}: 0x{x}: non-extern target in {s} relocation",
-                        .{ self.fmtPath(), sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type) },
+                    error.NonExtern => try macho_file.reportParseError2(
+                        self.index,
+                        "{s},{s}: 0x{x}: non-extern target in {s} relocation",
+                        .{ sect.segName(), sect.sectName(), rel_offset, @tagName(rel_type) },
                     ),
                 }
-                return error.ParseFailed;
+                return error.MalformedObject;
             };
 
             out.appendAssumeCapacity(.{

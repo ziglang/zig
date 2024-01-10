@@ -38,7 +38,7 @@ unwind_records: Loc = .{},
 flags: Flags = .{},
 
 pub fn getName(self: Atom, macho_file: *MachO) [:0]const u8 {
-    return macho_file.string_intern.getAssumeExists(self.name);
+    return macho_file.strings.getAssumeExists(self.name);
 }
 
 pub fn getFile(self: Atom, macho_file: *MachO) File {

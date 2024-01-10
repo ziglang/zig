@@ -372,7 +372,7 @@ pub const Encoding = extern struct {
 
     pub fn isDwarf(enc: Encoding, macho_file: *MachO) bool {
         const mode = enc.getMode();
-        return switch (macho_file.options.cpu_arch.?) {
+        return switch (macho_file.getTarget().cpu.arch) {
             .aarch64 => @as(macho.UNWIND_ARM64_MODE, @enumFromInt(mode)) == .DWARF,
             .x86_64 => @as(macho.UNWIND_X86_64_MODE, @enumFromInt(mode)) == .DWARF,
             else => unreachable,

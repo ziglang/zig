@@ -431,7 +431,7 @@ pub fn initSymbols(self: *Dylib, macho_file: *MachO) !void {
 
     for (self.exports.items(.name)) |noff| {
         const name = self.getString(noff);
-        const off = try macho_file.string_intern.insert(gpa, name);
+        const off = try macho_file.strings.insert(gpa, name);
         const gop = try macho_file.getOrCreateGlobal(off);
         self.symbols.addOneAssumeCapacity().* = gop.index;
     }

@@ -55,7 +55,7 @@ pub fn weakRef(symbol: Symbol, macho_file: *MachO) bool {
 }
 
 pub fn getName(symbol: Symbol, macho_file: *MachO) [:0]const u8 {
-    return macho_file.string_intern.getAssumeExists(symbol.name);
+    return macho_file.strings.getAssumeExists(symbol.name);
 }
 
 pub fn getAtom(symbol: Symbol, macho_file: *MachO) ?*Atom {
