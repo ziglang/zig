@@ -1134,23 +1134,19 @@ fn windowsCreateProcessPathExt(
 }
 
 fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u16, cwd_ptr: ?[*:0]u16, lpStartupInfo: *windows.STARTUPINFOW, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
-    // TODO the docs for environment pointer say:
-    // > A pointer to the environment block for the new process. If this parameter
-    // > is NULL, the new process uses the environment of the calling process.
-    // > ...
-    // > An environment block can contain either Unicode or ANSI characters. If
-    // > the environment block pointed to by lpEnvironment contains Unicode
-    // > characters, be sure that dwCreationFlags includes CREATE_UNICODE_ENVIRONMENT.
-    // > If this parameter is NULL and the environment block of the parent process
-    // > contains Unicode characters, you must also ensure that dwCreationFlags
-    // > includes CREATE_UNICODE_ENVIRONMENT.
-    // This seems to imply that we have to somehow know whether our process parent passed
-    // CREATE_UNICODE_ENVIRONMENT if we want to pass NULL for the environment parameter.
-    // Since we do not know this information that would imply that we must not pass NULL
-    // for the parameter.
-    // However this would imply that programs compiled with -DUNICODE could not pass
-    // environment variables to programs that were not, which seems unlikely.
-    // More investigation is needed.
+    // See https://stackoverflow.com/a/4207169/9306292
+    // One can manually write in unicode even if one doesn't compile in unicode
+    // (-DUNICODE).
+    // Thus CREATE_UNICODE_ENVIRONMENT, according to how one constructed the
+    // environment block, is necessary, since CreateProcessA and CreateProcessW
+    // may work with either Ansi or Unicode.
+    // * The environment variables can still be inherited from parent process,
+    // if set to NULL
+    // * The OS can for an unspecified environment block not figure out, if it
+    // is Unicode or ANSI.
+    // * Applications may break without specification of the environment
+    // variable due to inability of Windows to check and translate the
+    // character encodings.
     return windows.CreateProcessW(
         app_name,
         cmd_line,

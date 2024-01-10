@@ -1755,6 +1755,7 @@ pub fn CreateProcessW(
             .PATH_NOT_FOUND => return error.FileNotFound,
             .ACCESS_DENIED => return error.AccessDenied,
             .INVALID_PARAMETER => unreachable,
+            .NOACCESS => unreachable,
             .INVALID_NAME => return error.InvalidName,
             .FILENAME_EXCED_RANGE => return error.NameTooLong,
             // These are all the system errors that are mapped to ENOEXEC by
@@ -1789,6 +1790,8 @@ pub fn CreateProcessW(
 pub const LoadLibraryError = error{
     FileNotFound,
     Unexpected,
+    InitFailed,
+    SystemResources,
 };
 
 pub fn LoadLibraryW(lpLibFileName: [*:0]const u16) LoadLibraryError!HMODULE {
@@ -1797,6 +1800,8 @@ pub fn LoadLibraryW(lpLibFileName: [*:0]const u16) LoadLibraryError!HMODULE {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
             .MOD_NOT_FOUND => return error.FileNotFound,
+            .DLL_INIT_FAILED => return error.InitFailed,
+            .NOT_ENOUGH_MEMORY => return error.SystemResources,
             else => |err| return unexpectedError(err),
         }
     };
