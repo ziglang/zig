@@ -16,26 +16,26 @@
 
 #if SANITIZER_FREEBSD
 
-#include "sanitizer_internal_defs.h"
-#include "sanitizer_platform.h"
-#include "sanitizer_platform_limits_posix.h"
+#  include "sanitizer_internal_defs.h"
+#  include "sanitizer_platform.h"
+#  include "sanitizer_platform_limits_posix.h"
 
 // Get sys/_types.h, because that tells us whether 64-bit inodes are
 // used in struct dirent below.
-#include <sys/_types.h>
+#  include <sys/_types.h>
 
 namespace __sanitizer {
 void *__sanitizer_get_link_map_by_dlopen_handle(void *handle);
-#define GET_LINK_MAP_BY_DLOPEN_HANDLE(handle) \
-  (link_map *)__sanitizer_get_link_map_by_dlopen_handle(handle)
+#  define GET_LINK_MAP_BY_DLOPEN_HANDLE(handle) \
+    (link_map *)__sanitizer_get_link_map_by_dlopen_handle(handle)
 
 extern unsigned struct_utsname_sz;
 extern unsigned struct_stat_sz;
-#if defined(__powerpc64__)
+#  if defined(__powerpc64__)
 const unsigned struct___old_kernel_stat_sz = 0;
-#else
+#  else
 const unsigned struct___old_kernel_stat_sz = 32;
-#endif
+#  endif
 extern unsigned struct_rusage_sz;
 extern unsigned siginfo_t_sz;
 extern unsigned struct_itimerval_sz;
@@ -57,7 +57,7 @@ extern unsigned struct_sched_param_sz;
 extern unsigned struct_statfs64_sz;
 extern unsigned struct_statfs_sz;
 extern unsigned struct_sockaddr_sz;
-extern unsigned ucontext_t_sz;
+unsigned ucontext_t_sz(void *ctx);
 extern unsigned struct_rlimit_sz;
 extern unsigned struct_utimbuf_sz;
 extern unsigned struct_timespec_sz;
@@ -114,11 +114,24 @@ struct __sanitizer_ipc_perm {
   long key;
 };
 
-#if !defined(__i386__)
+struct __sanitizer_protoent {
+  char *p_name;
+  char **p_aliases;
+  int p_proto;
+};
+
+struct __sanitizer_netent {
+  char *n_name;
+  char **n_aliases;
+  int n_addrtype;
+  u32 n_net;
+};
+
+#  if !defined(__i386__)
 typedef long long __sanitizer_time_t;
-#else
+#  else
 typedef long __sanitizer_time_t;
-#endif
+#  endif
 
 struct __sanitizer_shmid_ds {
   __sanitizer_ipc_perm shm_perm;
@@ -147,7 +160,7 @@ struct __sanitizer_ifaddrs {
   unsigned int ifa_flags;
   void *ifa_addr;     // (struct sockaddr *)
   void *ifa_netmask;  // (struct sockaddr *)
-#undef ifa_dstaddr
+#  undef ifa_dstaddr
   void *ifa_dstaddr;  // (struct sockaddr *)
   void *ifa_data;
 };
@@ -229,37 +242,43 @@ struct __sanitizer_cmsghdr {
 };
 
 struct __sanitizer_dirent {
-#if defined(__INO64)
+#  if defined(__INO64)
   unsigned long long d_fileno;
   unsigned long long d_off;
-#else
+#  else
   unsigned int d_fileno;
-#endif
+#  endif
   unsigned short d_reclen;
-  // more fields that we don't care about
+  u8 d_type;
+  u8 d_pad0;
+  u16 d_namlen;
+  u16 d_pad1;
+  char d_name[256];
 };
+
+u16 __sanitizer_dirsiz(const __sanitizer_dirent *dp);
 
 // 'clock_t' is 32 bits wide on x64 FreeBSD
 typedef int __sanitizer_clock_t;
 typedef int __sanitizer_clockid_t;
 
-#if defined(_LP64) || defined(__x86_64__) || defined(__powerpc__) || \
-    defined(__mips__)
+#  if defined(_LP64) || defined(__x86_64__) || defined(__powerpc__) || \
+      defined(__mips__)
 typedef unsigned __sanitizer___kernel_uid_t;
 typedef unsigned __sanitizer___kernel_gid_t;
-#else
+#  else
 typedef unsigned short __sanitizer___kernel_uid_t;
 typedef unsigned short __sanitizer___kernel_gid_t;
-#endif
+#  endif
 typedef long long __sanitizer___kernel_off_t;
 
-#if defined(__powerpc__) || defined(__mips__)
+#  if defined(__powerpc__) || defined(__mips__)
 typedef unsigned int __sanitizer___kernel_old_uid_t;
 typedef unsigned int __sanitizer___kernel_old_gid_t;
-#else
+#  else
 typedef unsigned short __sanitizer___kernel_old_uid_t;
 typedef unsigned short __sanitizer___kernel_old_gid_t;
-#endif
+#  endif
 
 typedef long long __sanitizer___kernel_loff_t;
 typedef struct {
@@ -366,8 +385,11 @@ struct __sanitizer_glob_t {
 
 extern int glob_nomatch;
 extern int glob_altdirfunc;
+extern const int wordexp_wrde_dooffs;
 
 extern unsigned path_max;
+
+extern int struct_ttyent_sz;
 
 struct __sanitizer_wordexp_t {
   uptr we_wordc;
@@ -398,39 +420,81 @@ struct __sanitizer_ifconf {
   } ifc_ifcu;
 };
 
-#define IOC_NRBITS 8
-#define IOC_TYPEBITS 8
-#if defined(__powerpc__) || defined(__powerpc64__) || defined(__mips__)
-#define IOC_SIZEBITS 13
-#define IOC_DIRBITS 3
-#define IOC_NONE 1U
-#define IOC_WRITE 4U
-#define IOC_READ 2U
-#else
-#define IOC_SIZEBITS 14
-#define IOC_DIRBITS 2
-#define IOC_NONE 0U
-#define IOC_WRITE 1U
-#define IOC_READ 2U
-#endif
-#define IOC_NRMASK ((1 << IOC_NRBITS) - 1)
-#define IOC_TYPEMASK ((1 << IOC_TYPEBITS) - 1)
-#define IOC_SIZEMASK ((1 << IOC_SIZEBITS) - 1)
-#if defined(IOC_DIRMASK)
-#undef IOC_DIRMASK
-#endif
-#define IOC_DIRMASK ((1 << IOC_DIRBITS) - 1)
-#define IOC_NRSHIFT 0
-#define IOC_TYPESHIFT (IOC_NRSHIFT + IOC_NRBITS)
-#define IOC_SIZESHIFT (IOC_TYPESHIFT + IOC_TYPEBITS)
-#define IOC_DIRSHIFT (IOC_SIZESHIFT + IOC_SIZEBITS)
-#define EVIOC_EV_MAX 0x1f
-#define EVIOC_ABS_MAX 0x3f
+struct __sanitizer__ttyent {
+  char *ty_name;
+  char *ty_getty;
+  char *ty_type;
+  int ty_status;
+  char *ty_window;
+  char *ty_comment;
+  char *ty_group;
+};
 
-#define IOC_DIR(nr) (((nr) >> IOC_DIRSHIFT) & IOC_DIRMASK)
-#define IOC_TYPE(nr) (((nr) >> IOC_TYPESHIFT) & IOC_TYPEMASK)
-#define IOC_NR(nr) (((nr) >> IOC_NRSHIFT) & IOC_NRMASK)
-#define IOC_SIZE(nr) (((nr) >> IOC_SIZESHIFT) & IOC_SIZEMASK)
+// procctl reaper data for PROCCTL_REAPER flags
+struct __sanitizer_procctl_reaper_status {
+  unsigned int rs_flags;
+  unsigned int rs_children;
+  unsigned int rs_descendants;
+  pid_t rs_reaper;
+  pid_t rs_pid;
+  unsigned int rs_pad0[15];
+};
+
+struct __sanitizer_procctl_reaper_pidinfo {
+  pid_t pi_pid;
+  pid_t pi_subtree;
+  unsigned int pi_flags;
+  unsigned int pi_pad0[15];
+};
+
+struct __sanitizer_procctl_reaper_pids {
+  unsigned int rp_count;
+  unsigned int rp_pad0[15];
+  struct __sanitize_procctl_reapper_pidinfo *rp_pids;
+};
+
+struct __sanitizer_procctl_reaper_kill {
+  int rk_sig;
+  unsigned int rk_flags;
+  pid_t rk_subtree;
+  unsigned int rk_killed;
+  pid_t rk_fpid;
+  unsigned int rk_pad[15];
+};
+
+#  define IOC_NRBITS 8
+#  define IOC_TYPEBITS 8
+#  if defined(__powerpc__) || defined(__powerpc64__) || defined(__mips__)
+#    define IOC_SIZEBITS 13
+#    define IOC_DIRBITS 3
+#    define IOC_NONE 1U
+#    define IOC_WRITE 4U
+#    define IOC_READ 2U
+#  else
+#    define IOC_SIZEBITS 14
+#    define IOC_DIRBITS 2
+#    define IOC_NONE 0U
+#    define IOC_WRITE 1U
+#    define IOC_READ 2U
+#  endif
+#  define IOC_NRMASK ((1 << IOC_NRBITS) - 1)
+#  define IOC_TYPEMASK ((1 << IOC_TYPEBITS) - 1)
+#  define IOC_SIZEMASK ((1 << IOC_SIZEBITS) - 1)
+#  if defined(IOC_DIRMASK)
+#    undef IOC_DIRMASK
+#  endif
+#  define IOC_DIRMASK ((1 << IOC_DIRBITS) - 1)
+#  define IOC_NRSHIFT 0
+#  define IOC_TYPESHIFT (IOC_NRSHIFT + IOC_NRBITS)
+#  define IOC_SIZESHIFT (IOC_TYPESHIFT + IOC_TYPEBITS)
+#  define IOC_DIRSHIFT (IOC_SIZESHIFT + IOC_SIZEBITS)
+#  define EVIOC_EV_MAX 0x1f
+#  define EVIOC_ABS_MAX 0x3f
+
+#  define IOC_DIR(nr) (((nr) >> IOC_DIRSHIFT) & IOC_DIRMASK)
+#  define IOC_TYPE(nr) (((nr) >> IOC_TYPESHIFT) & IOC_TYPEMASK)
+#  define IOC_NR(nr) (((nr) >> IOC_NRSHIFT) & IOC_NRMASK)
+#  define IOC_SIZE(nr) (((nr) >> IOC_SIZESHIFT) & IOC_SIZEMASK)
 
 extern unsigned struct_ifreq_sz;
 extern unsigned struct_termios_sz;
@@ -453,6 +517,11 @@ extern unsigned struct_audio_buf_info_sz;
 extern unsigned struct_ppp_stats_sz;
 extern unsigned struct_sioc_sg_req_sz;
 extern unsigned struct_sioc_vif_req_sz;
+
+extern unsigned struct_procctl_reaper_status_sz;
+extern unsigned struct_procctl_reaper_pidinfo_sz;
+extern unsigned struct_procctl_reaper_pids_sz;
+extern unsigned struct_procctl_reaper_kill_sz;
 
 // ioctl request identifiers
 
@@ -621,6 +690,22 @@ extern unsigned IOCTL_KDSKBMODE;
 extern const int si_SEGV_MAPERR;
 extern const int si_SEGV_ACCERR;
 
+extern const unsigned MD5_CTX_sz;
+extern const unsigned MD5_return_length;
+
+#define SHA2_EXTERN(LEN)                          \
+  extern const unsigned SHA##LEN##_CTX_sz;        \
+  extern const unsigned SHA##LEN##_return_length; \
+  extern const unsigned SHA##LEN##_block_length;  \
+  extern const unsigned SHA##LEN##_digest_length
+
+SHA2_EXTERN(224);
+SHA2_EXTERN(256);
+SHA2_EXTERN(384);
+SHA2_EXTERN(512);
+
+#undef SHA2_EXTERN
+
 struct __sanitizer_cap_rights {
   u64 cr_rights[2];
 };
@@ -630,26 +715,37 @@ extern unsigned struct_cap_rights_sz;
 
 extern unsigned struct_fstab_sz;
 extern unsigned struct_StringList_sz;
+
+struct __sanitizer_cpuset {
+#if __FreeBSD_version >= 1400090
+  long __bits[(1024 + (sizeof(long) * 8) - 1) / (sizeof(long) * 8)];
+#else
+  long __bits[(256 + (sizeof(long) * 8) - 1) / (sizeof(long) * 8)];
+#endif
+};
+
+typedef struct __sanitizer_cpuset __sanitizer_cpuset_t;
+extern unsigned struct_cpuset_sz;
 }  // namespace __sanitizer
 
-#define CHECK_TYPE_SIZE(TYPE) \
-  COMPILER_CHECK(sizeof(__sanitizer_##TYPE) == sizeof(TYPE))
+#  define CHECK_TYPE_SIZE(TYPE) \
+    COMPILER_CHECK(sizeof(__sanitizer_##TYPE) == sizeof(TYPE))
 
-#define CHECK_SIZE_AND_OFFSET(CLASS, MEMBER)                      \
-  COMPILER_CHECK(sizeof(((__sanitizer_##CLASS *)NULL)->MEMBER) == \
-                 sizeof(((CLASS *)NULL)->MEMBER));                \
-  COMPILER_CHECK(offsetof(__sanitizer_##CLASS, MEMBER) ==         \
-                 offsetof(CLASS, MEMBER))
+#  define CHECK_SIZE_AND_OFFSET(CLASS, MEMBER)                      \
+    COMPILER_CHECK(sizeof(((__sanitizer_##CLASS *)NULL)->MEMBER) == \
+                   sizeof(((CLASS *)NULL)->MEMBER));                \
+    COMPILER_CHECK(offsetof(__sanitizer_##CLASS, MEMBER) ==         \
+                   offsetof(CLASS, MEMBER))
 
 // For sigaction, which is a function and struct at the same time,
 // and thus requires explicit "struct" in sizeof() expression.
-#define CHECK_STRUCT_SIZE_AND_OFFSET(CLASS, MEMBER)                      \
-  COMPILER_CHECK(sizeof(((struct __sanitizer_##CLASS *)NULL)->MEMBER) == \
-                 sizeof(((struct CLASS *)NULL)->MEMBER));                \
-  COMPILER_CHECK(offsetof(struct __sanitizer_##CLASS, MEMBER) ==         \
-                 offsetof(struct CLASS, MEMBER))
+#  define CHECK_STRUCT_SIZE_AND_OFFSET(CLASS, MEMBER)                      \
+    COMPILER_CHECK(sizeof(((struct __sanitizer_##CLASS *)NULL)->MEMBER) == \
+                   sizeof(((struct CLASS *)NULL)->MEMBER));                \
+    COMPILER_CHECK(offsetof(struct __sanitizer_##CLASS, MEMBER) ==         \
+                   offsetof(struct CLASS, MEMBER))
 
-#define SIGACTION_SYMNAME sigaction
+#  define SIGACTION_SYMNAME sigaction
 
 #endif
 

@@ -13,6 +13,7 @@
 #define SANITIZER_DEFS_H
 
 #include "sanitizer_platform.h"
+#include "sanitizer_redefine_builtins.h"
 
 #ifndef SANITIZER_DEBUG
 # define SANITIZER_DEBUG 0
@@ -35,15 +36,6 @@
 #else
 # define SANITIZER_INTERFACE_ATTRIBUTE __attribute__((visibility("default")))
 # define SANITIZER_WEAK_ATTRIBUTE  __attribute__((weak))
-#endif
-
-// TLS is handled differently on different platforms
-#if SANITIZER_LINUX || SANITIZER_NETBSD || \
-  SANITIZER_FREEBSD
-# define SANITIZER_TLS_INITIAL_EXEC_ATTRIBUTE \
-    __attribute__((tls_model("initial-exec"))) thread_local
-#else
-# define SANITIZER_TLS_INITIAL_EXEC_ATTRIBUTE
 #endif
 
 //--------------------------- WEAK FUNCTIONS ---------------------------------//
@@ -73,7 +65,7 @@
 // Before Xcode 4.5, the Darwin linker doesn't reliably support undefined
 // weak symbols.  Mac OS X 10.9/Darwin 13 is the first release only supported
 // by Xcode >= 4.5.
-#elif SANITIZER_MAC && \
+#elif SANITIZER_APPLE && \
     __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 1090 && !SANITIZER_GO
 # define SANITIZER_SUPPORTS_WEAK_HOOKS 1
 #else
@@ -125,6 +117,10 @@
 # define __has_attribute(x) 0
 #endif
 
+#if !defined(__has_cpp_attribute)
+#  define __has_cpp_attribute(x) 0
+#endif
+
 // For portability reasons we do not include stddef.h, stdint.h or any other
 // system header, but we do need some basic types that are not defined
 // in a portable way by the language itself.
@@ -135,8 +131,13 @@ namespace __sanitizer {
 typedef unsigned long long uptr;
 typedef signed long long sptr;
 #else
+#  if (SANITIZER_WORDSIZE == 64) || SANITIZER_APPLE || SANITIZER_WINDOWS
 typedef unsigned long uptr;
 typedef signed long sptr;
+#  else
+typedef unsigned int uptr;
+typedef signed int sptr;
+#  endif
 #endif  // defined(_WIN64)
 #if defined(__x86_64__)
 // Since x32 uses ILP32 data model in 64-bit hardware mode, we must use
@@ -168,17 +169,17 @@ typedef long pid_t;
 typedef int pid_t;
 #endif
 
-#if SANITIZER_FREEBSD || SANITIZER_NETBSD || \
-    SANITIZER_MAC || \
+#if SANITIZER_FREEBSD || SANITIZER_NETBSD || SANITIZER_APPLE ||             \
     (SANITIZER_SOLARIS && (defined(_LP64) || _FILE_OFFSET_BITS == 64)) || \
-    (SANITIZER_LINUX && defined(__x86_64__))
+    (SANITIZER_LINUX && !SANITIZER_GLIBC && !SANITIZER_ANDROID) ||        \
+    (SANITIZER_LINUX && (defined(__x86_64__) || defined(__hexagon__)))
 typedef u64 OFF_T;
 #else
 typedef uptr OFF_T;
 #endif
 typedef u64  OFF64_T;
 
-#if (SANITIZER_WORDSIZE == 64) || SANITIZER_MAC
+#if (SANITIZER_WORDSIZE == 64) || SANITIZER_APPLE
 typedef uptr operator_new_size_type;
 #else
 # if defined(__s390__) && !defined(__s390x__)
@@ -217,7 +218,7 @@ typedef u64 tid_t;
 # define WARN_UNUSED_RESULT
 #else  // _MSC_VER
 # define ALWAYS_INLINE inline __attribute__((always_inline))
-# define ALIAS(x) __attribute__((alias(x)))
+# define ALIAS(x) __attribute__((alias(SANITIZER_STRINGIFY(x))))
 // Please only use the ALIGNED macro before the type.
 // Using ALIGNED after the variable declaration is not portable!
 # define ALIGNED(x) __attribute__((aligned(x)))
@@ -250,6 +251,20 @@ typedef u64 tid_t;
 # define NOEXCEPT throw()
 #endif
 
+#if __has_cpp_attribute(clang::fallthrough)
+#  define FALLTHROUGH [[clang::fallthrough]]
+#elif __has_cpp_attribute(fallthrough)
+#  define FALLTHROUGH [[fallthrough]]
+#else
+#  define FALLTHROUGH
+#endif
+
+#if __has_attribute(uninitialized)
+#  define UNINITIALIZED __attribute__((uninitialized))
+#else
+#  define UNINITIALIZED
+#endif
+
 // Unaligned versions of basic types.
 typedef ALIGNED(1) u16 uu16;
 typedef ALIGNED(1) u32 uu32;
@@ -277,14 +292,17 @@ void NORETURN CheckFailed(const char *file, int line, const char *cond,
                           u64 v1, u64 v2);
 
 // Check macro
-#define RAW_CHECK_MSG(expr, msg) do { \
-  if (UNLIKELY(!(expr))) { \
-    RawWrite(msg); \
-    Die(); \
-  } \
-} while (0)
+#define RAW_CHECK_MSG(expr, msg, ...)          \
+  do {                                         \
+    if (UNLIKELY(!(expr))) {                   \
+      const char* msgs[] = {msg, __VA_ARGS__}; \
+      for (const char* m : msgs) RawWrite(m);  \
+      Die();                                   \
+    }                                          \
+  } while (0)
 
-#define RAW_CHECK(expr) RAW_CHECK_MSG(expr, #expr)
+#define RAW_CHECK(expr) RAW_CHECK_MSG(expr, #expr "\n", )
+#define RAW_CHECK_VA(expr, ...) RAW_CHECK_MSG(expr, #expr "\n", __VA_ARGS__)
 
 #define CHECK_IMPL(c1, op, c2) \
   do { \
@@ -366,13 +384,10 @@ void NORETURN CheckFailed(const char *file, int line, const char *cond,
 enum LinkerInitialized { LINKER_INITIALIZED = 0 };
 
 #if !defined(_MSC_VER) || defined(__clang__)
-#if SANITIZER_S390_31
-#define GET_CALLER_PC() \
-  (__sanitizer::uptr) __builtin_extract_return_addr(__builtin_return_address(0))
-#else
-#define GET_CALLER_PC() (__sanitizer::uptr) __builtin_return_address(0)
-#endif
-#define GET_CURRENT_FRAME() (__sanitizer::uptr) __builtin_frame_address(0)
+#  define GET_CALLER_PC()                              \
+    ((__sanitizer::uptr)__builtin_extract_return_addr( \
+        __builtin_return_address(0)))
+#  define GET_CURRENT_FRAME() ((__sanitizer::uptr)__builtin_frame_address(0))
 inline void Trap() {
   __builtin_trap();
 }
@@ -381,13 +396,13 @@ extern "C" void* _ReturnAddress(void);
 extern "C" void* _AddressOfReturnAddress(void);
 # pragma intrinsic(_ReturnAddress)
 # pragma intrinsic(_AddressOfReturnAddress)
-#define GET_CALLER_PC() (__sanitizer::uptr) _ReturnAddress()
+#  define GET_CALLER_PC() ((__sanitizer::uptr)_ReturnAddress())
 // CaptureStackBackTrace doesn't need to know BP on Windows.
-#define GET_CURRENT_FRAME() \
-  (((__sanitizer::uptr)_AddressOfReturnAddress()) + sizeof(__sanitizer::uptr))
+#  define GET_CURRENT_FRAME() \
+    (((__sanitizer::uptr)_AddressOfReturnAddress()) + sizeof(__sanitizer::uptr))
 
 extern "C" void __ud2(void);
-# pragma intrinsic(__ud2)
+#  pragma intrinsic(__ud2)
 inline void Trap() {
   __ud2();
 }
@@ -409,8 +424,14 @@ inline void Trap() {
     (void)enable_fp;                      \
   } while (0)
 
-constexpr u32 kInvalidTid = -1;
-constexpr u32 kMainTid = 0;
+// Internal thread identifier allocated by ThreadRegistry.
+typedef u32 Tid;
+constexpr Tid kInvalidTid = -1;
+constexpr Tid kMainTid = 0;
+
+// Stack depot stack identifier.
+typedef u32 StackID;
+const StackID kInvalidStackID = 0;
 
 }  // namespace __sanitizer
 

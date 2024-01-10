@@ -38,6 +38,30 @@ class MurMur2HashBuilder {
     return x;
   }
 };
+
+class MurMur2Hash64Builder {
+  static const u64 m = 0xc6a4a7935bd1e995ull;
+  static const u64 seed = 0x9747b28c9747b28cull;
+  static const u64 r = 47;
+  u64 h;
+
+ public:
+  explicit MurMur2Hash64Builder(u64 init = 0) { h = seed ^ (init * m); }
+  void add(u64 k) {
+    k *= m;
+    k ^= k >> r;
+    k *= m;
+    h ^= k;
+    h *= m;
+  }
+  u64 get() {
+    u64 x = h;
+    x ^= x >> r;
+    x *= m;
+    x ^= x >> r;
+    return x;
+  }
+};
 }  //namespace __sanitizer
 
 #endif  // SANITIZER_HASH_H
