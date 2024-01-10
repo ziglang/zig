@@ -69,7 +69,7 @@ static void dtoa_lock_cleanup (void)
 	}
 }
 
-static void dtoa_lock (int n)
+static void dtoa_lock (unsigned int n)
 {
 	if (2 == dtoa_CS_init) {
 		EnterCriticalSection (&dtoa_CritSec[n]);
@@ -96,7 +96,7 @@ static void dtoa_lock (int n)
 		EnterCriticalSection(&dtoa_CritSec[n]);
 }
 
-static void dtoa_unlock (int n)
+static void dtoa_unlock (unsigned int n)
 {
 	if (2 == dtoa_CS_init)
 		LeaveCriticalSection (&dtoa_CritSec[n]);

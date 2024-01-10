@@ -1033,6 +1033,7 @@ pub const CreateOptions = struct {
     link_emit_relocs: bool = false,
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
+    linker_allow_undefined_version: bool = false,
     soname: ?[]const u8 = null,
     linker_gc_sections: ?bool = null,
     linker_allow_shlib_undefined: ?bool = null,
@@ -1572,6 +1573,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .stack_size = options.stack_size,
             .image_base = options.image_base,
             .version_script = options.version_script,
+            .allow_undefined_version = options.linker_allow_undefined_version,
             .gc_sections = options.linker_gc_sections,
             .emit_relocs = options.link_emit_relocs,
             .soname = options.soname,
@@ -1821,7 +1823,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
             const static_lib_jobs = [_]Job{
                 .{ .mingw_crt_file = .mingw32_lib },
-                .{ .mingw_crt_file = .msvcrt_os_lib },
                 .{ .mingw_crt_file = .mingwex_lib },
                 .{ .mingw_crt_file = .uuid_lib },
             };
@@ -2056,11 +2057,11 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             const is_hit = man.hit() catch |err| {
                 const i = man.failed_file_index orelse return err;
                 const pp = man.files.items[i].prefixed_path orelse return err;
-                const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
+                const prefix = man.cache.prefixes()[pp.prefix];
                 return comp.setMiscFailure(
                     .check_whole_cache,
-                    "unable to check cache: stat file '{}{s}{s}' failed: {s}",
-                    .{ comp.local_cache_directory, prefix, pp.sub_path, @errorName(err) },
+                    "unable to check cache: stat file '{}{s}' failed: {s}",
+                    .{ prefix, pp.sub_path, @errorName(err) },
                 );
             };
             if (is_hit) {
@@ -2459,7 +2460,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 10;
+pub const link_hash_implementation_version = 11;
 
 fn addNonIncrementalStuffToCacheManifest(
     comp: *Compilation,
@@ -2468,7 +2469,7 @@ fn addNonIncrementalStuffToCacheManifest(
 ) !void {
     const gpa = comp.gpa;
 
-    comptime assert(link_hash_implementation_version == 10);
+    comptime assert(link_hash_implementation_version == 11);
 
     if (comp.module) |mod| {
         const main_zig_file = try mod.main_mod.root.joinString(arena, mod.main_mod.root_src_path);
@@ -2542,6 +2543,7 @@ fn addNonIncrementalStuffToCacheManifest(
 
     try man.addOptionalFile(opts.linker_script);
     try man.addOptionalFile(opts.version_script);
+    man.hash.add(opts.allow_undefined_version);
 
     man.hash.addOptional(opts.stack_size);
     man.hash.addOptional(opts.image_base);
@@ -5087,12 +5089,17 @@ pub fn addCCArgs(
         try argv.append(libunwind_include_path);
     }
 
-    if (comp.config.link_libc and target.isGnuLibC()) {
-        const target_version = target.os.version_range.linux.glibc;
-        const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
-            target_version.minor,
-        });
-        try argv.append(glibc_minor_define);
+    if (comp.config.link_libc) {
+        if (target.isGnuLibC()) {
+            const target_version = target.os.version_range.linux.glibc;
+            const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
+                target_version.minor,
+            });
+            try argv.append(glibc_minor_define);
+        } else if (target.isMinGW()) {
+            try argv.append("-D__MSVCRT_VERSION__=0xE00"); // use ucrt
+
+        }
     }
 
     const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
@@ -5101,7 +5108,9 @@ pub fn addCCArgs(
     if (target.os.tag == .windows) switch (ext) {
         .c, .cpp, .m, .mm, .h, .cu, .rc, .assembly, .assembly_with_cpp => {
             const minver: u16 = @truncate(@intFromEnum(target.os.getVersionRange().windows.min) >> 16);
-            try argv.append(try std.fmt.allocPrint(argv.allocator, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}));
+            try argv.append(
+                try std.fmt.allocPrint(arena, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}),
+            );
         },
         else => {},
     };

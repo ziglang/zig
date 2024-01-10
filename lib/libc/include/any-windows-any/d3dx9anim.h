@@ -185,23 +185,25 @@ DECLARE_INTERFACE(ID3DXAllocateHierarchy)
 #define INTERFACE ID3DXLoadUserData
 DECLARE_INTERFACE(ID3DXLoadUserData)
 {
-    STDMETHOD(LoadTopLevelData)(ID3DXFileData *child_data) PURE;
-    STDMETHOD(LoadFrameChildData)(D3DXFRAME *frame, ID3DXFileData *child_data) PURE;
-    STDMETHOD(LoadMeshChildData)(D3DXMESHCONTAINER *mesh_container, ID3DXFileData *child_data) PURE;
+    /* MS DirectX SDK headers define these methods without 'this' parameter. */
+    STDMETHOD(LoadTopLevelData)(THIS_ ID3DXFileData *child_data) PURE;
+    STDMETHOD(LoadFrameChildData)(THIS_ D3DXFRAME *frame, ID3DXFileData *child_data) PURE;
+    STDMETHOD(LoadMeshChildData)(THIS_ D3DXMESHCONTAINER *mesh_container, ID3DXFileData *child_data) PURE;
 };
 #undef INTERFACE
 
 #define INTERFACE ID3DXSaveUserData
 DECLARE_INTERFACE(ID3DXSaveUserData)
 {
-    STDMETHOD(AddFrameChildData)(const D3DXFRAME *frame,
+    /* MS DirectX SDK headers define these methods without 'this' parameter. */
+    STDMETHOD(AddFrameChildData)(THIS_ const D3DXFRAME *frame,
             ID3DXFileSaveObject *save_obj, ID3DXFileSaveData *frame_data) PURE;
-    STDMETHOD(AddMeshChildData)(const D3DXMESHCONTAINER *mesh_container,
+    STDMETHOD(AddMeshChildData)(THIS_ const D3DXMESHCONTAINER *mesh_container,
             ID3DXFileSaveObject *save_obj, ID3DXFileSaveData *mesh_data) PURE;
-    STDMETHOD(AddTopLevelDataObjectsPre)(ID3DXFileSaveObject *save_obj) PURE;
-    STDMETHOD(AddTopLevelDataObjectsPost)(ID3DXFileSaveObject *save_obj) PURE;
-    STDMETHOD(RegisterTemplates)(ID3DXFile *file) PURE;
-    STDMETHOD(SaveTemplates)(ID3DXFileSaveObject *save_obj) PURE;
+    STDMETHOD(AddTopLevelDataObjectsPre)(THIS_ ID3DXFileSaveObject *save_obj) PURE;
+    STDMETHOD(AddTopLevelDataObjectsPost)(THIS_ ID3DXFileSaveObject *save_obj) PURE;
+    STDMETHOD(RegisterTemplates)(THIS_ ID3DXFile *file) PURE;
+    STDMETHOD(SaveTemplates)(THIS_ ID3DXFileSaveObject *save_obj) PURE;
 };
 #undef INTERFACE
 

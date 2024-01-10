@@ -269,6 +269,8 @@ pub const sinh = @import("math/sinh.zig").sinh;
 pub const cosh = @import("math/cosh.zig").cosh;
 pub const tanh = @import("math/tanh.zig").tanh;
 pub const gcd = @import("math/gcd.zig").gcd;
+pub const gamma = @import("math/gamma.zig").gamma;
+pub const lgamma = @import("math/gamma.zig").lgamma;
 
 /// Sine trigonometric function on a floating point number.
 /// Uses a dedicated hardware instruction when available.
@@ -392,6 +394,8 @@ test {
     _ = cosh;
     _ = tanh;
     _ = gcd;
+    _ = gamma;
+    _ = lgamma;
 
     _ = complex;
     _ = Complex;

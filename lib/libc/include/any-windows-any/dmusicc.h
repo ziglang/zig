@@ -32,6 +32,7 @@
 #include <dmdls.h>
 #include <dsound.h>
 #include <dmusbuff.h>
+#include <strmif.h>
 
 #include <pshpack8.h>
 
@@ -109,8 +110,6 @@ typedef struct IDirectMusicPort *LPDIRECTMUSICPORT;
 typedef struct IDirectMusicPort IDirectMusicPort8, *LPDIRECTMUSICPORT8;
 typedef struct IDirectMusicThru *LPDIRECTMUSICTHRU;
 typedef struct IDirectMusicThru IDirectMusicThru8, *LPDIRECTMUSICTHRU8;
-typedef struct IReferenceClock *LPREFERENCECLOCK;
-
 
 /*****************************************************************************
  * Typedef definitions
@@ -382,7 +381,7 @@ DECLARE_INTERFACE_(IDirectMusic,IUnknown)
     STDMETHOD(CreateMusicBuffer)(THIS_ LPDMUS_BUFFERDESC pBufferDesc, LPDIRECTMUSICBUFFER *ppBuffer, LPUNKNOWN pUnkOuter) PURE;
     STDMETHOD(CreatePort)(THIS_ REFCLSID rclsidPort, LPDMUS_PORTPARAMS pPortParams, LPDIRECTMUSICPORT *ppPort, LPUNKNOWN pUnkOuter) PURE;
     STDMETHOD(EnumMasterClock)(THIS_ DWORD dwIndex, LPDMUS_CLOCKINFO lpClockInfo) PURE;
-    STDMETHOD(GetMasterClock)(THIS_ LPGUID pguidClock, struct IReferenceClock **ppReferenceClock) PURE;
+    STDMETHOD(GetMasterClock)(THIS_ LPGUID pguidClock, IReferenceClock **ppReferenceClock) PURE;
     STDMETHOD(SetMasterClock)(THIS_ REFGUID rguidClock) PURE;
     STDMETHOD(Activate)(THIS_ WINBOOL fEnable) PURE;
     STDMETHOD(GetDefaultPort)(THIS_ LPGUID pguidPort) PURE;
@@ -423,13 +422,13 @@ DECLARE_INTERFACE_(IDirectMusic8,IDirectMusic)
     STDMETHOD(CreateMusicBuffer)(THIS_ LPDMUS_BUFFERDESC pBufferDesc, LPDIRECTMUSICBUFFER *ppBuffer, LPUNKNOWN pUnkOuter) PURE;
     STDMETHOD(CreatePort)(THIS_ REFCLSID rclsidPort, LPDMUS_PORTPARAMS pPortParams, LPDIRECTMUSICPORT *ppPort, LPUNKNOWN pUnkOuter) PURE;
     STDMETHOD(EnumMasterClock)(THIS_ DWORD dwIndex, LPDMUS_CLOCKINFO lpClockInfo) PURE;
-    STDMETHOD(GetMasterClock)(THIS_ LPGUID pguidClock, struct IReferenceClock **ppReferenceClock) PURE;
+    STDMETHOD(GetMasterClock)(THIS_ LPGUID pguidClock, IReferenceClock **ppReferenceClock) PURE;
     STDMETHOD(SetMasterClock)(THIS_ REFGUID rguidClock) PURE;
     STDMETHOD(Activate)(THIS_ WINBOOL fEnable) PURE;
     STDMETHOD(GetDefaultPort)(THIS_ LPGUID pguidPort) PURE;
     STDMETHOD(SetDirectSound)(THIS_ LPDIRECTSOUND pDirectSound, HWND hWnd) PURE;
     /*** IDirectMusic8 methods ***/
-    STDMETHOD(SetExternalMasterClock)(THIS_ struct IReferenceClock *pClock) PURE;
+    STDMETHOD(SetExternalMasterClock)(THIS_ IReferenceClock *pClock) PURE;
 };
 #undef INTERFACE
 
@@ -636,7 +635,7 @@ DECLARE_INTERFACE_(IDirectMusicPortDownload,IUnknown)
 #define IDirectMusicPortDownload_GetDLId(p,a,b)        (p)->lpVtbl->GetDLId(p,a,b)
 #define IDirectMusicPortDownload_GetAppend(p,a)        (p)->lpVtbl->GetAppend(p,a)
 #define IDirectMusicPortDownload_Download(p,a)         (p)->lpVtbl->Download(p,a)
-#define IDirectMusicPortDownload_Unload(p,a)           (p)->lpVtbl->GetBuffer(p,a)
+#define IDirectMusicPortDownload_Unload(p,a)           (p)->lpVtbl->Unload(p,a)
 #endif
 
 
@@ -656,7 +655,7 @@ DECLARE_INTERFACE_(IDirectMusicPort,IUnknown)
     STDMETHOD(Read)(THIS_ LPDIRECTMUSICBUFFER pBuffer) PURE;
     STDMETHOD(DownloadInstrument)(THIS_ IDirectMusicInstrument *pInstrument, IDirectMusicDownloadedInstrument **ppDownloadedInstrument, DMUS_NOTERANGE *pNoteRanges, DWORD dwNumNoteRanges) PURE;
     STDMETHOD(UnloadInstrument)(THIS_ IDirectMusicDownloadedInstrument *pDownloadedInstrument) PURE;
-    STDMETHOD(GetLatencyClock)(THIS_ struct IReferenceClock **ppClock) PURE;
+    STDMETHOD(GetLatencyClock)(THIS_ IReferenceClock **ppClock) PURE;
     STDMETHOD(GetRunningStats)(THIS_ LPDMUS_SYNTHSTATS pStats) PURE;
     STDMETHOD(Compact)(THIS) PURE;
     STDMETHOD(GetCaps)(THIS_ LPDMUS_PORTCAPS pPortCaps) PURE;
@@ -720,43 +719,6 @@ DECLARE_INTERFACE_(IDirectMusicThru,IUnknown)
 /*** IDirectMusicThru methods ***/
 #define IDirectMusicThru_ThruChannel(p,a,b,c,d,e)               (p)->lpVtbl->ThruChannel(p,a,b,c,d,e)
 #endif
-
-
-#ifndef __IReferenceClock_INTERFACE_DEFINED__
-#define __IReferenceClock_INTERFACE_DEFINED__
-DEFINE_GUID(IID_IReferenceClock,0x56a86897,0x0ad4,0x11ce,0xb0,0x3a,0x00,0x20,0xaf,0x0b,0xa7,0x70);
-
-/*****************************************************************************
- * IReferenceClock interface
- */
-#define INTERFACE IReferenceClock
-DECLARE_INTERFACE_(IReferenceClock,IUnknown)
-{
-    /*** IUnknown methods ***/
-    STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
-    STDMETHOD_(ULONG,AddRef)(THIS) PURE;
-    STDMETHOD_(ULONG,Release)(THIS) PURE;
-    /*** IReferenceClock methods ***/
-    STDMETHOD(GetTime)(THIS_ REFERENCE_TIME *pTime) PURE;
-    STDMETHOD(AdviseTime)(THIS_ REFERENCE_TIME baseTime, REFERENCE_TIME streamTime, HANDLE hEvent, DWORD *pdwAdviseCookie) PURE;
-    STDMETHOD(AdvisePeriodic)(THIS_ REFERENCE_TIME startTime, REFERENCE_TIME periodTime, HANDLE hSemaphore, DWORD *pdwAdviseCookie) PURE;
-    STDMETHOD(Unadvise)(THIS_ DWORD dwAdviseCookie) PURE;
-};
-#undef INTERFACE
-
-#if !defined(__cplusplus) || defined(CINTERFACE)
-/*** IUnknown methods ***/
-#define IReferenceClock_QueryInterface(p,a,b)                   (p)->lpVtbl->QueryInterface(p,a,b)
-#define IReferenceClock_AddRef(p)                               (p)->lpVtbl->AddRef(p)
-#define IReferenceClock_Release(p)                              (p)->lpVtbl->Release(p)
-/*** IReferenceClock methods ***/
-#define IReferenceClock_GetTime(p,a)                            (p)->lpVtbl->GetTime(p,a)
-#define IReferenceClock_AdviseTime(p,a,b,c,d)                   (p)->lpVtbl->AdviseTime(p,a,b,c,d)
-#define IReferenceClock_AdvisePeriodic(p,a,b,c,d)               (p)->lpVtbl->AdvisePeriodic(p,a,b,c,d)
-#define IReferenceClock_Unadvise(p,a)                           (p)->lpVtbl->Unadvise(p,a)
-#endif
-
-#endif /* __IReferenceClock_INTERFACE_DEFINED__ */
 
 #ifdef __cplusplus
 }

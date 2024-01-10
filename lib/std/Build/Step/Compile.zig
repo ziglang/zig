@@ -25,7 +25,7 @@ root_module: Module,
 
 name: []const u8,
 linker_script: ?LazyPath = null,
-version_script: ?[]const u8 = null,
+version_script: ?LazyPath = null,
 out_filename: []const u8,
 out_lib_filename: []const u8,
 linkage: ?Linkage = null,
@@ -109,6 +109,9 @@ link_gc_sections: ?bool = null,
 linker_dynamicbase: bool = true,
 
 linker_allow_shlib_undefined: ?bool = null,
+
+/// Allow version scripts to refer to undefined symbols.
+linker_allow_undefined_version: ?bool = null,
 
 /// Permit read-only relocations in read-only segments. Disallowed by default.
 link_z_notext: bool = false,
@@ -478,6 +481,12 @@ pub const setLinkerScriptPath = setLinkerScript;
 pub fn setLinkerScript(self: *Compile, source: LazyPath) void {
     const b = self.step.owner;
     self.linker_script = source.dupe(b);
+    source.addStepDependencies(&self.step);
+}
+
+pub fn setVersionScript(self: *Compile, source: LazyPath) void {
+    const b = self.step.owner;
+    self.version_script = source.dupe(b);
     source.addStepDependencies(&self.step);
 }
 
@@ -993,7 +1002,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 switch (link_object) {
                     .static_path => |static_path| {
                         if (my_responsibility) {
-                            try zig_args.append(static_path.getPath(b));
+                            try zig_args.append(static_path.getPath2(module.owner, step));
                             total_linker_objects += 1;
                         }
                     },
@@ -1113,7 +1122,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("--");
                             prev_has_cflags = false;
                         }
-                        try zig_args.append(asm_file.getPath(b));
+                        try zig_args.append(asm_file.getPath2(module.owner, step));
                         total_linker_objects += 1;
                     },
 
@@ -1134,7 +1143,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("--");
                             prev_has_cflags = true;
                         }
-                        try zig_args.append(c_source_file.file.getPath(b));
+                        try zig_args.append(c_source_file.file.getPath2(module.owner, step));
                         total_linker_objects += 1;
                     },
 
@@ -1185,7 +1194,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("--");
                             prev_has_rcflags = true;
                         }
-                        try zig_args.append(rc_source_file.file.getPath(b));
+                        try zig_args.append(rc_source_file.file.getPath2(module.owner, step));
                         total_linker_objects += 1;
                     },
                 }
@@ -1443,7 +1452,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     if (self.version_script) |version_script| {
         try zig_args.append("--version-script");
-        try zig_args.append(b.pathFromRoot(version_script));
+        try zig_args.append(version_script.getPath(b));
+    }
+    if (self.linker_allow_undefined_version) |x| {
+        try zig_args.append(if (x) "--undefined-version" else "--no-undefined-version");
     }
 
     if (self.kind == .@"test") {

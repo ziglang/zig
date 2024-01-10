@@ -962,23 +962,27 @@ fn unpackResource(
             const content_type = req.response.headers.getFirstValue("Content-Type") orelse
                 return f.fail(f.location_tok, try eb.addString("missing 'Content-Type' header"));
 
-            if (ascii.eqlIgnoreCase(content_type, "application/x-tar"))
+            // Extract the MIME type, ignoring charset and boundary directives
+            const mime_type_end = std.mem.indexOf(u8, content_type, ";") orelse content_type.len;
+            const mime_type = content_type[0..mime_type_end];
+
+            if (ascii.eqlIgnoreCase(mime_type, "application/x-tar"))
                 break :ft .tar;
 
-            if (ascii.eqlIgnoreCase(content_type, "application/gzip") or
-                ascii.eqlIgnoreCase(content_type, "application/x-gzip") or
-                ascii.eqlIgnoreCase(content_type, "application/tar+gzip"))
+            if (ascii.eqlIgnoreCase(mime_type, "application/gzip") or
+                ascii.eqlIgnoreCase(mime_type, "application/x-gzip") or
+                ascii.eqlIgnoreCase(mime_type, "application/tar+gzip"))
             {
                 break :ft .@"tar.gz";
             }
 
-            if (ascii.eqlIgnoreCase(content_type, "application/x-xz"))
+            if (ascii.eqlIgnoreCase(mime_type, "application/x-xz"))
                 break :ft .@"tar.xz";
 
-            if (ascii.eqlIgnoreCase(content_type, "application/zstd"))
+            if (ascii.eqlIgnoreCase(mime_type, "application/zstd"))
                 break :ft .@"tar.zst";
 
-            if (!ascii.eqlIgnoreCase(content_type, "application/octet-stream")) {
+            if (!ascii.eqlIgnoreCase(mime_type, "application/octet-stream")) {
                 return f.fail(f.location_tok, try eb.printString(
                     "unrecognized 'Content-Type' header: '{s}'",
                     .{content_type},

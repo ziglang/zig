@@ -43,8 +43,8 @@ typedef struct GdiplusStartupInput {
 	#endif /* __cplusplus */
 } GdiplusStartupInput;
 
-typedef GpStatus WINGDIPAPI (*NotificationHookProc)(ULONG_PTR *token);
-typedef VOID WINGDIPAPI (*NotificationUnhookProc)(ULONG_PTR token);
+typedef GpStatus (WINGDIPAPI *NotificationHookProc)(ULONG_PTR *token);
+typedef VOID (WINGDIPAPI *NotificationUnhookProc)(ULONG_PTR token);
 
 typedef struct GdiplusStartupOutput {
 	NotificationHookProc NotificationHook;
