@@ -1032,15 +1032,16 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
             // The below branch assumes that reading past the end of the buffer is valid, as long
             // as we don't read into a new page. This should be the case for most architectures
             // which use paged memory, however should be confirmed before adding a new arch below.
-            .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorSize(T)) |block_len| {
-                comptime std.debug.assert(std.mem.page_size % block_len == 0);
+            .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorLength(T)) |block_len| {
                 const Block = @Vector(block_len, T);
                 const mask: Block = @splat(sentinel);
+
+                comptime std.debug.assert(std.mem.page_size % @sizeOf(Block) == 0);
 
                 // First block may be unaligned
                 const start_addr = @intFromPtr(&p[i]);
                 const offset_in_page = start_addr & (std.mem.page_size - 1);
-                if (offset_in_page < std.mem.page_size - block_len) {
+                if (offset_in_page <= std.mem.page_size - @sizeOf(Block)) {
                     // Will not read past the end of a page, full block.
                     const block: Block = p[i..][0..block_len].*;
                     const matches = block == mask;
@@ -1085,7 +1086,7 @@ test "indexOfSentinel vector paths" {
     const allocator = std.testing.allocator;
 
     inline for (Types) |T| {
-        const block_len = std.simd.suggestVectorSize(T) orelse continue;
+        const block_len = std.simd.suggestVectorLength(T) orelse continue;
 
         // Allocate three pages so we guarantee a page-crossing address with a full page after
         const memory = try allocator.alloc(T, 3 * std.mem.page_size / @sizeOf(T));
@@ -1176,11 +1177,11 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
         !@inComptime() and
         (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
     {
-        if (std.simd.suggestVectorSize(T)) |block_len| {
+        if (std.simd.suggestVectorLength(T)) |block_len| {
             // For Intel Nehalem (2009) and AMD Bulldozer (2012) or later, unaligned loads on aligned data result
             // in the same execution as aligned loads. We ignore older arch's here and don't bother pre-aligning.
             //
-            // Use `std.simd.suggestVectorSize(T)` to get the same alignment as used in this function
+            // Use `std.simd.suggestVectorLength(T)` to get the same alignment as used in this function
             // however this usually isn't necessary unless your arch has a performance penalty due to this.
             //
             // This may differ for other arch's. Arm for example costs a cycle when loading across a cache
