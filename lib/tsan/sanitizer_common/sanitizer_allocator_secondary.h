@@ -82,7 +82,7 @@ class LargeMmapAllocator {
     InitLinkerInitialized();
   }
 
-  void *Allocate(AllocatorStats *stat, uptr size, uptr alignment) {
+  void *Allocate(AllocatorStats *stat, const uptr size, uptr alignment) {
     CHECK(IsPowerOfTwo(alignment));
     uptr map_size = RoundUpMapSize(size);
     if (alignment > page_size_)
@@ -99,11 +99,11 @@ class LargeMmapAllocator {
     if (!map_beg)
       return nullptr;
     CHECK(IsAligned(map_beg, page_size_));
-    MapUnmapCallback().OnMap(map_beg, map_size);
     uptr map_end = map_beg + map_size;
     uptr res = map_beg + page_size_;
     if (res & (alignment - 1))  // Align.
       res += alignment - (res & (alignment - 1));
+    MapUnmapCallback().OnMapSecondary(map_beg, map_size, res, size);
     CHECK(IsAligned(res, alignment));
     CHECK(IsAligned(res, page_size_));
     CHECK_GE(res + size, map_beg);
@@ -161,7 +161,7 @@ class LargeMmapAllocator {
     return res;
   }
 
-  bool PointerIsMine(const void *p) {
+  bool PointerIsMine(const void *p) const {
     return GetBlockBegin(p) != nullptr;
   }
 
@@ -179,7 +179,7 @@ class LargeMmapAllocator {
     return GetHeader(p) + 1;
   }
 
-  void *GetBlockBegin(const void *ptr) {
+  void *GetBlockBegin(const void *ptr) const {
     uptr p = reinterpret_cast<uptr>(ptr);
     SpinMutexLock l(&mutex_);
     uptr nearest_chunk = 0;
@@ -215,7 +215,7 @@ class LargeMmapAllocator {
 
   // This function does the same as GetBlockBegin, but is much faster.
   // Must be called with the allocator locked.
-  void *GetBlockBeginFastLocked(void *ptr) {
+  void *GetBlockBeginFastLocked(const void *ptr) {
     mutex_.CheckLocked();
     uptr p = reinterpret_cast<uptr>(ptr);
     uptr n = n_chunks_;
@@ -267,9 +267,9 @@ class LargeMmapAllocator {
 
   // ForceLock() and ForceUnlock() are needed to implement Darwin malloc zone
   // introspection API.
-  void ForceLock() ACQUIRE(mutex_) { mutex_.Lock(); }
+  void ForceLock() SANITIZER_ACQUIRE(mutex_) { mutex_.Lock(); }
 
-  void ForceUnlock() RELEASE(mutex_) { mutex_.Unlock(); }
+  void ForceUnlock() SANITIZER_RELEASE(mutex_) { mutex_.Unlock(); }
 
   // Iterate over all existing chunks.
   // The allocator must be locked when calling this function.
@@ -301,7 +301,7 @@ class LargeMmapAllocator {
     return GetHeader(reinterpret_cast<uptr>(p));
   }
 
-  void *GetUser(const Header *h) {
+  void *GetUser(const Header *h) const {
     CHECK(IsAligned((uptr)h, page_size_));
     return reinterpret_cast<void*>(reinterpret_cast<uptr>(h) + page_size_);
   }
@@ -318,5 +318,5 @@ class LargeMmapAllocator {
   struct Stats {
     uptr n_allocs, n_frees, currently_allocated, max_allocated, by_size_log[64];
   } stats;
-  StaticSpinMutex mutex_;
+  mutable StaticSpinMutex mutex_;
 };
