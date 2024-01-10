@@ -153,6 +153,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .root_strip = strip,
         .link_libc = true,
         .lto = comp.config.lto,
+        .any_sanitize_thread = comp.config.any_sanitize_thread,
     });
 
     const root_mod = try Module.create(arena, .{
@@ -358,6 +359,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .link_libc = true,
         .any_unwind_tables = unwind_tables,
         .lto = comp.config.lto,
+        .any_sanitize_thread = comp.config.any_sanitize_thread,
     });
 
     const root_mod = try Module.create(arena, .{
