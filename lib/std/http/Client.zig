@@ -1243,6 +1243,7 @@ pub fn connectTunnel(
     proxy: *Proxy,
     tunnel_host: []const u8,
     tunnel_port: u16,
+    protocol: Connection.Protocol,
 ) !*Connection {
     if (!proxy.supports_connect) return error.TunnelNotSupported;
 
@@ -1261,8 +1262,13 @@ pub fn connectTunnel(
             client.connection_pool.release(client.allocator, conn);
         }
 
+        const scheme = switch (protocol) {
+            .plain => "http",
+            .tls => "https",
+        };
+
         const uri = Uri{
-            .scheme = "http",
+            .scheme = scheme,
             .user = null,
             .password = null,
             .host = tunnel_host,
@@ -1336,10 +1342,23 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
         }
 
         if (proxy.supports_connect) tunnel: {
-            return connectTunnel(client, proxy, host, port) catch |err| switch (err) {
+            var conn = connectTunnel(client, proxy, host, port, protocol) catch |err| switch (err) {
                 error.TunnelNotSupported => break :tunnel,
                 else => |e| return e,
             };
+            if (protocol == .tls) {
+                if (disable_tls) unreachable;
+
+                conn.protocol = .tls;
+                conn.tls_client = try client.allocator.create(std.crypto.tls.Client);
+                errdefer client.allocator.destroy(conn.tls_client);
+
+                conn.tls_client.* = std.crypto.tls.Client.init(conn.stream, client.ca_bundle, host) catch return error.TlsInitializationFailed;
+                // This is appropriate for HTTPS because the HTTP headers contain
+                // the content length which is used to detect truncation attacks.
+                conn.tls_client.allow_truncation_attacks = true;
+            }
+            return conn;
         }
 
         // fall back to using the proxy as a normal http proxy
