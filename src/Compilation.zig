@@ -3759,13 +3759,14 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
             const named_frame = tracy.namedFrame("libtsan");
             defer named_frame.end();
 
-            libtsan.buildTsan(comp, prog_node) catch |err| {
-                // TODO Surface more error details.
-                comp.lockAndSetMiscFailure(
+            libtsan.buildTsan(comp, prog_node) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.SubCompilationFailed => return, // error reported already
+                else => comp.lockAndSetMiscFailure(
                     .libtsan,
                     "unable to build TSAN library: {s}",
                     .{@errorName(err)},
-                );
+                ),
             };
         },
         .wasi_libc_crt_file => |crt_file| {
