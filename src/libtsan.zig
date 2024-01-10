@@ -6,7 +6,14 @@ const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
 const Module = @import("Package/Module.zig");
 
-pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub const BuildError = error{
+    OutOfMemory,
+    SubCompilationFailed,
+    ZigCompilerNotBuiltWithLLVMExtensions,
+    TSANUnsupportedCPUArchitecture,
+};
+
+pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -37,7 +44,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
 
-    const config = try Compilation.Config.resolve(.{
+    const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
         .link_mode = link_mode,
         .resolved_target = comp.root_mod.resolved_target,
@@ -47,13 +54,20 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
         .link_libc = true,
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libtsan,
+            "unable to build thread sanitizer runtime: resolving configuration failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
 
     const common_flags = [_][]const u8{
         "-DTSAN_CONTAINS_UBSAN=0",
     };
 
-    const root_mod = try Module.create(arena, .{
+    const root_mod = Module.create(arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{ .root_dir = comp.zig_lib_directory },
@@ -78,7 +92,14 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .cc_argv = &common_flags,
         .parent = null,
         .builtin_mod = null,
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libtsan,
+            "unable to build thread sanitizer runtime: creating module failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
 
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
     try c_source_files.ensureUnusedCapacity(tsan_sources.len);
@@ -250,7 +271,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         });
     }
 
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+    const sub_compilation = Compilation.create(comp.gpa, arena, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
@@ -273,10 +294,24 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libtsan,
+            "unable to build thread sanitizer runtime: create compilation failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .libtsan, prog_node);
+    comp.updateSubCompilation(sub_compilation, .libtsan, prog_node) catch |err| {
+        comp.setMiscFailure(
+            .libtsan,
+            "unable to build thread sanitizer runtime: compilation failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
 
     assert(comp.tsan_static_lib == null);
     comp.tsan_static_lib = try sub_compilation.toCrtFile();
