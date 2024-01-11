@@ -32,6 +32,7 @@ test {
     _ = @import("behavior/eval.zig");
     _ = @import("behavior/export_builtin.zig");
     _ = @import("behavior/export_self_referential_type_info.zig");
+    _ = @import("behavior/extern.zig");
     _ = @import("behavior/field_parent_ptr.zig");
     _ = @import("behavior/floatop.zig");
     _ = @import("behavior/fn.zig");
