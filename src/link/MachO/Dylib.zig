@@ -230,12 +230,13 @@ fn parseTrie(self: *Dylib, data: []const u8, macho_file: *MachO) !void {
 pub fn parseTbd(
     self: *Dylib,
     cpu_arch: std.Target.Cpu.Arch,
-    platform: ?MachO.Options.Platform,
+    platform: MachO.Platform,
     lib_stub: LibStub,
     macho_file: *MachO,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
+
     const gpa = macho_file.base.comp.gpa;
 
     log.debug("parsing dylib from stub", .{});
@@ -258,12 +259,9 @@ pub fn parseTbd(
 
     log.debug("  (install_name '{s}')", .{umbrella_lib.installName()});
 
-    self.platform = platform orelse .{
-        .platform = .MACOS,
-        .version = .{ .value = 0 },
-    };
+    self.platform = platform;
 
-    var matcher = try TargetMatcher.init(gpa, cpu_arch, self.platform.?.platform);
+    var matcher = try TargetMatcher.init(gpa, cpu_arch, self.platform.?.toApplePlatform());
     defer matcher.deinit();
 
     for (lib_stub.inner, 0..) |elem, stub_index| {
