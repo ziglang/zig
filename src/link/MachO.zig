@@ -501,6 +501,10 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     try self.createObjcSections();
     try self.claimUnresolved();
 
+    if (self.base.gc_sections) {
+        try dead_strip.gcAtoms(self);
+    }
+
     state_log.debug("{}", .{self.dumpState()});
 
     @panic("TODO");
