@@ -470,6 +470,18 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
 
     if (comp.link_errors.items.len > 0) return error.FlushFailure;
 
+    for (self.dylibs.items) |index| {
+        self.getFile(index).?.dylib.umbrella = index;
+    }
+
+    // try self.parseDependentDylibs();
+
+    for (self.dylibs.items) |index| {
+        const dylib = self.getFile(index).?.dylib;
+        if (!dylib.explicit and !dylib.hoisted) continue;
+        try dylib.initSymbols(self);
+    }
+
     state_log.debug("{}", .{self.dumpState()});
 
     @panic("TODO");
@@ -953,6 +965,152 @@ fn parseTbd(self: *MachO, lib: SystemLib, explicit: bool) ParseError!File.Index 
 
     return index;
 }
+
+// /// According to ld64's manual, public (i.e., system) dylibs/frameworks are hoisted into the final
+// /// image unless overriden by -no_implicit_dylibs.
+// fn isHoisted(self: *MachO, install_name: []const u8) bool {
+//     _ = self;
+//     // TODO: if (self.options.no_implicit_dylibs) return true;
+//     if (std.fs.path.dirname(install_name)) |dirname| {
+//         if (mem.startsWith(u8, dirname, "/usr/lib")) return true;
+//         if (eatPrefix(dirname, "/System/Library/Frameworks/")) |path| {
+//             const basename = std.fs.path.basename(install_name);
+//             if (mem.indexOfScalar(u8, path, '.')) |index| {
+//                 if (mem.eql(u8, basename, path[0..index])) return true;
+//             }
+//         }
+//     }
+//     return false;
+// }
+
+// fn parseDependentDylibs(
+//     self: *MachO
+// ) !void {
+//     const tracy = trace(@src());
+//     defer tracy.end();
+
+//     const gpa = self.base.comp.gpa;
+//     const lib_dirs = self.base.comp.lib_dirs;
+//     const framework_dirs = self.base.comp.framework_dirs;
+
+//     if (self.dylibs.items.len == 0) return;
+
+//     var arena = std.heap.ArenaAllocator.init(gpa);
+//     defer arena.deinit();
+
+//     // TODO handle duplicate dylibs - it is not uncommon to have the same dylib loaded multiple times
+//     // in which case we should track that and return File.Index immediately instead re-parsing paths.
+
+//     var index: usize = 0;
+//     while (index < self.dylibs.items.len) : (index += 1) {
+//         const dylib_index = self.dylibs.items[index];
+
+//         var dependents = std.ArrayList(File.Index).init(gpa);
+//         defer dependents.deinit();
+//         try dependents.ensureTotalCapacityPrecise(self.getFile(dylib_index).?.dylib.dependents.items.len);
+
+//         const is_weak = self.getFile(dylib_index).?.dylib.weak;
+//         for (self.getFile(dylib_index).?.dylib.dependents.items) |id| {
+//             // We will search for the dependent dylibs in the following order:
+//             // 1. Basename is in search lib directories or framework directories
+//             // 2. If name is an absolute path, search as-is optionally prepending a syslibroot
+//             //    if specified.
+//             // 3. If name is a relative path, substitute @rpath, @loader_path, @executable_path with
+//             //    dependees list of rpaths, and search there.
+//             // 4. Finally, just search the provided relative path directly in CWD.
+//             const full_path = full_path: {
+//                 fail: {
+//                     const stem = std.fs.path.stem(id.name);
+//                     const framework_name = try std.fmt.allocPrint(gpa, "{s}.framework" ++ std.fs.path.sep_str ++ "{s}", .{
+//                         stem,
+//                         stem,
+//                     });
+//                     defer gpa.free(framework_name);
+
+//                     if (mem.endsWith(u8, id.name, framework_name)) {
+//                         // Framework
+//                         const full_path = (try self.resolveFramework(arena, framework_dirs, stem)) orelse break :fail;
+//                         break :full_path full_path;
+//                     }
+
+//                     // Library
+//                     const lib_name = eatPrefix(stem, "lib") orelse stem;
+//                     const full_path = (try self.resolveLib(arena, lib_dirs, lib_name)) orelse break :fail;
+//                     break :full_path full_path;
+//                 }
+
+//                 if (std.fs.path.isAbsolute(id.name)) {
+//                     const path = if (self.options.syslibroot) |root|
+//                         try std.fs.path.join(arena, &.{ root, id.name })
+//                     else
+//                         id.name;
+//                     for (&[_][]const u8{ "", ".tbd", ".dylib" }) |ext| {
+//                         const full_path = try std.fmt.allocPrint(arena, "{s}{s}", .{ path, ext });
+//                         if (try accessLibPath(full_path)) break :full_path full_path;
+//                     }
+//                 }
+
+//                 if (eatPrefix(id.name, "@rpath/")) |path| {
+//                     const dylib = self.getFile(dylib_index).?.dylib;
+//                     for (self.getFile(dylib.umbrella).?.dylib.rpaths.keys()) |rpath| {
+//                         const prefix = eatPrefix(rpath, "@loader_path/") orelse rpath;
+//                         const rel_path = try std.fs.path.join(arena, &.{ prefix, path });
+//                         var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+//                         const full_path = std.fs.realpath(rel_path, &buffer) catch continue;
+//                         break :full_path full_path;
+//                     }
+//                 } else if (eatPrefix(id.name, "@loader_path/")) |_| {
+//                     return self.base.fatal("{s}: TODO handle install_name '{s}'", .{
+//                         self.getFile(dylib_index).?.dylib.path, id.name,
+//                     });
+//                 } else if (eatPrefix(id.name, "@executable_path/")) |_| {
+//                     return self.base.fatal("{s}: TODO handle install_name '{s}'", .{
+//                         self.getFile(dylib_index).?.dylib.path, id.name,
+//                     });
+//                 }
+
+//                 var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+//                 const full_path = std.fs.realpath(id.name, &buffer) catch {
+//                     dependents.appendAssumeCapacity(0);
+//                     continue;
+//                 };
+//                 break :full_path full_path;
+//             };
+//             const link_obj = LinkObject{
+//                 .path = full_path,
+//                 .tag = .obj,
+//                 .weak = is_weak,
+//             };
+//             const file_index = file_index: {
+//                 if (try self.parseDylib(arena, link_obj, false)) |file| break :file_index file;
+//                 if (try self.parseTbd(link_obj, false)) |file| break :file_index file;
+//                 break :file_index @as(File.Index, 0);
+//             };
+//             dependents.appendAssumeCapacity(file_index);
+//         }
+
+//         const dylib = self.getFile(dylib_index).?.dylib;
+//         for (dylib.dependents.items, dependents.items) |id, file_index| {
+//             if (self.getFile(file_index)) |file| {
+//                 const dep_dylib = file.dylib;
+//                 dep_dylib.hoisted = self.isHoisted(id.name);
+//                 if (self.getFile(dep_dylib.umbrella) == null) {
+//                     dep_dylib.umbrella = dylib.umbrella;
+//                 }
+//                 if (!dep_dylib.hoisted) {
+//                     const umbrella = dep_dylib.getUmbrella(self);
+//                     for (dep_dylib.exports.items(.name), dep_dylib.exports.items(.flags)) |off, flags| {
+//                         try umbrella.addExport(gpa, dep_dylib.getString(off), flags);
+//                     }
+//                     try umbrella.rpaths.ensureUnusedCapacity(gpa, dep_dylib.rpaths.keys().len);
+//                     for (dep_dylib.rpaths.keys()) |rpath| {
+//                         umbrella.rpaths.putAssumeCapacity(rpath, {});
+//                     }
+//                 }
+//             } else self.base.fatal("{s}: unable to resolve dependency {s}", .{ dylib.getUmbrella(self).path, id.name });
+//         }
+//     }
+// }
 
 fn shrinkAtom(self: *MachO, atom_index: Atom.Index, new_block_size: u64) void {
     _ = self;
