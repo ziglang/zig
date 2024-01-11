@@ -4446,33 +4446,55 @@ test "inline for and inline else similarity" {
       {#code_end#}
       <p>
       When using an inline prong switching on an union an additional
-      capture can be used to obtain the union's enum tag value.
+      capture can be used to obtain the union's enum tag value. This can be
+      used with multiple explicit cases, or with an {#syntax#}inline
+      else{#endsyntax#}.
       </p>
       {#code_begin|test|test_inline_switch_union_tag#}
 const std = @import("std");
 const expect = std.testing.expect;
 
 const U = union(enum) {
-    a: u32,
-    b: f32,
+    a: i32,
+    b: u64,
+    c: u32,
+    d: f32,
+    e: u16,
 };
 
 fn getNum(u: U) u32 {
     switch (u) {
-        // Here `num` is a runtime-known value that is either
-        // `u.a` or `u.b` and `tag` is `u`'s comptime-known tag value.
-        inline else => |num, tag| {
+        inline .a, .b => |num, tag| {
+            // Here `num` is a runtime-known value that is either
+            // `u.a` or `u.b` and `tag` is `u`'s comptime-known tag value.
             if (tag == .b) {
+                return @truncate (num);
+            }
+            return @intCast (num);
+        },
+        inline else => |num, tag| {
+            // Here `num` is a runtime-known value that is either
+            // `u.c` or `u.d` or `u.e` and `tag` is `u`'s comptime-known
+            // tag value.
+            if (tag == .d) {
                 return @intFromFloat(num);
             }
             return num;
-        }
+        },
     }
 }
 
 test "test" {
-    const u = U{ .b = 42 };
-    try expect(getNum(u) == 42);
+    const r = U{ .a = 37 };
+    try expect(getNum(r) == 37);
+    const s = U{ .b = 41 };
+    try expect(getNum(s) == 41);
+    const t = U{ .c = 43 };
+    try expect(getNum(t) == 43);
+    const u = U{ .d = 47 };
+    try expect(getNum(u) == 47);
+    const v = U{ .e = 53 };
+    try expect(getNum(v) == 53);
 }
       {#code_end#}
       {#see_also|inline while|inline for#}
