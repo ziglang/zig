@@ -508,6 +508,11 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     self.markImportsAndExports();
     self.deadStripDylibs();
 
+    for (self.dylibs.items, 1..) |index, ord| {
+        const dylib = self.getFile(index).?.dylib;
+        dylib.ordinal = @intCast(ord);
+    }
+
     state_log.debug("{}", .{self.dumpState()});
 
     @panic("TODO");
