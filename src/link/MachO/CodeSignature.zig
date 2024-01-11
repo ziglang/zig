@@ -264,7 +264,7 @@ pub fn writeAdhocSignature(
     opts: WriteOpts,
     writer: anytype,
 ) !void {
-    const allocator = macho_file.base.allocator;
+    const allocator = macho_file.base.comp.gpa;
 
     var header: macho.SuperBlob = .{
         .magic = macho.CSMAGIC_EMBEDDED_SIGNATURE,
@@ -287,7 +287,7 @@ pub fn writeAdhocSignature(
     self.code_directory.inner.nCodeSlots = total_pages;
 
     // Calculate hash for each page (in file) and write it to the buffer
-    var hasher = Hasher(Sha256){ .allocator = allocator, .thread_pool = macho_file.base.thread_pool };
+    var hasher = Hasher(Sha256){ .allocator = allocator, .thread_pool = macho_file.base.comp.thread_pool };
     try hasher.hash(opts.file, self.code_directory.code_slots.items, .{
         .chunk_size = self.page_size,
         .max_file_size = opts.file_size,

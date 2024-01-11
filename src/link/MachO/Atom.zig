@@ -311,13 +311,16 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
         try stream.seekTo(rel_offset);
         self.resolveRelocInner(rel, subtractor, buffer, macho_file, stream.writer()) catch |err| {
             switch (err) {
-                error.RelaxFail => macho_file.base.fatal(
-                    "{}: {s}: 0x{x}: failed to relax relocation: in {s}",
-                    .{ file.fmtPath(), name, rel.offset, @tagName(rel.type) },
-                ),
+                error.RelaxFail => {
+                    try macho_file.reportParseError2(
+                        file.getIndex(),
+                        "{s}: 0x{x}: failed to relax relocation: in {s}",
+                        .{ name, rel.offset, @tagName(rel.type) },
+                    );
+                    return error.ResolveFailed;
+                },
                 else => |e| return e,
             }
-            return error.ResolveFailed;
         };
     }
 }
@@ -338,7 +341,7 @@ fn resolveRelocInner(
     macho_file: *MachO,
     writer: anytype,
 ) ResolveError!void {
-    const cpu_arch = macho_file.options.cpu_arch.?;
+    const cpu_arch = macho_file.getTarget().cpu.arch;
     const rel_offset = rel.offset - self.off;
     const seg_id = macho_file.sections.items(.segment_id)[self.out_n_sect];
     const seg = macho_file.segments.items[seg_id];

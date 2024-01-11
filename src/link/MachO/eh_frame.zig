@@ -374,7 +374,7 @@ pub fn write(macho_file: *MachO, buffer: []u8) void {
     defer tracy.end();
 
     const sect = macho_file.sections.items(.header)[macho_file.eh_frame_sect_index.?];
-    const addend: i64 = switch (macho_file.options.cpu_arch.?) {
+    const addend: i64 = switch (macho_file.getTarget().cpu.arch) {
         .x86_64 => 4,
         else => 0,
     };
@@ -452,7 +452,7 @@ pub fn writeRelocs(macho_file: *MachO, code: []u8, relocs: *std.ArrayList(macho.
     const tracy = trace(@src());
     defer tracy.end();
 
-    const cpu_arch = macho_file.options.cpu_arch.?;
+    const cpu_arch = macho_file.getTarget().cpu.arch;
     const sect = macho_file.sections.items(.header)[macho_file.eh_frame_sect_index.?];
     const addend: i64 = switch (cpu_arch) {
         .x86_64 => 4,

@@ -99,10 +99,10 @@ pub const Bind = struct {
                 const ordinal: i16 = ord: {
                     if (sym.flags.interposable) break :ord macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP;
                     if (sym.flags.import) {
-                        if (ctx.options.namespace == .flat) break :ord macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP;
+                        // TODO: if (ctx.options.namespace == .flat) break :ord macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP;
                         if (sym.getDylibOrdinal(ctx)) |ord| break :ord @bitCast(ord);
                     }
-                    if (ctx.options.undefined_treatment == .dynamic_lookup)
+                    if (ctx.undefined_treatment == .dynamic_lookup)
                         break :ord macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP;
                     break :ord macho.BIND_SPECIAL_DYLIB_SELF;
                 };
@@ -359,10 +359,10 @@ pub const LazyBind = struct {
             const ordinal: i16 = ord: {
                 if (sym.flags.interposable) break :ord macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP;
                 if (sym.flags.import) {
-                    if (ctx.options.namespace == .flat) break :ord macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP;
+                    // TODO: if (ctx.options.namespace == .flat) break :ord macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP;
                     if (sym.getDylibOrdinal(ctx)) |ord| break :ord @bitCast(ord);
                 }
-                if (ctx.options.undefined_treatment == .dynamic_lookup)
+                if (ctx.undefined_treatment == .dynamic_lookup)
                     break :ord macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP;
                 break :ord macho.BIND_SPECIAL_DYLIB_SELF;
             };

@@ -4,13 +4,7 @@
 /// and we will use it too as it seems accepted by Apple OSes.
 /// TODO LLD also hashes the output filename to disambiguate between same builds with different
 /// output files. Should we also do that?
-pub fn calcUuid(
-    allocator: Allocator,
-    thread_pool: *ThreadPool,
-    file: fs.File,
-    file_size: u64,
-    out: *[Md5.digest_length]u8,
-) !void {
+pub fn calcUuid(comp: *const Compilation, file: fs.File, file_size: u64, out: *[Md5.digest_length]u8) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -18,17 +12,17 @@ pub fn calcUuid(
     const num_chunks: usize = std.math.cast(usize, @divTrunc(file_size, chunk_size)) orelse return error.Overflow;
     const actual_num_chunks = if (@rem(file_size, chunk_size) > 0) num_chunks + 1 else num_chunks;
 
-    const hashes = try allocator.alloc([Md5.digest_length]u8, actual_num_chunks);
-    defer allocator.free(hashes);
+    const hashes = try comp.gpa.alloc([Md5.digest_length]u8, actual_num_chunks);
+    defer comp.gpa.free(hashes);
 
-    var hasher = Hasher(Md5){ .allocator = allocator, .thread_pool = thread_pool };
+    var hasher = Hasher(Md5){ .allocator = comp.gpa, .thread_pool = comp.thread_pool };
     try hasher.hash(file, hashes, .{
         .chunk_size = chunk_size,
         .max_file_size = file_size,
     });
 
-    const final_buffer = try allocator.alloc(u8, actual_num_chunks * Md5.digest_length);
-    defer allocator.free(final_buffer);
+    const final_buffer = try comp.gpa.alloc(u8, actual_num_chunks * Md5.digest_length);
+    defer comp.gpa.free(final_buffer);
 
     for (hashes, 0..) |hash, i| {
         @memcpy(final_buffer[i * Md5.digest_length ..][0..Md5.digest_length], &hash);
@@ -49,7 +43,7 @@ const mem = std.mem;
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
 
-const Allocator = mem.Allocator;
+const Compilation = @import("../../Compilation.zig");
 const Md5 = std.crypto.hash.Md5;
 const Hasher = @import("hasher.zig").ParallelHasher;
 const ThreadPool = std.Thread.Pool;
