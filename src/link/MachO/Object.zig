@@ -56,6 +56,7 @@ pub fn deinit(self: *Object, allocator: Allocator) void {
         sf.stabs.deinit(allocator);
     }
     self.stab_files.deinit(allocator);
+    allocator.free(self.data);
 }
 
 pub fn parse(self: *Object, macho_file: *MachO) !void {
