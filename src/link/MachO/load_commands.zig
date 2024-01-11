@@ -18,7 +18,6 @@ fn calcInstallNameLen(cmd_size: u64, name: []const u8, assume_max_path_len: bool
 }
 
 pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) u32 {
-    const options = &macho_file.options;
     var sizeofcmds: u64 = 0;
 
     // LC_SEGMENT_64
@@ -44,14 +43,14 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) u32 {
         false,
     );
     // LC_MAIN
-    if (!options.dylib) {
+    if (!macho_file.base.isDynLib()) {
         sizeofcmds += @sizeOf(macho.entry_point_command);
     }
     // LC_ID_DYLIB
-    if (options.dylib) {
+    if (macho_file.base.isDynLib()) {
         sizeofcmds += blk: {
-            const emit = options.emit;
-            const install_name = options.install_name orelse emit.sub_path;
+            const emit = macho_file.base.emit;
+            const install_name = macho_file.install_name orelse emit.sub_path;
             break :blk calcInstallNameLen(
                 @sizeOf(macho.dylib_command),
                 install_name,
@@ -61,7 +60,7 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) u32 {
     }
     // LC_RPATH
     {
-        for (options.rpath_list) |rpath| {
+        for (macho_file.rpath_table.keys()) |rpath| {
             sizeofcmds += calcInstallNameLen(
                 @sizeOf(macho.rpath_command),
                 rpath,
@@ -71,14 +70,12 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) u32 {
     }
     // LC_SOURCE_VERSION
     sizeofcmds += @sizeOf(macho.source_version_command);
-    if (options.platform) |platform| {
-        if (platform.isBuildVersionCompatible()) {
-            // LC_BUILD_VERSION
-            sizeofcmds += @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
-        } else {
-            // LC_VERSION_MIN_*
-            sizeofcmds += @sizeOf(macho.version_min_command);
-        }
+    if (macho_file.platform.isBuildVersionCompatible()) {
+        // LC_BUILD_VERSION
+        sizeofcmds += @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
+    } else {
+        // LC_VERSION_MIN_*
+        sizeofcmds += @sizeOf(macho.version_min_command);
     }
     // LC_UUID
     sizeofcmds += @sizeOf(macho.uuid_command);
@@ -134,11 +131,10 @@ pub fn calcLoadCommandsSizeObject(macho_file: *MachO) u32 {
 }
 
 pub fn calcMinHeaderPadSize(macho_file: *MachO) u32 {
-    const options = &macho_file.options;
-    var padding: u32 = calcLoadCommandsSize(macho_file, false) + (options.headerpad orelse 0);
+    var padding: u32 = calcLoadCommandsSize(macho_file, false) + (macho_file.headerpad_size orelse 0);
     log.debug("minimum requested headerpad size 0x{x}", .{padding + @sizeOf(macho.mach_header_64)});
 
-    if (options.headerpad_max_install_names) {
+    if (macho_file.headerpad_max_install_names) {
         const min_headerpad_size: u32 = calcLoadCommandsSize(macho_file, true);
         log.debug("headerpad_max_install_names minimum headerpad size 0x{x}", .{
             min_headerpad_size + @sizeOf(macho.mach_header_64),

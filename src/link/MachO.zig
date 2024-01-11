@@ -110,6 +110,8 @@ compatibility_version: ?std.SemanticVersion,
 entry_name: ?[]const u8,
 platform: Platform,
 sdk_version: ?std.SemanticVersion,
+/// Rpath table
+rpath_table: std.StringArrayHashMapUnmanaged(void) = .{},
 
 /// Hot-code swapping state.
 hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
@@ -199,6 +201,12 @@ pub fn createEmpty(
         .read = true,
         .mode = link.File.determineMode(false, output_mode, link_mode),
     });
+
+    // Filter rpaths
+    try self.rpath_table.ensureUnusedCapacity(gpa, self.base.rpath_list.len);
+    for (options.rpath_list) |rpath| {
+        _ = self.rpath_table.putAssumeCapacity(rpath, {});
+    }
 
     // Append null file
     try self.files.append(gpa, .null);
@@ -317,6 +325,7 @@ pub fn deinit(self: *MachO) void {
     }
     self.thunks.deinit(gpa);
     self.unwind_records.deinit(gpa);
+    self.rpath_table.deinit(gpa);
 }
 
 pub fn flush(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
@@ -377,15 +386,6 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     }
 
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
-
-    // rpaths
-    var rpath_table = std.StringArrayHashMap(void).init(gpa);
-    defer rpath_table.deinit();
-    try rpath_table.ensureUnusedCapacity(self.base.rpath_list.len);
-
-    for (self.base.rpath_list) |rpath| {
-        _ = rpath_table.putAssumeCapacity(rpath, {});
-    }
 
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
@@ -533,6 +533,11 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     try self.generateUnwindInfo();
     try self.initSegments();
 
+    try self.allocateSections();
+    self.allocateSegments();
+    self.allocateAtoms();
+    self.allocateSyntheticSymbols();
+
     state_log.debug("{}", .{self.dumpState()});
 
     @panic("TODO");
@@ -613,7 +618,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(syslibroot);
         }
 
-        for (self.base.rpath_list) |rpath| {
+        for (self.rpath_table.keys()) |rpath| {
             try argv.append("-rpath");
             try argv.append(rpath);
         }
@@ -2016,6 +2021,171 @@ fn initSegments(self: *MachO) !void {
     self.linkedit_seg_index = self.getSegmentByName("__LINKEDIT").?;
 }
 
+fn allocateSections(self: *MachO) !void {
+    const headerpad = load_commands.calcMinHeaderPadSize(self);
+    var vmaddr: u64 = if (self.pagezero_seg_index) |index|
+        self.segments.items[index].vmaddr + self.segments.items[index].vmsize
+    else
+        0;
+    vmaddr += headerpad;
+    var fileoff = headerpad;
+
+    const page_size = self.getPageSize();
+    const slice = self.sections.slice();
+
+    var next_seg_id: u8 = if (self.pagezero_seg_index) |index| index + 1 else 0;
+    for (slice.items(.header), slice.items(.segment_id)) |*header, seg_id| {
+        if (seg_id != next_seg_id) {
+            vmaddr = mem.alignForward(u64, vmaddr, page_size);
+            fileoff = mem.alignForward(u32, fileoff, page_size);
+        }
+
+        const alignment = try math.powi(u32, 2, header.@"align");
+
+        vmaddr = mem.alignForward(u64, vmaddr, alignment);
+        header.addr = vmaddr;
+        vmaddr += header.size;
+
+        if (!header.isZerofill()) {
+            fileoff = mem.alignForward(u32, fileoff, alignment);
+            header.offset = fileoff;
+            fileoff += @intCast(header.size);
+        }
+
+        next_seg_id = seg_id;
+    }
+}
+
+fn allocateSegments(self: *MachO) void {
+    const page_size = self.getPageSize();
+    var vmaddr = if (self.pagezero_seg_index) |index|
+        self.segments.items[index].vmaddr + self.segments.items[index].vmsize
+    else
+        0;
+    var fileoff: u64 = 0;
+    const index = if (self.pagezero_seg_index) |index| index + 1 else 0;
+
+    const slice = self.sections.slice();
+    var next_sect_id: u8 = 0;
+    for (self.segments.items[index..], index..) |*seg, seg_id| {
+        seg.vmaddr = vmaddr;
+        seg.fileoff = fileoff;
+
+        for (
+            slice.items(.header)[next_sect_id..],
+            slice.items(.segment_id)[next_sect_id..],
+        ) |header, sid| {
+            if (seg_id != sid) break;
+
+            vmaddr = header.addr + header.size;
+            if (!header.isZerofill()) {
+                fileoff = header.offset + header.size;
+            }
+
+            next_sect_id += 1;
+        }
+
+        vmaddr = mem.alignForward(u64, vmaddr, page_size);
+        fileoff = mem.alignForward(u64, fileoff, page_size);
+
+        seg.vmsize = vmaddr - seg.vmaddr;
+        seg.filesize = fileoff - seg.fileoff;
+    }
+}
+
+pub fn allocateAtoms(self: *MachO) void {
+    const slice = self.sections.slice();
+    for (slice.items(.header), slice.items(.atoms)) |header, atoms| {
+        if (atoms.items.len == 0) continue;
+        for (atoms.items) |atom_index| {
+            const atom = self.getAtom(atom_index).?;
+            assert(atom.flags.alive);
+            atom.value += header.addr;
+        }
+    }
+
+    for (self.thunks.items) |*thunk| {
+        const header = self.sections.items(.header)[thunk.out_n_sect];
+        thunk.value += header.addr;
+    }
+}
+
+fn allocateSyntheticSymbols(self: *MachO) void {
+    const text_seg = self.getTextSegment();
+
+    if (self.mh_execute_header_index) |index| {
+        const global = self.getSymbol(index);
+        global.value = text_seg.vmaddr;
+    }
+
+    if (self.data_sect_index) |idx| {
+        const sect = self.sections.items(.header)[idx];
+        for (&[_]?Symbol.Index{
+            self.dso_handle_index,
+            self.mh_dylib_header_index,
+            self.dyld_private_index,
+        }) |maybe_index| {
+            if (maybe_index) |index| {
+                const global = self.getSymbol(index);
+                global.value = sect.addr;
+                global.out_n_sect = idx;
+            }
+        }
+    }
+
+    for (self.boundary_symbols.items) |sym_index| {
+        const sym = self.getSymbol(sym_index);
+        const name = sym.getName(self);
+
+        sym.flags.@"export" = false;
+        sym.value = text_seg.vmaddr;
+
+        if (mem.startsWith(u8, name, "segment$start$")) {
+            const segname = name["segment$start$".len..];
+            if (self.getSegmentByName(segname)) |seg_id| {
+                const seg = self.segments.items[seg_id];
+                sym.value = seg.vmaddr;
+            }
+        } else if (mem.startsWith(u8, name, "segment$stop$")) {
+            const segname = name["segment$stop$".len..];
+            if (self.getSegmentByName(segname)) |seg_id| {
+                const seg = self.segments.items[seg_id];
+                sym.value = seg.vmaddr + seg.vmsize;
+            }
+        } else if (mem.startsWith(u8, name, "section$start$")) {
+            const actual_name = name["section$start$".len..];
+            const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
+            const segname = actual_name[0..sep];
+            const sectname = actual_name[sep + 1 ..];
+            if (self.getSectionByName(segname, sectname)) |sect_id| {
+                const sect = self.sections.items(.header)[sect_id];
+                sym.value = sect.addr;
+                sym.out_n_sect = sect_id;
+            }
+        } else if (mem.startsWith(u8, name, "section$stop$")) {
+            const actual_name = name["section$stop$".len..];
+            const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
+            const segname = actual_name[0..sep];
+            const sectname = actual_name[sep + 1 ..];
+            if (self.getSectionByName(segname, sectname)) |sect_id| {
+                const sect = self.sections.items(.header)[sect_id];
+                sym.value = sect.addr + sect.size;
+                sym.out_n_sect = sect_id;
+            }
+        } else unreachable;
+    }
+
+    if (self.objc_stubs.symbols.items.len > 0) {
+        const addr = self.sections.items(.header)[self.objc_stubs_sect_index.?].addr;
+
+        for (self.objc_stubs.symbols.items, 0..) |sym_index, idx| {
+            const sym = self.getSymbol(sym_index);
+            sym.value = addr + idx * ObjcStubsSection.entrySize(self.getTarget().cpu.arch);
+            sym.out_n_sect = self.objc_stubs_sect_index.?;
+        }
+    }
+}
+
 fn shrinkAtom(self: *MachO, atom_index: Atom.Index, new_block_size: u64) void {
     _ = self;
     _ = atom_index;
@@ -2952,8 +3122,8 @@ pub const Platform = struct {
 
     pub fn isBuildVersionCompatible(plat: Platform) bool {
         inline for (supported_platforms) |sup_plat| {
-            if (sup_plat[0] == plat.platform) {
-                return sup_plat[1] <= plat.version.value;
+            if (sup_plat[0] == plat.os_tag and sup_plat[1] == plat.abi) {
+                return sup_plat[2] <= plat.toAppleVersion();
             }
         }
         return false;
