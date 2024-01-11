@@ -506,6 +506,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     }
 
     self.markImportsAndExports();
+    self.deadStripDylibs();
 
     state_log.debug("{}", .{self.dumpState()});
 
@@ -1382,6 +1383,33 @@ fn markImportsAndExports(self: *MachO) void {
                 if (file == .dylib) sym.flags.import = true;
             }
         }
+    }
+}
+
+fn deadStripDylibs(self: *MachO) void {
+    for (&[_]?Symbol.Index{
+        self.entry_index,
+        self.dyld_stub_binder_index,
+        self.objc_msg_send_index,
+    }) |index| {
+        if (index) |idx| {
+            const sym = self.getSymbol(idx);
+            if (sym.getFile(self)) |file| {
+                if (file == .dylib) file.dylib.referenced = true;
+            }
+        }
+    }
+
+    for (self.dylibs.items) |index| {
+        self.getFile(index).?.dylib.markReferenced(self);
+    }
+
+    var i: usize = 0;
+    while (i < self.dylibs.items.len) {
+        const index = self.dylibs.items[i];
+        if (!self.getFile(index).?.dylib.isAlive(self)) {
+            _ = self.dylibs.orderedRemove(i);
+        } else i += 1;
     }
 }
 
