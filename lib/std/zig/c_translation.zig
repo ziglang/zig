@@ -128,12 +128,17 @@ test "cast" {
 
     try testing.expectEqual(@as(?*anyopaque, @ptrFromInt(2)), cast(?*anyopaque, @as(*u8, @ptrFromInt(2))));
 
-    var foo: c_int = -1;
-    _ = &foo;
+    const foo: c_int = -1;
     try testing.expect(cast(*anyopaque, -1) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
     try testing.expect(cast(*anyopaque, foo) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
     try testing.expect(cast(?*anyopaque, -1) == @as(?*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
     try testing.expect(cast(?*anyopaque, foo) == @as(?*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
+
+    const bigfoo: i128 = -1;
+    try testing.expect(cast(*anyopaque, -1) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, @truncate(@as(i128, -1))))))));
+    try testing.expect(cast(*anyopaque, bigfoo) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, @truncate(@as(i128, -1))))))));
+    try testing.expect(cast(?*anyopaque, -1) == @as(?*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, @truncate(@as(i128, -1))))))));
+    try testing.expect(cast(?*anyopaque, bigfoo) == @as(?*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, @truncate(@as(i128, -1))))))));
 
     const FnPtr = ?*align(1) const fn (*anyopaque) void;
     try testing.expect(cast(FnPtr, 0) == @as(FnPtr, @ptrFromInt(@as(usize, 0))));
