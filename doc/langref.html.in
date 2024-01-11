@@ -5400,7 +5400,7 @@ inline fn foo(a: i32, b: i32) i32 {
       function, except for these scenarios:</p>
       <ul>
         <li>To change how many stack frames are in the call stack, for debugging purposes.</li>
-        <li>To force comptime-ness of the arguments to propagate to the return value of the function, as in the above example.</i>
+        <li>To force comptime-ness of the arguments to propagate to the return value of the function, as in the above example.</li>
         <li>Real world performance measurements demand it.</li>
       </ul>
       <p>Note that {#syntax#}inline{#endsyntax#} actually <em>restricts</em>
