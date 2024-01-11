@@ -1,6 +1,4 @@
-//
-// Compressor/Decompressor for ZLIB data streams (RFC1950)
-
+/// Compressor/Decompressor for ZLIB data streams (RFC1950)
 const std = @import("std");
 const io = std.io;
 const fs = std.fs;
@@ -8,7 +6,7 @@ const testing = std.testing;
 const mem = std.mem;
 const deflate = std.compress.deflate;
 
-// Zlib header format as specified in RFC1950
+/// Zlib header format as specified in RFC1950
 const ZLibHeader = packed struct {
     checksum: u5,
     preset_dict: u1,
@@ -20,6 +18,8 @@ const ZLibHeader = packed struct {
     const WINDOW_32K = 7;
 };
 
+/// Comptime function used to construct a decompressor for a zlib data stream
+/// parameter "ReaderType" should be a type that implements std.io.Reader
 pub fn DecompressStream(comptime ReaderType: type) type {
     return struct {
         const Self = @This();
@@ -27,6 +27,8 @@ pub fn DecompressStream(comptime ReaderType: type) type {
         pub const Error = ReaderType.Error ||
             deflate.Decompressor(ReaderType).Error ||
             error{ WrongChecksum, Unsupported };
+
+        /// The reader interface declaration
         pub const Reader = io.Reader(*Self, Error, read);
 
         allocator: mem.Allocator,
@@ -34,6 +36,8 @@ pub fn DecompressStream(comptime ReaderType: type) type {
         in_reader: ReaderType,
         hasher: std.hash.Adler32,
 
+        /// Initiallizes the decompressor using the "source" parameter
+        /// as input
         fn init(allocator: mem.Allocator, source: ReaderType) !Self {
             // Zlib header format is specified in RFC1950
             const header_u16 = try source.readInt(u16, .big);
@@ -68,7 +72,7 @@ pub fn DecompressStream(comptime ReaderType: type) type {
             self.inflater.deinit();
         }
 
-        // Implements the io.Reader interface
+        /// Implements the io.Reader interface
         pub fn read(self: *Self, buffer: []u8) Error!usize {
             if (buffer.len == 0)
                 return 0;
@@ -88,16 +92,22 @@ pub fn DecompressStream(comptime ReaderType: type) type {
             return 0;
         }
 
+        /// returns the std.io.Reader for this type
         pub fn reader(self: *Self) Reader {
             return .{ .context = self };
         }
     };
 }
 
+/// Conviennce function which creates an instance of the DecompressStream data
+/// structure that operates on the @TypeOf() the "reader" parameter
+/// and initiallizes that instance with the "reader" parameter's
+/// context
 pub fn decompressStream(allocator: mem.Allocator, reader: anytype) !DecompressStream(@TypeOf(reader)) {
     return DecompressStream(@TypeOf(reader)).init(allocator, reader);
 }
 
+/// Standard ZLIB compression levels
 pub const CompressionLevel = enum(u2) {
     no_compression = 0,
     fastest = 1,
@@ -109,6 +119,9 @@ pub const CompressStreamOptions = struct {
     level: CompressionLevel = .default,
 };
 
+/// Comptime function used to construct a compressor for some data
+/// to be compressed by ZLIB
+/// Parameter "WriterType" should be a type that implements std.io.Writer
 pub fn CompressStream(comptime WriterType: type) type {
     return struct {
         const Self = @This();
@@ -122,6 +135,7 @@ pub fn CompressStream(comptime WriterType: type) type {
         in_writer: WriterType,
         hasher: std.hash.Adler32,
 
+        /// Initiallizes an instance of CompressStream(WriterType) with context and options
         fn init(allocator: mem.Allocator, dest: WriterType, options: CompressStreamOptions) !Self {
             var header = ZLibHeader{
                 .compression_info = ZLibHeader.WINDOW_32K,
@@ -160,14 +174,22 @@ pub fn CompressStream(comptime WriterType: type) type {
             return w;
         }
 
+        /// returns the
         pub fn writer(self: *Self) Writer {
             return .{ .context = self };
         }
 
+        /// Deinitiallizes the Compressor
+        ///
+        /// Make sure to call finish() before doing this if data
+        /// still needs to be flushed
         pub fn deinit(self: *Self) void {
             self.deflator.deinit();
         }
 
+        /// Flushes any data that still needs to be sent to the compressor
+        /// It is very important to do this before deinitiallizing the
+        /// compressor or some data may be lost.
         pub fn finish(self: *Self) !void {
             const hash = self.hasher.final();
             try self.deflator.close();
@@ -176,6 +198,9 @@ pub fn CompressStream(comptime WriterType: type) type {
     };
 }
 
+/// Convience function which creates an instance of the CompressStream data structure
+/// that operates on the @TypeOf() the "reader" parameter
+/// and initiallizes that instance with the "reader" parameter's context
 pub fn compressStream(allocator: mem.Allocator, writer: anytype, options: CompressStreamOptions) !CompressStream(@TypeOf(writer)) {
     return CompressStream(@TypeOf(writer)).init(allocator, writer, options);
 }
