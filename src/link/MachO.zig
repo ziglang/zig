@@ -48,6 +48,14 @@ eh_frame_sect_index: ?u8 = null,
 unwind_info_sect_index: ?u8 = null,
 objc_stubs_sect_index: ?u8 = null,
 
+mh_execute_header_index: ?Symbol.Index = null,
+mh_dylib_header_index: ?Symbol.Index = null,
+dyld_private_index: ?Symbol.Index = null,
+dyld_stub_binder_index: ?Symbol.Index = null,
+dso_handle_index: ?Symbol.Index = null,
+objc_msg_send_index: ?Symbol.Index = null,
+entry_index: ?Symbol.Index = null,
+
 /// List of atoms that are either synthetic or map directly to the Zig source program.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
 thunks: std.ArrayListUnmanaged(Thunk) = .{},
@@ -481,6 +489,14 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         if (!dylib.explicit and !dylib.hoisted) continue;
         try dylib.initSymbols(self);
     }
+
+    {
+        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+        self.files.set(index, .{ .internal = .{ .index = index } });
+        self.internal_object = index;
+    }
+
+    try self.addUndefinedGlobals();
 
     state_log.debug("{}", .{self.dumpState()});
 
@@ -1111,6 +1127,35 @@ fn parseTbd(self: *MachO, lib: SystemLib, explicit: bool) ParseError!File.Index 
 //         }
 //     }
 // }
+
+fn addUndefinedGlobals(self: *MachO) !void {
+    const gpa = self.base.comp.gpa;
+
+    try self.undefined_symbols.ensureUnusedCapacity(gpa, self.base.comp.force_undefined_symbols.keys().len);
+    for (self.base.comp.force_undefined_symbols.keys()) |name| {
+        const off = try self.strings.insert(gpa, name);
+        const gop = try self.getOrCreateGlobal(off);
+        self.undefined_symbols.appendAssumeCapacity(gop.index);
+    }
+
+    if (!self.base.isDynLib() and self.entry_name != null) {
+        const off = try self.strings.insert(gpa, self.entry_name.?);
+        const gop = try self.getOrCreateGlobal(off);
+        self.entry_index = gop.index;
+    }
+
+    {
+        const off = try self.strings.insert(gpa, "dyld_stub_binder");
+        const gop = try self.getOrCreateGlobal(off);
+        self.dyld_stub_binder_index = gop.index;
+    }
+
+    {
+        const off = try self.strings.insert(gpa, "_objc_msgSend");
+        const gop = try self.getOrCreateGlobal(off);
+        self.objc_msg_send_index = gop.index;
+    }
+}
 
 fn shrinkAtom(self: *MachO, atom_index: Atom.Index, new_block_size: u64) void {
     _ = self;
