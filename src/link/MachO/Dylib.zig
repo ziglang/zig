@@ -530,7 +530,7 @@ pub fn resetGlobals(self: *Dylib, macho_file: *MachO) void {
 }
 
 pub fn isAlive(self: Dylib, macho_file: *MachO) bool {
-    if (!macho_file.options.dead_strip_dylibs) return self.explicit or self.referenced or self.needed;
+    if (!macho_file.dead_strip_dylibs) return self.explicit or self.referenced or self.needed;
     return self.referenced or self.needed;
 }
 
