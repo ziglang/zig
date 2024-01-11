@@ -34,8 +34,7 @@ output_symtab_ctx: MachO.SymtabCtx = .{},
 pub fn isObject(path: []const u8) !bool {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
-    const reader = file.reader();
-    const header = reader.readStruct(macho.mach_header_64) catch return false;
+    const header = file.reader().readStruct(macho.mach_header_64) catch return false;
     return header.filetype == macho.MH_OBJECT;
 }
 
@@ -175,8 +174,12 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
             });
             return error.InvalidTarget;
         }
-        if (macho_file.platform.version.order(platform.version) != .lt) {
-            try macho_file.reportParseError2(self.index, "object file built for newer platform: {}", .{platform});
+        if (macho_file.platform.version.order(platform.version) == .lt) {
+            try macho_file.reportParseError2(self.index, "object file built for newer platform: {}: {} < {}", .{
+                macho_file.platform.fmtTarget(macho_file.getTarget().cpu.arch),
+                macho_file.platform.version,
+                platform.version,
+            });
             return error.InvalidTarget;
         }
     }
