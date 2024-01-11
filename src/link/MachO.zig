@@ -385,8 +385,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
             error.MalformedDylib,
             error.InvalidCpuArch,
             error.InvalidTarget,
-            error.UnknownFileType,
             => continue, // already reported
+            error.UnknownFileType => try self.reportParseError(obj.path, "unknown file type for an object file", .{}),
             else => |e| try self.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -436,8 +436,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
             error.MalformedArchive,
             error.MalformedDylib,
             error.InvalidCpuArch,
-            error.UnknownFileType,
             => continue, // already reported
+            error.UnknownFileType => try self.reportParseError(lib.path, "unknown file type for a library", .{}),
             else => |e| try self.reportParseError(
                 lib.path,
                 "unexpected error: parsing library failed with error {s}",
@@ -458,8 +458,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
             error.MalformedArchive,
             error.InvalidCpuArch,
             error.InvalidTarget,
-            error.UnknownFileType,
             => {}, // already reported
+            error.UnknownFileType => try self.reportParseError(path, "unknown file type for a library", .{}),
             else => |e| try self.reportParseError(
                 path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -762,6 +762,7 @@ const ParseError = error{
     MalformedObject,
     MalformedArchive,
     MalformedDylib,
+    MalformedTbd,
     NotLibStub,
     InvalidCpuArch,
     InvalidTarget,
@@ -796,16 +797,16 @@ fn parseLibrary(self: *MachO, lib: SystemLib, must_link: bool) ParseError!void {
             try self.parseArchive(lib, must_link, fat_arch);
         } else if (try Dylib.isDylib(lib.path, fat_arch)) {
             _ = try self.parseDylib(lib, true, fat_arch);
-        } else {
-            try self.reportParseError(lib.path, "unknown file type for a library", .{});
-            return error.UnknownFileType;
-        }
+        } else return error.UnknownFileType;
     } else if (try Archive.isArchive(lib.path, null)) {
         try self.parseArchive(lib, must_link, null);
     } else if (try Dylib.isDylib(lib.path, null)) {
         _ = try self.parseDylib(lib, true, null);
     } else {
-        try self.parseTbd(lib, true);
+        _ = self.parseTbd(lib, true) catch |err| switch (err) {
+            error.MalformedTbd => return error.UnknownFileType,
+            else => |e| return e,
+        };
     }
 }
 
@@ -925,11 +926,32 @@ fn parseDylib(self: *MachO, lib: SystemLib, explicit: bool, fat_arch: ?fat.Arch)
     return index;
 }
 
-fn parseTbd(self: *MachO, lib: SystemLib, explicit: bool) ParseError!void {
-    _ = self;
-    _ = lib;
-    _ = explicit;
-    return error.Unhandled;
+fn parseTbd(self: *MachO, lib: SystemLib, explicit: bool) ParseError!File.Index {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = self.base.comp.gpa;
+    const file = try std.fs.cwd().openFile(lib.path, .{});
+    defer file.close();
+
+    var lib_stub = LibStub.loadFromFile(gpa, file) catch return error.MalformedTbd; // TODO actually handle different errors
+    defer lib_stub.deinit();
+
+    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+    self.files.set(index, .{ .dylib = .{
+        .path = try gpa.dupe(u8, lib.path),
+        .data = &[0]u8{},
+        .index = index,
+        .needed = lib.needed,
+        .weak = lib.weak,
+        .reexport = lib.reexport,
+        .explicit = explicit,
+    } });
+    const dylib = &self.files.items(.data)[index].dylib;
+    try dylib.parseTbd(self.getTarget().cpu.arch, self.platform, lib_stub, self);
+    try self.dylibs.append(gpa, index);
+
+    return index;
 }
 
 fn shrinkAtom(self: *MachO, atom_index: Atom.Index, new_block_size: u64) void {
