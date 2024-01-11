@@ -2368,23 +2368,24 @@ fn transCCast(
         // 2. u64  <- ptr | @as(u64, @intFromPtr(ptr))
         // 3. u16  <- ptr | @as(u16, @truncate(@intFromPtr(ptr)))
         // 4. i128 <- ptr | @as(i128, @bitCast(@as(u128, @intFromPtr(ptr))))
-        // 5. i64  <- ptr | @as(i64, @bitCast(@intFromPtr(ptr)))
+        // 5. i64  <- ptr | @as(i64, @bitCast(@as(u64, @intFromPtr(ptr))))
         // 6. i16  <- ptr | @as(i16, @bitCast(@as(u16, @truncate(@intFromPtr(ptr)))))
         var src_ptr_expr = try Tag.int_from_ptr.create(c.arena, expr);
 
         // @truncate(@intFromPtr(ptr))
         const src_ptr_width = std.Target.ptrBitWidth(target);
         const dst_int_width = try qualTypeIntBitWidth(c, dst_type);
-        if (src_ptr_width < dst_int_width) {
+        if (src_ptr_width > dst_int_width) {
             src_ptr_expr = try Tag.truncate.create(c.arena, src_ptr_expr);
         }
 
-        //@as(UnsignedIntWithDestSize, usizeFromPtr)
+        // @as(unsignedIntWithDestSize, usizeFromPtr)
         if (cIsUnsignedInteger(dst_type)) {
             const ty_node = try transQualTypeIntWidthOf(c, dst_type, false);
             return Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = src_ptr_expr });
         }
 
+        // @as(signedInt, @bitCast(@as(unsignedIntWithDestSize, intFromPtr)))
         const ty_node = try transQualTypeIntWidthOf(c, dst_type, false);
         src_ptr_expr = try Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = src_ptr_expr });
         return Tag.as.create(c.arena, .{
@@ -2395,7 +2396,7 @@ fn transCCast(
     if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
         // 1. Cast integral to usize
         // 2. Cast usize to ptr
-        // @as(dest_type, @ptrFromInt(val))
+        //
         // Cases:
         // 0. ptr <- usize | @ptrFromInt(usize)
         // 1. ptr <- u128  | @as(ptr, @ptrFromInt(@as(usize, @truncate(u128))))
@@ -2410,7 +2411,7 @@ fn transCCast(
         // @truncate(ptr)
         const src_int_width = try qualTypeIntBitWidth(c, src_type);
         const dst_ptr_width = std.Target.ptrBitWidth(target);
-        if (src_int_width < dst_ptr_width) {
+        if (src_int_width > dst_ptr_width) {
             src_int_expr = try Tag.truncate.create(c.arena, src_int_expr);
         }
 
@@ -2421,6 +2422,7 @@ fn transCCast(
                 .lhs = isize_node,
                 .rhs = src_int_expr,
             });
+            src_int_expr = try Tag.bit_cast.create(c.arena, src_int_expr);
         }
 
         // @as(destPtrType, @ptrFromInt(@as(usize, int)))
@@ -2428,7 +2430,7 @@ fn transCCast(
             .lhs = try Tag.type.create(c.arena, "usize"),
             .rhs = src_int_expr,
         });
-        src_int_expr = try Tag.ptr_from_int(c.arena, src_int_expr);
+        src_int_expr = try Tag.ptr_from_int.create(c.arena, src_int_expr);
 
         return Tag.as.create(c.arena, .{
             .lhs = dst_node,
