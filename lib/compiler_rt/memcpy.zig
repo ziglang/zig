@@ -24,8 +24,18 @@ const small_limit = 256;
 pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
     @setRuntimeSafety(false);
 
+    if (len < 9) {
+        memcpy_remainder(16, dest.?, src.?, len);
+        return dest;
+    }
+
+    if (len < 17) {
+        memcpy_remainder(32, dest.?, src.?, len);
+        return dest;
+    }
+
     if (len < small_limit) {
-        memcpy_small(dest, src, len);
+        memcpy_remainder(small_limit, dest.?, src.?, len);
         return dest;
     }
 
@@ -34,7 +44,7 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
     var n = len;
 
     // copy bytes until source is aligned
-    while (@intFromPtr(s) % alignment != 0 and n > 0) {
+    while (@intFromPtr(s) % alignment != 0) {
         d[0] = s[0];
         n -= 1;
         d += 1;
@@ -54,11 +64,6 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
     }
 
     return dest;
-}
-
-inline fn memcpy_small(dest: ?[*]u8, src: ?[*]const u8, len: usize) void {
-    if (len == 0) return;
-    memcpy_remainder(small_limit, dest.?, src.?, len);
 }
 
 // inline is needed to prevent llvm making an infinitely recursive call to memcpy
