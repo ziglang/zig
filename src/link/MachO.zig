@@ -81,6 +81,10 @@ lazy_bind: LazyBindSection = .{},
 export_trie: ExportTrieSection = .{},
 unwind_info: UnwindInfo = .{},
 
+has_tlv: bool = false,
+binds_to_weak: bool = false,
+weak_defines: bool = false,
+
 /// Options
 /// SDK layout
 sdk_layout: ?SdkLayout,
@@ -512,6 +516,14 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         const dylib = self.getFile(index).?.dylib;
         dylib.ordinal = @intCast(ord);
     }
+
+    self.scanRelocs() catch |err| switch (err) {
+        error.HasUndefinedSymbols => return error.FlushFailure,
+        else => |e| {
+            try self.reportUnexpectedError("unexpected error while scanning relocations", .{});
+            return e;
+        },
+    };
 
     state_log.debug("{}", .{self.dumpState()});
 
@@ -1418,6 +1430,132 @@ fn deadStripDylibs(self: *MachO) void {
     }
 }
 
+fn scanRelocs(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    for (self.objects.items) |index| {
+        try self.getFile(index).?.object.scanRelocs(self);
+    }
+
+    try self.reportUndefs();
+
+    if (self.entry_index) |index| {
+        const sym = self.getSymbol(index);
+        if (sym.getFile(self) != null) {
+            if (sym.flags.import) sym.flags.stubs = true;
+        }
+    }
+
+    if (self.dyld_stub_binder_index) |index| {
+        const sym = self.getSymbol(index);
+        if (sym.getFile(self) != null) sym.flags.got = true;
+    }
+
+    if (self.objc_msg_send_index) |index| {
+        const sym = self.getSymbol(index);
+        if (sym.getFile(self) != null)
+            sym.flags.got = true; // TODO is it always needed, or only if we are synthesising fast stubs?
+    }
+
+    for (self.symbols.items, 0..) |*symbol, i| {
+        const index = @as(Symbol.Index, @intCast(i));
+        if (symbol.flags.got) {
+            log.debug("'{s}' needs GOT", .{symbol.getName(self)});
+            try self.got.addSymbol(index, self);
+        }
+        if (symbol.flags.stubs) {
+            log.debug("'{s}' needs STUBS", .{symbol.getName(self)});
+            try self.stubs.addSymbol(index, self);
+        }
+        if (symbol.flags.tlv_ptr) {
+            log.debug("'{s}' needs TLV pointer", .{symbol.getName(self)});
+            try self.tlv_ptr.addSymbol(index, self);
+        }
+        if (symbol.flags.objc_stubs) {
+            log.debug("'{s}' needs OBJC STUBS", .{symbol.getName(self)});
+            try self.objc_stubs.addSymbol(index, self);
+        }
+    }
+}
+
+fn reportUndefs(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    switch (self.undefined_treatment) {
+        .dynamic_lookup, .suppress => return,
+        .@"error", .warn => {},
+    }
+
+    const max_notes = 4;
+
+    var has_undefs = false;
+    var it = self.undefs.iterator();
+    while (it.next()) |entry| {
+        const undef_sym = self.getSymbol(entry.key_ptr.*);
+        const notes = entry.value_ptr.*;
+        const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
+
+        var err = try self.addErrorWithNotes(nnotes);
+        try err.addMsg(self, "undefined symbol: {s}", .{undef_sym.getName(self)});
+        has_undefs = true;
+
+        var inote: usize = 0;
+        while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
+            const atom = self.getAtom(notes.items[inote]).?;
+            const file = atom.getFile(self);
+            try err.addNote(self, "referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
+        }
+
+        if (notes.items.len > max_notes) {
+            const remaining = notes.items.len - max_notes;
+            try err.addNote(self, "referenced {d} more times", .{remaining});
+        }
+    }
+
+    for (self.undefined_symbols.items) |index| {
+        const sym = self.getSymbol(index);
+        if (sym.getFile(self) != null) continue; // If undefined in an object file, will be reported above
+        has_undefs = true;
+        var err = try self.addErrorWithNotes(1);
+        try err.addMsg(self, "undefined symbol: {s}", .{sym.getName(self)});
+        try err.addNote(self, "-u command line option", .{});
+    }
+
+    if (self.entry_index) |index| {
+        const sym = self.getSymbol(index);
+        if (sym.getFile(self) == null) {
+            has_undefs = true;
+            var err = try self.addErrorWithNotes(1);
+            try err.addMsg(self, "undefined symbol: {s}", .{sym.getName(self)});
+            try err.addNote(self, "implicit entry/start for main executable", .{});
+        }
+    }
+
+    if (self.dyld_stub_binder_index) |index| {
+        const sym = self.getSymbol(index);
+        if (sym.getFile(self) == null and self.stubs_sect_index != null) {
+            has_undefs = true;
+            var err = try self.addErrorWithNotes(1);
+            try err.addMsg(self, "undefined symbol: {s}", .{sym.getName(self)});
+            try err.addNote(self, "implicit -u command line option", .{});
+        }
+    }
+
+    if (self.objc_msg_send_index) |index| {
+        const sym = self.getSymbol(index);
+        if (sym.getFile(self) == null and self.objc_stubs_sect_index != null) {
+            has_undefs = true;
+            var err = try self.addErrorWithNotes(1);
+            try err.addMsg(self, "undefined symbol: {s}", .{sym.getName(self)});
+            try err.addNote(self, "implicit -u command line option", .{});
+        }
+    }
+
+    if (has_undefs) return error.HasUndefinedSymbols;
+}
+
 fn shrinkAtom(self: *MachO, atom_index: Atom.Index, new_block_size: u64) void {
     _ = self;
     _ = atom_index;
@@ -1899,33 +2037,10 @@ fn reportDependencyError(
     });
 }
 
-pub fn reportUndefined(self: *MachO) error{OutOfMemory}!void {
-    const comp = self.base.comp;
-    const gpa = comp.gpa;
-    const count = self.unresolved.count();
-    try comp.link_errors.ensureUnusedCapacity(gpa, count);
-
-    for (self.unresolved.keys()) |global_index| {
-        const global = self.globals.items[global_index];
-        const sym_name = self.getSymbolName(global);
-
-        var notes = try std.ArrayList(link.File.ErrorMsg).initCapacity(gpa, 1);
-        defer notes.deinit();
-
-        if (global.getFile()) |file| {
-            const note = try std.fmt.allocPrint(gpa, "referenced in {s}", .{
-                self.objects.items[file].name,
-            });
-            notes.appendAssumeCapacity(.{ .msg = note });
-        }
-
-        var err_msg = link.File.ErrorMsg{
-            .msg = try std.fmt.allocPrint(gpa, "undefined reference to symbol {s}", .{sym_name}),
-        };
-        err_msg.notes = try notes.toOwnedSlice();
-
-        comp.link_errors.appendAssumeCapacity(err_msg);
-    }
+fn reportUnexpectedError(self: *MachO, comptime format: []const u8, args: anytype) error{OutOfMemory}!void {
+    var err = try self.addErrorWithNotes(1);
+    try err.addMsg(self, format, args);
+    try err.addNote(self, "please report this as a linker bug on https://github.com/ziglang/zig/issues/new/choose", .{});
 }
 
 // fn reportSymbolCollision(

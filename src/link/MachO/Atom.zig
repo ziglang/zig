@@ -200,7 +200,7 @@ pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
                 const symbol = rel.getTargetSymbol(macho_file);
                 if (symbol.flags.import or
                     (symbol.flags.@"export" and (symbol.flags.weak or symbol.flags.interposable)) or
-                    macho_file.options.cpu_arch.? == .aarch64) // TODO relax on arm64
+                    macho_file.getTarget().cpu.arch == .aarch64) // TODO relax on arm64
                 {
                     symbol.flags.got = true;
                     if (symbol.flags.weak) {
@@ -219,9 +219,10 @@ pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
             => {
                 const symbol = rel.getTargetSymbol(macho_file);
                 if (!symbol.flags.tlv) {
-                    macho_file.base.fatal(
-                        "{}: {s}: illegal thread-local variable reference to regular symbol {s}",
-                        .{ object.fmtPath(), self.getName(macho_file), symbol.getName(macho_file) },
+                    try macho_file.reportParseError2(
+                        object.index,
+                        "{s}: illegal thread-local variable reference to regular symbol {s}",
+                        .{ self.getName(macho_file), symbol.getName(macho_file) },
                     );
                 }
                 if (symbol.flags.import or (symbol.flags.@"export" and (symbol.flags.weak or symbol.flags.interposable))) {
@@ -271,7 +272,7 @@ fn reportUndefSymbol(self: Atom, rel: Relocation, macho_file: *MachO) !bool {
 
     const sym = rel.getTargetSymbol(macho_file);
     if (sym.getFile(macho_file) == null) {
-        const gpa = macho_file.base.allocator;
+        const gpa = macho_file.base.comp.gpa;
         const gop = try macho_file.undefs.getOrPut(gpa, rel.target);
         if (!gop.found_existing) {
             gop.value_ptr.* = .{};
