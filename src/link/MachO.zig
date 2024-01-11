@@ -498,6 +498,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
 
     try self.addUndefinedGlobals();
     try self.resolveSymbols();
+    try self.resolveSyntheticSymbols();
 
     state_log.debug("{}", .{self.dumpState()});
 
@@ -1212,6 +1213,53 @@ fn markLive(self: *MachO) void {
     for (self.objects.items) |index| {
         const object = self.getFile(index).?.object;
         if (object.alive) object.markLive(self);
+    }
+}
+
+fn resolveSyntheticSymbols(self: *MachO) !void {
+    const internal = self.getInternalObject() orelse return;
+
+    if (!self.base.isDynLib()) {
+        self.mh_execute_header_index = try internal.addSymbol("__mh_execute_header", self);
+        const sym = self.getSymbol(self.mh_execute_header_index.?);
+        sym.flags.@"export" = true;
+        sym.flags.dyn_ref = true;
+        sym.visibility = .global;
+    } else {
+        self.mh_dylib_header_index = try internal.addSymbol("__mh_dylib_header", self);
+    }
+
+    self.dso_handle_index = try internal.addSymbol("___dso_handle", self);
+    self.dyld_private_index = try internal.addSymbol("dyld_private", self);
+
+    {
+        const gpa = self.base.comp.gpa;
+        var boundary_symbols = std.AutoHashMap(Symbol.Index, void).init(gpa);
+        defer boundary_symbols.deinit();
+
+        for (self.objects.items) |index| {
+            const object = self.getFile(index).?.object;
+            for (object.symbols.items, 0..) |sym_index, i| {
+                const nlist = object.symtab.items(.nlist)[i];
+                const name = self.getSymbol(sym_index).getName(self);
+                if (!nlist.undf() or !nlist.ext()) continue;
+                if (mem.startsWith(u8, name, "segment$start$") or
+                    mem.startsWith(u8, name, "segment$stop$") or
+                    mem.startsWith(u8, name, "section$start$") or
+                    mem.startsWith(u8, name, "section$stop$"))
+                {
+                    _ = try boundary_symbols.put(sym_index, {});
+                }
+            }
+        }
+
+        try self.boundary_symbols.ensureTotalCapacityPrecise(gpa, boundary_symbols.count());
+
+        var it = boundary_symbols.iterator();
+        while (it.next()) |entry| {
+            _ = try internal.addSymbol(self.getSymbol(entry.key_ptr.*).getName(self), self);
+            self.boundary_symbols.appendAssumeCapacity(entry.key_ptr.*);
+        }
     }
 }
 
