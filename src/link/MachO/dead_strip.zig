@@ -1,10 +1,10 @@
 pub fn gcAtoms(macho_file: *MachO) !void {
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
 
     var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 1);
     defer objects.deinit();
     for (macho_file.objects.items) |index| objects.appendAssumeCapacity(index);
-    if (macho_file.internal_object_index) |index| objects.appendAssumeCapacity(index);
+    if (macho_file.internal_object) |index| objects.appendAssumeCapacity(index);
 
     var roots = std.ArrayList(*Atom).init(gpa);
     defer roots.deinit();
@@ -21,7 +21,7 @@ fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho
             const sym = macho_file.getSymbol(sym_index);
             const file = sym.getFile(macho_file) orelse continue;
             if (file.getIndex() != index) continue;
-            if (sym.flags.no_dead_strip or (macho_file.options.dylib and sym.visibility == .global))
+            if (sym.flags.no_dead_strip or (macho_file.base.isDynLib() and sym.visibility == .global))
                 try markSymbol(sym, roots, macho_file);
         }
 
