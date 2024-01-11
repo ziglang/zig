@@ -73,14 +73,20 @@ pub fn isArchive(path: []const u8, fat_arch: ?fat.Arch) !bool {
 }
 
 pub fn deinit(self: *Archive, allocator: Allocator) void {
+    allocator.free(self.data);
+    allocator.free(self.path);
     self.objects.deinit(allocator);
 }
 
-pub fn parse(self: *Archive, arena: Allocator, macho_file: *MachO) !void {
-    const gpa = macho_file.base.allocator;
+pub fn parse(self: *Archive, macho_file: *MachO) !void {
+    const gpa = macho_file.base.comp.gpa;
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
 
     var stream = std.io.fixedBufferStream(self.data);
     const reader = stream.reader();
+    _ = try reader.readBytesNoEof(SARMAG);
 
     while (true) {
         if (stream.pos >= self.data.len) break;
@@ -89,18 +95,18 @@ pub fn parse(self: *Archive, arena: Allocator, macho_file: *MachO) !void {
         const hdr = try reader.readStruct(ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
-            macho_file.base.fatal("{s}: invalid header delimiter: expected '{s}', found '{s}'", .{
-                self.path, std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
+            try macho_file.reportParseError(self.path, "invalid header delimiter: expected '{s}', found '{s}'", .{
+                std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
             });
-            return error.ParseFailed;
+            return error.MalformedArchive;
         }
 
         var size = try hdr.size();
         const name = name: {
-            if (hdr.name()) |n| break :name try arena.dupe(u8, n);
+            if (hdr.name()) |n| break :name n;
             if (try hdr.nameLength()) |len| {
                 size -= len;
-                const buf = try arena.alloc(u8, len);
+                const buf = try arena.allocator().alloc(u8, len);
                 try reader.readNoEof(buf);
                 const actual_len = mem.indexOfScalar(u8, buf, @as(u8, 0)) orelse len;
                 break :name buf[0..actual_len];
@@ -114,9 +120,9 @@ pub fn parse(self: *Archive, arena: Allocator, macho_file: *MachO) !void {
         if (mem.eql(u8, name, "__.SYMDEF") or mem.eql(u8, name, "__.SYMDEF SORTED")) continue;
 
         const object = Object{
-            .archive = self.path,
-            .path = name,
-            .data = self.data[stream.pos..][0..size],
+            .archive = try gpa.dupe(u8, self.path),
+            .path = try gpa.dupe(u8, name),
+            .data = try gpa.dupe(u8, self.data[stream.pos..][0..size]),
             .index = undefined,
             .alive = false,
             .mtime = hdr.date() catch 0,

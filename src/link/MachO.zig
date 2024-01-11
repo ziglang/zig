@@ -845,11 +845,48 @@ fn parseFatLibrary(self: *MachO, path: []const u8) !fat.Arch {
 }
 
 fn parseArchive(self: *MachO, lib: SystemLib, must_link: bool, fat_arch: ?fat.Arch) ParseError!void {
-    _ = self;
-    _ = lib;
-    _ = must_link;
-    _ = fat_arch;
-    return error.Unhandled;
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = self.base.comp.gpa;
+
+    const file = try std.fs.cwd().openFile(lib.path, .{});
+    defer file.close();
+
+    const data = if (fat_arch) |arch| blk: {
+        try file.seekTo(arch.offset);
+        const data = try gpa.alloc(u8, arch.size);
+        const nread = try file.readAll(data);
+        if (nread != arch.size) return error.InputOutput;
+        break :blk data;
+    } else try file.readToEndAlloc(gpa, std.math.maxInt(u32));
+
+    var archive = Archive{ .path = try gpa.dupe(u8, lib.path), .data = data };
+    defer archive.deinit(gpa);
+    try archive.parse(self);
+
+    var has_parse_error = false;
+    for (archive.objects.items) |extracted| {
+        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+        self.files.set(index, .{ .object = extracted });
+        const object = &self.files.items(.data)[index].object;
+        object.index = index;
+        object.alive = must_link or lib.needed; // TODO: or self.options.all_load;
+        object.hidden = lib.hidden;
+        object.parse(self) catch |err| switch (err) {
+            error.MalformedObject,
+            error.InvalidCpuArch,
+            error.InvalidTarget,
+            => has_parse_error = true,
+            else => |e| return e,
+        };
+        try self.objects.append(gpa, index);
+
+        // Finally, we do a post-parse check for -ObjC to see if we need to force load this member
+        // anyhow.
+        // TODO: object.alive = object.alive or (self.options.force_load_objc and object.hasObjc());
+    }
+    if (has_parse_error) return error.MalformedArchive;
 }
 
 fn parseDylib(self: *MachO, lib: SystemLib, explicit: bool, fat_arch: ?fat.Arch) ParseError!void {
