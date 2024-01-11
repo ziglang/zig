@@ -92,6 +92,9 @@ headerpad_size: ?u32,
 headerpad_max_install_names: bool,
 /// Remove dylibs that are unreachable by the entry point or exported symbols.
 dead_strip_dylibs: bool,
+/// Treatment of undefined symbols
+undefined_treatment: UndefinedTreatment,
+/// List of input frameworks
 frameworks: []const Framework,
 /// Install name for the dylib.
 /// TODO: unify with soname
@@ -122,14 +125,6 @@ pub fn hashAddFrameworks(man: *Cache.Manifest, hm: []const Framework) !void {
     }
 }
 
-/// The filesystem layout of darwin SDK elements.
-pub const SdkLayout = enum {
-    /// macOS SDK layout: TOP { /usr/include, /usr/lib, /System/Library/Frameworks }.
-    sdk,
-    /// Shipped libc layout: TOP { /lib/libc/include,  /lib/libc/darwin, <NONE> }.
-    vendored,
-};
-
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
@@ -153,6 +148,7 @@ pub fn createEmpty(
         null
     else
         try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
+    const allow_shlib_undefined = options.allow_shlib_undefined orelse false;
 
     const self = try arena.create(MachO);
     self.* = .{
@@ -164,7 +160,7 @@ pub fn createEmpty(
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
             .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 16777216,
-            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
+            .allow_shlib_undefined = allow_shlib_undefined,
             .file = null,
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
@@ -187,6 +183,7 @@ pub fn createEmpty(
         },
         .platform = Platform.fromTarget(target),
         .sdk_version = if (options.darwin_sdk_layout) |layout| inferSdkVersion(comp, layout) else null,
+        .undefined_treatment = if (allow_shlib_undefined) .dynamic_lookup else .@"error",
     };
     if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, comp);
@@ -502,6 +499,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
 
     try self.convertTentativeDefinitions();
     try self.createObjcSections();
+    try self.claimUnresolved();
 
     state_log.debug("{}", .{self.dumpState()});
 
@@ -1307,6 +1305,39 @@ fn createObjcSections(self: *MachO) !void {
         const selrefs_index = try object.addObjcMsgsendSections(name, self);
         try sym.addExtra(.{ .objc_selrefs = selrefs_index }, self);
         try object.symbols.append(gpa, sym_index);
+    }
+}
+
+fn claimUnresolved(self: *MachO) error{OutOfMemory}!void {
+    for (self.objects.items) |index| {
+        const object = self.getFile(index).?.object;
+
+        for (object.symbols.items, 0..) |sym_index, i| {
+            const nlist_idx = @as(Symbol.Index, @intCast(i));
+            const nlist = object.symtab.items(.nlist)[nlist_idx];
+            if (!nlist.ext()) continue;
+            if (!nlist.undf()) continue;
+
+            const sym = self.getSymbol(sym_index);
+            if (sym.getFile(self) != null) continue;
+
+            const is_import = switch (self.undefined_treatment) {
+                .@"error" => false,
+                .warn, .suppress => nlist.weakRef(),
+                .dynamic_lookup => true,
+            };
+            if (is_import) {
+                sym.value = 0;
+                sym.atom = 0;
+                sym.nlist_idx = 0;
+                sym.file = self.internal_object.?;
+                sym.flags.weak = false;
+                sym.flags.weak_ref = nlist.weakRef();
+                sym.flags.import = is_import;
+                sym.visibility = .global;
+                try self.getInternalObject().?.symbols.append(self.base.comp.gpa, sym_index);
+            }
+        }
     }
 }
 
@@ -2348,6 +2379,21 @@ const SystemLib = struct {
     hidden: bool = false,
     reexport: bool = false,
     must_link: bool = false,
+};
+
+/// The filesystem layout of darwin SDK elements.
+pub const SdkLayout = enum {
+    /// macOS SDK layout: TOP { /usr/include, /usr/lib, /System/Library/Frameworks }.
+    sdk,
+    /// Shipped libc layout: TOP { /lib/libc/include,  /lib/libc/darwin, <NONE> }.
+    vendored,
+};
+
+const UndefinedTreatment = enum {
+    @"error",
+    warn,
+    suppress,
+    dynamic_lookup,
 };
 
 const MachO = @This();
