@@ -525,6 +525,9 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         },
     };
 
+    try self.initOutputSections();
+    try self.initSyntheticSections();
+
     state_log.debug("{}", .{self.dumpState()});
 
     @panic("TODO");
@@ -714,26 +717,6 @@ fn flushObject(self: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) l
     try err.addMsg(self, "TODO implement flushObject", .{});
 
     return error.FlushFailure;
-}
-
-/// XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
-/// Any change to the binary will effectively invalidate the kernel's cache
-/// resulting in a SIGKILL on each subsequent run. Since when doing incremental
-/// linking we're modifying a binary in-place, this will end up with the kernel
-/// killing it on every subsequent run. To circumvent it, we will copy the file
-/// into a new inode, remove the original file, and rename the copy to match
-/// the original file. This is super messy, but there doesn't seem any other
-/// way to please the XNU.
-pub fn invalidateKernelCache(dir: std.fs.Dir, sub_path: []const u8) !void {
-    if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
-        try dir.copyFile(sub_path, dir, sub_path, .{});
-    }
-}
-
-inline fn conformUuid(out: *[Md5.digest_length]u8) void {
-    // LC_UUID uuids should conform to RFC 4122 UUID version 4 & UUID version 5 formats
-    out[6] = (out[6] & 0x0F) | (3 << 4);
-    out[8] = (out[8] & 0x3F) | 0x80;
 }
 
 pub fn resolveLibSystem(
@@ -1556,6 +1539,134 @@ fn reportUndefs(self: *MachO) !void {
     if (has_undefs) return error.HasUndefinedSymbols;
 }
 
+fn initOutputSections(self: *MachO) !void {
+    for (self.objects.items) |index| {
+        const object = self.getFile(index).?.object;
+        for (object.atoms.items) |atom_index| {
+            const atom = self.getAtom(atom_index) orelse continue;
+            if (!atom.flags.alive) continue;
+            atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(self), self);
+        }
+    }
+    if (self.getInternalObject()) |object| {
+        for (object.atoms.items) |atom_index| {
+            const atom = self.getAtom(atom_index) orelse continue;
+            if (!atom.flags.alive) continue;
+            atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(self), self);
+        }
+    }
+    if (self.data_sect_index == null) {
+        self.data_sect_index = try self.addSection("__DATA", "__data", .{});
+    }
+}
+
+fn initSyntheticSections(self: *MachO) !void {
+    const cpu_arch = self.getTarget().cpu.arch;
+
+    if (self.got.symbols.items.len > 0) {
+        self.got_sect_index = try self.addSection("__DATA_CONST", "__got", .{
+            .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
+            .reserved1 = @intCast(self.stubs.symbols.items.len),
+        });
+    }
+
+    if (self.stubs.symbols.items.len > 0) {
+        self.stubs_sect_index = try self.addSection("__TEXT", "__stubs", .{
+            .flags = macho.S_SYMBOL_STUBS |
+                macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+            .reserved1 = 0,
+            .reserved2 = switch (cpu_arch) {
+                .x86_64 => 6,
+                .aarch64 => 3 * @sizeOf(u32),
+                else => 0,
+            },
+        });
+        self.stubs_helper_sect_index = try self.addSection("__TEXT", "__stub_helper", .{
+            .flags = macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+        });
+        self.la_symbol_ptr_sect_index = try self.addSection("__DATA", "__la_symbol_ptr", .{
+            .flags = macho.S_LAZY_SYMBOL_POINTERS,
+            .reserved1 = @intCast(self.stubs.symbols.items.len + self.got.symbols.items.len),
+        });
+    }
+
+    if (self.objc_stubs.symbols.items.len > 0) {
+        self.objc_stubs_sect_index = try self.addSection("__TEXT", "__objc_stubs", .{
+            .flags = macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+        });
+    }
+
+    if (self.tlv_ptr.symbols.items.len > 0) {
+        self.tlv_ptr_sect_index = try self.addSection("__DATA", "__thread_ptrs", .{
+            .flags = macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
+        });
+    }
+
+    const needs_unwind_info = for (self.objects.items) |index| {
+        if (self.getFile(index).?.object.compact_unwind_sect_index != null) break true;
+    } else false;
+    if (needs_unwind_info) {
+        self.unwind_info_sect_index = try self.addSection("__TEXT", "__unwind_info", .{});
+    }
+
+    const needs_eh_frame = for (self.objects.items) |index| {
+        if (self.getFile(index).?.object.eh_frame_sect_index != null) break true;
+    } else false;
+    if (needs_eh_frame) {
+        assert(needs_unwind_info);
+        self.eh_frame_sect_index = try self.addSection("__TEXT", "__eh_frame", .{});
+    }
+
+    for (self.boundary_symbols.items) |sym_index| {
+        const gpa = self.base.comp.gpa;
+        const sym = self.getSymbol(sym_index);
+        const name = sym.getName(self);
+
+        if (eatPrefix(name, "segment$start$")) |segname| {
+            if (self.getSegmentByName(segname) == null) { // TODO check segname is valid
+                const prot = getSegmentProt(segname);
+                _ = try self.segments.append(gpa, .{
+                    .cmdsize = @sizeOf(macho.segment_command_64),
+                    .segname = makeStaticString(segname),
+                    .initprot = prot,
+                    .maxprot = prot,
+                });
+            }
+        } else if (eatPrefix(name, "segment$stop$")) |segname| {
+            if (self.getSegmentByName(segname) == null) { // TODO check segname is valid
+                const prot = getSegmentProt(segname);
+                _ = try self.segments.append(gpa, .{
+                    .cmdsize = @sizeOf(macho.segment_command_64),
+                    .segname = makeStaticString(segname),
+                    .initprot = prot,
+                    .maxprot = prot,
+                });
+            }
+        } else if (eatPrefix(name, "section$start$")) |actual_name| {
+            const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
+            const segname = actual_name[0..sep]; // TODO check segname is valid
+            const sectname = actual_name[sep + 1 ..]; // TODO check sectname is valid
+            if (self.getSectionByName(segname, sectname) == null) {
+                _ = try self.addSection(segname, sectname, .{});
+            }
+        } else if (eatPrefix(name, "section$stop$")) |actual_name| {
+            const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
+            const segname = actual_name[0..sep]; // TODO check segname is valid
+            const sectname = actual_name[sep + 1 ..]; // TODO check sectname is valid
+            if (self.getSectionByName(segname, sectname) == null) {
+                _ = try self.addSection(segname, sectname, .{});
+            }
+        } else unreachable;
+    }
+}
+
+fn getSegmentProt(segname: []const u8) macho.vm_prot_t {
+    if (mem.eql(u8, segname, "__PAGEZERO")) return macho.PROT.NONE;
+    if (mem.eql(u8, segname, "__TEXT")) return macho.PROT.READ | macho.PROT.EXEC;
+    if (mem.eql(u8, segname, "__LINKEDIT")) return macho.PROT.READ;
+    return macho.PROT.READ | macho.PROT.WRITE;
+}
+
 fn shrinkAtom(self: *MachO, atom_index: Atom.Index, new_block_size: u64) void {
     _ = self;
     _ = atom_index;
@@ -1786,10 +1897,109 @@ pub fn getTarget(self: MachO) std.Target {
     return self.base.comp.root_mod.resolved_target.result;
 }
 
+/// XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
+/// Any change to the binary will effectively invalidate the kernel's cache
+/// resulting in a SIGKILL on each subsequent run. Since when doing incremental
+/// linking we're modifying a binary in-place, this will end up with the kernel
+/// killing it on every subsequent run. To circumvent it, we will copy the file
+/// into a new inode, remove the original file, and rename the copy to match
+/// the original file. This is super messy, but there doesn't seem any other
+/// way to please the XNU.
+pub fn invalidateKernelCache(dir: std.fs.Dir, sub_path: []const u8) !void {
+    if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
+        try dir.copyFile(sub_path, dir, sub_path, .{});
+    }
+}
+
+inline fn conformUuid(out: *[Md5.digest_length]u8) void {
+    // LC_UUID uuids should conform to RFC 4122 UUID version 4 & UUID version 5 formats
+    out[6] = (out[6] & 0x0F) | (3 << 4);
+    out[8] = (out[8] & 0x3F) | 0x80;
+}
+
+pub inline fn getPageSize(self: MachO) u16 {
+    return switch (self.getTarget().cpu.arch) {
+        .aarch64 => 0x4000,
+        .x86_64 => 0x1000,
+        else => unreachable,
+    };
+}
+
+pub fn requiresCodeSig(self: MachO) bool {
+    if (self.entitlements) |_| return true;
+    // if (self.options.adhoc_codesign) |cs| return cs;
+    return switch (self.getTarget().cpu.arch) {
+        .aarch64 => true,
+        else => false,
+    };
+}
+
+inline fn requiresThunks(self: MachO) bool {
+    return self.getTarget().cpu.arch == .aarch64;
+}
+
+const AddSectionOpts = struct {
+    flags: u32 = macho.S_REGULAR,
+    reserved1: u32 = 0,
+    reserved2: u32 = 0,
+};
+
+pub fn addSection(
+    self: *MachO,
+    segname: []const u8,
+    sectname: []const u8,
+    opts: AddSectionOpts,
+) !u8 {
+    const gpa = self.base.comp.gpa;
+    const index = @as(u8, @intCast(try self.sections.addOne(gpa)));
+    self.sections.set(index, .{
+        .segment_id = 0, // Segments will be created automatically later down the pipeline.
+        .header = .{
+            .sectname = makeStaticString(sectname),
+            .segname = makeStaticString(segname),
+            .flags = opts.flags,
+            .reserved1 = opts.reserved1,
+            .reserved2 = opts.reserved2,
+        },
+    });
+    return index;
+}
+
 pub fn makeStaticString(bytes: []const u8) [16]u8 {
     var buf = [_]u8{0} ** 16;
     @memcpy(buf[0..bytes.len], bytes);
     return buf;
+}
+
+pub fn getSegmentByName(self: MachO, segname: []const u8) ?u8 {
+    for (self.segments.items, 0..) |seg, i| {
+        if (mem.eql(u8, segname, seg.segName())) return @as(u8, @intCast(i));
+    } else return null;
+}
+
+pub fn getSectionByName(self: MachO, segname: []const u8, sectname: []const u8) ?u8 {
+    for (self.sections.items(.header), 0..) |header, i| {
+        if (mem.eql(u8, header.segName(), segname) and mem.eql(u8, header.sectName(), sectname))
+            return @as(u8, @intCast(i));
+    } else return null;
+}
+
+pub fn getTlsAddress(self: MachO) u64 {
+    for (self.sections.items(.header)) |header| switch (header.type()) {
+        macho.S_THREAD_LOCAL_REGULAR,
+        macho.S_THREAD_LOCAL_ZEROFILL,
+        => return header.addr,
+        else => {},
+    };
+    return 0;
+}
+
+pub inline fn getTextSegment(self: *MachO) *macho.segment_command_64 {
+    return &self.segments.items[self.text_seg_index.?];
+}
+
+pub inline fn getLinkeditSegment(self: *MachO) *macho.segment_command_64 {
+    return &self.segments.items[self.linkedit_seg_index.?];
 }
 
 pub fn getFile(self: *MachO, index: File.Index) ?File {
