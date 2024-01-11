@@ -99,10 +99,9 @@ pub fn DecompressStream(comptime ReaderType: type) type {
     };
 }
 
-/// Conviennce function which creates an instance of the DecompressStream data
-/// structure that operates on the @TypeOf() the "reader" parameter
-/// and initiallizes that instance with the "reader" parameter's
-/// context
+/// Convenience function which creates an instance of the DecompressStream
+/// data structure that operates on the @TypeOf() the "reader" parameter
+/// and initiallizes that instance with the "reader" parameter's context
 pub fn decompressStream(allocator: mem.Allocator, reader: anytype) !DecompressStream(@TypeOf(reader)) {
     return DecompressStream(@TypeOf(reader)).init(allocator, reader);
 }
@@ -163,6 +162,7 @@ pub fn CompressStream(comptime WriterType: type) type {
             };
         }
 
+        /// Write data to the compressor
         pub fn write(self: *Self, bytes: []const u8) Error!usize {
             if (bytes.len == 0) {
                 return 0;
@@ -198,7 +198,7 @@ pub fn CompressStream(comptime WriterType: type) type {
     };
 }
 
-/// Convience function which creates an instance of the CompressStream data structure
+/// Convenience function which creates an instance of the CompressStream data structure
 /// that operates on the @TypeOf() the "reader" parameter
 /// and initiallizes that instance with the "reader" parameter's context
 pub fn compressStream(allocator: mem.Allocator, writer: anytype, options: CompressStreamOptions) !CompressStream(@TypeOf(writer)) {
