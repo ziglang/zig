@@ -3256,7 +3256,12 @@ pub const Object = struct {
                 128 => .fp128,
                 else => unreachable,
             },
-            .anyopaque_type => unreachable,
+            .anyopaque_type => {
+                // This is unreachable except when used as the type for an extern global.
+                // For example: `@extern(*anyopaque, .{ .name = "foo"})` should produce
+                // @foo = external global i8
+                return .i8;
+            },
             .bool_type => .i1,
             .void_type => .void,
             .type_type => unreachable,
