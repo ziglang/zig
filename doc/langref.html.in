@@ -5370,6 +5370,44 @@ test "fn type inference" {
       {#code_end#}
 
       {#header_close#}
+
+      {#header_open|inline fn#}
+      <p>
+      Adding the {#syntax#}inline{#endsyntax#} keyword to a function definition makes that
+      function become <em>semantically inlined</em> at the callsite. This is
+      not a hint to be possibly observed by optimization passes, but has
+      implications on the types and values involved in the function call.
+      </p>
+      <p>
+      Unlike normal function calls, arguments at an inline function callsite which are
+      compile-time known are treated as {#link|Compile Time Parameters#}. This can potentially
+      propagate all the way to the return value:
+      </p>
+      {#code_begin|test|inline_call#}
+test "inline function call" {
+    if (foo(1200, 34) != 1234) {
+        @compileError("bad");
+    }
+}
+
+inline fn foo(a: i32, b: i32) i32 {
+    return a + b;
+}
+      {#code_end#}
+      <p>If {#syntax#}inline{#endsyntax#} is removed, the test fails with the compile error
+      instead of passing.</p>
+      <p>It is generally better to let the compiler decide when to inline a
+      function, except for these scenarios:</p>
+      <ul>
+        <li>To change how many stack frames are in the call stack, for debugging purposes.</li>
+        <li>To force comptime-ness of the arguments to propagate to the return value of the function, as in the above example.</i>
+        <li>Real world performance measurements demand it.</li>
+      </ul>
+      <p>Note that {#syntax#}inline{#endsyntax#} actually <em>restricts</em>
+      what the compiler is allowed to do. This can harm binary size,
+      compilation speed, and even runtime performance.</p>
+      {#header_close#}
+
       {#header_open|Function Reflection#}
       {#code_begin|test|test_fn_reflection#}
 const std = @import("std");
