@@ -26,7 +26,7 @@ pub fn deinit(info: *UnwindInfo, allocator: Allocator) void {
 }
 
 fn canFold(macho_file: *MachO, lhs_index: Record.Index, rhs_index: Record.Index) bool {
-    const cpu_arch = macho_file.options.cpu_arch.?;
+    const cpu_arch = macho_file.getTarget().cpu.arch;
     const lhs = macho_file.getUnwindRecord(lhs_index);
     const rhs = macho_file.getUnwindRecord(rhs_index);
     if (cpu_arch == .x86_64) {
@@ -42,7 +42,7 @@ fn canFold(macho_file: *MachO, lhs_index: Record.Index, rhs_index: Record.Index)
 }
 
 pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
 
     log.debug("generating unwind info", .{});
 

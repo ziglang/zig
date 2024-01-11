@@ -2,7 +2,7 @@ pub fn createThunks(sect_id: u8, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const slice = macho_file.sections.slice();
     const header = &slice.items(.header)[sect_id];
     const atoms = slice.items(.atoms)[sect_id].items;
@@ -46,18 +46,17 @@ pub fn createThunks(sect_id: u8, macho_file: *MachO) !void {
             atom.thunk_index = thunk_index;
         }
 
-        thunk.value = try advance(header, thunk.size(), 2);
+        thunk.value = try advance(header, thunk.size(), .@"4");
 
         log.debug("thunk({d}) : {}", .{ thunk_index, thunk.fmt(macho_file) });
     }
 }
 
-fn advance(sect: *macho.section_64, size: u64, pow2_align: u32) !u64 {
-    const alignment = try math.powi(u32, 2, pow2_align);
-    const offset = mem.alignForward(u64, sect.size, alignment);
+fn advance(sect: *macho.section_64, size: u64, alignment: Atom.Alignment) !u64 {
+    const offset = alignment.forward(sect.size);
     const padding = offset - sect.size;
     sect.size += padding + size;
-    sect.@"align" = @max(sect.@"align", pow2_align);
+    sect.@"align" = @max(sect.@"align", alignment.toLog2Units());
     return offset;
 }
 

@@ -346,7 +346,7 @@ fn addAtom(self: *Object, args: AddAtomArgs, macho_file: *MachO) !Atom.Index {
     atom.name = try macho_file.strings.insert(gpa, args.name);
     atom.n_sect = args.n_sect;
     atom.size = args.size;
-    atom.alignment = args.alignment;
+    atom.alignment = Atom.Alignment.fromLog2Units(args.alignment);
     atom.off = args.off;
     try self.atoms.append(gpa, atom_index);
     return atom_index;
@@ -1120,13 +1120,13 @@ pub fn convertTentativeDefinitions(self: *Object, macho_file: *MachO) !void {
         atom.name = try macho_file.strings.insert(gpa, name);
         atom.file = self.index;
         atom.size = nlist.n_value;
-        atom.alignment = (nlist.n_desc >> 8) & 0x0f;
+        atom.alignment = Atom.Alignment.fromLog2Units((nlist.n_desc >> 8) & 0x0f);
 
         const n_sect = try self.addSection(gpa, "__DATA", "__common");
         const sect = &self.sections.items(.header)[n_sect];
         sect.flags = macho.S_ZEROFILL;
         sect.size = atom.size;
-        sect.@"align" = atom.alignment;
+        sect.@"align" = atom.alignment.toLog2Units();
         atom.n_sect = n_sect;
 
         sym.value = 0;

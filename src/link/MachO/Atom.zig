@@ -11,7 +11,7 @@ file: File.Index = 0,
 size: u64 = 0,
 
 /// Alignment of this atom as a power of two.
-alignment: u32 = 0,
+alignment: Alignment = .@"1",
 
 /// Index of the input section.
 n_sect: u32 = 0,

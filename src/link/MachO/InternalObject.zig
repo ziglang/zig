@@ -48,7 +48,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
     atom.name = try macho_file.strings.insert(gpa, name);
     atom.file = self.index;
     atom.size = methname.len + 1;
-    atom.alignment = 0;
+    atom.alignment = .@"1";
 
     const n_sect = try self.addSection(gpa, "__TEXT", "__objc_methname");
     const sect = &self.sections.items(.header)[n_sect];
@@ -82,7 +82,7 @@ fn addObjcSelrefsSection(
     atom.name = try macho_file.strings.insert(gpa, name);
     atom.file = self.index;
     atom.size = @sizeOf(u64);
-    atom.alignment = 3;
+    atom.alignment = .@"8";
 
     const n_sect = try self.addSection(gpa, "__DATA", "__objc_selrefs");
     const sect = &self.sections.items(.header)[n_sect];
