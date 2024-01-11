@@ -20,9 +20,9 @@ pub fn deinit(self: *InternalObject, allocator: Allocator) void {
 }
 
 pub fn addSymbol(self: *InternalObject, name: [:0]const u8, macho_file: *MachO) !Symbol.Index {
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     try self.symbols.ensureUnusedCapacity(gpa, 1);
-    const off = try macho_file.string_intern.insert(gpa, name);
+    const off = try macho_file.strings.insert(gpa, name);
     const gop = try macho_file.getOrCreateGlobal(off);
     self.symbols.addOneAssumeCapacity().* = gop.index;
     const sym = macho_file.getSymbol(gop.index);
@@ -37,7 +37,7 @@ pub fn addObjcMsgsendSections(self: *InternalObject, sym_name: []const u8, macho
 }
 
 fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_file: *MachO) !Atom.Index {
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const atom_index = try macho_file.addAtom();
     try self.atoms.append(gpa, atom_index);
 
@@ -45,7 +45,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
     defer gpa.free(name);
     const atom = macho_file.getAtom(atom_index).?;
     atom.atom_index = atom_index;
-    atom.name = try macho_file.string_intern.insert(gpa, name);
+    atom.name = try macho_file.strings.insert(gpa, name);
     atom.file = self.index;
     atom.size = methname.len + 1;
     atom.alignment = 0;
@@ -71,7 +71,7 @@ fn addObjcSelrefsSection(
     methname_atom_index: Atom.Index,
     macho_file: *MachO,
 ) !Atom.Index {
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const atom_index = try macho_file.addAtom();
     try self.atoms.append(gpa, atom_index);
 
@@ -79,7 +79,7 @@ fn addObjcSelrefsSection(
     defer gpa.free(name);
     const atom = macho_file.getAtom(atom_index).?;
     atom.atom_index = atom_index;
-    atom.name = try macho_file.string_intern.insert(gpa, name);
+    atom.name = try macho_file.strings.insert(gpa, name);
     atom.file = self.index;
     atom.size = @sizeOf(u64);
     atom.alignment = 3;
