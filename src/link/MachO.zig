@@ -505,6 +505,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         try dead_strip.gcAtoms(self);
     }
 
+    self.markImportsAndExports();
+
     state_log.debug("{}", .{self.dumpState()});
 
     @panic("TODO");
@@ -1340,6 +1342,44 @@ fn claimUnresolved(self: *MachO) error{OutOfMemory}!void {
                 sym.flags.import = is_import;
                 sym.visibility = .global;
                 try self.getInternalObject().?.symbols.append(self.base.comp.gpa, sym_index);
+            }
+        }
+    }
+}
+
+fn markImportsAndExports(self: *MachO) void {
+    for (self.objects.items) |index| {
+        for (self.getFile(index).?.getSymbols()) |sym_index| {
+            const sym = self.getSymbol(sym_index);
+            const file = sym.getFile(self) orelse continue;
+            if (sym.visibility != .global) continue;
+            if (file == .dylib and !sym.flags.abs) {
+                sym.flags.import = true;
+                continue;
+            }
+            if (file.getIndex() == index) {
+                sym.flags.@"export" = true;
+            }
+        }
+    }
+
+    for (self.undefined_symbols.items) |index| {
+        const sym = self.getSymbol(index);
+        if (sym.getFile(self)) |file| {
+            if (sym.visibility != .global) continue;
+            if (file == .dylib and !sym.flags.abs) sym.flags.import = true;
+        }
+    }
+
+    for (&[_]?Symbol.Index{
+        self.entry_index,
+        self.dyld_stub_binder_index,
+        self.objc_msg_send_index,
+    }) |index| {
+        if (index) |idx| {
+            const sym = self.getSymbol(idx);
+            if (sym.getFile(self)) |file| {
+                if (file == .dylib) sym.flags.import = true;
             }
         }
     }
