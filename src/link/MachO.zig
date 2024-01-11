@@ -382,6 +382,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
             error.MalformedObject,
             error.MalformedArchive,
+            error.MalformedDylib,
             error.InvalidCpuArch,
             error.InvalidTarget,
             error.UnknownFileType,
@@ -432,8 +433,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
 
     for (system_libs.items) |lib| {
         self.parseLibrary(lib, false) catch |err| switch (err) {
-            error.MalformedDylib,
             error.MalformedArchive,
+            error.MalformedDylib,
             error.InvalidCpuArch,
             error.UnknownFileType,
             => continue, // already reported
@@ -794,7 +795,7 @@ fn parseLibrary(self: *MachO, lib: SystemLib, must_link: bool) ParseError!void {
         if (try Archive.isArchive(lib.path, fat_arch)) {
             try self.parseArchive(lib, must_link, fat_arch);
         } else if (try Dylib.isDylib(lib.path, fat_arch)) {
-            try self.parseDylib(lib, true, fat_arch);
+            _ = try self.parseDylib(lib, true, fat_arch);
         } else {
             try self.reportParseError(lib.path, "unknown file type for a library", .{});
             return error.UnknownFileType;
@@ -802,7 +803,7 @@ fn parseLibrary(self: *MachO, lib: SystemLib, must_link: bool) ParseError!void {
     } else if (try Archive.isArchive(lib.path, null)) {
         try self.parseArchive(lib, must_link, null);
     } else if (try Dylib.isDylib(lib.path, null)) {
-        try self.parseDylib(lib, true, null);
+        _ = try self.parseDylib(lib, true, null);
     } else {
         try self.parseTbd(lib, true);
     }
@@ -889,12 +890,39 @@ fn parseArchive(self: *MachO, lib: SystemLib, must_link: bool, fat_arch: ?fat.Ar
     if (has_parse_error) return error.MalformedArchive;
 }
 
-fn parseDylib(self: *MachO, lib: SystemLib, explicit: bool, fat_arch: ?fat.Arch) ParseError!void {
-    _ = self;
-    _ = lib;
-    _ = explicit;
-    _ = fat_arch;
-    return error.Unhandled;
+fn parseDylib(self: *MachO, lib: SystemLib, explicit: bool, fat_arch: ?fat.Arch) ParseError!File.Index {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = self.base.comp.gpa;
+
+    const file = try std.fs.cwd().openFile(lib.path, .{});
+    defer file.close();
+
+    const data = if (fat_arch) |arch| blk: {
+        try file.seekTo(arch.offset);
+        const data = try gpa.alloc(u8, arch.size);
+        const nread = try file.readAll(data);
+        if (nread != arch.size) return error.InputOutput;
+        break :blk data;
+    } else try file.readToEndAlloc(gpa, std.math.maxInt(u32));
+
+    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+    self.files.set(index, .{ .dylib = .{
+        .path = try gpa.dupe(u8, lib.path),
+        .data = data,
+        .index = index,
+        .needed = lib.needed,
+        .weak = lib.weak,
+        .reexport = lib.reexport,
+        .explicit = explicit,
+    } });
+    const dylib = &self.files.items(.data)[index].dylib;
+    try dylib.parse(self);
+
+    try self.dylibs.append(gpa, index);
+
+    return index;
 }
 
 fn parseTbd(self: *MachO, lib: SystemLib, explicit: bool) ParseError!void {

@@ -34,6 +34,8 @@ pub fn isDylib(path: []const u8, fat_arch: ?fat.Arch) !bool {
 }
 
 pub fn deinit(self: *Dylib, allocator: Allocator) void {
+    allocator.free(self.data);
+    allocator.free(self.path);
     self.exports.deinit(allocator);
     self.strtab.deinit(allocator);
     if (self.id) |*id| id.deinit(allocator);
@@ -49,7 +51,7 @@ pub fn parse(self: *Dylib, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     var stream = std.io.fixedBufferStream(self.data);
     const reader = stream.reader();
 
@@ -57,9 +59,22 @@ pub fn parse(self: *Dylib, macho_file: *MachO) !void {
 
     self.header = try reader.readStruct(macho.mach_header_64);
 
+    const this_cpu_arch: std.Target.Cpu.Arch = switch (self.header.?.cputype) {
+        macho.CPU_TYPE_ARM64 => .aarch64,
+        macho.CPU_TYPE_X86_64 => .x86_64,
+        else => |x| {
+            try macho_file.reportParseError2(self.index, "unknown cpu architecture: {d}", .{x});
+            return error.InvalidCpuArch;
+        },
+    };
+    if (macho_file.getTarget().cpu.arch != this_cpu_arch) {
+        try macho_file.reportParseError2(self.index, "invalid cpu architecture: {s}", .{@tagName(this_cpu_arch)});
+        return error.InvalidCpuArch;
+    }
+
     const lc_id = self.getLoadCommand(.ID_DYLIB) orelse {
-        macho_file.base.fatal("{s}: missing LC_ID_DYLIB load command", .{self.path});
-        return error.ParseFailed;
+        try macho_file.reportParseError2(self.index, "missing LC_ID_DYLIB load command", .{});
+        return error.MalformedDylib;
     };
     self.id = try Id.fromLoadCommand(gpa, lc_id.cast(macho.dylib_command).?, lc_id.getDylibPathName());
 
@@ -90,6 +105,23 @@ pub fn parse(self: *Dylib, macho_file: *MachO) !void {
     };
 
     self.initPlatform();
+
+    if (self.platform) |platform| {
+        if (!macho_file.platform.eqlTarget(platform)) {
+            try macho_file.reportParseError2(self.index, "invalid platform: {}", .{
+                platform.fmtTarget(macho_file.getTarget().cpu.arch),
+            });
+            return error.InvalidTarget;
+        }
+        if (macho_file.platform.version.order(platform.version) == .lt) {
+            try macho_file.reportParseError2(self.index, "object file built for newer platform: {}: {} < {}", .{
+                macho_file.platform.fmtTarget(macho_file.getTarget().cpu.arch),
+                macho_file.platform.version,
+                platform.version,
+            });
+            return error.InvalidTarget;
+        }
+    }
 }
 
 const TrieIterator = struct {
@@ -187,7 +219,7 @@ fn parseTrieNode(
 fn parseTrie(self: *Dylib, data: []const u8, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
@@ -204,7 +236,7 @@ pub fn parseTbd(
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
 
     log.debug("parsing dylib from stub", .{});
 
@@ -435,7 +467,7 @@ fn addObjCExport(
 }
 
 pub fn initSymbols(self: *Dylib, macho_file: *MachO) !void {
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
 
     try self.symbols.ensureTotalCapacityPrecise(gpa, self.exports.items(.name).len);
 
@@ -459,7 +491,7 @@ fn initPlatform(self: *Dylib) void {
             .VERSION_MIN_IPHONEOS,
             .VERSION_MIN_TVOS,
             .VERSION_MIN_WATCHOS,
-            => break MachO.Options.Platform.fromLoadCommand(cmd),
+            => break MachO.Platform.fromLoadCommand(cmd),
             else => {},
         }
     } else null;
