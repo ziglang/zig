@@ -497,6 +497,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     }
 
     try self.addUndefinedGlobals();
+    try self.resolveSymbols();
 
     state_log.debug("{}", .{self.dumpState()});
 
@@ -1157,6 +1158,63 @@ fn addUndefinedGlobals(self: *MachO) !void {
     }
 }
 
+/// When resolving symbols, we approach the problem similarly to `mold`.
+/// 1. Resolve symbols across all objects (including those preemptively extracted archives).
+/// 2. Resolve symbols across all shared objects.
+/// 3. Mark live objects (see `MachO.markLive`)
+/// 4. Reset state of all resolved globals since we will redo this bit on the pruned set.
+/// 5. Remove references to dead objects/shared objects
+/// 6. Re-run symbol resolution on pruned objects and shared objects sets.
+pub fn resolveSymbols(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
+    for (self.objects.items) |index| self.getFile(index).?.resolveSymbols(self);
+    for (self.dylibs.items) |index| self.getFile(index).?.resolveSymbols(self);
+
+    // Mark live objects.
+    self.markLive();
+
+    // Reset state of all globals after marking live objects.
+    for (self.objects.items) |index| self.getFile(index).?.resetGlobals(self);
+    for (self.dylibs.items) |index| self.getFile(index).?.resetGlobals(self);
+
+    // Prune dead objects.
+    var i: usize = 0;
+    while (i < self.objects.items.len) {
+        const index = self.objects.items[i];
+        if (!self.getFile(index).?.object.alive) {
+            _ = self.objects.orderedRemove(i);
+        } else i += 1;
+    }
+
+    // Re-resolve the symbols.
+    for (self.objects.items) |index| self.getFile(index).?.resolveSymbols(self);
+    for (self.dylibs.items) |index| self.getFile(index).?.resolveSymbols(self);
+}
+
+fn markLive(self: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    for (self.undefined_symbols.items) |index| {
+        if (self.getSymbol(index).getFile(self)) |file| {
+            if (file == .object) file.object.alive = true;
+        }
+    }
+    if (self.entry_index) |index| {
+        const sym = self.getSymbol(index);
+        if (sym.getFile(self)) |file| {
+            if (file == .object) file.object.alive = true;
+        }
+    }
+    for (self.objects.items) |index| {
+        const object = self.getFile(index).?.object;
+        if (object.alive) object.markLive(self);
+    }
+}
+
 fn shrinkAtom(self: *MachO, atom_index: Atom.Index, new_block_size: u64) void {
     _ = self;
     _ = atom_index;
@@ -1791,18 +1849,18 @@ fn fmtDumpState(
             object.fmtSymtab(self),
         });
     }
-    // for (self.dylibs.items) |index| {
-    //     const dylib = self.getFile(index).?.dylib;
-    //     try writer.print("dylib({d}) : {s} : needed({}) : weak({})", .{
-    //         index,
-    //         dylib.path,
-    //         dylib.needed,
-    //         dylib.weak,
-    //     });
-    //     if (!dylib.isAlive(self)) try writer.writeAll(" : ([*])");
-    //     try writer.writeByte('\n');
-    //     try writer.print("{}\n", .{dylib.fmtSymtab(self)});
-    // }
+    for (self.dylibs.items) |index| {
+        const dylib = self.getFile(index).?.dylib;
+        try writer.print("dylib({d}) : {s} : needed({}) : weak({})", .{
+            index,
+            dylib.path,
+            dylib.needed,
+            dylib.weak,
+        });
+        if (!dylib.isAlive(self)) try writer.writeAll(" : ([*])");
+        try writer.writeByte('\n');
+        try writer.print("{}\n", .{dylib.fmtSymtab(self)});
+    }
     if (self.getInternalObject()) |internal| {
         try writer.print("internal({d}) : internal\n", .{internal.index});
         try writer.print("{}{}\n", .{ internal.fmtAtoms(self), internal.fmtSymtab(self) });
