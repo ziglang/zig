@@ -7,7 +7,6 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Dylib = @import("Dylib.zig");
 const MachO = @import("../MachO.zig");
-const Options = @import("../MachO.zig").Options;
 
 pub const default_dyld_path: [*:0]const u8 = "/usr/lib/dyld";
 
@@ -200,17 +199,29 @@ pub fn writeDylibLC(ctx: WriteDylibLCCtx, writer: anytype) !void {
     }
 }
 
-pub fn writeDylibIdLC(options: *const Options, writer: anytype) !void {
-    assert(options.dylib);
-    const emit = options.emit;
-    const install_name = options.install_name orelse emit.sub_path;
-    const curr = options.current_version orelse Options.Version.new(1, 0, 0);
-    const compat = options.compatibility_version orelse Options.Version.new(1, 0, 0);
+pub fn writeDylibIdLC(macho_file: *MachO, writer: anytype) !void {
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
+    assert(comp.config.output_mode == .Lib and comp.config.link_mode == .Dynamic);
+    const emit = macho_file.base.emit;
+    const install_name = macho_file.install_name orelse
+        try emit.directory.join(gpa, &.{emit.sub_path});
+    defer if (macho_file.install_name == null) gpa.free(install_name);
+    const curr = comp.version orelse std.SemanticVersion{
+        .major = 1,
+        .minor = 0,
+        .patch = 0,
+    };
+    const compat = macho_file.compatibility_version orelse std.SemanticVersion{
+        .major = 1,
+        .minor = 0,
+        .patch = 0,
+    };
     try writeDylibLC(.{
         .cmd = .ID_DYLIB,
         .name = install_name,
-        .current_version = curr.value,
-        .compatibility_version = compat.value,
+        .current_version = @as(u32, @intCast(curr.major << 16 | curr.minor << 8 | curr.patch)),
+        .compatibility_version = @as(u32, @intCast(compat.major << 16 | compat.minor << 8 | compat.patch)),
     }, writer);
 }
 
@@ -235,32 +246,38 @@ pub fn writeRpathLCs(rpaths: []const []const u8, writer: anytype) !void {
     }
 }
 
-pub fn writeVersionMinLC(platform: Options.Platform, sdk_version: ?Options.Version, writer: anytype) !void {
-    const cmd: macho.LC = switch (platform.platform) {
-        .MACOS => .VERSION_MIN_MACOSX,
-        .IOS, .IOSSIMULATOR => .VERSION_MIN_IPHONEOS,
-        .TVOS, .TVOSSIMULATOR => .VERSION_MIN_TVOS,
-        .WATCHOS, .WATCHOSSIMULATOR => .VERSION_MIN_WATCHOS,
+pub fn writeVersionMinLC(platform: MachO.Platform, sdk_version: ?std.SemanticVersion, writer: anytype) !void {
+    const cmd: macho.LC = switch (platform.os_tag) {
+        .macos => .VERSION_MIN_MACOSX,
+        .ios => .VERSION_MIN_IPHONEOS,
+        .tvos => .VERSION_MIN_TVOS,
+        .watchos => .VERSION_MIN_WATCHOS,
         else => unreachable,
     };
     try writer.writeAll(mem.asBytes(&macho.version_min_command{
         .cmd = cmd,
-        .version = platform.version.value,
-        .sdk = if (sdk_version) |ver| ver.value else platform.version.value,
+        .version = platform.toAppleVersion(),
+        .sdk = if (sdk_version) |ver|
+            MachO.semanticVersionToAppleVersion(ver)
+        else
+            platform.toAppleVersion(),
     }));
 }
 
-pub fn writeBuildVersionLC(platform: Options.Platform, sdk_version: ?Options.Version, writer: anytype) !void {
+pub fn writeBuildVersionLC(platform: MachO.Platform, sdk_version: ?std.SemanticVersion, writer: anytype) !void {
     const cmdsize = @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
     try writer.writeStruct(macho.build_version_command{
         .cmdsize = cmdsize,
-        .platform = platform.platform,
-        .minos = platform.version.value,
-        .sdk = if (sdk_version) |ver| ver.value else platform.version.value,
+        .platform = platform.toApplePlatform(),
+        .minos = platform.toAppleVersion(),
+        .sdk = if (sdk_version) |ver|
+            MachO.semanticVersionToAppleVersion(ver)
+        else
+            platform.toAppleVersion(),
         .ntools = 1,
     });
     try writer.writeAll(mem.asBytes(&macho.build_tool_version{
-        .tool = @as(macho.TOOL, @enumFromInt(0x6)),
+        .tool = .ZIG,
         .version = 0x0,
     }));
 }

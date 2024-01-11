@@ -230,9 +230,14 @@ pub fn setOutputSym(symbol: Symbol, macho_file: *MachO, out: *macho.nlist_64) vo
         out.n_value = 0;
         out.n_desc = 0;
 
-        const ord: u16 = if (macho_file.options.namespace == .flat)
-            @as(u8, @bitCast(macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP))
-        else if (symbol.getDylibOrdinal(macho_file)) |ord|
+        // TODO:
+        // const ord: u16 = if (macho_file.options.namespace == .flat)
+        //     @as(u8, @bitCast(macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP))
+        // else if (symbol.getDylibOrdinal(macho_file)) |ord|
+        //     ord
+        // else
+        //     macho.BIND_SPECIAL_DYLIB_SELF;
+        const ord: u16 = if (symbol.getDylibOrdinal(macho_file)) |ord|
             ord
         else
             macho.BIND_SPECIAL_DYLIB_SELF;
