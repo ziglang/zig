@@ -8,10 +8,10 @@ const native_endian = builtin.target.cpu.arch.endian();
 
 const MachO = @import("../MachO.zig");
 
-pub fn isFatLibrary(file: std.fs.File) bool {
-    const reader = file.reader();
-    const hdr = reader.readStructEndian(macho.fat_header, .big) catch return false;
-    defer file.seekTo(0) catch {};
+pub fn isFatLibrary(path: []const u8) !bool {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    const hdr = file.reader().readStructEndian(macho.fat_header, .big) catch return false;
     return hdr.magic == macho.FAT_MAGIC;
 }
 
@@ -21,7 +21,9 @@ pub const Arch = struct {
     size: u32,
 };
 
-pub fn parseArchs(file: std.fs.File, buffer: *[2]Arch) ![]const Arch {
+pub fn parseArchs(path: []const u8, buffer: *[2]Arch) ![]const Arch {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
     const reader = file.reader();
     const fat_header = try reader.readStructEndian(macho.fat_header, .big);
     assert(fat_header.magic == macho.FAT_MAGIC);

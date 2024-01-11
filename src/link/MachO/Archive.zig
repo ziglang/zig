@@ -61,6 +61,17 @@ const ar_hdr = extern struct {
     }
 };
 
+pub fn isArchive(path: []const u8, fat_arch: ?fat.Arch) !bool {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    if (fat_arch) |arch| {
+        try file.seekTo(arch.offset);
+    }
+    const magic = file.reader().readBytesNoEof(SARMAG) catch return false;
+    if (!mem.eql(u8, &magic, ARMAG)) return false;
+    return true;
+}
+
 pub fn deinit(self: *Archive, allocator: Allocator) void {
     self.objects.deinit(allocator);
 }
@@ -117,6 +128,7 @@ pub fn parse(self: *Archive, arena: Allocator, macho_file: *MachO) !void {
     }
 }
 
+const fat = @import("fat.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;

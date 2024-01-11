@@ -23,6 +23,16 @@ referenced: bool = false,
 
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
+pub fn isDylib(path: []const u8, fat_arch: ?fat.Arch) !bool {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    if (fat_arch) |arch| {
+        try file.seekTo(arch.offset);
+    }
+    const header = file.reader().readStruct(macho.mach_header_64) catch return false;
+    return header.filetype == macho.MH_DYLIB;
+}
+
 pub fn deinit(self: *Dylib, allocator: Allocator) void {
     self.exports.deinit(allocator);
     self.strtab.deinit(allocator);

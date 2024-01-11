@@ -384,6 +384,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
             error.MalformedArchive,
             error.InvalidCpuArch,
             error.InvalidTarget,
+            error.UnknownFileType,
             => continue, // already reported
             else => |e| try self.reportParseError(
                 obj.path,
@@ -392,6 +393,81 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
             ),
         };
     }
+
+    var system_libs = std.ArrayList(SystemLib).init(gpa);
+    defer system_libs.deinit();
+
+    // libs
+    try system_libs.ensureUnusedCapacity(comp.system_libs.values().len);
+    for (comp.system_libs.values()) |info| {
+        system_libs.appendAssumeCapacity(.{
+            .needed = info.needed,
+            .weak = info.weak,
+            .path = info.path.?,
+        });
+    }
+
+    // frameworks
+    try system_libs.ensureUnusedCapacity(self.frameworks.len);
+    for (self.frameworks) |info| {
+        system_libs.appendAssumeCapacity(.{
+            .needed = info.needed,
+            .weak = info.weak,
+            .path = info.path,
+        });
+    }
+
+    // libc++ dep
+    if (comp.config.link_libcpp) {
+        try system_libs.ensureUnusedCapacity(2);
+        system_libs.appendAssumeCapacity(.{ .path = comp.libcxxabi_static_lib.?.full_object_path });
+        system_libs.appendAssumeCapacity(.{ .path = comp.libcxx_static_lib.?.full_object_path });
+    }
+
+    // libc/libSystem dep
+    self.resolveLibSystem(arena, comp, &system_libs) catch |err| switch (err) {
+        error.MissingLibSystem => {}, // already reported
+        else => |e| return e, // TODO: convert into an error
+    };
+
+    for (system_libs.items) |lib| {
+        self.parseLibrary(lib, false) catch |err| switch (err) {
+            error.MalformedDylib,
+            error.MalformedArchive,
+            error.InvalidCpuArch,
+            error.UnknownFileType,
+            => continue, // already reported
+            else => |e| try self.reportParseError(
+                lib.path,
+                "unexpected error: parsing library failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
+    }
+
+    // Finally, link against compiler_rt.
+    const compiler_rt_path: ?[]const u8 = blk: {
+        if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
+        if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
+        break :blk null;
+    };
+    if (compiler_rt_path) |path| {
+        self.parsePositional(path, false) catch |err| switch (err) {
+            error.MalformedObject,
+            error.MalformedArchive,
+            error.InvalidCpuArch,
+            error.InvalidTarget,
+            error.UnknownFileType,
+            => {}, // already reported
+            else => |e| try self.reportParseError(
+                path,
+                "unexpected error: parsing input file failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
+    }
+
+    if (comp.link_errors.items.len > 0) return error.FlushFailure;
 
     state_log.debug("{}", .{self.dumpState()});
 
@@ -626,13 +702,12 @@ pub fn resolveLibSystem(
         };
 
         try self.reportMissingLibraryError(checked_paths.items, "unable to find libSystem system library", .{});
-        return;
+        return error.MissingLibSystem;
     }
 
     const libsystem_path = try arena.dupe(u8, test_path.items);
-    try out_libs.put(libsystem_path, .{
+    try out_libs.append(.{
         .needed = true,
-        .weak = false,
         .path = libsystem_path,
     });
 }
@@ -685,6 +760,7 @@ fn accessLibPath(
 const ParseError = error{
     MalformedObject,
     MalformedArchive,
+    MalformedDylib,
     NotLibStub,
     InvalidCpuArch,
     InvalidTarget,
@@ -696,6 +772,8 @@ const ParseError = error{
     EndOfStream,
     FileSystem,
     NotSupported,
+    Unhandled,
+    UnknownFileType,
 } || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError || tapi.TapiError;
 
 fn parsePositional(self: *MachO, path: []const u8, must_link: bool) ParseError!void {
@@ -709,9 +787,25 @@ fn parsePositional(self: *MachO, path: []const u8, must_link: bool) ParseError!v
 }
 
 fn parseLibrary(self: *MachO, lib: SystemLib, must_link: bool) ParseError!void {
-    _ = self;
-    _ = lib;
-    _ = must_link;
+    const tracy = trace(@src());
+    defer tracy.end();
+    if (try fat.isFatLibrary(lib.path)) {
+        const fat_arch = try self.parseFatLibrary(lib.path);
+        if (try Archive.isArchive(lib.path, fat_arch)) {
+            try self.parseArchive(lib, must_link, fat_arch);
+        } else if (try Dylib.isDylib(lib.path, fat_arch)) {
+            try self.parseDylib(lib, true, fat_arch);
+        } else {
+            try self.reportParseError(lib.path, "unknown file type for a library", .{});
+            return error.UnknownFileType;
+        }
+    } else if (try Archive.isArchive(lib.path, null)) {
+        try self.parseArchive(lib, must_link, null);
+    } else if (try Dylib.isDylib(lib.path, null)) {
+        try self.parseDylib(lib, true, null);
+    } else {
+        try self.parseTbd(lib, true);
+    }
 }
 
 fn parseObject(self: *MachO, path: []const u8) ParseError!void {
@@ -737,6 +831,40 @@ fn parseObject(self: *MachO, path: []const u8) ParseError!void {
 
     const object = self.getFile(index).?.object;
     try object.parse(self);
+}
+
+fn parseFatLibrary(self: *MachO, path: []const u8) !fat.Arch {
+    var buffer: [2]fat.Arch = undefined;
+    const fat_archs = try fat.parseArchs(path, &buffer);
+    const cpu_arch = self.getTarget().cpu.arch;
+    for (fat_archs) |arch| {
+        if (arch.tag == cpu_arch) return arch;
+    }
+    try self.reportParseError(path, "missing arch in universal file: expected {s}", .{@tagName(cpu_arch)});
+    return error.InvalidCpuArch;
+}
+
+fn parseArchive(self: *MachO, lib: SystemLib, must_link: bool, fat_arch: ?fat.Arch) ParseError!void {
+    _ = self;
+    _ = lib;
+    _ = must_link;
+    _ = fat_arch;
+    return error.Unhandled;
+}
+
+fn parseDylib(self: *MachO, lib: SystemLib, explicit: bool, fat_arch: ?fat.Arch) ParseError!void {
+    _ = self;
+    _ = lib;
+    _ = explicit;
+    _ = fat_arch;
+    return error.Unhandled;
+}
+
+fn parseTbd(self: *MachO, lib: SystemLib, explicit: bool) ParseError!void {
+    _ = self;
+    _ = lib;
+    _ = explicit;
+    return error.Unhandled;
 }
 
 fn shrinkAtom(self: *MachO, atom_index: Atom.Index, new_block_size: u64) void {
