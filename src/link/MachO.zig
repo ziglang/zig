@@ -500,6 +500,9 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     try self.resolveSymbols();
     try self.resolveSyntheticSymbols();
 
+    try self.convertTentativeDefinitions();
+    try self.createObjcSections();
+
     state_log.debug("{}", .{self.dumpState()});
 
     @panic("TODO");
@@ -1260,6 +1263,50 @@ fn resolveSyntheticSymbols(self: *MachO) !void {
             _ = try internal.addSymbol(self.getSymbol(entry.key_ptr.*).getName(self), self);
             self.boundary_symbols.appendAssumeCapacity(entry.key_ptr.*);
         }
+    }
+}
+
+fn convertTentativeDefinitions(self: *MachO) !void {
+    for (self.objects.items) |index| {
+        try self.getFile(index).?.object.convertTentativeDefinitions(self);
+    }
+}
+
+fn createObjcSections(self: *MachO) !void {
+    const gpa = self.base.comp.gpa;
+    var objc_msgsend_syms = std.AutoArrayHashMap(Symbol.Index, void).init(gpa);
+    defer objc_msgsend_syms.deinit();
+
+    for (self.objects.items) |index| {
+        const object = self.getFile(index).?.object;
+
+        for (object.symbols.items, 0..) |sym_index, i| {
+            const nlist_idx = @as(Symbol.Index, @intCast(i));
+            const nlist = object.symtab.items(.nlist)[nlist_idx];
+            if (!nlist.ext()) continue;
+            if (!nlist.undf()) continue;
+
+            const sym = self.getSymbol(sym_index);
+            if (sym.getFile(self) != null) continue;
+            if (mem.startsWith(u8, sym.getName(self), "_objc_msgSend$")) {
+                _ = try objc_msgsend_syms.put(sym_index, {});
+            }
+        }
+    }
+
+    for (objc_msgsend_syms.keys()) |sym_index| {
+        const sym = self.getSymbol(sym_index);
+        sym.value = 0;
+        sym.atom = 0;
+        sym.nlist_idx = 0;
+        sym.file = self.internal_object.?;
+        sym.flags = .{};
+        sym.visibility = .hidden;
+        const object = self.getInternalObject().?;
+        const name = eatPrefix(sym.getName(self), "_objc_msgSend$").?;
+        const selrefs_index = try object.addObjcMsgsendSections(name, self);
+        try sym.addExtra(.{ .objc_selrefs = selrefs_index }, self);
+        try object.symbols.append(gpa, sym_index);
     }
 }
 
