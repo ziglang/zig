@@ -11,4 +11,4 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :6:34: error: Cannot @ptrCast comptime type '*const fn () callconv(.Inline) bool' to non-comptime type '*const fn () bool'
+// :6:34: error: Cannot @ptrCast comptime only type '*const fn () callconv(.Inline) bool' to non-comptime only type '*const fn () bool'
