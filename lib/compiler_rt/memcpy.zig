@@ -56,12 +56,13 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
         return dest;
     }
 
-    while (n > 0) {
-        d[0] = s[0];
-        n -= 1;
-        d += 1;
-        s += 1;
+    while (n >= small_limit / 2) {
+        memcpy_remainder(small_limit, d, s, small_limit / 2);
+        n -= small_limit / 2;
+        d += small_limit / 2;
+        s += small_limit / 2;
     }
+    memcpy_remainder(small_limit / 2, d, s, n);
 
     return dest;
 }
