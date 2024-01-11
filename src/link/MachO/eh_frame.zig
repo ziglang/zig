@@ -314,7 +314,7 @@ pub fn calcSize(macho_file: *MachO) !u32 {
 
     var offset: u32 = 0;
 
-    var cies = std.ArrayList(Cie).init(macho_file.base.allocator);
+    var cies = std.ArrayList(Cie).init(macho_file.base.comp.gpa);
     defer cies.deinit();
 
     for (macho_file.objects.items) |index| {

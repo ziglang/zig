@@ -89,7 +89,7 @@ weak_defines: bool = false,
 /// SDK layout
 sdk_layout: ?SdkLayout,
 /// Size of the __PAGEZERO segment.
-pagezero_vmsize: ?u64,
+pagezero_size: ?u64,
 /// Minimum space for future expansion of the load commands.
 headerpad_size: ?u32,
 /// Set enough space as if all paths were MATPATHLEN.
@@ -170,7 +170,7 @@ pub fn createEmpty(
             .build_id = options.build_id,
             .rpath_list = options.rpath_list,
         },
-        .pagezero_vmsize = options.pagezero_size,
+        .pagezero_size = options.pagezero_size,
         .headerpad_size = options.headerpad_size,
         .headerpad_max_install_names = options.headerpad_max_install_names,
         .dead_strip_dylibs = options.dead_strip_dylibs,
@@ -527,6 +527,11 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
 
     try self.initOutputSections();
     try self.initSyntheticSections();
+    try self.sortSections();
+    try self.addAtomsToSections();
+    try self.calcSectionSizes();
+    try self.generateUnwindInfo();
+    try self.initSegments();
 
     state_log.debug("{}", .{self.dumpState()});
 
@@ -613,7 +618,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(rpath);
         }
 
-        if (self.pagezero_vmsize) |size| {
+        if (self.pagezero_size) |size| {
             try argv.append("-pagezero_size");
             try argv.append(try std.fmt.allocPrint(arena, "0x{x}", .{size}));
         }
@@ -1665,6 +1670,350 @@ fn getSegmentProt(segname: []const u8) macho.vm_prot_t {
     if (mem.eql(u8, segname, "__TEXT")) return macho.PROT.READ | macho.PROT.EXEC;
     if (mem.eql(u8, segname, "__LINKEDIT")) return macho.PROT.READ;
     return macho.PROT.READ | macho.PROT.WRITE;
+}
+
+fn getSegmentRank(segname: []const u8) u4 {
+    if (mem.eql(u8, segname, "__PAGEZERO")) return 0x0;
+    if (mem.eql(u8, segname, "__TEXT")) return 0x1;
+    if (mem.eql(u8, segname, "__DATA_CONST")) return 0x2;
+    if (mem.eql(u8, segname, "__DATA")) return 0x3;
+    if (mem.eql(u8, segname, "__LINKEDIT")) return 0x5;
+    return 0x4;
+}
+
+fn getSectionRank(self: *MachO, sect_index: u8) u8 {
+    const header = self.sections.items(.header)[sect_index];
+    const segment_rank = getSegmentRank(header.segName());
+    const section_rank: u4 = blk: {
+        if (header.isCode()) {
+            if (mem.eql(u8, "__text", header.sectName())) break :blk 0x0;
+            if (header.type() == macho.S_SYMBOL_STUBS) break :blk 0x1;
+            break :blk 0x2;
+        }
+        switch (header.type()) {
+            macho.S_NON_LAZY_SYMBOL_POINTERS,
+            macho.S_LAZY_SYMBOL_POINTERS,
+            => break :blk 0x0,
+
+            macho.S_MOD_INIT_FUNC_POINTERS => break :blk 0x1,
+            macho.S_MOD_TERM_FUNC_POINTERS => break :blk 0x2,
+            macho.S_ZEROFILL => break :blk 0xf,
+            macho.S_THREAD_LOCAL_REGULAR => break :blk 0xd,
+            macho.S_THREAD_LOCAL_ZEROFILL => break :blk 0xe,
+
+            else => {
+                if (mem.eql(u8, "__unwind_info", header.sectName())) break :blk 0xe;
+                if (mem.eql(u8, "__compact_unwind", header.sectName())) break :blk 0xe;
+                if (mem.eql(u8, "__eh_frame", header.sectName())) break :blk 0xf;
+                break :blk 0x3;
+            },
+        }
+    };
+    return (@as(u8, @intCast(segment_rank)) << 4) + section_rank;
+}
+
+pub fn sortSections(self: *MachO) !void {
+    const Entry = struct {
+        index: u8,
+
+        pub fn lessThan(macho_file: *MachO, lhs: @This(), rhs: @This()) bool {
+            return macho_file.getSectionRank(lhs.index) < macho_file.getSectionRank(rhs.index);
+        }
+    };
+
+    const gpa = self.base.comp.gpa;
+
+    var entries = try std.ArrayList(Entry).initCapacity(gpa, self.sections.slice().len);
+    defer entries.deinit();
+    for (0..self.sections.slice().len) |index| {
+        entries.appendAssumeCapacity(.{ .index = @intCast(index) });
+    }
+
+    mem.sort(Entry, entries.items, self, Entry.lessThan);
+
+    const backlinks = try gpa.alloc(u8, entries.items.len);
+    defer gpa.free(backlinks);
+    for (entries.items, 0..) |entry, i| {
+        backlinks[entry.index] = @intCast(i);
+    }
+
+    var slice = self.sections.toOwnedSlice();
+    defer slice.deinit(gpa);
+
+    try self.sections.ensureTotalCapacity(gpa, slice.len);
+    for (entries.items) |sorted| {
+        self.sections.appendAssumeCapacity(slice.get(sorted.index));
+    }
+
+    for (self.objects.items) |index| {
+        for (self.getFile(index).?.object.atoms.items) |atom_index| {
+            const atom = self.getAtom(atom_index) orelse continue;
+            if (!atom.flags.alive) continue;
+            atom.out_n_sect = backlinks[atom.out_n_sect];
+        }
+    }
+    if (self.getInternalObject()) |object| {
+        for (object.atoms.items) |atom_index| {
+            const atom = self.getAtom(atom_index) orelse continue;
+            if (!atom.flags.alive) continue;
+            atom.out_n_sect = backlinks[atom.out_n_sect];
+        }
+    }
+
+    for (&[_]*?u8{
+        &self.data_sect_index,
+        &self.got_sect_index,
+        &self.stubs_sect_index,
+        &self.stubs_helper_sect_index,
+        &self.la_symbol_ptr_sect_index,
+        &self.tlv_ptr_sect_index,
+        &self.eh_frame_sect_index,
+        &self.unwind_info_sect_index,
+        &self.objc_stubs_sect_index,
+    }) |maybe_index| {
+        if (maybe_index.*) |*index| {
+            index.* = backlinks[index.*];
+        }
+    }
+}
+
+pub fn addAtomsToSections(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    for (self.objects.items) |index| {
+        const object = self.getFile(index).?.object;
+        for (object.atoms.items) |atom_index| {
+            const atom = self.getAtom(atom_index) orelse continue;
+            if (!atom.flags.alive) continue;
+            const atoms = &self.sections.items(.atoms)[atom.out_n_sect];
+            try atoms.append(self.base.comp.gpa, atom_index);
+        }
+        for (object.symbols.items) |sym_index| {
+            const sym = self.getSymbol(sym_index);
+            const atom = sym.getAtom(self) orelse continue;
+            if (!atom.flags.alive) continue;
+            if (sym.getFile(self).?.getIndex() != index) continue;
+            sym.out_n_sect = atom.out_n_sect;
+        }
+    }
+    if (self.getInternalObject()) |object| {
+        for (object.atoms.items) |atom_index| {
+            const atom = self.getAtom(atom_index) orelse continue;
+            if (!atom.flags.alive) continue;
+            const atoms = &self.sections.items(.atoms)[atom.out_n_sect];
+            try atoms.append(self.base.comp.gpa, atom_index);
+        }
+        for (object.symbols.items) |sym_index| {
+            const sym = self.getSymbol(sym_index);
+            const atom = sym.getAtom(self) orelse continue;
+            if (!atom.flags.alive) continue;
+            if (sym.getFile(self).?.getIndex() != object.index) continue;
+            sym.out_n_sect = atom.out_n_sect;
+        }
+    }
+}
+
+fn calcSectionSizes(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const cpu_arch = self.getTarget().cpu.arch;
+
+    if (self.data_sect_index) |idx| {
+        const header = &self.sections.items(.header)[idx];
+        header.size += @sizeOf(u64);
+        header.@"align" = 3;
+    }
+
+    const slice = self.sections.slice();
+    for (slice.items(.header), slice.items(.atoms)) |*header, atoms| {
+        if (atoms.items.len == 0) continue;
+        if (self.requiresThunks() and header.isCode()) continue;
+
+        for (atoms.items) |atom_index| {
+            const atom = self.getAtom(atom_index).?;
+            const atom_alignment = atom.alignment.toByteUnits(1);
+            const offset = mem.alignForward(u64, header.size, atom_alignment);
+            const padding = offset - header.size;
+            atom.value = offset;
+            header.size += padding + atom.size;
+            header.@"align" = @max(header.@"align", atom.alignment.toLog2Units());
+        }
+    }
+
+    if (self.requiresThunks()) {
+        for (slice.items(.header), slice.items(.atoms), 0..) |header, atoms, i| {
+            if (!header.isCode()) continue;
+            if (atoms.items.len == 0) continue;
+
+            // Create jump/branch range extenders if needed.
+            try thunks.createThunks(@intCast(i), self);
+        }
+    }
+
+    if (self.got_sect_index) |idx| {
+        const header = &self.sections.items(.header)[idx];
+        header.size = self.got.size();
+        header.@"align" = 3;
+    }
+
+    if (self.stubs_sect_index) |idx| {
+        const header = &self.sections.items(.header)[idx];
+        header.size = self.stubs.size(self);
+        header.@"align" = switch (cpu_arch) {
+            .x86_64 => 0,
+            .aarch64 => 2,
+            else => 0,
+        };
+    }
+
+    if (self.stubs_helper_sect_index) |idx| {
+        const header = &self.sections.items(.header)[idx];
+        header.size = self.stubs_helper.size(self);
+        header.@"align" = switch (cpu_arch) {
+            .x86_64 => 0,
+            .aarch64 => 2,
+            else => 0,
+        };
+    }
+
+    if (self.la_symbol_ptr_sect_index) |idx| {
+        const header = &self.sections.items(.header)[idx];
+        header.size = self.la_symbol_ptr.size(self);
+        header.@"align" = 3;
+    }
+
+    if (self.tlv_ptr_sect_index) |idx| {
+        const header = &self.sections.items(.header)[idx];
+        header.size = self.tlv_ptr.size();
+        header.@"align" = 3;
+    }
+
+    if (self.objc_stubs_sect_index) |idx| {
+        const header = &self.sections.items(.header)[idx];
+        header.size = self.objc_stubs.size(self);
+        header.@"align" = switch (cpu_arch) {
+            .x86_64 => 0,
+            .aarch64 => 2,
+            else => 0,
+        };
+    }
+}
+
+fn generateUnwindInfo(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    if (self.eh_frame_sect_index) |index| {
+        const sect = &self.sections.items(.header)[index];
+        sect.size = try eh_frame.calcSize(self);
+        sect.@"align" = 3;
+    }
+    if (self.unwind_info_sect_index) |index| {
+        const sect = &self.sections.items(.header)[index];
+        self.unwind_info.generate(self) catch |err| switch (err) {
+            error.TooManyPersonalities => return self.reportUnexpectedError(
+                "too many personalities in unwind info",
+                .{},
+            ),
+            else => |e| return e,
+        };
+        sect.size = self.unwind_info.calcSize();
+        sect.@"align" = 2;
+    }
+}
+
+fn initSegments(self: *MachO) !void {
+    const gpa = self.base.comp.gpa;
+    const slice = self.sections.slice();
+
+    // First, create segments required by sections
+    for (slice.items(.header)) |header| {
+        const segname = header.segName();
+        if (self.getSegmentByName(segname) == null) {
+            const prot = getSegmentProt(segname);
+            try self.segments.append(gpa, .{
+                .cmdsize = @sizeOf(macho.segment_command_64),
+                .segname = makeStaticString(segname),
+                .maxprot = prot,
+                .initprot = prot,
+            });
+        }
+    }
+
+    // Add __PAGEZERO if required
+    const pagezero_size = self.pagezero_size orelse default_pagezero_size;
+    const aligned_pagezero_size = mem.alignBackward(u64, pagezero_size, self.getPageSize());
+    if (!self.base.isDynLib() and aligned_pagezero_size > 0) {
+        if (aligned_pagezero_size != pagezero_size) {
+            // TODO convert into a warning
+            log.warn("requested __PAGEZERO size (0x{x}) is not page aligned", .{pagezero_size});
+            log.warn("  rounding down to 0x{x}", .{aligned_pagezero_size});
+        }
+        try self.segments.append(gpa, .{
+            .cmdsize = @sizeOf(macho.segment_command_64),
+            .segname = makeStaticString("__PAGEZERO"),
+            .vmsize = aligned_pagezero_size,
+        });
+    }
+
+    // Add __LINKEDIT
+    {
+        const protection = getSegmentProt("__LINKEDIT");
+        self.linkedit_seg_index = @intCast(self.segments.items.len);
+        try self.segments.append(gpa, .{
+            .cmdsize = @sizeOf(macho.segment_command_64),
+            .segname = makeStaticString("__LINKEDIT"),
+            .maxprot = protection,
+            .initprot = protection,
+        });
+    }
+
+    // __TEXT segment is non-optional
+    if (self.getSegmentByName("__TEXT") == null) {
+        const protection = getSegmentProt("__TEXT");
+        try self.segments.append(gpa, .{
+            .cmdsize = @sizeOf(macho.segment_command_64),
+            .segname = makeStaticString("__TEXT"),
+            .maxprot = protection,
+            .initprot = protection,
+        });
+    }
+
+    const sortFn = struct {
+        fn sortFn(ctx: void, lhs: macho.segment_command_64, rhs: macho.segment_command_64) bool {
+            _ = ctx;
+            return getSegmentRank(lhs.segName()) < getSegmentRank(rhs.segName());
+        }
+    }.sortFn;
+
+    // Sort segments
+    mem.sort(macho.segment_command_64, self.segments.items, {}, sortFn);
+
+    // Attach sections to segments
+    for (slice.items(.header), slice.items(.segment_id)) |header, *seg_id| {
+        const segname = header.segName();
+        const segment_id = self.getSegmentByName(segname) orelse blk: {
+            const segment_id = @as(u8, @intCast(self.segments.items.len));
+            const protection = getSegmentProt(segname);
+            try self.segments.append(gpa, .{
+                .cmdsize = @sizeOf(macho.segment_command_64),
+                .segname = makeStaticString(segname),
+                .maxprot = protection,
+                .initprot = protection,
+            });
+            break :blk segment_id;
+        };
+        const segment = &self.segments.items[segment_id];
+        segment.cmdsize += @sizeOf(macho.section_64);
+        segment.nsects += 1;
+        seg_id.* = segment_id;
+    }
+
+    self.pagezero_seg_index = self.getSegmentByName("__PAGEZERO");
+    self.text_seg_index = self.getSegmentByName("__TEXT").?;
+    self.linkedit_seg_index = self.getSegmentByName("__LINKEDIT").?;
 }
 
 fn shrinkAtom(self: *MachO, atom_index: Atom.Index, new_block_size: u64) void {
@@ -2767,7 +3116,7 @@ pub const min_text_capacity = padToIdeal(minimum_text_block_size);
 
 /// Default virtual memory offset corresponds to the size of __PAGEZERO segment and
 /// start of __TEXT segment.
-pub const default_pagezero_vmsize: u64 = 0x100000000;
+pub const default_pagezero_size: u64 = 0x100000000;
 
 /// We commit 0x1000 = 4096 bytes of space to the header and
 /// the table of load commands. This should be plenty for any
