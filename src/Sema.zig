@@ -22308,6 +22308,14 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu, "@ptrCast");
     const operand = try sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
+
+    const operand_is_comptime = try sema.typeRequiresComptime(operand_ty);
+    const dest_is_comptime = try sema.typeRequiresComptime(dest_ty);
+
+    if (operand_is_comptime and !dest_is_comptime) {
+        return sema.fail(block, src, "Cannot @ptrCast comptime only type '{}' to non-comptime only type '{}'", .{ operand_ty.fmt(sema.mod) , dest_ty.fmt(sema.mod) });
+    }
 
     return sema.ptrCastFull(
         block,
