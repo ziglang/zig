@@ -104,7 +104,7 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
     const segname, const sectname, const flags = blk: {
         if (sect.isCode()) break :blk .{
             "__TEXT",
-            "__text",
+            sect.sectName(),
             macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         };
 
