@@ -44,12 +44,11 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
     var n = len;
 
     // copy bytes until source is aligned
-    while (@intFromPtr(s) % alignment != 0) {
-        d[0] = s[0];
-        n -= 1;
-        d += 1;
-        s += 1;
-    }
+    const alignment_offset = (alignment - @intFromPtr(s) % alignment) % alignment;
+    memcpy_remainder(alignment, d, s, alignment_offset);
+    n -= alignment_offset;
+    d += alignment_offset;
+    s += alignment_offset;
 
     if (@intFromPtr(d) % alignment == 0) {
         memcpy_aligned(@alignCast(@ptrCast(d)), @alignCast(@ptrCast(s)), n);
