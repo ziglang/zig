@@ -9,9 +9,9 @@ comptime {
 }
 
 const CopyType = if (std.simd.suggestVectorLength(u8)) |vec_size|
-    @Type(.{ .Int = .{
-        .signedness = .unsigned,
-        .bits = std.mem.byte_size_in_bits * vec_size,
+    @Type(.{ .Vector = .{
+        .child = u8,
+        .len = vec_size,
     } })
 else
     usize;
@@ -116,12 +116,12 @@ inline fn memcpy_remainder(
 test "aligned" {
     @setEvalBranchQuota(1024);
     inline for (0..1024) |copy_len| {
-        var buffer: [copy_len]u8 align(@alignOf(usize)) = undefined;
-        const p: *align(@alignOf(usize)) [copy_len / 2]u16 = @ptrCast(&buffer);
+        var buffer: [copy_len]u8 align(alignment) = undefined;
+        const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
         for (p, 0..) |*b, i| {
             b.* = @intCast(i);
         }
-        var dest: [copy_len]u8 align(@alignOf(usize)) = undefined;
+        var dest: [copy_len]u8 align(alignment) = undefined;
         _ = memcpy(@ptrCast(&dest), @ptrCast(&buffer), copy_len);
         try std.testing.expectEqualSlices(u8, &buffer, &dest);
     }
@@ -130,13 +130,13 @@ test "aligned" {
 test "unaligned" {
     @setEvalBranchQuota(1024);
     inline for (0..1024) |copy_len| {
-        var buffer: [copy_len + @alignOf(usize) - 1]u8 align(@alignOf(usize)) = undefined;
-        const p: *align(@alignOf(usize)) [copy_len / 2]u16 = @ptrCast(&buffer);
+        var buffer: [copy_len + alignment - 1]u8 align(alignment) = undefined;
+        const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
         for (p, 0..) |*b, i| {
             b.* = @intCast(i);
         }
-        var dest: [copy_len + @alignOf(usize) - 1]u8 align(@alignOf(usize)) = undefined;
-        for (1..@alignOf(usize)) |offset| {
+        var dest: [copy_len + alignment - 1]u8 align(alignment) = undefined;
+        for (1..alignment) |offset| {
             @memset(&dest, 0);
             const s = buffer[offset..][0..copy_len];
             const d = dest[offset..][0..copy_len];
@@ -149,15 +149,15 @@ test "unaligned" {
 test "misaligned" {
     @setEvalBranchQuota(1024);
     inline for (0..1024) |copy_len| {
-        var buffer: [copy_len + @alignOf(usize) - 1]u8 align(@alignOf(usize)) = undefined;
-        const p: *align(@alignOf(usize)) [copy_len / 2]u16 = @ptrCast(&buffer);
+        var buffer: [copy_len + alignment - 1]u8 align(alignment) = undefined;
+        const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
         for (p, 0..) |*b, i| {
             b.* = @intCast(i);
         }
-        var dest: [copy_len + @alignOf(usize) - 1]u8 align(@alignOf(usize)) = undefined;
+        var dest: [copy_len + alignment - 1]u8 align(alignment) = undefined;
 
-        for (0..@alignOf(usize)) |s_offset| {
-            for (0..@alignOf(usize)) |d_offset| {
+        for (0..alignment) |s_offset| {
+            for (0..alignment) |d_offset| {
                 if (s_offset == d_offset) continue;
                 @memset(&dest, 0);
                 const s = buffer[s_offset..][0..copy_len];
