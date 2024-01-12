@@ -98,6 +98,10 @@ headerpad_max_install_names: bool,
 dead_strip_dylibs: bool,
 /// Treatment of undefined symbols
 undefined_treatment: UndefinedTreatment,
+/// Resolved list of library search directories
+lib_dirs: []const []const u8,
+/// Resolved list of framework search directories
+framework_dirs: []const []const u8,
 /// List of input frameworks
 frameworks: []const Framework,
 /// Install name for the dylib.
@@ -112,6 +116,8 @@ platform: Platform,
 sdk_version: ?std.SemanticVersion,
 /// Rpath table
 rpath_table: std.StringArrayHashMapUnmanaged(void) = .{},
+/// When set to true, the linker will hoist all dylibs including system dependent dylibs.
+no_implicit_dylibs: bool = false,
 
 /// Hot-code swapping state.
 hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
@@ -190,6 +196,8 @@ pub fn createEmpty(
         .platform = Platform.fromTarget(target),
         .sdk_version = if (options.darwin_sdk_layout) |layout| inferSdkVersion(comp, layout) else null,
         .undefined_treatment = if (allow_shlib_undefined) .dynamic_lookup else .@"error",
+        .lib_dirs = options.lib_dirs,
+        .framework_dirs = options.framework_dirs,
     };
     if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, comp);
@@ -483,7 +491,18 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         self.getFile(index).?.dylib.umbrella = index;
     }
 
-    // TODO: try self.parseDependentDylibs();
+    if (self.dylibs.items.len > 0) {
+        self.parseDependentDylibs() catch |err| {
+            switch (err) {
+                error.MissingLibraryDependencies => {},
+                else => |e| try self.reportUnexpectedError(
+                    "unexpected error while parsing dependent libraries: {s}",
+                    .{@errorName(e)},
+                ),
+            }
+            return error.FlushFailure;
+        };
+    }
 
     for (self.dylibs.items) |index| {
         const dylib = self.getFile(index).?.dylib;
@@ -1056,152 +1075,198 @@ fn parseTbd(self: *MachO, lib: SystemLib, explicit: bool) ParseError!File.Index 
     return index;
 }
 
-// /// According to ld64's manual, public (i.e., system) dylibs/frameworks are hoisted into the final
-// /// image unless overriden by -no_implicit_dylibs.
-// fn isHoisted(self: *MachO, install_name: []const u8) bool {
-//     _ = self;
-//     // TODO: if (self.options.no_implicit_dylibs) return true;
-//     if (std.fs.path.dirname(install_name)) |dirname| {
-//         if (mem.startsWith(u8, dirname, "/usr/lib")) return true;
-//         if (eatPrefix(dirname, "/System/Library/Frameworks/")) |path| {
-//             const basename = std.fs.path.basename(install_name);
-//             if (mem.indexOfScalar(u8, path, '.')) |index| {
-//                 if (mem.eql(u8, basename, path[0..index])) return true;
-//             }
-//         }
-//     }
-//     return false;
-// }
+/// According to ld64's manual, public (i.e., system) dylibs/frameworks are hoisted into the final
+/// image unless overriden by -no_implicit_dylibs.
+fn isHoisted(self: *MachO, install_name: []const u8) bool {
+    if (self.no_implicit_dylibs) return true;
+    if (std.fs.path.dirname(install_name)) |dirname| {
+        if (mem.startsWith(u8, dirname, "/usr/lib")) return true;
+        if (eatPrefix(dirname, "/System/Library/Frameworks/")) |path| {
+            const basename = std.fs.path.basename(install_name);
+            if (mem.indexOfScalar(u8, path, '.')) |index| {
+                if (mem.eql(u8, basename, path[0..index])) return true;
+            }
+        }
+    }
+    return false;
+}
 
-// TODO:
-// fn parseDependentDylibs(
-//     self: *MachO
-// ) !void {
-//     const tracy = trace(@src());
-//     defer tracy.end();
+fn accessPath(path: []const u8) !bool {
+    std.fs.cwd().access(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => |e| return e,
+    };
+    return true;
+}
 
-//     const gpa = self.base.comp.gpa;
-//     const lib_dirs = self.base.comp.lib_dirs;
-//     const framework_dirs = self.base.comp.framework_dirs;
+fn resolveLib(arena: Allocator, search_dirs: []const []const u8, name: []const u8) !?[]const u8 {
+    const path = try std.fmt.allocPrint(arena, "lib{s}", .{name});
+    for (search_dirs) |dir| {
+        for (&[_][]const u8{ ".tbd", ".dylib" }) |ext| {
+            const with_ext = try std.fmt.allocPrint(arena, "{s}{s}", .{ path, ext });
+            const full_path = try std.fs.path.join(arena, &[_][]const u8{ dir, with_ext });
+            if (try accessPath(full_path)) return full_path;
+        }
+    }
+    return null;
+}
 
-//     if (self.dylibs.items.len == 0) return;
+fn resolveFramework(arena: Allocator, search_dirs: []const []const u8, name: []const u8) !?[]const u8 {
+    const prefix = try std.fmt.allocPrint(arena, "{s}.framework", .{name});
+    const path = try std.fs.path.join(arena, &[_][]const u8{ prefix, name });
+    for (search_dirs) |dir| {
+        for (&[_][]const u8{ ".tbd", ".dylib" }) |ext| {
+            const with_ext = try std.fmt.allocPrint(arena, "{s}{s}", .{ path, ext });
+            const full_path = try std.fs.path.join(arena, &[_][]const u8{ dir, with_ext });
+            if (try accessPath(full_path)) return full_path;
+        }
+    }
+    return null;
+}
 
-//     var arena = std.heap.ArenaAllocator.init(gpa);
-//     defer arena.deinit();
+fn parseDependentDylibs(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
 
-//     // TODO handle duplicate dylibs - it is not uncommon to have the same dylib loaded multiple times
-//     // in which case we should track that and return File.Index immediately instead re-parsing paths.
+    const gpa = self.base.comp.gpa;
+    const lib_dirs = self.lib_dirs;
+    const framework_dirs = self.framework_dirs;
 
-//     var index: usize = 0;
-//     while (index < self.dylibs.items.len) : (index += 1) {
-//         const dylib_index = self.dylibs.items[index];
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
 
-//         var dependents = std.ArrayList(File.Index).init(gpa);
-//         defer dependents.deinit();
-//         try dependents.ensureTotalCapacityPrecise(self.getFile(dylib_index).?.dylib.dependents.items.len);
+    // TODO handle duplicate dylibs - it is not uncommon to have the same dylib loaded multiple times
+    // in which case we should track that and return File.Index immediately instead re-parsing paths.
 
-//         const is_weak = self.getFile(dylib_index).?.dylib.weak;
-//         for (self.getFile(dylib_index).?.dylib.dependents.items) |id| {
-//             // We will search for the dependent dylibs in the following order:
-//             // 1. Basename is in search lib directories or framework directories
-//             // 2. If name is an absolute path, search as-is optionally prepending a syslibroot
-//             //    if specified.
-//             // 3. If name is a relative path, substitute @rpath, @loader_path, @executable_path with
-//             //    dependees list of rpaths, and search there.
-//             // 4. Finally, just search the provided relative path directly in CWD.
-//             const full_path = full_path: {
-//                 fail: {
-//                     const stem = std.fs.path.stem(id.name);
-//                     const framework_name = try std.fmt.allocPrint(gpa, "{s}.framework" ++ std.fs.path.sep_str ++ "{s}", .{
-//                         stem,
-//                         stem,
-//                     });
-//                     defer gpa.free(framework_name);
+    var has_errors = false;
+    var index: usize = 0;
+    while (index < self.dylibs.items.len) : (index += 1) {
+        const dylib_index = self.dylibs.items[index];
 
-//                     if (mem.endsWith(u8, id.name, framework_name)) {
-//                         // Framework
-//                         const full_path = (try self.resolveFramework(arena, framework_dirs, stem)) orelse break :fail;
-//                         break :full_path full_path;
-//                     }
+        var dependents = std.ArrayList(File.Index).init(gpa);
+        defer dependents.deinit();
+        try dependents.ensureTotalCapacityPrecise(self.getFile(dylib_index).?.dylib.dependents.items.len);
 
-//                     // Library
-//                     const lib_name = eatPrefix(stem, "lib") orelse stem;
-//                     const full_path = (try self.resolveLib(arena, lib_dirs, lib_name)) orelse break :fail;
-//                     break :full_path full_path;
-//                 }
+        const is_weak = self.getFile(dylib_index).?.dylib.weak;
+        for (self.getFile(dylib_index).?.dylib.dependents.items) |id| {
+            // We will search for the dependent dylibs in the following order:
+            // 1. Basename is in search lib directories or framework directories
+            // 2. If name is an absolute path, search as-is optionally prepending a syslibroot
+            //    if specified.
+            // 3. If name is a relative path, substitute @rpath, @loader_path, @executable_path with
+            //    dependees list of rpaths, and search there.
+            // 4. Finally, just search the provided relative path directly in CWD.
+            const full_path = full_path: {
+                fail: {
+                    const stem = std.fs.path.stem(id.name);
+                    const framework_name = try std.fmt.allocPrint(gpa, "{s}.framework" ++ std.fs.path.sep_str ++ "{s}", .{
+                        stem,
+                        stem,
+                    });
+                    defer gpa.free(framework_name);
 
-//                 if (std.fs.path.isAbsolute(id.name)) {
-//                     const path = if (self.options.syslibroot) |root|
-//                         try std.fs.path.join(arena, &.{ root, id.name })
-//                     else
-//                         id.name;
-//                     for (&[_][]const u8{ "", ".tbd", ".dylib" }) |ext| {
-//                         const full_path = try std.fmt.allocPrint(arena, "{s}{s}", .{ path, ext });
-//                         if (try accessLibPath(full_path)) break :full_path full_path;
-//                     }
-//                 }
+                    if (mem.endsWith(u8, id.name, framework_name)) {
+                        // Framework
+                        const full_path = (try resolveFramework(arena.allocator(), framework_dirs, stem)) orelse break :fail;
+                        break :full_path full_path;
+                    }
 
-//                 if (eatPrefix(id.name, "@rpath/")) |path| {
-//                     const dylib = self.getFile(dylib_index).?.dylib;
-//                     for (self.getFile(dylib.umbrella).?.dylib.rpaths.keys()) |rpath| {
-//                         const prefix = eatPrefix(rpath, "@loader_path/") orelse rpath;
-//                         const rel_path = try std.fs.path.join(arena, &.{ prefix, path });
-//                         var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-//                         const full_path = std.fs.realpath(rel_path, &buffer) catch continue;
-//                         break :full_path full_path;
-//                     }
-//                 } else if (eatPrefix(id.name, "@loader_path/")) |_| {
-//                     return self.base.fatal("{s}: TODO handle install_name '{s}'", .{
-//                         self.getFile(dylib_index).?.dylib.path, id.name,
-//                     });
-//                 } else if (eatPrefix(id.name, "@executable_path/")) |_| {
-//                     return self.base.fatal("{s}: TODO handle install_name '{s}'", .{
-//                         self.getFile(dylib_index).?.dylib.path, id.name,
-//                     });
-//                 }
+                    // Library
+                    const lib_name = eatPrefix(stem, "lib") orelse stem;
+                    const full_path = (try resolveLib(arena.allocator(), lib_dirs, lib_name)) orelse break :fail;
+                    break :full_path full_path;
+                }
 
-//                 var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-//                 const full_path = std.fs.realpath(id.name, &buffer) catch {
-//                     dependents.appendAssumeCapacity(0);
-//                     continue;
-//                 };
-//                 break :full_path full_path;
-//             };
-//             const link_obj = LinkObject{
-//                 .path = full_path,
-//                 .tag = .obj,
-//                 .weak = is_weak,
-//             };
-//             const file_index = file_index: {
-//                 if (try self.parseDylib(arena, link_obj, false)) |file| break :file_index file;
-//                 if (try self.parseTbd(link_obj, false)) |file| break :file_index file;
-//                 break :file_index @as(File.Index, 0);
-//             };
-//             dependents.appendAssumeCapacity(file_index);
-//         }
+                if (std.fs.path.isAbsolute(id.name)) {
+                    const path = if (self.base.comp.sysroot) |root|
+                        try std.fs.path.join(arena.allocator(), &.{ root, id.name })
+                    else
+                        id.name;
+                    for (&[_][]const u8{ "", ".tbd", ".dylib" }) |ext| {
+                        const full_path = try std.fmt.allocPrint(arena.allocator(), "{s}{s}", .{ path, ext });
+                        if (try accessPath(full_path)) break :full_path full_path;
+                    }
+                }
 
-//         const dylib = self.getFile(dylib_index).?.dylib;
-//         for (dylib.dependents.items, dependents.items) |id, file_index| {
-//             if (self.getFile(file_index)) |file| {
-//                 const dep_dylib = file.dylib;
-//                 dep_dylib.hoisted = self.isHoisted(id.name);
-//                 if (self.getFile(dep_dylib.umbrella) == null) {
-//                     dep_dylib.umbrella = dylib.umbrella;
-//                 }
-//                 if (!dep_dylib.hoisted) {
-//                     const umbrella = dep_dylib.getUmbrella(self);
-//                     for (dep_dylib.exports.items(.name), dep_dylib.exports.items(.flags)) |off, flags| {
-//                         try umbrella.addExport(gpa, dep_dylib.getString(off), flags);
-//                     }
-//                     try umbrella.rpaths.ensureUnusedCapacity(gpa, dep_dylib.rpaths.keys().len);
-//                     for (dep_dylib.rpaths.keys()) |rpath| {
-//                         umbrella.rpaths.putAssumeCapacity(rpath, {});
-//                     }
-//                 }
-//             } else self.base.fatal("{s}: unable to resolve dependency {s}", .{ dylib.getUmbrella(self).path, id.name });
-//         }
-//     }
-// }
+                if (eatPrefix(id.name, "@rpath/")) |path| {
+                    const dylib = self.getFile(dylib_index).?.dylib;
+                    for (self.getFile(dylib.umbrella).?.dylib.rpaths.keys()) |rpath| {
+                        const prefix = eatPrefix(rpath, "@loader_path/") orelse rpath;
+                        const rel_path = try std.fs.path.join(arena.allocator(), &.{ prefix, path });
+                        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                        const full_path = std.fs.realpath(rel_path, &buffer) catch continue;
+                        break :full_path full_path;
+                    }
+                } else if (eatPrefix(id.name, "@loader_path/")) |_| {
+                    try self.reportParseError2(dylib_index, "TODO handle install_name '{s}'", .{id.name});
+                    return error.Unhandled;
+                } else if (eatPrefix(id.name, "@executable_path/")) |_| {
+                    try self.reportParseError2(dylib_index, "TODO handle install_name '{s}'", .{id.name});
+                    return error.Unhandled;
+                }
+
+                var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                const full_path = std.fs.realpath(id.name, &buffer) catch {
+                    dependents.appendAssumeCapacity(0);
+                    continue;
+                };
+                break :full_path full_path;
+            };
+            const lib = SystemLib{
+                .path = full_path,
+                .weak = is_weak,
+            };
+            const file_index = file_index: {
+                if (try fat.isFatLibrary(lib.path)) {
+                    const fat_arch = try self.parseFatLibrary(lib.path);
+                    if (try Dylib.isDylib(lib.path, fat_arch)) {
+                        break :file_index try self.parseDylib(lib, false, fat_arch);
+                    } else break :file_index @as(File.Index, 0);
+                } else if (try Dylib.isDylib(lib.path, null)) {
+                    break :file_index try self.parseDylib(lib, false, null);
+                } else {
+                    const file_index = self.parseTbd(lib, false) catch |err| switch (err) {
+                        error.MalformedTbd => @as(File.Index, 0),
+                        else => |e| return e,
+                    };
+                    break :file_index file_index;
+                }
+            };
+            dependents.appendAssumeCapacity(file_index);
+        }
+
+        const dylib = self.getFile(dylib_index).?.dylib;
+        for (dylib.dependents.items, dependents.items) |id, file_index| {
+            if (self.getFile(file_index)) |file| {
+                const dep_dylib = file.dylib;
+                dep_dylib.hoisted = self.isHoisted(id.name);
+                if (self.getFile(dep_dylib.umbrella) == null) {
+                    dep_dylib.umbrella = dylib.umbrella;
+                }
+                if (!dep_dylib.hoisted) {
+                    const umbrella = dep_dylib.getUmbrella(self);
+                    for (dep_dylib.exports.items(.name), dep_dylib.exports.items(.flags)) |off, flags| {
+                        try umbrella.addExport(gpa, dep_dylib.getString(off), flags);
+                    }
+                    try umbrella.rpaths.ensureUnusedCapacity(gpa, dep_dylib.rpaths.keys().len);
+                    for (dep_dylib.rpaths.keys()) |rpath| {
+                        umbrella.rpaths.putAssumeCapacity(rpath, {});
+                    }
+                }
+            } else {
+                try self.reportDependencyError(
+                    dylib.getUmbrella(self).index,
+                    id.name,
+                    "unable to resolve dependency",
+                    .{},
+                );
+                has_errors = true;
+            }
+        }
+    }
+
+    if (has_errors) return error.MissingLibraryDependencies;
+}
 
 pub fn addUndefinedGlobals(self: *MachO) !void {
     const gpa = self.base.comp.gpa;
@@ -3459,24 +3524,17 @@ fn reportMissingLibraryError(
 
 fn reportDependencyError(
     self: *MachO,
-    parent: []const u8,
+    parent: File.Index,
     path: ?[]const u8,
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    const comp = self.base.comp;
-    const gpa = comp.gpa;
-    try comp.link_errors.ensureUnusedCapacity(gpa, 1);
-    var notes = try std.ArrayList(link.File.ErrorMsg).initCapacity(gpa, 2);
-    defer notes.deinit();
+    var err = try self.addErrorWithNotes(2);
+    try err.addMsg(self, format, args);
     if (path) |p| {
-        notes.appendAssumeCapacity(.{ .msg = try std.fmt.allocPrint(gpa, "while parsing {s}", .{p}) });
+        try err.addNote(self, "while parsing {s}", .{p});
     }
-    notes.appendAssumeCapacity(.{ .msg = try std.fmt.allocPrint(gpa, "a dependency of {s}", .{parent}) });
-    comp.link_errors.appendAssumeCapacity(.{
-        .msg = try std.fmt.allocPrint(gpa, format, args),
-        .notes = try notes.toOwnedSlice(),
-    });
+    try err.addNote(self, "a dependency of {}", .{self.getFile(parent).?.fmtPath()});
 }
 
 fn reportUnexpectedError(self: *MachO, comptime format: []const u8, args: anytype) error{OutOfMemory}!void {

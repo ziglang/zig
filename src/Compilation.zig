@@ -1542,6 +1542,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .darwin_sdk_layout = libc_dirs.darwin_sdk_layout,
             .frameworks = options.frameworks,
             .lib_dirs = options.lib_dirs,
+            .framework_dirs = options.framework_dirs,
             .rpath_list = options.rpath_list,
             .symbol_wrap_set = options.symbol_wrap_set,
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
