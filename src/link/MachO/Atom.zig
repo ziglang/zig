@@ -173,6 +173,7 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
 pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
+    assert(self.flags.alive);
 
     const object = self.getFile(macho_file).object;
     const relocs = self.getRelocs(macho_file);
