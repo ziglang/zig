@@ -672,6 +672,7 @@ test "rotl" {
 /// - 1. Suitable for 0-based bit indices of T.
 pub fn Log2Int(comptime T: type) type {
     // comptime ceil log2
+    if (T == comptime_int) return comptime_int;
     comptime var count = 0;
     comptime var s = @typeInfo(T).Int.bits - 1;
     inline while (s != 0) : (s >>= 1) {
@@ -684,6 +685,7 @@ pub fn Log2Int(comptime T: type) type {
 /// Returns an unsigned int type that can hold the number of bits in T.
 pub fn Log2IntCeil(comptime T: type) type {
     // comptime ceil log2
+    if (T == comptime_int) return comptime_int;
     comptime var count = 0;
     comptime var s = @typeInfo(T).Int.bits;
     inline while (s != 0) : (s >>= 1) {
