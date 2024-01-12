@@ -661,6 +661,19 @@ test "Dir.statFile" {
     }.impl);
 }
 
+test "statFile on dangling symlink" {
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            const symlink_name = try ctx.transformPath("dangling-symlink");
+            const symlink_target = "." ++ fs.path.sep_str ++ "doesnotexist";
+
+            try setupSymlink(ctx.dir, symlink_target, symlink_name, .{});
+
+            try std.testing.expectError(error.FileNotFound, ctx.dir.statFile(symlink_name));
+        }
+    }.impl);
+}
+
 test "directory operations on files" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
