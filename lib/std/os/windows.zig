@@ -3789,7 +3789,17 @@ pub const PATH_MAX_WIDE = 32767;
 /// TODO: More verification of this assumption.
 pub const NAME_MAX = 255;
 
-pub const HOST_NAME_MAX = 256;
+/// > The maximum length, in bytes, of the string returned in the buffer
+/// > pointed to by the name parameter is dependent on the namespace
+/// > provider, but this string must be 256 bytes or less. So if a buffer of
+/// > 256 bytes is passed in the name parameter and the namelen parameter
+/// > is set to 256, the buffer size will always be adequate.
+/// from https://learn.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-gethostname
+///
+/// However, the 256 length includes the NUL terminator, which HOST_NAME_MAX
+/// as defined by POSIX does not include, so the max length (not including the terminating
+/// null byte) is 255.
+pub const HOST_NAME_MAX = 255;
 
 pub const FORMAT_MESSAGE_ALLOCATE_BUFFER = 0x00000100;
 pub const FORMAT_MESSAGE_ARGUMENT_ARRAY = 0x00002000;
