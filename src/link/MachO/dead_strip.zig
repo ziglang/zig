@@ -91,7 +91,12 @@ fn mark(roots: []*Atom, objects: []const File.Index, macho_file: *MachO) void {
             for (macho_file.getFile(index).?.getAtoms()) |atom_index| {
                 const atom = macho_file.getAtom(atom_index).?;
                 const isec = atom.getInputSection(macho_file);
-                if (isec.isDontDeadStripIfReferencesLive() and !atom.flags.alive and refersLive(atom, macho_file)) {
+                if (isec.isDontDeadStripIfReferencesLive() and
+                    !(mem.eql(u8, isec.sectName(), "__eh_frame") or
+                    mem.eql(u8, isec.sectName(), "__compact_unwind") or
+                    isec.attrs() & macho.S_ATTR_DEBUG != 0) and
+                    !atom.flags.alive and refersLive(atom, macho_file))
+                {
                     markLive(atom, macho_file);
                     loop = true;
                 }
