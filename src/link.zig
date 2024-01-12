@@ -133,6 +133,7 @@ pub const File = struct {
 
         // TODO: remove this. libraries are resolved by the frontend.
         lib_dirs: []const []const u8,
+        framework_dirs: []const []const u8,
         rpath_list: []const []const u8,
 
         /// (Zig compiler development) Enable dumping of linker's state as JSON.
