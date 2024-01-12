@@ -346,7 +346,7 @@ pub const Parser = struct {
 
     pub fn maybe(self: *@This(), val: u21) bool {
         if (self.peek(0) == val) {
-            self.iter.nextCodepoint();
+            _ = self.iter.nextCodepoint();
             return true;
         }
         return false;
