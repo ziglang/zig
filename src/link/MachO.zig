@@ -369,7 +369,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     if (comp.verbose_link) try self.dumpArgv(comp);
 
     if (self.base.isStaticLib()) return self.flushStaticLib(comp, module_obj_path);
-    if (self.base.isObject()) return self.flushObject(comp, module_obj_path);
+    if (self.base.isObject()) return relocatable.flush(self, comp, module_obj_path);
 
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
     defer positionals.deinit();
@@ -483,7 +483,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         self.getFile(index).?.dylib.umbrella = index;
     }
 
-    // try self.parseDependentDylibs();
+    // TODO: try self.parseDependentDylibs();
 
     for (self.dylibs.items) |index| {
         const dylib = self.getFile(index).?.dylib;
@@ -783,16 +783,6 @@ fn flushStaticLib(self: *MachO, comp: *Compilation, module_obj_path: ?[]const u8
     return error.FlushFailure;
 }
 
-fn flushObject(self: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
-    _ = comp;
-    _ = module_obj_path;
-
-    var err = try self.addErrorWithNotes(0);
-    try err.addMsg(self, "TODO implement flushObject", .{});
-
-    return error.FlushFailure;
-}
-
 pub fn resolveLibSystem(
     self: *MachO,
     arena: Allocator,
@@ -890,7 +880,7 @@ const ParseError = error{
     UnknownFileType,
 } || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError || tapi.TapiError;
 
-fn parsePositional(self: *MachO, path: []const u8, must_link: bool) ParseError!void {
+pub fn parsePositional(self: *MachO, path: []const u8, must_link: bool) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
     if (try Object.isObject(path)) {
@@ -1083,6 +1073,7 @@ fn parseTbd(self: *MachO, lib: SystemLib, explicit: bool) ParseError!File.Index 
 //     return false;
 // }
 
+// TODO:
 // fn parseDependentDylibs(
 //     self: *MachO
 // ) !void {
@@ -1212,7 +1203,7 @@ fn parseTbd(self: *MachO, lib: SystemLib, explicit: bool) ParseError!File.Index 
 //     }
 // }
 
-fn addUndefinedGlobals(self: *MachO) !void {
+pub fn addUndefinedGlobals(self: *MachO) !void {
     const gpa = self.base.comp.gpa;
 
     try self.undefined_symbols.ensureUnusedCapacity(gpa, self.base.comp.force_undefined_symbols.keys().len);
@@ -4033,6 +4024,7 @@ const fat = @import("MachO/fat.zig");
 const link = @import("../link.zig");
 const llvm_backend = @import("../codegen/llvm.zig");
 const load_commands = @import("MachO/load_commands.zig");
+const relocatable = @import("MachO/relocatable.zig");
 const tapi = @import("tapi.zig");
 const target_util = @import("../target.zig");
 const thunks = @import("MachO/thunks.zig");

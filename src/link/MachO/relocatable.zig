@@ -1,4 +1,37 @@
-pub fn flush(macho_file: *MachO) !void {
+pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+    const gpa = macho_file.base.comp.gpa;
+
+    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
+    defer positionals.deinit();
+    try positionals.ensureUnusedCapacity(comp.objects.len);
+    positionals.appendSliceAssumeCapacity(comp.objects);
+
+    for (comp.c_object_table.keys()) |key| {
+        try positionals.append(.{ .path = key.status.success.object_path });
+    }
+
+    if (module_obj_path) |path| try positionals.append(.{ .path = path });
+
+    for (positionals.items) |obj| {
+        macho_file.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
+            error.MalformedObject,
+            error.MalformedArchive,
+            error.InvalidCpuArch,
+            error.InvalidTarget,
+            => continue, // already reported
+            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
+            else => |e| try macho_file.reportParseError(
+                obj.path,
+                "unexpected error: parsing input file failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
+    }
+
+    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+
+    try macho_file.addUndefinedGlobals();
+    try macho_file.resolveSymbols();
     markExports(macho_file);
     claimUnresolved(macho_file);
     try initOutputSections(macho_file);
@@ -9,7 +42,7 @@ pub fn flush(macho_file: *MachO) !void {
     {
         // For relocatable, we only ever need a single segment so create it now.
         const prot: macho.vm_prot_t = macho.PROT.READ | macho.PROT.WRITE | macho.PROT.EXEC;
-        try macho_file.segments.append(macho_file.base.allocator, .{
+        try macho_file.segments.append(gpa, .{
             .cmdsize = @sizeOf(macho.segment_command_64),
             .segname = MachO.makeStaticString(""),
             .maxprot = prot,
@@ -128,17 +161,20 @@ fn initOutputSections(macho_file: *MachO) !void {
 }
 
 fn calcSectionSizes(macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const slice = macho_file.sections.slice();
     for (slice.items(.header), slice.items(.atoms)) |*header, atoms| {
         if (atoms.items.len == 0) continue;
         for (atoms.items) |atom_index| {
             const atom = macho_file.getAtom(atom_index).?;
-            const atom_alignment = try math.powi(u32, 2, atom.alignment);
+            const atom_alignment = atom.alignment.toByteUnits(1);
             const offset = mem.alignForward(u64, header.size, atom_alignment);
             const padding = offset - header.size;
             atom.value = offset;
             header.size += padding + atom.size;
-            header.@"align" = @max(header.@"align", atom.alignment);
+            header.@"align" = @max(header.@"align", atom.alignment.toLog2Units());
             header.nreloc += atom.calcNumRelocs(macho_file);
         }
     }
@@ -218,8 +254,8 @@ fn writeAtoms(macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = macho_file.base.allocator;
-    const cpu_arch = macho_file.options.cpu_arch.?;
+    const gpa = macho_file.base.comp.gpa;
+    const cpu_arch = macho_file.getTarget().cpu.arch;
     const slice = macho_file.sections.slice();
 
     for (slice.items(.header), slice.items(.atoms)) |header, atoms| {
@@ -247,14 +283,14 @@ fn writeAtoms(macho_file: *MachO) !void {
         mem.sort(macho.relocation_info, relocs.items, {}, sortReloc);
 
         // TODO scattered writes?
-        try macho_file.base.file.pwriteAll(code, header.offset);
-        try macho_file.base.file.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
+        try macho_file.base.file.?.pwriteAll(code, header.offset);
+        try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
     }
 }
 
 fn writeCompactUnwind(macho_file: *MachO) !void {
     const sect_index = macho_file.unwind_info_sect_index orelse return;
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const header = macho_file.sections.items(.header)[sect_index];
 
     const nrecs = @divExact(header.size, @sizeOf(macho.compact_unwind_entry));
@@ -301,7 +337,7 @@ fn writeCompactUnwind(macho_file: *MachO) !void {
                 const atom = rec.getAtom(macho_file);
                 const addr = rec.getAtomAddress(macho_file);
                 out.rangeStart = addr;
-                var reloc = addReloc(offset, macho_file.options.cpu_arch.?);
+                var reloc = addReloc(offset, macho_file.getTarget().cpu.arch);
                 reloc.r_symbolnum = atom.out_n_sect + 1;
                 relocs.appendAssumeCapacity(reloc);
             }
@@ -309,7 +345,7 @@ fn writeCompactUnwind(macho_file: *MachO) !void {
             // Personality function
             if (rec.getPersonality(macho_file)) |sym| {
                 const r_symbolnum = math.cast(u24, sym.getOutputSymtabIndex(macho_file).?) orelse return error.Overflow;
-                var reloc = addReloc(offset + 16, macho_file.options.cpu_arch.?);
+                var reloc = addReloc(offset + 16, macho_file.getTarget().cpu.arch);
                 reloc.r_symbolnum = r_symbolnum;
                 reloc.r_extern = 1;
                 relocs.appendAssumeCapacity(reloc);
@@ -319,7 +355,7 @@ fn writeCompactUnwind(macho_file: *MachO) !void {
             if (rec.getLsdaAtom(macho_file)) |atom| {
                 const addr = rec.getLsdaAddress(macho_file);
                 out.lsda = addr;
-                var reloc = addReloc(offset + 24, macho_file.options.cpu_arch.?);
+                var reloc = addReloc(offset + 24, macho_file.getTarget().cpu.arch);
                 reloc.r_symbolnum = atom.out_n_sect + 1;
                 relocs.appendAssumeCapacity(reloc);
             }
@@ -335,13 +371,13 @@ fn writeCompactUnwind(macho_file: *MachO) !void {
     mem.sort(macho.relocation_info, relocs.items, {}, sortReloc);
 
     // TODO scattered writes?
-    try macho_file.base.file.pwriteAll(mem.sliceAsBytes(entries.items), header.offset);
-    try macho_file.base.file.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
+    try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(entries.items), header.offset);
+    try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
 }
 
 fn writeEhFrame(macho_file: *MachO) !void {
     const sect_index = macho_file.eh_frame_sect_index orelse return;
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const header = macho_file.sections.items(.header)[sect_index];
 
     const code = try gpa.alloc(u8, header.size);
@@ -356,12 +392,12 @@ fn writeEhFrame(macho_file: *MachO) !void {
     mem.sort(macho.relocation_info, relocs.items, {}, sortReloc);
 
     // TODO scattered writes?
-    try macho_file.base.file.pwriteAll(code, header.offset);
-    try macho_file.base.file.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
+    try macho_file.base.file.?.pwriteAll(code, header.offset);
+    try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
 }
 
 fn writeLoadCommands(macho_file: *MachO) !struct { usize, usize } {
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const needed_size = load_commands.calcLoadCommandsSizeObject(macho_file);
     const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
@@ -390,19 +426,17 @@ fn writeLoadCommands(macho_file: *MachO) !struct { usize, usize } {
     try writer.writeStruct(macho_file.dysymtab_cmd);
     ncmds += 1;
 
-    if (macho_file.options.platform) |platform| {
-        if (platform.isBuildVersionCompatible()) {
-            try load_commands.writeBuildVersionLC(platform, macho_file.options.sdk_version, writer);
-            ncmds += 1;
-        } else {
-            try load_commands.writeVersionMinLC(platform, macho_file.options.sdk_version, writer);
-            ncmds += 1;
-        }
+    if (macho_file.platform.isBuildVersionCompatible()) {
+        try load_commands.writeBuildVersionLC(macho_file.platform, macho_file.sdk_version, writer);
+        ncmds += 1;
+    } else {
+        try load_commands.writeVersionMinLC(macho_file.platform, macho_file.sdk_version, writer);
+        ncmds += 1;
     }
 
     assert(cwriter.bytes_written == needed_size);
 
-    try macho_file.base.file.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
+    try macho_file.base.file.?.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
 
     return .{ ncmds, buffer.len };
 }
@@ -419,7 +453,7 @@ fn writeHeader(macho_file: *MachO, ncmds: usize, sizeofcmds: usize) !void {
         header.flags |= macho.MH_SUBSECTIONS_VIA_SYMBOLS;
     }
 
-    switch (macho_file.options.cpu_arch.?) {
+    switch (macho_file.getTarget().cpu.arch) {
         .aarch64 => {
             header.cputype = macho.CPU_TYPE_ARM64;
             header.cpusubtype = macho.CPU_SUBTYPE_ARM_ALL;
@@ -434,19 +468,21 @@ fn writeHeader(macho_file: *MachO, ncmds: usize, sizeofcmds: usize) !void {
     header.ncmds = @intCast(ncmds);
     header.sizeofcmds = @intCast(sizeofcmds);
 
-    try macho_file.base.file.pwriteAll(mem.asBytes(&header), 0);
+    try macho_file.base.file.?.pwriteAll(mem.asBytes(&header), 0);
 }
 
 const assert = std.debug.assert;
 const eh_frame = @import("eh_frame.zig");
+const link = @import("../../link.zig");
 const load_commands = @import("load_commands.zig");
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
-const state_log = std.log.scoped(.state);
+const state_log = std.log.scoped(.link_state);
 const std = @import("std");
-const trace = @import("../tracy.zig").trace;
+const trace = @import("../../tracy.zig").trace;
 
 const Atom = @import("Atom.zig");
+const Compilation = @import("../../Compilation.zig");
 const MachO = @import("../MachO.zig");
 const Symbol = @import("Symbol.zig");

@@ -98,7 +98,6 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) u32 {
 }
 
 pub fn calcLoadCommandsSizeObject(macho_file: *MachO) u32 {
-    const options = &macho_file.options;
     var sizeofcmds: u64 = 0;
 
     // LC_SEGMENT_64
@@ -116,14 +115,12 @@ pub fn calcLoadCommandsSizeObject(macho_file: *MachO) u32 {
     // LC_DYSYMTAB
     sizeofcmds += @sizeOf(macho.dysymtab_command);
 
-    if (options.platform) |platform| {
-        if (platform.isBuildVersionCompatible()) {
-            // LC_BUILD_VERSION
-            sizeofcmds += @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
-        } else {
-            // LC_VERSION_MIN_*
-            sizeofcmds += @sizeOf(macho.version_min_command);
-        }
+    if (macho_file.platform.isBuildVersionCompatible()) {
+        // LC_BUILD_VERSION
+        sizeofcmds += @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
+    } else {
+        // LC_VERSION_MIN_*
+        sizeofcmds += @sizeOf(macho.version_min_command);
     }
 
     return @as(u32, @intCast(sizeofcmds));
