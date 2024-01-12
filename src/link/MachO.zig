@@ -509,6 +509,14 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         try dead_strip.gcAtoms(self);
     }
 
+    self.checkDuplicates() catch |err| switch (err) {
+        error.HasDuplicates => return error.FlushFailure,
+        else => |e| {
+            try self.reportUnexpectedError("unexpected error while checking for duplicate symbol definitions", .{});
+            return e;
+        },
+    };
+
     self.markImportsAndExports();
     self.deadStripDylibs();
 
@@ -1412,6 +1420,24 @@ fn claimUnresolved(self: *MachO) error{OutOfMemory}!void {
             }
         }
     }
+}
+
+fn checkDuplicates(self: *MachO) !void {
+    const gpa = self.base.comp.gpa;
+
+    var dupes = std.AutoArrayHashMap(Symbol.Index, std.ArrayListUnmanaged(File.Index)).init(gpa);
+    defer {
+        for (dupes.values()) |*list| {
+            list.deinit(gpa);
+        }
+        dupes.deinit();
+    }
+
+    for (self.objects.items) |index| {
+        try self.getFile(index).?.object.checkDuplicates(&dupes, self);
+    }
+
+    try self.reportDuplicates(dupes);
 }
 
 fn markImportsAndExports(self: *MachO) void {
@@ -3468,68 +3494,38 @@ fn reportUnexpectedError(self: *MachO, comptime format: []const u8, args: anytyp
     try err.addNote(self, "please report this as a linker bug on https://github.com/ziglang/zig/issues/new/choose", .{});
 }
 
-// fn reportSymbolCollision(
-//     self: *MachO,
-//     first: SymbolWithLoc,
-//     other: SymbolWithLoc,
-// ) error{OutOfMemory}!void {
-//     const comp = self.base.comp;
-//     const gpa = comp.gpa;
-//     try comp.link_errors.ensureUnusedCapacity(gpa, 1);
+fn reportDuplicates(self: *MachO, dupes: anytype) error{ HasDuplicates, OutOfMemory }!void {
+    const tracy = trace(@src());
+    defer tracy.end();
 
-//     var notes = try std.ArrayList(File.ErrorMsg).initCapacity(gpa, 2);
-//     defer notes.deinit();
+    const max_notes = 4;
 
-//     if (first.getFile()) |file| {
-//         const note = try std.fmt.allocPrint(gpa, "first definition in {s}", .{
-//             self.objects.items[file].name,
-//         });
-//         notes.appendAssumeCapacity(.{ .msg = note });
-//     }
-//     if (other.getFile()) |file| {
-//         const note = try std.fmt.allocPrint(gpa, "next definition in {s}", .{
-//             self.objects.items[file].name,
-//         });
-//         notes.appendAssumeCapacity(.{ .msg = note });
-//     }
+    var has_dupes = false;
+    var it = dupes.iterator();
+    while (it.next()) |entry| {
+        const sym = self.getSymbol(entry.key_ptr.*);
+        const notes = entry.value_ptr.*;
+        const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
-//     var err_msg = File.ErrorMsg{ .msg = try std.fmt.allocPrint(gpa, "symbol {s} defined multiple times", .{
-//         self.getSymbolName(first),
-//     }) };
-//     err_msg.notes = try notes.toOwnedSlice();
+        var err = try self.addErrorWithNotes(nnotes);
+        try err.addMsg(self, "duplicate symbol definition: {s}", .{sym.getName(self)});
 
-//     comp.link_errors.appendAssumeCapacity(err_msg);
-// }
+        var inote: usize = 0;
+        while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
+            const file = self.getFile(notes.items[inote]).?;
+            try err.addNote(self, "defined by {}", .{file.fmtPath()});
+        }
 
-// fn reportUnhandledSymbolType(self: *MachO, sym_with_loc: SymbolWithLoc) error{OutOfMemory}!void {
-//     const comp = self.base.comp;
-//     const gpa = comp.gpa;
-//     try comp.link_errors.ensureUnusedCapacity(gpa, 1);
+        if (notes.items.len > max_notes) {
+            const remaining = notes.items.len - max_notes;
+            try err.addNote(self, "defined {d} more times", .{remaining});
+        }
 
-//     const notes = try gpa.alloc(File.ErrorMsg, 1);
-//     errdefer gpa.free(notes);
+        has_dupes = true;
+    }
 
-//     const file = sym_with_loc.getFile().?;
-//     notes[0] = .{ .msg = try std.fmt.allocPrint(gpa, "defined in {s}", .{self.objects.items[file].name}) };
-
-//     const sym = self.getSymbol(sym_with_loc);
-//     const sym_type = if (sym.stab())
-//         "stab"
-//     else if (sym.indr())
-//         "indirect"
-//     else if (sym.abs())
-//         "absolute"
-//     else
-//         unreachable;
-
-//     comp.link_errors.appendAssumeCapacity(.{
-//         .msg = try std.fmt.allocPrint(gpa, "unhandled symbol type: '{s}' has type {s}", .{
-//             self.getSymbolName(sym_with_loc),
-//             sym_type,
-//         }),
-//         .notes = notes,
-//     });
-// }
+    if (has_dupes) return error.HasDuplicates;
+}
 
 pub fn getDebugSymbols(self: *MachO) ?*DebugSymbols {
     if (self.d_sym) |*ds| {
