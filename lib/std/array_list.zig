@@ -420,7 +420,8 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             self.capacity = 0;
         }
 
-        /// Modify the array so that it can hold at least `new_capacity` items.
+        /// If the current capacity is less than `new_capacity`, this function will
+        /// modify the array so that it can hold at least `new_capacity` items.
         /// Invalidates pointers if additional memory is needed.
         pub fn ensureTotalCapacity(self: *Self, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) == 0) {
@@ -434,9 +435,8 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return self.ensureTotalCapacityPrecise(better_capacity);
         }
 
-        /// Modify the array so that it can hold `new_capacity` items.
-        /// Like `ensureTotalCapacity`, but the resulting capacity is guaranteed
-        /// to be equal to `new_capacity`.
+        /// If the current capacity is less than `new_capacity`, this function will
+        /// modify the array so that it can hold exactly `new_capacity` items.
         /// Invalidates pointers if additional memory is needed.
         pub fn ensureTotalCapacityPrecise(self: *Self, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) == 0) {
@@ -985,7 +985,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             self.capacity = 0;
         }
 
-        /// Modify the array so that it can hold at least `new_capacity` items.
+        /// If the current capacity is less than `new_capacity`, this function will
+        /// modify the array so that it can hold at least `new_capacity` items.
         /// Invalidates pointers if additional memory is needed.
         pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (self.capacity >= new_capacity) return;
@@ -994,9 +995,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return self.ensureTotalCapacityPrecise(allocator, better_capacity);
         }
 
-        /// Modify the array so that it can hold `new_capacity` items.
-        /// Like `ensureTotalCapacity`, but the resulting capacity is guaranteed
-        /// to be equal to `new_capacity`.
+        /// If the current capacity is less than `new_capacity`, this function will
+        /// modify the array so that it can hold exactly `new_capacity` items.
         /// Invalidates pointers if additional memory is needed.
         pub fn ensureTotalCapacityPrecise(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) == 0) {
