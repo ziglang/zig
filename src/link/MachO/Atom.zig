@@ -682,7 +682,7 @@ const x86_64 = struct {
 };
 
 pub fn calcNumRelocs(self: Atom, macho_file: *MachO) u32 {
-    switch (macho_file.options.cpu_arch.?) {
+    switch (macho_file.getTarget().cpu.arch) {
         .aarch64 => {
             var nreloc: u32 = 0;
             for (self.getRelocs(macho_file)) |rel| {
@@ -705,7 +705,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: *std.Arra
     const tracy = trace(@src());
     defer tracy.end();
 
-    const cpu_arch = macho_file.options.cpu_arch.?;
+    const cpu_arch = macho_file.getTarget().cpu.arch;
     const relocs = self.getRelocs(macho_file);
     const sect = macho_file.sections.items(.header)[self.out_n_sect];
     var stream = std.io.fixedBufferStream(code);
