@@ -976,8 +976,7 @@ pub fn formatUnicodeCodepoint(
     var buf: [4]u8 = undefined;
     const len = unicode.utf8Encode(c, &buf) catch |err| switch (err) {
         error.Utf8CannotEncodeSurrogateHalf, error.CodepointTooLarge => {
-            const len = unicode.utf8Encode(unicode.replacement_character, &buf) catch unreachable;
-            return formatBuf(buf[0..len], options, writer);
+            return formatBuf(unicode.utf8EncodeComptime(unicode.replacement_character), options, writer);
         },
     };
     return formatBuf(buf[0..len], options, writer);
