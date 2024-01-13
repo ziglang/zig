@@ -80,6 +80,9 @@ const RelocatableData = struct {
     offset: u32,
     /// Represents the index of the section it belongs to
     section_index: u32,
+    /// Whether the relocatable section is represented by a symbol or not.
+    /// Can only be `true` for custom sections.
+    represented: bool = false,
 
     const Tag = enum { data, code, custom };
 
@@ -753,6 +756,24 @@ fn Parser(comptime ReaderType: type) type {
                         log.debug("Found legacy indirect function table. Created symbol", .{});
                     }
 
+                    // Not all debug sections may be represented by a symbol, for those sections
+                    // we manually create a symbol.
+                    if (parser.object.relocatable_data.get(.custom)) |custom_sections| {
+                        for (custom_sections) |*data| {
+                            if (!data.represented) {
+                                try symbols.append(.{
+                                    .name = data.index,
+                                    .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
+                                    .tag = .section,
+                                    .virtual_address = 0,
+                                    .index = data.section_index,
+                                });
+                                data.represented = true;
+                                log.debug("Created synthetic custom section symbol for '{s}'", .{parser.object.string_table.get(data.index)});
+                            }
+                        }
+                    }
+
                     parser.object.symtable = try symbols.toOwnedSlice();
                 },
             }
@@ -791,9 +812,10 @@ fn Parser(comptime ReaderType: type) type {
                 .section => {
                     symbol.index = try leb.readULEB128(u32, reader);
                     const section_data = parser.object.relocatable_data.get(.custom).?;
-                    for (section_data) |data| {
+                    for (section_data) |*data| {
                         if (data.section_index == symbol.index) {
                             symbol.name = data.index;
+                            data.represented = true;
                             break;
                         }
                     }
