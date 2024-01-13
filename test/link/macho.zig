@@ -8,10 +8,92 @@ pub fn testAll(b: *std.Build) *Step {
         .os_tag = .macos,
     });
 
+    macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
 
     return macho_step;
+}
+
+fn testDeadStrip(b: *std.Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-dead-strip", opts);
+
+    const obj = addObject(b, opts, .{ .name = "a", .cpp_source_bytes = 
+    \\#include <stdio.h>
+    \\int two() { return 2; }
+    \\int live_var1 = 1;
+    \\int live_var2 = two();
+    \\int dead_var1 = 3;
+    \\int dead_var2 = 4;
+    \\void live_fn1() {}
+    \\void live_fn2() { live_fn1(); }
+    \\void dead_fn1() {}
+    \\void dead_fn2() { dead_fn1(); }
+    \\int main() {
+    \\  printf("%d %d\n", live_var1, live_var2);
+    \\  live_fn2();
+    \\}
+    });
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "no_dead_strip" });
+        exe.addObject(obj);
+        exe.link_gc_sections = false;
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkContains("live_var1");
+        check.checkInSymtab();
+        check.checkContains("live_var2");
+        check.checkInSymtab();
+        check.checkContains("dead_var1");
+        check.checkInSymtab();
+        check.checkContains("dead_var2");
+        check.checkInSymtab();
+        check.checkContains("live_fn1");
+        check.checkInSymtab();
+        check.checkContains("live_fn2");
+        check.checkInSymtab();
+        check.checkContains("dead_fn1");
+        check.checkInSymtab();
+        check.checkContains("dead_fn2");
+        test_step.dependOn(&check.step);
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("1 2\n");
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "yes_dead_strip" });
+        exe.addObject(obj);
+        exe.link_gc_sections = true;
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkContains("live_var1");
+        check.checkInSymtab();
+        check.checkContains("live_var2");
+        check.checkInSymtab();
+        check.checkNotPresent("dead_var1");
+        check.checkInSymtab();
+        check.checkNotPresent("dead_var2");
+        check.checkInSymtab();
+        check.checkContains("live_fn1");
+        check.checkInSymtab();
+        check.checkContains("live_fn2");
+        check.checkInSymtab();
+        check.checkNotPresent("dead_fn1");
+        check.checkInSymtab();
+        check.checkNotPresent("dead_fn2");
+        test_step.dependOn(&check.step);
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("1 2\n");
+        test_step.dependOn(&run.step);
+    }
+
+    return test_step;
 }
 
 fn testEntryPointDylib(b: *std.Build, opts: Options) *Step {
