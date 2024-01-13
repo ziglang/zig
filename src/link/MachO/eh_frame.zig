@@ -426,9 +426,9 @@ pub fn write(macho_file: *MachO, buffer: []u8) void {
             }
 
             if (fde.getLsdaAtom(macho_file)) |atom| {
-                const offset = fde.out_offset + fde.lsda_offset;
+                const offset = fde.out_offset + fde.lsda_ptr_offset;
                 const saddr = sect.addr + offset;
-                const taddr = atom.value;
+                const taddr = atom.value + fde.lsda_offset;
                 switch (fde.getCie(macho_file).lsda_size.?) {
                     .p32 => std.mem.writeInt(
                         i32,

@@ -46,7 +46,7 @@ fn testUnwindInfo(
     }
 
     check.checkInSymtab();
-    check.checkContains("(__TEXT,__text) private external ___gxx_personality_v0");
+    check.checkContains("(was private external) ___gxx_personality_v0");
     test_step.dependOn(&check.step);
 
     const run = b.addRunArtifact(exe);
