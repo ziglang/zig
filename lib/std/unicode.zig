@@ -539,10 +539,10 @@ fn testUtf8Encode() !void {
 }
 
 test "utf8 encode comptime" {
-    try testing.expectEqualSlices(u8, "€", utf8EncodeComptime('€'));
-    try testing.expectEqualSlices(u8, "$", utf8EncodeComptime('$'));
-    try testing.expectEqualSlices(u8, "¢", utf8EncodeComptime('¢'));
-    try testing.expectEqualSlices(u8, "𐍈", utf8EncodeComptime('𐍈'));
+    try testing.expectEqualSlices(u8, "€", &utf8EncodeComptime('€'));
+    try testing.expectEqualSlices(u8, "$", &utf8EncodeComptime('$'));
+    try testing.expectEqualSlices(u8, "¢", &utf8EncodeComptime('¢'));
+    try testing.expectEqualSlices(u8, "𐍈", &utf8EncodeComptime('𐍈'));
 }
 
 test "utf8 encode error" {
