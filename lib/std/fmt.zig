@@ -383,12 +383,6 @@ pub const Parser = struct {
     }
 };
 
-fn utf(char: u21) ![]const u8 {
-    var bytes: [4]u8 = undefined;
-    const len: u3 = try std.unicode.utf8Encode(char, &bytes);
-    return bytes[0..len];
-}
-
 pub const ArgSetType = u32;
 const max_format_args = @typeInfo(ArgSetType).Int.bits;
 
@@ -1001,6 +995,11 @@ pub fn formatBuf(
     options: FormatOptions,
     writer: anytype,
 ) !void {
+    var fill_buffer: [4]u8 = undefined;
+    const fill_utf8 = if (std.unicode.utf8Encode(options.fill, &fill_buffer)) |len|
+        fill_buffer[0..len]
+    else |_|
+        " ";
     if (options.width) |min_width| {
         // In case of error assume the buffer content is ASCII-encoded
         const width = unicode.utf8CountCodepoints(buf) catch buf.len;
@@ -1012,17 +1011,17 @@ pub fn formatBuf(
         switch (options.alignment) {
             .left => {
                 try writer.writeAll(buf);
-                try writeBytesNTimes(writer, (utf(options.fill) catch " "), padding);
+                try writeBytesNTimes(writer, fill_utf8, padding);
             },
             .center => {
                 const left_padding = padding / 2;
                 const right_padding = (padding + 1) / 2;
-                try writeBytesNTimes(writer, (utf(options.fill) catch " "), left_padding);
+                try writeBytesNTimes(writer, fill_utf8, left_padding);
                 try writer.writeAll(buf);
-                try writeBytesNTimes(writer, (utf(options.fill) catch " "), right_padding);
+                try writeBytesNTimes(writer, fill_utf8, right_padding);
             },
             .right => {
-                try writeBytesNTimes(writer, (utf(options.fill) catch " "), padding);
+                try writeBytesNTimes(writer, fill_utf8, padding);
                 try writer.writeAll(buf);
             },
         }
