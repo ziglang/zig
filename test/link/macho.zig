@@ -99,7 +99,7 @@ fn testDeadStrip(b: *std.Build, opts: Options) *Step {
 fn testEntryPointDylib(b: *std.Build, opts: Options) *Step {
     const test_step = addTestStep(b, "macho-entry-point-dylib", opts);
 
-    const dylib = addSharedLibrary(b, opts, .{ .name = "liba.dylib" });
+    const dylib = addSharedLibrary(b, opts, .{ .name = "a" });
     addCSourceBytes(dylib,
         \\extern int my_main();
         \\int bootstrap() {
