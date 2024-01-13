@@ -1,7 +1,7 @@
 //! Here we test our MachO linker for correctness and functionality.
 //! TODO migrate standalone tests from test/link/macho/* to here.
 
-pub fn testAll(b: *std.Build) *Step {
+pub fn testAll(b: *std.Build, build_opts: BuildOptions) *Step {
     const macho_step = b.step("test-macho", "Run MachO tests");
 
     const default_target = b.resolveTargetQuery(.{
@@ -12,6 +12,11 @@ pub fn testAll(b: *std.Build) *Step {
     macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
+
+    // Tests requiring presence of macOS SDK in system path
+    if (build_opts.has_macos_sdk and build_opts.has_symlinks_windows) {
+        macho_step.dependOn(testNeededFramework(b, .{ .target = b.host }));
+    }
 
     return macho_step;
 }
@@ -146,6 +151,26 @@ fn testEntryPointDylib(b: *std.Build, opts: Options) *Step {
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello!\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testNeededFramework(b: *std.Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-needed-framework", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
+    exe.linkFrameworkNeeded("Cocoa");
+    exe.dead_strip_dylibs = true;
+
+    const check = exe.checkObject();
+    check.checkInHeaders();
+    check.checkExact("cmd LOAD_DYLIB");
+    check.checkContains("Cocoa");
+    test_step.dependOn(&check.step);
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
     test_step.dependOn(&run.step);
 
     return test_step;
@@ -311,5 +336,6 @@ const addSharedLibrary = link.addSharedLibrary;
 const expectLinkErrors = link.expectLinkErrors;
 const link = @import("link.zig");
 const std = @import("std");
+const BuildOptions = link.BuildOptions;
 const Options = link.Options;
 const Step = std.Build.Step;

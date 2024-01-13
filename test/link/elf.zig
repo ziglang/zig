@@ -2,7 +2,8 @@
 //! Currently, we support linking x86_64 Linux, but in the future we
 //! will progressively relax those to exercise more combinations.
 
-pub fn testAll(b: *Build) *Step {
+pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
+    _ = build_opts;
     const elf_step = b.step("test-elf", "Run ELF tests");
 
     const default_target = b.resolveTargetQuery(.{
@@ -3901,6 +3902,7 @@ const link = @import("link.zig");
 const std = @import("std");
 
 const Build = std.Build;
+const BuildOptions = link.BuildOptions;
 const Options = link.Options;
 const Step = Build.Step;
 const WriteFile = Step.WriteFile;
