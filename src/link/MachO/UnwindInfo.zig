@@ -65,6 +65,16 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
         const rec = macho_file.getUnwindRecord(index);
         if (rec.getFde(macho_file)) |fde| {
             rec.enc.setDwarfSectionOffset(@intCast(fde.out_offset));
+            if (fde.getLsdaAtom(macho_file)) |lsda| {
+                rec.lsda = lsda.atom_index;
+                rec.lsda_offset = fde.lsda_offset;
+                rec.enc.setHasLsda(true);
+            }
+            const cie = fde.getCie(macho_file);
+            if (cie.getPersonality(macho_file)) |_| {
+                const personality_index = try info.getOrPutPersonalityFunction(cie.personality.?.index); // TODO handle error
+                rec.enc.setPersonalityIndex(personality_index + 1);
+            }
         } else if (rec.getPersonality(macho_file)) |_| {
             const personality_index = try info.getOrPutPersonalityFunction(rec.personality.?); // TODO handle error
             rec.enc.setPersonalityIndex(personality_index + 1);
@@ -232,11 +242,13 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
     }
 
     // Save records having an LSDA pointer
+    log.debug("LSDA pointers:", .{});
     try info.lsdas_lookup.ensureTotalCapacityPrecise(gpa, info.records.items.len);
     for (info.records.items, 0..) |index, i| {
         const rec = macho_file.getUnwindRecord(index);
         info.lsdas_lookup.appendAssumeCapacity(@intCast(info.lsdas.items.len));
-        if (rec.getLsdaAtom(macho_file)) |_| {
+        if (rec.getLsdaAtom(macho_file)) |lsda| {
+            log.debug("  @{x} => lsda({d})", .{ rec.getAtomAddress(macho_file), lsda.atom_index });
             try info.lsdas.append(gpa, @intCast(i));
         }
     }
@@ -367,7 +379,8 @@ pub const Encoding = extern struct {
 
     pub fn getMode(enc: Encoding) u4 {
         comptime assert(macho.UNWIND_ARM64_MODE_MASK == macho.UNWIND_X86_64_MODE_MASK);
-        return @as(u4, @truncate((enc.enc & macho.UNWIND_ARM64_MODE_MASK) >> 24));
+        const shift = comptime @ctz(macho.UNWIND_ARM64_MODE_MASK);
+        return @as(u4, @truncate((enc.enc & macho.UNWIND_ARM64_MODE_MASK) >> shift));
     }
 
     pub fn isDwarf(enc: Encoding, macho_file: *MachO) bool {
@@ -380,26 +393,32 @@ pub const Encoding = extern struct {
     }
 
     pub fn setMode(enc: *Encoding, mode: anytype) void {
-        enc.enc |= @as(u32, @intCast(@intFromEnum(mode))) << 24;
+        comptime assert(macho.UNWIND_ARM64_MODE_MASK == macho.UNWIND_X86_64_MODE_MASK);
+        const shift = comptime @ctz(macho.UNWIND_ARM64_MODE_MASK);
+        enc.enc |= @as(u32, @intCast(@intFromEnum(mode))) << shift;
     }
 
     pub fn hasLsda(enc: Encoding) bool {
-        const has_lsda = @as(u1, @truncate((enc.enc & macho.UNWIND_HAS_LSDA) >> 31));
+        const shift = comptime @ctz(macho.UNWIND_HAS_LSDA);
+        const has_lsda = @as(u1, @truncate((enc.enc & macho.UNWIND_HAS_LSDA) >> shift));
         return has_lsda == 1;
     }
 
     pub fn setHasLsda(enc: *Encoding, has_lsda: bool) void {
-        const mask = @as(u32, @intCast(@intFromBool(has_lsda))) << 31;
+        const shift = comptime @ctz(macho.UNWIND_HAS_LSDA);
+        const mask = @as(u32, @intCast(@intFromBool(has_lsda))) << shift;
         enc.enc |= mask;
     }
 
     pub fn getPersonalityIndex(enc: Encoding) u2 {
-        const index = @as(u2, @truncate((enc.enc & macho.UNWIND_PERSONALITY_MASK) >> 28));
+        const shift = comptime @ctz(macho.UNWIND_PERSONALITY_MASK);
+        const index = @as(u2, @truncate((enc.enc & macho.UNWIND_PERSONALITY_MASK) >> shift));
         return index;
     }
 
     pub fn setPersonalityIndex(enc: *Encoding, index: u2) void {
-        const mask = @as(u32, @intCast(index)) << 28;
+        const shift = comptime @ctz(macho.UNWIND_PERSONALITY_MASK);
+        const mask = @as(u32, @intCast(index)) << shift;
         enc.enc |= mask;
     }
 
