@@ -988,11 +988,6 @@ pub fn formatBuf(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    var fill_buffer: [4]u8 = undefined;
-    const fill_utf8 = if (std.unicode.utf8Encode(options.fill, &fill_buffer)) |len|
-        fill_buffer[0..len]
-    else |_|
-        " ";
     if (options.width) |min_width| {
         // In case of error assume the buffer content is ASCII-encoded
         const width = unicode.utf8CountCodepoints(buf) catch buf.len;
@@ -1001,6 +996,11 @@ pub fn formatBuf(
         if (padding == 0)
             return writer.writeAll(buf);
 
+        var fill_buffer: [4]u8 = undefined;
+        const fill_utf8 = if (std.unicode.utf8Encode(options.fill, &fill_buffer)) |len|
+            fill_buffer[0..len]
+        else |_|
+            " ";
         switch (options.alignment) {
             .left => {
                 try writer.writeAll(buf);
