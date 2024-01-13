@@ -997,10 +997,13 @@ pub fn formatBuf(
             return writer.writeAll(buf);
 
         var fill_buffer: [4]u8 = undefined;
-        const fill_utf8 = if (std.unicode.utf8Encode(options.fill, &fill_buffer)) |len|
+        const fill_utf8 = if (unicode.utf8Encode(options.fill, &fill_buffer)) |len|
             fill_buffer[0..len]
-        else |_|
-            " ";
+        else |err| switch (err) {
+            error.Utf8CannotEncodeSurrogateHalf,
+            error.CodepointTooLarge,
+            => &unicode.utf8EncodeComptime(unicode.replacement_character),
+        };
         switch (options.alignment) {
             .left => {
                 try writer.writeAll(buf);
