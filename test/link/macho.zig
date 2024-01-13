@@ -11,6 +11,7 @@ pub fn testAll(b: *std.Build) *Step {
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
+    macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
 
     return macho_step;
 }
@@ -224,6 +225,74 @@ fn testSectionBoundarySymbols(b: *std.Build, opts: Options) *Step {
         const check = exe.checkObject();
         check.checkInSymtab();
         check.checkNotPresent("external section$start$__DATA_CONST$__not_present");
+        test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
+fn testSegmentBoundarySymbols(b: *std.Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-segment-boundary-symbols", opts);
+
+    const obj1 = addObject(b, opts, .{ .name = "a", .cpp_source_bytes = 
+    \\constexpr const char* MESSAGE __attribute__((used, section("__DATA_CONST_1,__message_ptr"))) = "codebase";
+    });
+
+    const main_o = addObject(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\const char* interop();
+    \\int main() {
+    \\  printf("All your %s are belong to us.\n", interop());
+    \\  return 0;
+    \\}
+    });
+
+    {
+        const obj2 = addObject(b, opts, .{ .name = "b", .cpp_source_bytes = 
+        \\extern const char* message_pointer __asm("segment$start$__DATA_CONST_1");
+        \\extern "C" const char* interop() {
+        \\  return message_pointer;
+        \\}
+        });
+
+        const exe = addExecutable(b, opts, .{ .name = "main" });
+        exe.addObject(obj1);
+        exe.addObject(obj2);
+        exe.addObject(main_o);
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("All your codebase are belong to us.\n");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkNotPresent("external segment$start$__DATA_CONST_1");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const obj2 = addObject(b, opts, .{ .name = "c", .cpp_source_bytes = 
+        \\extern const char* message_pointer __asm("segment$start$__DATA_1");
+        \\extern "C" const char* interop() {
+        \\  return message_pointer;
+        \\}
+        });
+
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
+        exe.addObject(obj1);
+        exe.addObject(obj2);
+        exe.addObject(main_o);
+
+        const check = exe.checkObject();
+        check.checkInHeaders();
+        check.checkExact("cmd SEGMENT_64");
+        check.checkExact("segname __DATA_1");
+        check.checkExtract("vmsize {vmsize}");
+        check.checkExtract("filesz {filesz}");
+        check.checkComputeCompare("vmsize", .{ .op = .eq, .value = .{ .literal = 0 } });
+        check.checkComputeCompare("filesz", .{ .op = .eq, .value = .{ .literal = 0 } });
+        check.checkInSymtab();
+        check.checkNotPresent("external segment$start$__DATA_1");
         test_step.dependOn(&check.step);
     }
 
