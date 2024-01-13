@@ -10,6 +10,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
+    macho_step.dependOn(testHelloC(b, .{ .target = default_target }));
     macho_step.dependOn(testHelloZig(b, .{ .target = default_target }));
     macho_step.dependOn(testLargeBss(b, .{ .target = default_target }));
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
@@ -160,6 +161,30 @@ fn testEntryPointDylib(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello!\n");
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testHelloC(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-hello-c", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\int main() { 
+    \\  printf("Hello world!\n");
+    \\  return 0;
+    \\}
+    });
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello world!\n");
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkInHeaders();
+    check.checkExact("header");
+    check.checkContains("PIE");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
