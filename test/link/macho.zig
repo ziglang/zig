@@ -7,6 +7,10 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     const default_target = b.resolveTargetQuery(.{
         .os_tag = .macos,
     });
+    const x86_64_target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag = .macos,
+    });
 
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
@@ -17,6 +21,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
+    macho_step.dependOn(testWeakBind(b, .{ .target = x86_64_target }));
 
     // Tests requiring symlinks when tested on Windows
     if (build_opts.has_symlinks_windows) {
@@ -625,6 +630,138 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
         check.checkNotPresent("external segment$start$__DATA_1");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+// Adapted from https://github.com/llvm/llvm-project/blob/main/lld/test/MachO/weak-binding.s
+fn testWeakBind(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-weak-bind", opts);
+
+    const lib = addSharedLibrary(b, opts, .{ .name = "foo", .asm_source_bytes = 
+    \\.globl _weak_dysym
+    \\.weak_definition _weak_dysym
+    \\_weak_dysym:
+    \\  .quad 0x1234
+    \\
+    \\.globl _weak_dysym_for_gotpcrel
+    \\.weak_definition _weak_dysym_for_gotpcrel
+    \\_weak_dysym_for_gotpcrel:
+    \\  .quad 0x1234
+    \\
+    \\.globl _weak_dysym_fn
+    \\.weak_definition _weak_dysym_fn
+    \\_weak_dysym_fn:
+    \\  ret
+    \\
+    \\.section __DATA,__thread_vars,thread_local_variables
+    \\
+    \\.globl _weak_dysym_tlv
+    \\.weak_definition _weak_dysym_tlv
+    \\_weak_dysym_tlv:
+    \\  .quad 0x1234
+    });
+
+    {
+        const check = lib.checkObject();
+        check.checkInExports();
+        check.checkExtract("[WEAK] {vmaddr1} _weak_dysym");
+        check.checkExtract("[WEAK] {vmaddr2} _weak_dysym_for_gotpcrel");
+        check.checkExtract("[WEAK] {vmaddr3} _weak_dysym_fn");
+        check.checkExtract("[THREAD_LOCAL, WEAK] {vmaddr4} _weak_dysym_tlv");
+        test_step.dependOn(&check.step);
+    }
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .asm_source_bytes = 
+    \\.globl _main, _weak_external, _weak_external_for_gotpcrel, _weak_external_fn
+    \\.weak_definition _weak_external, _weak_external_for_gotpcrel, _weak_external_fn, _weak_internal, _weak_internal_for_gotpcrel, _weak_internal_fn
+    \\
+    \\_main:
+    \\  mov _weak_dysym_for_gotpcrel@GOTPCREL(%rip), %rax
+    \\  mov _weak_external_for_gotpcrel@GOTPCREL(%rip), %rax
+    \\  mov _weak_internal_for_gotpcrel@GOTPCREL(%rip), %rax
+    \\  mov _weak_tlv@TLVP(%rip), %rax
+    \\  mov _weak_dysym_tlv@TLVP(%rip), %rax
+    \\  mov _weak_internal_tlv@TLVP(%rip), %rax
+    \\  callq _weak_dysym_fn
+    \\  callq _weak_external_fn
+    \\  callq _weak_internal_fn
+    \\  mov $0, %rax
+    \\  ret
+    \\
+    \\_weak_external:
+    \\  .quad 0x1234
+    \\
+    \\_weak_external_for_gotpcrel:
+    \\  .quad 0x1234
+    \\
+    \\_weak_external_fn:
+    \\  ret
+    \\
+    \\_weak_internal:
+    \\  .quad 0x1234
+    \\
+    \\_weak_internal_for_gotpcrel:
+    \\  .quad 0x1234
+    \\
+    \\_weak_internal_fn:
+    \\  ret
+    \\
+    \\.data
+    \\  .quad _weak_dysym
+    \\  .quad _weak_external + 2
+    \\  .quad _weak_internal
+    \\
+    \\.tbss _weak_tlv$tlv$init, 4, 2
+    \\.tbss _weak_internal_tlv$tlv$init, 4, 2
+    \\
+    \\.section __DATA,__thread_vars,thread_local_variables
+    \\.globl _weak_tlv
+    \\.weak_definition  _weak_tlv, _weak_internal_tlv
+    \\
+    \\_weak_tlv:
+    \\  .quad __tlv_bootstrap
+    \\  .quad 0
+    \\  .quad _weak_tlv$tlv$init
+    \\
+    \\_weak_internal_tlv:
+    \\  .quad __tlv_bootstrap
+    \\  .quad 0
+    \\  .quad _weak_internal_tlv$tlv$init
+    });
+    exe.linkLibrary(lib);
+
+    {
+        const check = exe.checkObject();
+
+        check.checkInExports();
+        check.checkExtract("[WEAK] {vmaddr1} _weak_external");
+        check.checkExtract("[WEAK] {vmaddr2} _weak_external_for_gotpcrel");
+        check.checkExtract("[WEAK] {vmaddr3} _weak_external_fn");
+        check.checkExtract("[THREAD_LOCAL, WEAK] {vmaddr4} _weak_tlv");
+
+        check.checkInDyldBind();
+        check.checkContains("(libfoo.dylib) _weak_dysym_for_gotpcrel");
+        check.checkContains("(libfoo.dylib) _weak_dysym_fn");
+        check.checkContains("(libfoo.dylib) _weak_dysym");
+        check.checkContains("(libfoo.dylib) _weak_dysym_tlv");
+
+        check.checkInDyldWeakBind();
+        check.checkContains("_weak_external_for_gotpcrel");
+        check.checkContains("_weak_dysym_for_gotpcrel");
+        check.checkContains("_weak_external_fn");
+        check.checkContains("_weak_dysym_fn");
+        check.checkContains("_weak_dysym");
+        check.checkContains("_weak_external");
+        check.checkContains("_weak_tlv");
+        check.checkContains("_weak_dysym_tlv");
+
+        test_step.dependOn(&check.step);
+    }
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
