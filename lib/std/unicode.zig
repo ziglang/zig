@@ -538,6 +538,27 @@ fn testUtf8Encode() !void {
     try testing.expect(array[3] == 0b10001000);
 }
 
+test "utf8 encode comptime" {
+    var array: [4]u8 = undefined;
+    array = try utf8EncodeComptime('€');
+    try testing.expect(array[0] == 0b11100010);
+    try testing.expect(array[1] == 0b10000010);
+    try testing.expect(array[2] == 0b10101100);
+
+    array = try utf8EncodeComptime('$');
+    try testing.expect(array[0] == 0b00100100);
+
+    array = utf8EncodeComptime('¢');
+    try testing.expect(array[0] == 0b11000010);
+    try testing.expect(array[1] == 0b10100010);
+
+    array = utf8EncodeComptime('𐍈');
+    try testing.expect(array[0] == 0b11110000);
+    try testing.expect(array[1] == 0b10010000);
+    try testing.expect(array[2] == 0b10001101);
+    try testing.expect(array[3] == 0b10001000);
+}
+
 test "utf8 encode error" {
     try comptime testUtf8EncodeError();
     try testUtf8EncodeError();
