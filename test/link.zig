@@ -136,10 +136,6 @@ pub const cases = [_]Case{
         .import = @import("link/macho/linksection/build.zig"),
     },
     .{
-        .build_root = "test/link/macho/needed_library",
-        .import = @import("link/macho/needed_library/build.zig"),
-    },
-    .{
         .build_root = "test/link/macho/objc",
         .import = @import("link/macho/objc/build.zig"),
     },
