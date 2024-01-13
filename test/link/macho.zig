@@ -24,6 +24,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
         // Tests requiring presence of macOS SDK in system path
         if (build_opts.has_macos_sdk) {
+            macho_step.dependOn(testHeaderpad(b, .{ .target = b.host }));
             macho_step.dependOn(testNeededFramework(b, .{ .target = b.host }));
         }
     }
@@ -162,6 +163,113 @@ fn testEntryPointDylib(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello!\n");
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testHeaderpad(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-headerpad", opts);
+
+    const addExe = struct {
+        fn addExe(bb: *Build, o: Options, name: []const u8) *Compile {
+            const exe = addExecutable(bb, o, .{
+                .name = name,
+                .c_source_bytes = "int main() { return 0; }",
+            });
+            exe.linkFramework("CoreFoundation");
+            exe.linkFramework("Foundation");
+            exe.linkFramework("Cocoa");
+            exe.linkFramework("CoreGraphics");
+            exe.linkFramework("CoreHaptics");
+            exe.linkFramework("CoreAudio");
+            exe.linkFramework("AVFoundation");
+            exe.linkFramework("CoreImage");
+            exe.linkFramework("CoreLocation");
+            exe.linkFramework("CoreML");
+            exe.linkFramework("CoreVideo");
+            exe.linkFramework("CoreText");
+            exe.linkFramework("CryptoKit");
+            exe.linkFramework("GameKit");
+            exe.linkFramework("SwiftUI");
+            exe.linkFramework("StoreKit");
+            exe.linkFramework("SpriteKit");
+            return exe;
+        }
+    }.addExe;
+
+    {
+        const exe = addExe(b, opts, "main1");
+        exe.headerpad_max_install_names = true;
+
+        const check = exe.checkObject();
+        check.checkInHeaders();
+        check.checkExact("sectname __text");
+        check.checkExtract("offset {offset}");
+        switch (opts.target.result.cpu.arch) {
+            .aarch64 => check.checkComputeCompare("offset", .{ .op = .gte, .value = .{ .literal = 0x4000 } }),
+            .x86_64 => check.checkComputeCompare("offset", .{ .op = .gte, .value = .{ .literal = 0x1000 } }),
+            else => unreachable,
+        }
+        test_step.dependOn(&check.step);
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExe(b, opts, "main2");
+        exe.headerpad_size = 0x10000;
+
+        const check = exe.checkObject();
+        check.checkInHeaders();
+        check.checkExact("sectname __text");
+        check.checkExtract("offset {offset}");
+        check.checkComputeCompare("offset", .{ .op = .gte, .value = .{ .literal = 0x10000 } });
+        test_step.dependOn(&check.step);
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExe(b, opts, "main3");
+        exe.headerpad_max_install_names = true;
+        exe.headerpad_size = 0x10000;
+
+        const check = exe.checkObject();
+        check.checkInHeaders();
+        check.checkExact("sectname __text");
+        check.checkExtract("offset {offset}");
+        check.checkComputeCompare("offset", .{ .op = .gte, .value = .{ .literal = 0x10000 } });
+        test_step.dependOn(&check.step);
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExe(b, opts, "main4");
+        exe.headerpad_max_install_names = true;
+        exe.headerpad_size = 0x1000;
+
+        const check = exe.checkObject();
+        check.checkInHeaders();
+        check.checkExact("sectname __text");
+        check.checkExtract("offset {offset}");
+        switch (opts.target.result.cpu.arch) {
+            .aarch64 => check.checkComputeCompare("offset", .{ .op = .gte, .value = .{ .literal = 0x4000 } }),
+            .x86_64 => check.checkComputeCompare("offset", .{ .op = .gte, .value = .{ .literal = 0x1000 } }),
+            else => unreachable,
+        }
+        test_step.dependOn(&check.step);
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+    }
 
     return test_step;
 }
@@ -537,5 +645,6 @@ const std = @import("std");
 
 const Build = std.Build;
 const BuildOptions = link.BuildOptions;
+const Compile = Step.Compile;
 const Options = link.Options;
 const Step = Build.Step;
