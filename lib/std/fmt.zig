@@ -1004,17 +1004,17 @@ pub fn formatBuf(
         switch (options.alignment) {
             .left => {
                 try writer.writeAll(buf);
-                try writer.writeBytesNTimes(writer, fill_utf8, padding);
+                try writer.writeBytesNTimes(fill_utf8, padding);
             },
             .center => {
                 const left_padding = padding / 2;
                 const right_padding = (padding + 1) / 2;
-                try writer.writeBytesNTimes(writer, fill_utf8, left_padding);
+                try writer.writeBytesNTimes(fill_utf8, left_padding);
                 try writer.writeAll(buf);
-                try writer.writeBytesNTimes(writer, fill_utf8, right_padding);
+                try writer.writeBytesNTimes(fill_utf8, right_padding);
             },
             .right => {
-                try writer.writeBytesNTimes(writer, fill_utf8, padding);
+                try writer.writeBytesNTimes(fill_utf8, padding);
                 try writer.writeAll(buf);
             },
         }
