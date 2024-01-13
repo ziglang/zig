@@ -10,6 +10,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
+    macho_step.dependOn(testHeaderWeakFlags(b, .{ .target = default_target }));
     macho_step.dependOn(testHelloC(b, .{ .target = default_target }));
     macho_step.dependOn(testHelloZig(b, .{ .target = default_target }));
     macho_step.dependOn(testLargeBss(b, .{ .target = default_target }));
@@ -161,6 +162,94 @@ fn testEntryPointDylib(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello!\n");
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+// Adapted from https://github.com/llvm/llvm-project/blob/main/lld/test/MachO/weak-header-flags.s
+fn testHeaderWeakFlags(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-header-weak-flags", opts);
+
+    const obj1 = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
+    \\.globl _x
+    \\.weak_definition _x
+    \\_x:
+    \\ ret
+    });
+
+    const lib = addSharedLibrary(b, opts, .{ .name = "a" });
+    lib.addObject(obj1);
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main1", .c_source_bytes = "int main() { return 0; }" });
+        exe.addObject(obj1);
+
+        const check = exe.checkObject();
+        check.checkInHeaders();
+        check.checkExact("header");
+        check.checkContains("WEAK_DEFINES");
+        check.checkInHeaders();
+        check.checkExact("header");
+        check.checkContains("BINDS_TO_WEAK");
+        check.checkInExports();
+        check.checkExtract("[WEAK] {vmaddr} _x");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const obj = addObject(b, opts, .{ .name = "b" });
+
+        switch (opts.target.result.cpu.arch) {
+            .aarch64 => addAsmSourceBytes(obj,
+                \\.globl _main
+                \\_main:
+                \\  bl _x
+                \\  ret
+            ),
+            .x86_64 => addAsmSourceBytes(obj,
+                \\.globl _main
+                \\_main:
+                \\  callq _x
+                \\  ret
+            ),
+            else => unreachable,
+        }
+
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
+        exe.linkLibrary(lib);
+        exe.addObject(obj);
+
+        const check = exe.checkObject();
+        check.checkInHeaders();
+        check.checkExact("header");
+        check.checkNotPresent("WEAK_DEFINES");
+        check.checkInHeaders();
+        check.checkExact("header");
+        check.checkContains("BINDS_TO_WEAK");
+        check.checkInExports();
+        check.checkNotPresent("[WEAK] {vmaddr} _x");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main3", .asm_source_bytes = 
+        \\.globl _main, _x
+        \\_x:
+        \\
+        \\_main:
+        \\  ret
+        });
+        exe.linkLibrary(lib);
+
+        const check = exe.checkObject();
+        check.checkInHeaders();
+        check.checkExact("header");
+        check.checkNotPresent("WEAK_DEFINES");
+        check.checkInHeaders();
+        check.checkExact("header");
+        check.checkNotPresent("BINDS_TO_WEAK");
+        test_step.dependOn(&check.step);
+    }
 
     return test_step;
 }
@@ -436,6 +525,7 @@ fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
     return link.addTestStep(b, "macho-" ++ prefix, opts);
 }
 
+const addAsmSourceBytes = link.addAsmSourceBytes;
 const addCSourceBytes = link.addCSourceBytes;
 const addRunArtifact = link.addRunArtifact;
 const addObject = link.addObject;
