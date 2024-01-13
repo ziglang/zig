@@ -218,8 +218,7 @@ pub const Placeholder = struct {
     precision: Specifier,
 
     pub fn parse(comptime str: anytype) Placeholder {
-        comptime var view = std.unicode.Utf8View.init(&str) catch |err|
-            @compileError(@errorName(err));
+        const view = std.unicode.Utf8View.initComptime(&str);
         comptime var parser = Parser{
             .buf = &str,
             .iter = view.iterator(),
