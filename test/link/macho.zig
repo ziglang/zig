@@ -10,6 +10,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
+    macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
 
@@ -157,6 +158,19 @@ fn testEntryPointDylib(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello!\n");
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testMhExecuteHeader(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-mh-execute-header", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
+
+    const check = exe.checkObject();
+    check.checkInSymtab();
+    check.checkContains("[referenced dynamically] external __mh_execute_header");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
