@@ -983,13 +983,6 @@ pub fn formatUnicodeCodepoint(
     return formatBuf(buf[0..len], options, writer);
 }
 
-fn writeBytesNTimes(writer: anytype, bytes: []const u8, n: usize) !void {
-    var i: usize = 0;
-    while (i < n) : (i += 1) {
-        try writer.writeAll(bytes);
-    }
-}
-
 pub fn formatBuf(
     buf: []const u8,
     options: FormatOptions,
@@ -1011,17 +1004,17 @@ pub fn formatBuf(
         switch (options.alignment) {
             .left => {
                 try writer.writeAll(buf);
-                try writeBytesNTimes(writer, fill_utf8, padding);
+                try writer.writeBytesNTimes(writer, fill_utf8, padding);
             },
             .center => {
                 const left_padding = padding / 2;
                 const right_padding = (padding + 1) / 2;
-                try writeBytesNTimes(writer, fill_utf8, left_padding);
+                try writer.writeBytesNTimes(writer, fill_utf8, left_padding);
                 try writer.writeAll(buf);
-                try writeBytesNTimes(writer, fill_utf8, right_padding);
+                try writer.writeBytesNTimes(writer, fill_utf8, right_padding);
             },
             .right => {
-                try writeBytesNTimes(writer, fill_utf8, padding);
+                try writer.writeBytesNTimes(writer, fill_utf8, padding);
                 try writer.writeAll(buf);
             },
         }
