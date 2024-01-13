@@ -10,6 +10,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
+    macho_step.dependOn(testLargeBss(b, .{ .target = default_target }));
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
@@ -157,6 +158,27 @@ fn testEntryPointDylib(b: *Build, opts: Options) *Step {
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello!\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testLargeBss(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-large-bss", opts);
+
+    // TODO this test used use a 4GB zerofill section but this actually fails and causes every
+    // linker I tried misbehave in different ways. This only happened on arm64. I thought that
+    // maybe S_GB_ZEROFILL section is an answer to this but it doesn't seem supported by dyld
+    // anymore. When I get some free time I will re-investigate this.
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\char arr[0x1000000];
+    \\int main() {
+    \\  return arr[2000];
+    \\}
+    });
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
     test_step.dependOn(&run.step);
 
     return test_step;
