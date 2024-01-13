@@ -2809,6 +2809,15 @@ test "padding" {
     try expectFmt("a====", "{c:=<5}", .{'a'});
 }
 
+test "padding fill char utf" {
+    try expectFmt("──crêpe───", "{s:─^10}", .{"crêpe"});
+    try expectFmt("─────crêpe", "{s:─>10}", .{"crêpe"});
+    try expectFmt("crêpe─────", "{s:─<10}", .{"crêpe"});
+    try expectFmt("────a", "{c:─>5}", .{'a'});
+    try expectFmt("──a──", "{c:─^5}", .{'a'});
+    try expectFmt("a────", "{c:─<5}", .{'a'});
+}
+
 test "decimal float padding" {
     const number: f32 = 3.1415;
     try expectFmt("left-pad:   **3.141\n", "left-pad:   {d:*>7.3}\n", .{number});
