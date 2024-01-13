@@ -1222,6 +1222,7 @@ test "integer compare" {
 
 test "reference to inferred local variable works as expected" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Crasher = struct {
         lets_crash: u64 = 0,

@@ -18,7 +18,6 @@ test "global variable alignment" {
 test "large alignment of local constant" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // flaky
 
     const x: f32 align(128) = 12.34;
     try std.testing.expect(@intFromPtr(&x) % 128 == 0);
@@ -27,7 +26,7 @@ test "large alignment of local constant" {
 test "slicing array of length 1 can not assume runtime index is always zero" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // flaky
 
     var runtime_index: usize = 1;
     _ = &runtime_index;
@@ -512,7 +511,7 @@ test "struct field explicit alignment" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // flaky
 
     const S = struct {
         const Node = struct {
@@ -581,7 +580,7 @@ test "comptime alloc alignment" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // flaky
     if (builtin.zig_backend == .stage2_llvm and builtin.target.cpu.arch == .x86) {
         // https://github.com/ziglang/zig/issues/18034
         return error.SkipZigTest;
