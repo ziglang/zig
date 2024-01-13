@@ -33,6 +33,7 @@ version: ?std.SemanticVersion,
 kind: Kind,
 major_only_filename: ?[]const u8,
 name_only_filename: ?[]const u8,
+formatted_panics: ?bool = null,
 // keep in sync with src/link.zig:CompressDebugSections
 compress_debug_sections: enum { none, zlib, zstd } = .none,
 verbose_link: bool,
@@ -1304,6 +1305,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (self.generated_llvm_bc != null) try zig_args.append("-femit-llvm-bc");
     if (self.generated_llvm_ir != null) try zig_args.append("-femit-llvm-ir");
     if (self.generated_h != null) try zig_args.append("-femit-h");
+
+    try addFlag(&zig_args, "formatted-panics", self.formatted_panics);
 
     switch (self.compress_debug_sections) {
         .none => {},
