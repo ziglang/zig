@@ -10,6 +10,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
+    macho_step.dependOn(testHelloZig(b, .{ .target = default_target }));
     macho_step.dependOn(testLargeBss(b, .{ .target = default_target }));
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
@@ -158,6 +159,23 @@ fn testEntryPointDylib(b: *Build, opts: Options) *Step {
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello!\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testHelloZig(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-hello-zig", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\pub fn main() void {
+    \\    std.io.getStdOut().writer().print("Hello world!\n", .{}) catch unreachable;
+    \\}
+    });
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello world!\n");
     test_step.dependOn(&run.step);
 
     return test_step;
