@@ -1,7 +1,7 @@
 //! Here we test our MachO linker for correctness and functionality.
 //! TODO migrate standalone tests from test/link/macho/* to here.
 
-pub fn testAll(b: *std.Build, build_opts: BuildOptions) *Step {
+pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     const macho_step = b.step("test-macho", "Run MachO tests");
 
     const default_target = b.resolveTargetQuery(.{
@@ -13,15 +13,20 @@ pub fn testAll(b: *std.Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
 
-    // Tests requiring presence of macOS SDK in system path
-    if (build_opts.has_macos_sdk and build_opts.has_symlinks_windows) {
-        macho_step.dependOn(testNeededFramework(b, .{ .target = b.host }));
+    // Tests requiring symlinks when tested on Windows
+    if (build_opts.has_symlinks_windows) {
+        macho_step.dependOn(testNeededLibrary(b, .{ .target = default_target }));
+
+        // Tests requiring presence of macOS SDK in system path
+        if (build_opts.has_macos_sdk) {
+            macho_step.dependOn(testNeededFramework(b, .{ .target = b.host }));
+        }
     }
 
     return macho_step;
 }
 
-fn testDeadStrip(b: *std.Build, opts: Options) *Step {
+fn testDeadStrip(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "macho-dead-strip", opts);
 
     const obj = addObject(b, opts, .{ .name = "a", .cpp_source_bytes = 
@@ -102,7 +107,7 @@ fn testDeadStrip(b: *std.Build, opts: Options) *Step {
     return test_step;
 }
 
-fn testEntryPointDylib(b: *std.Build, opts: Options) *Step {
+fn testEntryPointDylib(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "macho-entry-point-dylib", opts);
 
     const dylib = addSharedLibrary(b, opts, .{ .name = "a" });
@@ -156,11 +161,11 @@ fn testEntryPointDylib(b: *std.Build, opts: Options) *Step {
     return test_step;
 }
 
-fn testNeededFramework(b: *std.Build, opts: Options) *Step {
+fn testNeededFramework(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "macho-needed-framework", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
-    exe.linkFrameworkNeeded("Cocoa");
+    exe.root_module.linkFramework("Cocoa", .{ .needed = true });
     exe.dead_strip_dylibs = true;
 
     const check = exe.checkObject();
@@ -176,7 +181,31 @@ fn testNeededFramework(b: *std.Build, opts: Options) *Step {
     return test_step;
 }
 
-fn testSectionBoundarySymbols(b: *std.Build, opts: Options) *Step {
+fn testNeededLibrary(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-needed-library", opts);
+
+    const dylib = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = "int a = 42;" });
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
+    exe.root_module.linkSystemLibrary("a", .{ .needed = true });
+    exe.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.addRPath(dylib.getEmittedBinDirectory());
+    exe.dead_strip_dylibs = true;
+
+    const check = exe.checkObject();
+    check.checkInHeaders();
+    check.checkExact("cmd LOAD_DYLIB");
+    check.checkContains("liba.dylib");
+    test_step.dependOn(&check.step);
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "macho-section-boundary-symbols", opts);
 
     const obj1 = addObject(b, opts, .{
@@ -256,7 +285,7 @@ fn testSectionBoundarySymbols(b: *std.Build, opts: Options) *Step {
     return test_step;
 }
 
-fn testSegmentBoundarySymbols(b: *std.Build, opts: Options) *Step {
+fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "macho-segment-boundary-symbols", opts);
 
     const obj1 = addObject(b, opts, .{ .name = "a", .cpp_source_bytes = 
@@ -324,7 +353,7 @@ fn testSegmentBoundarySymbols(b: *std.Build, opts: Options) *Step {
     return test_step;
 }
 
-fn addTestStep(b: *std.Build, comptime prefix: []const u8, opts: Options) *Step {
+fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
     return link.addTestStep(b, "macho-" ++ prefix, opts);
 }
 
@@ -336,6 +365,8 @@ const addSharedLibrary = link.addSharedLibrary;
 const expectLinkErrors = link.expectLinkErrors;
 const link = @import("link.zig");
 const std = @import("std");
+
+const Build = std.Build;
 const BuildOptions = link.BuildOptions;
 const Options = link.Options;
-const Step = std.Build.Step;
+const Step = Build.Step;
