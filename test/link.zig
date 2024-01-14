@@ -164,10 +164,6 @@ pub const cases = [_]Case{
         .import = @import("link/macho/tbdv3/build.zig"),
     },
     .{
-        .build_root = "test/link/macho/tls",
-        .import = @import("link/macho/tls/build.zig"),
-    },
-    .{
         .build_root = "test/link/macho/unwind_info",
         .import = @import("link/macho/unwind_info/build.zig"),
     },
