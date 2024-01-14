@@ -11,6 +11,10 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         .cpu_arch = .x86_64,
         .os_tag = .macos,
     });
+    const aarch64_target = b.resolveTargetQuery(.{
+        .cpu_arch = .aarch64,
+        .os_tag = .macos,
+    });
 
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
@@ -21,6 +25,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
+    macho_step.dependOn(testThunks(b, .{ .target = aarch64_target }));
     macho_step.dependOn(testTlsLargeTbss(b, .{ .target = default_target }));
     macho_step.dependOn(testUndefinedFlag(b, .{ .target = default_target }));
     macho_step.dependOn(testWeakBind(b, .{ .target = x86_64_target }));
@@ -635,6 +640,35 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
         check.checkNotPresent("external segment$start$__DATA_1");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testThunks(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-thunks", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\__attribute__((aligned(0x8000000))) int bar() {
+    \\  return 42;
+    \\}
+    \\int foobar();
+    \\int foo() {
+    \\  return bar() - foobar();
+    \\}
+    \\__attribute__((aligned(0x8000000))) int foobar() {
+    \\  return 42;
+    \\}
+    \\int main() {
+    \\  printf("bar=%d, foo=%d, foobar=%d", bar(), foo(), foobar());
+    \\  return foo();
+    \\}
+    });
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("bar=42, foo=0, foobar=42");
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
