@@ -1493,7 +1493,16 @@ pub fn lock(file: File, l: Lock) LockError!void {
     if (is_windows) {
         var io_status_block: windows.IO_STATUS_BLOCK = undefined;
         const exclusive = switch (l) {
-            .none => return,
+            .none => return windows.UnlockFile(
+                file.handle,
+                &io_status_block,
+                &range_off,
+                &range_len,
+                null,
+            ) catch |err| switch (err) {
+                error.RangeNotLocked => unreachable, // The file is assumed to be unlocked.
+                error.Unexpected => unreachable, // Resource deallocation must succeed.
+            },
             .shared => false,
             .exclusive => true,
         };
@@ -1535,7 +1544,7 @@ pub fn unlock(file: File) void {
             &range_len,
             null,
         ) catch |err| switch (err) {
-            error.RangeNotLocked => unreachable, // Function assumes unlocked.
+            error.RangeNotLocked => unreachable, // Function assumes locked.
             error.Unexpected => unreachable, // Resource deallocation must succeed.
         };
     } else {
@@ -1560,7 +1569,13 @@ pub fn tryLock(file: File, l: Lock) LockError!bool {
     if (is_windows) {
         var io_status_block: windows.IO_STATUS_BLOCK = undefined;
         const exclusive = switch (l) {
-            .none => return,
+            .none => return windows.UnlockFile(
+                file.handle,
+                &io_status_block,
+                &range_off,
+                &range_len,
+                null,
+            ) catch error.Unexpected,
             .shared => false,
             .exclusive => true,
         };
