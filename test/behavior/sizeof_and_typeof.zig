@@ -314,3 +314,117 @@ test "@bitSizeOf on array of structs" {
 
     try expectEqual(128, @bitSizeOf([2]S));
 }
+
+test "lazy abi size used in comparison" {
+    const S = struct { a: usize };
+    var rhs: i32 = 100;
+    _ = &rhs;
+    try expect(@sizeOf(S) < rhs);
+}
+
+test "peer type resolution with @TypeOf doesn't trigger dependency loop check" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const T = struct {
+        next: @TypeOf(null, @as(*const @This(), undefined)),
+    };
+    var t: T = .{ .next = null };
+    _ = &t;
+    try std.testing.expect(t.next == null);
+}
+
+test "@sizeOf reified union zero-size payload fields" {
+    comptime {
+        try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union {}))));
+        try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union { a: void }))));
+        if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
+            try std.testing.expect(1 == @sizeOf(@Type(@typeInfo(union { a: void, b: void }))));
+            try std.testing.expect(1 == @sizeOf(@Type(@typeInfo(union { a: void, b: void, c: void }))));
+        } else {
+            try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union { a: void, b: void }))));
+            try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union { a: void, b: void, c: void }))));
+        }
+    }
+}
+
+const FILE = extern struct {
+    dummy_field: u8,
+};
+
+extern fn c_printf([*c]const u8, ...) c_int;
+extern fn c_fputs([*c]const u8, noalias [*c]FILE) c_int;
+extern fn c_ftell([*c]FILE) c_long;
+extern fn c_fopen([*c]const u8, [*c]const u8) [*c]FILE;
+
+test "Extern function calls in @TypeOf" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = extern struct {
+        state: c_short,
+
+        extern fn s_do_thing([*c]const @This(), b: c_int) c_short;
+    };
+
+    const Test = struct {
+        fn test_fn_1(a: anytype, b: anytype) @TypeOf(c_printf("%d %s\n", a, b)) {
+            return 0;
+        }
+
+        fn test_fn_2(s: anytype, a: anytype) @TypeOf(s.s_do_thing(a)) {
+            return 1;
+        }
+
+        fn doTheTest() !void {
+            try expect(@TypeOf(test_fn_1(0, 42)) == c_int);
+            try expect(@TypeOf(test_fn_2(&S{ .state = 1 }, 0)) == c_short);
+        }
+    };
+
+    try Test.doTheTest();
+    try comptime Test.doTheTest();
+}
+
+test "Peer resolution of extern function calls in @TypeOf" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Test = struct {
+        fn test_fn() @TypeOf(c_ftell(null), c_fputs(null, null)) {
+            return 0;
+        }
+
+        fn doTheTest() !void {
+            try expect(@TypeOf(test_fn()) == c_long);
+        }
+    };
+
+    try Test.doTheTest();
+    try comptime Test.doTheTest();
+}
+
+test "Extern function calls, dereferences and field access in @TypeOf" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Test = struct {
+        fn test_fn_1(a: c_long) @TypeOf(c_fopen("test", "r").*) {
+            _ = a;
+            return .{ .dummy_field = 0 };
+        }
+
+        fn test_fn_2(a: anytype) @TypeOf(c_fopen("test", "r").*.dummy_field) {
+            _ = a;
+            return 255;
+        }
+
+        fn doTheTest() !void {
+            try expect(@TypeOf(test_fn_1(0)) == FILE);
+            try expect(@TypeOf(test_fn_2(0)) == u8);
+        }
+    };
+
+    try Test.doTheTest();
+    try comptime Test.doTheTest();
+}

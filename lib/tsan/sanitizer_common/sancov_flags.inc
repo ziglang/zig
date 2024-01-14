@@ -14,7 +14,7 @@
 #endif
 
 SANCOV_FLAG(bool, symbolize, true,
-            "If set, converage information will be symbolized by sancov tool "
+            "If set, coverage information will be symbolized by sancov tool "
             "after dumping.")
 
 SANCOV_FLAG(bool, help, false, "Print flags help.")

@@ -796,13 +796,7 @@ pub fn chmod(path: [*:0]const u8, mode: mode_t) usize {
     if (@hasField(SYS, "chmod")) {
         return syscall2(.chmod, @intFromPtr(path), mode);
     } else {
-        return syscall4(
-            .fchmodat,
-            @as(usize, @bitCast(@as(isize, AT.FDCWD))),
-            @intFromPtr(path),
-            mode,
-            0,
-        );
+        return fchmodat(AT.FDCWD, path, mode, 0);
     }
 }
 
@@ -814,8 +808,12 @@ pub fn fchown(fd: i32, owner: uid_t, group: gid_t) usize {
     }
 }
 
-pub fn fchmodat(fd: i32, path: [*:0]const u8, mode: mode_t, flags: u32) usize {
-    return syscall4(.fchmodat, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(path), mode, flags);
+pub fn fchmodat(fd: i32, path: [*:0]const u8, mode: mode_t, _: u32) usize {
+    return syscall3(.fchmodat, @bitCast(@as(isize, fd)), @intFromPtr(path), mode);
+}
+
+pub fn fchmodat2(fd: i32, path: [*:0]const u8, mode: mode_t, flags: u32) usize {
+    return syscall4(.fchmodat2, @bitCast(@as(isize, fd)), @intFromPtr(path), mode, flags);
 }
 
 /// Can only be called on 32 bit systems. For 64 bit see `lseek`.
@@ -1551,6 +1549,16 @@ pub fn sched_getaffinity(pid: pid_t, size: usize, set: *cpu_set_t) usize {
     if (@as(isize, @bitCast(rc)) < 0) return rc;
     if (rc < size) @memset(@as([*]u8, @ptrCast(set))[rc..size], 0);
     return 0;
+}
+
+pub fn sched_setaffinity(pid: pid_t, set: *const cpu_set_t) !void {
+    const size = @sizeOf(cpu_set_t);
+    const rc = syscall3(.sched_setaffinity, @as(usize, @bitCast(@as(isize, pid))), size, @intFromPtr(set));
+
+    switch (std.os.errno(rc)) {
+        .SUCCESS => return,
+        else => |err| return std.os.unexpectedErrno(err),
+    }
 }
 
 pub fn epoll_create() usize {

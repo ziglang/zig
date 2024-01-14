@@ -1,0 +1,22 @@
+LIBRARY "dsparse.dll"
+EXPORTS
+DsCrackSpn2A@36
+DsCrackSpn2W@36
+DsCrackSpn3W@44
+DsCrackSpn4W@48
+DsCrackSpnA@32
+DsCrackSpnW@32
+DsCrackUnquotedMangledRdnA@16
+DsCrackUnquotedMangledRdnW@16
+DsGetRdnW@24
+DsIsMangledDnA@8
+DsIsMangledDnW@8
+DsIsMangledRdnValueA@12
+DsIsMangledRdnValueW@12
+DsMakeSpn2W@32
+DsMakeSpnA@28
+DsMakeSpnW@28
+DsQuoteRdnValueA@16
+DsQuoteRdnValueW@16
+DsUnquoteRdnValueA@16
+DsUnquoteRdnValueW@16

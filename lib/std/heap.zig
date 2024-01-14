@@ -521,10 +521,16 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         buffer: [size]u8,
         fallback_allocator: Allocator,
         fixed_buffer_allocator: FixedBufferAllocator,
+        get_called: if (std.debug.runtime_safety) bool else void =
+            if (std.debug.runtime_safety) false else {},
 
         /// This function both fetches a `Allocator` interface to this
         /// allocator *and* resets the internal buffer allocator.
         pub fn get(self: *Self) Allocator {
+            if (std.debug.runtime_safety) {
+                assert(!self.get_called); // `get` called multiple times; instead use `const allocator = stackFallback(N).get();`
+                self.get_called = true;
+            }
             self.fixed_buffer_allocator = FixedBufferAllocator.init(self.buffer[0..]);
             return .{
                 .ptr = self,
@@ -535,6 +541,12 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
                 },
             };
         }
+
+        /// Unlike most std allocators `StackFallbackAllocator` modifies
+        /// its internal state before returning an implementation of
+        /// the`Allocator` interface and therefore also doesn't use
+        /// the usual `.allocator()` method.
+        pub const allocator = @compileError("use 'const allocator = stackFallback(N).get();' instead");
 
         fn alloc(
             ctx: *anyopaque,
@@ -675,13 +687,22 @@ test "FixedBufferAllocator.reset" {
 }
 
 test "StackFallbackAllocator" {
-    const fallback_allocator = page_allocator;
-    var stack_allocator = stackFallback(4096, fallback_allocator);
-
-    try testAllocator(stack_allocator.get());
-    try testAllocatorAligned(stack_allocator.get());
-    try testAllocatorLargeAlignment(stack_allocator.get());
-    try testAllocatorAlignedShrink(stack_allocator.get());
+    {
+        var stack_allocator = stackFallback(4096, std.testing.allocator);
+        try testAllocator(stack_allocator.get());
+    }
+    {
+        var stack_allocator = stackFallback(4096, std.testing.allocator);
+        try testAllocatorAligned(stack_allocator.get());
+    }
+    {
+        var stack_allocator = stackFallback(4096, std.testing.allocator);
+        try testAllocatorLargeAlignment(stack_allocator.get());
+    }
+    {
+        var stack_allocator = stackFallback(4096, std.testing.allocator);
+        try testAllocatorAlignedShrink(stack_allocator.get());
+    }
 }
 
 test "FixedBufferAllocator Reuse memory on realloc" {

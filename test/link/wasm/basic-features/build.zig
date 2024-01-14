@@ -8,12 +8,12 @@ pub fn build(b: *std.Build) void {
         .name = "lib",
         .root_source_file = .{ .path = "main.zig" },
         .optimize = .Debug,
-        .target = .{
+        .target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
             .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },
             .cpu_features_add = std.Target.wasm.featureSet(&.{.atomics}),
             .os_tag = .freestanding,
-        },
+        }),
     });
     lib.entry = .disabled;
     lib.use_llvm = false;

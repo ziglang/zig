@@ -1,0 +1,15 @@
+; library name is libhtmlhelp.a but
+; functions exported from hhcrtl.ocx
+
+LIBRARY "hhctrl.ocx"
+EXPORTS
+LoadHHA
+DllCanUnloadNow
+AuthorMsg
+DllGetClassObject
+DllRegisterServer
+DllUnregisterServer
+doWinMain
+HtmlHelpA
+HtmlHelpW
+HhWindowThread

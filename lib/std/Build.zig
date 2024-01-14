@@ -10,55 +10,17 @@ const log = std.log;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
+const Target = std.Target;
 const process = std.process;
 const EnvMap = std.process.EnvMap;
 const fmt_lib = std.fmt;
 const File = std.fs.File;
-const CrossTarget = std.zig.CrossTarget;
-const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Build = @This();
 
 pub const Cache = @import("Build/Cache.zig");
-
-/// deprecated: use `Step.Compile`.
-pub const LibExeObjStep = Step.Compile;
-/// deprecated: use `Build`.
-pub const Builder = Build;
-/// deprecated: use `Step.InstallDir.Options`
-pub const InstallDirectoryOptions = Step.InstallDir.Options;
-
 pub const Step = @import("Build/Step.zig");
-/// deprecated: use `Step.CheckFile`.
-pub const CheckFileStep = @import("Build/Step/CheckFile.zig");
-/// deprecated: use `Step.CheckObject`.
-pub const CheckObjectStep = @import("Build/Step/CheckObject.zig");
-/// deprecated: use `Step.ConfigHeader`.
-pub const ConfigHeaderStep = @import("Build/Step/ConfigHeader.zig");
-/// deprecated: use `Step.Fmt`.
-pub const FmtStep = @import("Build/Step/Fmt.zig");
-/// deprecated: use `Step.InstallArtifact`.
-pub const InstallArtifactStep = @import("Build/Step/InstallArtifact.zig");
-/// deprecated: use `Step.InstallDir`.
-pub const InstallDirStep = @import("Build/Step/InstallDir.zig");
-/// deprecated: use `Step.InstallFile`.
-pub const InstallFileStep = @import("Build/Step/InstallFile.zig");
-/// deprecated: use `Step.ObjCopy`.
-pub const ObjCopyStep = @import("Build/Step/ObjCopy.zig");
-/// deprecated: use `Step.Compile`.
-pub const CompileStep = @import("Build/Step/Compile.zig");
-/// deprecated: use `Step.Options`.
-pub const OptionsStep = @import("Build/Step/Options.zig");
-/// deprecated: use `Step.RemoveDir`.
-pub const RemoveDirStep = @import("Build/Step/RemoveDir.zig");
-/// deprecated: use `Step.Run`.
-pub const RunStep = @import("Build/Step/Run.zig");
-/// deprecated: use `Step.TranslateC`.
-pub const TranslateCStep = @import("Build/Step/TranslateC.zig");
-/// deprecated: use `Step.WriteFile`.
-pub const WriteFileStep = @import("Build/Step/WriteFile.zig");
-/// deprecated: use `LazyPath`.
-pub const FileSource = LazyPath;
+pub const Module = @import("Build/Module.zig");
 
 install_tls: TopLevelStep,
 uninstall_tls: TopLevelStep,
@@ -96,7 +58,6 @@ cache_root: Cache.Directory,
 global_cache_root: Cache.Directory,
 cache: *Cache,
 zig_lib_dir: ?LazyPath,
-vcpkg_root: VcpkgRoot = .unattempted,
 pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 args: ?[][]const u8 = null,
 debug_log_scopes: []const []const u8 = &.{},
@@ -124,7 +85,7 @@ enable_wine: bool = false,
 glibc_runtimes_dir: ?[]const u8 = null,
 
 /// Information about the native target. Computed before build() is invoked.
-host: NativeTargetInfo,
+host: ResolvedTarget,
 
 dep_prefix: []const u8 = "",
 
@@ -250,7 +211,7 @@ pub fn create(
     build_root: Cache.Directory,
     cache_root: Cache.Directory,
     global_cache_root: Cache.Directory,
-    host: NativeTargetInfo,
+    host: ResolvedTarget,
     cache: *Cache,
     available_deps: AvailableDeps,
 ) !*Build {
@@ -414,7 +375,7 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
         const v = @field(args, field.name);
         const T = @TypeOf(v);
         switch (T) {
-            CrossTarget => {
+            Target.Query => {
                 user_input_options.put(field.name, .{
                     .name = field.name,
                     .value = .{ .scalar = v.zigTriple(allocator) catch @panic("OOM") },
@@ -422,12 +383,19 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                 }) catch @panic("OOM");
                 user_input_options.put("cpu", .{
                     .name = "cpu",
-                    .value = .{
-                        .scalar = if (v.isNativeCpu())
-                            "native"
-                        else
-                            serializeCpu(allocator, v.getCpu()) catch unreachable,
-                    },
+                    .value = .{ .scalar = v.serializeCpuAlloc(allocator) catch @panic("OOM") },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            ResolvedTarget => {
+                user_input_options.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .scalar = v.query.zigTriple(allocator) catch @panic("OOM") },
+                    .used = false,
+                }) catch @panic("OOM");
+                user_input_options.put("cpu", .{
+                    .name = "cpu",
+                    .value = .{ .scalar = v.query.serializeCpuAlloc(allocator) catch @panic("OOM") },
                     .used = false,
                 }) catch @panic("OOM");
             },
@@ -435,6 +403,16 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                 user_input_options.put(field.name, .{
                     .name = field.name,
                     .value = .{ .scalar = v },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            []const []const u8 => {
+                var list = ArrayList([]const u8).initCapacity(allocator, v.len) catch @panic("OOM");
+                list.appendSliceAssumeCapacity(v);
+
+                user_input_options.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .list = list },
                     .used = false,
                 }) catch @panic("OOM");
             },
@@ -623,45 +601,59 @@ pub fn addOptions(self: *Build) *Step.Options {
 
 pub const ExecutableOptions = struct {
     name: []const u8,
+    /// If you want the executable to run on the same computer as the one
+    /// building the package, pass the `host` field of the package's `Build`
+    /// instance.
+    target: ResolvedTarget,
     root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
-    target: CrossTarget = .{},
     optimize: std.builtin.OptimizeMode = .Debug,
+    code_model: std.builtin.CodeModel = .default,
     linkage: ?Step.Compile.Linkage = null,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
+    pic: ?bool = null,
+    strip: ?bool = null,
+    unwind_tables: ?bool = null,
+    omit_frame_pointer: ?bool = null,
+    sanitize_thread: ?bool = null,
+    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
-    main_mod_path: ?LazyPath = null,
     /// Embed a `.manifest` file in the compilation if the object format supports it.
     /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
     /// Manifest files must have the extension `.manifest`.
     /// Can be set regardless of target. The `.manifest` file will be ignored
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
-
-    /// Deprecated; use `main_mod_path`.
-    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
-        .root_source_file = options.root_source_file,
+        .root_module = .{
+            .root_source_file = options.root_source_file,
+            .target = options.target,
+            .optimize = options.optimize,
+            .link_libc = options.link_libc,
+            .single_threaded = options.single_threaded,
+            .pic = options.pic,
+            .strip = options.strip,
+            .unwind_tables = options.unwind_tables,
+            .omit_frame_pointer = options.omit_frame_pointer,
+            .sanitize_thread = options.sanitize_thread,
+            .error_tracing = options.error_tracing,
+            .code_model = options.code_model,
+        },
         .version = options.version,
-        .target = options.target,
-        .optimize = options.optimize,
         .kind = .exe,
         .linkage = options.linkage,
         .max_rss = options.max_rss,
-        .link_libc = options.link_libc,
-        .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
         .win32_manifest = options.win32_manifest,
     });
 }
@@ -669,77 +661,103 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
 pub const ObjectOptions = struct {
     name: []const u8,
     root_source_file: ?LazyPath = null,
-    target: CrossTarget,
+    /// To choose the same computer as the one building the package, pass the
+    /// `host` field of the package's `Build` instance.
+    target: ResolvedTarget,
+    code_model: std.builtin.CodeModel = .default,
     optimize: std.builtin.OptimizeMode,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
+    pic: ?bool = null,
+    strip: ?bool = null,
+    unwind_tables: ?bool = null,
+    omit_frame_pointer: ?bool = null,
+    sanitize_thread: ?bool = null,
+    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
-    main_mod_path: ?LazyPath = null,
-
-    /// Deprecated; use `main_mod_path`.
-    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
-        .root_source_file = options.root_source_file,
-        .target = options.target,
-        .optimize = options.optimize,
+        .root_module = .{
+            .root_source_file = options.root_source_file,
+            .target = options.target,
+            .optimize = options.optimize,
+            .link_libc = options.link_libc,
+            .single_threaded = options.single_threaded,
+            .pic = options.pic,
+            .strip = options.strip,
+            .unwind_tables = options.unwind_tables,
+            .omit_frame_pointer = options.omit_frame_pointer,
+            .sanitize_thread = options.sanitize_thread,
+            .error_tracing = options.error_tracing,
+            .code_model = options.code_model,
+        },
         .kind = .obj,
         .max_rss = options.max_rss,
-        .link_libc = options.link_libc,
-        .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
 pub const SharedLibraryOptions = struct {
     name: []const u8,
+    /// To choose the same computer as the one building the package, pass the
+    /// `host` field of the package's `Build` instance.
+    target: ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    code_model: std.builtin.CodeModel = .default,
     root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
-    target: CrossTarget,
-    optimize: std.builtin.OptimizeMode,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
+    pic: ?bool = null,
+    strip: ?bool = null,
+    unwind_tables: ?bool = null,
+    omit_frame_pointer: ?bool = null,
+    sanitize_thread: ?bool = null,
+    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
-    main_mod_path: ?LazyPath = null,
     /// Embed a `.manifest` file in the compilation if the object format supports it.
     /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
     /// Manifest files must have the extension `.manifest`.
     /// Can be set regardless of target. The `.manifest` file will be ignored
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
-
-    /// Deprecated; use `main_mod_path`.
-    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
-        .root_source_file = options.root_source_file,
+        .root_module = .{
+            .target = options.target,
+            .optimize = options.optimize,
+            .root_source_file = options.root_source_file,
+            .link_libc = options.link_libc,
+            .single_threaded = options.single_threaded,
+            .pic = options.pic,
+            .strip = options.strip,
+            .unwind_tables = options.unwind_tables,
+            .omit_frame_pointer = options.omit_frame_pointer,
+            .sanitize_thread = options.sanitize_thread,
+            .error_tracing = options.error_tracing,
+            .code_model = options.code_model,
+        },
         .kind = .lib,
         .linkage = .dynamic,
         .version = options.version,
-        .target = options.target,
-        .optimize = options.optimize,
         .max_rss = options.max_rss,
-        .link_libc = options.link_libc,
-        .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
         .win32_manifest = options.win32_manifest,
     });
 }
@@ -747,44 +765,57 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
 pub const StaticLibraryOptions = struct {
     name: []const u8,
     root_source_file: ?LazyPath = null,
-    target: CrossTarget,
+    /// To choose the same computer as the one building the package, pass the
+    /// `host` field of the package's `Build` instance.
+    target: ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    code_model: std.builtin.CodeModel = .default,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
+    pic: ?bool = null,
+    strip: ?bool = null,
+    unwind_tables: ?bool = null,
+    omit_frame_pointer: ?bool = null,
+    sanitize_thread: ?bool = null,
+    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
-    main_mod_path: ?LazyPath = null,
-
-    /// Deprecated; use `main_mod_path`.
-    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
-        .root_source_file = options.root_source_file,
+        .root_module = .{
+            .target = options.target,
+            .optimize = options.optimize,
+            .root_source_file = options.root_source_file,
+            .link_libc = options.link_libc,
+            .single_threaded = options.single_threaded,
+            .pic = options.pic,
+            .strip = options.strip,
+            .unwind_tables = options.unwind_tables,
+            .omit_frame_pointer = options.omit_frame_pointer,
+            .sanitize_thread = options.sanitize_thread,
+            .error_tracing = options.error_tracing,
+            .code_model = options.code_model,
+        },
         .kind = .lib,
         .linkage = .static,
         .version = options.version,
-        .target = options.target,
-        .optimize = options.optimize,
         .max_rss = options.max_rss,
-        .link_libc = options.link_libc,
-        .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
 pub const TestOptions = struct {
     name: []const u8 = "test",
     root_source_file: LazyPath,
-    target: CrossTarget = .{},
+    target: ?ResolvedTarget = null,
     optimize: std.builtin.OptimizeMode = .Debug,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
@@ -792,38 +823,49 @@ pub const TestOptions = struct {
     test_runner: ?[]const u8 = null,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
+    pic: ?bool = null,
+    strip: ?bool = null,
+    unwind_tables: ?bool = null,
+    omit_frame_pointer: ?bool = null,
+    sanitize_thread: ?bool = null,
+    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
-    main_mod_path: ?LazyPath = null,
-
-    /// Deprecated; use `main_mod_path`.
-    main_pkg_path: ?LazyPath = null,
 };
 
 pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
         .kind = .@"test",
-        .root_source_file = options.root_source_file,
-        .target = options.target,
-        .optimize = options.optimize,
+        .root_module = .{
+            .root_source_file = options.root_source_file,
+            .target = options.target orelse b.host,
+            .optimize = options.optimize,
+            .link_libc = options.link_libc,
+            .single_threaded = options.single_threaded,
+            .pic = options.pic,
+            .strip = options.strip,
+            .unwind_tables = options.unwind_tables,
+            .omit_frame_pointer = options.omit_frame_pointer,
+            .sanitize_thread = options.sanitize_thread,
+            .error_tracing = options.error_tracing,
+        },
         .max_rss = options.max_rss,
         .filter = options.filter,
         .test_runner = options.test_runner,
-        .link_libc = options.link_libc,
-        .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
-        .main_mod_path = options.main_mod_path orelse options.main_pkg_path,
     });
 }
 
 pub const AssemblyOptions = struct {
     name: []const u8,
     source_file: LazyPath,
-    target: CrossTarget,
+    /// To choose the same computer as the one building the package, pass the
+    /// `host` field of the package's `Build` instance.
+    target: ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     max_rss: usize = 0,
     zig_lib_dir: ?LazyPath = null,
@@ -833,9 +875,10 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
     const obj_step = Step.Compile.create(b, .{
         .name = options.name,
         .kind = .obj,
-        .root_source_file = null,
-        .target = options.target,
-        .optimize = options.optimize,
+        .root_module = .{
+            .target = options.target,
+            .optimize = options.optimize,
+        },
         .max_rss = options.max_rss,
         .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
     });
@@ -846,41 +889,17 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
 /// This function creates a module and adds it to the package's module set, making
 /// it available to other packages which depend on this one.
 /// `createModule` can be used instead to create a private module.
-pub fn addModule(b: *Build, name: []const u8, options: CreateModuleOptions) *Module {
-    const module = b.createModule(options);
+pub fn addModule(b: *Build, name: []const u8, options: Module.CreateOptions) *Module {
+    const module = Module.create(b, options);
     b.modules.put(b.dupe(name), module) catch @panic("OOM");
     return module;
 }
 
-pub const ModuleDependency = struct {
-    name: []const u8,
-    module: *Module,
-};
-
-pub const CreateModuleOptions = struct {
-    source_file: LazyPath,
-    dependencies: []const ModuleDependency = &.{},
-};
-
 /// This function creates a private module, to be used by the current package,
 /// but not exposed to other packages depending on this one.
 /// `addModule` can be used instead to create a public module.
-pub fn createModule(b: *Build, options: CreateModuleOptions) *Module {
-    const module = b.allocator.create(Module) catch @panic("OOM");
-    module.* = .{
-        .builder = b,
-        .source_file = options.source_file.dupe(b),
-        .dependencies = moduleDependenciesToArrayHashMap(b.allocator, options.dependencies),
-    };
-    return module;
-}
-
-fn moduleDependenciesToArrayHashMap(arena: Allocator, deps: []const ModuleDependency) std.StringArrayHashMap(*Module) {
-    var result = std.StringArrayHashMap(*Module).init(arena);
-    for (deps) |dep| {
-        result.put(dep.name, dep.module) catch @panic("OOM");
-    }
-    return result;
+pub fn createModule(b: *Build, options: Module.CreateOptions) *Module {
+    return Module.create(b, options);
 }
 
 /// Initializes a `Step.Run` with argv, which must at least have the path to the
@@ -906,10 +925,6 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
 
     if (exe.kind == .@"test" and exe.test_server_mode) {
         run_step.enableTestRunnerMode();
-    }
-
-    if (exe.vcpkg_bin_path) |path| {
-        run_step.addPathDir(path);
     }
 
     return run_step;
@@ -1133,7 +1148,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
                 return null;
             },
             .scalar => |s| {
-                if (Step.Compile.BuildId.parse(s)) |build_id| {
+                if (std.zig.BuildId.parse(s)) |build_id| {
                     return build_id;
                 } else |err| {
                     log.err("unable to parse option '-D{s}': {s}", .{ name, @errorName(err) });
@@ -1198,19 +1213,25 @@ pub fn standardOptimizeOption(self: *Build, options: StandardOptimizeOptionOptio
 }
 
 pub const StandardTargetOptionsArgs = struct {
-    whitelist: ?[]const CrossTarget = null,
-
-    default_target: CrossTarget = CrossTarget{},
+    whitelist: ?[]const Target.Query = null,
+    default_target: Target.Query = .{},
 };
 
+/// Exposes standard `zig build` options for choosing a target and additionally
+/// resolves the target query.
+pub fn standardTargetOptions(b: *Build, args: StandardTargetOptionsArgs) ResolvedTarget {
+    const query = b.standardTargetOptionsQueryOnly(args);
+    return b.resolveTargetQuery(query);
+}
+
 /// Exposes standard `zig build` options for choosing a target.
-pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) CrossTarget {
-    const maybe_triple = self.option(
+pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs) Target.Query {
+    const maybe_triple = b.option(
         []const u8,
         "target",
         "The CPU architecture, OS, and ABI to build for",
     );
-    const mcpu = self.option([]const u8, "cpu", "Target CPU features to add or subtract");
+    const mcpu = b.option([]const u8, "cpu", "Target CPU features to add or subtract");
 
     if (maybe_triple == null and mcpu == null) {
         return args.default_target;
@@ -1218,8 +1239,8 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
 
     const triple = maybe_triple orelse "native";
 
-    var diags: CrossTarget.ParseOptions.Diagnostics = .{};
-    const selected_target = CrossTarget.parse(.{
+    var diags: Target.Query.ParseOptions.Diagnostics = .{};
+    const selected_target = Target.Query.parse(.{
         .arch_os_abi = triple,
         .cpu_features = mcpu,
         .diagnostics = &diags,
@@ -1232,7 +1253,7 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
             for (diags.arch.?.allCpuModels()) |cpu| {
                 log.err(" {s}", .{cpu.name});
             }
-            self.markInvalidUserInput();
+            b.markInvalidUserInput();
             return args.default_target;
         },
         error.UnknownCpuFeature => {
@@ -1247,7 +1268,7 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
             for (diags.arch.?.allFeaturesList()) |feature| {
                 log.err(" {s}: {s}", .{ feature.name, feature.description });
             }
-            self.markInvalidUserInput();
+            b.markInvalidUserInput();
             return args.default_target;
         },
         error.UnknownOperatingSystem => {
@@ -1256,83 +1277,38 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
                 \\Available operating systems:
                 \\
             , .{diags.os_name.?});
-            inline for (std.meta.fields(std.Target.Os.Tag)) |field| {
+            inline for (std.meta.fields(Target.Os.Tag)) |field| {
                 log.err(" {s}", .{field.name});
             }
-            self.markInvalidUserInput();
+            b.markInvalidUserInput();
             return args.default_target;
         },
         else => |e| {
             log.err("Unable to parse target '{s}': {s}\n", .{ triple, @errorName(e) });
-            self.markInvalidUserInput();
+            b.markInvalidUserInput();
             return args.default_target;
         },
     };
 
-    const selected_canonicalized_triple = selected_target.zigTriple(self.allocator) catch @panic("OOM");
+    const whitelist = args.whitelist orelse return selected_target;
 
-    if (args.whitelist) |list| whitelist_check: {
-        // Make sure it's a match of one of the list.
-        var mismatch_triple = true;
-        var mismatch_cpu_features = true;
-        var whitelist_item = CrossTarget{};
-        for (list) |t| {
-            mismatch_cpu_features = true;
-            mismatch_triple = true;
-
-            const t_triple = t.zigTriple(self.allocator) catch @panic("OOM");
-            if (mem.eql(u8, t_triple, selected_canonicalized_triple)) {
-                mismatch_triple = false;
-                whitelist_item = t;
-                if (t.getCpuFeatures().isSuperSetOf(selected_target.getCpuFeatures())) {
-                    mismatch_cpu_features = false;
-                    break :whitelist_check;
-                } else {
-                    break;
-                }
-            }
-        }
-        if (mismatch_triple) {
-            log.err("Chosen target '{s}' does not match one of the supported targets:", .{
-                selected_canonicalized_triple,
-            });
-            for (list) |t| {
-                const t_triple = t.zigTriple(self.allocator) catch @panic("OOM");
-                log.err(" {s}", .{t_triple});
-            }
-        } else {
-            assert(mismatch_cpu_features);
-            const whitelist_cpu = whitelist_item.getCpu();
-            const selected_cpu = selected_target.getCpu();
-            log.err("Chosen CPU model '{s}' does not match one of the supported targets:", .{
-                selected_cpu.model.name,
-            });
-            log.err("  Supported feature Set: ", .{});
-            const all_features = whitelist_cpu.arch.allFeaturesList();
-            var populated_cpu_features = whitelist_cpu.model.features;
-            populated_cpu_features.populateDependencies(all_features);
-            for (all_features, 0..) |feature, i_usize| {
-                const i = @as(std.Target.Cpu.Feature.Set.Index, @intCast(i_usize));
-                const in_cpu_set = populated_cpu_features.isEnabled(i);
-                if (in_cpu_set) {
-                    log.err("{s} ", .{feature.name});
-                }
-            }
-            log.err("  Remove: ", .{});
-            for (all_features, 0..) |feature, i_usize| {
-                const i = @as(std.Target.Cpu.Feature.Set.Index, @intCast(i_usize));
-                const in_cpu_set = populated_cpu_features.isEnabled(i);
-                const in_actual_set = selected_cpu.features.isEnabled(i);
-                if (in_actual_set and !in_cpu_set) {
-                    log.err("{s} ", .{feature.name});
-                }
-            }
-        }
-        self.markInvalidUserInput();
-        return args.default_target;
+    // Make sure it's a match of one of the list.
+    for (whitelist) |q| {
+        if (q.eql(selected_target))
+            return selected_target;
     }
 
-    return selected_target;
+    for (whitelist) |q| {
+        log.info("allowed target: -Dtarget={s} -Dcpu={s}", .{
+            q.zigTriple(b.allocator) catch @panic("OOM"),
+            q.serializeCpuAlloc(b.allocator) catch @panic("OOM"),
+        });
+    }
+    log.err("chosen target '{s}' does not match one of the allowed targets", .{
+        selected_target.zigTriple(b.allocator) catch @panic("OOM"),
+    });
+    b.markInvalidUserInput();
+    return args.default_target;
 }
 
 pub fn addUserInputOption(self: *Build, name_raw: []const u8, value_raw: []const u8) !bool {
@@ -1412,7 +1388,7 @@ pub fn addUserInputFlag(self: *Build, name_raw: []const u8) !bool {
 
 fn typeToEnum(comptime T: type) TypeId {
     return switch (T) {
-        Step.Compile.BuildId => .build_id,
+        std.zig.BuildId => .build_id,
         else => return switch (@typeInfo(T)) {
             .Int => .int,
             .Float => .float,
@@ -1480,7 +1456,7 @@ pub fn installFile(self: *Build, src_path: []const u8, dest_rel_path: []const u8
     self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .prefix, dest_rel_path).step);
 }
 
-pub fn installDirectory(self: *Build, options: InstallDirectoryOptions) void {
+pub fn installDirectory(self: *Build, options: Step.InstallDir.Options) void {
     self.getInstallStep().dependOn(&self.addInstallDirectory(options).step);
 }
 
@@ -1526,7 +1502,7 @@ pub fn addInstallFileWithDir(
     return Step.InstallFile.create(self, source.dupe(self), install_dir, dest_rel_path);
 }
 
-pub fn addInstallDirectory(self: *Build, options: InstallDirectoryOptions) *Step.InstallDir {
+pub fn addInstallDirectory(self: *Build, options: Step.InstallDir.Options) *Step.InstallDir {
     return Step.InstallDir.create(self, options);
 }
 
@@ -1583,7 +1559,7 @@ pub fn fmt(self: *Build, comptime format: []const u8, args: anytype) []u8 {
 
 pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []const u8) ![]const u8 {
     // TODO report error for ambiguous situations
-    const exe_extension = @as(CrossTarget, .{}).exeFileExt();
+    const exe_extension = self.host.result.exeFileExt();
     for (self.search_prefixes.items) |search_prefix| {
         for (names) |name| {
             if (fs.path.isAbsolute(name)) {
@@ -1885,15 +1861,6 @@ pub fn runBuild(b: *Build, build_zig: anytype) anyerror!void {
     }
 }
 
-pub const Module = struct {
-    builder: *Build,
-    /// This could either be a generated file, in which case the module
-    /// contains exactly one file, or it could be a path to the root source
-    /// file of directory of files which constitute the module.
-    source_file: LazyPath,
-    dependencies: std.StringArrayHashMap(*Module),
-};
-
 /// A file that is generated by a build step.
 /// This struct is an interface that is meant to be used with `@fieldParentPtr` to implement the actual path logic.
 pub const GeneratedFile = struct {
@@ -1912,6 +1879,36 @@ pub const GeneratedFile = struct {
     }
 };
 
+// dirnameAllowEmpty is a variant of fs.path.dirname
+// that allows "" to refer to the root for relative paths.
+//
+// For context, dirname("foo") and dirname("") are both null.
+// However, for relative paths, we want dirname("foo") to be ""
+// so that we can join it with another path (e.g. build root, cache root, etc.)
+//
+// dirname("") should still be null, because we can't go up any further.
+fn dirnameAllowEmpty(path: []const u8) ?[]const u8 {
+    return fs.path.dirname(path) orelse {
+        if (fs.path.isAbsolute(path) or path.len == 0) return null;
+
+        return "";
+    };
+}
+
+test dirnameAllowEmpty {
+    try std.testing.expectEqualStrings(
+        "foo",
+        dirnameAllowEmpty("foo" ++ fs.path.sep_str ++ "bar") orelse @panic("unexpected null"),
+    );
+
+    try std.testing.expectEqualStrings(
+        "",
+        dirnameAllowEmpty("foo") orelse @panic("unexpected null"),
+    );
+
+    try std.testing.expect(dirnameAllowEmpty("") == null);
+}
+
 /// A reference to an existing or future path.
 pub const LazyPath = union(enum) {
     /// A source file path relative to build root.
@@ -1922,6 +1919,17 @@ pub const LazyPath = union(enum) {
     /// A file that is generated by an interface. Those files usually are
     /// not available until built by a build step.
     generated: *const GeneratedFile,
+
+    /// One of the parent directories of a file generated by an interface.
+    /// The path is not available until built by a build step.
+    generated_dirname: struct {
+        generated: *const GeneratedFile,
+
+        /// The number of parent directories to go up.
+        /// 0 means the directory of the generated file,
+        /// 1 means the parent of that directory, and so on.
+        up: usize,
+    },
 
     /// An absolute path or a path relative to the current working directory of
     /// the build runner process.
@@ -1943,12 +1951,72 @@ pub const LazyPath = union(enum) {
         return LazyPath{ .path = path };
     }
 
+    /// Returns a lazy path referring to the directory containing this path.
+    ///
+    /// The dirname is not allowed to escape the logical root for underlying path.
+    /// For example, if the path is relative to the build root,
+    /// the dirname is not allowed to traverse outside of the build root.
+    /// Similarly, if the path is a generated file inside zig-cache,
+    /// the dirname is not allowed to traverse outside of zig-cache.
+    pub fn dirname(self: LazyPath) LazyPath {
+        return switch (self) {
+            .generated => |gen| .{ .generated_dirname = .{ .generated = gen, .up = 0 } },
+            .generated_dirname => |gen| .{ .generated_dirname = .{ .generated = gen.generated, .up = gen.up + 1 } },
+            .path => |p| .{
+                .path = dirnameAllowEmpty(p) orelse {
+                    dumpBadDirnameHelp(null, null,
+                        \\dirname() attempted to traverse outside the build root.
+                        \\This is not allowed.
+                        \\
+                    , .{}) catch {};
+                    @panic("misconfigured build script");
+                },
+            },
+            .cwd_relative => |p| .{
+                .cwd_relative = dirnameAllowEmpty(p) orelse {
+                    // If we get null, it means one of two things:
+                    // - p was absolute, and is now root
+                    // - p was relative, and is now ""
+                    // In either case, the build script tried to go too far
+                    // and we should panic.
+                    if (fs.path.isAbsolute(p)) {
+                        dumpBadDirnameHelp(null, null,
+                            \\dirname() attempted to traverse outside the root.
+                            \\No more directories left to go up.
+                            \\
+                        , .{}) catch {};
+                        @panic("misconfigured build script");
+                    } else {
+                        dumpBadDirnameHelp(null, null,
+                            \\dirname() attempted to traverse outside the current working directory.
+                            \\This is not allowed.
+                            \\
+                        , .{}) catch {};
+                        @panic("misconfigured build script");
+                    }
+                },
+            },
+            .dependency => |dep| .{ .dependency = .{
+                .dependency = dep.dependency,
+                .sub_path = dirnameAllowEmpty(dep.sub_path) orelse {
+                    dumpBadDirnameHelp(null, null,
+                        \\dirname() attempted to traverse outside the dependency root.
+                        \\This is not allowed.
+                        \\
+                    , .{}) catch {};
+                    @panic("misconfigured build script");
+                },
+            } },
+        };
+    }
+
     /// Returns a string that can be shown to represent the file source.
     /// Either returns the path or `"generated"`.
     pub fn getDisplayName(self: LazyPath) []const u8 {
         return switch (self) {
             .path, .cwd_relative => self.path,
             .generated => "generated",
+            .generated_dirname => "generated",
             .dependency => "dependency",
         };
     }
@@ -1958,6 +2026,7 @@ pub const LazyPath = union(enum) {
         switch (self) {
             .path, .cwd_relative, .dependency => {},
             .generated => |gen| other_step.dependOn(gen.step),
+            .generated_dirname => |gen| other_step.dependOn(gen.generated.step),
         }
     }
 
@@ -1982,6 +2051,39 @@ pub const LazyPath = union(enum) {
                 dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
                 @panic("misconfigured build script");
             },
+            .generated_dirname => |gen| {
+                const cache_root_path = src_builder.cache_root.path orelse
+                    (src_builder.cache_root.join(src_builder.allocator, &.{"."}) catch @panic("OOM"));
+
+                const gen_step = gen.generated.step;
+                var path = getPath2(LazyPath{ .generated = gen.generated }, src_builder, asking_step);
+                var i: usize = 0;
+                while (i <= gen.up) : (i += 1) {
+                    // path is absolute.
+                    // dirname will return null only if we're at root.
+                    // Typically, we'll stop well before that at the cache root.
+                    path = fs.path.dirname(path) orelse {
+                        dumpBadDirnameHelp(gen_step, asking_step,
+                            \\dirname() reached root.
+                            \\No more directories left to go up.
+                            \\
+                        , .{}) catch {};
+                        @panic("misconfigured build script");
+                    };
+
+                    if (mem.eql(u8, path, cache_root_path) and i < gen.up) {
+                        // If we hit the cache root and there's still more to go,
+                        // the script attempted to go too far.
+                        dumpBadDirnameHelp(gen_step, asking_step,
+                            \\dirname() attempted to traverse outside the cache root.
+                            \\This is not allowed.
+                            \\
+                        , .{}) catch {};
+                        @panic("misconfigured build script");
+                    }
+                }
+                return path;
+            },
             .dependency => |dep| {
                 return dep.dependency.builder.pathJoin(&[_][]const u8{
                     dep.dependency.builder.build_root.path.?,
@@ -1997,10 +2099,52 @@ pub const LazyPath = union(enum) {
             .path => |p| .{ .path = b.dupePath(p) },
             .cwd_relative => |p| .{ .cwd_relative = b.dupePath(p) },
             .generated => |gen| .{ .generated = gen },
+            .generated_dirname => |gen| .{
+                .generated_dirname = .{
+                    .generated = gen.generated,
+                    .up = gen.up,
+                },
+            },
             .dependency => |dep| .{ .dependency = dep },
         };
     }
 };
+
+fn dumpBadDirnameHelp(
+    fail_step: ?*Step,
+    asking_step: ?*Step,
+    comptime msg: []const u8,
+    args: anytype,
+) anyerror!void {
+    debug.getStderrMutex().lock();
+    defer debug.getStderrMutex().unlock();
+
+    const stderr = io.getStdErr();
+    const w = stderr.writer();
+    try w.print(msg, args);
+
+    const tty_config = std.io.tty.detectConfig(stderr);
+
+    if (fail_step) |s| {
+        tty_config.setColor(w, .red) catch {};
+        try stderr.writeAll("    The step was created by this stack trace:\n");
+        tty_config.setColor(w, .reset) catch {};
+
+        s.dump(stderr);
+    }
+
+    if (asking_step) |as| {
+        tty_config.setColor(w, .red) catch {};
+        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        tty_config.setColor(w, .reset) catch {};
+
+        as.dump(stderr);
+    }
+
+    tty_config.setColor(w, .red) catch {};
+    try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
+    tty_config.setColor(w, .reset) catch {};
+}
 
 /// In this function the stderr mutex has already been locked.
 pub fn dumpBadGetPathHelp(
@@ -2038,34 +2182,6 @@ pub fn dumpBadGetPathHelp(
     tty_config.setColor(w, .reset) catch {};
 }
 
-/// Allocates a new string for assigning a value to a named macro.
-/// If the value is omitted, it is set to 1.
-/// `name` and `value` need not live longer than the function call.
-pub fn constructCMacro(allocator: Allocator, name: []const u8, value: ?[]const u8) []const u8 {
-    var macro = allocator.alloc(
-        u8,
-        name.len + if (value) |value_slice| value_slice.len + 1 else 0,
-    ) catch |err| if (err == error.OutOfMemory) @panic("Out of memory") else unreachable;
-    @memcpy(macro[0..name.len], name);
-    if (value) |value_slice| {
-        macro[name.len] = '=';
-        @memcpy(macro[name.len + 1 ..][0..value_slice.len], value_slice);
-    }
-    return macro;
-}
-
-pub const VcpkgRoot = union(VcpkgRootStatus) {
-    unattempted: void,
-    not_found: void,
-    found: []const u8,
-};
-
-pub const VcpkgRootStatus = enum {
-    unattempted,
-    not_found,
-    found,
-};
-
 pub const InstallDir = union(enum) {
     prefix: void,
     lib: void,
@@ -2097,34 +2213,6 @@ pub const InstalledFile = struct {
     }
 };
 
-pub fn serializeCpu(allocator: Allocator, cpu: std.Target.Cpu) ![]const u8 {
-    // TODO this logic can disappear if cpu model + features becomes part of the target triple
-    const all_features = cpu.arch.allFeaturesList();
-    var populated_cpu_features = cpu.model.features;
-    populated_cpu_features.populateDependencies(all_features);
-
-    if (populated_cpu_features.eql(cpu.features)) {
-        // The CPU name alone is sufficient.
-        return cpu.model.name;
-    } else {
-        var mcpu_buffer = ArrayList(u8).init(allocator);
-        try mcpu_buffer.appendSlice(cpu.model.name);
-
-        for (all_features, 0..) |feature, i_usize| {
-            const i = @as(std.Target.Cpu.Feature.Set.Index, @intCast(i_usize));
-            const in_cpu_set = populated_cpu_features.isEnabled(i);
-            const in_actual_set = cpu.features.isEnabled(i);
-            if (in_cpu_set and !in_actual_set) {
-                try mcpu_buffer.writer().print("-{s}", .{feature.name});
-            } else if (!in_cpu_set and in_actual_set) {
-                try mcpu_buffer.writer().print("+{s}", .{feature.name});
-            }
-        }
-
-        return try mcpu_buffer.toOwnedSlice();
-    }
-}
-
 /// This function is intended to be called in the `configure` phase only.
 /// It returns an absolute directory path, which is potentially going to be a
 /// source of API breakage in the future, so keep that in mind when using this
@@ -2153,6 +2241,33 @@ pub fn hex64(x: u64) [16]u8 {
         result[i * 2 + 1] = hex_charset[byte & 15];
     }
     return result;
+}
+
+/// A pair of target query and fully resolved target.
+/// This type is generally required by build system API that need to be given a
+/// target. The query is kept because the Zig toolchain needs to know which parts
+/// of the target are "native". This can apply to the CPU, the OS, or even the ABI.
+pub const ResolvedTarget = struct {
+    query: Target.Query,
+    result: Target,
+};
+
+/// Converts a target query into a fully resolved target that can be passed to
+/// various parts of the API.
+pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
+    // This context will likely be required in the future when the target is
+    // resolved via a WASI API or via the build protocol.
+    _ = b;
+
+    return .{
+        .query = query,
+        .result = std.zig.system.resolveTargetQuery(query) catch
+            @panic("unable to resolve target query"),
+    };
+}
+
+pub fn wantSharedLibSymLinks(target: Target) bool {
+    return target.os.tag != .windows;
 }
 
 test {

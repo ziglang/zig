@@ -460,3 +460,101 @@ test "coerced function body has inequal value with its uncoerced body" {
     };
     try expect(S.A.do() == 1234);
 }
+
+test "generic function returns value from callconv(.C) function" {
+    const S = struct {
+        fn getU8() callconv(.C) u8 {
+            return 123;
+        }
+
+        fn getGeneric(comptime T: type, supplier: fn () callconv(.C) T) T {
+            return supplier();
+        }
+    };
+
+    try testing.expect(S.getGeneric(u8, S.getU8) == 123);
+}
+
+test "union in struct captures argument" {
+    const S = struct {
+        fn BuildType(comptime T: type) type {
+            return struct {
+                val: union {
+                    b: T,
+                },
+            };
+        }
+    };
+    const TestStruct = S.BuildType(u32);
+    const c = TestStruct{ .val = .{ .b = 10 } };
+    try expect(c.val.b == 10);
+}
+
+test "function argument tuple used as struct field" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn DeleagateWithContext(comptime Function: type) type {
+            const ArgArgs = std.meta.ArgsTuple(Function);
+            return struct {
+                t: ArgArgs,
+            };
+        }
+
+        const OnConfirm = DeleagateWithContext(fn (bool) void);
+        const CustomDraw = DeleagateWithContext(fn (?OnConfirm) void);
+    };
+
+    var c: S.CustomDraw = undefined;
+    c.t[0] = null;
+    try expect(c.t[0] == null);
+}
+
+test "comptime callconv(.C) function ptr uses comptime type argument" {
+    const S = struct {
+        fn A(
+            comptime T: type,
+            comptime destroycb: ?*const fn (?*T) callconv(.C) void,
+        ) !void {
+            try expect(destroycb == null);
+        }
+    };
+    try S.A(u32, null);
+}
+
+test "call generic function with from function called by the generic function" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and
+        builtin.cpu.arch == .aarch64 and builtin.os.tag == .windows) return error.SkipZigTest;
+
+    const GET = struct {
+        key: []const u8,
+        const GET = @This();
+        const Redis = struct {
+            const Command = struct {
+                fn serialize(self: GET, comptime RootSerializer: type) void {
+                    return RootSerializer.serializeCommand(.{ "GET", self.key });
+                }
+            };
+        };
+    };
+    const ArgSerializer = struct {
+        fn isCommand(comptime T: type) bool {
+            const tid = @typeInfo(T);
+            return (tid == .Struct or tid == .Enum or tid == .Union) and
+                @hasDecl(T, "Redis") and @hasDecl(T.Redis, "Command");
+        }
+        fn serializeCommand(command: anytype) void {
+            const CmdT = @TypeOf(command);
+
+            if (comptime isCommand(CmdT)) {
+                return CmdT.Redis.Command.serialize(command, @This());
+            }
+        }
+    };
+
+    ArgSerializer.serializeCommand(GET{ .key = "banana" });
+}

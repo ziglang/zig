@@ -1005,11 +1005,11 @@ pub const Key = union(enum) {
         ty: Index,
         init: Index,
         decl: DeclIndex,
-        lib_name: OptionalNullTerminatedString = .none,
-        is_extern: bool = false,
-        is_const: bool = false,
-        is_threadlocal: bool = false,
-        is_weak_linkage: bool = false,
+        lib_name: OptionalNullTerminatedString,
+        is_extern: bool,
+        is_const: bool,
+        is_threadlocal: bool,
+        is_weak_linkage: bool,
     };
 
     pub const ExternFunc = struct {
@@ -5315,7 +5315,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
             try ip.extra.ensureUnusedCapacity(
                 gpa,
-                @typeInfo(Tag.Aggregate).Struct.fields.len + @as(usize, @intCast(len_including_sentinel)),
+                @typeInfo(Tag.Aggregate).Struct.fields.len + @as(usize, @intCast(len_including_sentinel + 1)),
             );
             ip.items.appendAssumeCapacity(.{
                 .tag = .aggregate,

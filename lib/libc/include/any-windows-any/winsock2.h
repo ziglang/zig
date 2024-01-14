@@ -903,7 +903,7 @@ typedef unsigned int GROUP;
   typedef u_short (WSAAPI *LPFN_NTOHS)(u_short netshort);
   typedef int (WSAAPI *LPFN_RECV)(SOCKET s,char *buf,int len,int flags);
   typedef int (WSAAPI *LPFN_RECVFROM)(SOCKET s,char *buf,int len,int flags,struct sockaddr *from,int *fromlen);
-  typedef int (WSAAPI *LPFN_SELECT)(int nfds,fd_set *readfds,fd_set *writefds,fd_set *exceptfds,const PTIMEVAL timeout);
+  typedef int (WSAAPI *LPFN_SELECT)(int nfds,fd_set *readfds,fd_set *writefds,fd_set *exceptfds,const TIMEVAL *timeout);
   typedef int (WSAAPI *LPFN_SEND)(SOCKET s,const char *buf,int len,int flags);
   typedef int (WSAAPI *LPFN_SENDTO)(SOCKET s,const char *buf,int len,int flags,const struct sockaddr *to,int tolen);
   typedef int (WSAAPI *LPFN_SETSOCKOPT)(SOCKET s,int level,int optname,const char *optval,int optlen);
@@ -1028,7 +1028,7 @@ typedef unsigned int GROUP;
   WINSOCK_API_LINKAGE int WSAAPI recv(SOCKET s,char *buf,int len,int flags);
   WINSOCK_API_LINKAGE int WSAAPI recvfrom(SOCKET s,char *buf,int len,int flags,struct sockaddr *from,int *fromlen);
 #ifndef __INSIDE_CYGWIN__
-  WINSOCK_API_LINKAGE int WSAAPI select(int nfds,fd_set *readfds,fd_set *writefds,fd_set *exceptfds,const PTIMEVAL timeout);
+  WINSOCK_API_LINKAGE int WSAAPI select(int nfds,fd_set *readfds,fd_set *writefds,fd_set *exceptfds,const TIMEVAL *timeout);
 #endif /* !__INSIDE_CYGWIN__ */
   WINSOCK_API_LINKAGE int WSAAPI send(SOCKET s,const char *buf,int len,int flags);
   WINSOCK_API_LINKAGE int WSAAPI sendto(SOCKET s,const char *buf,int len,int flags,const struct sockaddr *to,int tolen);
@@ -1202,7 +1202,7 @@ WINSOCK_API_LINKAGE WINBOOL PASCAL WSAConnectByList(
   LPSOCKADDR LocalAddress,
   LPDWORD RemoteAddressLength,
   LPSOCKADDR RemoteAddress,
-  const PTIMEVAL timeout,
+  const TIMEVAL *timeout,
   LPWSAOVERLAPPED Reserved
 );
 
@@ -1214,7 +1214,7 @@ WINSOCK_API_LINKAGE WINBOOL PASCAL WSAConnectByNameA(
   LPSOCKADDR LocalAddress,
   LPDWORD RemoteAddressLength,
   LPSOCKADDR RemoteAddress,
-  const PTIMEVAL timeout,
+  const TIMEVAL *timeout,
   LPWSAOVERLAPPED Reserved
 );
 
@@ -1226,7 +1226,7 @@ WINSOCK_API_LINKAGE WINBOOL PASCAL WSAConnectByNameW(
   LPSOCKADDR LocalAddress,
   LPDWORD RemoteAddressLength,
   LPSOCKADDR RemoteAddress,
-  const PTIMEVAL timeout,
+  const TIMEVAL *timeout,
   LPWSAOVERLAPPED Reserved
 );
 #define WSAConnectByName __MINGW_NAME_AW(WSAConnectByName)
@@ -1257,6 +1257,53 @@ int WSAAPI WSASendMsg(
   LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
 );
 #endif /*(_WIN32_WINNT >= 0x0600)*/
+
+typedef struct SOCK_NOTIFY_REGISTRATION {
+    SOCKET socket;
+    PVOID completionKey;
+    UINT16 eventFilter;
+    UINT8 operation;
+    UINT8 triggerFlags;
+    DWORD registrationResult;
+} SOCK_NOTIFY_REGISTRATION;
+
+#define SOCK_NOTIFY_REGISTER_EVENT_NONE     0x00
+#define SOCK_NOTIFY_REGISTER_EVENT_IN       0x01
+#define SOCK_NOTIFY_REGISTER_EVENT_OUT      0x02
+#define SOCK_NOTIFY_REGISTER_EVENT_HANGUP   0x04
+
+#define SOCK_NOTIFY_REGISTER_EVENTS_ALL (SOCK_NOTIFY_REGISTER_EVENT_IN | SOCK_NOTIFY_REGISTER_EVENT_OUT | SOCK_NOTIFY_REGISTER_EVENT_HANGUP)
+
+#define SOCK_NOTIFY_EVENT_IN        SOCK_NOTIFY_REGISTER_EVENT_IN
+#define SOCK_NOTIFY_EVENT_OUT       SOCK_NOTIFY_REGISTER_EVENT_OUT
+#define SOCK_NOTIFY_EVENT_HANGUP    SOCK_NOTIFY_REGISTER_EVENT_HANGUP
+#define SOCK_NOTIFY_EVENT_ERR       0x40
+#define SOCK_NOTIFY_EVENT_REMOVE    0x80
+
+#define SOCK_NOTIFY_EVENTS_ALL (SOCK_NOTIFY_REGISTER_EVENTS_ALL | SOCK_NOTIFY_EVENT_ERR | SOCK_NOTIFY_EVENT_REMOVE)
+
+#define SOCK_NOTIFY_OP_NONE         0x00
+#define SOCK_NOTIFY_OP_ENABLE       0x01
+#define SOCK_NOTIFY_OP_DISABLE      0x02
+#define SOCK_NOTIFY_OP_REMOVE       0x04
+
+#define SOCK_NOTIFY_TRIGGER_ONESHOT    0x01
+#define SOCK_NOTIFY_TRIGGER_PERSISTENT 0x02
+#define SOCK_NOTIFY_TRIGGER_LEVEL      0x04
+#define SOCK_NOTIFY_TRIGGER_EDGE       0x08
+
+#define SOCK_NOTIFY_TRIGGER_ALL (SOCK_NOTIFY_TRIGGER_ONESHOT | SOCK_NOTIFY_TRIGGER_PERSISTENT | SOCK_NOTIFY_TRIGGER_LEVEL | SOCK_NOTIFY_TRIGGER_EDGE)
+
+#if (NTDDI_VERSION >= NTDDI_WIN10_MN)
+#if INCL_WINSOCK_API_PROTOTYPES
+  WINSOCK_API_LINKAGE DWORD WSAAPI ProcessSocketNotifications(HANDLE completionPort, UINT32 registrationCount, SOCK_NOTIFY_REGISTRATION* registrationInfos, UINT32 timeoutMs, ULONG completionCount, OVERLAPPED_ENTRY* completionPortEntries, UINT32* receivedEntryCount);
+
+#if !defined(__midl)
+  static FORCEINLINE UINT32 SocketNotificationRetrieveEvents(OVERLAPPED_ENTRY* notification) { return (UINT32)notification->dwNumberOfBytesTransferred; }
+#endif /* __midl */
+
+#endif /* INCL_WINSOCK_API_PROTOTYPES */
+#endif /* (NTDDI_VERSION >= NTDDI_WIN10_MN) */
 
 #ifdef __cplusplus
 }

@@ -17,6 +17,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const exe = b.addExecutable(.{
         .name = "test",
         .optimize = optimize,
+        .target = b.host,
     });
     b.default_step.dependOn(&exe.step);
     exe.addIncludePath(.{ .path = "." });

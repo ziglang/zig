@@ -315,11 +315,11 @@ pub const Stat = struct {
     mode: Mode,
     kind: Kind,
 
-    /// Access time in nanoseconds, relative to UTC 1970-01-01.
+    /// Last access time in nanoseconds, relative to UTC 1970-01-01.
     atime: i128,
     /// Last modification time in nanoseconds, relative to UTC 1970-01-01.
     mtime: i128,
-    /// Creation time in nanoseconds, relative to UTC 1970-01-01.
+    /// Last status/metadata change time in nanoseconds, relative to UTC 1970-01-01.
     ctime: i128,
 
     pub fn fromSystem(st: posix.system.Stat) Stat {
@@ -369,6 +369,8 @@ pub const Stat = struct {
 
 pub const StatError = posix.FStatError;
 
+/// Returns `Stat` containing basic information about the `File`.
+/// Use `metadata` to retrieve more detailed information (e.g. creation time, permissions).
 /// TODO: integrate with async I/O
 pub fn stat(self: File) StatError!Stat {
     if (builtin.os.tag == .windows) {
@@ -389,10 +391,29 @@ pub fn stat(self: File) StatError!Stat {
             .inode = info.InternalInformation.IndexNumber,
             .size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
             .mode = 0,
-            .kind = if (info.StandardInformation.Directory == 0) .file else .directory,
+            .kind = if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) reparse_point: {
+                var tag_info: windows.FILE_ATTRIBUTE_TAG_INFO = undefined;
+                const tag_rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &tag_info, @sizeOf(windows.FILE_ATTRIBUTE_TAG_INFO), .FileAttributeTagInformation);
+                switch (tag_rc) {
+                    .SUCCESS => {},
+                    // INFO_LENGTH_MISMATCH and ACCESS_DENIED are the only documented possible errors
+                    // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/d295752f-ce89-4b98-8553-266d37c84f0e
+                    .INFO_LENGTH_MISMATCH => unreachable,
+                    .ACCESS_DENIED => return error.AccessDenied,
+                    else => return windows.unexpectedStatus(rc),
+                }
+                if (tag_info.ReparseTag & windows.reparse_tag_name_surrogate_bit != 0) {
+                    break :reparse_point .sym_link;
+                }
+                // Unknown reparse point
+                break :reparse_point .unknown;
+            } else if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0)
+                .directory
+            else
+                .file,
             .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
             .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
-            .ctime = windows.fromSysTime(info.BasicInformation.CreationTime),
+            .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
         };
     }
 
@@ -791,7 +812,7 @@ pub const MetadataWindows = struct {
     /// Can only return: `.file`, `.directory`, `.sym_link` or `.unknown`
     pub fn kind(self: Self) Kind {
         if (self.attributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) {
-            if (self.reparse_tag & 0x20000000 != 0) {
+            if (self.reparse_tag & windows.reparse_tag_name_surrogate_bit != 0) {
                 return .sym_link;
             }
         } else if (self.attributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0) {
@@ -842,10 +863,17 @@ pub fn metadata(self: File) MetadataError!Metadata {
 
                 const reparse_tag: windows.DWORD = reparse_blk: {
                     if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) {
-                        var reparse_buf: [windows.MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
-                        try windows.DeviceIoControl(self.handle, windows.FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..]);
-                        const reparse_struct: *const windows.REPARSE_DATA_BUFFER = @ptrCast(@alignCast(&reparse_buf[0]));
-                        break :reparse_blk reparse_struct.ReparseTag;
+                        var tag_info: windows.FILE_ATTRIBUTE_TAG_INFO = undefined;
+                        const tag_rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &tag_info, @sizeOf(windows.FILE_ATTRIBUTE_TAG_INFO), .FileAttributeTagInformation);
+                        switch (tag_rc) {
+                            .SUCCESS => {},
+                            // INFO_LENGTH_MISMATCH and ACCESS_DENIED are the only documented possible errors
+                            // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/d295752f-ce89-4b98-8553-266d37c84f0e
+                            .INFO_LENGTH_MISMATCH => unreachable,
+                            .ACCESS_DENIED => return error.AccessDenied,
+                            else => return windows.unexpectedStatus(rc),
+                        }
+                        break :reparse_blk tag_info.ReparseTag;
                     }
                     break :reparse_blk 0;
                 };

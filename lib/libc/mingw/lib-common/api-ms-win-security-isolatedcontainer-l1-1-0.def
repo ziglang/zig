@@ -1,5 +1,0 @@
-LIBRARY api-ms-win-security-isolatedcontainer-l1-1-0
-
-EXPORTS
-
-IsProcessInIsolatedContainer

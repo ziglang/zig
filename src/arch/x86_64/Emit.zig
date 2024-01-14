@@ -103,10 +103,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                     });
                 },
                 .linker_reloc => |data| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
-                    const is_obj_or_static_lib = switch (emit.lower.bin_file.options.output_mode) {
+                    const is_obj_or_static_lib = switch (emit.lower.output_mode) {
                         .Exe => false,
                         .Obj => true,
-                        .Lib => emit.lower.bin_file.options.link_mode == .Static,
+                        .Lib => emit.lower.link_mode == .Static,
                     };
                     const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
                     const sym_index = elf_file.zigObjectPtr().?.symbol(data.sym_index);
@@ -114,7 +114,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     if (sym.flags.needs_zig_got and !is_obj_or_static_lib) {
                         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                     }
-                    if (emit.lower.bin_file.options.pic) {
+                    if (emit.lower.pic) {
                         const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
                             link.File.Elf.R_X86_64_ZIG_GOTPCREL
                         else if (sym.flags.needs_got)
@@ -309,7 +309,7 @@ fn fixupRelocs(emit: *Emit) Error!void {
 fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
     const delta_line = @as(i33, line) - @as(i33, emit.prev_di_line);
     const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
-    log.debug("  (advance pc={d} and line={d})", .{ delta_line, delta_pc });
+    log.debug("  (advance pc={d} and line={d})", .{ delta_pc, delta_line });
     switch (emit.debug_output) {
         .dwarf => |dw| {
             if (column != emit.prev_di_column) try dw.setColumn(column);

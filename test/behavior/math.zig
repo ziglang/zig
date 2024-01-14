@@ -164,6 +164,25 @@ fn testOneCtz(comptime T: type, x: T) u32 {
     return @ctz(x);
 }
 
+test "@ctz 128-bit integers" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    try testCtz128();
+    try comptime testCtz128();
+}
+
+fn testCtz128() !void {
+    try expect(testOneCtz(u128, @as(u128, 0x40000000000000000000000000000000)) == 126);
+    try expect(math.rotl(u128, @as(u128, 0x40000000000000000000000000000000), @as(u8, 1)) == @as(u128, 0x80000000000000000000000000000000));
+    try expect(testOneCtz(u128, @as(u128, 0x80000000000000000000000000000000)) == 127);
+    try expect(testOneCtz(u128, math.rotl(u128, @as(u128, 0x40000000000000000000000000000000), @as(u8, 1))) == 127);
+}
+
 test "@ctz vectors" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -1314,6 +1333,8 @@ test "exact shift left" {
 
     try testShlExact(0b00110101);
     try comptime testShlExact(0b00110101);
+
+    if (@shlExact(1, 1) != 2) @compileError("should be 2");
 }
 fn testShlExact(x: u8) !void {
     const shifted = @shlExact(x, 2);
@@ -1697,4 +1718,22 @@ test "mod lazy values" {
         const y = x % 1;
         _ = y;
     }
+}
+
+test "@clz works on both vector and scalar inputs" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var x: u32 = 0x1;
+    _ = &x;
+    var y: @Vector(4, u32) = [_]u32{ 0x1, 0x1, 0x1, 0x1 };
+    _ = &y;
+    const a = @clz(x);
+    const b = @clz(y);
+    try std.testing.expectEqual(@as(u6, 31), a);
+    try std.testing.expectEqual([_]u6{ 31, 31, 31, 31 }, b);
 }

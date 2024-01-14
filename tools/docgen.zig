@@ -9,13 +9,12 @@ const print = std.debug.print;
 const mem = std.mem;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
+const getExternalExecutor = std.zig.system.getExternalExecutor;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
-const exe_ext = @as(std.zig.CrossTarget, .{}).exeFileExt();
 const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
 const tmp_dir_name = "docgen_tmp";
-const test_out_path = tmp_dir_name ++ fs.path.sep_str ++ "test" ++ exe_ext;
 
 const usage =
     \\Usage: docgen [--zig] [--skip-code-tests] input output"
@@ -970,7 +969,7 @@ fn tokenizeAndPrintRaw(
     source_token: Token,
     raw_src: []const u8,
 ) !void {
-    const src_non_terminated = mem.trim(u8, raw_src, " \n");
+    const src_non_terminated = mem.trim(u8, raw_src, " \r\n");
     const src = try allocator.dupeZ(u8, src_non_terminated);
 
     try out.writeAll("<code>" ++ start_line);
@@ -1233,7 +1232,7 @@ fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: any
         .zig => try tokenizeAndPrint(allocator, docgen_tokenizer, out, syntax_block.source_token),
         else => {
             const raw_source = docgen_tokenizer.buffer[syntax_block.source_token.start..syntax_block.source_token.end];
-            const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
+            const trimmed_raw_source = mem.trim(u8, raw_source, " \r\n");
 
             try out.writeAll("<code>" ++ start_line);
             try writeEscapedLines(out, trimmed_raw_source);
@@ -1244,12 +1243,12 @@ fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: any
 }
 
 fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
-    const trimmed_shell_content = mem.trim(u8, shell_content, " \n");
+    const trimmed_shell_content = mem.trim(u8, shell_content, " \r\n");
     try out.writeAll("<figure><figcaption class=\"shell-cap\">Shell</figcaption><pre><samp>");
     var cmd_cont: bool = false;
     var iter = std.mem.splitScalar(u8, trimmed_shell_content, '\n');
     while (iter.next()) |orig_line| {
-        const line = mem.trimRight(u8, orig_line, " ");
+        const line = mem.trimRight(u8, orig_line, " \r");
         if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] != '\\') {
             try out.writeAll("$ <kbd>");
             const s = std.mem.trimLeft(u8, line[1..], " ");
@@ -1309,7 +1308,7 @@ fn genHtml(
     var env_map = try process.getEnvMap(allocator);
     try env_map.put("YES_COLOR", "1");
 
-    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+    const host = try std.zig.system.resolveTargetQuery(.{});
     const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe, opt_zig_lib_dir);
 
     for (toc.nodes) |node| {
@@ -1381,7 +1380,7 @@ fn genHtml(
                 }
 
                 const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
-                const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
+                const trimmed_raw_source = mem.trim(u8, raw_source, " \r\n");
                 const tmp_source_file_name = try fs.path.join(
                     allocator,
                     &[_][]const u8{ tmp_dir_name, name_plus_ext },
@@ -1424,9 +1423,7 @@ fn genHtml(
                             try build_args.append("-lc");
                             try shell_out.print("-lc ", .{});
                         }
-                        const target = try std.zig.CrossTarget.parse(.{
-                            .arch_os_abi = code.target_str orelse "native",
-                        });
+
                         if (code.target_str) |triple| {
                             try build_args.appendSlice(&[_][]const u8{ "-target", triple });
                             try shell_out.print("-target {s} ", .{triple});
@@ -1490,9 +1487,13 @@ fn genHtml(
                             }
                         }
 
+                        const target_query = try std.Target.Query.parse(.{
+                            .arch_os_abi = code.target_str orelse "native",
+                        });
+                        const target = try std.zig.system.resolveTargetQuery(target_query);
+
                         const path_to_exe = try std.fmt.allocPrint(allocator, "./{s}{s}", .{
-                            code.name,
-                            target.exeFileExt(),
+                            code.name, target.exeFileExt(),
                         });
                         const run_args = &[_][]const u8{path_to_exe};
 
@@ -1565,13 +1566,13 @@ fn genHtml(
                             try test_args.appendSlice(&[_][]const u8{ "-target", triple });
                             try shell_out.print("-target {s} ", .{triple});
 
-                            const cross_target = try std.zig.CrossTarget.parse(.{
+                            const target_query = try std.Target.Query.parse(.{
                                 .arch_os_abi = triple,
                             });
-                            const target_info = try std.zig.system.NativeTargetInfo.detect(
-                                cross_target,
+                            const target = try std.zig.system.resolveTargetQuery(
+                                target_query,
                             );
-                            switch (host.getExternalExecutor(&target_info, .{
+                            switch (getExternalExecutor(host, &target, .{
                                 .link_libc = code.link_libc,
                             })) {
                                 .native => {},
@@ -2108,6 +2109,20 @@ test "printShell" {
             \\$ zig build test.zig
             \\build output
         ;
+        const expected =
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
+            \\build output
+            \\</samp></pre></figure>
+        ;
+
+        var buffer = std.ArrayList(u8).init(test_allocator);
+        defer buffer.deinit();
+
+        try printShell(buffer.writer(), shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.items);
+    }
+    {
+        const shell_out = "$ zig build test.zig\r\nbuild output\r\n";
         const expected =
             \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
             \\build output

@@ -39,6 +39,11 @@ namespace __sanitizer {
 //   the current thread has exclusive access to the data
 //   if !h.exists() then the element never existed
 // }
+// {
+//   Map::Handle h(&m, addr, false, true);
+//   this will create a new element or return a handle to an existing element
+//   if !h.created() this thread does *not* have exclusive access to the data
+// }
 template<typename T, uptr kSize>
 class AddrHashMap {
  private:
@@ -56,7 +61,7 @@ class AddrHashMap {
   static const uptr kBucketSize = 3;
 
   struct Bucket {
-    RWMutex          mtx;
+    Mutex mtx;
     atomic_uintptr_t add;
     Cell             cells[kBucketSize];
   };
@@ -89,6 +94,12 @@ class AddrHashMap {
     bool                   create_;
   };
 
+  typedef void (*ForEachCallback)(const uptr key, const T &val, void *arg);
+  // ForEach acquires a lock on each bucket while iterating over
+  // elements. Note that this only ensures that the structure of the hashmap is
+  // unchanged, there may be a data race to the element itself.
+  void ForEach(ForEachCallback cb, void *arg);
+
  private:
   friend class Handle;
   Bucket *table_;
@@ -97,6 +108,33 @@ class AddrHashMap {
   void release(Handle *h);
   uptr calcHash(uptr addr);
 };
+
+template <typename T, uptr kSize>
+void AddrHashMap<T, kSize>::ForEach(ForEachCallback cb, void *arg) {
+  for (uptr n = 0; n < kSize; n++) {
+    Bucket *bucket = &table_[n];
+
+    ReadLock lock(&bucket->mtx);
+
+    for (uptr i = 0; i < kBucketSize; i++) {
+      Cell *c = &bucket->cells[i];
+      uptr addr1 = atomic_load(&c->addr, memory_order_acquire);
+      if (addr1 != 0)
+        cb(addr1, c->val, arg);
+    }
+
+    // Iterate over any additional cells.
+    if (AddBucket *add =
+            (AddBucket *)atomic_load(&bucket->add, memory_order_acquire)) {
+      for (uptr i = 0; i < add->size; i++) {
+        Cell *c = &add->cells[i];
+        uptr addr1 = atomic_load(&c->addr, memory_order_acquire);
+        if (addr1 != 0)
+          cb(addr1, c->val, arg);
+      }
+    }
+  }
+}
 
 template<typename T, uptr kSize>
 AddrHashMap<T, kSize>::Handle::Handle(AddrHashMap<T, kSize> *map, uptr addr) {
@@ -163,7 +201,8 @@ AddrHashMap<T, kSize>::AddrHashMap() {
 }
 
 template <typename T, uptr kSize>
-void AddrHashMap<T, kSize>::acquire(Handle *h) NO_THREAD_SAFETY_ANALYSIS {
+void AddrHashMap<T, kSize>::acquire(Handle *h)
+    SANITIZER_NO_THREAD_SAFETY_ANALYSIS {
   uptr addr = h->addr_;
   uptr hash = calcHash(addr);
   Bucket *b = &table_[hash];
@@ -292,7 +331,8 @@ void AddrHashMap<T, kSize>::acquire(Handle *h) NO_THREAD_SAFETY_ANALYSIS {
  }
 
  template <typename T, uptr kSize>
- void AddrHashMap<T, kSize>::release(Handle *h) NO_THREAD_SAFETY_ANALYSIS {
+ void AddrHashMap<T, kSize>::release(Handle *h)
+     SANITIZER_NO_THREAD_SAFETY_ANALYSIS {
    if (!h->cell_)
      return;
    Bucket *b = h->bucket_;

@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const target: std.zig.CrossTarget = .{ .os_tag = .macos };
+    const target = b.resolveTargetQuery(.{ .os_tag = .macos });
 
     const dylib = b.addSharedLibrary(.{
         .name = "a",
@@ -32,7 +32,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     });
     exe.addCSourceFile(.{ .file = .{ .path = "main.c" }, .flags = &[0][]const u8{} });
     exe.linkLibC();
-    exe.linkSystemLibraryWeak("a");
+    exe.root_module.linkSystemLibrary("a", .{ .weak = true });
     exe.addLibraryPath(dylib.getEmittedBinDirectory());
     exe.addRPath(dylib.getEmittedBinDirectory());
 

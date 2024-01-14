@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const target: std.zig.CrossTarget = .{ .os_tag = .macos };
+    const target = b.resolveTargetQuery(.{ .os_tag = .macos });
 
     {
         // -search_dylibs_first
@@ -45,9 +45,9 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 fn createScenario(
     b: *std.Build,
     optimize: std.builtin.OptimizeMode,
-    target: std.zig.CrossTarget,
+    target: std.Build.ResolvedTarget,
     name: []const u8,
-    search_strategy: std.Build.Step.Compile.SystemLib.SearchStrategy,
+    search_strategy: std.Build.Module.SystemLib.SearchStrategy,
 ) *std.Build.Step.Compile {
     const static = b.addStaticLibrary(.{
         .name = name,

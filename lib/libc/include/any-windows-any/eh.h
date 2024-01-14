@@ -3,6 +3,13 @@
  * This file is part of the mingw-w64 runtime package.
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
+
+#ifndef __cplusplus
+#error eh.h is only for C++!
+#endif
+
+#include <typeinfo>
+
 #include <crtdefs.h>
 
 #ifndef _EH_H_
@@ -11,10 +18,6 @@
 #ifndef RC_INVOKED
 
 #pragma pack(push,_CRT_PACKING)
-
-#ifndef __cplusplus
-#error eh.h is only for C++!
-#endif
 
 typedef void (__cdecl *terminate_function)();
 typedef void (__cdecl *terminate_handler)();

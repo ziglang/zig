@@ -1,7 +1,7 @@
 const std = @import("std");
 const Cases = @import("src/Cases.zig");
 
-const targets = [_]std.zig.CrossTarget{
+const targets = [_]std.Target.Query{
     .{ .cpu_arch = .aarch64, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .ios, .abi = .none },
     .{ .cpu_arch = .aarch64, .os_tag = .ios, .abi = .simulator },
@@ -127,17 +127,21 @@ const targets = [_]std.zig.CrossTarget{
     .{ .cpu_arch = .xtensa, .os_tag = .linux, .abi = .none },
 };
 
-pub fn addCases(ctx: *Cases, build_options: @import("cases.zig").BuildOptions) !void {
+pub fn addCases(
+    ctx: *Cases,
+    build_options: @import("cases.zig").BuildOptions,
+    b: *std.Build,
+) !void {
     if (!build_options.enable_llvm) return;
-    for (targets) |target| {
-        if (target.cpu_arch) |arch| switch (arch) {
+    for (targets) |target_query| {
+        if (target_query.cpu_arch) |arch| switch (arch) {
             .m68k => if (!build_options.llvm_has_m68k) continue,
             .csky => if (!build_options.llvm_has_csky) continue,
             .arc => if (!build_options.llvm_has_arc) continue,
             .xtensa => if (!build_options.llvm_has_xtensa) continue,
             else => {},
         };
-        var case = ctx.noEmitUsingLlvmBackend("llvm_targets", target);
+        var case = ctx.noEmitUsingLlvmBackend("llvm_targets", b.resolveTargetQuery(target_query));
         case.addCompile("");
     }
 }

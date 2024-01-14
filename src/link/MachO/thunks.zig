@@ -68,7 +68,8 @@ pub fn createThunks(macho_file: *MachO, sect_id: u8) !void {
     const header = &macho_file.sections.items(.header)[sect_id];
     if (header.size == 0) return;
 
-    const gpa = macho_file.base.allocator;
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
     const first_atom_index = macho_file.sections.items(.first_atom_index)[sect_id].?;
 
     header.size = 0;
@@ -245,7 +246,8 @@ fn scanRelocs(
             macho_file.getSymbol(target).n_value,
         });
 
-        const gpa = macho_file.base.allocator;
+        const comp = macho_file.base.comp;
+        const gpa = comp.gpa;
         const target_sym = macho_file.getSymbol(target);
         const thunk = &macho_file.thunks.items[thunk_index];
 
