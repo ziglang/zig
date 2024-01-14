@@ -32,6 +32,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         if (build_opts.has_macos_sdk) {
             macho_step.dependOn(testHeaderpad(b, .{ .target = b.host }));
             macho_step.dependOn(testNeededFramework(b, .{ .target = b.host }));
+            macho_step.dependOn(testWeakFramework(b, .{ .target = b.host }));
         }
     }
 
@@ -763,6 +764,25 @@ fn testWeakBind(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testWeakFramework(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-weak-framework", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
+    exe.root_module.linkFramework("Cocoa", .{ .weak = true });
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkInHeaders();
+    check.checkExact("cmd LOAD_WEAK_DYLIB");
+    check.checkContains("Cocoa");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
