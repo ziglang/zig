@@ -23,6 +23,8 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testHelloZig(b, .{ .target = default_target }));
     macho_step.dependOn(testLargeBss(b, .{ .target = default_target }));
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
+    macho_step.dependOn(testRelocatable(b, .{ .target = default_target }));
+    macho_step.dependOn(testRelocatableZig(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testTentative(b, .{ .target = default_target }));
@@ -493,6 +495,125 @@ fn testNeededLibrary(b: *Build, opts: Options) *Step {
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testRelocatable(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-relocatable", opts);
+
+    const a_o = addObject(b, opts, .{ .name = "a", .cpp_source_bytes = 
+    \\#include <stdexcept>
+    \\int try_me() {
+    \\  throw std::runtime_error("Oh no!");
+    \\}
+    });
+    a_o.linkLibCpp();
+
+    const b_o = addObject(b, opts, .{ .name = "b", .cpp_source_bytes = 
+    \\extern int try_me();
+    \\int try_again() {
+    \\  return try_me();
+    \\}
+    });
+
+    const main_o = addObject(b, opts, .{ .name = "main", .cpp_source_bytes = 
+    \\#include <iostream>
+    \\#include <stdexcept>
+    \\extern int try_again();
+    \\int main() {
+    \\  try {
+    \\    try_again();
+    \\  } catch (const std::exception &e) {
+    \\    std::cout << "exception=" << e.what();
+    \\  }
+    \\  return 0;
+    \\}
+    });
+    main_o.linkLibCpp();
+
+    const exp_stdout = "exception=Oh no!";
+
+    {
+        const c_o = addObject(b, opts, .{ .name = "c" });
+        c_o.addObject(a_o);
+        c_o.addObject(b_o);
+
+        const exe = addExecutable(b, opts, .{ .name = "main1" });
+        exe.addObject(main_o);
+        exe.addObject(c_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(exp_stdout);
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const d_o = addObject(b, opts, .{ .name = "d" });
+        d_o.addObject(a_o);
+        d_o.addObject(b_o);
+        d_o.addObject(main_o);
+
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
+        exe.addObject(d_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(exp_stdout);
+        test_step.dependOn(&run.step);
+    }
+
+    return test_step;
+}
+
+fn testRelocatableZig(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-relocatable-zig", opts);
+
+    const a_o = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\export var foo: i32 = 0;
+    \\export fn incrFoo() void {
+    \\    foo += 1;
+    \\    std.debug.print("incrFoo={d}\n", .{foo});
+    \\}
+    });
+
+    const b_o = addObject(b, opts, .{ .name = "b", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\extern var foo: i32;
+    \\export fn decrFoo() void {
+    \\    foo -= 1;
+    \\    std.debug.print("decrFoo={d}\n", .{foo});
+    \\}
+    });
+
+    const main_o = addObject(b, opts, .{ .name = "main", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\extern var foo: i32;
+    \\extern fn incrFoo() void;
+    \\extern fn decrFoo() void;
+    \\pub fn main() void {
+    \\    const init = foo;
+    \\    incrFoo();
+    \\    decrFoo();
+    \\    if (init == foo) @panic("Oh no!");
+    \\}
+    });
+
+    const c_o = addObject(b, opts, .{ .name = "c" });
+    c_o.addObject(a_o);
+    c_o.addObject(b_o);
+    c_o.addObject(main_o);
+
+    const exe = addExecutable(b, opts, .{ .name = "main" });
+    exe.addObject(c_o);
+
+    const run = addRunArtifact(exe);
+    run.addCheck(.{ .expect_stderr_match = b.dupe("incrFoo=1") });
+    run.addCheck(.{ .expect_stderr_match = b.dupe("decrFoo=1") });
+    run.addCheck(.{ .expect_stderr_match = b.dupe("panic: Oh no!") });
     test_step.dependOn(&run.step);
 
     return test_step;

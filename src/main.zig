@@ -2823,9 +2823,7 @@ fn buildOutputType(
     }
     // After this point, resolved_frameworks is used instead of frameworks.
 
-    if (create_module.resolved_options.output_mode == .Obj and
-        (target.ofmt == .coff or target.ofmt == .macho))
-    {
+    if (create_module.resolved_options.output_mode == .Obj and target.ofmt == .coff) {
         const total_obj_count = create_module.c_source_files.items.len +
             @intFromBool(root_src_file != null) +
             create_module.rc_source_files.items.len +
