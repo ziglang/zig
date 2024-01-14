@@ -402,33 +402,21 @@ pub fn innerParse(
                             },
                             .partial_string_escaped_1 => |arr| {
                                 if (i + arr.len > r.len) return error.LengthMismatch;
-                                // tell the compiler that the by-length slice below is valid;
-                                // this assert is required for the inequality to be comptime-known
-                                if (arr.len > r.len) unreachable;
                                 @memcpy(r[i..][0..arr.len], arr[0..]);
                                 i += arr.len;
                             },
                             .partial_string_escaped_2 => |arr| {
                                 if (i + arr.len > r.len) return error.LengthMismatch;
-                                // tell the compiler that the by-length slice below is valid;
-                                // this assert is required for the inequality to be comptime-known
-                                if (arr.len > r.len) unreachable;
                                 @memcpy(r[i..][0..arr.len], arr[0..]);
                                 i += arr.len;
                             },
                             .partial_string_escaped_3 => |arr| {
                                 if (i + arr.len > r.len) return error.LengthMismatch;
-                                // tell the compiler that the by-length slice below is valid;
-                                // this assert is required for the inequality to be comptime-known
-                                if (arr.len > r.len) unreachable;
                                 @memcpy(r[i..][0..arr.len], arr[0..]);
                                 i += arr.len;
                             },
                             .partial_string_escaped_4 => |arr| {
                                 if (i + arr.len > r.len) return error.LengthMismatch;
-                                // tell the compiler that the by-length slice below is valid;
-                                // this assert is required for the inequality to be comptime-known
-                                if (arr.len > r.len) unreachable;
                                 @memcpy(r[i..][0..arr.len], arr[0..]);
                                 i += arr.len;
                             },

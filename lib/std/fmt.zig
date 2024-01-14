@@ -23,7 +23,7 @@ pub const FormatOptions = struct {
     precision: ?usize = null,
     width: ?usize = null,
     alignment: Alignment = .right,
-    fill: u8 = ' ',
+    fill: u21 = ' ',
 };
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -211,14 +211,18 @@ fn cacheString(str: anytype) []const u8 {
 
 pub const Placeholder = struct {
     specifier_arg: []const u8,
-    fill: u8,
+    fill: u21,
     alignment: Alignment,
     arg: Specifier,
     width: Specifier,
     precision: Specifier,
 
     pub fn parse(comptime str: anytype) Placeholder {
-        comptime var parser = Parser{ .buf = &str };
+        const view = std.unicode.Utf8View.initComptime(&str);
+        comptime var parser = Parser{
+            .buf = &str,
+            .iter = view.iterator(),
+        };
 
         // Parse the positional argument number
         const arg = comptime parser.specifier() catch |err|
@@ -230,7 +234,7 @@ pub const Placeholder = struct {
         // Skip the colon, if present
         if (comptime parser.char()) |ch| {
             if (ch != ':') {
-                @compileError("expected : or }, found '" ++ [1]u8{ch} ++ "'");
+                @compileError("expected : or }, found '" ++ unicode.utf8EncodeComptime(ch) ++ "'");
             }
         }
 
@@ -265,7 +269,7 @@ pub const Placeholder = struct {
         // Skip the dot, if present
         if (comptime parser.char()) |ch| {
             if (ch != '.') {
-                @compileError("expected . or }, found '" ++ [1]u8{ch} ++ "'");
+                @compileError("expected . or }, found '" ++ unicode.utf8EncodeComptime(ch) ++ "'");
             }
         }
 
@@ -274,7 +278,7 @@ pub const Placeholder = struct {
             @compileError(@errorName(err));
 
         if (comptime parser.char()) |ch| {
-            @compileError("extraneous trailing character '" ++ [1]u8{ch} ++ "'");
+            @compileError("extraneous trailing character '" ++ unicode.utf8EncodeComptime(ch) ++ "'");
         }
 
         return Placeholder{
@@ -297,21 +301,23 @@ pub const Specifier = union(enum) {
 pub const Parser = struct {
     buf: []const u8,
     pos: usize = 0,
+    iter: std.unicode.Utf8Iterator = undefined,
 
     // Returns a decimal number or null if the current character is not a
     // digit
     pub fn number(self: *@This()) ?usize {
         var r: ?usize = null;
 
-        while (self.pos < self.buf.len) : (self.pos += 1) {
-            switch (self.buf[self.pos]) {
+        while (self.peek(0)) |code_point| {
+            switch (code_point) {
                 '0'...'9' => {
                     if (r == null) r = 0;
                     r.? *= 10;
-                    r.? += self.buf[self.pos] - '0';
+                    r.? += code_point - '0';
                 },
                 else => break,
             }
+            _ = self.iter.nextCodepoint();
         }
 
         return r;
@@ -319,31 +325,27 @@ pub const Parser = struct {
 
     // Returns a substring of the input starting from the current position
     // and ending where `ch` is found or until the end if not found
-    pub fn until(self: *@This(), ch: u8) []const u8 {
-        const start = self.pos;
-
-        if (start >= self.buf.len)
-            return &[_]u8{};
-
-        while (self.pos < self.buf.len) : (self.pos += 1) {
-            if (self.buf[self.pos] == ch) break;
+    pub fn until(self: *@This(), ch: u21) []const u8 {
+        var result: []const u8 = &[_]u8{};
+        while (self.peek(0)) |code_point| {
+            if (code_point == ch)
+                break;
+            result = result ++ (self.iter.nextCodepointSlice() orelse &[_]u8{});
         }
-        return self.buf[start..self.pos];
+        return result;
     }
 
     // Returns one character, if available
-    pub fn char(self: *@This()) ?u8 {
-        if (self.pos < self.buf.len) {
-            const ch = self.buf[self.pos];
-            self.pos += 1;
-            return ch;
+    pub fn char(self: *@This()) ?u21 {
+        if (self.iter.nextCodepoint()) |code_point| {
+            return code_point;
         }
         return null;
     }
 
-    pub fn maybe(self: *@This(), val: u8) bool {
-        if (self.pos < self.buf.len and self.buf[self.pos] == val) {
-            self.pos += 1;
+    pub fn maybe(self: *@This(), val: u21) bool {
+        if (self.peek(0) == val) {
+            _ = self.iter.nextCodepoint();
             return true;
         }
         return false;
@@ -367,8 +369,17 @@ pub const Parser = struct {
     }
 
     // Returns the n-th next character or null if that's past the end
-    pub fn peek(self: *@This(), n: usize) ?u8 {
-        return if (self.pos + n < self.buf.len) self.buf[self.pos + n] else null;
+    pub fn peek(self: *@This(), n: usize) ?u21 {
+        const original_i = self.iter.i;
+        defer self.iter.i = original_i;
+
+        var i = 0;
+        var code_point: ?u21 = null;
+        while (i <= n) : (i += 1) {
+            code_point = self.iter.nextCodepoint();
+            if (code_point == null) return null;
+        }
+        return code_point;
     }
 };
 
@@ -965,8 +976,7 @@ pub fn formatUnicodeCodepoint(
     var buf: [4]u8 = undefined;
     const len = unicode.utf8Encode(c, &buf) catch |err| switch (err) {
         error.Utf8CannotEncodeSurrogateHalf, error.CodepointTooLarge => {
-            const len = unicode.utf8Encode(unicode.replacement_character, &buf) catch unreachable;
-            return formatBuf(buf[0..len], options, writer);
+            return formatBuf(&unicode.utf8EncodeComptime(unicode.replacement_character), options, writer);
         },
     };
     return formatBuf(buf[0..len], options, writer);
@@ -985,20 +995,28 @@ pub fn formatBuf(
         if (padding == 0)
             return writer.writeAll(buf);
 
+        var fill_buffer: [4]u8 = undefined;
+        const fill_utf8 = if (unicode.utf8Encode(options.fill, &fill_buffer)) |len|
+            fill_buffer[0..len]
+        else |err| switch (err) {
+            error.Utf8CannotEncodeSurrogateHalf,
+            error.CodepointTooLarge,
+            => &unicode.utf8EncodeComptime(unicode.replacement_character),
+        };
         switch (options.alignment) {
             .left => {
                 try writer.writeAll(buf);
-                try writer.writeByteNTimes(options.fill, padding);
+                try writer.writeBytesNTimes(fill_utf8, padding);
             },
             .center => {
                 const left_padding = padding / 2;
                 const right_padding = (padding + 1) / 2;
-                try writer.writeByteNTimes(options.fill, left_padding);
+                try writer.writeBytesNTimes(fill_utf8, left_padding);
                 try writer.writeAll(buf);
-                try writer.writeByteNTimes(options.fill, right_padding);
+                try writer.writeBytesNTimes(fill_utf8, right_padding);
             },
             .right => {
-                try writer.writeByteNTimes(options.fill, padding);
+                try writer.writeBytesNTimes(fill_utf8, padding);
                 try writer.writeAll(buf);
             },
         }
@@ -2791,6 +2809,15 @@ test "padding" {
     try expectFmt("====a", "{c:=>5}", .{'a'});
     try expectFmt("==a==", "{c:=^5}", .{'a'});
     try expectFmt("a====", "{c:=<5}", .{'a'});
+}
+
+test "padding fill char utf" {
+    try expectFmt("──crêpe───", "{s:─^10}", .{"crêpe"});
+    try expectFmt("─────crêpe", "{s:─>10}", .{"crêpe"});
+    try expectFmt("crêpe─────", "{s:─<10}", .{"crêpe"});
+    try expectFmt("────a", "{c:─>5}", .{'a'});
+    try expectFmt("──a──", "{c:─^5}", .{'a'});
+    try expectFmt("a────", "{c:─<5}", .{'a'});
 }
 
 test "decimal float padding" {

@@ -483,7 +483,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
     if (builtin.os.tag == .linux or builtin.os.tag == .freebsd) {
         var buf = buffer;
         const use_c = builtin.os.tag != .linux or
-            std.c.versionCheck(std.SemanticVersion{ .major = 2, .minor = 25, .patch = 0 }).ok;
+            std.c.versionCheck(std.SemanticVersion{ .major = 2, .minor = 25, .patch = 0 });
 
         while (buf.len != 0) {
             const res = if (use_c) blk: {
@@ -6210,7 +6210,7 @@ pub fn sendfile(
         .linux => sf: {
             // sendfile() first appeared in Linux 2.2, glibc 2.1.
             const call_sf = comptime if (builtin.link_libc)
-                std.c.versionCheck(.{ .major = 2, .minor = 1, .patch = 0 }).ok
+                std.c.versionCheck(.{ .major = 2, .minor = 1, .patch = 0 })
             else
                 builtin.os.version_range.linux.range.max.order(.{ .major = 2, .minor = 2, .patch = 0 }) != .lt;
             if (!call_sf) break :sf;
@@ -6510,7 +6510,7 @@ var has_copy_file_range_syscall = std.atomic.Value(bool).init(true);
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
     if ((comptime builtin.os.isAtLeast(.freebsd, .{ .major = 13, .minor = 0, .patch = 0 }) orelse false) or
         ((comptime builtin.os.isAtLeast(.linux, .{ .major = 4, .minor = 5, .patch = 0 }) orelse false and
-        std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok) and
+        std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) and
         has_copy_file_range_syscall.load(.Monotonic)))
     {
         var off_in_copy = @as(i64, @bitCast(off_in));
@@ -6829,7 +6829,7 @@ pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
     switch (builtin.os.tag) {
         .linux => {
             // memfd_create is available only in glibc versions starting with 2.27.
-            const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
+            const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 });
             const sys = if (use_c) std.c else linux;
             const getErrno = if (use_c) std.c.getErrno else linux.getErrno;
             const rc = sys.memfd_create(name, flags);

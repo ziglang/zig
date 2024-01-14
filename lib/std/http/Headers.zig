@@ -35,6 +35,7 @@ pub const CaseInsensitiveStringContext = struct {
     }
 };
 
+/// A single HTTP header field.
 pub const Field = struct {
     name: []const u8,
     value: []const u8,
@@ -47,6 +48,7 @@ pub const Field = struct {
     }
 };
 
+/// A list of HTTP header fields.
 pub const Headers = struct {
     allocator: Allocator,
     list: HeaderList = .{},
@@ -56,10 +58,12 @@ pub const Headers = struct {
     /// Use with caution.
     owned: bool = true,
 
+    /// Initialize an empty list of headers.
     pub fn init(allocator: Allocator) Headers {
         return .{ .allocator = allocator };
     }
 
+    /// Initialize a pre-populated list of headers from a list of fields.
     pub fn initList(allocator: Allocator, list: []const Field) !Headers {
         var new = Headers.init(allocator);
 
@@ -72,6 +76,9 @@ pub const Headers = struct {
         return new;
     }
 
+    /// Deallocate all memory associated with the headers.
+    ///
+    /// If the `owned` field is false, this will not free the names and values of the headers.
     pub fn deinit(headers: *Headers) void {
         headers.deallocateIndexListsAndFields();
         headers.index.deinit(headers.allocator);
@@ -80,7 +87,9 @@ pub const Headers = struct {
         headers.* = undefined;
     }
 
-    /// Appends a header to the list. Both name and value are copied.
+    /// Appends a header to the list.
+    ///
+    /// If the `owned` field is true, both name and value will be copied.
     pub fn append(headers: *Headers, name: []const u8, value: []const u8) !void {
         const n = headers.list.items.len;
 
@@ -108,6 +117,7 @@ pub const Headers = struct {
         try headers.list.append(headers.allocator, entry);
     }
 
+    /// Returns true if this list of headers contains the given name.
     pub fn contains(headers: Headers, name: []const u8) bool {
         return headers.index.contains(name);
     }
@@ -285,6 +295,7 @@ pub const Headers = struct {
         headers.list.clearRetainingCapacity();
     }
 
+    /// Creates a copy of the headers using the provided allocator.
     pub fn clone(headers: Headers, allocator: Allocator) !Headers {
         var new = Headers.init(allocator);
 

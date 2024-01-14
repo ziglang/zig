@@ -16614,6 +16614,7 @@ fn zirAsm(
     const clobbers_len: u5 = @truncate(extended.small >> 10);
     const is_volatile = @as(u1, @truncate(extended.small >> 15)) != 0;
     const is_global_assembly = sema.func_index == .none;
+    const zir_tags = sema.code.instructions.items(.tag);
 
     const asm_source: []const u8 = if (tmpl_is_expr) blk: {
         const tmpl: Zir.Inst.Ref = @enumFromInt(@intFromEnum(extra.data.asm_source));
@@ -16673,6 +16674,13 @@ fn zirAsm(
         const constraint = sema.code.nullTerminatedString(output.data.constraint);
         const name = sema.code.nullTerminatedString(output.data.name);
         needed_capacity += (constraint.len + name.len + (2 + 3)) / 4;
+
+        if (output.data.operand.toIndex()) |index| {
+            if (zir_tags[@intFromEnum(index)] == .ref) {
+                // TODO: better error location; it would be even nicer if there were notes that pointed at the output and the variable definition
+                return sema.fail(block, src, "asm cannot output to const local '{s}'", .{name});
+            }
+        }
 
         outputs[out_i] = .{ .c = constraint, .n = name };
     }
@@ -32627,30 +32635,6 @@ fn analyzeSlice(
             if (!end_is_len) {
                 const end = if (by_length) end: {
                     const len = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
-                    if (try sema.resolveValue(len)) |slice_len_val| {
-                        const len_s_val = try mod.intValue(
-                            Type.usize,
-                            array_ty.arrayLenIncludingSentinel(mod),
-                        );
-                        if (!(try sema.compareScalar(slice_len_val, .lte, len_s_val, Type.usize))) {
-                            const sentinel_label: []const u8 = if (array_ty.sentinel(mod) != null)
-                                " +1 (sentinel)"
-                            else
-                                "";
-
-                            return sema.fail(
-                                block,
-                                end_src,
-                                "length {} out of bounds for array of length {}{s}",
-                                .{
-                                    slice_len_val.fmtValue(Type.usize, mod),
-                                    len_val.fmtValue(Type.usize, mod),
-                                    sentinel_label,
-                                },
-                            );
-                        }
-                    }
-                    // check len is less than array size if comptime known
                     const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
                     break :end try sema.coerce(block, Type.usize, uncasted_end, end_src);
                 } else try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);

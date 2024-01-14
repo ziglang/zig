@@ -12,12 +12,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "sanitizer_common/sanitizer_platform.h"
-#if SANITIZER_MAC
+#if SANITIZER_APPLE
 
 #include "interception/interception.h"
 #include "tsan_interceptors.h"
 #include "tsan_interface.h"
 #include "tsan_interface_ann.h"
+#include "tsan_spinlock_defs_mac.h"
 #include "sanitizer_common/sanitizer_addrhashmap.h"
 
 #include <errno.h>
@@ -365,7 +366,7 @@ static uptr GetOrCreateSyncAddress(uptr addr, ThreadState *thr, uptr pc) {
   if (h.created()) {
     ThreadIgnoreBegin(thr, pc);
     *h = (uptr) user_alloc(thr, pc, /*size=*/1);
-    ThreadIgnoreEnd(thr, pc);
+    ThreadIgnoreEnd(thr);
   }
   return *h;
 }
@@ -405,8 +406,8 @@ TSAN_INTERCEPTOR(int, swapcontext, ucontext_t *oucp, const ucontext_t *ucp) {
   {
     SCOPED_INTERCEPTOR_RAW(swapcontext, oucp, ucp);
   }
-  // Bacause of swapcontext() semantics we have no option but to copy its
-  // impementation here
+  // Because of swapcontext() semantics we have no option but to copy its
+  // implementation here
   if (!oucp || !ucp) {
     errno = EINVAL;
     return -1;
@@ -518,4 +519,4 @@ STDCXX_INTERCEPTOR(void, _ZNSt3__111__call_onceERVmPvPFvS2_E, void *flag,
 
 }  // namespace __tsan
 
-#endif  // SANITIZER_MAC
+#endif  // SANITIZER_APPLE

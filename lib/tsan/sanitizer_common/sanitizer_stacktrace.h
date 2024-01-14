@@ -20,7 +20,7 @@ namespace __sanitizer {
 
 struct BufferedStackTrace;
 
-static const u32 kStackTraceMax = 256;
+static const u32 kStackTraceMax = 255;
 
 #if SANITIZER_LINUX && defined(__mips__)
 # define SANITIZER_CAN_FAST_UNWIND 0
@@ -33,7 +33,7 @@ static const u32 kStackTraceMax = 256;
 // Fast unwind is the only option on Mac for now; we will need to
 // revisit this macro when slow unwind works on Mac, see
 // https://github.com/google/sanitizers/issues/137
-#if SANITIZER_MAC
+#if SANITIZER_APPLE
 #  define SANITIZER_CAN_SLOW_UNWIND 0
 #else
 # define SANITIZER_CAN_SLOW_UNWIND 1
@@ -88,21 +88,20 @@ uptr StackTrace::GetPreviousInstructionPc(uptr pc) {
   // so we return (pc-2) in that case in order to be safe.
   // For A32 mode we return (pc-4) because all instructions are 32 bit long.
   return (pc - 3) & (~1);
-#elif defined(__powerpc__) || defined(__powerpc64__) || defined(__aarch64__)
-  // PCs are always 4 byte aligned.
-  return pc - 4;
 #elif defined(__sparc__) || defined(__mips__)
   return pc - 8;
 #elif SANITIZER_RISCV64
-  // RV-64 has variable instruciton length...
+  // RV-64 has variable instruction length...
   // C extentions gives us 2-byte instructoins
   // RV-64 has 4-byte instructions
-  // + RISCV architecture allows instructions up to 8 bytes
+  // + RISC-V architecture allows instructions up to 8 bytes
   // It seems difficult to figure out the exact instruction length -
   // pc - 2 seems like a safe option for the purposes of stack tracing
   return pc - 2;
-#else
+#elif SANITIZER_S390 || SANITIZER_I386 || SANITIZER_X32 || SANITIZER_X64
   return pc - 1;
+#else
+  return pc - 4;
 #endif
 }
 
@@ -209,11 +208,11 @@ static inline bool IsValidFrame(uptr frame, uptr stack_top, uptr stack_bottom) {
 // StackTrace::GetCurrentPc() faster.
 #if defined(__x86_64__)
 #  define GET_CURRENT_PC()                \
-    ({                                    \
+    (__extension__({                      \
       uptr pc;                            \
       asm("lea 0(%%rip), %0" : "=r"(pc)); \
       pc;                                 \
-    })
+    }))
 #else
 #  define GET_CURRENT_PC() StackTrace::GetCurrentPc()
 #endif
