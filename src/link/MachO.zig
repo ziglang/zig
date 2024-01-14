@@ -3547,7 +3547,7 @@ fn reportDuplicates(self: *MachO, dupes: anytype) error{ HasDuplicates, OutOfMem
     const tracy = trace(@src());
     defer tracy.end();
 
-    const max_notes = 4;
+    const max_notes = 3;
 
     var has_dupes = false;
     var it = dupes.iterator();
@@ -3556,8 +3556,9 @@ fn reportDuplicates(self: *MachO, dupes: anytype) error{ HasDuplicates, OutOfMem
         const notes = entry.value_ptr.*;
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
-        var err = try self.addErrorWithNotes(nnotes);
+        var err = try self.addErrorWithNotes(nnotes + 1);
         try err.addMsg(self, "duplicate symbol definition: {s}", .{sym.getName(self)});
+        try err.addNote(self, "defined by {}", .{sym.getFile(self).?.fmtPath()});
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
