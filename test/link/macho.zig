@@ -26,6 +26,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     // Tests requiring symlinks when tested on Windows
     if (build_opts.has_symlinks_windows) {
         macho_step.dependOn(testNeededLibrary(b, .{ .target = default_target }));
+        macho_step.dependOn(testWeakLibrary(b, .{ .target = default_target }));
 
         // Tests requiring presence of macOS SDK in system path
         if (build_opts.has_macos_sdk) {
@@ -761,6 +762,49 @@ fn testWeakBind(b: *Build, opts: Options) *Step {
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testWeakLibrary(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-weak-library", opts);
+
+    const dylib = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = 
+    \\#include<stdio.h>
+    \\int a = 42;
+    \\const char* asStr() {
+    \\  static char str[3];
+    \\  sprintf(str, "%d", 42);
+    \\  return str;
+    \\}
+    });
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include<stdio.h>
+    \\extern int a;
+    \\extern const char* asStr();
+    \\int main() {
+    \\  printf("%d %s", a, asStr());
+    \\  return 0;
+    \\}
+    });
+    exe.root_module.linkSystemLibrary("a", .{ .weak = true });
+    exe.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.addRPath(dylib.getEmittedBinDirectory());
+
+    const check = exe.checkObject();
+    check.checkInHeaders();
+    check.checkExact("cmd LOAD_WEAK_DYLIB");
+    check.checkContains("liba.dylib");
+    check.checkInSymtab();
+    check.checkExact("(undefined) weakref external _a (from liba)");
+    check.checkInSymtab();
+    check.checkExact("(undefined) weakref external _asStr (from liba)");
+    test_step.dependOn(&check.step);
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("42 42");
     test_step.dependOn(&run.step);
 
     return test_step;
