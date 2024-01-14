@@ -21,6 +21,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
+    macho_step.dependOn(testTlsLargeTbss(b, .{ .target = default_target }));
     macho_step.dependOn(testUndefinedFlag(b, .{ .target = default_target }));
     macho_step.dependOn(testWeakBind(b, .{ .target = x86_64_target }));
 
@@ -633,6 +634,27 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
         check.checkNotPresent("external segment$start$__DATA_1");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-tls-large-tbss", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\_Thread_local int x[0x8000];
+    \\_Thread_local int y[0x8000];
+    \\int main() {
+    \\  x[0] = 3;
+    \\  x[0x7fff] = 5;
+    \\  printf("%d %d %d %d %d %d\n", x[0], x[1], x[0x7fff], y[0], y[1], y[0x7fff]);
+    \\}
+    });
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("3 0 5 0 0 0\n");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
