@@ -34,6 +34,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     if (build_opts.has_symlinks_windows) {
         macho_step.dependOn(testNeededLibrary(b, .{ .target = default_target }));
         macho_step.dependOn(testWeakLibrary(b, .{ .target = default_target }));
+        macho_step.dependOn(testTls(b, .{ .target = default_target }));
         macho_step.dependOn(testTwoLevelNamespace(b, .{ .target = default_target }));
 
         // Tests requiring presence of macOS SDK in system path
@@ -668,6 +669,40 @@ fn testThunks(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("bar=42, foo=0, foobar=42");
     run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testTls(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-tls", opts);
+
+    const dylib = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = 
+    \\_Thread_local int a;
+    \\int getA() {
+    \\  return a;
+    \\}
+    });
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include<stdio.h>
+    \\extern _Thread_local int a;
+    \\extern int getA();
+    \\int getA2() {
+    \\  return a;
+    \\}
+    \\int main() {
+    \\  a = 2;
+    \\  printf("%d %d %d", a, getA(), getA2());
+    \\  return 0;
+    \\}
+    });
+    exe.root_module.linkSystemLibrary("a", .{});
+    exe.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.addRPath(dylib.getEmittedBinDirectory());
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("2 2 2");
     test_step.dependOn(&run.step);
 
     return test_step;
