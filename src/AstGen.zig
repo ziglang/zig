@@ -5226,7 +5226,7 @@ fn unionDeclInner(
         }
 
         const field_name = try astgen.identAsString(member.ast.main_token);
-        wip_members.appendToField(field_name);
+        wip_members.appendToField(@intFromEnum(field_name));
 
         const gop = try duplicate_names.getOrPut(field_name);
 
@@ -5550,7 +5550,7 @@ fn containerDecl(
                 assert(member.ast.align_expr == 0);
 
                 const field_name = try astgen.identAsString(member.ast.main_token);
-                wip_members.appendToField(field_name);
+                wip_members.appendToField(@intFromEnum(field_name));
 
                 const gop = try duplicate_names.getOrPut(field_name);
 
