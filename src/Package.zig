@@ -64,7 +64,7 @@ pub const Path = struct {
         return p.root_dir.handle.openFile(joined_path, flags);
     }
 
-    pub fn makeOpenPath(p: Path, sub_path: []const u8, opts: fs.OpenDirOptions) !fs.Dir {
+    pub fn makeOpenPath(p: Path, sub_path: []const u8, opts: fs.Dir.MakeOpenPathOptions) !fs.Dir {
         var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
         const joined_path = if (p.sub_path.len == 0) sub_path else p: {
             break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{

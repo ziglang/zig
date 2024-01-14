@@ -370,7 +370,8 @@ fn runResource(
             .path = tmp_directory_path,
             .handle = handle: {
                 const dir = cache_root.handle.makeOpenPath(tmp_dir_sub_path, .{
-                    .iterate = true,
+                    .optimize_for = .nonexistence,
+                    .open_dir = .{ .iterate = true },
                 }) catch |err| {
                     try eb.addRootErrorMessage(.{
                         .msg = try eb.printString("unable to create temporary directory '{s}': {s}", .{
@@ -409,7 +410,7 @@ fn runResource(
             // https://github.com/ziglang/zig/issues/17095
             tmp_directory.handle.close();
             tmp_directory.handle = cache_root.handle.makeOpenPath(tmp_dir_sub_path, .{
-                .iterate = true,
+                .open_dir = .{ .iterate = true },
             }) catch @panic("btrfs workaround failed");
         }
 

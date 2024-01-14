@@ -539,7 +539,7 @@ test "Dir.Iterator but dir is deleted during iteration" {
     defer tmp.cleanup();
 
     // Create directory and setup an iterator for it
-    var subdir = try tmp.dir.makeOpenPath("subdir", .{ .iterate = true });
+    var subdir = try tmp.dir.makeOpenPath("subdir", .{ .open_dir = .{ .iterate = true } });
     defer subdir.close();
 
     var iterator = subdir.iterate();
@@ -743,6 +743,18 @@ test "makeOpenPath parent dirs do not exist" {
     defer tmp_dir.cleanup();
 
     var dir = try tmp_dir.dir.makeOpenPath("root_dir/parent_dir/some_dir", .{});
+    dir.close();
+
+    // double check that the full directory structure was created
+    var dir_verification = try tmp_dir.dir.openDir("root_dir/parent_dir/some_dir", .{});
+    dir_verification.close();
+}
+
+test "makeOpenPath parent dirs do not exist with nonexistence hint" {
+    var tmp_dir = tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    var dir = try tmp_dir.dir.makeOpenPath("root_dir/parent_dir/some_dir", .{ .optimize_for = .nonexistence });
     dir.close();
 
     // double check that the full directory structure was created

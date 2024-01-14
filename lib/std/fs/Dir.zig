@@ -1165,28 +1165,42 @@ fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no
     }
 }
 
+pub const MakeOpenPathOptions = struct {
+    pub const OptimizeFor = enum {
+        existence,
+        nonexistence,
+    };
+
+    optimize_for: OptimizeFor = .existence,
+    open_dir: OpenDirOptions = .{},
+};
+
 /// This function performs `makePath`, followed by `openDir`.
 /// If supported by the OS, this operation is atomic. It is not atomic on
 /// all operating systems.
 /// On Windows, this function performs `makeOpenPathAccessMaskW`.
-pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) !Dir {
+pub fn makeOpenPath(self: Dir, sub_path: []const u8, options: MakeOpenPathOptions) !Dir {
     return switch (builtin.os.tag) {
         .windows => {
             const w = std.os.windows;
             const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
                 w.SYNCHRONIZE | w.FILE_TRAVERSE |
-                (if (open_dir_options.iterate) w.FILE_LIST_DIRECTORY else @as(u32, 0));
+                (if (options.open_dir.iterate) w.FILE_LIST_DIRECTORY else @as(u32, 0));
 
-            return self.makeOpenPathAccessMaskW(sub_path, base_flags, open_dir_options.no_follow);
+            return self.makeOpenPathAccessMaskW(sub_path, base_flags, options.open_dir.no_follow);
         },
-        else => {
-            return self.openDir(sub_path, open_dir_options) catch |err| switch (err) {
+        else => switch (options.optimize_for) {
+            .existence => return self.openDir(sub_path, options.open_dir) catch |err| switch (err) {
                 error.FileNotFound => {
                     try self.makePath(sub_path);
-                    return self.openDir(sub_path, open_dir_options);
+                    return self.openDir(sub_path, options.open_dir);
                 },
                 else => |e| return e,
-            };
+            },
+            .nonexistence => {
+                try self.makePath(sub_path);
+                return self.openDir(sub_path, options.open_dir);
+            },
         },
     };
 }
