@@ -21,6 +21,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
+    macho_step.dependOn(testUndefinedFlag(b, .{ .target = default_target }));
     macho_step.dependOn(testWeakBind(b, .{ .target = x86_64_target }));
 
     // Tests requiring symlinks when tested on Windows
@@ -636,6 +637,83 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testUndefinedFlag(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-undefined-flag", opts);
+
+    const obj = addObject(b, opts, .{ .name = "a", .c_source_bytes = "int foo = 42;" });
+
+    const lib = addStaticLibrary(b, opts, .{ .name = "a" });
+    lib.addObject(obj);
+
+    const main_o = addObject(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main1" });
+        exe.addObject(main_o);
+        exe.linkLibrary(lib);
+        exe.forceUndefinedSymbol("_foo");
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkContains("_foo");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
+        exe.addObject(main_o);
+        exe.linkLibrary(lib);
+        exe.forceUndefinedSymbol("_foo");
+        exe.link_gc_sections = true;
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkContains("_foo");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main3" });
+        exe.addObject(main_o);
+        exe.addObject(obj);
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkContains("_foo");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main4" });
+        exe.addObject(main_o);
+        exe.addObject(obj);
+        exe.link_gc_sections = true;
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkNotPresent("_foo");
+        test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
 // Adapted from https://github.com/llvm/llvm-project/blob/main/lld/test/MachO/weak-binding.s
 fn testWeakBind(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "macho-weak-bind", opts);
@@ -839,6 +917,7 @@ const addCSourceBytes = link.addCSourceBytes;
 const addRunArtifact = link.addRunArtifact;
 const addObject = link.addObject;
 const addExecutable = link.addExecutable;
+const addStaticLibrary = link.addStaticLibrary;
 const addSharedLibrary = link.addSharedLibrary;
 const expectLinkErrors = link.expectLinkErrors;
 const link = @import("link.zig");
