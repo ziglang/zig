@@ -3191,7 +3191,6 @@ fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: InternPool.Decl
 
     const target_sym_index = atom.sym_index;
     if (decl.ty.zigTypeTag(mod) == .Fn) {
-        try func.bin_file.addTableFunction(target_sym_index);
         return WValue{ .function_index = target_sym_index };
     } else if (offset == 0) {
         return WValue{ .memory = target_sym_index };

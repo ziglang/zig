@@ -41,6 +41,36 @@ imported_globals_count: u32 = 0,
 /// of a new `ZigObject`. Codegen will make calls into this to create relocations for
 /// this symbol each time the stack pointer is moved.
 stack_pointer_sym: u32,
+/// Debug information for the Zig module.
+dwarf: ?Dwarf = null,
+// Debug section atoms. These are only set when the current compilation
+// unit contains Zig code. The lifetime of these atoms are extended
+// until the end of the compiler's lifetime. Meaning they're not freed
+// during `flush()` in incremental-mode.
+debug_info_atom: ?Atom.Index = null,
+debug_line_atom: ?Atom.Index = null,
+debug_loc_atom: ?Atom.Index = null,
+debug_ranges_atom: ?Atom.Index = null,
+debug_abbrev_atom: ?Atom.Index = null,
+debug_str_atom: ?Atom.Index = null,
+debug_pubnames_atom: ?Atom.Index = null,
+debug_pubtypes_atom: ?Atom.Index = null,
+/// The index of the segment representing the custom '.debug_info' section.
+debug_info_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_line' section.
+debug_line_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_loc' section.
+debug_loc_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_ranges' section.
+debug_ranges_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_pubnames' section.
+debug_pubnames_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_pubtypes' section.
+debug_pubtypes_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_pubtypes' section.
+debug_str_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_pubtypes' section.
+debug_abbrev_index: ?u32 = null,
 
 /// Frees and invalidates all memory of the incrementally compiled Zig module.
 /// It is illegal behavior to access the `ZigObject` after calling `deinit`.
@@ -80,6 +110,9 @@ pub fn deinit(zig_object: *ZigObject, gpa: std.mem.Allocator) void {
     zig_object.segment_info.deinit(gpa);
 
     zig_object.string_table.deinit(gpa);
+    if (zig_object.dwarf) |*dwarf| {
+        dwarf.deinit();
+    }
     zig_object.* = undefined;
 }
 
@@ -976,6 +1009,87 @@ fn setupErrorsLen(zig_object: *ZigObject, wasm_file: *Wasm) !void {
     // try wasm.parseAtom(atom_index, .{ .data = .read_only });
 }
 
+/// Initializes symbols and atoms for the debug sections
+/// Initialization is only done when compiling Zig code.
+/// When Zig is invoked as a linker instead, the atoms
+/// and symbols come from the object files instead.
+pub fn initDebugSections(zig_object: *ZigObject) !void {
+    if (zig_object.dwarf == null) return; // not compiling Zig code, so no need to pre-initialize debug sections
+    std.debug.assert(zig_object.debug_info_index == null);
+    // this will create an Atom and set the index for us.
+    zig_object.debug_info_atom = try zig_object.createDebugSectionForIndex(&zig_object.debug_info_index, ".debug_info");
+    zig_object.debug_line_atom = try zig_object.createDebugSectionForIndex(&zig_object.debug_line_index, ".debug_line");
+    zig_object.debug_loc_atom = try zig_object.createDebugSectionForIndex(&zig_object.debug_loc_index, ".debug_loc");
+    zig_object.debug_abbrev_atom = try zig_object.createDebugSectionForIndex(&zig_object.debug_abbrev_index, ".debug_abbrev");
+    zig_object.debug_ranges_atom = try zig_object.createDebugSectionForIndex(&zig_object.debug_ranges_index, ".debug_ranges");
+    zig_object.debug_str_atom = try zig_object.createDebugSectionForIndex(&zig_object.debug_str_index, ".debug_str");
+    zig_object.debug_pubnames_atom = try zig_object.createDebugSectionForIndex(&zig_object.debug_pubnames_index, ".debug_pubnames");
+    zig_object.debug_pubtypes_atom = try zig_object.createDebugSectionForIndex(&zig_object.debug_pubtypes_index, ".debug_pubtypes");
+}
+
+/// From a given index variable, creates a new debug section.
+/// This initializes the index, appends a new segment,
+/// and finally, creates a managed `Atom`.
+pub fn createDebugSectionForIndex(zig_object: *ZigObject, wasm_file: *Wasm, index: *?u32, name: []const u8) !Atom.Index {
+    const gpa = wasm_file.base.comp.gpa;
+    const new_index: u32 = @intCast(zig_object.segments.items.len);
+    index.* = new_index;
+    try zig_object.appendDummySegment();
+
+    const sym_index = try zig_object.allocateSymbol(gpa);
+    const atom_index = try wasm_file.createAtom(sym_index);
+    const atom = wasm_file.getAtomPtr(atom_index);
+    zig_object.symbols.items[sym_index] = .{
+        .tag = .section,
+        .name = try zig_object.string_table.put(gpa, name),
+        .index = 0,
+        .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
+    };
+
+    atom.alignment = .@"1"; // debug sections are always 1-byte-aligned
+    return atom_index;
+}
+
+pub fn updateDeclLineNumber(zig_object: *ZigObject, mod: *Module, decl_index: InternPool.DeclIndex) !void {
+    if (zig_object.dwarf) |*dw| {
+        const decl = mod.declPtr(decl_index);
+        const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+
+        log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
+        try dw.updateDeclLineNumber(mod, decl_index);
+    }
+}
+
+/// Allocates debug atoms into their respective debug sections
+/// to merge them with maybe-existing debug atoms from object files.
+fn allocateDebugAtoms(zig_object: *ZigObject) !void {
+    if (zig_object.dwarf == null) return;
+
+    const allocAtom = struct {
+        fn f(ctx: *ZigObject, maybe_index: *?u32, atom_index: Atom.Index) !void {
+            const index = maybe_index.* orelse idx: {
+                const index = @as(u32, @intCast(ctx.segments.items.len));
+                try ctx.appendDummySegment();
+                maybe_index.* = index;
+                break :idx index;
+            };
+            const atom = ctx.getAtomPtr(atom_index);
+            atom.size = @as(u32, @intCast(atom.code.items.len));
+            ctx.symbols.items[atom.sym_index].index = index;
+            try ctx.appendAtomAtIndex(index, atom_index);
+        }
+    }.f;
+
+    try allocAtom(zig_object, &zig_object.debug_info_index, zig_object.debug_info_atom.?);
+    try allocAtom(zig_object, &zig_object.debug_line_index, zig_object.debug_line_atom.?);
+    try allocAtom(zig_object, &zig_object.debug_loc_index, zig_object.debug_loc_atom.?);
+    try allocAtom(zig_object, &zig_object.debug_str_index, zig_object.debug_str_atom.?);
+    try allocAtom(zig_object, &zig_object.debug_ranges_index, zig_object.debug_ranges_atom.?);
+    try allocAtom(zig_object, &zig_object.debug_abbrev_index, zig_object.debug_abbrev_atom.?);
+    try allocAtom(zig_object, &zig_object.debug_pubnames_index, zig_object.debug_pubnames_atom.?);
+    try allocAtom(zig_object, &zig_object.debug_pubtypes_index, zig_object.debug_pubtypes_atom.?);
+}
+
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const codegen = @import("../../codegen.zig");
@@ -986,6 +1100,7 @@ const types = @import("types.zig");
 
 const Air = @import("../../Air.zig");
 const Atom = @import("Atom.zig");
+const Dwarf = @import("../Dwarf.zig");
 const InternPool = @import("../../InternPool.zig");
 const Liveness = @import("../../Liveness.zig");
 const Module = @import("../../Module.zig");
