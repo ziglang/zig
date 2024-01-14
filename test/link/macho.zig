@@ -42,6 +42,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
         // Tests requiring presence of macOS SDK in system path
         if (build_opts.has_macos_sdk) {
+            macho_step.dependOn(testDeadStripDylibs(b, .{ .target = b.host }));
             macho_step.dependOn(testHeaderpad(b, .{ .target = b.host }));
             macho_step.dependOn(testNeededFramework(b, .{ .target = b.host }));
             macho_step.dependOn(testWeakFramework(b, .{ .target = b.host }));
@@ -126,6 +127,55 @@ fn testDeadStrip(b: *Build, opts: Options) *Step {
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2\n");
+        test_step.dependOn(&run.step);
+    }
+
+    return test_step;
+}
+
+fn testDeadStripDylibs(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-dead-strip-dylibs", opts);
+
+    const main_o = addObject(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <objc/runtime.h>
+    \\int main() {
+    \\  if (objc_getClass("NSObject") == 0) {
+    \\    return -1;
+    \\  }
+    \\  if (objc_getClass("NSApplication") == 0) {
+    \\    return -2;
+    \\  }
+    \\  return 0;
+    \\}
+    });
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main1" });
+        exe.addObject(main_o);
+        exe.root_module.linkFramework("Cocoa", .{});
+
+        const check = exe.checkObject();
+        check.checkInHeaders();
+        check.checkExact("cmd LOAD_DYLIB");
+        check.checkContains("Cocoa");
+        check.checkInHeaders();
+        check.checkExact("cmd LOAD_DYLIB");
+        check.checkContains("libobjc");
+        test_step.dependOn(&check.step);
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
+        exe.addObject(main_o);
+        exe.root_module.linkFramework("Cocoa", .{});
+        exe.dead_strip_dylibs = true;
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(@as(u8, @bitCast(@as(i8, -2))));
         test_step.dependOn(&run.step);
     }
 
