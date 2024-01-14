@@ -705,6 +705,7 @@ fn testEmitRelocatable(b: *Build, opts: Options) *Step {
     \\    std.debug.print("foo={d}\n", .{foo()});
     \\}
     });
+    a_o.linkLibC();
 
     const b_o = addObject(b, opts, .{ .name = "b", .c_source_bytes = 
     \\#include <stdio.h>
