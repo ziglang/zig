@@ -348,17 +348,61 @@ pub fn fchmod(fd: fd_t, mode: mode_t) FChmodError!void {
 }
 
 const FChmodAtError = FChmodError || error{
+    /// A component of `path` exceeded `NAME_MAX`, or the entire path exceeded
+    /// `PATH_MAX`.
     NameTooLong,
+    /// `path` resolves to a symbolic link, and `AT.SYMLINK_NOFOLLOW` was set
+    /// in `flags`. This error only occurs on Linux, where changing the mode of
+    /// a symbolic link has no meaning and can cause undefined behaviour on
+    /// certain filesystems.
+    ///
+    /// The procfs fallback was used but procfs was not mounted.
+    OperationNotSupported,
+    /// The procfs fallback was used but the process exceeded its open file
+    /// limit.
+    ProcessFdQuotaExceeded,
+    /// The procfs fallback was used but the system exceeded it open file limit.
+    SystemFdQuotaExceeded,
 };
 
-pub fn fchmodat(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtError!void {
+var has_fchmodat2_syscall = std.atomic.Value(bool).init(true);
+
+/// Changes the `mode` of `path` relative to the directory referred to by
+/// `dirfd`. The process must have the correct privileges in order to do this
+/// successfully, or must have the effective user ID matching the owner of the
+/// file.
+///
+/// On Linux the `fchmodat2` syscall will be used if available, otherwise a
+/// workaround using procfs will be employed. Changing the mode of a symbolic
+/// link with `AT.SYMLINK_NOFOLLOW` set will also return
+/// `OperationNotSupported`, as:
+///
+///  1. Permissions on the link are ignored when resolving its target.
+///  2. This operation has been known to invoke undefined behaviour across
+///     different filesystems[1].
+///
+/// [1]: https://sourceware.org/legacy-ml/libc-alpha/2020-02/msg00467.html.
+pub inline fn fchmodat(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtError!void {
     if (!std.fs.has_executable_bit) @compileError("fchmodat unsupported by target OS");
 
-    const path_c = try toPosixPath(path);
+    // No special handling for linux is needed if we can use the libc fallback
+    // or `flags` is empty. Glibc only added the fallback in 2.32.
+    const skip_fchmodat_fallback = builtin.os.tag != .linux or
+        std.c.versionCheck(.{ .major = 2, .minor = 32, .patch = 0 }) or
+        flags == 0;
 
+    // This function is marked inline so that when flags is comptime-known,
+    // skip_fchmodat_fallback will be comptime-known true.
+    if (skip_fchmodat_fallback)
+        return fchmodat1(dirfd, path, mode, flags);
+
+    return fchmodat2(dirfd, path, mode, flags);
+}
+
+fn fchmodat1(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtError!void {
+    const path_c = try toPosixPath(path);
     while (true) {
         const res = system.fchmodat(dirfd, &path_c, mode, flags);
-
         switch (system.getErrno(res)) {
             .SUCCESS => return,
             .INTR => continue,
@@ -368,7 +412,106 @@ pub fn fchmodat(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodA
             .ACCES => return error.AccessDenied,
             .IO => return error.InputOutput,
             .LOOP => return error.SymLinkLoop,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NFILE => return error.SystemFdQuotaExceeded,
             .NOENT => return error.FileNotFound,
+            .NOTDIR => return error.FileNotFound,
+            .NOMEM => return error.SystemResources,
+            .OPNOTSUPP => return error.OperationNotSupported,
+            .PERM => return error.AccessDenied,
+            .ROFS => return error.ReadOnlyFileSystem,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
+fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtError!void {
+    const path_c = try toPosixPath(path);
+    const use_fchmodat2 = (builtin.os.isAtLeast(.linux, .{ .major = 6, .minor = 6, .patch = 0 }) orelse false) and
+        has_fchmodat2_syscall.load(.Monotonic);
+    while (use_fchmodat2) {
+        // Later on this should be changed to `system.fchmodat2`
+        // when the musl/glibc add a wrapper.
+        const res = linux.fchmodat2(dirfd, &path_c, mode, flags);
+        switch (linux.getErrno(res)) {
+            .SUCCESS => return,
+            .INTR => continue,
+            .BADF => unreachable,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .ACCES => return error.AccessDenied,
+            .IO => return error.InputOutput,
+            .LOOP => return error.SymLinkLoop,
+            .NOENT => return error.FileNotFound,
+            .NOMEM => return error.SystemResources,
+            .NOTDIR => return error.FileNotFound,
+            .OPNOTSUPP => return error.OperationNotSupported,
+            .PERM => return error.AccessDenied,
+            .ROFS => return error.ReadOnlyFileSystem,
+
+            .NOSYS => { // Use fallback.
+                has_fchmodat2_syscall.store(false, .Monotonic);
+                break;
+            },
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    // Fallback to changing permissions using procfs:
+    //
+    // 1. Open `path` as an `O.PATH` descriptor.
+    // 2. Stat the fd and check if it isn't a symbolic link.
+    // 3. Generate the procfs reference to the fd via `/proc/self/fd/{fd}`.
+    // 4. Pass the procfs path to `chmod` with the `mode`.
+    var pathfd: fd_t = undefined;
+    while (true) {
+        const rc = system.openat(dirfd, &path_c, O.PATH | O.NOFOLLOW | O.CLOEXEC, @as(mode_t, 0));
+        switch (system.getErrno(rc)) {
+            .SUCCESS => {
+                pathfd = @as(fd_t, @intCast(rc));
+                break;
+            },
+            .INTR => continue,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .ACCES => return error.AccessDenied,
+            .PERM => return error.AccessDenied,
+            .LOOP => return error.SymLinkLoop,
+            .MFILE => return error.ProcessFdQuotaExceeded,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NFILE => return error.SystemFdQuotaExceeded,
+            .NOENT => return error.FileNotFound,
+            .NOMEM => return error.SystemResources,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+    defer close(pathfd);
+
+    const stat = fstatatZ(pathfd, "", AT.EMPTY_PATH) catch |err| switch (err) {
+        error.NameTooLong => unreachable,
+        error.FileNotFound => unreachable,
+        else => |e| return e,
+    };
+    if ((stat.mode & S.IFMT) == S.IFLNK)
+        return error.OperationNotSupported;
+
+    var procfs_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
+    const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/fd/{d}", .{pathfd}) catch unreachable;
+    while (true) {
+        const res = system.chmod(proc_path, mode);
+        switch (system.getErrno(res)) {
+            // Getting NOENT here means that procfs isn't mounted.
+            .NOENT => return error.OperationNotSupported,
+
+            .SUCCESS => return,
+            .INTR => continue,
+            .BADF => unreachable,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .ACCES => return error.AccessDenied,
+            .IO => return error.InputOutput,
+            .LOOP => return error.SymLinkLoop,
             .NOMEM => return error.SystemResources,
             .NOTDIR => return error.FileNotFound,
             .PERM => return error.AccessDenied,

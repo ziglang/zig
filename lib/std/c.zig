@@ -5,10 +5,10 @@ const page_size = std.mem.page_size;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
 
-/// If not linking libc, returns struct{pub const ok = false;}
-/// If linking musl libc, returns struct{pub const ok = true;}
-/// If linking gnu libc (glibc), the `ok` value will be true if the target
-/// version is greater than or equal to `glibc_version`.
+/// If not linking libc, returns false.
+/// If linking musl libc, returns true.
+/// If linking gnu libc (glibc), returns true if the target version is greater
+/// than or equal to `glibc_version`.
 /// If linking a libc other than these, returns `false`.
 pub inline fn versionCheck(comptime glibc_version: std.SemanticVersion) bool {
     return comptime blk: {
