@@ -29,6 +29,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     if (build_opts.has_symlinks_windows) {
         macho_step.dependOn(testNeededLibrary(b, .{ .target = default_target }));
         macho_step.dependOn(testWeakLibrary(b, .{ .target = default_target }));
+        macho_step.dependOn(testTwoLevelNamespace(b, .{ .target = default_target }));
 
         // Tests requiring presence of macOS SDK in system path
         if (build_opts.has_macos_sdk) {
@@ -655,6 +656,126 @@ fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3 0 5 0 0 0\n");
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testTwoLevelNamespace(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-two-level-namespace", opts);
+
+    const liba = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\int foo = 1;
+    \\int* ptr_to_foo = &foo;
+    \\int getFoo() {
+    \\  return foo;
+    \\}
+    \\void printInA() {
+    \\  printf("liba: getFoo()=%d, ptr_to_foo=%d\n", getFoo(), *ptr_to_foo);
+    \\}
+    });
+
+    {
+        const check = liba.checkObject();
+        check.checkInDyldLazyBind();
+        check.checkNotPresent("(flat lookup) _getFoo");
+        check.checkInIndirectSymtab();
+        check.checkNotPresent("_getFoo");
+        test_step.dependOn(&check.step);
+    }
+
+    const libb = addSharedLibrary(b, opts, .{ .name = "b", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\int foo = 2;
+    \\int* ptr_to_foo = &foo;
+    \\int getFoo() {
+    \\  return foo;
+    \\}
+    \\void printInB() {
+    \\  printf("libb: getFoo()=%d, ptr_to_foo=%d\n", getFoo(), *ptr_to_foo);
+    \\}
+    });
+
+    {
+        const check = libb.checkObject();
+        check.checkInDyldLazyBind();
+        check.checkNotPresent("(flat lookup) _getFoo");
+        check.checkInIndirectSymtab();
+        check.checkNotPresent("_getFoo");
+        test_step.dependOn(&check.step);
+    }
+
+    const main_o = addObject(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\int getFoo();
+    \\extern int* ptr_to_foo;
+    \\void printInA();
+    \\void printInB();
+    \\int main() {
+    \\  printf("main: getFoo()=%d, ptr_to_foo=%d\n", getFoo(), *ptr_to_foo);
+    \\  printInA();
+    \\  printInB();
+    \\  return 0;
+    \\}
+    });
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main1" });
+        exe.addObject(main_o);
+        exe.root_module.linkSystemLibrary("a", .{});
+        exe.root_module.linkSystemLibrary("b", .{});
+        exe.addLibraryPath(liba.getEmittedBinDirectory());
+        exe.addLibraryPath(libb.getEmittedBinDirectory());
+        exe.addRPath(liba.getEmittedBinDirectory());
+        exe.addRPath(libb.getEmittedBinDirectory());
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkExact("(undefined) external _getFoo (from liba)");
+        check.checkInSymtab();
+        check.checkExact("(undefined) external _printInA (from liba)");
+        check.checkInSymtab();
+        check.checkExact("(undefined) external _printInB (from libb)");
+        test_step.dependOn(&check.step);
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\main: getFoo()=1, ptr_to_foo=1
+            \\liba: getFoo()=1, ptr_to_foo=1
+            \\libb: getFoo()=2, ptr_to_foo=2
+            \\
+        );
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
+        exe.addObject(main_o);
+        exe.root_module.linkSystemLibrary("b", .{});
+        exe.root_module.linkSystemLibrary("a", .{});
+        exe.addLibraryPath(liba.getEmittedBinDirectory());
+        exe.addLibraryPath(libb.getEmittedBinDirectory());
+        exe.addRPath(liba.getEmittedBinDirectory());
+        exe.addRPath(libb.getEmittedBinDirectory());
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkExact("(undefined) external _getFoo (from libb)");
+        check.checkInSymtab();
+        check.checkExact("(undefined) external _printInA (from liba)");
+        check.checkInSymtab();
+        check.checkExact("(undefined) external _printInB (from libb)");
+        test_step.dependOn(&check.step);
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\main: getFoo()=2, ptr_to_foo=2
+            \\liba: getFoo()=1, ptr_to_foo=1
+            \\libb: getFoo()=2, ptr_to_foo=2
+            \\
+        );
+        test_step.dependOn(&run.step);
+    }
 
     return test_step;
 }
