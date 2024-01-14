@@ -1323,6 +1323,11 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
         }
     }
 
+    self.checkDuplicates() catch |err| switch (err) {
+        error.HasDuplicates => return error.FlushFailure,
+        else => |e| return e,
+    };
+
     try self.initOutputSections();
     try self.addLinkerDefinedSymbols();
     self.claimUnresolved();
@@ -3489,6 +3494,27 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
             stop.output_section_index = shndx;
         }
     }
+}
+
+fn checkDuplicates(self: *Elf) !void {
+    const gpa = self.base.comp.gpa;
+
+    var dupes = std.AutoArrayHashMap(Symbol.Index, std.ArrayListUnmanaged(File.Index)).init(gpa);
+    defer {
+        for (dupes.values()) |*list| {
+            list.deinit(gpa);
+        }
+        dupes.deinit();
+    }
+
+    if (self.zigObjectPtr()) |zig_object| {
+        try zig_object.checkDuplicates(&dupes, self);
+    }
+    for (self.objects.items) |index| {
+        try self.file(index).?.object.checkDuplicates(&dupes, self);
+    }
+
+    try self.reportDuplicates(dupes);
 }
 
 fn initOutputSections(self: *Elf) !void {
@@ -6162,6 +6188,36 @@ fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
             try err.addNote(self, "referenced {d} more times", .{remaining});
         }
     }
+}
+
+fn reportDuplicates(self: *Elf, dupes: anytype) error{ HasDuplicates, OutOfMemory }!void {
+    const max_notes = 3;
+    var has_dupes = false;
+    var it = dupes.iterator();
+    while (it.next()) |entry| {
+        const sym = self.symbol(entry.key_ptr.*);
+        const notes = entry.value_ptr.*;
+        const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
+
+        var err = try self.addErrorWithNotes(nnotes + 1);
+        try err.addMsg(self, "duplicate symbol definition: {s}", .{sym.name(self)});
+        try err.addNote(self, "defined by {}", .{sym.file(self).?.fmtPath()});
+
+        var inote: usize = 0;
+        while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
+            const file_ptr = self.file(notes.items[inote]).?;
+            try err.addNote(self, "defined by {}", .{file_ptr.fmtPath()});
+        }
+
+        if (notes.items.len > max_notes) {
+            const remaining = notes.items.len - max_notes;
+            try err.addNote(self, "defined {d} more times", .{remaining});
+        }
+
+        has_dupes = true;
+    }
+
+    if (has_dupes) return error.HasDuplicates;
 }
 
 fn reportMissingLibraryError(
