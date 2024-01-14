@@ -45,6 +45,13 @@ pub fn Writer(
             }
         }
 
+        pub fn writeBytesNTimes(self: Self, bytes: []const u8, n: usize) Error!void {
+            var i: usize = 0;
+            while (i < n) : (i += 1) {
+                try self.writeAll(bytes);
+            }
+        }
+
         pub inline fn writeInt(self: Self, comptime T: type, value: T, endian: std.builtin.Endian) Error!void {
             var bytes: [@divExact(@typeInfo(T).Int.bits, 8)]u8 = undefined;
             mem.writeInt(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value, endian);
