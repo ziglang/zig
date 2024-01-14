@@ -25,6 +25,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
+    macho_step.dependOn(testTentative(b, .{ .target = default_target }));
     macho_step.dependOn(testThunks(b, .{ .target = aarch64_target }));
     macho_step.dependOn(testTlsLargeTbss(b, .{ .target = default_target }));
     macho_step.dependOn(testUndefinedFlag(b, .{ .target = default_target }));
@@ -641,6 +642,32 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
         check.checkNotPresent("external segment$start$__DATA_1");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testTentative(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-tentative", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main" });
+    addCSourceBytes(exe,
+        \\int foo;
+        \\int bar;
+        \\int baz = 42;
+    , &.{"-fcommon"});
+    addCSourceBytes(exe,
+        \\#include<stdio.h>
+        \\int foo;
+        \\int bar = 5;
+        \\int baz;
+        \\int main() {
+        \\  printf("%d %d %d\n", foo, bar, baz);
+        \\}
+    , &.{"-fcommon"});
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("0 5 42\n");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
