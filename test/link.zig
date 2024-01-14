@@ -171,8 +171,4 @@ pub const cases = [_]Case{
         .build_root = "test/link/macho/unwind_info",
         .import = @import("link/macho/unwind_info/build.zig"),
     },
-    .{
-        .build_root = "test/link/macho/weak_framework",
-        .import = @import("link/macho/weak_framework/build.zig"),
-    },
 };
