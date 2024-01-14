@@ -351,7 +351,6 @@ const FChmodAtError = FChmodError || error{
     /// A component of `path` exceeded `NAME_MAX`, or the entire path exceeded
     /// `PATH_MAX`.
     NameTooLong,
-
     /// `path` resolves to a symbolic link, and `AT.SYMLINK_NOFOLLOW` was set
     /// in `flags`. This error only occurs on Linux, where changing the mode of
     /// a symbolic link has no meaning and can cause undefined behaviour on
@@ -359,22 +358,14 @@ const FChmodAtError = FChmodError || error{
     ///
     /// The procfs fallback was used but procfs was not mounted.
     OperationNotSupported,
-
     /// The procfs fallback was used but the process exceeded its open file
     /// limit.
     ProcessFdQuotaExceeded,
-
     /// The procfs fallback was used but the system exceeded it open file limit.
     SystemFdQuotaExceeded,
 };
 
 var has_fchmodat2_syscall = std.atomic.Value(bool).init(true);
-
-inline fn skipFchmodatFallback(flags: u32) bool {
-    return builtin.os.tag != .linux or
-        flags == 0 or
-        std.c.versionCheck(std.SemanticVersion{ .major = 2, .minor = 32, .patch = 0 }).ok;
-}
 
 /// Changes the `mode` of `path` relative to the directory referred to by
 /// `dirfd`. The process must have the correct privileges in order to do this
@@ -394,11 +385,23 @@ inline fn skipFchmodatFallback(flags: u32) bool {
 pub inline fn fchmodat(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtError!void {
     if (!std.fs.has_executable_bit) @compileError("fchmodat unsupported by target OS");
 
-    const path_c = try toPosixPath(path);
-
     // No special handling for linux is needed if we can use the libc fallback
     // or `flags` is empty. Glibc only added the fallback in 2.32.
-    while (skipFchmodatFallback(flags)) {
+    const skip_fchmodat_fallback = builtin.os.tag != .linux or
+        std.c.versionCheck(.{ .major = 2, .minor = 32, .patch = 0 }) or
+        flags == 0;
+
+    // This function is marked inline so that when flags is comptime-known,
+    // skip_fchmodat_fallback will be comptime-known true.
+    if (skip_fchmodat_fallback)
+        return fchmodat1(dirfd, path, mode, flags);
+
+    return fchmodat2(dirfd, path, mode, flags);
+}
+
+fn fchmodat1(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtError!void {
+    const path_c = try toPosixPath(path);
+    while (true) {
         const res = system.fchmodat(dirfd, &path_c, mode, flags);
         switch (system.getErrno(res)) {
             .SUCCESS => return,
@@ -421,8 +424,11 @@ pub inline fn fchmodat(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) 
             else => |err| return unexpectedErrno(err),
         }
     }
+}
 
-    const use_fchmodat2 = (comptime builtin.os.isAtLeast(.linux, .{ .major = 6, .minor = 6, .patch = 0 }) orelse false) and
+fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtError!void {
+    const path_c = try toPosixPath(path);
+    const use_fchmodat2 = (builtin.os.isAtLeast(.linux, .{ .major = 6, .minor = 6, .patch = 0 }) orelse false) and
         has_fchmodat2_syscall.load(.Monotonic);
     while (use_fchmodat2) {
         // Later on this should be changed to `system.fchmodat2`
