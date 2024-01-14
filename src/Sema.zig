@@ -32635,30 +32635,6 @@ fn analyzeSlice(
             if (!end_is_len) {
                 const end = if (by_length) end: {
                     const len = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
-                    if (try sema.resolveValue(len)) |slice_len_val| {
-                        const len_s_val = try mod.intValue(
-                            Type.usize,
-                            array_ty.arrayLenIncludingSentinel(mod),
-                        );
-                        if (!(try sema.compareScalar(slice_len_val, .lte, len_s_val, Type.usize))) {
-                            const sentinel_label: []const u8 = if (array_ty.sentinel(mod) != null)
-                                " +1 (sentinel)"
-                            else
-                                "";
-
-                            return sema.fail(
-                                block,
-                                end_src,
-                                "length {} out of bounds for array of length {}{s}",
-                                .{
-                                    slice_len_val.fmtValue(Type.usize, mod),
-                                    len_val.fmtValue(Type.usize, mod),
-                                    sentinel_label,
-                                },
-                            );
-                        }
-                    }
-                    // check len is less than array size if comptime known
                     const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
                     break :end try sema.coerce(block, Type.usize, uncasted_end, end_src);
                 } else try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
