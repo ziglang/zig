@@ -1,37 +1,41 @@
 const Wasm = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
-const mem = std.mem;
-const Allocator = std.mem.Allocator;
+
 const assert = std.debug.assert;
+const build_options = @import("build_options");
+const builtin = @import("builtin");
+const codegen = @import("../codegen.zig");
 const fs = std.fs;
 const leb = std.leb;
-const log = std.log.scoped(.link);
-
-pub const Atom = @import("Wasm/Atom.zig");
-const Dwarf = @import("Dwarf.zig");
-const Module = @import("../Module.zig");
-const InternPool = @import("../InternPool.zig");
-const Compilation = @import("../Compilation.zig");
-const CodeGen = @import("../arch/wasm/CodeGen.zig");
-const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");
 const lldMain = @import("../main.zig").lldMain;
+const log = std.log.scoped(.link);
+const mem = std.mem;
 const trace = @import("../tracy.zig").trace;
-const build_options = @import("build_options");
-const wasi_libc = @import("../wasi_libc.zig");
-const Cache = std.Build.Cache;
-const Type = @import("../type.zig").Type;
-const Value = @import("../Value.zig");
-const TypedValue = @import("../TypedValue.zig");
-const LlvmObject = @import("../codegen/llvm.zig").Object;
-const Air = @import("../Air.zig");
-const Liveness = @import("../Liveness.zig");
-const Symbol = @import("Wasm/Symbol.zig");
-const Object = @import("Wasm/Object.zig");
-const Archive = @import("Wasm/Archive.zig");
 const types = @import("Wasm/types.zig");
+const wasi_libc = @import("../wasi_libc.zig");
+
+const Air = @import("../Air.zig");
+const Allocator = std.mem.Allocator;
+const Archive = @import("Wasm/Archive.zig");
+const Cache = std.Build.Cache;
+const CodeGen = @import("../arch/wasm/CodeGen.zig");
+const Compilation = @import("../Compilation.zig");
+const Dwarf = @import("Dwarf.zig");
+const File = @import("Wasm/file.zig").File;
+const InternPool = @import("../InternPool.zig");
+const Liveness = @import("../Liveness.zig");
+const LlvmObject = @import("../codegen/llvm.zig").Object;
+const Module = @import("../Module.zig");
+const Object = @import("Wasm/Object.zig");
+const Symbol = @import("Wasm/Symbol.zig");
+const Type = @import("../type.zig").Type;
+const TypedValue = @import("../TypedValue.zig");
+const Value = @import("../value.zig").Value;
+const ZigObject = @import("Wasm/ZigObject.zig");
+
+pub const Atom = @import("Wasm/Atom.zig");
 pub const Relocation = types.Relocation;
 
 pub const base_tag: link.File.Tag = .wasm;
@@ -57,6 +61,11 @@ export_table: bool,
 name: []const u8,
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
 llvm_object: ?*LlvmObject = null,
+/// The file index of a `ZigObject`. This will only contain a valid index when a zcu exists,
+/// and the chosen backend is the Wasm backend.
+zig_object_index: File.Index = .null,
+/// List of relocatable files to be linked into the final binary.
+files: std.MultiArrayList(File.Entry) = .{},
 /// When importing objects from the host environment, a name must be supplied.
 /// LLVM uses "env" by default when none is given. This would be a good default for Zig
 /// to support existing code.
@@ -556,7 +565,25 @@ pub fn createEmpty(
         }
     }
 
+    if (comp.module) |zcu| {
+        if (!use_llvm) {
+            const index: File.Index = @enumFromInt(wasm.files.len);
+            var zig_object: ZigObject = .{
+                .path = try std.fmt.allocPrint(gpa, "{s}.o", .{std.fs.path.stem(zcu.main_mod.root_src_path)}),
+                .stack_pointer_sym = undefined,
+            };
+            try zig_object.init(wasm);
+            try wasm.files.append(gpa, .{ .zig_object = zig_object });
+            wasm.zig_object_index = index;
+        }
+    }
+
     return wasm;
+}
+
+fn zigObjectPtr(wasm: *Wasm) ?*ZigObject {
+    if (wasm.zig_object_index == .null) return null;
+    return &wasm.files.items(.data)[@intFromEnum(wasm.zig_object_index)].zig_object;
 }
 
 /// For a given name, creates a new global synthetic symbol.

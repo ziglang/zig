@@ -3,6 +3,7 @@
 //! and any relocations that may have been emitted.
 //! Think about this as fake in-memory Object file for the Zig module.
 
+path: []const u8,
 /// List of all `Decl` that are currently alive.
 /// Each index maps to the corresponding `Atom.Index`.
 decls: std.AutoHashMapUnmanaged(InternPool.DeclIndex, Atom.Index) = .{},
@@ -22,7 +23,7 @@ global_syms: std.AutoHashMapUnmanaged(u32, u32) = .{},
 /// List of symbol indexes which are free to be used.
 symbols_free_list: std.ArrayListUnmanaged(u32) = .{},
 /// Extra metadata about the linking section, such as alignment of segments and their name.
-segment_info: std.ArrayListUnmanage(types.Segment) = &.{},
+segment_info: std.ArrayListUnmanaged(types.Segment) = .{},
 /// File encapsulated string table, used to deduplicate strings within the generated file.
 string_table: StringTable = .{},
 /// Map for storing anonymous declarations. Each anonymous decl maps to its Atom's index.
@@ -72,6 +73,30 @@ debug_str_index: ?u32 = null,
 /// The index of the segment representing the custom '.debug_pubtypes' section.
 debug_abbrev_index: ?u32 = null,
 
+/// Initializes the `ZigObject` with initial symbols.
+pub fn init(zig_object: *ZigObject, wasm_file: *Wasm) !void {
+    // Initialize an undefined global with the name __stack_pointer. Codegen will use
+    // this to generate relocations when moving the stack pointer. This symbol will be
+    // resolved automatically by the final linking stage.
+    try zig_object.createStackPointer(wasm_file);
+
+    // TODO: Initialize debug information when we reimplement Dwarf support.
+}
+
+fn createStackPointer(zig_object: *ZigObject, wasm_file: *Wasm) !void {
+    const gpa = wasm_file.base.comp.gpa;
+    const sym_index = try zig_object.getGlobalSymbol(gpa, "__stack_pointer", .global);
+    zig_object.symbols.items[sym_index].index = zig_object.imported_globals_count;
+    const is_wasm32 = wasm_file.base.comp.root_mod.resolved_target.result.cpu.arch == .wasm32;
+    try zig_object.imports.putNoClobber(gpa, sym_index, .{
+        .name = zig_object.symbols.items[sym_index].name,
+        .module_name = try zig_object.string_table.insert(gpa, wasm_file.host_name),
+        .kind = .{ .global = .{ .valtype = if (is_wasm32) .i32 else .i64, .mutable = true } },
+    });
+    zig_object.imported_globals_count += 1;
+    zig_object.stack_pointer_sym = sym_index;
+}
+
 /// Frees and invalidates all memory of the incrementally compiled Zig module.
 /// It is illegal behavior to access the `ZigObject` after calling `deinit`.
 pub fn deinit(zig_object: *ZigObject, gpa: std.mem.Allocator) void {
@@ -113,6 +138,7 @@ pub fn deinit(zig_object: *ZigObject, gpa: std.mem.Allocator) void {
     if (zig_object.dwarf) |*dwarf| {
         dwarf.deinit();
     }
+    gpa.free(zig_object.path);
     zig_object.* = undefined;
 }
 
@@ -531,32 +557,31 @@ pub fn addOrUpdateImport(
 /// such as an exported or imported symbol.
 /// If the symbol does not yet exist, creates a new one symbol instead
 /// and then returns the index to it.
-pub fn getGlobalSymbol(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8) !u32 {
-    const gpa = wasm_file.base.comp.gpa;
+pub fn getGlobalSymbol(zig_object: *ZigObject, gpa: std.mem.Allocator, name: []const u8, tag: Symbol.Tag) !u32 {
     const name_index = try zig_object.string_table.insert(gpa, name);
     const gop = try zig_object.global_syms.getOrPut(gpa, name_index);
     if (gop.found_existing) {
-        return gop.value_ptr.index;
+        return gop.value_ptr.*;
     }
 
     var symbol: Symbol = .{
         .name = name_index,
         .flags = 0,
-        .index = undefined, // index to type will be set after merging function symbols
-        .tag = .function,
-        .virtual_address = undefined,
+        .index = undefined, // index to type will be set after merging symbols
+        .tag = tag,
+        .virtual_address = std.math.maxInt(u32),
     };
     symbol.setGlobal(true);
     symbol.setUndefined(true);
 
-    const sym_index = if (zig_object.symbol.popOrNull()) |index| index else blk: {
+    const sym_index = if (zig_object.symbols_free_list.popOrNull()) |index| index else blk: {
         const index: u32 = @intCast(zig_object.symbols.items.len);
         try zig_object.symbols.ensureUnusedCapacity(gpa, 1);
         zig_object.symbols.items.len += 1;
         break :blk index;
     };
     zig_object.symbols.items[sym_index] = symbol;
-    gop.value_ptr.* = .{ .index = sym_index, .file = null };
+    gop.value_ptr.* = sym_index;
     return sym_index;
 }
 
