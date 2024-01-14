@@ -1928,7 +1928,7 @@ pub const StreamServer = struct {
     pub fn listen(self: *StreamServer, address: Address) !void {
         const nonblock = if (std.io.is_async) os.SOCK.NONBLOCK else 0;
         const sock_flags = os.SOCK.STREAM | os.SOCK.CLOEXEC | nonblock;
-        var use_sock_flags: u32 = sock_flags;
+        var use_sock_flags: i32 = sock_flags;
         if (self.force_nonblocking) use_sock_flags |= os.SOCK.NONBLOCK;
         const proto = if (address.any.family == os.AF.UNIX) @as(u32, 0) else os.IPPROTO.TCP;
 

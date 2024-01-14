@@ -1230,3 +1230,63 @@ test "fchmodat smoke test" {
     const st = try os.fstatat(tmp.dir.fd, "foo.txt", 0);
     try expectEqual(@as(os.mode_t, 0o755), st.mode & 0b111_111_111);
 }
+
+fn writeSocketTest(socket: os.socket_t, err: *?anyerror) void {
+    const buf = "Hello, World!";
+    var i: usize = 0;
+    while (i < buf.len) {
+        const nb_sent = std.os.send(socket, buf[i..], 0) catch |e| {
+            err.* = e;
+            return;
+        };
+        i += nb_sent;
+    }
+}
+
+fn readSocketTest(socket: os.socket_t, err: *?anyerror) void {
+    var buf: [13]u8 = undefined;
+    var i: usize = 0;
+
+    while (i < buf.len) {
+        const nb_recved = std.os.recv(socket, buf[i..], 0) catch |e| {
+            err.* = e;
+            return;
+        };
+        i += nb_recved;
+    }
+
+    testing.expectEqualSlices(u8, &buf, "Hello, World!") catch |e| {
+        err.* = e;
+    };
+}
+
+test "socketpair" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
+
+    const pair = try os.socketpair(os.AF.UNIX, os.SOCK.STREAM, 0);
+    defer os.close(pair[0]);
+    defer os.close(pair[1]);
+
+    const ally = testing.allocator;
+
+    var wr_err: ?anyerror = null;
+    const writer = try std.Thread.spawn(
+        .{ .allocator = ally },
+        writeSocketTest,
+        .{ pair[0], &wr_err },
+    );
+
+    var rd_err: ?anyerror = null;
+    const reader = try std.Thread.spawn(
+        .{ .allocator = ally },
+        readSocketTest,
+        .{ pair[1], &rd_err },
+    );
+
+    writer.join();
+    if (wr_err) |e| return e;
+
+    reader.join();
+    if (rd_err) |e| return e;
+}

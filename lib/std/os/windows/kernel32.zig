@@ -451,3 +451,5 @@ pub extern "kernel32" fn RegOpenKeyExW(
 ) callconv(WINAPI) LSTATUS;
 
 pub extern "kernel32" fn GetPhysicallyInstalledSystemMemory(TotalMemoryInKilobytes: *ULONGLONG) BOOL;
+
+pub extern "kernel32" fn GetTempPathA(nBufferLength: DWORD, lpBuffer: LPSTR) callconv(WINAPI) DWORD;

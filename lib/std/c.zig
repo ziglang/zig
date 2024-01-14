@@ -77,7 +77,7 @@ pub usingnamespace switch (builtin.os.tag) {
         pub extern "c" fn sigfillset(set: ?*c.sigset_t) void;
         pub extern "c" fn sigwait(set: ?*c.sigset_t, sig: ?*c_int) c_int;
 
-        pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
+        pub extern "c" fn socket(domain: c_int, sock_type: c_int, protocol: c_int) c_int;
 
         pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *c.Stat) c_int;
 
@@ -185,7 +185,7 @@ pub extern "c" fn uname(buf: *c.utsname) c_int;
 pub extern "c" fn gethostname(name: [*]u8, len: usize) c_int;
 pub extern "c" fn shutdown(socket: c.fd_t, how: c_int) c_int;
 pub extern "c" fn bind(socket: c.fd_t, address: ?*const c.sockaddr, address_len: c.socklen_t) c_int;
-pub extern "c" fn socketpair(domain: c_uint, sock_type: c_uint, protocol: c_uint, sv: *[2]c.fd_t) c_int;
+pub extern "c" fn socketpair(domain: c_int, sock_type: c_int, protocol: c_int, sv: *[2]c.fd_t) c_int;
 pub extern "c" fn listen(sockfd: c.fd_t, backlog: c_uint) c_int;
 pub extern "c" fn getsockname(sockfd: c.fd_t, noalias addr: *c.sockaddr, noalias addrlen: *c.socklen_t) c_int;
 pub extern "c" fn getpeername(sockfd: c.fd_t, noalias addr: *c.sockaddr, noalias addrlen: *c.socklen_t) c_int;

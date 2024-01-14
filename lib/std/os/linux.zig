@@ -1268,11 +1268,11 @@ pub fn getpeername(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) us
     return syscall3(.getpeername, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len));
 }
 
-pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
+pub fn socket(domain: i32, socket_type: i32, protocol: i32) usize {
     if (native_arch == .x86) {
         return socketcall(SC.socket, &[3]usize{ domain, socket_type, protocol });
     }
-    return syscall3(.socket, domain, socket_type, protocol);
+    return syscall3(.socket, @intCast(domain), @intCast(socket_type), @intCast(protocol));
 }
 
 pub fn setsockopt(fd: i32, level: u32, optname: u32, optval: [*]const u8, optlen: socklen_t) usize {

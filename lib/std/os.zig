@@ -3377,7 +3377,7 @@ pub const SocketError = error{
     SocketTypeNotSupported,
 } || UnexpectedError;
 
-pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t {
+pub fn socket(domain: i32, socket_type: i32, protocol: i32) SocketError!socket_t {
     if (builtin.os.tag == .windows) {
         // NOTE: windows translates the SOCK.NONBLOCK/SOCK.CLOEXEC flags into
         // windows-analagous operations
@@ -6671,7 +6671,8 @@ pub fn recvfrom(
     addrlen: ?*socklen_t,
 ) RecvFromError!usize {
     while (true) {
-        const rc = system.recvfrom(sockfd, buf.ptr, buf.len, flags, src_addr, addrlen);
+        const sys = if (builtin.os.tag == .windows) windows else system;
+        const rc = sys.recvfrom(sockfd, buf.ptr, buf.len, flags, src_addr, addrlen);
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
@@ -7393,3 +7394,29 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!
 }
 
 const lfs64_abi = builtin.os.tag == .linux and builtin.link_libc and builtin.abi.isGnu();
+
+const SocketpairError = SocketError || error{OperationNotSupported};
+
+/// On platforms not supporting socketpair (Windows), socketpair is emulated.
+/// On Windows, only `AF_UNIX` and `SOCK_STREAM` are supported.
+pub fn socketpair(domain: i32, sock_type: i32, protocol: i32) SocketpairError![2]socket_t {
+    var pair: [2]socket_t = undefined;
+
+    if (builtin.os.tag == .windows) {
+        @compileError("socketpair is unsupported on Windows");
+    }
+
+    return switch (system.getErrno(system.socketpair(domain, sock_type, protocol, &pair))) {
+        E.SUCCESS => pair,
+        E.AFNOSUPPORT => error.AddressFamilyNotSupported,
+        E.MFILE => error.ProcessFdQuotaExceeded,
+        E.NFILE => error.SystemFdQuotaExceeded,
+        E.OPNOTSUPP => error.OperationNotSupported,
+        E.PROTONOSUPPORT => error.ProtocolNotSupported,
+        E.PROTOTYPE => error.SocketTypeNotSupported,
+        E.NOBUFS => error.SystemResources,
+        E.NOMEM => error.SystemResources,
+        E.FAULT => unreachable, // we own `pair`
+        else => error.Unexpected,
+    };
+}
