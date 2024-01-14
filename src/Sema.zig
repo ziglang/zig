@@ -25675,6 +25675,7 @@ fn zirBuiltinExtern(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
+    const ip = &mod.intern_pool;
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
@@ -25714,34 +25715,38 @@ fn zirBuiltinExtern(
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.name = options.name;
 
-    {
-        const new_var = try mod.intern(.{ .variable = .{
-            .ty = ptr_info.child,
-            .init = .none,
-            .decl = sema.owner_decl_index,
-            .lib_name = options.library_name,
-            .is_extern = true,
-            .is_const = ptr_info.flags.is_const,
-            .is_threadlocal = options.is_thread_local,
-            .is_weak_linkage = options.linkage == .Weak,
-        } });
-
-        new_decl.src_line = sema.owner_decl.src_line;
-        // We only access this decl through the decl_ref with the correct type created
-        // below, so this type doesn't matter
-        new_decl.ty = Type.fromInterned(ptr_info.child);
-        new_decl.val = Value.fromInterned(new_var);
-        new_decl.alignment = .none;
-        new_decl.@"linksection" = .none;
-        new_decl.has_tv = true;
-        new_decl.analysis = .complete;
-        new_decl.generation = mod.generation;
-    }
+    new_decl.src_line = sema.owner_decl.src_line;
+    new_decl.ty = Type.fromInterned(ptr_info.child);
+    new_decl.val = Value.fromInterned(
+        if (Type.fromInterned(ptr_info.child).zigTypeTag(mod) == .Fn)
+            try ip.getExternFunc(sema.gpa, .{
+                .ty = ptr_info.child,
+                .decl = new_decl_index,
+                .lib_name = options.library_name,
+            })
+        else
+            try mod.intern(.{ .variable = .{
+                .ty = ptr_info.child,
+                .init = .none,
+                .decl = new_decl_index,
+                .lib_name = options.library_name,
+                .is_extern = true,
+                .is_const = ptr_info.flags.is_const,
+                .is_threadlocal = options.is_thread_local,
+                .is_weak_linkage = options.linkage == .Weak,
+            } }),
+    );
+    new_decl.alignment = .none;
+    new_decl.@"linksection" = .none;
+    new_decl.has_tv = true;
+    new_decl.owns_tv = true;
+    new_decl.analysis = .complete;
+    new_decl.generation = mod.generation;
 
     try sema.ensureDeclAnalyzed(new_decl_index);
 
     return Air.internedToRef((try mod.getCoerced(Value.fromInterned((try mod.intern(.{ .ptr = .{
-        .ty = switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        .ty = switch (ip.indexToKey(ty.toIntern())) {
             .ptr_type => ty.toIntern(),
             .opt_type => |child_type| child_type,
             else => unreachable,
