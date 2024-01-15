@@ -33,6 +33,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testRelocatableZig(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
+    macho_step.dependOn(testStackSize(b, .{ .target = default_target }));
     macho_step.dependOn(testTentative(b, .{ .target = default_target }));
     macho_step.dependOn(testThunks(b, .{ .target = aarch64_target }));
     macho_step.dependOn(testTlsLargeTbss(b, .{ .target = default_target }));
@@ -45,7 +46,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
         macho_step.dependOn(testDylib(b, .{ .target = default_target }));
         macho_step.dependOn(testNeededLibrary(b, .{ .target = default_target }));
-        macho_step.dependOn(testSearchStrategy(b, .{ .target = b.host }));
+        macho_step.dependOn(testSearchStrategy(b, .{ .target = default_target }));
         macho_step.dependOn(testTls(b, .{ .target = default_target }));
         macho_step.dependOn(testTwoLevelNamespace(b, .{ .target = default_target }));
         macho_step.dependOn(testWeakLibrary(b, .{ .target = default_target }));
@@ -1259,6 +1260,24 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
         check.checkNotPresent("external segment$start$__DATA_1");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testStackSize(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-stack-size", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
+    exe.stack_size = 0x100000000;
+
+    const run = addRunArtifact(exe);
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkInHeaders();
+    check.checkExact("cmd MAIN");
+    check.checkExact("stacksize 100000000");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
