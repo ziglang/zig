@@ -23,6 +23,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testHelloC(b, .{ .target = default_target }));
     macho_step.dependOn(testHelloZig(b, .{ .target = default_target }));
     macho_step.dependOn(testLargeBss(b, .{ .target = default_target }));
+    macho_step.dependOn(testLayout(b, .{ .target = default_target }));
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testRelocatable(b, .{ .target = default_target }));
     macho_step.dependOn(testRelocatableZig(b, .{ .target = default_target }));
@@ -607,6 +608,125 @@ fn testLargeBss(b: *Build, opts: Options) *Step {
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testLayout(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-layout", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\int main() {
+    \\  printf("Hello world!");
+    \\  return 0;
+    \\}
+    });
+
+    const check = exe.checkObject();
+    check.checkInHeaders();
+    check.checkExact("cmd SEGMENT_64");
+    check.checkExact("segname __LINKEDIT");
+    check.checkExtract("fileoff {fileoff}");
+    check.checkExtract("filesz {filesz}");
+    check.checkInHeaders();
+    check.checkExact("cmd DYLD_INFO_ONLY");
+    check.checkExtract("rebaseoff {rebaseoff}");
+    check.checkExtract("rebasesize {rebasesize}");
+    check.checkExtract("bindoff {bindoff}");
+    check.checkExtract("bindsize {bindsize}");
+    check.checkExtract("lazybindoff {lazybindoff}");
+    check.checkExtract("lazybindsize {lazybindsize}");
+    check.checkExtract("exportoff {exportoff}");
+    check.checkExtract("exportsize {exportsize}");
+    check.checkInHeaders();
+    check.checkExact("cmd FUNCTION_STARTS");
+    check.checkExtract("dataoff {fstartoff}");
+    check.checkExtract("datasize {fstartsize}");
+    check.checkInHeaders();
+    check.checkExact("cmd DATA_IN_CODE");
+    check.checkExtract("dataoff {diceoff}");
+    check.checkExtract("datasize {dicesize}");
+    check.checkInHeaders();
+    check.checkExact("cmd SYMTAB");
+    check.checkExtract("symoff {symoff}");
+    check.checkExtract("nsyms {symnsyms}");
+    check.checkExtract("stroff {stroff}");
+    check.checkExtract("strsize {strsize}");
+    check.checkInHeaders();
+    check.checkExact("cmd DYSYMTAB");
+    check.checkExtract("indirectsymoff {dysymoff}");
+    check.checkExtract("nindirectsyms {dysymnsyms}");
+
+    switch (opts.target.result.cpu.arch) {
+        .aarch64 => {
+            check.checkInHeaders();
+            check.checkExact("cmd CODE_SIGNATURE");
+            check.checkExtract("dataoff {codesigoff}");
+            check.checkExtract("datasize {codesigsize}");
+        },
+        .x86_64 => {},
+        else => unreachable,
+    }
+
+    // DYLD_INFO_ONLY subsections are in order: rebase < bind < lazy < export,
+    // and there are no gaps between them
+    check.checkComputeCompare("rebaseoff rebasesize +", .{ .op = .eq, .value = .{ .variable = "bindoff" } });
+    check.checkComputeCompare("bindoff bindsize +", .{ .op = .eq, .value = .{ .variable = "lazybindoff" } });
+    check.checkComputeCompare("lazybindoff lazybindsize +", .{ .op = .eq, .value = .{ .variable = "exportoff" } });
+
+    // FUNCTION_STARTS directly follows DYLD_INFO_ONLY (no gap)
+    check.checkComputeCompare("exportoff exportsize +", .{ .op = .eq, .value = .{ .variable = "fstartoff" } });
+
+    // DATA_IN_CODE directly follows FUNCTION_STARTS (no gap)
+    check.checkComputeCompare("fstartoff fstartsize +", .{ .op = .eq, .value = .{ .variable = "diceoff" } });
+
+    // SYMTAB directly follows DATA_IN_CODE (no gap)
+    check.checkComputeCompare("diceoff dicesize +", .{ .op = .eq, .value = .{ .variable = "symoff" } });
+
+    // DYSYMTAB directly follows SYMTAB (no gap)
+    check.checkComputeCompare("symnsyms 16 symoff * +", .{ .op = .eq, .value = .{ .variable = "dysymoff" } });
+
+    // STRTAB follows DYSYMTAB with possible gap
+    check.checkComputeCompare("dysymnsyms 4 dysymoff * +", .{ .op = .lte, .value = .{ .variable = "stroff" } });
+
+    // all LINKEDIT sections apart from CODE_SIGNATURE are 8-bytes aligned
+    check.checkComputeCompare("rebaseoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    check.checkComputeCompare("bindoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    check.checkComputeCompare("lazybindoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    check.checkComputeCompare("exportoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    check.checkComputeCompare("fstartoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    check.checkComputeCompare("diceoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    check.checkComputeCompare("symoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    check.checkComputeCompare("stroff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+    check.checkComputeCompare("dysymoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+
+    switch (opts.target.result.cpu.arch) {
+        .aarch64 => {
+            // LINKEDIT segment does not extend beyond, or does not include, CODE_SIGNATURE data
+            check.checkComputeCompare("fileoff filesz codesigoff codesigsize + - -", .{
+                .op = .eq,
+                .value = .{ .literal = 0 },
+            });
+
+            // CODE_SIGNATURE data offset is 16-bytes aligned
+            check.checkComputeCompare("codesigoff 16 %", .{ .op = .eq, .value = .{ .literal = 0 } });
+        },
+        .x86_64 => {
+            // LINKEDIT segment does not extend beyond, or does not include, strtab data
+            check.checkComputeCompare("fileoff filesz stroff strsize + - -", .{
+                .op = .eq,
+                .value = .{ .literal = 0 },
+            });
+        },
+        else => unreachable,
+    }
+
+    test_step.dependOn(&check.step);
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello world!");
     test_step.dependOn(&run.step);
 
     return test_step;
