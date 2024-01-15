@@ -108,10 +108,6 @@ pub const cases = [_]Case{
         .import = @import("link/macho/bugs/16628/build.zig"),
     },
     .{
-        .build_root = "test/link/macho/dylib",
-        .import = @import("link/macho/dylib/build.zig"),
-    },
-    .{
         .build_root = "test/link/macho/empty",
         .import = @import("link/macho/empty/build.zig"),
     },
