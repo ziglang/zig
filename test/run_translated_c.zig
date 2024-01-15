@@ -1926,4 +1926,12 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("negative literal void cast",
+        \\#include <stdlib.h>
+        \\int main(void) {
+        \\   void *x = (void *)-1;
+        \\  if (x != (void *)-1) abort();
+        \\}
+    , "");
 }
