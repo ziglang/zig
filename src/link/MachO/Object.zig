@@ -1547,6 +1547,16 @@ pub fn getSectionData(self: *const Object, index: u32) []const u8 {
     return self.data[sect.offset..][0..sect.size];
 }
 
+pub fn getAtomData(self: *const Object, atom: Atom) []const u8 {
+    const data = self.getSectionData(atom.n_sect);
+    return data[atom.off..][0..atom.size];
+}
+
+pub fn getAtomRelocs(self: *const Object, atom: Atom) []const Relocation {
+    const relocs = self.sections.items(.relocs)[atom.n_sect];
+    return relocs.items[atom.relocs.pos..][0..atom.relocs.len];
+}
+
 fn getString(self: Object, off: u32) [:0]const u8 {
     assert(off < self.strtab.len);
     return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.ptr + off)), 0);

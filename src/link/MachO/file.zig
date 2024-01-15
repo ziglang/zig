@@ -1,4 +1,5 @@
 pub const File = union(enum) {
+    zig_object: *ZigObject,
     internal: *InternalObject,
     object: *Object,
     dylib: *Dylib,
@@ -22,6 +23,7 @@ pub const File = union(enum) {
         _ = unused_fmt_string;
         _ = options;
         switch (file) {
+            .zig_object => |x| try writer.writeAll(x.path),
             .internal => try writer.writeAll(""),
             .object => |x| try writer.print("{}", .{x.fmtPath()}),
             .dylib => |x| try writer.writeAll(x.path),
@@ -98,6 +100,7 @@ pub const File = union(enum) {
 
     pub const Entry = union(enum) {
         null: void,
+        zig_object: ZigObject,
         internal: InternalObject,
         object: Object,
         dylib: Dylib,
@@ -114,3 +117,4 @@ const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
 const Dylib = @import("Dylib.zig");
 const Symbol = @import("Symbol.zig");
+const ZigObject = @import("ZigObject.zig");

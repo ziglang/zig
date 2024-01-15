@@ -45,10 +45,27 @@ pub fn getFile(self: Atom, macho_file: *MachO) File {
     return macho_file.getFile(self.file).?;
 }
 
+pub fn getData(self: Atom, macho_file: *MachO) []const u8 {
+    return switch (self.getFile(macho_file)) {
+        .zig_object => @panic("TODO Atom.getData"),
+        .object => |x| x.getAtomData(self),
+        else => unreachable,
+    };
+}
+
+pub fn getRelocs(self: Atom, macho_file: *MachO) []const Relocation {
+    return switch (self.getFile(macho_file)) {
+        .zig_object => @panic("TODO Atom.getRelocs"),
+        .object => |x| x.getAtomRelocs(self),
+        else => unreachable,
+    };
+}
+
 pub fn getInputSection(self: Atom, macho_file: *MachO) macho.section_64 {
     return switch (self.getFile(macho_file)) {
-        .dylib => unreachable,
-        inline else => |x| x.sections.items(.header)[self.n_sect],
+        .zig_object => |x| x.getInputSection(self, macho_file),
+        .object => |x| x.sections.items(.header)[self.n_sect],
+        else => unreachable,
     };
 }
 
@@ -61,26 +78,10 @@ pub fn getPriority(self: Atom, macho_file: *MachO) u64 {
     return (@as(u64, @intCast(file.getIndex())) << 32) | @as(u64, @intCast(self.n_sect));
 }
 
-pub fn getCode(self: Atom, macho_file: *MachO) []const u8 {
-    const code = switch (self.getFile(macho_file)) {
-        .dylib => unreachable,
-        inline else => |x| x.getSectionData(self.n_sect),
-    };
-    return code[self.off..][0..self.size];
-}
-
-pub fn getRelocs(self: Atom, macho_file: *MachO) []const Relocation {
-    const relocs = switch (self.getFile(macho_file)) {
-        .dylib => unreachable,
-        inline else => |x| x.sections.items(.relocs)[self.n_sect],
-    };
-    return relocs.items[self.relocs.pos..][0..self.relocs.len];
-}
-
 pub fn getUnwindRecords(self: Atom, macho_file: *MachO) []const UnwindInfo.Record.Index {
     return switch (self.getFile(macho_file)) {
         .dylib => unreachable,
-        .internal => &[0]UnwindInfo.Record.Index{},
+        .zig_object, .internal => &[0]UnwindInfo.Record.Index{},
         .object => |x| x.unwind_records.items[self.unwind_records.pos..][0..self.unwind_records.len],
     };
 }
@@ -290,10 +291,10 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
     defer tracy.end();
 
     assert(!self.getInputSection(macho_file).isZerofill());
-    const relocs = self.getRelocs(macho_file);
     const file = self.getFile(macho_file);
     const name = self.getName(macho_file);
-    @memcpy(buffer, self.getCode(macho_file));
+    const relocs = self.getRelocs(macho_file);
+    @memcpy(buffer, self.getData(macho_file));
 
     relocs_log.debug("{x}: {s}", .{ self.value, name });
 
@@ -683,10 +684,11 @@ const x86_64 = struct {
 };
 
 pub fn calcNumRelocs(self: Atom, macho_file: *MachO) u32 {
+    const relocs = self.getRelocs(macho_file);
     switch (macho_file.getTarget().cpu.arch) {
         .aarch64 => {
             var nreloc: u32 = 0;
-            for (self.getRelocs(macho_file)) |rel| {
+            for (relocs) |rel| {
                 nreloc += 1;
                 switch (rel.type) {
                     .page, .pageoff => if (rel.addend > 0) {
@@ -697,7 +699,7 @@ pub fn calcNumRelocs(self: Atom, macho_file: *MachO) u32 {
             }
             return nreloc;
         },
-        .x86_64 => return @intCast(self.getRelocs(macho_file).len),
+        .x86_64 => return @intCast(relocs.len),
         else => unreachable,
     }
 }
