@@ -4,8 +4,8 @@ const build_options = @import("build_options");
 const Ast = std.zig.Ast;
 const Autodoc = @This();
 const Compilation = @import("Compilation.zig");
-const CompilationModule = @import("Module.zig");
-const File = CompilationModule.File;
+const Zcu = @import("Module.zig");
+const File = Zcu.File;
 const Module = @import("Package.zig").Module;
 const Tokenizer = std.zig.Tokenizer;
 const InternPool = @import("InternPool.zig");
@@ -14,7 +14,7 @@ const Ref = Zir.Inst.Ref;
 const log = std.log.scoped(.autodoc);
 const renderer = @import("autodoc/render_source.zig");
 
-comp_module: *CompilationModule,
+zcu: *Zcu,
 arena: std.mem.Allocator,
 
 // The goal of autodoc is to fill up these arrays
@@ -81,16 +81,16 @@ const Section = struct {
     };
 };
 
-pub fn generate(cm: *CompilationModule, output_dir: std.fs.Dir) !void {
-    var arena_allocator = std.heap.ArenaAllocator.init(cm.gpa);
+pub fn generate(zcu: *Zcu, output_dir: std.fs.Dir) !void {
+    var arena_allocator = std.heap.ArenaAllocator.init(zcu.gpa);
     defer arena_allocator.deinit();
     var autodoc: Autodoc = .{
-        .comp_module = cm,
+        .zcu = zcu,
         .arena = arena_allocator.allocator(),
     };
     try autodoc.generateZirData(output_dir);
 
-    const lib_dir = cm.comp.zig_lib_directory.handle;
+    const lib_dir = zcu.comp.zig_lib_directory.handle;
     try lib_dir.copyFile("docs/main.js", output_dir, "main.js", .{});
     try lib_dir.copyFile("docs/ziglexer.js", output_dir, "ziglexer.js", .{});
     try lib_dir.copyFile("docs/commonmark.js", output_dir, "commonmark.js", .{});
@@ -98,14 +98,14 @@ pub fn generate(cm: *CompilationModule, output_dir: std.fs.Dir) !void {
 }
 
 fn generateZirData(self: *Autodoc, output_dir: std.fs.Dir) !void {
-    const root_src_path = self.comp_module.main_mod.root_src_path;
-    const joined_src_path = try self.comp_module.main_mod.root.joinString(self.arena, root_src_path);
+    const root_src_path = self.zcu.main_mod.root_src_path;
+    const joined_src_path = try self.zcu.main_mod.root.joinString(self.arena, root_src_path);
     defer self.arena.free(joined_src_path);
 
     const abs_root_src_path = try std.fs.path.resolve(self.arena, &.{ ".", joined_src_path });
     defer self.arena.free(abs_root_src_path);
 
-    const file = self.comp_module.import_table.get(abs_root_src_path).?; // file is expected to be present in the import table
+    const file = self.zcu.import_table.get(abs_root_src_path).?; // file is expected to be present in the import table
     // Append all the types in Zir.Inst.Ref.
     {
         comptime std.debug.assert(@intFromEnum(InternPool.Index.first_type) == 0);
@@ -117,7 +117,7 @@ fn generateZirData(self: *Autodoc, output_dir: std.fs.Dir) !void {
                 // Not a real type, doesn't have a normal name
                 try tmpbuf.writer().writeAll("(generic poison)");
             } else {
-                try @import("type.zig").Type.fromInterned(ip_index).fmt(self.comp_module).format("", .{}, tmpbuf.writer());
+                try @import("type.zig").Type.fromInterned(ip_index).fmt(self.zcu).format("", .{}, tmpbuf.writer());
             }
             try self.types.append(
                 self.arena,
@@ -294,20 +294,20 @@ fn generateZirData(self: *Autodoc, output_dir: std.fs.Dir) !void {
     }
 
     const rootName = blk: {
-        const rootName = std.fs.path.basename(self.comp_module.main_mod.root_src_path);
+        const rootName = std.fs.path.basename(self.zcu.main_mod.root_src_path);
         break :blk rootName[0 .. rootName.len - 4];
     };
 
     const main_type_index = self.types.items.len;
     {
-        try self.modules.put(self.arena, self.comp_module.main_mod, .{
+        try self.modules.put(self.arena, self.zcu.main_mod, .{
             .name = rootName,
             .main = main_type_index,
             .table = .{},
         });
         try self.modules.entries.items(.value)[0].table.put(
             self.arena,
-            self.comp_module.main_mod,
+            self.zcu.main_mod,
             .{
                 .name = rootName,
                 .value = 0,
@@ -435,7 +435,7 @@ fn generateZirData(self: *Autodoc, output_dir: std.fs.Dir) !void {
 
             const out = buffer.writer();
 
-            try renderer.genHtml(self.comp_module.gpa, entry.key_ptr.*, out);
+            try renderer.genHtml(self.zcu.gpa, entry.key_ptr.*, out);
             try buffer.flush();
         }
     }
@@ -1036,7 +1036,7 @@ fn walkInstruction(
                 });
                 defer self.arena.free(abs_root_src_path);
 
-                const new_file = self.comp_module.import_table.get(abs_root_src_path).?;
+                const new_file = self.zcu.import_table.get(abs_root_src_path).?;
 
                 var root_scope = Scope{
                     .parent = null,
@@ -1058,7 +1058,7 @@ fn walkInstruction(
                 );
             }
 
-            const new_file = self.comp_module.importFile(file, path) catch unreachable;
+            const new_file = self.zcu.importFile(file, path) catch unreachable;
             const result = try self.files.getOrPut(self.arena, new_file.file);
             if (result.found_existing) {
                 return DocData.WalkResult{
@@ -5951,7 +5951,7 @@ fn srcLocInfo(
     parent_src: SrcLocInfo,
 ) !SrcLocInfo {
     const sn = @as(u32, @intCast(@as(i32, @intCast(parent_src.src_node)) + src_node));
-    const tree = try file.getTree(self.comp_module.gpa);
+    const tree = try file.getTree(self.zcu.gpa);
     const node_idx = @as(Ast.Node.Index, @bitCast(sn));
     const tokens = tree.nodes.items(.main_token);
 
@@ -5972,7 +5972,7 @@ fn declIsVar(
     parent_src: SrcLocInfo,
 ) !bool {
     const sn = @as(u32, @intCast(@as(i32, @intCast(parent_src.src_node)) + src_node));
-    const tree = try file.getTree(self.comp_module.gpa);
+    const tree = try file.getTree(self.zcu.gpa);
     const node_idx = @as(Ast.Node.Index, @bitCast(sn));
     const tokens = tree.nodes.items(.main_token);
     const tags = tree.tokens.items(.tag);
@@ -5989,13 +5989,13 @@ fn getBlockSource(
     parent_src: SrcLocInfo,
     block_src_node: i32,
 ) AutodocErrors![]const u8 {
-    const tree = try file.getTree(self.comp_module.gpa);
+    const tree = try file.getTree(self.zcu.gpa);
     const block_src = try self.srcLocInfo(file, block_src_node, parent_src);
     return tree.getNodeSource(block_src.src_node);
 }
 
 fn getTLDocComment(self: *Autodoc, file: *File) ![]const u8 {
-    const source = (try file.getSource(self.comp_module.gpa)).bytes;
+    const source = (try file.getSource(self.zcu.gpa)).bytes;
     var tokenizer = Tokenizer.init(source);
     var tok = tokenizer.next();
     var comment = std.ArrayList(u8).init(self.arena);

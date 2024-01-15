@@ -16614,6 +16614,7 @@ fn zirAsm(
     const clobbers_len: u5 = @truncate(extended.small >> 10);
     const is_volatile = @as(u1, @truncate(extended.small >> 15)) != 0;
     const is_global_assembly = sema.func_index == .none;
+    const zir_tags = sema.code.instructions.items(.tag);
 
     const asm_source: []const u8 = if (tmpl_is_expr) blk: {
         const tmpl: Zir.Inst.Ref = @enumFromInt(@intFromEnum(extra.data.asm_source));
@@ -16673,6 +16674,13 @@ fn zirAsm(
         const constraint = sema.code.nullTerminatedString(output.data.constraint);
         const name = sema.code.nullTerminatedString(output.data.name);
         needed_capacity += (constraint.len + name.len + (2 + 3)) / 4;
+
+        if (output.data.operand.toIndex()) |index| {
+            if (zir_tags[@intFromEnum(index)] == .ref) {
+                // TODO: better error location; it would be even nicer if there were notes that pointed at the output and the variable definition
+                return sema.fail(block, src, "asm cannot output to const local '{s}'", .{name});
+            }
+        }
 
         outputs[out_i] = .{ .c = constraint, .n = name };
     }
@@ -25667,6 +25675,7 @@ fn zirBuiltinExtern(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
+    const ip = &mod.intern_pool;
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
@@ -25706,34 +25715,38 @@ fn zirBuiltinExtern(
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.name = options.name;
 
-    {
-        const new_var = try mod.intern(.{ .variable = .{
-            .ty = ptr_info.child,
-            .init = .none,
-            .decl = sema.owner_decl_index,
-            .lib_name = options.library_name,
-            .is_extern = true,
-            .is_const = ptr_info.flags.is_const,
-            .is_threadlocal = options.is_thread_local,
-            .is_weak_linkage = options.linkage == .Weak,
-        } });
-
-        new_decl.src_line = sema.owner_decl.src_line;
-        // We only access this decl through the decl_ref with the correct type created
-        // below, so this type doesn't matter
-        new_decl.ty = Type.fromInterned(ptr_info.child);
-        new_decl.val = Value.fromInterned(new_var);
-        new_decl.alignment = .none;
-        new_decl.@"linksection" = .none;
-        new_decl.has_tv = true;
-        new_decl.analysis = .complete;
-        new_decl.generation = mod.generation;
-    }
+    new_decl.src_line = sema.owner_decl.src_line;
+    new_decl.ty = Type.fromInterned(ptr_info.child);
+    new_decl.val = Value.fromInterned(
+        if (Type.fromInterned(ptr_info.child).zigTypeTag(mod) == .Fn)
+            try ip.getExternFunc(sema.gpa, .{
+                .ty = ptr_info.child,
+                .decl = new_decl_index,
+                .lib_name = options.library_name,
+            })
+        else
+            try mod.intern(.{ .variable = .{
+                .ty = ptr_info.child,
+                .init = .none,
+                .decl = new_decl_index,
+                .lib_name = options.library_name,
+                .is_extern = true,
+                .is_const = ptr_info.flags.is_const,
+                .is_threadlocal = options.is_thread_local,
+                .is_weak_linkage = options.linkage == .Weak,
+            } }),
+    );
+    new_decl.alignment = .none;
+    new_decl.@"linksection" = .none;
+    new_decl.has_tv = true;
+    new_decl.owns_tv = true;
+    new_decl.analysis = .complete;
+    new_decl.generation = mod.generation;
 
     try sema.ensureDeclAnalyzed(new_decl_index);
 
     return Air.internedToRef((try mod.getCoerced(Value.fromInterned((try mod.intern(.{ .ptr = .{
-        .ty = switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+        .ty = switch (ip.indexToKey(ty.toIntern())) {
             .ptr_type => ty.toIntern(),
             .opt_type => |child_type| child_type,
             else => unreachable,
@@ -32564,14 +32577,86 @@ fn analyzeSlice(
         .Pointer => switch (ptr_ptr_child_ty.ptrSize(mod)) {
             .One => {
                 const double_child_ty = ptr_ptr_child_ty.childType(mod);
+                ptr_or_slice = try sema.analyzeLoad(block, src, ptr_ptr, ptr_src);
                 if (double_child_ty.zigTypeTag(mod) == .Array) {
                     ptr_sentinel = double_child_ty.sentinel(mod);
-                    ptr_or_slice = try sema.analyzeLoad(block, src, ptr_ptr, ptr_src);
                     slice_ty = ptr_ptr_child_ty;
                     array_ty = double_child_ty;
                     elem_ty = double_child_ty.childType(mod);
                 } else {
-                    return sema.fail(block, src, "slice of single-item pointer", .{});
+                    const bounds_error_message = "slice of single-item pointer must have comptime-known bounds [0..0], [0..1], or [1..1]";
+                    if (uncasted_end_opt == .none) {
+                        return sema.fail(block, src, bounds_error_message, .{});
+                    }
+                    const start_value = try sema.resolveConstDefinedValue(
+                        block,
+                        start_src,
+                        uncasted_start,
+                        .{ .needed_comptime_reason = bounds_error_message },
+                    );
+
+                    const end_value = try sema.resolveConstDefinedValue(
+                        block,
+                        end_src,
+                        uncasted_end_opt,
+                        .{ .needed_comptime_reason = bounds_error_message },
+                    );
+
+                    if (try sema.compareScalar(start_value, .neq, end_value, Type.comptime_int)) {
+                        if (try sema.compareScalar(start_value, .neq, Value.zero_comptime_int, Type.comptime_int)) {
+                            const err_msg = try sema.errMsg(block, start_src, bounds_error_message, .{});
+                            try sema.errNote(
+                                block,
+                                start_src,
+                                err_msg,
+                                "expected '{}', found '{}'",
+                                .{
+                                    Value.zero_comptime_int.fmtValue(Type.comptime_int, mod),
+                                    start_value.fmtValue(Type.comptime_int, mod),
+                                },
+                            );
+                            return sema.failWithOwnedErrorMsg(block, err_msg);
+                        } else if (try sema.compareScalar(end_value, .neq, Value.one_comptime_int, Type.comptime_int)) {
+                            const err_msg = try sema.errMsg(block, end_src, bounds_error_message, .{});
+                            try sema.errNote(
+                                block,
+                                end_src,
+                                err_msg,
+                                "expected '{}', found '{}'",
+                                .{
+                                    Value.one_comptime_int.fmtValue(Type.comptime_int, mod),
+                                    end_value.fmtValue(Type.comptime_int, mod),
+                                },
+                            );
+                            return sema.failWithOwnedErrorMsg(block, err_msg);
+                        }
+                    } else {
+                        if (try sema.compareScalar(end_value, .gt, Value.one_comptime_int, Type.comptime_int)) {
+                            return sema.fail(
+                                block,
+                                end_src,
+                                "end index {} out of bounds for slice of single-item pointer",
+                                .{end_value.fmtValue(Type.comptime_int, mod)},
+                            );
+                        }
+                    }
+
+                    array_ty = try mod.arrayType(.{
+                        .len = 1,
+                        .child = double_child_ty.toIntern(),
+                    });
+                    const ptr_info = ptr_ptr_child_ty.ptrInfo(mod);
+                    slice_ty = try mod.ptrType(.{
+                        .child = array_ty.toIntern(),
+                        .flags = .{
+                            .alignment = ptr_info.flags.alignment,
+                            .is_const = ptr_info.flags.is_const,
+                            .is_allowzero = ptr_info.flags.is_allowzero,
+                            .is_volatile = ptr_info.flags.is_volatile,
+                            .address_space = ptr_info.flags.address_space,
+                        },
+                    });
+                    elem_ty = double_child_ty;
                 }
             },
             .Many, .C => {
@@ -32627,30 +32712,6 @@ fn analyzeSlice(
             if (!end_is_len) {
                 const end = if (by_length) end: {
                     const len = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
-                    if (try sema.resolveValue(len)) |slice_len_val| {
-                        const len_s_val = try mod.intValue(
-                            Type.usize,
-                            array_ty.arrayLenIncludingSentinel(mod),
-                        );
-                        if (!(try sema.compareScalar(slice_len_val, .lte, len_s_val, Type.usize))) {
-                            const sentinel_label: []const u8 = if (array_ty.sentinel(mod) != null)
-                                " +1 (sentinel)"
-                            else
-                                "";
-
-                            return sema.fail(
-                                block,
-                                end_src,
-                                "length {} out of bounds for array of length {}{s}",
-                                .{
-                                    slice_len_val.fmtValue(Type.usize, mod),
-                                    len_val.fmtValue(Type.usize, mod),
-                                    sentinel_label,
-                                },
-                            );
-                        }
-                    }
-                    // check len is less than array size if comptime known
                     const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
                     break :end try sema.coerce(block, Type.usize, uncasted_end, end_src);
                 } else try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);

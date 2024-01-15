@@ -695,41 +695,41 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
 fn testEmitRelocatable(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "emit-relocatable", opts);
 
-    const obj1 = addObject(b, opts, .{
-        .name = "obj1",
-        .zig_source_bytes =
-        \\const std = @import("std");
-        \\extern var bar: i32;
-        \\export fn foo() i32 {
-        \\   return bar;
-        \\}
-        \\export fn printFoo() void {
-        \\    std.debug.print("foo={d}\n", .{foo()});
-        \\}
-        ,
-        .c_source_bytes =
-        \\#include <stdio.h>
-        \\int bar = 42;
-        \\void printBar() {
-        \\  fprintf(stderr, "bar=%d\n", bar);
-        \\}
-        ,
+    const a_o = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\extern var bar: i32;
+    \\export fn foo() i32 {
+    \\   return bar;
+    \\}
+    \\export fn printFoo() void {
+    \\    std.debug.print("foo={d}\n", .{foo()});
+    \\}
     });
-    obj1.linkLibC();
+    a_o.linkLibC();
 
-    const exe = addExecutable(b, opts, .{
-        .name = "test",
-        .zig_source_bytes =
-        \\const std = @import("std");
-        \\extern fn printFoo() void;
-        \\extern fn printBar() void;
-        \\pub fn main() void {
-        \\    printFoo();
-        \\    printBar();
-        \\}
-        ,
+    const b_o = addObject(b, opts, .{ .name = "b", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\int bar = 42;
+    \\void printBar() {
+    \\  fprintf(stderr, "bar=%d\n", bar);
+    \\}
     });
-    exe.addObject(obj1);
+    b_o.linkLibC();
+
+    const c_o = addObject(b, opts, .{ .name = "c" });
+    c_o.addObject(a_o);
+    c_o.addObject(b_o);
+
+    const exe = addExecutable(b, opts, .{ .name = "test", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\extern fn printFoo() void;
+    \\extern fn printBar() void;
+    \\pub fn main() void {
+    \\    printFoo();
+    \\    printBar();
+    \\}
+    });
+    exe.addObject(c_o);
     exe.linkLibC();
 
     const run = addRunArtifact(exe);

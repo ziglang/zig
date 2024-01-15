@@ -866,7 +866,6 @@ fn buildOutputType(
     var image_base: ?u64 = null;
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
-    var each_lib_rpath: ?bool = null;
     var build_id: ?std.zig.BuildId = null;
     var runtime_args_start: ?usize = null;
     var test_filter: ?[]const u8 = null;
@@ -964,6 +963,7 @@ fn buildOutputType(
         .frameworks = .{},
         .framework_dirs = .{},
         .rpath_list = .{},
+        .each_lib_rpath = null,
         .libc_paths_file = try EnvVar.ZIG_LIBC.get(arena),
         .link_objects = .{},
         .native_system_include_paths = &.{},
@@ -1334,9 +1334,9 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-compiler-rt")) {
                         want_compiler_rt = false;
                     } else if (mem.eql(u8, arg, "-feach-lib-rpath")) {
-                        each_lib_rpath = true;
+                        create_module.each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
-                        each_lib_rpath = false;
+                        create_module.each_lib_rpath = false;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
                         try test_exec_args.append(null);
                     } else if (mem.eql(u8, arg, "--test-evented-io")) {
@@ -3236,7 +3236,6 @@ fn buildOutputType(
         .verbose_llvm_cpu_features = verbose_llvm_cpu_features,
         .time_report = time_report,
         .stack_report = stack_report,
-        .each_lib_rpath = each_lib_rpath,
         .build_id = build_id,
         .test_filter = test_filter,
         .test_name_prefix = test_name_prefix,
@@ -3450,6 +3449,7 @@ const CreateModule = struct {
     native_system_include_paths: []const []const u8,
     framework_dirs: std.ArrayListUnmanaged([]const u8),
     rpath_list: std.ArrayListUnmanaged([]const u8),
+    each_lib_rpath: ?bool,
     libc_paths_file: ?[]const u8,
     link_objects: std.ArrayListUnmanaged(Compilation.LinkObject),
 };
@@ -3642,6 +3642,10 @@ fn createModule(
             // If we want to link against frameworks, we need system headers.
             if (create_module.frameworks.count() > 0)
                 create_module.want_native_include_dirs = true;
+        }
+
+        if (create_module.each_lib_rpath orelse resolved_target.is_native_os) {
+            try create_module.rpath_list.appendSlice(arena, create_module.lib_dirs.items);
         }
 
         // Trigger native system library path detection if necessary.
