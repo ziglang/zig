@@ -6166,7 +6166,7 @@ fn ifExpr(
                     .gen_zir = &then_scope,
                     .name = ident_name,
                     .inst = payload_inst,
-                    .token_src = payload_token,
+                    .token_src = token_name_index,
                     .id_cat = .capture,
                 };
                 try then_scope.addDbgVar(.dbg_var_val, ident_name, payload_inst);
@@ -6407,19 +6407,18 @@ fn whileExpr(
                 // will add this instruction to then_scope.instructions below
                 const payload_inst = try then_scope.makeUnNode(tag, cond.inst, while_full.ast.cond_expr);
                 opt_payload_inst = payload_inst.toOptional();
-                const ident_token = if (payload_is_ref) payload_token + 1 else payload_token;
+                const ident_token = payload_token + @intFromBool(payload_is_ref);
                 const ident_bytes = tree.tokenSlice(ident_token);
                 if (mem.eql(u8, "_", ident_bytes))
                     break :s &then_scope.base;
-                const payload_name_loc = payload_token + @intFromBool(payload_is_ref);
-                const ident_name = try astgen.identAsString(payload_name_loc);
-                try astgen.detectLocalShadowing(&then_scope.base, ident_name, payload_name_loc, ident_bytes, .capture);
+                const ident_name = try astgen.identAsString(ident_token);
+                try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .capture);
                 payload_val_scope = .{
                     .parent = &then_scope.base,
                     .gen_zir = &then_scope,
                     .name = ident_name,
                     .inst = payload_inst.toRef(),
-                    .token_src = payload_token,
+                    .token_src = ident_token,
                     .id_cat = .capture,
                 };
                 dbg_var_name = ident_name;
@@ -7099,7 +7098,7 @@ fn switchExprErrUnion(
                             .gen_zir = &case_scope,
                             .name = ident_name,
                             .inst = unwrapped_payload,
-                            .token_src = payload_token,
+                            .token_src = token_name_index,
                             .id_cat = .capture,
                         };
                         try case_scope.addDbgVar(.dbg_var_val, ident_name, unwrapped_payload);
@@ -7657,7 +7656,7 @@ fn switchExpr(
                     .gen_zir = &case_scope,
                     .name = capture_name,
                     .inst = switch_block.toRef(),
-                    .token_src = payload_token,
+                    .token_src = ident,
                     .id_cat = .capture,
                 };
                 dbg_var_name = capture_name;
