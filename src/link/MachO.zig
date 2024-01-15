@@ -116,6 +116,9 @@ platform: Platform,
 sdk_version: ?std.SemanticVersion,
 /// When set to true, the linker will hoist all dylibs including system dependent dylibs.
 no_implicit_dylibs: bool = false,
+/// Whether the linker should parse and always force load objects containing ObjC in archives.
+// TODO: in Zig we currently take -ObjC as always on
+force_load_objc: bool = true,
 
 /// Hot-code swapping state.
 hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
@@ -998,7 +1001,7 @@ fn parseArchive(self: *MachO, lib: SystemLib, must_link: bool, fat_arch: ?fat.Ar
 
         // Finally, we do a post-parse check for -ObjC to see if we need to force load this member
         // anyhow.
-        // TODO: object.alive = object.alive or (self.options.force_load_objc and object.hasObjc());
+        object.alive = object.alive or (self.force_load_objc and object.hasObjc());
     }
     if (has_parse_error) return error.MalformedArchive;
 }
