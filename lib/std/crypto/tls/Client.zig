@@ -805,9 +805,9 @@ fn prepareCiphertextRecord(
             const close_notify_alert_reserved = tls.close_notify_alert.len + overhead_len;
             while (true) {
                 const encrypted_content_len: u16 = @intCast(@min(
-                    @min(bytes.len - bytes_i, max_ciphertext_len - 1),
-                    ciphertext_buf.len - close_notify_alert_reserved -
-                        overhead_len - ciphertext_end,
+                    @min(bytes.len - bytes_i, tls.max_cipertext_inner_record_len),
+                    ciphertext_buf.len -|
+                        (close_notify_alert_reserved + overhead_len + ciphertext_end),
                 ));
                 if (encrypted_content_len == 0) return .{
                     .iovec_end = iovec_end,
