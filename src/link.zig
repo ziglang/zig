@@ -104,7 +104,6 @@ pub const File = struct {
         max_memory: ?u64,
         export_symbol_names: []const []const u8,
         global_base: ?u64,
-        each_lib_rpath: bool,
         build_id: std.zig.BuildId,
         disable_lld_caching: bool,
         hash_style: Elf.HashStyle,
