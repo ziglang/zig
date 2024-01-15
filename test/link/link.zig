@@ -48,6 +48,8 @@ const OverlayOptions = struct {
     cpp_source_flags: []const []const u8 = &.{},
     objc_source_bytes: ?[]const u8 = null,
     objc_source_flags: []const []const u8 = &.{},
+    objcpp_source_bytes: ?[]const u8 = null,
+    objcpp_source_flags: []const []const u8 = &.{},
     zig_source_bytes: ?[]const u8 = null,
     pic: ?bool = null,
     strip: ?bool = null,
@@ -100,6 +102,12 @@ fn addCompileStep(
             .static_lib => .static,
         },
     });
+    if (overlay.objcpp_source_bytes) |bytes| {
+        compile_step.addCSourceFile(.{
+            .file = b.addWriteFiles().add("a.mm", bytes),
+            .flags = overlay.objcpp_source_flags,
+        });
+    }
     if (overlay.objc_source_bytes) |bytes| {
         compile_step.addCSourceFile(.{
             .file = b.addWriteFiles().add("a.m", bytes),

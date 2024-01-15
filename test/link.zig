@@ -89,30 +89,4 @@ pub const cases = [_]Case{
         .build_root = "test/link/wasm/type",
         .import = @import("link/wasm/type/build.zig"),
     },
-
-    // Mach-O Cases
-    .{
-        .build_root = "test/link/macho/bugs/13056",
-        .import = @import("link/macho/bugs/13056/build.zig"),
-    },
-    .{
-        .build_root = "test/link/macho/bugs/13457",
-        .import = @import("link/macho/bugs/13457/build.zig"),
-    },
-    .{
-        .build_root = "test/link/macho/bugs/16308",
-        .import = @import("link/macho/bugs/16308/build.zig"),
-    },
-    .{
-        .build_root = "test/link/macho/bugs/16628",
-        .import = @import("link/macho/bugs/16628/build.zig"),
-    },
-    .{
-        .build_root = "test/link/macho/linksection",
-        .import = @import("link/macho/linksection/build.zig"),
-    },
-    .{
-        .build_root = "test/link/macho/objcpp",
-        .import = @import("link/macho/objcpp/build.zig"),
-    },
 };
