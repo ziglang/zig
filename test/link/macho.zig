@@ -662,7 +662,7 @@ fn testRelocatableZig(b: *Build, opts: Options) *Step {
 
     const run = addRunArtifact(exe);
     run.addCheck(.{ .expect_stderr_match = b.dupe("incrFoo=1") });
-    run.addCheck(.{ .expect_stderr_match = b.dupe("decrFoo=1") });
+    run.addCheck(.{ .expect_stderr_match = b.dupe("decrFoo=0") });
     run.addCheck(.{ .expect_stderr_match = b.dupe("panic: Oh no!") });
     test_step.dependOn(&run.step);
 
