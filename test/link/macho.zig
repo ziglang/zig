@@ -27,6 +27,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testNoDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testNoExportsDylib(b, .{ .target = default_target }));
+    macho_step.dependOn(testPagezeroSize(b, .{ .target = default_target }));
     macho_step.dependOn(testRelocatable(b, .{ .target = default_target }));
     macho_step.dependOn(testRelocatableZig(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
@@ -858,6 +859,40 @@ fn testObjc(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testPagezeroSize(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-pagezero-size", opts);
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main () { return 0; }" });
+        exe.pagezero_size = 0x4000;
+
+        const check = exe.checkObject();
+        check.checkInHeaders();
+        check.checkExact("LC 0");
+        check.checkExact("segname __PAGEZERO");
+        check.checkExact("vmaddr 0");
+        check.checkExact("vmsize 4000");
+        check.checkInHeaders();
+        check.checkExact("segname __TEXT");
+        check.checkExact("vmaddr 4000");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main () { return 0; }" });
+        exe.pagezero_size = 0;
+
+        const check = exe.checkObject();
+        check.checkInHeaders();
+        check.checkExact("LC 0");
+        check.checkExact("segname __TEXT");
+        check.checkExact("vmaddr 0");
+        test_step.dependOn(&check.step);
+    }
 
     return test_step;
 }
