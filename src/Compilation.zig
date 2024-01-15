@@ -1049,7 +1049,6 @@ pub const CreateOptions = struct {
     linker_print_icf_sections: bool = false,
     linker_print_map: bool = false,
     llvm_opt_bisect_limit: i32 = -1,
-    each_lib_rpath: ?bool = null,
     build_id: ?std.zig.BuildId = null,
     disable_c_depfile: bool = false,
     linker_z_nodelete: bool = false,
@@ -1341,9 +1340,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
         const error_limit = options.error_limit orelse (std.math.maxInt(u16) - 1);
 
-        const each_lib_rpath = options.each_lib_rpath orelse
-            options.root_mod.resolved_target.is_native_os;
-
         // We put everything into the cache hash that *cannot be modified
         // during an incremental update*. For example, one cannot change the
         // target between updates, but one can change source files, so the
@@ -1578,7 +1574,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_relocs = options.link_emit_relocs,
             .soname = options.soname,
             .compatibility_version = options.compatibility_version,
-            .each_lib_rpath = each_lib_rpath,
             .build_id = build_id,
             .disable_lld_caching = options.disable_lld_caching or options.cache_mode == .whole,
             .subsystem = options.subsystem,
@@ -2552,7 +2547,6 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.addListOfBytes(opts.lib_dirs);
     man.hash.addListOfBytes(opts.rpath_list);
     man.hash.addListOfBytes(opts.symbol_wrap_set.keys());
-    man.hash.add(opts.each_lib_rpath);
     if (comp.config.link_libc) {
         man.hash.add(comp.libc_installation != null);
         const target = comp.root_mod.resolved_target.result;

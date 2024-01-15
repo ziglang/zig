@@ -1965,13 +1965,34 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
 /// Swap the byte order of all the members of the fields of a struct
 /// (Changing their endianness)
 pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
-    if (@typeInfo(S) != .Struct) @compileError("byteSwapAllFields expects a struct as the first argument");
-    inline for (std.meta.fields(S)) |f| {
-        if (@typeInfo(f.type) == .Struct) {
-            byteSwapAllFields(f.type, &@field(ptr, f.name));
-        } else {
-            @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
-        }
+    switch (@typeInfo(S)) {
+        .Struct => {
+            inline for (std.meta.fields(S)) |f| {
+                switch (@typeInfo(f.type)) {
+                    .Struct, .Array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
+                    .Enum => {
+                        @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
+                    },
+                    else => {
+                        @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
+                    },
+                }
+            }
+        },
+        .Array => {
+            for (ptr) |*item| {
+                switch (@typeInfo(@TypeOf(item.*))) {
+                    .Struct, .Array => byteSwapAllFields(@TypeOf(item.*), item),
+                    .Enum => {
+                        item.* = @enumFromInt(@byteSwap(@intFromEnum(item.*)));
+                    },
+                    else => {
+                        item.* = @byteSwap(item.*);
+                    },
+                }
+            }
+        },
+        else => @compileError("byteSwapAllFields expects a struct or array as the first argument"),
     }
 }
 
@@ -1980,21 +2001,25 @@ test "byteSwapAllFields" {
         f0: u8,
         f1: u16,
         f2: u32,
+        f3: [1]u8,
     };
     const K = extern struct {
         f0: u8,
         f1: T,
         f2: u16,
+        f3: [1]u8,
     };
     var s = T{
         .f0 = 0x12,
         .f1 = 0x1234,
         .f2 = 0x12345678,
+        .f3 = .{0x12},
     };
     var k = K{
         .f0 = 0x12,
         .f1 = s,
         .f2 = 0x1234,
+        .f3 = .{0x12},
     };
     byteSwapAllFields(T, &s);
     byteSwapAllFields(K, &k);
@@ -2002,11 +2027,13 @@ test "byteSwapAllFields" {
         .f0 = 0x12,
         .f1 = 0x3412,
         .f2 = 0x78563412,
+        .f3 = .{0x12},
     }, s);
     try std.testing.expectEqual(K{
         .f0 = 0x12,
         .f1 = s,
         .f2 = 0x3412,
+        .f3 = .{0x12},
     }, k);
 }
 
