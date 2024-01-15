@@ -52,6 +52,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
             macho_step.dependOn(testDeadStripDylibs(b, .{ .target = b.host }));
             macho_step.dependOn(testHeaderpad(b, .{ .target = b.host }));
             macho_step.dependOn(testNeededFramework(b, .{ .target = b.host }));
+            macho_step.dependOn(testObjc(b, .{ .target = b.host }));
             macho_step.dependOn(testWeakFramework(b, .{ .target = b.host }));
         }
     }
@@ -821,6 +822,34 @@ fn testNeededLibrary(b: *Build, opts: Options) *Step {
     check.checkInHeaders();
     check.checkExact("cmd LOAD_DYLIB");
     check.checkContains("liba.dylib");
+    test_step.dependOn(&check.step);
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testObjc(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-objc", opts);
+
+    const lib = addStaticLibrary(b, opts, .{ .name = "a", .objc_source_bytes = 
+    \\#import <Foundation/Foundation.h>
+    \\@interface Foo : NSObject
+    \\@end
+    \\@implementation Foo
+    \\@end
+    });
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
+    exe.root_module.linkSystemLibrary("a", .{});
+    exe.root_module.linkFramework("Foundation", .{});
+    exe.addLibraryPath(lib.getEmittedBinDirectory());
+
+    const check = exe.checkObject();
+    check.checkInSymtab();
+    check.checkContains("_OBJC_");
     test_step.dependOn(&check.step);
 
     const run = addRunArtifact(exe);
