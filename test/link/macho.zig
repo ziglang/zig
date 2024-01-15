@@ -217,8 +217,8 @@ fn testDylib(b: *Build, opts: Options) *Step {
     \\}
     });
     exe.root_module.linkSystemLibrary("a", .{});
-    exe.addLibraryPath(dylib.getEmittedBinDirectory());
-    exe.addRPath(dylib.getEmittedBinDirectory());
+    exe.root_module.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.root_module.addRPath(dylib.getEmittedBinDirectory());
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world");
@@ -286,7 +286,7 @@ fn testEntryPointArchive(b: *Build, opts: Options) *Step {
     {
         const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "" });
         exe.root_module.linkSystemLibrary("main", .{});
-        exe.addLibraryPath(lib.getEmittedBinDirectory());
+        exe.root_module.addLibraryPath(lib.getEmittedBinDirectory());
 
         const run = addRunArtifact(exe);
         test_step.dependOn(&run.step);
@@ -295,7 +295,7 @@ fn testEntryPointArchive(b: *Build, opts: Options) *Step {
     {
         const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "" });
         exe.root_module.linkSystemLibrary("main", .{});
-        exe.addLibraryPath(lib.getEmittedBinDirectory());
+        exe.root_module.addLibraryPath(lib.getEmittedBinDirectory());
         exe.link_gc_sections = true;
 
         const run = addRunArtifact(exe);
@@ -368,23 +368,23 @@ fn testHeaderpad(b: *Build, opts: Options) *Step {
                 .name = name,
                 .c_source_bytes = "int main() { return 0; }",
             });
-            exe.linkFramework("CoreFoundation");
-            exe.linkFramework("Foundation");
-            exe.linkFramework("Cocoa");
-            exe.linkFramework("CoreGraphics");
-            exe.linkFramework("CoreHaptics");
-            exe.linkFramework("CoreAudio");
-            exe.linkFramework("AVFoundation");
-            exe.linkFramework("CoreImage");
-            exe.linkFramework("CoreLocation");
-            exe.linkFramework("CoreML");
-            exe.linkFramework("CoreVideo");
-            exe.linkFramework("CoreText");
-            exe.linkFramework("CryptoKit");
-            exe.linkFramework("GameKit");
-            exe.linkFramework("SwiftUI");
-            exe.linkFramework("StoreKit");
-            exe.linkFramework("SpriteKit");
+            exe.root_module.linkFramework("CoreFoundation", .{});
+            exe.root_module.linkFramework("Foundation", .{});
+            exe.root_module.linkFramework("Cocoa", .{});
+            exe.root_module.linkFramework("CoreGraphics", .{});
+            exe.root_module.linkFramework("CoreHaptics", .{});
+            exe.root_module.linkFramework("CoreAudio", .{});
+            exe.root_module.linkFramework("AVFoundation", .{});
+            exe.root_module.linkFramework("CoreImage", .{});
+            exe.root_module.linkFramework("CoreLocation", .{});
+            exe.root_module.linkFramework("CoreML", .{});
+            exe.root_module.linkFramework("CoreVideo", .{});
+            exe.root_module.linkFramework("CoreText", .{});
+            exe.root_module.linkFramework("CryptoKit", .{});
+            exe.root_module.linkFramework("GameKit", .{});
+            exe.root_module.linkFramework("SwiftUI", .{});
+            exe.root_module.linkFramework("StoreKit", .{});
+            exe.root_module.linkFramework("SpriteKit", .{});
             return exe;
         }
     }.addExe;
@@ -814,8 +814,8 @@ fn testNeededLibrary(b: *Build, opts: Options) *Step {
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
     exe.root_module.linkSystemLibrary("a", .{ .needed = true });
-    exe.addLibraryPath(dylib.getEmittedBinDirectory());
-    exe.addRPath(dylib.getEmittedBinDirectory());
+    exe.root_module.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.root_module.addRPath(dylib.getEmittedBinDirectory());
     exe.dead_strip_dylibs = true;
 
     const check = exe.checkObject();
@@ -845,7 +845,7 @@ fn testObjc(b: *Build, opts: Options) *Step {
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
     exe.root_module.linkSystemLibrary("a", .{});
     exe.root_module.linkFramework("Foundation", .{});
-    exe.addLibraryPath(lib.getEmittedBinDirectory());
+    exe.root_module.addLibraryPath(lib.getEmittedBinDirectory());
 
     const check = exe.checkObject();
     check.checkInSymtab();
@@ -1205,8 +1205,8 @@ fn testTls(b: *Build, opts: Options) *Step {
     \\}
     });
     exe.root_module.linkSystemLibrary("a", .{});
-    exe.addLibraryPath(dylib.getEmittedBinDirectory());
-    exe.addRPath(dylib.getEmittedBinDirectory());
+    exe.root_module.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.root_module.addRPath(dylib.getEmittedBinDirectory());
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("2 2 2");
@@ -1300,10 +1300,10 @@ fn testTwoLevelNamespace(b: *Build, opts: Options) *Step {
         exe.addObject(main_o);
         exe.root_module.linkSystemLibrary("a", .{});
         exe.root_module.linkSystemLibrary("b", .{});
-        exe.addLibraryPath(liba.getEmittedBinDirectory());
-        exe.addLibraryPath(libb.getEmittedBinDirectory());
-        exe.addRPath(liba.getEmittedBinDirectory());
-        exe.addRPath(libb.getEmittedBinDirectory());
+        exe.root_module.addLibraryPath(liba.getEmittedBinDirectory());
+        exe.root_module.addLibraryPath(libb.getEmittedBinDirectory());
+        exe.root_module.addRPath(liba.getEmittedBinDirectory());
+        exe.root_module.addRPath(libb.getEmittedBinDirectory());
 
         const check = exe.checkObject();
         check.checkInSymtab();
@@ -1329,10 +1329,10 @@ fn testTwoLevelNamespace(b: *Build, opts: Options) *Step {
         exe.addObject(main_o);
         exe.root_module.linkSystemLibrary("b", .{});
         exe.root_module.linkSystemLibrary("a", .{});
-        exe.addLibraryPath(liba.getEmittedBinDirectory());
-        exe.addLibraryPath(libb.getEmittedBinDirectory());
-        exe.addRPath(liba.getEmittedBinDirectory());
-        exe.addRPath(libb.getEmittedBinDirectory());
+        exe.root_module.addLibraryPath(liba.getEmittedBinDirectory());
+        exe.root_module.addLibraryPath(libb.getEmittedBinDirectory());
+        exe.root_module.addRPath(liba.getEmittedBinDirectory());
+        exe.root_module.addRPath(libb.getEmittedBinDirectory());
 
         const check = exe.checkObject();
         check.checkInSymtab();
@@ -1607,8 +1607,8 @@ fn testWeakLibrary(b: *Build, opts: Options) *Step {
     \\}
     });
     exe.root_module.linkSystemLibrary("a", .{ .weak = true });
-    exe.addLibraryPath(dylib.getEmittedBinDirectory());
-    exe.addRPath(dylib.getEmittedBinDirectory());
+    exe.root_module.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.root_module.addRPath(dylib.getEmittedBinDirectory());
 
     const check = exe.checkObject();
     check.checkInHeaders();
