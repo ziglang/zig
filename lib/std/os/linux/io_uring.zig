@@ -3887,7 +3887,7 @@ test "accept_direct" {
             try testing.expectEqual(@as(u32, 1), try ring.submit());
 
             // connect
-            var client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+            const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
             try os.connect(client, &address.any, address.getOsSockLen());
             defer os.closeSocket(client);
 
@@ -3921,7 +3921,7 @@ test "accept_direct" {
             _ = try ring.accept_direct(accept_userdata, listener_socket, null, null, 0);
             try testing.expectEqual(@as(u32, 1), try ring.submit());
             // connect
-            var client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+            const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
             try os.connect(client, &address.any, address.getOsSockLen());
             defer os.closeSocket(client);
             // completion with error
@@ -3963,7 +3963,7 @@ test "accept_multishot_direct" {
 
         for (registered_fds) |_| {
             // connect
-            var client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+            const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
             try os.connect(client, &address.any, address.getOsSockLen());
             defer os.closeSocket(client);
 
@@ -3978,7 +3978,7 @@ test "accept_multishot_direct" {
         // Multishot is terminated (more flag is not set).
         {
             // connect
-            var client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+            const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
             try os.connect(client, &address.any, address.getOsSockLen());
             defer os.closeSocket(client);
             // completion with error
