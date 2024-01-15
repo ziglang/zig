@@ -25,6 +25,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testLargeBss(b, .{ .target = default_target }));
     macho_step.dependOn(testLayout(b, .{ .target = default_target }));
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
+    macho_step.dependOn(testNoDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testRelocatable(b, .{ .target = default_target }));
     macho_step.dependOn(testRelocatableZig(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
@@ -741,6 +742,32 @@ fn testMhExecuteHeader(b: *Build, opts: Options) *Step {
     check.checkInSymtab();
     check.checkContains("[referenced dynamically] external __mh_execute_header");
     test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testNoDeadStrip(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-no-dead-strip", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "name", .c_source_bytes = 
+    \\__attribute__((used)) int bogus1 = 0;
+    \\int bogus2 = 0;
+    \\int foo = 42;
+    \\int main() {
+    \\  return foo - 42;
+    \\}
+    });
+    exe.link_gc_sections = true;
+
+    const check = exe.checkObject();
+    check.checkInSymtab();
+    check.checkContains("external _bogus1");
+    check.checkInSymtab();
+    check.checkNotPresent("external _bogus2");
+    test_step.dependOn(&check.step);
+
+    const run = addRunArtifact(exe);
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
