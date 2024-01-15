@@ -17,6 +17,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     });
 
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
+    macho_step.dependOn(testEmptyObject(b, .{ .target = default_target }));
     macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
     macho_step.dependOn(testHeaderWeakFlags(b, .{ .target = default_target }));
     macho_step.dependOn(testHelloC(b, .{ .target = default_target }));
@@ -215,6 +216,26 @@ fn testDylib(b: *Build, opts: Options) *Step {
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testEmptyObject(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-empty-object", opts);
+
+    const empty = addObject(b, opts, .{ .name = "empty", .c_source_bytes = "" });
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\int main() {
+    \\  printf("Hello world!");
+    \\}
+    });
+    exe.addObject(empty);
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello world!");
     test_step.dependOn(&run.step);
 
     return test_step;
