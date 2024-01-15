@@ -376,9 +376,8 @@ test "slice multi-pointer without end" {
             var array = [5:0]u8{ 1, 2, 3, 4, 5 };
             const pointer: [*:0]u8 = &array;
 
-            comptime assert(@TypeOf(pointer[1..3]) == *[2]u8);
-            comptime assert(@TypeOf(pointer[1..3 :4]) == *[2:4]u8);
-            comptime assert(@TypeOf(pointer[1..5 :0]) == *[4:0]u8);
+            comptime assert(@TypeOf(pointer[1..]) == [*:0]u8);
+            comptime assert(@TypeOf(pointer[1.. :0]) == [*:0]u8);
 
             const slice = pointer[1..];
             comptime assert(@TypeOf(slice) == [*:0]u8);
