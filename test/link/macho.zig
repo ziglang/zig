@@ -50,6 +50,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         macho_step.dependOn(testDylib(b, .{ .target = default_target }));
         macho_step.dependOn(testNeededLibrary(b, .{ .target = default_target }));
         macho_step.dependOn(testSearchStrategy(b, .{ .target = default_target }));
+        macho_step.dependOn(testTbdv3(b, .{ .target = default_target }));
         macho_step.dependOn(testTls(b, .{ .target = default_target }));
         macho_step.dependOn(testTwoLevelNamespace(b, .{ .target = default_target }));
         macho_step.dependOn(testWeakLibrary(b, .{ .target = default_target }));
@@ -1281,6 +1282,44 @@ fn testStackSize(b: *Build, opts: Options) *Step {
     check.checkExact("cmd MAIN");
     check.checkExact("stacksize 100000000");
     test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testTbdv3(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-tbdv3", opts);
+
+    const dylib = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = "int getFoo() { return 42; }" });
+
+    const tbd = tbd: {
+        const wf = WriteFile.create(b);
+        break :tbd wf.add("liba.tbd",
+            \\--- !tapi-tbd-v3
+            \\archs:           [ arm64, x86_64 ]
+            \\uuids:           [ 'arm64: DEADBEEF', 'x86_64: BEEFDEAD' ]
+            \\platform:        macos
+            \\install-name:    @rpath/liba.dylib
+            \\current-version: 0
+            \\exports:
+            \\  - archs:           [ arm64, x86_64 ]
+            \\    symbols:         [ _getFoo ]
+        );
+    };
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\int getFoo();
+    \\int main() {
+    \\  return getFoo() - 42;
+    \\}
+    });
+    exe.root_module.linkSystemLibrary("a", .{});
+    exe.root_module.addLibraryPath(tbd.dirname());
+    exe.root_module.addRPath(dylib.getEmittedBinDirectory());
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
