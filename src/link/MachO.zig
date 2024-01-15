@@ -114,8 +114,6 @@ compatibility_version: ?std.SemanticVersion,
 entry_name: ?[]const u8,
 platform: Platform,
 sdk_version: ?std.SemanticVersion,
-/// Rpath table
-rpath_table: std.StringArrayHashMapUnmanaged(void) = .{},
 /// When set to true, the linker will hoist all dylibs including system dependent dylibs.
 no_implicit_dylibs: bool = false,
 
@@ -209,12 +207,6 @@ pub fn createEmpty(
         .read = true,
         .mode = link.File.determineMode(false, output_mode, link_mode),
     });
-
-    // Filter rpaths
-    try self.rpath_table.ensureUnusedCapacity(gpa, self.base.rpath_list.len);
-    for (options.rpath_list) |rpath| {
-        _ = self.rpath_table.putAssumeCapacity(rpath, {});
-    }
 
     // Append null file
     try self.files.append(gpa, .null);
@@ -333,7 +325,6 @@ pub fn deinit(self: *MachO) void {
     }
     self.thunks.deinit(gpa);
     self.unwind_records.deinit(gpa);
-    self.rpath_table.deinit(gpa);
 }
 
 pub fn flush(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
@@ -701,7 +692,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(syslibroot);
         }
 
-        for (self.rpath_table.keys()) |rpath| {
+        for (self.base.rpath_list) |rpath| {
             try argv.append("-rpath");
             try argv.append(rpath);
         }
@@ -2812,8 +2803,8 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, usize } {
         ncmds += 1;
     }
 
-    try load_commands.writeRpathLCs(self.rpath_table.keys(), writer);
-    ncmds += self.rpath_table.keys().len;
+    try load_commands.writeRpathLCs(self.base.rpath_list, writer);
+    ncmds += self.base.rpath_list.len;
 
     try writer.writeStruct(macho.source_version_command{ .version = 0 });
     ncmds += 1;
