@@ -1,5 +1,4 @@
 //! Here we test our MachO linker for correctness and functionality.
-//! TODO migrate standalone tests from test/link/macho/* to here.
 
 pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     const macho_step = b.step("test-macho", "Run MachO tests");
@@ -18,12 +17,14 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testEmptyObject(b, .{ .target = default_target }));
+    macho_step.dependOn(testEmptyZig(b, .{ .target = default_target }));
     macho_step.dependOn(testEntryPoint(b, .{ .target = default_target }));
     macho_step.dependOn(testHeaderWeakFlags(b, .{ .target = default_target }));
     macho_step.dependOn(testHelloC(b, .{ .target = default_target }));
     macho_step.dependOn(testHelloZig(b, .{ .target = default_target }));
     macho_step.dependOn(testLargeBss(b, .{ .target = default_target }));
     macho_step.dependOn(testLayout(b, .{ .target = default_target }));
+    macho_step.dependOn(testLinksection(b, .{ .target = default_target }));
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testNoDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testNoExportsDylib(b, .{ .target = default_target }));
@@ -59,8 +60,10 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         if (build_opts.has_macos_sdk) {
             macho_step.dependOn(testDeadStripDylibs(b, .{ .target = b.host }));
             macho_step.dependOn(testHeaderpad(b, .{ .target = b.host }));
+            macho_step.dependOn(testLinkDirectlyCppTbd(b, .{ .target = b.host }));
             macho_step.dependOn(testNeededFramework(b, .{ .target = b.host }));
             macho_step.dependOn(testObjc(b, .{ .target = b.host }));
+            macho_step.dependOn(testObjcpp(b, .{ .target = b.host }));
             macho_step.dependOn(testWeakFramework(b, .{ .target = b.host }));
         }
     }
@@ -250,6 +253,18 @@ fn testEmptyObject(b: *Build, opts: Options) *Step {
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world!");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testEmptyZig(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-empty-zig", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "empty", .zig_source_bytes = "pub fn main() void {}" });
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
     test_step.dependOn(&run.step);
 
     return test_step;
@@ -745,6 +760,65 @@ fn testLayout(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testLinkDirectlyCppTbd(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-link-directly-cpp-tbd", opts);
+
+    const sdk = std.zig.system.darwin.getSdk(b.allocator, opts.target.result) orelse
+        @panic("macOS SDK is required to run the test");
+
+    const exe = addExecutable(b, opts, .{
+        .name = "main",
+        .cpp_source_bytes =
+        \\#include <new>
+        \\#include <cstdio>
+        \\int main() {
+        \\    int *x = new int;
+        \\    *x = 5;
+        \\    fprintf(stderr, "x: %d\n", *x);
+        \\    delete x;
+        \\}
+        ,
+        .cpp_source_flags = &.{ "-nostdlib++", "-nostdinc++" },
+    });
+    exe.root_module.addSystemIncludePath(.{ .path = b.pathJoin(&.{ sdk, "/usr/include" }) });
+    exe.root_module.addIncludePath(.{ .path = b.pathJoin(&.{ sdk, "/usr/include/c++/v1" }) });
+    exe.root_module.addObjectFile(.{ .path = b.pathJoin(&.{ sdk, "/usr/lib/libc++.tbd" }) });
+
+    const check = exe.checkObject();
+    check.checkInSymtab();
+    check.checkContains("[referenced dynamically] external __mh_execute_header");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testLinksection(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-linksection", opts);
+
+    const obj = addObject(b, opts, .{ .name = "main", .zig_source_bytes = 
+    \\export var test_global: u32 linksection("__DATA,__TestGlobal") = undefined;
+    \\export fn testFn() linksection("__TEXT,__TestFn") callconv(.C) void {
+    \\    testGenericFn("A");
+    \\}
+    \\fn testGenericFn(comptime suffix: []const u8) linksection("__TEXT,__TestGenFn" ++ suffix) void {}
+    });
+
+    const check = obj.checkObject();
+    check.checkInSymtab();
+    check.checkContains("(__DATA,__TestGlobal) external _test_global");
+    check.checkInSymtab();
+    check.checkContains("(__TEXT,__TestFn) external _testFn");
+
+    if (opts.optimize == .Debug) {
+        check.checkInSymtab();
+        check.checkContains("(__TEXT,__TestGenFnA) _a.testGenericFn__anon_");
+    }
+
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
 fn testMhExecuteHeader(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "macho-mh-execute-header", opts);
 
@@ -865,6 +939,59 @@ fn testObjc(b: *Build, opts: Options) *Step {
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testObjcpp(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-objcpp", opts);
+
+    const foo_h = foo_h: {
+        const wf = WriteFile.create(b);
+        break :foo_h wf.add("Foo.h",
+            \\#import <Foundation/Foundation.h>
+            \\@interface Foo : NSObject
+            \\- (NSString *)name;
+            \\@end
+        );
+    };
+
+    const foo_o = addObject(b, opts, .{ .name = "foo", .objcpp_source_bytes = 
+    \\#import "Foo.h"
+    \\@implementation Foo
+    \\- (NSString *)name
+    \\{
+    \\      NSString *str = [[NSString alloc] initWithFormat:@"Zig"];
+    \\      return str;
+    \\}
+    \\@end
+    });
+    foo_o.root_module.addIncludePath(foo_h.dirname());
+    foo_o.linkLibCpp();
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .objcpp_source_bytes = 
+    \\#import "Foo.h"
+    \\#import <assert.h>
+    \\#include <iostream>
+    \\int main(int argc, char *argv[])
+    \\{
+    \\  @autoreleasepool {
+    \\      Foo *foo = [[Foo alloc] init];
+    \\      NSString *result = [foo name];
+    \\      std::cout << "Hello from C++ and " << [result UTF8String];
+    \\      assert([result isEqualToString:@"Zig"]);
+    \\      return 0;
+    \\  }
+    \\}
+    });
+    exe.root_module.addIncludePath(foo_h.dirname());
+    exe.addObject(foo_o);
+    exe.linkLibCpp();
+    exe.root_module.linkFramework("Foundation", .{});
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello from C++ and Zig");
     test_step.dependOn(&run.step);
 
     return test_step;
