@@ -18,7 +18,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testEmptyObject(b, .{ .target = default_target }));
-    macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
+    macho_step.dependOn(testEntryPoint(b, .{ .target = default_target }));
     macho_step.dependOn(testHeaderWeakFlags(b, .{ .target = default_target }));
     macho_step.dependOn(testHelloC(b, .{ .target = default_target }));
     macho_step.dependOn(testHelloZig(b, .{ .target = default_target }));
@@ -36,6 +36,8 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
     // Tests requiring symlinks when tested on Windows
     if (build_opts.has_symlinks_windows) {
+        macho_step.dependOn(testEntryPointArchive(b, .{ .target = default_target }));
+        macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
         macho_step.dependOn(testDylib(b, .{ .target = default_target }));
         macho_step.dependOn(testNeededLibrary(b, .{ .target = default_target }));
         macho_step.dependOn(testWeakLibrary(b, .{ .target = default_target }));
@@ -237,6 +239,64 @@ fn testEmptyObject(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world!");
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testEntryPoint(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-entry-point", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include<stdio.h>
+    \\int non_main() {
+    \\  printf("%d", 42);
+    \\  return 0;
+    \\}
+    });
+    exe.entry = .{ .symbol_name = "_non_main" };
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("42");
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkInHeaders();
+    check.checkExact("segname __TEXT");
+    check.checkExtract("vmaddr {vmaddr}");
+    check.checkInHeaders();
+    check.checkExact("cmd MAIN");
+    check.checkExtract("entryoff {entryoff}");
+    check.checkInSymtab();
+    check.checkExtract("{n_value} (__TEXT,__text) external _non_main");
+    check.checkComputeCompare("vmaddr entryoff +", .{ .op = .eq, .value = .{ .variable = "n_value" } });
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testEntryPointArchive(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-entry-point-archive", opts);
+
+    const lib = addStaticLibrary(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "" });
+        exe.root_module.linkSystemLibrary("main", .{});
+        exe.addLibraryPath(lib.getEmittedBinDirectory());
+
+        const run = addRunArtifact(exe);
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "" });
+        exe.root_module.linkSystemLibrary("main", .{});
+        exe.addLibraryPath(lib.getEmittedBinDirectory());
+        exe.link_gc_sections = true;
+
+        const run = addRunArtifact(exe);
+        test_step.dependOn(&run.step);
+    }
 
     return test_step;
 }
