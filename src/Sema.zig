@@ -32598,7 +32598,7 @@ fn analyzeSlice(
                     );
 
                     if (try sema.compareScalar(start_value, .neq, end_value, Type.comptime_int)) {
-                        if (try sema.compareScalar(start_value, .neq, InternPool.Index.zero.toValue(), Type.comptime_int)) {
+                        if (try sema.compareScalar(start_value, .neq, Value.zero_comptime_int, Type.comptime_int)) {
                             const err_msg = try sema.errMsg(block, start_src, bounds_error_message, .{});
                             try sema.errNote(
                                 block,
@@ -32611,7 +32611,7 @@ fn analyzeSlice(
                                 },
                             );
                             return sema.failWithOwnedErrorMsg(block, err_msg);
-                        } else if (try sema.compareScalar(end_value, .neq, InternPool.Index.one.toValue(), Type.comptime_int)) {
+                        } else if (try sema.compareScalar(end_value, .neq, Value.one_comptime_int, Type.comptime_int)) {
                             const err_msg = try sema.errMsg(block, end_src, bounds_error_message, .{});
                             try sema.errNote(
                                 block,
@@ -32626,7 +32626,7 @@ fn analyzeSlice(
                             return sema.failWithOwnedErrorMsg(block, err_msg);
                         }
                     } else {
-                        if (try sema.compareScalar(end_value, .gt, InternPool.Index.one.toValue(), Type.comptime_int)) {
+                        if (try sema.compareScalar(end_value, .gt, Value.one_comptime_int, Type.comptime_int)) {
                             return sema.fail(
                                 block,
                                 end_src,
