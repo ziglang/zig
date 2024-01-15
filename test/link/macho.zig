@@ -53,6 +53,8 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
             macho_step.dependOn(testHeaderpad(b, .{ .target = b.host }));
             macho_step.dependOn(testNeededFramework(b, .{ .target = b.host }));
             macho_step.dependOn(testObjc(b, .{ .target = b.host }));
+            macho_step.dependOn(testObjcStubs(b, .{ .target = b.host }));
+            macho_step.dependOn(testObjcStubs2(b, .{ .target = b.host }));
             macho_step.dependOn(testWeakFramework(b, .{ .target = b.host }));
         }
     }
@@ -289,6 +291,7 @@ fn testEntryPointArchive(b: *Build, opts: Options) *Step {
         exe.root_module.addLibraryPath(lib.getEmittedBinDirectory());
 
         const run = addRunArtifact(exe);
+        run.expectExitCode(0);
         test_step.dependOn(&run.step);
     }
 
@@ -299,6 +302,7 @@ fn testEntryPointArchive(b: *Build, opts: Options) *Step {
         exe.link_gc_sections = true;
 
         const run = addRunArtifact(exe);
+        run.expectExitCode(0);
         test_step.dependOn(&run.step);
     }
 
@@ -769,6 +773,7 @@ fn testNoDeadStrip(b: *Build, opts: Options) *Step {
     test_step.dependOn(&check.step);
 
     const run = addRunArtifact(exe);
+    run.expectExitCode(0);
     test_step.dependOn(&run.step);
 
     return test_step;
@@ -855,6 +860,155 @@ fn testObjc(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testObjcStubs(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-objc-stubs", opts);
+
+    const exe = addExecutable(b, opts, .{
+        .name = "main",
+        .objc_source_bytes =
+        \\@import Foundation;
+        \\@interface Foo : NSObject
+        \\@property (nonatomic, assign) NSString* name;
+        \\@end
+        \\@implementation Foo
+        \\- (void)bar {
+        \\    printf("%s", [self.name UTF8String]);
+        \\}
+        \\@end
+        \\int main() {
+        \\    Foo *foo = [[Foo alloc] init];
+        \\    foo.name = @"Foo";
+        \\    [foo bar];
+        \\    return 0;
+        \\}
+        ,
+        .objc_source_flags = &.{ "-fmodules", "-fobjc-msgsend-selector-stubs" },
+    });
+    exe.root_module.linkFramework("Foundation", .{});
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Foo");
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkInHeaders();
+    check.checkExact("sectname __objc_stubs");
+    check.checkInHeaders();
+    check.checkExact("sectname __objc_methname");
+    check.checkInHeaders();
+    check.checkExact("sectname __objc_selrefs");
+    check.checkInSymtab();
+    check.checkContains("(__TEXT,__objc_stubs) (was private external) _objc_msgSend$bar");
+    check.checkInSymtab();
+    check.checkContains("(__TEXT,__objc_stubs) (was private external) _objc_msgSend$name");
+    check.checkInSymtab();
+    check.checkContains("(__TEXT,__objc_stubs) (was private external) _objc_msgSend$setName");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testObjcStubs2(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-objc-stubs-2", opts);
+
+    const all_h = all_h: {
+        const wf = WriteFile.create(b);
+        break :all_h wf.add("all.h",
+            \\#import <Foundation/Foundation.h>
+            \\
+            \\@interface Foo : NSObject
+            \\@property (nonatomic, assign) NSString* name;
+            \\- (void) foo;
+            \\@end
+            \\@interface Bar : NSObject
+            \\@property (nonatomic, assign) NSString* name;
+            \\- (void) bar;
+            \\- (void) foobar: (Foo*) foo;
+            \\@end
+        );
+    };
+
+    const foo_o = addObject(b, opts, .{
+        .name = "foo",
+        .objc_source_bytes =
+        \\#import <Foundation/Foundation.h>
+        \\#import "all.h"
+        \\@implementation Foo
+        \\- (void)foo {
+        \\    printf("%s", [self.name UTF8String]);
+        \\}
+        \\@end
+        ,
+        .objc_source_flags = &.{"-fobjc-msgsend-selector-stubs"},
+    });
+    foo_o.root_module.addIncludePath(all_h.dirname());
+
+    const bar_o = addObject(b, opts, .{
+        .name = "bar",
+        .objc_source_bytes =
+        \\#import <Foundation/Foundation.h>
+        \\#import "all.h"
+        \\@implementation Bar
+        \\- (void)bar {
+        \\    printf("%s", [self.name UTF8String]);
+        \\}
+        \\- (void)foobar: (Foo*) foo {
+        \\    printf("%s%s", [foo.name UTF8String], [self.name UTF8String]);
+        \\}
+        \\@end
+        ,
+        .objc_source_flags = &.{"-fobjc-msgsend-selector-stubs"},
+    });
+    bar_o.root_module.addIncludePath(all_h.dirname());
+
+    const main_o = addObject(b, opts, .{
+        .name = "main",
+        .objc_source_bytes =
+        \\#import <Foundation/Foundation.h>
+        \\#import "all.h"
+        \\int main() {
+        \\    Foo *foo = [[Foo alloc] init];
+        \\    foo.name = @"Foo";
+        \\    Bar *bar = [[Bar alloc] init];
+        \\    bar.name = @"Bar";
+        \\    [foo foo];
+        \\    [bar bar];
+        \\    [bar foobar:foo];
+        \\    return 0;
+        \\}
+        ,
+        .objc_source_flags = &.{"-fobjc-msgsend-selector-stubs"},
+    });
+    main_o.root_module.addIncludePath(all_h.dirname());
+
+    const exe = addExecutable(b, opts, .{ .name = "main" });
+    exe.addObject(main_o);
+    exe.addObject(foo_o);
+    exe.addObject(bar_o);
+    exe.root_module.linkFramework("Foundation", .{});
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("FooBarFooBar");
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkInHeaders();
+    check.checkExact("sectname __objc_stubs");
+    check.checkInHeaders();
+    check.checkExact("sectname __objc_methname");
+    check.checkInHeaders();
+    check.checkExact("sectname __objc_selrefs");
+    check.checkInSymtab();
+    check.checkContains("(__TEXT,__objc_stubs) (was private external) _objc_msgSend$foo");
+    check.checkInSymtab();
+    check.checkContains("(__TEXT,__objc_stubs) (was private external) _objc_msgSend$bar");
+    check.checkInSymtab();
+    check.checkContains("(__TEXT,__objc_stubs) (was private external) _objc_msgSend$foobar");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
@@ -1647,3 +1801,4 @@ const BuildOptions = link.BuildOptions;
 const Compile = Step.Compile;
 const Options = link.Options;
 const Step = Build.Step;
+const WriteFile = Step.WriteFile;
