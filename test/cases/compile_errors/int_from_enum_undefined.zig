@@ -10,3 +10,4 @@ export fn a() void {
 // target=native
 //
 // :5:22: error: cannot use @intFromEnum on empty enum 'tmp.a.E'
+// :2:15: note: enum declared here
