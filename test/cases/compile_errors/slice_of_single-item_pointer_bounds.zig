@@ -19,11 +19,13 @@ comptime {
 
 export fn entry1() void {
     var start: usize = 0;
+    _ = &start;
     _ = ptr[start..2];
 }
 
 export fn entry2() void {
     var end: usize = 0;
+    _ = &end;
     _ = ptr[0..end];
 }
 
@@ -35,7 +37,7 @@ export fn entry2() void {
 // :13:16: error: slice of single-item pointer must have comptime-known bounds [0..0], [0..1], or [1..1]
 // :13:16: note: expected '1', found '2'
 // :17:16: error: end index 2 out of bounds for slice of single-item pointer
-// :22:13: error: unable to resolve comptime value
-// :22:13: note: slice of single-item pointer must have comptime-known bounds [0..0], [0..1], or [1..1]
-// :27:16: error: unable to resolve comptime value
-// :27:16: note: slice of single-item pointer must have comptime-known bounds [0..0], [0..1], or [1..1]
+// :23:13: error: unable to resolve comptime value
+// :23:13: note: slice of single-item pointer must have comptime-known bounds [0..0], [0..1], or [1..1]
+// :29:16: error: unable to resolve comptime value
+// :29:16: note: slice of single-item pointer must have comptime-known bounds [0..0], [0..1], or [1..1]
