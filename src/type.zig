@@ -174,7 +174,7 @@ pub const Type = struct {
     /// Prints a name suitable for `@typeName`.
     pub fn print(ty: Type, writer: anytype, mod: *Module) @TypeOf(writer).Error!void {
         const ip = &mod.intern_pool;
-        switch (ip.indexToKey(ty.toIntern())) {
+        switch (ip.indexToKeyExtra(ty.toIntern(), true)) {
             .int_type => |int_type| {
                 const sign_char: u8 = switch (int_type.signedness) {
                     .signed => 'i',
@@ -412,6 +412,10 @@ pub const Type = struct {
                 if (child == .none) return writer.writeAll("anyframe");
                 try writer.writeAll("anyframe->");
                 return print(Type.fromInterned(child), writer, mod);
+            },
+            .type_alias => |alias| {
+                const decl = mod.declPtr(alias.decl);
+                return decl.renderFullyQualifiedName(mod, writer);
             },
 
             // values, not types
@@ -658,6 +662,8 @@ pub const Type = struct {
                 .un,
                 // memoization, not types
                 .memoized_call,
+                // never returned from indexToKey
+                .type_alias,
                 => unreachable,
             },
         };
@@ -765,6 +771,8 @@ pub const Type = struct {
             .un,
             // memoization, not types
             .memoized_call,
+            // never returned from indexToKey
+            .type_alias,
             => unreachable,
         };
     }
@@ -1080,6 +1088,8 @@ pub const Type = struct {
                 .un,
                 // memoization, not types
                 .memoized_call,
+                // never returned from indexToKey
+                .type_alias,
                 => unreachable,
             },
         }
@@ -1437,6 +1447,8 @@ pub const Type = struct {
                 .un,
                 // memoization, not types
                 .memoized_call,
+                // never returned from indexToKey
+                .type_alias,
                 => unreachable,
             },
         }
@@ -1659,6 +1671,8 @@ pub const Type = struct {
             .un,
             // memoization, not types
             .memoized_call,
+            // never returned from indexToKey
+            .type_alias,
             => unreachable,
         }
     }
@@ -2194,6 +2208,8 @@ pub const Type = struct {
                 .un,
                 // memoization, not types
                 .memoized_call,
+                // never returned from indexToKey
+                .type_alias,
                 => unreachable,
             },
         };
@@ -2537,6 +2553,9 @@ pub const Type = struct {
                 .un,
                 // memoization, not types
                 .memoized_call,
+
+                // never returned from indexToKey
+                .type_alias,
                 => unreachable,
             },
         };
@@ -2730,6 +2749,9 @@ pub const Type = struct {
                 .un,
                 // memoization, not types
                 .memoized_call,
+
+                // never returned from indexToKey
+                .type_alias,
                 => unreachable,
             },
         };
@@ -3121,6 +3143,13 @@ pub const Type = struct {
             },
             .opaque_type => |opaque_type| mod.opaqueSrcLoc(opaque_type),
             .enum_type => |enum_type| mod.declPtr(enum_type.decl).srcLoc(mod),
+            else => null,
+        };
+    }
+
+    pub fn getTypeAlias(ty: Type, mod: *Module) ?InternPool.Key.TypeAlias {
+        return switch (mod.intern_pool.indexToKeyExtra(ty.toIntern(), true)) {
+            .type_alias => |alias| alias,
             else => null,
         };
     }

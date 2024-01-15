@@ -28749,6 +28749,11 @@ fn coerceExtra(
                 };
             }
         },
+        .Type => {
+            if (inst_ty.zigTypeTag(mod) == .Type) {
+                return inst;
+            }
+        },
         else => {},
     }
 
@@ -37234,6 +37239,13 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             // memoized value, not types
             .memoized_call,
             => unreachable,
+            
+            .type_alias => {
+                const data_index = ip.items.items(.data)[@intFromEnum(ty.toIntern())];
+                const ty_index = ip.extra.items[data_index + std.meta.fieldIndex(InternPool.Key.TypeAlias, "ty").?];
+                // Recurses once.
+                return sema.typeHasOnePossibleValue(Type.fromInterned(@enumFromInt(ty_index)));
+            },
 
             .type_array_big,
             .type_array_small,

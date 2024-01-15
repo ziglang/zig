@@ -3315,7 +3315,7 @@ pub const Object = struct {
             .var_args_param_type,
             .none,
             => unreachable,
-            else => switch (ip.indexToKey(t.toIntern())) {
+            else => switch (ip.indexToKeyExtra(t.toIntern(), true)) {
                 .int_type => |int_type| try o.builder.intType(int_type.bits),
                 .ptr_type => |ptr_type| type: {
                     const ptr_ty = try o.builder.ptrType(
@@ -3630,6 +3630,10 @@ pub const Object = struct {
                 .enum_type => |enum_type| try o.lowerType(Type.fromInterned(enum_type.tag_ty)),
                 .func_type => |func_type| try o.lowerTypeFn(func_type),
                 .error_set_type, .inferred_error_set_type => try o.errorIntType(),
+                .type_alias => |alias| {
+                    // Recurses once.
+                    return o.lowerTypeInner(Type.fromInterned(alias.ty));
+                },
                 // values, not types
                 .undef,
                 .simple_value,
@@ -3768,6 +3772,7 @@ pub const Object = struct {
             .func_type,
             .error_set_type,
             .inferred_error_set_type,
+            .type_alias,
             => unreachable, // types, not values
 
             .undef => unreachable, // handled above

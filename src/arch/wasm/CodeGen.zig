@@ -3253,6 +3253,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
         .func_type,
         .error_set_type,
         .inferred_error_set_type,
+        .type_alias,
         => unreachable, // types, not values
 
         .undef => unreachable, // handled above

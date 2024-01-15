@@ -446,6 +446,7 @@ pub fn print(
                 return writer.writeAll(" }");
             },
             .memoized_call => unreachable,
+            .type_alias => unreachable,
         },
     };
 }

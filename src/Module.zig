@@ -3750,6 +3750,29 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     }
 
     decl.ty = decl_tv.ty;
+
+    // Check if the type of this decl should be set to a `type_alias`.
+    alias: {
+        if (!decl.ty.eql(Type.type, mod)) break :alias;
+        const ty = decl_tv.val.toType();
+        if (ty.getOwnerDeclOrNull(mod)) |some| {
+            // Don't create an alias when creating a type.
+            // const foo = struct { ... };
+            if (some == decl_index) break :alias;
+        }
+        const ty_index = if (ty.getTypeAlias(mod)) |some| blk: {
+            // Rename previous alias.
+            // const previous_alias = <type>;
+            // const new_alias = previous_alias;
+            break :blk some.ty;
+        } else ty.toIntern();
+
+        decl.ty = Type.fromInterned(try mod.intern(.{ .type_alias = .{
+            .ty = ty_index,
+            .decl = decl_index,
+        } }));
+    }
+
     decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
     decl.alignment = blk: {
         const align_ref = decl.zirAlignRef(mod);

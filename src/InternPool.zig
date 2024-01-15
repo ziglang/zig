@@ -308,6 +308,11 @@ pub const Key = union(enum) {
     /// A comptime function call with a memoized result.
     memoized_call: Key.MemoizedCall,
 
+    /// A type aliased to another declaration only meaningful for error messages
+    /// and transparent to any other uses.
+    /// `type_alias.ty` MUST NOT be another `.type_alias`.
+    type_alias: TypeAlias,
+
     pub const TypeValue = extern struct {
         ty: Index,
         val: Index,
@@ -1247,6 +1252,11 @@ pub const Key = union(enum) {
         result: Index,
     };
 
+    pub const TypeAlias = extern struct {
+        ty: Index,
+        decl: DeclIndex,
+    };
+
     pub fn hash32(key: Key, ip: *const InternPool) u32 {
         return @truncate(key.hash64(ip));
     }
@@ -1273,6 +1283,7 @@ pub const Key = union(enum) {
             .empty_enum_value,
             .inferred_error_set_type,
             .un,
+            .type_alias,
             => |x| Hash.hash(seed, asBytes(&x)),
 
             .int_type => |x| Hash.hash(seed + @intFromEnum(x.signedness), asBytes(&x.bits)),
@@ -1540,6 +1551,10 @@ pub const Key = union(enum) {
                 const b_info = b.empty_enum_value;
                 return a_info == b_info;
             },
+            .type_alias => |a_info| {
+                const b_info = b.type_alias;
+                return a_info.decl == b_info.decl;
+            },
 
             .variable => |a_info| {
                 const b_info = b.variable;
@@ -1796,6 +1811,7 @@ pub const Key = union(enum) {
             .enum_type,
             .anon_struct_type,
             .func_type,
+            .type_alias,
             => .type_type,
 
             inline .ptr,
@@ -2304,6 +2320,8 @@ pub const Index = enum(u32) {
             @"trailing.arg_values.len": *@"data.args_len",
             trailing: struct { arg_values: []Index },
         },
+
+        type_alias: struct { data: *Key.TypeAlias },
     }) void {
         _ = self;
         const map_fields = @typeInfo(@typeInfo(@TypeOf(tag_to_encoding_map)).Pointer.child).Struct.fields;
@@ -2850,6 +2868,10 @@ pub const Tag = enum(u8) {
     /// data is extra index to `MemoizedCall`
     memoized_call,
 
+    /// A type aliased to another declaration only meaningful for error messages
+    /// and transparent to any other uses.
+    type_alias,
+
     const ErrorUnionType = Key.ErrorUnionType;
     const OpaqueType = Key.OpaqueType;
     const TypeValue = Key.TypeValue;
@@ -2858,6 +2880,7 @@ pub const Tag = enum(u8) {
     const ExternFunc = Key.ExternFunc;
     const Union = Key.Union;
     const TypePointer = Key.PtrType;
+    const TypeAlias = Key.TypeAlias;
 
     fn Payload(comptime tag: Tag) type {
         return switch (tag) {
@@ -2938,6 +2961,7 @@ pub const Tag = enum(u8) {
             .aggregate => Aggregate,
             .repeated => Repeated,
             .memoized_call => MemoizedCall,
+            .type_alias => TypeAlias,
         };
     }
 
@@ -3712,8 +3736,21 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
 }
 
 pub fn indexToKey(ip: *const InternPool, index: Index) Key {
+    return ip.indexToKeyExtra(index, false);
+}
+
+pub fn indexToKeyExtra(ip: *const InternPool, index: Index, allow_alias: bool) Key {
     assert(index != .none);
-    const item = ip.items.get(@intFromEnum(index));
+    const item = item: {
+        const item = ip.items.get(@intFromEnum(index));
+        if (!allow_alias and item.tag == .type_alias) {
+            // `.type_alias` is supposed to be transparent to most of the
+            // compiler so it is handled separately.
+            const type_alias = ip.extraData(Key.TypeAlias, item.data);
+            break :item ip.items.get(@intFromEnum(type_alias.ty));
+        }
+        break :item item;
+    };
     const data = item.data;
     return switch (item.tag) {
         .type_int_signed => .{
@@ -4232,6 +4269,8 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .result = extra.data.result,
             } };
         },
+
+        .type_alias => .{ .type_alias = ip.extraData(Key.TypeAlias, data) },
     };
 }
 
@@ -4664,6 +4703,12 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             ip.items.appendAssumeCapacity(.{
                 .tag = .undef,
                 .data = @intFromEnum(ty),
+            });
+        },
+        .type_alias => |type_alias| {
+            ip.items.appendAssumeCapacity(.{
+                .tag = .type_alias,
+                .data = try ip.addExtra(gpa, type_alias),
             });
         },
 
@@ -6803,6 +6848,7 @@ pub fn sliceLen(ip: *const InternPool, i: Index) Index {
 pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
     const old_ty = ip.typeOf(val);
     if (old_ty == new_ty) return val;
+    if (old_ty == .type_type) return val;
 
     const tags = ip.items.items(.tag);
 
@@ -7429,6 +7475,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                 const info = ip.extraData(MemoizedCall, data);
                 break :b @sizeOf(MemoizedCall) + (@sizeOf(Index) * info.args_len);
             },
+            .type_alias => @sizeOf(Key.ErrorUnionType),
         });
     }
     const SortContext = struct {
@@ -7532,6 +7579,7 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
             .func_coerced,
             .union_value,
             .memoized_call,
+            .type_alias,
             => try w.print("{d}", .{data}),
 
             .opt_null,
@@ -7889,6 +7937,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
             .type_tuple_anon,
             .type_union,
             .type_function,
+            .type_alias,
             => .type_type,
 
             .undef,
@@ -8281,6 +8330,8 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
             // memoization, not types
             .memoized_call,
             => unreachable,
+
+            .type_alias => return .Type,
         },
         .none => unreachable, // special tag
     };

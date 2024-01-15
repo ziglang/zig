@@ -411,6 +411,8 @@ pub const Value = struct {
             }),
 
             .memoized_call => unreachable,
+            // never returned from indexToKey
+            .type_alias => unreachable,
         };
     }
 
