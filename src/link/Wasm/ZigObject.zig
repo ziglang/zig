@@ -4,6 +4,8 @@
 //! Think about this as fake in-memory Object file for the Zig module.
 
 path: []const u8,
+/// Index within the list of relocatable objects of the linker driver.
+index: File.Index,
 /// List of all `Decl` that are currently alive.
 /// Each index maps to the corresponding `Atom.Index`.
 decls: std.AutoHashMapUnmanaged(InternPool.DeclIndex, Atom.Index) = .{},
@@ -292,7 +294,7 @@ pub fn getOrCreateAtomForDecl(zig_object: *ZigObject, wasm_file: *Wasm, decl_ind
     const gop = try zig_object.decls.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         const sym_index = try zig_object.allocateSymbol(gpa);
-        gop.value_ptr.* = try wasm_file.createAtom(sym_index);
+        gop.value_ptr.* = try wasm_file.createAtom(sym_index, zig_object.index);
         const mod = wasm_file.base.comp.module.?;
         const decl = mod.declPtr(decl_index);
         const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
@@ -379,7 +381,7 @@ fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, tv: Ty
 
     // Create and initialize a new local symbol and atom
     const sym_index = try zig_object.allocateSymbol(gpa);
-    const atom_index = try wasm_file.createAtom(sym_index);
+    const atom_index = try wasm_file.createAtom(sym_index, zig_object.index);
     var value_bytes = std.ArrayList(u8).init(gpa);
     defer value_bytes.deinit();
 
@@ -432,7 +434,7 @@ pub fn getErrorTableSymbol(zig_object: *ZigObject, wasm_file: *Wasm) !u32 {
     // during `flush` when we know all possible error names.
     const gpa = wasm_file.base.comp.gpa;
     const sym_index = try zig_object.allocateSymbol(gpa);
-    const atom_index = try wasm_file.createAtom(sym_index);
+    const atom_index = try wasm_file.createAtom(sym_index, zig_object.index);
     const atom = wasm_file.getAtomPtr(atom_index);
     const slice_ty = Type.slice_const_u8_sentinel_0;
     const mod = wasm_file.base.comp.module.?;
@@ -468,7 +470,7 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm) !void {
     // we create a symbol for the entire region of error names. We then calculate
     // the pointers into the list using addends which are appended to the relocation.
     const names_sym_index = try zig_object.allocateSymbol(gpa);
-    const names_atom_index = try wasm_file.createAtom(names_sym_index);
+    const names_atom_index = try wasm_file.createAtom(names_sym_index, zig_object.index);
     const names_atom = wasm_file.getAtomPtr(names_atom_index);
     names_atom.alignment = .@"1";
     const sym_name = try zig_object.string_table.insert(gpa, "__zig_err_names");
@@ -1087,7 +1089,7 @@ pub fn createDebugSectionForIndex(zig_object: *ZigObject, wasm_file: *Wasm, inde
     try zig_object.appendDummySegment();
 
     const sym_index = try zig_object.allocateSymbol(gpa);
-    const atom_index = try wasm_file.createAtom(sym_index);
+    const atom_index = try wasm_file.createAtom(sym_index, zig_object.index);
     const atom = wasm_file.getAtomPtr(atom_index);
     zig_object.symbols.items[sym_index] = .{
         .tag = .section,
@@ -1161,6 +1163,7 @@ const types = @import("types.zig");
 const Air = @import("../../Air.zig");
 const Atom = @import("Atom.zig");
 const Dwarf = @import("../Dwarf.zig");
+const File = @import("file.zig").File;
 const InternPool = @import("../../InternPool.zig");
 const Liveness = @import("../../Liveness.zig");
 const Module = @import("../../Module.zig");

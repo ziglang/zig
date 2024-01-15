@@ -569,6 +569,7 @@ pub fn createEmpty(
         if (!use_llvm) {
             const index: File.Index = @enumFromInt(wasm.files.len);
             var zig_object: ZigObject = .{
+                .index = index,
                 .path = try std.fmt.allocPrint(gpa, "{s}.o", .{std.fs.path.stem(zcu.main_mod.root_src_path)}),
                 .stack_pointer_sym = undefined,
             };
@@ -663,12 +664,11 @@ fn parseObjectFile(wasm: *Wasm, path: []const u8) !bool {
 }
 
 /// Creates a new empty `Atom` and returns its `Atom.Index`
-pub fn createAtom(wasm: *Wasm, sym_index: u32) !Atom.Index {
+pub fn createAtom(wasm: *Wasm, sym_index: u32, file_index: File.Index) !Atom.Index {
     const gpa = wasm.base.comp.gpa;
     const index: Atom.Index = @intCast(wasm.managed_atoms.items.len);
     const atom = try wasm.managed_atoms.addOne(gpa);
-    atom.* = Atom.empty;
-    atom.sym_index = sym_index;
+    atom.* = .{ .file_index = file_index, .sym_index = sym_index };
     try wasm.symbol_atom.putNoClobber(gpa, .{ .file = null, .index = sym_index }, index);
 
     return index;
@@ -1825,20 +1825,11 @@ fn createSyntheticFunction(
     symbol.index = func_index;
 
     // create the atom that will be output into the final binary
-    const atom_index = @as(Atom.Index, @intCast(wasm.managed_atoms.items.len));
-    const atom = try wasm.managed_atoms.addOne(gpa);
-    atom.* = .{
-        .size = @as(u32, @intCast(function_body.items.len)),
-        .offset = 0,
-        .sym_index = loc.index,
-        .file = null,
-        .alignment = .@"1",
-        .prev = null,
-        .code = function_body.moveToUnmanaged(),
-        .original_offset = 0,
-    };
+    const atom_index = try wasm.createAtom(loc.index, .null);
+    const atom = wasm.getAtomPtr(atom_index);
+    atom.code = function_body.moveToUnmanaged();
+    atom.size = @intCast(function_body.items.len);
     try wasm.appendAtomAtIndex(wasm.code_section_index.?, atom_index);
-    try wasm.symbol_atom.putNoClobber(gpa, loc, atom_index);
 }
 
 /// Unlike `createSyntheticFunction` this function is to be called by
@@ -1856,19 +1847,11 @@ pub fn createFunction(
     const gpa = wasm.base.comp.gpa;
     const loc = try wasm.createSyntheticSymbol(symbol_name, .function);
 
-    const atom_index: Atom.Index = @intCast(wasm.managed_atoms.items.len);
-    const atom = try wasm.managed_atoms.addOne(gpa);
-    atom.* = .{
-        .size = @intCast(function_body.items.len),
-        .offset = 0,
-        .sym_index = loc.index,
-        .file = null,
-        .alignment = .@"1",
-        .prev = null,
-        .code = function_body.moveToUnmanaged(),
-        .relocs = relocations.moveToUnmanaged(),
-        .original_offset = 0,
-    };
+    const atom_index = try wasm.createAtom(loc.index, wasm.zig_object_index);
+    const atom = wasm.getAtomPtr(atom_index);
+    atom.code = function_body.moveToUnmanaged();
+    atom.relocs = relocations.moveToUnmanaged();
+    atom.size = @intCast(function_body.items.len);
     const symbol = loc.getSymbol(wasm);
     symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN); // ensure function does not get exported
 
@@ -1878,7 +1861,6 @@ pub fn createFunction(
         break :idx index;
     };
     try wasm.appendAtomAtIndex(section_index, atom_index);
-    try wasm.symbol_atom.putNoClobber(gpa, loc, atom_index);
     try wasm.zigObjectPtr().?.atom_types.put(
         gpa,
         atom_index,
