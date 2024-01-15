@@ -45,9 +45,10 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
         macho_step.dependOn(testDylib(b, .{ .target = default_target }));
         macho_step.dependOn(testNeededLibrary(b, .{ .target = default_target }));
-        macho_step.dependOn(testWeakLibrary(b, .{ .target = default_target }));
+        macho_step.dependOn(testSearchStrategy(b, .{ .target = b.host }));
         macho_step.dependOn(testTls(b, .{ .target = default_target }));
         macho_step.dependOn(testTwoLevelNamespace(b, .{ .target = default_target }));
+        macho_step.dependOn(testWeakLibrary(b, .{ .target = default_target }));
 
         // Tests requiring presence of macOS SDK in system path
         if (build_opts.has_macos_sdk) {
@@ -1042,6 +1043,74 @@ fn testRelocatableZig(b: *Build, opts: Options) *Step {
     run.addCheck(.{ .expect_stderr_match = b.dupe("decrFoo=0") });
     run.addCheck(.{ .expect_stderr_match = b.dupe("panic: Oh no!") });
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testSearchStrategy(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-search-strategy", opts);
+
+    const obj = addObject(b, opts, .{ .name = "a", .c_source_bytes = 
+    \\#include<stdio.h>
+    \\char world[] = "world";
+    \\char* hello() {
+    \\  return "Hello";
+    \\}
+    });
+
+    const liba = addStaticLibrary(b, opts, .{ .name = "a" });
+    liba.addObject(obj);
+
+    const dylib = addSharedLibrary(b, opts, .{ .name = "a" });
+    dylib.addObject(obj);
+
+    const main_o = addObject(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include<stdio.h>
+    \\char* hello();
+    \\extern char world[];
+    \\int main() {
+    \\  printf("%s %s", hello(), world);
+    \\  return 0;
+    \\}
+    });
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main" });
+        exe.addObject(main_o);
+        exe.root_module.linkSystemLibrary("a", .{ .use_pkg_config = .no, .search_strategy = .mode_first });
+        exe.root_module.addLibraryPath(liba.getEmittedBinDirectory());
+        exe.root_module.addLibraryPath(dylib.getEmittedBinDirectory());
+        exe.root_module.addRPath(dylib.getEmittedBinDirectory());
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("Hello world");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInHeaders();
+        check.checkExact("cmd LOAD_DYLIB");
+        check.checkContains("liba.dylib");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main" });
+        exe.addObject(main_o);
+        exe.root_module.linkSystemLibrary("a", .{ .use_pkg_config = .no, .search_strategy = .paths_first });
+        exe.root_module.addLibraryPath(liba.getEmittedBinDirectory());
+        exe.root_module.addLibraryPath(dylib.getEmittedBinDirectory());
+        exe.root_module.addRPath(dylib.getEmittedBinDirectory());
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("Hello world");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInHeaders();
+        check.checkExact("cmd LOAD_DYLIB");
+        check.checkNotPresent("liba.dylib");
+        test_step.dependOn(&check.step);
+    }
 
     return test_step;
 }
