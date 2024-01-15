@@ -3218,31 +3218,31 @@ const DeclGen = struct {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const result_ty = self.typeOfIndex(inst);
-        const result_ty_id = try self.resolveTypeId(result_ty);
         const info = try self.arithmeticTypeInfo(result_ty);
 
-        const result_id = self.spv.allocId();
-        switch (info.class) {
-            .bool => {
-                try self.func.body.emit(self.spv.gpa, .OpLogicalNot, .{
-                    .id_result_type = result_ty_id,
-                    .id_result = result_id,
-                    .operand = operand_id,
-                });
-            },
-            .float => unreachable,
-            .composite_integer => unreachable, // TODO
-            .strange_integer, .integer => {
-                // Note: strange integer bits will be masked before operations that do not hold under modulo.
-                try self.func.body.emit(self.spv.gpa, .OpNot, .{
-                    .id_result_type = result_ty_id,
-                    .id_result = result_id,
-                    .operand = operand_id,
-                });
-            },
+        var wip = try self.elementWise(result_ty);
+        defer wip.deinit();
+
+        for (0..wip.results.len) |i| {
+            const args = .{
+                .id_result_type = wip.scalar_ty_id,
+                .id_result = wip.allocId(i),
+                .operand = try wip.elementAt(result_ty, operand_id, i),
+            };
+            switch (info.class) {
+                .bool => {
+                    try self.func.body.emit(self.spv.gpa, .OpLogicalNot, args);
+                },
+                .float => unreachable,
+                .composite_integer => unreachable, // TODO
+                .strange_integer, .integer => {
+                    // Note: strange integer bits will be masked before operations that do not hold under modulo.
+                    try self.func.body.emit(self.spv.gpa, .OpNot, args);
+                },
+            }
         }
 
-        return result_id;
+        return try wip.finalize();
     }
 
     fn airArrayToSlice(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -3305,7 +3305,6 @@ const DeclGen = struct {
         const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra[ty_pl.payload..][0..len]);
 
         switch (result_ty.zigTypeTag(mod)) {
-            .Vector => unreachable, // TODO
             .Struct => {
                 if (mod.typeToPackedStruct(result_ty)) |struct_type| {
                     _ = struct_type;
@@ -3353,7 +3352,7 @@ const DeclGen = struct {
                     constituents[0..index],
                 );
             },
-            .Array => {
+            .Vector, .Array => {
                 const array_info = result_ty.arrayInfo(mod);
                 const n_elems: usize = @intCast(result_ty.arrayLenIncludingSentinel(mod));
                 const elem_ids = try self.gpa.alloc(IdRef, n_elems);
