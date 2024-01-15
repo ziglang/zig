@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
+const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
@@ -207,7 +208,7 @@ test "pass by non-copying value through var arg" {
 }
 
 fn addPointCoordsVar(pt: anytype) !i32 {
-    try comptime expect(@TypeOf(pt) == Point);
+    comptime assert(@TypeOf(pt) == Point);
     return pt.x + pt.y;
 }
 

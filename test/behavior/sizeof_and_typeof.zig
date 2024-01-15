@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -23,24 +24,24 @@ test "@TypeOf() with multiple arguments" {
         var var_2: u8 = undefined;
         var var_3: u64 = undefined;
         _ = .{ &var_1, &var_2, &var_3 };
-        try comptime expect(@TypeOf(var_1, var_2, var_3) == u64);
+        comptime assert(@TypeOf(var_1, var_2, var_3) == u64);
     }
     {
         var var_1: f16 = undefined;
         var var_2: f32 = undefined;
         var var_3: f64 = undefined;
         _ = .{ &var_1, &var_2, &var_3 };
-        try comptime expect(@TypeOf(var_1, var_2, var_3) == f64);
+        comptime assert(@TypeOf(var_1, var_2, var_3) == f64);
     }
     {
         var var_1: u16 = undefined;
         _ = &var_1;
-        try comptime expect(@TypeOf(var_1, 0xffff) == u16);
+        comptime assert(@TypeOf(var_1, 0xffff) == u16);
     }
     {
         var var_1: f32 = undefined;
         _ = &var_1;
-        try comptime expect(@TypeOf(var_1, 3.1415) == f32);
+        comptime assert(@TypeOf(var_1, 3.1415) == f32);
     }
 }
 
@@ -150,7 +151,7 @@ test "@TypeOf() has no runtime side effects" {
     };
     var data: i32 = 0;
     const T = @TypeOf(S.foo(i32, &data));
-    try comptime expect(T == i32);
+    comptime assert(T == i32);
     try expect(data == 0);
 }
 
@@ -165,7 +166,7 @@ test "branching logic inside @TypeOf" {
         }
     };
     const T = @TypeOf(S.foo() catch undefined);
-    try comptime expect(T == i32);
+    comptime assert(T == i32);
     try expect(S.data == 0);
 }
 
@@ -238,7 +239,7 @@ test "hardcoded address in typeof expression" {
         }
     };
     try expect(S.func() == 0);
-    try comptime expect(S.func() == 0);
+    comptime assert(S.func() == 0);
 }
 
 test "array access of generic param in typeof expression" {
@@ -248,7 +249,7 @@ test "array access of generic param in typeof expression" {
         }
     };
     try expect(S.first("a") == 'a');
-    try comptime expect(S.first("a") == 'a');
+    comptime assert(S.first("a") == 'a');
 }
 
 test "lazy size cast to float" {

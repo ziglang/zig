@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 const mem = std.mem;
+const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
@@ -149,9 +150,9 @@ test "array len field" {
     var arr = [4]u8{ 0, 0, 0, 0 };
     const ptr = &arr;
     try expect(arr.len == 4);
-    try comptime expect(arr.len == 4);
+    comptime assert(arr.len == 4);
     try expect(ptr.len == 4);
-    try comptime expect(ptr.len == 4);
+    comptime assert(ptr.len == 4);
     try expect(@TypeOf(arr.len) == usize);
 }
 
@@ -904,7 +905,7 @@ test "store array of array of structs at comptime" {
     };
 
     try expect(S.storeArrayOfArrayOfStructs() == 15);
-    try comptime expect(S.storeArrayOfArrayOfStructs() == 15);
+    comptime assert(S.storeArrayOfArrayOfStructs() == 15);
 }
 
 test "accessing multidimensional global array at comptime" {
