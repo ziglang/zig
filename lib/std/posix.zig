@@ -38,6 +38,7 @@ const use_libc = builtin.link_libc or switch (native_os) {
 const linux = std.os.linux;
 const windows = std.os.windows;
 const wasi = std.os.wasi;
+const uefi = std.os.uefi;
 
 /// A libc-compatible API layer.
 pub const system = if (use_libc)
@@ -751,7 +752,7 @@ pub fn exit(status: u8) noreturn {
         // exit() is only available if exitBootServices() has not been called yet.
         // This call to exit should not fail, so we don't care about its return value.
         if (uefi.system_table.boot_services) |bs| {
-            _ = bs.exit(uefi.handle, @enumFromInt(status), 0, null);
+            bs.exit(uefi.handle, @enumFromInt(status), 0, null) catch {};
         }
         // If we can't exit, reboot the system instead.
         uefi.system_table.runtime_services.resetSystem(.cold, @enumFromInt(status), 0, null);
@@ -793,6 +794,9 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (buf.len == 0) return 0;
     if (native_os == .windows) {
         return windows.ReadFile(fd, buf, null);
+    }
+    if (builtin.os.tag == .uefi) {
+        return uefi.read(fd, buf);
     }
     if (native_os == .wasi and !builtin.link_libc) {
         const iovs = [1]iovec{iovec{
@@ -1182,6 +1186,9 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
     if (bytes.len == 0) return 0;
     if (native_os == .windows) {
         return windows.WriteFile(fd, bytes, null);
+    }
+    if (builtin.os.tag == .uefi) {
+        return uefi.write(fd, bytes);
     }
 
     if (native_os == .wasi and !builtin.link_libc) {

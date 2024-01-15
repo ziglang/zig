@@ -186,7 +186,7 @@ pub const Status = enum(usize) {
         HostUnreachable,
         ProtocolUnreachable,
         PortUnreachable,
-        ConnectionFin,
+        ConnectionFinished,
         ConnectionReset,
         ConnectionRefused,
     };
@@ -238,7 +238,7 @@ pub const Status = enum(usize) {
             .host_unreachable => return error.HostUnreachable,
             .protocol_unreachable => return error.ProtocolUnreachable,
             .port_unreachable => return error.PortUnreachable,
-            .connection_finished => return error.ConnectionFin,
+            .connection_finished => return error.ConnectionFinished,
             .connection_reset => return error.ConnectionReset,
             .connection_refused => return error.ConnectionRefused,
             else => return error.Unknown,
