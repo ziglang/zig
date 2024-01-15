@@ -26,6 +26,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testLayout(b, .{ .target = default_target }));
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testNoDeadStrip(b, .{ .target = default_target }));
+    macho_step.dependOn(testNoExportsDylib(b, .{ .target = default_target }));
     macho_step.dependOn(testRelocatable(b, .{ .target = default_target }));
     macho_step.dependOn(testRelocatableZig(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
@@ -768,6 +769,19 @@ fn testNoDeadStrip(b: *Build, opts: Options) *Step {
 
     const run = addRunArtifact(exe);
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testNoExportsDylib(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-no-exports-dylib", opts);
+
+    const dylib = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = "static void abc() {}" });
+
+    const check = dylib.checkObject();
+    check.checkInSymtab();
+    check.checkNotPresent("external _abc");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
