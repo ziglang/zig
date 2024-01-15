@@ -85,16 +85,22 @@ pub fn init(zig_object: *ZigObject, wasm_file: *Wasm) !void {
 
 fn createStackPointer(zig_object: *ZigObject, wasm_file: *Wasm) !void {
     const gpa = wasm_file.base.comp.gpa;
-    const sym_index = try zig_object.getGlobalSymbol(gpa, "__stack_pointer", .global);
-    zig_object.symbols.items[sym_index].index = zig_object.imported_globals_count;
+    const sym_index = try zig_object.getGlobalSymbol(gpa, "__stack_pointer");
+    const sym = zig_object.symbol(sym_index);
+    sym.index = zig_object.imported_globals_count;
+    sym.tag = .global;
     const is_wasm32 = wasm_file.base.comp.root_mod.resolved_target.result.cpu.arch == .wasm32;
     try zig_object.imports.putNoClobber(gpa, sym_index, .{
-        .name = zig_object.symbols.items[sym_index].name,
+        .name = sym.name,
         .module_name = try zig_object.string_table.insert(gpa, wasm_file.host_name),
         .kind = .{ .global = .{ .valtype = if (is_wasm32) .i32 else .i64, .mutable = true } },
     });
     zig_object.imported_globals_count += 1;
     zig_object.stack_pointer_sym = sym_index;
+}
+
+fn symbol(zig_object: *const ZigObject, index: u32) *Symbol {
+    return &zig_object.symbols.items[index];
 }
 
 /// Frees and invalidates all memory of the incrementally compiled Zig module.
@@ -146,7 +152,7 @@ pub fn deinit(zig_object: *ZigObject, gpa: std.mem.Allocator) void {
 /// Will re-use slots when a symbol was freed at an earlier stage.
 pub fn allocateSymbol(zig_object: *ZigObject, gpa: std.mem.Allocator) !u32 {
     try zig_object.symbols.ensureUnusedCapacity(gpa, 1);
-    const symbol: Symbol = .{
+    const sym: Symbol = .{
         .name = std.math.maxInt(u32), // will be set after updateDecl as well as during atom creation for decls
         .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
         .tag = .undefined, // will be set after updateDecl
@@ -154,17 +160,22 @@ pub fn allocateSymbol(zig_object: *ZigObject, gpa: std.mem.Allocator) !u32 {
         .virtual_address = std.math.maxInt(u32), // will be set during atom allocation
     };
     if (zig_object.symbols_free_list.popOrNull()) |index| {
-        zig_object.symbols.items[index] = symbol;
+        zig_object.symbols.items[index] = sym;
         return index;
     }
     const index = @as(u32, @intCast(zig_object.symbols.items.len));
-    zig_object.symbols.appendAssumeCapacity(symbol);
+    zig_object.symbols.appendAssumeCapacity(sym);
     return index;
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
 // the file on flush().
-pub fn updateDecl(zig_object: *ZigObject, wasm_file: *Wasm, mod: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDecl(
+    zig_object: *ZigObject,
+    wasm_file: *Wasm,
+    mod: *Module,
+    decl_index: InternPool.DeclIndex,
+) !void {
     const decl = mod.declPtr(decl_index);
     if (decl.val.getFunction(mod)) |_| {
         return;
@@ -173,7 +184,7 @@ pub fn updateDecl(zig_object: *ZigObject, wasm_file: *Wasm, mod: *Module, decl_i
     }
 
     const gpa = wasm_file.base.comp.gpa;
-    const atom_index = try zig_object.getOrCreateAtomForDecl(decl_index);
+    const atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, decl_index);
     const atom = wasm_file.getAtomPtr(atom_index);
     atom.clear();
 
@@ -181,7 +192,7 @@ pub fn updateDecl(zig_object: *ZigObject, wasm_file: *Wasm, mod: *Module, decl_i
         const variable = decl.getOwnedVariable(mod).?;
         const name = mod.intern_pool.stringToSlice(decl.name);
         const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
-        return wasm_file.addOrUpdateImport(name, atom.sym_index, lib_name, null);
+        return zig_object.addOrUpdateImport(wasm_file, name, atom.sym_index, lib_name, null);
     }
     const val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
 
@@ -206,15 +217,22 @@ pub fn updateDecl(zig_object: *ZigObject, wasm_file: *Wasm, mod: *Module, decl_i
         },
     };
 
-    return wasm_file.finishUpdateDecl(decl_index, code, .data);
+    return zig_object.finishUpdateDecl(wasm_file, decl_index, code, .data);
 }
 
-pub fn updateFunc(zig_object: *ZigObject, wasm_file: *Wasm, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(
+    zig_object: *ZigObject,
+    wasm_file: *Wasm,
+    mod: *Module,
+    func_index: InternPool.Index,
+    air: Air,
+    liveness: Liveness,
+) !void {
     const gpa = wasm_file.base.comp.gpa;
     const func = mod.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
-    const atom_index = try zig_object.getOrCreateAtomForDecl(decl_index);
+    const atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, decl_index);
     const atom = wasm_file.getAtomPtr(atom_index);
     atom.clear();
 
@@ -242,16 +260,22 @@ pub fn updateFunc(zig_object: *ZigObject, wasm_file: *Wasm, mod: *Module, func_i
     return zig_object.finishUpdateDecl(wasm_file, decl_index, code, .function);
 }
 
-fn finishUpdateDecl(zig_object: *ZigObject, wasm_file: *Wasm, decl_index: InternPool.DeclIndex, code: []const u8, symbol_tag: Symbol.Tag) !void {
+fn finishUpdateDecl(
+    zig_object: *ZigObject,
+    wasm_file: *Wasm,
+    decl_index: InternPool.DeclIndex,
+    code: []const u8,
+    symbol_tag: Symbol.Tag,
+) !void {
     const gpa = wasm_file.base.comp.gpa;
     const mod = wasm_file.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const atom_index = zig_object.decls.get(decl_index).?;
     const atom = wasm_file.getAtomPtr(atom_index);
-    const symbol = &zig_object.symbols.items[atom.sym_index];
+    const sym = zig_object.symbol(atom.getSymbolIndex().?);
     const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
-    symbol.name = try zig_object.string_table.insert(gpa, full_name);
-    symbol.tag = symbol_tag;
+    sym.name = try zig_object.string_table.insert(gpa, full_name);
+    sym.tag = symbol_tag;
     try atom.code.appendSlice(gpa, code);
     try wasm_file.resolved_symbols.put(gpa, atom.symbolLoc(), {});
 
@@ -267,14 +291,13 @@ pub fn getOrCreateAtomForDecl(zig_object: *ZigObject, wasm_file: *Wasm, decl_ind
     const gpa = wasm_file.base.comp.gpa;
     const gop = try zig_object.decls.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
-        const atom_index = try wasm_file.createAtom();
-        gop.value_ptr.* = atom_index;
-        const atom = wasm_file.getAtom(atom_index);
-        const symbol = atom.symbolLoc().getSymbol(wasm_file);
+        const sym_index = try zig_object.allocateSymbol(gpa);
+        gop.value_ptr.* = try wasm_file.createAtom(sym_index);
         const mod = wasm_file.base.comp.module.?;
         const decl = mod.declPtr(decl_index);
         const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
-        symbol.name = try wasm_file.string_table.insert(gpa, full_name);
+        const sym = zig_object.symbol(sym_index);
+        sym.name = try zig_object.string_table.insert(gpa, full_name);
     }
     return gop.value_ptr.*;
 }
@@ -297,7 +320,7 @@ pub fn lowerAnonDecl(
             @intFromEnum(decl_val),
         }) catch unreachable;
 
-        switch (try zig_object.lowerConst(name, tv, src_loc)) {
+        switch (try zig_object.lowerConst(wasm_file, name, tv, src_loc)) {
             .ok => |atom_index| zig_object.anon_decls.values()[gop.index] = atom_index,
             .fail => |em| return .{ .fail = em },
         }
@@ -323,7 +346,7 @@ pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, tv: TypedValu
     std.debug.assert(tv.ty.zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
     const decl = mod.declPtr(decl_index);
 
-    const parent_atom_index = try zig_object.getOrCreateAtomForDecl(decl_index);
+    const parent_atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, decl_index);
     const parent_atom = wasm_file.getAtom(parent_atom_index);
     const local_index = parent_atom.locals.items.len;
     const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
@@ -332,7 +355,7 @@ pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, tv: TypedValu
     });
     defer gpa.free(name);
 
-    switch (try zig_object.lowerConst(name, tv, decl.srcLoc(mod))) {
+    switch (try zig_object.lowerConst(wasm_file, name, tv, decl.srcLoc(mod))) {
         .ok => |atom_index| {
             try wasm_file.getAtomPtr(parent_atom_index).locals.append(gpa, atom_index);
             return wasm_file.getAtom(atom_index).getSymbolIndex().?;
@@ -355,14 +378,15 @@ fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, tv: Ty
     const mod = wasm_file.base.comp.module.?;
 
     // Create and initialize a new local symbol and atom
-    const atom_index = try wasm_file.createAtom();
+    const sym_index = try zig_object.allocateSymbol(gpa);
+    const atom_index = try wasm_file.createAtom(sym_index);
     var value_bytes = std.ArrayList(u8).init(gpa);
     defer value_bytes.deinit();
 
     const code = code: {
         const atom = wasm_file.getAtomPtr(atom_index);
         atom.alignment = tv.ty.abiAlignment(mod);
-        zig_object.symbols.items[atom.sym_index] = .{
+        zig_object.symbols.items[sym_index] = .{
             .name = try zig_object.string_table.insert(gpa, name),
             .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
             .tag = .data,
@@ -399,14 +423,14 @@ fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, tv: Ty
 ///
 /// When the symbol does not yet exist, it will create a new one instead.
 pub fn getErrorTableSymbol(zig_object: *ZigObject, wasm_file: *Wasm) !u32 {
-    if (zig_object.error_table_symbol) |symbol| {
-        return symbol;
+    if (zig_object.error_table_symbol) |sym| {
+        return sym;
     }
 
     // no error was referenced yet, so create a new symbol and atom for it
     // and then return said symbol's index. The final table will be populated
     // during `flush` when we know all possible error names.
-    const gpa = wasm_file.base.gpa;
+    const gpa = wasm_file.base.comp.gpa;
     const sym_index = try zig_object.allocateSymbol(gpa);
     const atom_index = try wasm_file.createAtom(sym_index);
     const atom = wasm_file.getAtomPtr(atom_index);
@@ -415,15 +439,16 @@ pub fn getErrorTableSymbol(zig_object: *ZigObject, wasm_file: *Wasm) !u32 {
     atom.alignment = slice_ty.abiAlignment(mod);
 
     const sym_name = try zig_object.string_table.insert(gpa, "__zig_err_name_table");
-    const symbol = &zig_object.symbols.items[sym_index];
-    symbol.* = .{
+    const sym = zig_object.symbol(sym_index);
+    sym.* = .{
         .name = sym_name,
         .tag = .data,
         .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
         .index = 0,
         .virtual_address = undefined,
     };
-    symbol.mark();
+    // TODO: can we remove this?
+    // sym.mark();
 
     log.debug("Error name table was created with symbol index: ({d})", .{sym_index});
     zig_object.error_table_symbol = sym_index;
@@ -528,13 +553,13 @@ pub fn addOrUpdateImport(
     defer if (mangle_name) gpa.free(full_name);
 
     const decl_name_index = try zig_object.string_table.insert(gpa, full_name);
-    const symbol: *Symbol = &zig_object.symbols.items[symbol_index];
-    symbol.setUndefined(true);
-    symbol.setGlobal(true);
-    symbol.name = decl_name_index;
+    const sym: *Symbol = &zig_object.symbols.items[symbol_index];
+    sym.setUndefined(true);
+    sym.setGlobal(true);
+    sym.name = decl_name_index;
     if (mangle_name) {
         // we specified a specific name for the symbol that does not match the import name
-        symbol.setFlag(.WASM_SYM_EXPLICIT_NAME);
+        sym.setFlag(.WASM_SYM_EXPLICIT_NAME);
     }
 
     if (type_index) |ty_index| {
@@ -557,22 +582,22 @@ pub fn addOrUpdateImport(
 /// such as an exported or imported symbol.
 /// If the symbol does not yet exist, creates a new one symbol instead
 /// and then returns the index to it.
-pub fn getGlobalSymbol(zig_object: *ZigObject, gpa: std.mem.Allocator, name: []const u8, tag: Symbol.Tag) !u32 {
+pub fn getGlobalSymbol(zig_object: *ZigObject, gpa: std.mem.Allocator, name: []const u8) !u32 {
     const name_index = try zig_object.string_table.insert(gpa, name);
     const gop = try zig_object.global_syms.getOrPut(gpa, name_index);
     if (gop.found_existing) {
         return gop.value_ptr.*;
     }
 
-    var symbol: Symbol = .{
+    var sym: Symbol = .{
         .name = name_index,
         .flags = 0,
         .index = undefined, // index to type will be set after merging symbols
-        .tag = tag,
+        .tag = .function,
         .virtual_address = std.math.maxInt(u32),
     };
-    symbol.setGlobal(true);
-    symbol.setUndefined(true);
+    sym.setGlobal(true);
+    sym.setUndefined(true);
 
     const sym_index = if (zig_object.symbols_free_list.popOrNull()) |index| index else blk: {
         const index: u32 = @intCast(zig_object.symbols.items.len);
@@ -580,7 +605,7 @@ pub fn getGlobalSymbol(zig_object: *ZigObject, gpa: std.mem.Allocator, name: []c
         zig_object.symbols.items.len += 1;
         break :blk index;
     };
-    zig_object.symbols.items[sym_index] = symbol;
+    zig_object.symbols.items[sym_index] = sym;
     gop.value_ptr.* = sym_index;
     return sym_index;
 }
@@ -675,8 +700,8 @@ pub fn deleteDeclExport(
     const atom_index = zig_object.decls.get(decl_index) orelse return;
     const sym_index = wasm_file.getAtom(atom_index).sym_index;
     const loc: Wasm.SymbolLoc = .{ .file = null, .index = sym_index };
-    const symbol = loc.getSymbol(wasm_file);
-    std.debug.assert(zig_object.global_syms.remove(symbol.name));
+    const sym = loc.getSymbol(wasm_file);
+    std.debug.assert(zig_object.global_syms.remove(sym.name));
 }
 
 pub fn updateExports(
@@ -694,7 +719,7 @@ pub fn updateExports(
         },
     };
     const decl = mod.declPtr(decl_index);
-    const atom_index = try zig_object.getOrCreateAtomForDecl(decl_index);
+    const atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, decl_index);
     const atom = wasm_file.getAtom(atom_index);
     const atom_sym = atom.symbolLoc().getSymbol(wasm_file).*;
     const gpa = mod.gpa;
@@ -722,24 +747,24 @@ pub fn updateExports(
             },
             .decl_index => |i| i,
         };
-        const exported_atom_index = try zig_object.getOrCreateAtomForDecl(exported_decl_index);
+        const exported_atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, exported_decl_index);
         const exported_atom = wasm_file.getAtom(exported_atom_index);
         // const export_name = try zig_object.string_table.put(gpa, mod.intern_pool.stringToSlice(exp.opts.name));
         const sym_loc = exported_atom.symbolLoc();
-        const symbol = sym_loc.getSymbol(wasm_file);
-        symbol.setGlobal(true);
-        symbol.setUndefined(false);
-        symbol.index = atom_sym.index;
-        symbol.tag = atom_sym.tag;
-        symbol.name = atom_sym.name;
+        const sym = sym_loc.getSymbol(wasm_file);
+        sym.setGlobal(true);
+        sym.setUndefined(false);
+        sym.index = atom_sym.index;
+        sym.tag = atom_sym.tag;
+        sym.name = atom_sym.name;
 
         switch (exp.opts.linkage) {
             .Internal => {
-                symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
-                symbol.setFlag(.WASM_SYM_BINDING_WEAK);
+                sym.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+                sym.setFlag(.WASM_SYM_BINDING_WEAK);
             },
             .Weak => {
-                symbol.setFlag(.WASM_SYM_BINDING_WEAK);
+                sym.setFlag(.WASM_SYM_BINDING_WEAK);
             },
             .Strong => {}, // symbols are strong by default
             .LinkOnce => {
@@ -840,7 +865,7 @@ pub fn freeDecl(zig_object: *ZigObject, wasm_file: *Wasm, decl_index: InternPool
     }
 }
 
-pub fn getTypeIndex(zig_object: *const ZigObject, func_type: std.wasm.Type) ?u32 {
+fn getTypeIndex(zig_object: *const ZigObject, func_type: std.wasm.Type) ?u32 {
     var index: u32 = 0;
     while (index < zig_object.func_types.items.len) : (index += 1) {
         if (zig_object.func_types.items[index].eql(func_type)) return index;
@@ -1113,6 +1138,16 @@ fn allocateDebugAtoms(zig_object: *ZigObject) !void {
     try allocAtom(zig_object, &zig_object.debug_abbrev_index, zig_object.debug_abbrev_atom.?);
     try allocAtom(zig_object, &zig_object.debug_pubnames_index, zig_object.debug_pubnames_atom.?);
     try allocAtom(zig_object, &zig_object.debug_pubtypes_index, zig_object.debug_pubtypes_atom.?);
+}
+
+/// For the given `decl_index`, stores the corresponding type representing the function signature.
+/// Asserts declaration has an associated `Atom`.
+/// Returns the index into the list of types.
+pub fn storeDeclType(zig_object: *ZigObject, gpa: std.mem.Allocator, decl_index: InternPool.DeclIndex, func_type: std.wasm.Type) !u32 {
+    const atom_index = zig_object.decls.get(decl_index).?;
+    const index = try zig_object.putOrGetFuncType(gpa, func_type);
+    try zig_object.atom_types.put(gpa, atom_index, index);
+    return index;
 }
 
 const build_options = @import("build_options");

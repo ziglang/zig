@@ -2239,7 +2239,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     }
 
     if (callee) |direct| {
-        const atom_index = func.bin_file.decls.get(direct).?;
+        const atom_index = func.bin_file.zigObjectPtr().?.decls.get(direct).?;
         try func.addLabel(.call, func.bin_file.getAtom(atom_index).sym_index);
     } else {
         // in this case we call a function pointer
@@ -2251,7 +2251,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         var fn_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types.get(ip), Type.fromInterned(fn_info.return_type), mod);
         defer fn_type.deinit(func.gpa);
 
-        const fn_type_index = try func.bin_file.putOrGetFuncType(fn_type);
+        const fn_type_index = try func.bin_file.zigObjectPtr().?.putOrGetFuncType(func.gpa, fn_type);
         try func.addLabel(.call_indirect, fn_type_index);
     }
 
@@ -3157,7 +3157,7 @@ fn lowerAnonDeclRef(
             return error.CodegenFail;
         },
     }
-    const target_atom_index = func.bin_file.anon_decls.get(decl_val).?;
+    const target_atom_index = func.bin_file.zigObjectPtr().?.anon_decls.get(decl_val).?;
     const target_sym_index = func.bin_file.getAtom(target_atom_index).getSymbolIndex().?;
     if (is_fn_body) {
         return WValue{ .function_index = target_sym_index };
@@ -7161,7 +7161,7 @@ fn callIntrinsic(
     const mod = func.bin_file.base.comp.module.?;
     var func_type = try genFunctype(func.gpa, .C, param_types, return_type, mod);
     defer func_type.deinit(func.gpa);
-    const func_type_index = try func.bin_file.putOrGetFuncType(func_type);
+    const func_type_index = try func.bin_file.zigObjectPtr().?.putOrGetFuncType(func.gpa, func_type);
     try func.bin_file.addOrUpdateImport(name, symbol_index, null, func_type_index);
 
     const want_sret_param = firstParamSRet(.C, return_type, mod);
