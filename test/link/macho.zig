@@ -28,6 +28,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testNoDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testNoExportsDylib(b, .{ .target = default_target }));
     macho_step.dependOn(testPagezeroSize(b, .{ .target = default_target }));
+    macho_step.dependOn(testReexportsZig(b, .{ .target = default_target }));
     macho_step.dependOn(testRelocatable(b, .{ .target = default_target }));
     macho_step.dependOn(testRelocatableZig(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
@@ -893,6 +894,35 @@ fn testPagezeroSize(b: *Build, opts: Options) *Step {
         check.checkExact("vmaddr 0");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testReexportsZig(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-reexports-zig", opts);
+
+    const lib = addStaticLibrary(b, opts, .{ .name = "a", .zig_source_bytes = 
+    \\const x: i32 = 42;
+    \\export fn foo() i32 {
+    \\    return x;
+    \\}
+    \\comptime {
+    \\    @export(foo, .{ .name = "bar", .linkage = .Strong });
+    \\}
+    });
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\extern int foo();
+    \\extern int bar();
+    \\int main() {
+    \\  return bar() - foo();
+    \\}
+    });
+    exe.linkLibrary(lib);
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
