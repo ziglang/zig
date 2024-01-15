@@ -35,6 +35,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
     // Tests requiring symlinks when tested on Windows
     if (build_opts.has_symlinks_windows) {
+        macho_step.dependOn(testDylib(b, .{ .target = default_target }));
         macho_step.dependOn(testNeededLibrary(b, .{ .target = default_target }));
         macho_step.dependOn(testWeakLibrary(b, .{ .target = default_target }));
         macho_step.dependOn(testTls(b, .{ .target = default_target }));
@@ -178,6 +179,43 @@ fn testDeadStripDylibs(b: *Build, opts: Options) *Step {
         run.expectExitCode(@as(u8, @bitCast(@as(i8, -2))));
         test_step.dependOn(&run.step);
     }
+
+    return test_step;
+}
+
+fn testDylib(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-dylib", opts);
+
+    const dylib = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = 
+    \\#include<stdio.h>
+    \\char world[] = "world";
+    \\char* hello() {
+    \\  return "Hello";
+    \\}
+    });
+
+    const check = dylib.checkObject();
+    check.checkInHeaders();
+    check.checkExact("header");
+    check.checkNotPresent("PIE");
+    test_step.dependOn(&check.step);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include<stdio.h>
+    \\char* hello();
+    \\extern char world[];
+    \\int main() {
+    \\  printf("%s %s", hello(), world);
+    \\  return 0;
+    \\}
+    });
+    exe.root_module.linkSystemLibrary("a", .{});
+    exe.addLibraryPath(dylib.getEmittedBinDirectory());
+    exe.addRPath(dylib.getEmittedBinDirectory());
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("Hello world");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
