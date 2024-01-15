@@ -10,6 +10,7 @@ d_sym: ?DebugSymbols = null,
 /// Index of each input file also encodes the priority or precedence of one input file
 /// over another.
 files: std.MultiArrayList(File.Entry) = .{},
+zig_object: ?File.Index = null,
 internal_object: ?File.Index = null,
 objects: std.ArrayListUnmanaged(File.Index) = .{},
 dylibs: std.ArrayListUnmanaged(File.Index) = .{},
@@ -222,12 +223,19 @@ pub fn createEmpty(
     try self.symbols.append(gpa, .{});
     try self.symbols_extra.append(gpa, 0);
 
-    // TODO: init
-
     if (opt_zcu) |zcu| {
         if (!use_llvm) {
-            _ = zcu;
-            // TODO: create .zig_object
+            const index: File.Index = @intCast(try self.files.addOne(gpa));
+            self.files.set(index, .{ .zig_object = .{
+                .index = index,
+                .path = try std.fmt.allocPrint(arena, "{s}.o", .{std.fs.path.stem(
+                    zcu.main_mod.root_src_path,
+                )}),
+            } });
+            self.zig_object = index;
+            try self.getZigObject().?.init(self);
+
+            // TODO init metadata
 
             if (comp.config.debug_format != .strip) {
                 // Create dSYM bundle.
@@ -281,6 +289,7 @@ pub fn deinit(self: *MachO) void {
 
     for (self.files.items(.tags), self.files.items(.data)) |tag, *data| switch (tag) {
         .null => {},
+        .zig_object => data.zig_object.deinit(gpa),
         .internal => data.internal.deinit(gpa),
         .object => data.object.deinit(gpa),
         .dylib => data.dylib.deinit(gpa),
@@ -3109,9 +3118,7 @@ pub fn freeDecl(self: *MachO, decl_index: InternPool.DeclIndex) void {
 
 pub fn getDeclVAddr(self: *MachO, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-    _ = decl_index;
-    _ = reloc_info;
-    @panic("TODO getDeclVAddr");
+    return self.getZigObject().?.getDeclVAddr(self, decl_index, reloc_info);
 }
 
 pub fn lowerAnonDecl(
@@ -3297,10 +3304,16 @@ pub fn getFile(self: *MachO, index: File.Index) ?File {
     const tag = self.files.items(.tags)[index];
     return switch (tag) {
         .null => null,
+        .zig_object => .{ .zig_object = &self.files.items(.data)[index].zig_object },
         .internal => .{ .internal = &self.files.items(.data)[index].internal },
         .object => .{ .object = &self.files.items(.data)[index].object },
         .dylib => .{ .dylib = &self.files.items(.data)[index].dylib },
     };
+}
+
+pub fn getZigObject(self: *MachO) ?*ZigObject {
+    const index = self.zig_object orelse return null;
+    return self.getFile(index).?.zig_object;
 }
 
 pub fn getInternalObject(self: *MachO) ?*InternalObject {
@@ -4123,3 +4136,4 @@ const TlvPtrSection = synthetic.TlvPtrSection;
 const TypedValue = @import("../TypedValue.zig");
 const UnwindInfo = @import("MachO/UnwindInfo.zig");
 const WeakBindSection = synthetic.WeakBindSection;
+const ZigObject = @import("MachO/ZigObject.zig");

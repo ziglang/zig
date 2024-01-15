@@ -306,6 +306,7 @@ fn format2(
         if (symbol.flags.weak) try writer.writeAll(" : weak");
         if (symbol.isSymbolStab(ctx.macho_file)) try writer.writeAll(" : stab");
         switch (file) {
+            .zig_object => |x| try writer.print(" : zig_object({d})", .{x.index}),
             .internal => |x| try writer.print(" : internal({d})", .{x.index}),
             .object => |x| try writer.print(" : object({d})", .{x.index}),
             .dylib => |x| try writer.print(" : dylib({d})", .{x.index}),
