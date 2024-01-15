@@ -314,7 +314,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const StructField = struct {
-        name: []const u8,
+        name: [:0]const u8,
         type: type,
         default_value: ?*const anyopaque,
         is_comptime: bool,
@@ -348,7 +348,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Error = struct {
-        name: []const u8,
+        name: [:0]const u8,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -358,7 +358,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const EnumField = struct {
-        name: []const u8,
+        name: [:0]const u8,
         value: comptime_int,
     };
 
@@ -374,7 +374,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const UnionField = struct {
-        name: []const u8,
+        name: [:0]const u8,
         type: type,
         alignment: comptime_int,
     };
@@ -436,7 +436,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Declaration = struct {
-        name: []const u8,
+        name: [:0]const u8,
     };
 };
 

@@ -195,7 +195,6 @@ SpoolerInit@0
 SplDriverUnloadComplete@4
 SpoolerPrinterEvent@20
 StartDocDlgA@8
-StartDocDlgW@8
 StartDocPrinterA@12
 StartDocPrinterW@12
 StartPagePrinter@4

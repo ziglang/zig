@@ -339,7 +339,8 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    const ttyconf = std.io.tty.detectConfig(std.io.getStdErr());
+    const stderr = std.io.getStdErr();
+    const ttyconf = std.io.tty.detectConfig(stderr);
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
         .actual = actual_window,
@@ -350,7 +351,6 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
         .actual = actual_window,
         .ttyconf = ttyconf,
     };
-    const stderr = std.io.getStdErr();
 
     // Print indexes as hex for slices of u8 since it's more likely to be binary data where
     // that is usually useful.
@@ -432,16 +432,17 @@ const BytesDiffer = struct {
     ttyconf: std.io.tty.Config,
 
     pub fn write(self: BytesDiffer, writer: anytype) !void {
-        var expected_iterator = ChunkIterator{ .bytes = self.expected };
+        var expected_iterator = std.mem.window(u8, self.expected, 16, 16);
+        var row: usize = 0;
         while (expected_iterator.next()) |chunk| {
             // to avoid having to calculate diffs twice per chunk
             var diffs: std.bit_set.IntegerBitSet(16) = .{ .mask = 0 };
-            for (chunk, 0..) |byte, i| {
-                const absolute_byte_index = (expected_iterator.index - chunk.len) + i;
+            for (chunk, 0..) |byte, col| {
+                const absolute_byte_index = col + row * 16;
                 const diff = if (absolute_byte_index < self.actual.len) self.actual[absolute_byte_index] != byte else true;
-                if (diff) diffs.set(i);
-                try self.writeByteDiff(writer, "{X:0>2} ", byte, diff);
-                if (i == 7) try writer.writeByte(' ');
+                if (diff) diffs.set(col);
+                try self.writeDiff(writer, "{X:0>2} ", .{byte}, diff);
+                if (col == 7) try writer.writeByte(' ');
             }
             try writer.writeByte(' ');
             if (chunk.len < 16) {
@@ -449,33 +450,38 @@ const BytesDiffer = struct {
                 if (chunk.len < 8) missing_columns += 1;
                 try writer.writeByteNTimes(' ', missing_columns);
             }
-            for (chunk, 0..) |byte, i| {
-                const byte_to_print = if (std.ascii.isPrint(byte)) byte else '.';
-                try self.writeByteDiff(writer, "{c}", byte_to_print, diffs.isSet(i));
+            for (chunk, 0..) |byte, col| {
+                const diff = diffs.isSet(col);
+                if (std.ascii.isPrint(byte)) {
+                    try self.writeDiff(writer, "{c}", .{byte}, diff);
+                } else {
+                    // TODO: remove this `if` when https://github.com/ziglang/zig/issues/7600 is fixed
+                    if (self.ttyconf == .windows_api) {
+                        try self.writeDiff(writer, ".", .{}, diff);
+                        continue;
+                    }
+
+                    // Let's print some common control codes as graphical Unicode symbols.
+                    // We don't want to do this for all control codes because most control codes apart from
+                    // the ones that Zig has escape sequences for are likely not very useful to print as symbols.
+                    switch (byte) {
+                        '\n' => try self.writeDiff(writer, "␊", .{}, diff),
+                        '\r' => try self.writeDiff(writer, "␍", .{}, diff),
+                        '\t' => try self.writeDiff(writer, "␉", .{}, diff),
+                        else => try self.writeDiff(writer, ".", .{}, diff),
+                    }
+                }
             }
             try writer.writeByte('\n');
+            row += 1;
         }
     }
 
-    fn writeByteDiff(self: BytesDiffer, writer: anytype, comptime fmt: []const u8, byte: u8, diff: bool) !void {
+    fn writeDiff(self: BytesDiffer, writer: anytype, comptime fmt: []const u8, args: anytype, diff: bool) !void {
         if (diff) try self.ttyconf.setColor(writer, .red);
-        try writer.print(fmt, .{byte});
+        try writer.print(fmt, args);
         if (diff) try self.ttyconf.setColor(writer, .reset);
     }
-
-    const ChunkIterator = struct {
-        bytes: []const u8,
-        index: usize = 0,
-
-        pub fn next(self: *ChunkIterator) ?[]const u8 {
-            if (self.index == self.bytes.len) return null;
-
-            const start_index = self.index;
-            const end_index = @min(self.bytes.len, start_index + 16);
-            self.index = end_index;
-            return self.bytes[start_index..end_index];
-        }
-    };
 };
 
 test {
@@ -926,11 +932,8 @@ fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
         source.len;
 
     printLine(source[line_begin_index..line_end_index]);
-    {
-        var i: usize = line_begin_index;
-        while (i < indicator_index) : (i += 1)
-            print(" ", .{});
-    }
+    for (line_begin_index..indicator_index) |_|
+        print(" ", .{});
     if (indicator_index >= source.len)
         print("^ (end of string)\n", .{})
     else
@@ -947,7 +950,7 @@ fn printWithVisibleNewlines(source: []const u8) void {
 
 fn printLine(line: []const u8) void {
     if (line.len != 0) switch (line[line.len - 1]) {
-        ' ', '\t' => return print("{s}⏎\n", .{line}), // Carriage return symbol,
+        ' ', '\t' => return print("{s}⏎\n", .{line}), // Return symbol
         else => {},
     };
     print("{s}\n", .{line});

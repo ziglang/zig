@@ -16,7 +16,7 @@
 #ifndef _SECIMP
 #define _SECIMP __declspec(dllimport)
 #endif /* _SECIMP */
-#endif /* defined(_CRTBLD) || defined(__LIBMSVCRT__) */
+#endif /* defined(__LIBMSVCRT__) */
 
 #pragma pack(push,_CRT_PACKING)
 
@@ -406,7 +406,7 @@ int _open(const char * __filename, int __flags, ...)
 {
   if (__builtin_va_arg_pack_len() > 1)
     return __mingw_call__open_warn_toomany(__filename, __flags, __builtin_va_arg_pack());
-  if (__builtin_va_arg_pack_len() < 1 && __builtin_constant_p(__flags) && (__flags & _O_CREAT))
+  if (__builtin_va_arg_pack_len() < 1 && __builtin_constant_p(__flags & _O_CREAT) && (__flags & _O_CREAT))
     return __mingw_call__open_warn_missing(__filename, __flags, 0);
   if (__builtin_va_arg_pack_len() < 1)
     return __mingw_call__open(__filename, __flags, 0);
@@ -424,7 +424,7 @@ int _sopen(const char * __filename, int __flags, int __share, ...)
 {
   if (__builtin_va_arg_pack_len() > 1)
     return __mingw_call__sopen_warn_toomany(__filename, __flags, __share, __builtin_va_arg_pack());
-  if (__builtin_va_arg_pack_len() < 1 && __builtin_constant_p(__flags) && (__flags & _O_CREAT))
+  if (__builtin_va_arg_pack_len() < 1 && __builtin_constant_p(__flags & _O_CREAT) && (__flags & _O_CREAT))
     return __mingw_call__sopen_warn_missing(__filename, __flags, __share, 0);
   if (__builtin_va_arg_pack_len() < 1)
     return __mingw_call__sopen(__filename, __flags, __share, 0);
@@ -442,7 +442,7 @@ int _wopen(const wchar_t * __filename, int __flags, ...)
 {
   if (__builtin_va_arg_pack_len() > 1)
     return __mingw_call__wopen_warn_toomany(__filename, __flags, __builtin_va_arg_pack());
-  if (__builtin_va_arg_pack_len() < 1 && __builtin_constant_p(__flags) && (__flags & _O_CREAT))
+  if (__builtin_va_arg_pack_len() < 1 && __builtin_constant_p(__flags & _O_CREAT) && (__flags & _O_CREAT))
     return __mingw_call__wopen_warn_missing(__filename, __flags, 0);
   if (__builtin_va_arg_pack_len() < 1)
     return __mingw_call__wopen(__filename, __flags, 0);
@@ -460,7 +460,7 @@ int _wsopen(const wchar_t * __filename, int __flags, int __share, ...)
 {
   if (__builtin_va_arg_pack_len() > 1)
     return __mingw_call__wsopen_warn_toomany(__filename, __flags, __share, __builtin_va_arg_pack());
-  if (__builtin_va_arg_pack_len() < 1 && __builtin_constant_p(__flags) && (__flags & _O_CREAT))
+  if (__builtin_va_arg_pack_len() < 1 && __builtin_constant_p(__flags & _O_CREAT) && (__flags & _O_CREAT))
     return __mingw_call__wsopen_warn_missing(__filename, __flags, __share, 0);
   if (__builtin_va_arg_pack_len() < 1)
     return __mingw_call__wsopen(__filename, __flags, __share, 0);

@@ -94,6 +94,8 @@ pub fn testAll(b: *Build) *Step {
     elf_step.dependOn(testLinkOrder(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLdScript(b, .{ .target = glibc_target }));
     elf_step.dependOn(testLdScriptPathError(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testLdScriptAllowUndefinedVersion(b, .{ .target = glibc_target, .use_lld = true }));
+    elf_step.dependOn(testLdScriptDisallowUndefinedVersion(b, .{ .target = glibc_target, .use_lld = true }));
     elf_step.dependOn(testMismatchedCpuArchitectureError(b, .{ .target = glibc_target }));
     // https://github.com/ziglang/zig/issues/17451
     // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = glibc_target }));
@@ -2002,6 +2004,67 @@ fn testLdScriptPathError(b: *Build, opts: Options) *Step {
         test_step,
         .{
             .contains = "error: missing library dependency: GNU ld script '/?/liba.so' requires 'libfoo.so', but file not found",
+        },
+    );
+
+    return test_step;
+}
+
+fn testLdScriptAllowUndefinedVersion(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ld-script-allow-undefined-version", opts);
+
+    const so = addSharedLibrary(b, opts, .{
+        .name = "add",
+        .zig_source_bytes =
+        \\export fn add(a: i32, b: i32) i32 {
+        \\    return a + b;
+        \\}
+        ,
+    });
+    const ld = b.addWriteFiles().add("add.ld", "VERSION { ADD_1.0 { global: add; sub; local: *; }; }");
+    so.setLinkerScript(ld);
+    so.linker_allow_undefined_version = true;
+
+    const exe = addExecutable(b, opts, .{
+        .name = "main",
+        .zig_source_bytes =
+        \\const std = @import("std");
+        \\extern fn add(a: i32, b: i32) i32;
+        \\pub fn main() void {
+        \\    std.debug.print("{d}\n", .{add(1, 2)});
+        \\}
+        ,
+    });
+    exe.linkLibrary(so);
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectStdErrEqual("3\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testLdScriptDisallowUndefinedVersion(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "ld-script-disallow-undefined-version", opts);
+
+    const so = addSharedLibrary(b, opts, .{
+        .name = "add",
+        .zig_source_bytes =
+        \\export fn add(a: i32, b: i32) i32 {
+        \\    return a + b;
+        \\}
+        ,
+    });
+    const ld = b.addWriteFiles().add("add.ld", "VERSION { ADD_1.0 { global: add; sub; local: *; }; }");
+    so.setLinkerScript(ld);
+    so.linker_allow_undefined_version = false;
+
+    expectLinkErrors(
+        so,
+        test_step,
+        .{
+            .contains = "error: ld.lld: version script assignment of 'ADD_1.0' to symbol 'sub' failed: symbol not defined",
         },
     );
 

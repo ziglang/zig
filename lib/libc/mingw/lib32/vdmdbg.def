@@ -1,0 +1,18 @@
+LIBRARY VDMDBG.dll
+EXPORTS
+VDMBreakThread@8
+VDMDetectWOW@0
+VDMEnumProcessWOW@8
+VDMEnumTaskWOW@12
+VDMGetModuleSelector@20
+VDMGetPointer@20
+VDMGetSelectorModule@32
+VDMGetThreadContext@8
+VDMGetThreadSelectorEntry@16
+VDMGlobalFirst@24
+VDMGlobalNext@24
+VDMKillWOW@0
+VDMModuleFirst@20
+VDMModuleNext@20
+VDMProcessException@4
+VDMSetThreadContext@8

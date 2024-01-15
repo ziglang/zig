@@ -1,5 +1,5 @@
 $TARGET = "$($Env:ARCH)-windows-gnu"
-$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.12.0-dev.888+130227492"
+$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.12.0-dev.2073+402fe565a"
 $MCPU = "baseline"
 $ZIG_LLVM_CLANG_LLD_URL = "https://ziglang.org/deps/$ZIG_LLVM_CLANG_LLD_NAME.zip"
 $PREFIX_PATH = "$(Get-Location)\$ZIG_LLVM_CLANG_LLD_NAME"

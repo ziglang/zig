@@ -19,7 +19,7 @@
 #ifndef _SECIMP
 #define _SECIMP __declspec(dllimport)
 #endif /* _SECIMP */
-#endif /* defined(_CRTBLD) || defined(__LIBMSVCRT__) */
+#endif /* defined(__LIBMSVCRT__) */
 
 /* Adding timespec definition.  */
 #include <sys/timeb.h>
@@ -132,6 +132,16 @@ extern "C" {
   __MINGW_IMPORT char * _tzname[2];
 #endif
 
+#undef __MINGW_STRFTIME_FORMAT
+
+#if defined(__clang__)
+#define __MINGW_STRFTIME_FORMAT strftime
+#elif defined(_UCRT)
+#define __MINGW_STRFTIME_FORMAT gnu_strftime
+#else
+#define __MINGW_STRFTIME_FORMAT ms_strftime
+#endif
+
   _CRTIMP errno_t __cdecl _get_daylight(int *_Daylight);
   _CRTIMP errno_t __cdecl _get_dstbias(long *_Daylight_savings_bias);
   _CRTIMP errno_t __cdecl _get_timezone(long *_Timezone);
@@ -146,12 +156,14 @@ extern "C" {
   _SECIMP errno_t __cdecl _gmtime32_s (struct tm *_Tm,const __time32_t *_Time);
   _CRTIMP struct tm *__cdecl _localtime32(const __time32_t *_Time) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
   _SECIMP errno_t __cdecl _localtime32_s (struct tm *_Tm,const __time32_t *_Time);
-  size_t __cdecl strftime(char * __restrict__ _Buf,size_t _SizeInBytes,const char * __restrict__ _Format,const struct tm * __restrict__ _Tm);
+  size_t __cdecl strftime(char * __restrict__ _Buf,size_t _SizeInBytes,const char * __restrict__ _Format,const struct tm * __restrict__ _Tm) __attribute__((__format__ (__MINGW_STRFTIME_FORMAT, 3, 0)));
   _CRTIMP size_t __cdecl _strftime_l(char * __restrict__ _Buf,size_t _Max_size,const char * __restrict__ _Format,const struct tm * __restrict__ _Tm,_locale_t _Locale);
   _CRTIMP char *__cdecl _strdate(char *_Buffer) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
   _SECIMP errno_t __cdecl _strdate_s (char *_Buf,size_t _SizeInBytes);
+  __DEFINE_CPP_OVERLOAD_SECURE_FUNC_0_0(errno_t, _strdate_s, char, _Str)
   _CRTIMP char *__cdecl _strtime(char *_Buffer) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
   _SECIMP errno_t __cdecl _strtime_s (char *_Buf ,size_t _SizeInBytes);
+  __DEFINE_CPP_OVERLOAD_SECURE_FUNC_0_0(errno_t, _strtime_s, char, _Str)
   _CRTIMP __time32_t __cdecl _time32(__time32_t *_Time);
 #ifdef _UCRT
   _CRTIMP int __cdecl _timespec32_get(struct _timespec32 *_Ts, int _Base);

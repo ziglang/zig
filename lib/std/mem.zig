@@ -634,12 +634,75 @@ test "lessThan" {
 
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
+    if (@sizeOf(T) == 0) return true;
+    if (!@inComptime() and std.meta.hasUniqueRepresentation(T)) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
+
     if (a.len != b.len) return false;
-    if (a.ptr == b.ptr) return true;
+    if (a.len == 0 or a.ptr == b.ptr) return true;
+
     for (a, b) |a_elem, b_elem| {
         if (a_elem != b_elem) return false;
     }
     return true;
+}
+
+/// std.mem.eql heavily optimized for slices of bytes.
+fn eqlBytes(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    if (a.len == 0 or a.ptr == b.ptr) return true;
+
+    if (a.len <= 16) {
+        if (a.len < 4) {
+            const x = (a[0] ^ b[0]) | (a[a.len - 1] ^ b[a.len - 1]) | (a[a.len / 2] ^ b[a.len / 2]);
+            return x == 0;
+        }
+        var x: u32 = 0;
+        for ([_]usize{ 0, a.len - 4, (a.len / 8) * 4, a.len - 4 - ((a.len / 8) * 4) }) |n| {
+            x |= @as(u32, @bitCast(a[n..][0..4].*)) ^ @as(u32, @bitCast(b[n..][0..4].*));
+        }
+        return x == 0;
+    }
+
+    // Figure out the fastest way to scan through the input in chunks.
+    // Uses vectors when supported and falls back to usize/words when not.
+    const Scan = if (std.simd.suggestVectorLength(u8)) |vec_size|
+        struct {
+            pub const size = vec_size;
+            pub const Chunk = @Vector(size, u8);
+            pub inline fn isNotEqual(chunk_a: Chunk, chunk_b: Chunk) bool {
+                return @reduce(.Or, chunk_a != chunk_b);
+            }
+        }
+    else
+        struct {
+            pub const size = @sizeOf(usize);
+            pub const Chunk = usize;
+            pub inline fn isNotEqual(chunk_a: Chunk, chunk_b: Chunk) bool {
+                return chunk_a != chunk_b;
+            }
+        };
+
+    inline for (1..6) |s| {
+        const n = 16 << s;
+        if (n <= Scan.size and a.len <= n) {
+            const V = @Vector(n / 2, u8);
+            var x = @as(V, a[0 .. n / 2].*) ^ @as(V, b[0 .. n / 2].*);
+            x |= @as(V, a[a.len - n / 2 ..][0 .. n / 2].*) ^ @as(V, b[a.len - n / 2 ..][0 .. n / 2].*);
+            const zero: V = @splat(0);
+            return !@reduce(.Or, x != zero);
+        }
+    }
+    // Compare inputs in chunks at a time (excluding the last chunk).
+    for (0..(a.len - 1) / Scan.size) |i| {
+        const a_chunk: Scan.Chunk = @bitCast(a[i * Scan.size ..][0..Scan.size].*);
+        const b_chunk: Scan.Chunk = @bitCast(b[i * Scan.size ..][0..Scan.size].*);
+        if (Scan.isNotEqual(a_chunk, b_chunk)) return false;
+    }
+
+    // Compare the last chunk using an overlapping read (similar to the previous size strategies).
+    const last_a_chunk: Scan.Chunk = @bitCast(a[a.len - Scan.size ..][0..Scan.size].*);
+    const last_b_chunk: Scan.Chunk = @bitCast(b[a.len - Scan.size ..][0..Scan.size].*);
+    return !Scan.isNotEqual(last_a_chunk, last_b_chunk);
 }
 
 /// Compares two slices and returns the index of the first inequality.
@@ -969,15 +1032,16 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
             // The below branch assumes that reading past the end of the buffer is valid, as long
             // as we don't read into a new page. This should be the case for most architectures
             // which use paged memory, however should be confirmed before adding a new arch below.
-            .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorSize(T)) |block_len| {
-                comptime std.debug.assert(std.mem.page_size % block_len == 0);
+            .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorLength(T)) |block_len| {
                 const Block = @Vector(block_len, T);
                 const mask: Block = @splat(sentinel);
+
+                comptime std.debug.assert(std.mem.page_size % @sizeOf(Block) == 0);
 
                 // First block may be unaligned
                 const start_addr = @intFromPtr(&p[i]);
                 const offset_in_page = start_addr & (std.mem.page_size - 1);
-                if (offset_in_page < std.mem.page_size - block_len) {
+                if (offset_in_page <= std.mem.page_size - @sizeOf(Block)) {
                     // Will not read past the end of a page, full block.
                     const block: Block = p[i..][0..block_len].*;
                     const matches = block == mask;
@@ -1022,7 +1086,7 @@ test "indexOfSentinel vector paths" {
     const allocator = std.testing.allocator;
 
     inline for (Types) |T| {
-        const block_len = std.simd.suggestVectorSize(T) orelse continue;
+        const block_len = std.simd.suggestVectorLength(T) orelse continue;
 
         // Allocate three pages so we guarantee a page-crossing address with a full page after
         const memory = try allocator.alloc(T, 3 * std.mem.page_size / @sizeOf(T));
@@ -1113,11 +1177,11 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
         !@inComptime() and
         (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
     {
-        if (std.simd.suggestVectorSize(T)) |block_len| {
+        if (std.simd.suggestVectorLength(T)) |block_len| {
             // For Intel Nehalem (2009) and AMD Bulldozer (2012) or later, unaligned loads on aligned data result
             // in the same execution as aligned loads. We ignore older arch's here and don't bother pre-aligning.
             //
-            // Use `std.simd.suggestVectorSize(T)` to get the same alignment as used in this function
+            // Use `std.simd.suggestVectorLength(T)` to get the same alignment as used in this function
             // however this usually isn't necessary unless your arch has a performance penalty due to this.
             //
             // This may differ for other arch's. Arm for example costs a cycle when loading across a cache

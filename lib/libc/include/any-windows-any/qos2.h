@@ -6,9 +6,15 @@
 #ifndef _INC_QOS2
 #define _INC_QOS2
 #if (_WIN32_WINNT >= 0x0600)
+
+#include <ws2tcpip.h>
+#include <mstcpip.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef ULONG QOS_FLOWID, *PQOS_FLOWID;
 
 typedef enum _QOS_SHAPING {
   QOSShapeOnly                  = 0,
@@ -16,13 +22,15 @@ typedef enum _QOS_SHAPING {
   QOSUseNonConformantMarkings   = 2 
 } QOS_SHAPING, *PQOS_SHAPING;
 
+#define QOS_OUTGOING_DEFAULT_MINIMUM_BANDWIDTH 0xffffffff
+
 typedef enum _QOS_FLOWRATE_REASON {
   QOSFlowRateNotApplicable           = 0,
   QOSFlowRateContentChange           = 1,
   QOSFlowRateCongestion              = 2,
   QOSFlowRateHigherContentEncoding   = 3,
   QOSFlowRateUserCaused              = 4 
-} QOS_FLOWRATE_REASON, PQOS_FLOWRATE_REASON;
+} QOS_FLOWRATE_REASON, *PQOS_FLOWRATE_REASON;
 
 typedef enum _QOS_NOTIFY_FLOW {
   QOSNotifyCongested     = 0,
@@ -77,6 +85,9 @@ typedef struct _QOS_VERSION {
   USHORT MajorVersion;
   USHORT MinorVersion;
 } QOS_VERSION, *PQOS_VERSION;
+
+#define QOS_QUERYFLOW_FRESH 0x00000001
+#define QOS_NON_ADAPTIVE_FLOW 0x00000002
 
 WINBOOL WINAPI QOSAddSocketToFlow(
   HANDLE QOSHandle,
@@ -133,12 +144,6 @@ WINBOOL WINAPI QOSRemoveSocketFromFlow(
   QOS_FLOWID FlowId,
   DWORD Flags
 );
-
-#define QOSSetTrafficType 0
-#define QOSSetOutgoingRate 1
-#define QOSSetOutgoingDSCPValue 2
-
-typedef UINT32 QOS_FLOWID;
 
 WINBOOL WINAPI QOSSetFlow(
   HANDLE QOSHandle,

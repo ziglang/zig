@@ -16,7 +16,13 @@
 #include <inttypes.h>
 
 intmax_t
+__cdecl
 imaxabs (intmax_t _j)
   { return	_j >= 0 ? _j : -_j; }
+intmax_t (__cdecl *__MINGW_IMP_SYMBOL(imaxabs))(intmax_t) = imaxabs;
 
-long long __attribute__ ((alias ("imaxabs")))	llabs (long long); 
+long long __attribute__ ((alias ("imaxabs"))) __cdecl llabs (long long);
+long long (__cdecl *__MINGW_IMP_SYMBOL(llabs))(long long) = llabs;
+
+__int64 __attribute__ ((alias ("imaxabs"))) __cdecl _abs64 (__int64);
+__int64 (__cdecl *__MINGW_IMP_SYMBOL(_abs64))(__int64) = _abs64;

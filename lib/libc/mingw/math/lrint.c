@@ -5,10 +5,16 @@
  */
 #include <math.h>
 
+#if defined(_AMD64_) || defined(__x86_64__)
+#include <xmmintrin.h>
+#endif
+
 long lrint (double x) 
 {
   long retval = 0L;
-#if defined(_AMD64_) || defined(__x86_64__) || defined(_X86_) || defined(__i386__)
+#if defined(_AMD64_) || defined(__x86_64__)
+  retval = _mm_cvtsd_si32(_mm_load_sd(&x));
+#elif defined(_X86_) || defined(__i386__)
   __asm__ __volatile__ ("fistpl %0"  : "=m" (retval) : "t" (x) : "st");
 #elif defined(__arm__) || defined(_ARM_)
   float temp;

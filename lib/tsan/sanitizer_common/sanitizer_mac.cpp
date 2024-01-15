@@ -11,80 +11,82 @@
 //===----------------------------------------------------------------------===//
 
 #include "sanitizer_platform.h"
-#if SANITIZER_MAC
-#include "sanitizer_mac.h"
-#include "interception/interception.h"
+#if SANITIZER_APPLE
+#  include "interception/interception.h"
+#  include "sanitizer_mac.h"
 
 // Use 64-bit inodes in file operations. ASan does not support OS X 10.5, so
 // the clients will most certainly use 64-bit ones as well.
-#ifndef _DARWIN_USE_64_BIT_INODE
-#define _DARWIN_USE_64_BIT_INODE 1
-#endif
-#include <stdio.h>
+#  ifndef _DARWIN_USE_64_BIT_INODE
+#    define _DARWIN_USE_64_BIT_INODE 1
+#  endif
+#  include <stdio.h>
 
-#include "sanitizer_common.h"
-#include "sanitizer_file.h"
-#include "sanitizer_flags.h"
-#include "sanitizer_internal_defs.h"
-#include "sanitizer_libc.h"
-#include "sanitizer_platform_limits_posix.h"
-#include "sanitizer_procmaps.h"
-#include "sanitizer_ptrauth.h"
+#  include "sanitizer_common.h"
+#  include "sanitizer_file.h"
+#  include "sanitizer_flags.h"
+#  include "sanitizer_interface_internal.h"
+#  include "sanitizer_internal_defs.h"
+#  include "sanitizer_libc.h"
+#  include "sanitizer_platform_limits_posix.h"
+#  include "sanitizer_procmaps.h"
+#  include "sanitizer_ptrauth.h"
 
-#if !SANITIZER_IOS
-#include <crt_externs.h>  // for _NSGetEnviron
-#else
+#  if !SANITIZER_IOS
+#    include <crt_externs.h>  // for _NSGetEnviron
+#  else
 extern char **environ;
-#endif
+#  endif
 
-#if defined(__has_include) && __has_include(<os/trace.h>)
-#define SANITIZER_OS_TRACE 1
-#include <os/trace.h>
-#else
-#define SANITIZER_OS_TRACE 0
-#endif
+#  if defined(__has_include) && __has_include(<os/trace.h>)
+#    define SANITIZER_OS_TRACE 1
+#    include <os/trace.h>
+#  else
+#    define SANITIZER_OS_TRACE 0
+#  endif
 
 // import new crash reporting api
-#if defined(__has_include) && __has_include(<CrashReporterClient.h>)
-#define HAVE_CRASHREPORTERCLIENT_H 1
-#include <CrashReporterClient.h>
-#else
-#define HAVE_CRASHREPORTERCLIENT_H 0
-#endif
+#  if defined(__has_include) && __has_include(<CrashReporterClient.h>)
+#    define HAVE_CRASHREPORTERCLIENT_H 1
+#    include <CrashReporterClient.h>
+#  else
+#    define HAVE_CRASHREPORTERCLIENT_H 0
+#  endif
 
-#if !SANITIZER_IOS
-#include <crt_externs.h>  // for _NSGetArgv and _NSGetEnviron
-#else
+#  if !SANITIZER_IOS
+#    include <crt_externs.h>  // for _NSGetArgv and _NSGetEnviron
+#  else
 extern "C" {
-  extern char ***_NSGetArgv(void);
+extern char ***_NSGetArgv(void);
 }
-#endif
+#  endif
 
-#include <asl.h>
-#include <dlfcn.h>  // for dladdr()
-#include <errno.h>
-#include <fcntl.h>
-#include <libkern/OSAtomic.h>
-#include <mach-o/dyld.h>
-#include <mach/mach.h>
-#include <mach/mach_time.h>
-#include <mach/vm_statistics.h>
-#include <malloc/malloc.h>
-#include <os/log.h>
-#include <pthread.h>
-#include <sched.h>
-#include <signal.h>
-#include <spawn.h>
-#include <stdlib.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <sys/resource.h>
-#include <sys/stat.h>
-#include <sys/sysctl.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#include <util.h>
+#  include <asl.h>
+#  include <dlfcn.h>  // for dladdr()
+#  include <errno.h>
+#  include <fcntl.h>
+#  include <libkern/OSAtomic.h>
+#  include <mach-o/dyld.h>
+#  include <mach/mach.h>
+#  include <mach/mach_time.h>
+#  include <mach/vm_statistics.h>
+#  include <malloc/malloc.h>
+#  include <os/log.h>
+#  include <pthread.h>
+#  include <pthread/introspection.h>
+#  include <sched.h>
+#  include <signal.h>
+#  include <spawn.h>
+#  include <stdlib.h>
+#  include <sys/ioctl.h>
+#  include <sys/mman.h>
+#  include <sys/resource.h>
+#  include <sys/stat.h>
+#  include <sys/sysctl.h>
+#  include <sys/types.h>
+#  include <sys/wait.h>
+#  include <unistd.h>
+#  include <util.h>
 
 // From <crt_externs.h>, but we don't have that file on iOS.
 extern "C" {
@@ -265,30 +267,32 @@ int internal_sysctlbyname(const char *sname, void *oldp, uptr *oldlenp,
 
 static fd_t internal_spawn_impl(const char *argv[], const char *envp[],
                                 pid_t *pid) {
-  fd_t master_fd = kInvalidFd;
-  fd_t slave_fd = kInvalidFd;
+  fd_t primary_fd = kInvalidFd;
+  fd_t secondary_fd = kInvalidFd;
 
   auto fd_closer = at_scope_exit([&] {
-    internal_close(master_fd);
-    internal_close(slave_fd);
+    internal_close(primary_fd);
+    internal_close(secondary_fd);
   });
 
   // We need a new pseudoterminal to avoid buffering problems. The 'atos' tool
   // in particular detects when it's talking to a pipe and forgets to flush the
   // output stream after sending a response.
-  master_fd = posix_openpt(O_RDWR);
-  if (master_fd == kInvalidFd) return kInvalidFd;
+  primary_fd = posix_openpt(O_RDWR);
+  if (primary_fd == kInvalidFd)
+    return kInvalidFd;
 
-  int res = grantpt(master_fd) || unlockpt(master_fd);
+  int res = grantpt(primary_fd) || unlockpt(primary_fd);
   if (res != 0) return kInvalidFd;
 
   // Use TIOCPTYGNAME instead of ptsname() to avoid threading problems.
-  char slave_pty_name[128];
-  res = ioctl(master_fd, TIOCPTYGNAME, slave_pty_name);
+  char secondary_pty_name[128];
+  res = ioctl(primary_fd, TIOCPTYGNAME, secondary_pty_name);
   if (res == -1) return kInvalidFd;
 
-  slave_fd = internal_open(slave_pty_name, O_RDWR);
-  if (slave_fd == kInvalidFd) return kInvalidFd;
+  secondary_fd = internal_open(secondary_pty_name, O_RDWR);
+  if (secondary_fd == kInvalidFd)
+    return kInvalidFd;
 
   // File descriptor actions
   posix_spawn_file_actions_t acts;
@@ -299,9 +303,9 @@ static fd_t internal_spawn_impl(const char *argv[], const char *envp[],
     posix_spawn_file_actions_destroy(&acts);
   });
 
-  res = posix_spawn_file_actions_adddup2(&acts, slave_fd, STDIN_FILENO) ||
-        posix_spawn_file_actions_adddup2(&acts, slave_fd, STDOUT_FILENO) ||
-        posix_spawn_file_actions_addclose(&acts, slave_fd);
+  res = posix_spawn_file_actions_adddup2(&acts, secondary_fd, STDIN_FILENO) ||
+        posix_spawn_file_actions_adddup2(&acts, secondary_fd, STDOUT_FILENO) ||
+        posix_spawn_file_actions_addclose(&acts, secondary_fd);
   if (res != 0) return kInvalidFd;
 
   // Spawn attributes
@@ -326,14 +330,14 @@ static fd_t internal_spawn_impl(const char *argv[], const char *envp[],
 
   // Disable echo in the new terminal, disable CR.
   struct termios termflags;
-  tcgetattr(master_fd, &termflags);
+  tcgetattr(primary_fd, &termflags);
   termflags.c_oflag &= ~ONLCR;
   termflags.c_lflag &= ~ECHO;
-  tcsetattr(master_fd, TCSANOW, &termflags);
+  tcsetattr(primary_fd, TCSANOW, &termflags);
 
-  // On success, do not close master_fd on scope exit.
-  fd_t fd = master_fd;
-  master_fd = kInvalidFd;
+  // On success, do not close primary_fd on scope exit.
+  fd_t fd = primary_fd;
+  primary_fd = kInvalidFd;
 
   return fd;
 }
@@ -388,6 +392,13 @@ bool FileExists(const char *filename) {
     return false;
   // Sanity check: filename is a regular file.
   return S_ISREG(st.st_mode);
+}
+
+bool DirExists(const char *path) {
+  struct stat st;
+  if (stat(path, &st))
+    return false;
+  return S_ISDIR(st.st_mode);
 }
 
 tid_t GetTid() {
@@ -516,25 +527,6 @@ void FutexWait(atomic_uint32_t *p, u32 cmp) {
 
 void FutexWake(atomic_uint32_t *p, u32 count) {}
 
-BlockingMutex::BlockingMutex() {
-  internal_memset(this, 0, sizeof(*this));
-}
-
-void BlockingMutex::Lock() {
-  CHECK(sizeof(OSSpinLock) <= sizeof(opaque_storage_));
-  CHECK_EQ(OS_SPINLOCK_INIT, 0);
-  CHECK_EQ(owner_, 0);
-  OSSpinLockLock((OSSpinLock*)&opaque_storage_);
-}
-
-void BlockingMutex::Unlock() {
-  OSSpinLockUnlock((OSSpinLock*)&opaque_storage_);
-}
-
-void BlockingMutex::CheckLocked() const {
-  CHECK_NE(*(const OSSpinLock*)&opaque_storage_, 0);
-}
-
 u64 NanoTime() {
   timeval tv;
   internal_memset(&tv, 0, sizeof(tv));
@@ -562,6 +554,9 @@ uptr TlsBaseAddr() {
   asm("movq %%gs:0,%0" : "=r"(segbase));
 #elif defined(__i386__)
   asm("movl %%gs:0,%0" : "=r"(segbase));
+#elif defined(__aarch64__)
+  asm("mrs %x0, tpidrro_el0" : "=r"(segbase));
+  segbase &= 0x07ul;  // clearing lower bits, cpu id stored there
 #endif
   return segbase;
 }
@@ -784,8 +779,8 @@ void *internal_start_thread(void *(*func)(void *arg), void *arg) {
 void internal_join_thread(void *th) { pthread_join((pthread_t)th, 0); }
 
 #if !SANITIZER_GO
-static BlockingMutex syslog_lock(LINKER_INITIALIZED);
-#endif
+static Mutex syslog_lock;
+#  endif
 
 void WriteOneLineToSyslog(const char *s) {
 #if !SANITIZER_GO
@@ -800,7 +795,7 @@ void WriteOneLineToSyslog(const char *s) {
 
 // buffer to store crash report application information
 static char crashreporter_info_buff[__sanitizer::kErrorMessageBufferSize] = {};
-static BlockingMutex crashreporter_info_mutex(LINKER_INITIALIZED);
+static Mutex crashreporter_info_mutex;
 
 extern "C" {
 // Integrate with crash reporter libraries.
@@ -830,7 +825,7 @@ asm(".desc ___crashreporter_info__, 0x10");
 }  // extern "C"
 
 static void CRAppendCrashLogMessage(const char *msg) {
-  BlockingMutexLock l(&crashreporter_info_mutex);
+  Lock l(&crashreporter_info_mutex);
   internal_strlcat(crashreporter_info_buff, msg,
                    sizeof(crashreporter_info_buff));
 #if HAVE_CRASHREPORTERCLIENT_H
@@ -874,7 +869,7 @@ void LogFullErrorReport(const char *buffer) {
   // the reporting thread holds the thread registry mutex, and asl_log waits
   // for GCD to dispatch a new thread, the process will deadlock, because the
   // pthread_create wrapper needs to acquire the lock as well.
-  BlockingMutexLock l(&syslog_lock);
+  Lock l(&syslog_lock);
   if (common_flags()->log_to_syslog)
     WriteToSyslog(buffer);
 
@@ -885,9 +880,12 @@ void LogFullErrorReport(const char *buffer) {
 SignalContext::WriteFlag SignalContext::GetWriteFlag() const {
 #if defined(__x86_64__) || defined(__i386__)
   ucontext_t *ucontext = static_cast<ucontext_t*>(context);
-  return ucontext->uc_mcontext->__es.__err & 2 /*T_PF_WRITE*/ ? WRITE : READ;
+  return ucontext->uc_mcontext->__es.__err & 2 /*T_PF_WRITE*/ ? Write : Read;
+#elif defined(__arm64__)
+  ucontext_t *ucontext = static_cast<ucontext_t*>(context);
+  return ucontext->uc_mcontext->__es.__esr & 0x40 /*ISS_DA_WNR*/ ? Write : Read;
 #else
-  return UNKNOWN;
+  return Unknown;
 #endif
 }
 
@@ -902,18 +900,14 @@ bool SignalContext::IsTrueFaultingAddress() const {
     (uptr)ptrauth_strip(     \
         (void *)arm_thread_state64_get_##r(ucontext->uc_mcontext->__ss), 0)
 #else
-  #define AARCH64_GET_REG(r) ucontext->uc_mcontext->__ss.__##r
+  #define AARCH64_GET_REG(r) (uptr)ucontext->uc_mcontext->__ss.__##r
 #endif
 
 static void GetPcSpBp(void *context, uptr *pc, uptr *sp, uptr *bp) {
   ucontext_t *ucontext = (ucontext_t*)context;
 # if defined(__aarch64__)
   *pc = AARCH64_GET_REG(pc);
-#   if defined(__IPHONE_8_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_8_0
   *bp = AARCH64_GET_REG(fp);
-#   else
-  *bp = AARCH64_GET_REG(lr);
-#   endif
   *sp = AARCH64_GET_REG(sp);
 # elif defined(__x86_64__)
   *pc = ucontext->uc_mcontext->__ss.__rip;
@@ -950,6 +944,9 @@ static void DisableMmapExcGuardExceptions() {
   set_behavior(mach_task_self(), task_exc_guard_none);
 }
 
+static void VerifyInterceptorsWorking();
+static void StripEnv();
+
 void InitializePlatformEarly() {
   // Only use xnu_fast_mmap when on x86_64 and the kernel supports it.
   use_xnu_fast_mmap =
@@ -960,17 +957,54 @@ void InitializePlatformEarly() {
 #endif
   if (GetDarwinKernelVersion() >= DarwinKernelVersion(19, 0))
     DisableMmapExcGuardExceptions();
+
+#  if !SANITIZER_GO
+  MonotonicNanoTime();  // Call to initialize mach_timebase_info
+  VerifyInterceptorsWorking();
+  StripEnv();
+#  endif
 }
 
 #if !SANITIZER_GO
 static const char kDyldInsertLibraries[] = "DYLD_INSERT_LIBRARIES";
 LowLevelAllocator allocator_for_env;
 
+static bool ShouldCheckInterceptors() {
+  // Restrict "interceptors working?" check to ASan and TSan.
+  const char *sanitizer_names[] = {"AddressSanitizer", "ThreadSanitizer"};
+  size_t count = sizeof(sanitizer_names) / sizeof(sanitizer_names[0]);
+  for (size_t i = 0; i < count; i++) {
+    if (internal_strcmp(sanitizer_names[i], SanitizerToolName) == 0)
+      return true;
+  }
+  return false;
+}
+
+static void VerifyInterceptorsWorking() {
+  if (!common_flags()->verify_interceptors || !ShouldCheckInterceptors())
+    return;
+
+  // Verify that interceptors really work.  We'll use dlsym to locate
+  // "puts", if interceptors are working, it should really point to
+  // "wrap_puts" within our own dylib.
+  Dl_info info_puts, info_runtime;
+  RAW_CHECK(dladdr(dlsym(RTLD_DEFAULT, "puts"), &info_puts));
+  RAW_CHECK(dladdr((void *)&VerifyInterceptorsWorking, &info_runtime));
+  if (internal_strcmp(info_puts.dli_fname, info_runtime.dli_fname) != 0) {
+    Report(
+        "ERROR: Interceptors are not working. This may be because %s is "
+        "loaded too late (e.g. via dlopen). Please launch the executable "
+        "with:\n%s=%s\n",
+        SanitizerToolName, kDyldInsertLibraries, info_runtime.dli_fname);
+    RAW_CHECK("interceptors not installed" && 0);
+  }
+}
+
 // Change the value of the env var |name|, leaking the original value.
 // If |name_value| is NULL, the variable is deleted from the environment,
 // otherwise the corresponding "NAME=value" string is replaced with
 // |name_value|.
-void LeakyResetEnv(const char *name, const char *name_value) {
+static void LeakyResetEnv(const char *name, const char *name_value) {
   char **env = GetEnviron();
   uptr name_len = internal_strlen(name);
   while (*env != 0) {
@@ -995,100 +1029,28 @@ void LeakyResetEnv(const char *name, const char *name_value) {
   }
 }
 
-SANITIZER_WEAK_CXX_DEFAULT_IMPL
-bool ReexecDisabled() {
-  return false;
-}
-
-static bool DyldNeedsEnvVariable() {
-  // If running on OS X 10.11+ or iOS 9.0+, dyld will interpose even if
-  // DYLD_INSERT_LIBRARIES is not set.
-  return GetMacosAlignedVersion() < MacosVersion(10, 11);
-}
-
-void MaybeReexec() {
-  // FIXME: This should really live in some "InitializePlatform" method.
-  MonotonicNanoTime();
-
-  if (ReexecDisabled()) return;
-
-  // Make sure the dynamic runtime library is preloaded so that the
-  // wrappers work. If it is not, set DYLD_INSERT_LIBRARIES and re-exec
-  // ourselves.
-  Dl_info info;
-  RAW_CHECK(dladdr((void*)((uptr)&__sanitizer_report_error_summary), &info));
-  char *dyld_insert_libraries =
-      const_cast<char*>(GetEnv(kDyldInsertLibraries));
-  uptr old_env_len = dyld_insert_libraries ?
-      internal_strlen(dyld_insert_libraries) : 0;
-  uptr fname_len = internal_strlen(info.dli_fname);
-  const char *dylib_name = StripModuleName(info.dli_fname);
-  uptr dylib_name_len = internal_strlen(dylib_name);
-
-  bool lib_is_in_env = dyld_insert_libraries &&
-                       internal_strstr(dyld_insert_libraries, dylib_name);
-  if (DyldNeedsEnvVariable() && !lib_is_in_env) {
-    // DYLD_INSERT_LIBRARIES is not set or does not contain the runtime
-    // library.
-    InternalMmapVector<char> program_name(1024);
-    uint32_t buf_size = program_name.size();
-    _NSGetExecutablePath(program_name.data(), &buf_size);
-    char *new_env = const_cast<char*>(info.dli_fname);
-    if (dyld_insert_libraries) {
-      // Append the runtime dylib name to the existing value of
-      // DYLD_INSERT_LIBRARIES.
-      new_env = (char*)allocator_for_env.Allocate(old_env_len + fname_len + 2);
-      internal_strncpy(new_env, dyld_insert_libraries, old_env_len);
-      new_env[old_env_len] = ':';
-      // Copy fname_len and add a trailing zero.
-      internal_strncpy(new_env + old_env_len + 1, info.dli_fname,
-                       fname_len + 1);
-      // Ok to use setenv() since the wrappers don't depend on the value of
-      // asan_inited.
-      setenv(kDyldInsertLibraries, new_env, /*overwrite*/1);
-    } else {
-      // Set DYLD_INSERT_LIBRARIES equal to the runtime dylib name.
-      setenv(kDyldInsertLibraries, info.dli_fname, /*overwrite*/0);
-    }
-    VReport(1, "exec()-ing the program with\n");
-    VReport(1, "%s=%s\n", kDyldInsertLibraries, new_env);
-    VReport(1, "to enable wrappers.\n");
-    execv(program_name.data(), *_NSGetArgv());
-
-    // We get here only if execv() failed.
-    Report("ERROR: The process is launched without DYLD_INSERT_LIBRARIES, "
-           "which is required for the sanitizer to work. We tried to set the "
-           "environment variable and re-execute itself, but execv() failed, "
-           "possibly because of sandbox restrictions. Make sure to launch the "
-           "executable with:\n%s=%s\n", kDyldInsertLibraries, new_env);
-    RAW_CHECK("execv failed" && 0);
-  }
-
-  // Verify that interceptors really work.  We'll use dlsym to locate
-  // "pthread_create", if interceptors are working, it should really point to
-  // "wrap_pthread_create" within our own dylib.
-  Dl_info info_pthread_create;
-  void *dlopen_addr = dlsym(RTLD_DEFAULT, "pthread_create");
-  RAW_CHECK(dladdr(dlopen_addr, &info_pthread_create));
-  if (internal_strcmp(info.dli_fname, info_pthread_create.dli_fname) != 0) {
-    Report(
-        "ERROR: Interceptors are not working. This may be because %s is "
-        "loaded too late (e.g. via dlopen). Please launch the executable "
-        "with:\n%s=%s\n",
-        SanitizerToolName, kDyldInsertLibraries, info.dli_fname);
-    RAW_CHECK("interceptors not installed" && 0);
-  }
-
-  if (!lib_is_in_env)
+static void StripEnv() {
+  if (!common_flags()->strip_env)
     return;
 
-  if (!common_flags()->strip_env)
+  char *dyld_insert_libraries =
+      const_cast<char *>(GetEnv(kDyldInsertLibraries));
+  if (!dyld_insert_libraries)
+    return;
+
+  Dl_info info;
+  RAW_CHECK(dladdr((void *)&StripEnv, &info));
+  const char *dylib_name = StripModuleName(info.dli_fname);
+  bool lib_is_in_env = internal_strstr(dyld_insert_libraries, dylib_name);
+  if (!lib_is_in_env)
     return;
 
   // DYLD_INSERT_LIBRARIES is set and contains the runtime library. Let's remove
   // the dylib from the environment variable, because interceptors are installed
   // and we don't want our children to inherit the variable.
 
+  uptr old_env_len = internal_strlen(dyld_insert_libraries);
+  uptr dylib_name_len = internal_strlen(dylib_name);
   uptr env_name_len = internal_strlen(kDyldInsertLibraries);
   // Allocate memory to hold the previous env var name, its value, the '='
   // sign and the '\0' char.
@@ -1237,7 +1199,7 @@ uptr MapDynamicShadow(uptr shadow_size_bytes, uptr shadow_scale,
 
   uptr largest_gap_found = 0;
   uptr max_occupied_addr = 0;
-  VReport(2, "FindDynamicShadowStart, space_size = %p\n", space_size);
+  VReport(2, "FindDynamicShadowStart, space_size = %p\n", (void *)space_size);
   uptr shadow_start =
       FindAvailableMemoryRange(space_size, alignment, granularity,
                                &largest_gap_found, &max_occupied_addr);
@@ -1246,20 +1208,21 @@ uptr MapDynamicShadow(uptr shadow_size_bytes, uptr shadow_scale,
     VReport(
         2,
         "Shadow doesn't fit, largest_gap_found = %p, max_occupied_addr = %p\n",
-        largest_gap_found, max_occupied_addr);
+        (void *)largest_gap_found, (void *)max_occupied_addr);
     uptr new_max_vm = RoundDownTo(largest_gap_found << shadow_scale, alignment);
     if (new_max_vm < max_occupied_addr) {
       Report("Unable to find a memory range for dynamic shadow.\n");
       Report(
           "space_size = %p, largest_gap_found = %p, max_occupied_addr = %p, "
           "new_max_vm = %p\n",
-          space_size, largest_gap_found, max_occupied_addr, new_max_vm);
+          (void *)space_size, (void *)largest_gap_found,
+          (void *)max_occupied_addr, (void *)new_max_vm);
       CHECK(0 && "cannot place shadow");
     }
     RestrictMemoryToMaxAddress(new_max_vm);
     high_mem_end = new_max_vm - 1;
     space_size = (high_mem_end >> shadow_scale) + left_padding;
-    VReport(2, "FindDynamicShadowStart, space_size = %p\n", space_size);
+    VReport(2, "FindDynamicShadowStart, space_size = %p\n", (void *)space_size);
     shadow_start = FindAvailableMemoryRange(space_size, alignment, granularity,
                                             nullptr, nullptr);
     if (shadow_start == 0) {
@@ -1288,6 +1251,7 @@ uptr FindAvailableMemoryRange(uptr size, uptr alignment, uptr left_padding,
   mach_vm_address_t start_address =
     (SANITIZER_WORDSIZE == 32) ? 0x000000001000 : 0x000100000000;
 
+  const mach_vm_address_t max_vm_address = GetMaxVirtualAddress() + 1;
   mach_vm_address_t address = start_address;
   mach_vm_address_t free_begin = start_address;
   kern_return_t kr = KERN_SUCCESS;
@@ -1302,7 +1266,7 @@ uptr FindAvailableMemoryRange(uptr size, uptr alignment, uptr left_padding,
                                 (vm_region_info_t)&vminfo, &count);
     if (kr == KERN_INVALID_ADDRESS) {
       // No more regions beyond "address", consider the gap at the end of VM.
-      address = GetMaxVirtualAddress() + 1;
+      address = max_vm_address;
       vmsize = 0;
     } else {
       if (max_occupied_addr) *max_occupied_addr = address + vmsize;
@@ -1310,7 +1274,7 @@ uptr FindAvailableMemoryRange(uptr size, uptr alignment, uptr left_padding,
     if (free_begin != address) {
       // We found a free region [free_begin..address-1].
       uptr gap_start = RoundUpTo((uptr)free_begin + left_padding, alignment);
-      uptr gap_end = RoundDownTo((uptr)address, alignment);
+      uptr gap_end = RoundDownTo((uptr)Min(address, max_vm_address), alignment);
       uptr gap_size = gap_end > gap_start ? gap_end - gap_start : 0;
       if (size < gap_size) {
         return gap_start;
@@ -1330,7 +1294,7 @@ uptr FindAvailableMemoryRange(uptr size, uptr alignment, uptr left_padding,
 }
 
 // FIXME implement on this platform.
-void GetMemoryProfile(fill_profile_f cb, uptr *stats, uptr stats_size) { }
+void GetMemoryProfile(fill_profile_f cb, uptr *stats) {}
 
 void SignalContext::DumpAllRegisters(void *context) {
   Report("Register values:\n");
@@ -1339,7 +1303,7 @@ void SignalContext::DumpAllRegisters(void *context) {
 # define DUMPREG64(r) \
     Printf("%s = 0x%016llx  ", #r, ucontext->uc_mcontext->__ss.__ ## r);
 # define DUMPREGA64(r) \
-    Printf("   %s = 0x%016llx  ", #r, AARCH64_GET_REG(r));
+    Printf("   %s = 0x%016lx  ", #r, AARCH64_GET_REG(r));
 # define DUMPREG32(r) \
     Printf("%s = 0x%08x  ", #r, ucontext->uc_mcontext->__ss.__ ## r);
 # define DUMPREG_(r)   Printf(" "); DUMPREG(r);
@@ -1409,7 +1373,7 @@ void DumpProcessMap() {
     char uuid_str[128];
     FormatUUID(uuid_str, sizeof(uuid_str), modules[i].uuid());
     Printf("0x%zx-0x%zx %s (%s) %s\n", modules[i].base_address(),
-           modules[i].max_executable_address(), modules[i].full_name(),
+           modules[i].max_address(), modules[i].full_name(),
            ModuleArchToString(modules[i].arch()), uuid_str);
   }
   Printf("End of module map.\n");
@@ -1433,6 +1397,61 @@ u32 GetNumberOfCPUs() {
 
 void InitializePlatformCommonFlags(CommonFlags *cf) {}
 
+// Pthread introspection hook
+//
+// * GCD worker threads are created without a call to pthread_create(), but we
+//   still need to register these threads (with ThreadCreate/Start()).
+// * We use the "pthread introspection hook" below to observe the creation of
+//   such threads.
+// * GCD worker threads don't have parent threads and the CREATE event is
+//   delivered in the context of the thread itself.  CREATE events for regular
+//   threads, are delivered on the parent.  We use this to tell apart which
+//   threads are GCD workers with `thread == pthread_self()`.
+//
+static pthread_introspection_hook_t prev_pthread_introspection_hook;
+static ThreadEventCallbacks thread_event_callbacks;
+
+static void sanitizer_pthread_introspection_hook(unsigned int event,
+                                                 pthread_t thread, void *addr,
+                                                 size_t size) {
+  // create -> start -> terminate -> destroy
+  // * create/destroy are usually (not guaranteed) delivered on the parent and
+  //   track resource allocation/reclamation
+  // * start/terminate are guaranteed to be delivered in the context of the
+  //   thread and give hooks into "just after (before) thread starts (stops)
+  //   executing"
+  DCHECK(event >= PTHREAD_INTROSPECTION_THREAD_CREATE &&
+         event <= PTHREAD_INTROSPECTION_THREAD_DESTROY);
+
+  if (event == PTHREAD_INTROSPECTION_THREAD_CREATE) {
+    bool gcd_worker = (thread == pthread_self());
+    if (thread_event_callbacks.create)
+      thread_event_callbacks.create((uptr)thread, gcd_worker);
+  } else if (event == PTHREAD_INTROSPECTION_THREAD_START) {
+    CHECK_EQ(thread, pthread_self());
+    if (thread_event_callbacks.start)
+      thread_event_callbacks.start((uptr)thread);
+  }
+
+  if (prev_pthread_introspection_hook)
+    prev_pthread_introspection_hook(event, thread, addr, size);
+
+  if (event == PTHREAD_INTROSPECTION_THREAD_TERMINATE) {
+    CHECK_EQ(thread, pthread_self());
+    if (thread_event_callbacks.terminate)
+      thread_event_callbacks.terminate((uptr)thread);
+  } else if (event == PTHREAD_INTROSPECTION_THREAD_DESTROY) {
+    if (thread_event_callbacks.destroy)
+      thread_event_callbacks.destroy((uptr)thread);
+  }
+}
+
+void InstallPthreadIntrospectionHook(const ThreadEventCallbacks &callbacks) {
+  thread_event_callbacks = callbacks;
+  prev_pthread_introspection_hook =
+      pthread_introspection_hook_install(&sanitizer_pthread_introspection_hook);
+}
+
 }  // namespace __sanitizer
 
-#endif  // SANITIZER_MAC
+#endif  // SANITIZER_APPLE

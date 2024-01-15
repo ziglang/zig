@@ -1235,3 +1235,10 @@ fn getLazyInitialized(param: enum(u8) {
 }) u8 {
     return @intFromEnum(param);
 }
+
+test "Non-exhaustive enum backed by comptime_int" {
+    const E = enum(comptime_int) { a, b, c, _ };
+    comptime var e: E = .a;
+    e = @as(E, @enumFromInt(378089457309184723749));
+    try expect(@intFromEnum(e) == 378089457309184723749);
+}

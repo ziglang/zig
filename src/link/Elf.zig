@@ -22,6 +22,7 @@ soname: ?[]const u8,
 bind_global_refs_locally: bool,
 linker_script: ?[]const u8,
 version_script: ?[]const u8,
+allow_undefined_version: bool,
 print_icf_sections: bool,
 print_map: bool,
 entry_name: ?[]const u8,
@@ -325,6 +326,7 @@ pub fn createEmpty(
         .bind_global_refs_locally = options.bind_global_refs_locally,
         .linker_script = options.linker_script,
         .version_script = options.version_script,
+        .allow_undefined_version = options.allow_undefined_version,
         .print_icf_sections = options.print_icf_sections,
         .print_map = options.print_map,
     };
@@ -2410,10 +2412,11 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 10);
+        comptime assert(Compilation.link_hash_implementation_version == 11);
 
         try man.addOptionalFile(self.linker_script);
         try man.addOptionalFile(self.version_script);
+        man.hash.add(self.allow_undefined_version);
         for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);
             man.hash.add(obj.must_link);
@@ -2788,6 +2791,11 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             if (self.version_script) |version_script| {
                 try argv.append("-version-script");
                 try argv.append(version_script);
+            }
+            if (self.allow_undefined_version) {
+                try argv.append("--undefined-version");
+            } else {
+                try argv.append("--no-undefined-version");
             }
         }
 

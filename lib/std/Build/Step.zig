@@ -31,6 +31,7 @@ max_rss: usize,
 
 result_error_msgs: std.ArrayListUnmanaged([]const u8),
 result_error_bundle: std.zig.ErrorBundle,
+result_stderr: []const u8,
 result_cached: bool,
 result_duration_ns: ?u64,
 /// 0 means unavailable or not reported.
@@ -164,6 +165,7 @@ pub fn init(options: StepOptions) Step {
         },
         .result_error_msgs = .{},
         .result_error_bundle = std.zig.ErrorBundle.empty,
+        .result_stderr = "",
         .result_cached = false,
         .result_duration_ns = null,
         .result_peak_rss = 0,

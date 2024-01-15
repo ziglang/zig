@@ -120,7 +120,7 @@ pub const epsilon = @compileError("Deprecated: use `floatEps` instead");
 ///
 /// NaN values are never considered equal to any value.
 pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
-    assert(@typeInfo(T) == .Float);
+    assert(@typeInfo(T) == .Float or @typeInfo(T) == .ComptimeFloat);
     assert(tolerance >= 0);
 
     // Fast path for equal values (and signed zeros and infinites).
@@ -148,7 +148,7 @@ pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
 ///
 /// NaN values are never considered equal to any value.
 pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
-    assert(@typeInfo(T) == .Float);
+    assert(@typeInfo(T) == .Float or @typeInfo(T) == .ComptimeFloat);
     assert(tolerance > 0);
 
     // Fast path for equal values (and signed zeros and infinites).
@@ -183,6 +183,24 @@ test "approxEqAbs and approxEqRel" {
         try testing.expect(approxEqRel(T, -min_value, -min_value, sqrt_eps_value));
         try testing.expect(approxEqAbs(T, min_value, 0.0, eps_value * 2));
         try testing.expect(approxEqAbs(T, -min_value, 0.0, eps_value * 2));
+    }
+
+    comptime {
+        // `comptime_float` is guaranteed to have the same precision and operations of
+        // the largest other floating point type, which is f128 but it doesn't have a
+        // defined layout so we can't rely on `@bitCast` to construct the smallest
+        // possible epsilon value like we do in the tests above. In the same vein, we
+        // also can't represent a max/min, `NaN` or `Inf` values.
+        const eps_value = 1e-4;
+        const sqrt_eps_value = sqrt(eps_value);
+
+        try testing.expect(approxEqAbs(comptime_float, 0.0, 0.0, eps_value));
+        try testing.expect(approxEqAbs(comptime_float, -0.0, -0.0, eps_value));
+        try testing.expect(approxEqAbs(comptime_float, 0.0, -0.0, eps_value));
+        try testing.expect(approxEqRel(comptime_float, 1.0, 1.0, sqrt_eps_value));
+        try testing.expect(!approxEqRel(comptime_float, 1.0, 0.0, sqrt_eps_value));
+        try testing.expect(!approxEqAbs(comptime_float, 1.0 + 2 * eps_value, 1.0, eps_value));
+        try testing.expect(approxEqAbs(comptime_float, 1.0 + 1 * eps_value, 1.0, eps_value));
     }
 }
 
@@ -251,6 +269,8 @@ pub const sinh = @import("math/sinh.zig").sinh;
 pub const cosh = @import("math/cosh.zig").cosh;
 pub const tanh = @import("math/tanh.zig").tanh;
 pub const gcd = @import("math/gcd.zig").gcd;
+pub const gamma = @import("math/gamma.zig").gamma;
+pub const lgamma = @import("math/gamma.zig").lgamma;
 
 /// Sine trigonometric function on a floating point number.
 /// Uses a dedicated hardware instruction when available.
@@ -374,6 +394,8 @@ test {
     _ = cosh;
     _ = tanh;
     _ = gcd;
+    _ = gamma;
+    _ = lgamma;
 
     _ = complex;
     _ = Complex;
@@ -406,6 +428,100 @@ pub const min3 = @compileError("deprecated; use @min instead");
 pub const max3 = @compileError("deprecated; use @max instead");
 pub const ln = @compileError("deprecated; use @log instead");
 
+/// Odd sawtooth function
+/// ```
+///         |
+///      /  | /    /
+///     /   |/    /
+///  --/----/----/--
+///   /    /|   /
+///  /    / |  /
+///         |
+/// ```
+/// Limit x to the half-open interval [-r, r).
+pub fn wrap(x: anytype, r: anytype) @TypeOf(x) {
+    const info_x = @typeInfo(@TypeOf(x));
+    const info_r = @typeInfo(@TypeOf(r));
+    if (info_x == .Int and info_x.Int.signedness != .signed) {
+        @compileError("x must be floating point, comptime integer, or signed integer.");
+    }
+    switch (info_r) {
+        .Int => {
+            // in the rare usecase of r not being comptime_int or float,
+            // take the penalty of having an intermediary type conversion,
+            // otherwise the alternative is to unwind iteratively to avoid overflow
+            const R = comptime do: {
+                var info = info_r;
+                info.Int.bits += 1;
+                info.Int.signedness = .signed;
+                break :do @Type(info);
+            };
+            const radius: if (info_r.Int.signedness == .signed) @TypeOf(r) else R = r;
+            return @intCast(@mod(x - radius, 2 * @as(R, r)) - r); // provably impossible to overflow
+        },
+        else => {
+            return @mod(x - r, 2 * r) - r;
+        },
+    }
+}
+test "wrap" {
+    // Within range
+    try testing.expect(wrap(@as(i32, -75), @as(i32, 180)) == -75);
+    try testing.expect(wrap(@as(i32, -75), @as(i32, -180)) == -75);
+    // Below
+    try testing.expect(wrap(@as(i32, -225), @as(i32, 180)) == 135);
+    try testing.expect(wrap(@as(i32, -225), @as(i32, -180)) == 135);
+    // Above
+    try testing.expect(wrap(@as(i32, 361), @as(i32, 180)) == 1);
+    try testing.expect(wrap(@as(i32, 361), @as(i32, -180)) == 1);
+
+    // One period, right limit, positive r
+    try testing.expect(wrap(@as(i32, 180), @as(i32, 180)) == -180);
+    // One period, left limit, positive r
+    try testing.expect(wrap(@as(i32, -180), @as(i32, 180)) == -180);
+    // One period, right limit, negative r
+    try testing.expect(wrap(@as(i32, 180), @as(i32, -180)) == 180);
+    // One period, left limit, negative r
+    try testing.expect(wrap(@as(i32, -180), @as(i32, -180)) == 180);
+
+    // Two periods, right limit, positive r
+    try testing.expect(wrap(@as(i32, 540), @as(i32, 180)) == -180);
+    // Two periods, left limit, positive r
+    try testing.expect(wrap(@as(i32, -540), @as(i32, 180)) == -180);
+    // Two periods, right limit, negative r
+    try testing.expect(wrap(@as(i32, 540), @as(i32, -180)) == 180);
+    // Two periods, left limit, negative r
+    try testing.expect(wrap(@as(i32, -540), @as(i32, -180)) == 180);
+
+    // Floating point
+    try testing.expect(wrap(@as(f32, 1.125), @as(f32, 1.0)) == -0.875);
+    try testing.expect(wrap(@as(f32, -127.5), @as(f32, 180)) == -127.5);
+
+    // Mix of comptime and non-comptime
+    var i: i32 = 1;
+    _ = &i;
+    try testing.expect(wrap(i, 10) == 1);
+}
+test wrap {
+    const limit: i32 = 180;
+    // Within range
+    try testing.expect(wrap(@as(i32, -75), limit) == -75);
+    // Below
+    try testing.expect(wrap(@as(i32, -225), limit) == 135);
+    // Above
+    try testing.expect(wrap(@as(i32, 361), limit) == 1);
+}
+
+/// Odd ramp function
+/// ```
+///         |  _____
+///         | /
+///         |/
+///  -------/-------
+///        /|
+///  _____/ |
+///         |
+/// ```
 /// Limit val to the inclusive range [lower, upper].
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
     assert(lower <= upper);
@@ -650,6 +766,7 @@ test "rotl" {
 /// - 1. Suitable for 0-based bit indices of T.
 pub fn Log2Int(comptime T: type) type {
     // comptime ceil log2
+    if (T == comptime_int) return comptime_int;
     comptime var count = 0;
     comptime var s = @typeInfo(T).Int.bits - 1;
     inline while (s != 0) : (s >>= 1) {
@@ -662,6 +779,7 @@ pub fn Log2Int(comptime T: type) type {
 /// Returns an unsigned int type that can hold the number of bits in T.
 pub fn Log2IntCeil(comptime T: type) type {
     // comptime ceil log2
+    if (T == comptime_int) return comptime_int;
     comptime var count = 0;
     comptime var s = @typeInfo(T).Int.bits;
     inline while (s != 0) : (s >>= 1) {
