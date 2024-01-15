@@ -38,6 +38,9 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testThunks(b, .{ .target = aarch64_target }));
     macho_step.dependOn(testTlsLargeTbss(b, .{ .target = default_target }));
     macho_step.dependOn(testUndefinedFlag(b, .{ .target = default_target }));
+    macho_step.dependOn(testUnwindInfo(b, .{ .target = default_target }));
+    macho_step.dependOn(testUnwindInfoNoSubsectionsX64(b, .{ .target = x86_64_target }));
+    macho_step.dependOn(testUnwindInfoNoSubsectionsArm64(b, .{ .target = aarch64_target }));
     macho_step.dependOn(testWeakBind(b, .{ .target = x86_64_target }));
 
     // Tests requiring symlinks when tested on Windows
@@ -1585,6 +1588,276 @@ fn testUndefinedFlag(b: *Build, opts: Options) *Step {
         check.checkNotPresent("_foo");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testUnwindInfo(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-unwind-info", opts);
+
+    const all_h = all_h: {
+        const wf = WriteFile.create(b);
+        break :all_h wf.add("all.h",
+            \\#ifndef ALL
+            \\#define ALL
+            \\
+            \\#include <cstddef>
+            \\#include <string>
+            \\#include <stdexcept>
+            \\
+            \\struct SimpleString {
+            \\  SimpleString(size_t max_size);
+            \\  ~SimpleString();
+            \\
+            \\  void print(const char* tag) const;
+            \\  bool append_line(const char* x);
+            \\
+            \\private:
+            \\  size_t max_size;
+            \\  char* buffer;
+            \\  size_t length;
+            \\};
+            \\
+            \\struct SimpleStringOwner {
+            \\  SimpleStringOwner(const char* x);
+            \\  ~SimpleStringOwner();
+            \\
+            \\private:
+            \\  SimpleString string;
+            \\};
+            \\
+            \\class Error: public std::exception {
+            \\public:
+            \\  explicit Error(const char* msg) : msg{ msg } {}
+            \\  virtual ~Error() noexcept {}
+            \\  virtual const char* what() const noexcept {
+            \\    return msg.c_str();
+            \\  }
+            \\
+            \\protected:
+            \\  std::string msg;
+            \\};
+            \\
+            \\#endif
+        );
+    };
+
+    const main_o = addObject(b, opts, .{ .name = "main", .cpp_source_bytes = 
+    \\#include "all.h"
+    \\#include <cstdio>
+    \\
+    \\void fn_c() {
+    \\  SimpleStringOwner c{ "cccccccccc" };
+    \\}
+    \\
+    \\void fn_b() {
+    \\  SimpleStringOwner b{ "b" };
+    \\  fn_c();
+    \\}
+    \\
+    \\int main() {
+    \\  try {
+    \\    SimpleStringOwner a{ "a" };
+    \\    fn_b();
+    \\    SimpleStringOwner d{ "d" };
+    \\  } catch (const Error& e) {
+    \\    printf("Error: %s\n", e.what());
+    \\  } catch(const std::exception& e) {
+    \\    printf("Exception: %s\n", e.what());
+    \\  }
+    \\  return 0;
+    \\}
+    });
+    main_o.root_module.addIncludePath(all_h.dirname());
+    main_o.linkLibCpp();
+
+    const simple_string_o = addObject(b, opts, .{ .name = "simple_string", .cpp_source_bytes = 
+    \\#include "all.h"
+    \\#include <cstdio>
+    \\#include <cstring>
+    \\
+    \\SimpleString::SimpleString(size_t max_size)
+    \\: max_size{ max_size }, length{} {
+    \\  if (max_size == 0) {
+    \\    throw Error{ "Max size must be at least 1." };
+    \\  }
+    \\  buffer = new char[max_size];
+    \\  buffer[0] = 0;
+    \\}
+    \\
+    \\SimpleString::~SimpleString() {
+    \\  delete[] buffer;
+    \\}
+    \\
+    \\void SimpleString::print(const char* tag) const {
+    \\  printf("%s: %s", tag, buffer);
+    \\}
+    \\
+    \\bool SimpleString::append_line(const char* x) {
+    \\  const auto x_len = strlen(x);
+    \\  if (x_len + length + 2 > max_size) return false;
+    \\  std::strncpy(buffer + length, x, max_size - length);
+    \\  length += x_len;
+    \\  buffer[length++] = '\n';
+    \\  buffer[length] = 0;
+    \\  return true;
+    \\}
+    });
+    simple_string_o.root_module.addIncludePath(all_h.dirname());
+    simple_string_o.linkLibCpp();
+
+    const simple_string_owner_o = addObject(b, opts, .{ .name = "simple_string_owner", .cpp_source_bytes = 
+    \\#include "all.h"
+    \\
+    \\SimpleStringOwner::SimpleStringOwner(const char* x) : string{ 10 } {
+    \\  if (!string.append_line(x)) {
+    \\    throw Error{ "Not enough memory!" };
+    \\  }
+    \\  string.print("Constructed");
+    \\}
+    \\
+    \\SimpleStringOwner::~SimpleStringOwner() {
+    \\  string.print("About to destroy");
+    \\}
+    });
+    simple_string_owner_o.root_module.addIncludePath(all_h.dirname());
+    simple_string_owner_o.linkLibCpp();
+
+    const exp_stdout =
+        \\Constructed: a
+        \\Constructed: b
+        \\About to destroy: b
+        \\About to destroy: a
+        \\Error: Not enough memory!
+        \\
+    ;
+
+    const exe = addExecutable(b, opts, .{ .name = "main" });
+    exe.addObject(main_o);
+    exe.addObject(simple_string_o);
+    exe.addObject(simple_string_owner_o);
+    exe.linkLibCpp();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual(exp_stdout);
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkInSymtab();
+    check.checkContains("(was private external) ___gxx_personality_v0");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testUnwindInfoNoSubsectionsArm64(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-unwind-info-no-subsections-arm64", opts);
+
+    const a_o = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
+    \\.globl _foo
+    \\.align 4
+    \\_foo:
+    \\  .cfi_startproc
+    \\  stp     x29, x30, [sp, #-32]!
+    \\  .cfi_def_cfa_offset 32
+    \\  .cfi_offset w30, -24
+    \\  .cfi_offset w29, -32
+    \\  mov x29, sp
+    \\  .cfi_def_cfa w29, 32
+    \\  bl      _bar
+    \\  ldp     x29, x30, [sp], #32
+    \\  .cfi_restore w29
+    \\  .cfi_restore w30
+    \\  .cfi_def_cfa_offset 0
+    \\  ret
+    \\  .cfi_endproc
+    \\
+    \\.globl _bar
+    \\.align 4
+    \\_bar:
+    \\  .cfi_startproc
+    \\  sub     sp, sp, #32
+    \\  .cfi_def_cfa_offset -32
+    \\  stp     x29, x30, [sp, #16]
+    \\  .cfi_offset w30, -24
+    \\  .cfi_offset w29, -32
+    \\  mov x29, sp
+    \\  .cfi_def_cfa w29, 32
+    \\  mov     w0, #4
+    \\  ldp     x29, x30, [sp, #16]
+    \\  .cfi_restore w29
+    \\  .cfi_restore w30
+    \\  add     sp, sp, #32
+    \\  .cfi_def_cfa_offset 0
+    \\  ret
+    \\  .cfi_endproc
+    });
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\int foo();
+    \\int main() {
+    \\  printf("%d\n", foo());
+    \\  return 0;
+    \\}
+    });
+    exe.addObject(a_o);
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("4\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testUnwindInfoNoSubsectionsX64(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-unwind-info-no-subsections-x64", opts);
+
+    const a_o = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
+    \\.globl _foo
+    \\_foo:
+    \\  .cfi_startproc
+    \\  push    %rbp
+    \\  .cfi_def_cfa_offset 8
+    \\  .cfi_offset %rbp, -8
+    \\  mov     %rsp, %rbp
+    \\  .cfi_def_cfa_register %rbp
+    \\  call    _bar
+    \\  pop     %rbp
+    \\  .cfi_restore %rbp
+    \\  .cfi_def_cfa_offset 0
+    \\  ret
+    \\  .cfi_endproc
+    \\
+    \\.globl _bar
+    \\_bar:
+    \\  .cfi_startproc
+    \\  push     %rbp
+    \\  .cfi_def_cfa_offset 8
+    \\  .cfi_offset %rbp, -8
+    \\  mov     %rsp, %rbp
+    \\  .cfi_def_cfa_register %rbp
+    \\  mov     $4, %rax
+    \\  pop     %rbp
+    \\  .cfi_restore %rbp
+    \\  .cfi_def_cfa_offset 0
+    \\  ret
+    \\  .cfi_endproc
+    });
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\int foo();
+    \\int main() {
+    \\  printf("%d\n", foo());
+    \\  return 0;
+    \\}
+    });
+    exe.addObject(a_o);
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("4\n");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
