@@ -1930,7 +1930,7 @@ pub const StreamServer = struct {
         const sock_flags = os.SOCK.STREAM | os.SOCK.CLOEXEC | nonblock;
         var use_sock_flags: i32 = sock_flags;
         if (self.force_nonblocking) use_sock_flags |= os.SOCK.NONBLOCK;
-        const proto = if (address.any.family == os.AF.UNIX) @as(u32, 0) else os.IPPROTO.TCP;
+        const proto = if (address.any.family == os.AF.UNIX) @as(i32, 0) else os.IPPROTO.TCP;
 
         const sockfd = try os.socket(address.any.family, use_sock_flags, proto);
         self.sockfd = sockfd;
