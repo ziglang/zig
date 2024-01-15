@@ -130,7 +130,9 @@ pub const Type = struct {
         @compileError("do not format types directly; use either ty.fmtDebug() or ty.fmt()");
     }
 
-    pub fn fmt(ty: Type, module: *Module) std.fmt.Formatter(format2) {
+    pub const Formatter = std.fmt.Formatter(format2);
+
+    pub fn fmt(ty: Type, module: *Module) Formatter {
         return .{ .data = .{
             .ty = ty,
             .module = module,

@@ -2507,6 +2507,11 @@ pub fn fail(
     args: anytype,
 ) CompileError {
     const err_msg = try sema.errMsg(block, src, format, args);
+    inline for (args) |arg| {
+        if (@TypeOf(arg) == Type.Formatter) {
+            try addDeclaredHereNote(sema, err_msg, arg.data.ty);
+        }
+    }
     return sema.failWithOwnedErrorMsg(block, err_msg);
 }
 
@@ -5341,24 +5346,15 @@ fn failWithBadMemberAccess(
         .Enum => "enum",
         else => unreachable,
     };
-    const msg = msg: {
-        const msg = blk: {
-            if (agg_ty.getOwnerDeclOrNull(mod)) |some| if (mod.declIsRoot(some)) {
-                break :blk try sema.errMsg(block, field_src, "root struct of file '{}' has no member named '{}'", .{
-                    agg_ty.fmt(mod), field_name.fmt(&mod.intern_pool),
-                });
-            };
-
-            break :blk try sema.errMsg(block, field_src, "{s} '{}' has no member named '{}'", .{
-                kw_name, agg_ty.fmt(mod), field_name.fmt(&mod.intern_pool),
-            });
-        };
-
-        errdefer msg.destroy(sema.gpa);
-        try sema.addDeclaredHereNote(msg, agg_ty);
-        break :msg msg;
+    if (agg_ty.getOwnerDeclOrNull(mod)) |some| if (mod.declIsRoot(some)) {
+        return sema.fail(block, field_src, "root struct of file '{}' has no member named '{}'", .{
+            agg_ty.fmt(mod), field_name.fmt(&mod.intern_pool),
+        });
     };
-    return sema.failWithOwnedErrorMsg(block, msg);
+
+    return sema.fail(block, field_src, "{s} '{}' has no member named '{}'", .{
+        kw_name, agg_ty.fmt(mod), field_name.fmt(&mod.intern_pool),
+    });
 }
 
 fn failWithBadStructFieldAccess(
@@ -8689,35 +8685,17 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             if (try sema.intFitsInType(int_val, int_tag_ty, null)) {
                 return Air.internedToRef((try mod.getCoerced(int_val, dest_ty)).toIntern());
             }
-            const msg = msg: {
-                const msg = try sema.errMsg(
-                    block,
-                    src,
-                    "int value '{}' out of range of non-exhaustive enum '{}'",
-                    .{ int_val.fmtValue(sema.typeOf(operand), mod), dest_ty.fmt(mod) },
-                );
-                errdefer msg.destroy(sema.gpa);
-                try sema.addDeclaredHereNote(msg, dest_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.fail(block, src, "int value '{}' out of range of non-exhaustive enum '{}'", .{
+                int_val.fmtValue(sema.typeOf(operand), mod), dest_ty.fmt(mod),
+            });
         }
         if (int_val.isUndef(mod)) {
             return sema.failWithUseOfUndef(block, operand_src);
         }
         if (!(try sema.enumHasInt(dest_ty, int_val))) {
-            const msg = msg: {
-                const msg = try sema.errMsg(
-                    block,
-                    src,
-                    "enum '{}' has no tag with value '{}'",
-                    .{ dest_ty.fmt(mod), int_val.fmtValue(sema.typeOf(operand), mod) },
-                );
-                errdefer msg.destroy(sema.gpa);
-                try sema.addDeclaredHereNote(msg, dest_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.fail(block, src, "enum '{}' has no tag with value '{}'", .{
+                dest_ty.fmt(mod), int_val.fmtValue(sema.typeOf(operand), mod),
+            });
         }
         return Air.internedToRef((try mod.getCoerced(int_val, dest_ty)).toIntern());
     }
@@ -9401,16 +9379,9 @@ fn funcCommon(
         }
         if (!param_ty.isValidParamType(mod)) {
             const opaque_str = if (param_ty.zigTypeTag(mod) == .Opaque) "opaque " else "";
-            const msg = msg: {
-                const msg = try sema.errMsg(block, param_src, "parameter of {s}type '{}' not allowed", .{
-                    opaque_str, param_ty.fmt(mod),
-                });
-                errdefer msg.destroy(sema.gpa);
-
-                try sema.addDeclaredHereNote(msg, param_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.fail(block, param_src, "parameter of {s}type '{}' not allowed", .{
+                opaque_str, param_ty.fmt(mod),
+            });
         }
         if (!this_generic and !target_util.fnCallConvAllowsZigTypes(target, cc_resolved) and !try sema.validateExternType(param_ty, .param_ty)) {
             const msg = msg: {
@@ -9690,16 +9661,9 @@ fn finishFunc(
 
     if (!return_type.isValidReturnType(mod)) {
         const opaque_str = if (return_type.zigTypeTag(mod) == .Opaque) "opaque " else "";
-        const msg = msg: {
-            const msg = try sema.errMsg(block, ret_ty_src, "{s}return type '{}' not allowed", .{
-                opaque_str, return_type.fmt(mod),
-            });
-            errdefer msg.destroy(gpa);
-
-            try sema.addDeclaredHereNote(msg, return_type);
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.fail(block, ret_ty_src, "{s}return type '{}' not allowed", .{
+            opaque_str, return_type.fmt(mod),
+        });
     }
     if (!ret_poison and !target_util.fnCallConvAllowsZigTypes(target, cc_resolved) and
         !try sema.validateExternType(return_type, .ret_ty))
@@ -10848,15 +10812,9 @@ const SwitchProngAnalysis = struct {
                 else => unreachable,
             };
             const capture_src = raw_tag_capture_src.resolve(mod, mod.declPtr(block.src_decl), switch_node_offset, .none);
-            const msg = msg: {
-                const msg = try sema.errMsg(block, capture_src, "cannot capture tag of non-union type '{}'", .{
-                    operand_ty.fmt(mod),
-                });
-                errdefer msg.destroy(sema.gpa);
-                try sema.addDeclaredHereNote(msg, operand_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.fail(block, capture_src, "cannot capture tag of non-union type '{}'", .{
+                operand_ty.fmt(mod),
+            });
         }
         assert(inline_case_capture != .none);
         return inline_case_capture;
@@ -19824,13 +19782,7 @@ fn zirUnionInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const extra = sema.code.extraData(Zir.Inst.UnionInit, inst_data.payload_index).data;
     const union_ty = try sema.resolveType(block, ty_src, extra.union_type);
     if (union_ty.zigTypeTag(sema.mod) != .Union) {
-        const msg = msg: {
-            const msg = try sema.errMsg(block, ty_src, "expected union type, found '{}'", .{union_ty.fmt(sema.mod)});
-            errdefer msg.destroy(sema.gpa);
-            try sema.addDeclaredHereNote(msg, union_ty);
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.fail(block, ty_src, "expected union type, found '{}'", .{union_ty.fmt(sema.mod)});
     }
     const field_name = try sema.resolveConstStringIntern(block, field_src, extra.field_name, .{
         .needed_comptime_reason = "name of field being initialized must be comptime-known",
@@ -20941,17 +20893,8 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             return sema.addStrLit(ip.stringToSlice(tag_name));
         },
         .Enum => operand_ty,
-        .Union => operand_ty.unionTagType(mod) orelse {
-            const msg = msg: {
-                const msg = try sema.errMsg(block, src, "union '{}' is untagged", .{
-                    operand_ty.fmt(sema.mod),
-                });
-                errdefer msg.destroy(sema.gpa);
-                try sema.addDeclaredHereNote(msg, operand_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
-        },
+        .Union => operand_ty.unionTagType(mod) orelse
+            return sema.fail(block, src, "union '{}' is untagged", .{operand_ty.fmt(sema.mod)}),
         else => return sema.fail(block, operand_src, "expected enum or union; found '{}'", .{
             operand_ty.fmt(mod),
         }),
@@ -21567,16 +21510,9 @@ fn zirReify(
                 if (enum_tag_ty != .none) {
                     const tag_info = ip.indexToKey(enum_tag_ty).enum_type;
                     const enum_index = tag_info.nameIndex(ip, field_name) orelse {
-                        const msg = msg: {
-                            const msg = try sema.errMsg(block, src, "no field named '{}' in enum '{}'", .{
-                                field_name.fmt(ip),
-                                Type.fromInterned(enum_tag_ty).fmt(mod),
-                            });
-                            errdefer msg.destroy(gpa);
-                            try sema.addDeclaredHereNote(msg, Type.fromInterned(enum_tag_ty));
-                            break :msg msg;
-                        };
-                        return sema.failWithOwnedErrorMsg(block, msg);
+                        return sema.fail(block, src, "no field named '{}' in enum '{}'", .{
+                            field_name.fmt(ip), Type.fromInterned(enum_tag_ty).fmt(mod),
+                        });
                     };
                     assert(explicit_tags_seen.len == tag_info.names.len);
                     // No check for duplicate because the check already happened in order
@@ -22447,19 +22383,9 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
         break :disjoint true;
     };
     if (disjoint and dest_tag != .ErrorUnion) {
-        const msg = msg: {
-            const msg = try sema.errMsg(
-                block,
-                src,
-                "error sets '{}' and '{}' have no common errors",
-                .{ operand_ty.fmt(sema.mod), dest_ty.fmt(sema.mod) },
-            );
-            errdefer msg.destroy(sema.gpa);
-            try sema.addDeclaredHereNote(msg, operand_ty);
-            try sema.addDeclaredHereNote(msg, dest_ty);
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.fail(block, src, "error sets '{}' and '{}' have no common errors", .{
+            operand_ty.fmt(sema.mod), dest_ty.fmt(sema.mod),
+        });
     }
 
     if (maybe_operand_val) |val| {
@@ -22473,18 +22399,9 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
                 error_name = operand_val.err.name;
             }
             if (!Type.errorSetHasFieldIp(ip, dest_ty.toIntern(), error_name)) {
-                const msg = msg: {
-                    const msg = try sema.errMsg(
-                        block,
-                        src,
-                        "'error.{}' not a member of error set '{}'",
-                        .{ error_name.fmt(ip), dest_ty.fmt(sema.mod) },
-                    );
-                    errdefer msg.destroy(sema.gpa);
-                    try sema.addDeclaredHereNote(msg, dest_ty);
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(block, msg);
+                return sema.fail(block, src, "'error.{}' not a member of error set '{}'", .{
+                    error_name.fmt(ip), dest_ty.fmt(sema.mod),
+                });
             }
         }
 
@@ -23257,15 +23174,7 @@ fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u6
     try sema.resolveTypeLayout(ty);
     switch (ty.zigTypeTag(mod)) {
         .Struct => {},
-        else => {
-            const msg = msg: {
-                const msg = try sema.errMsg(block, lhs_src, "expected struct type, found '{}'", .{ty.fmt(mod)});
-                errdefer msg.destroy(sema.gpa);
-                try sema.addDeclaredHereNote(msg, ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
-        },
+        else => return sema.fail(block, lhs_src, "expected struct type, found '{}'", .{ty.fmt(mod)}),
     }
 
     const field_index = if (ty.isTuple(mod)) blk: {
@@ -24708,23 +24617,9 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         } orelse return sema.fail(block, ptr_src, "pointer value not based on parent struct", .{});
 
         if (field.index != field_index) {
-            const msg = msg: {
-                const msg = try sema.errMsg(
-                    block,
-                    src,
-                    "field '{}' has index '{d}' but pointer value is index '{d}' of struct '{}'",
-                    .{
-                        field_name.fmt(ip),
-                        field_index,
-                        field.index,
-                        parent_ty.fmt(sema.mod),
-                    },
-                );
-                errdefer msg.destroy(sema.gpa);
-                try sema.addDeclaredHereNote(msg, parent_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.fail(block, src, "field '{}' has index '{d}' but pointer value is index '{d}' of struct '{}'", .{
+                field_name.fmt(ip), field_index, field.index, parent_ty.fmt(sema.mod),
+            });
         }
         return Air.internedToRef(field.base);
     }
@@ -26916,15 +26811,9 @@ fn fieldVal(
                     switch (ip.indexToKey(child_type.toIntern())) {
                         .error_set_type => |error_set_type| blk: {
                             if (error_set_type.nameIndex(ip, field_name) != null) break :blk;
-                            const msg = msg: {
-                                const msg = try sema.errMsg(block, src, "no error named '{}' in '{}'", .{
-                                    field_name.fmt(ip), child_type.fmt(mod),
-                                });
-                                errdefer msg.destroy(sema.gpa);
-                                try sema.addDeclaredHereNote(msg, child_type);
-                                break :msg msg;
-                            };
-                            return sema.failWithOwnedErrorMsg(block, msg);
+                            return sema.fail(block, src, "no error named '{}' in '{}'", .{
+                                field_name.fmt(ip), child_type.fmt(mod),
+                            });
                         },
                         .inferred_error_set_type => {
                             return sema.fail(block, src, "TODO handle inferred error sets here", .{});
@@ -29072,18 +28961,9 @@ fn coerceExtra(
                 const val = try sema.resolveConstDefinedValue(block, .unneeded, inst, undefined);
                 const string = mod.intern_pool.indexToKey(val.toIntern()).enum_literal;
                 const field_index = dest_ty.enumFieldIndex(string, mod) orelse {
-                    const msg = msg: {
-                        const msg = try sema.errMsg(
-                            block,
-                            inst_src,
-                            "no field named '{}' in enum '{}'",
-                            .{ string.fmt(&mod.intern_pool), dest_ty.fmt(mod) },
-                        );
-                        errdefer msg.destroy(sema.gpa);
-                        try sema.addDeclaredHereNote(msg, dest_ty);
-                        break :msg msg;
-                    };
-                    return sema.failWithOwnedErrorMsg(block, msg);
+                    return sema.fail(block, inst_src, "no field named '{}' in enum '{}'", .{
+                        string.fmt(&mod.intern_pool), dest_ty.fmt(mod),
+                    });
                 };
                 return Air.internedToRef((try mod.enumValueFieldIndex(dest_ty, @intCast(field_index))).toIntern());
             },
@@ -31718,15 +31598,9 @@ fn coerceEnumToUnion(
     const enum_tag = try sema.coerce(block, tag_ty, inst, inst_src);
     if (try sema.resolveDefinedValue(block, inst_src, enum_tag)) |val| {
         const field_index = union_ty.unionTagFieldIndex(val, sema.mod) orelse {
-            const msg = msg: {
-                const msg = try sema.errMsg(block, inst_src, "union '{}' has no tag with value '{}'", .{
-                    union_ty.fmt(sema.mod), val.fmtValue(tag_ty, sema.mod),
-                });
-                errdefer msg.destroy(sema.gpa);
-                try sema.addDeclaredHereNote(msg, union_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.fail(block, inst_src, "union '{}' has no tag with value '{}'", .{
+                union_ty.fmt(sema.mod), val.fmtValue(tag_ty, sema.mod),
+            });
         };
 
         const union_obj = mod.typeToUnion(union_ty).?;
@@ -37202,19 +37076,13 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
         if (explicit_tags_seen.len > 0) {
             const tag_info = ip.indexToKey(union_type.tagTypePtr(ip).*).enum_type;
             const enum_index = tag_info.nameIndex(ip, field_name) orelse {
-                const msg = msg: {
-                    const ty_src = mod.fieldSrcLoc(union_type.decl, .{
-                        .index = field_i,
-                        .range = .name,
-                    }).lazy;
-                    const msg = try sema.errMsg(&block_scope, ty_src, "no field named '{}' in enum '{}'", .{
-                        field_name.fmt(ip), Type.fromInterned(union_type.tagTypePtr(ip).*).fmt(mod),
-                    });
-                    errdefer msg.destroy(sema.gpa);
-                    try sema.addDeclaredHereNote(msg, Type.fromInterned(union_type.tagTypePtr(ip).*));
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(&block_scope, msg);
+                const ty_src = mod.fieldSrcLoc(union_type.decl, .{
+                    .index = field_i,
+                    .range = .name,
+                }).lazy;
+                return sema.fail(&block_scope, ty_src, "no field named '{}' in enum '{}'", .{
+                    field_name.fmt(ip), Type.fromInterned(union_type.tagTypePtr(ip).*).fmt(mod),
+                });
             };
 
             // No check for duplicate because the check already happened in order

@@ -15,3 +15,4 @@ const Tile = enum {
 // target=native
 //
 // :3:17: error: cannot dereference non-pointer type 'tmp.Tile'
+// :8:14: note: enum declared here
