@@ -1931,7 +1931,7 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\#include <stdlib.h>
         \\int main(void) {
         \\   void *x = (void *)-1;
-        \\  if (x != (void *)-1) abort();
+        \\   if (x != (void *)-1) abort();
         \\}
     , "");
 }
