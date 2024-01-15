@@ -500,6 +500,8 @@ const usage_build_generic =
     \\Global Link Options:
     \\  -T[script], --script [script]  Use a custom linker script
     \\  --version-script [path]        Provide a version .map file
+    \\  --undefined-version            Allow version scripts to refer to undefined symbols
+    \\  --no-undefined-version         (default) Disallow version scripts from referring to undefined symbols
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
@@ -826,6 +828,7 @@ fn buildOutputType(
     var want_compiler_rt: ?bool = null;
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
+    var linker_allow_undefined_version: bool = false;
     var disable_c_depfile = false;
     var linker_sort_section: ?link.File.Elf.SortSection = null;
     var linker_gc_sections: ?bool = null;
@@ -863,7 +866,6 @@ fn buildOutputType(
     var image_base: ?u64 = null;
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
-    var each_lib_rpath: ?bool = null;
     var build_id: ?std.zig.BuildId = null;
     var runtime_args_start: ?usize = null;
     var test_filter: ?[]const u8 = null;
@@ -961,6 +963,7 @@ fn buildOutputType(
         .frameworks = .{},
         .framework_dirs = .{},
         .rpath_list = .{},
+        .each_lib_rpath = null,
         .libc_paths_file = try EnvVar.ZIG_LIBC.get(arena),
         .link_objects = .{},
         .native_system_include_paths = &.{},
@@ -1200,6 +1203,10 @@ fn buildOutputType(
                         linker_script = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
                         version_script = args_iter.nextOrFatal();
+                    } else if (mem.eql(u8, arg, "--undefined-version")) {
+                        linker_allow_undefined_version = true;
+                    } else if (mem.eql(u8, arg, "--no-undefined-version")) {
+                        linker_allow_undefined_version = false;
                     } else if (mem.eql(u8, arg, "--library") or mem.eql(u8, arg, "-l")) {
                         // We don't know whether this library is part of libc
                         // or libc++ until we resolve the target, so we append
@@ -1327,9 +1334,9 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-compiler-rt")) {
                         want_compiler_rt = false;
                     } else if (mem.eql(u8, arg, "-feach-lib-rpath")) {
-                        each_lib_rpath = true;
+                        create_module.each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
-                        each_lib_rpath = false;
+                        create_module.each_lib_rpath = false;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
                         try test_exec_args.append(null);
                     } else if (mem.eql(u8, arg, "--test-evented-io")) {
@@ -2153,6 +2160,10 @@ fn buildOutputType(
                     create_module.opts.rdynamic = true;
                 } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
                     version_script = linker_args_it.nextOrFatal();
+                } else if (mem.eql(u8, arg, "--undefined-version")) {
+                    linker_allow_undefined_version = true;
+                } else if (mem.eql(u8, arg, "--no-undefined-version")) {
+                    linker_allow_undefined_version = false;
                 } else if (mem.eql(u8, arg, "-O")) {
                     linker_optimization = linker_args_it.nextOrFatal();
                 } else if (mem.startsWith(u8, arg, "-O")) {
@@ -3166,6 +3177,7 @@ fn buildOutputType(
         .hash_style = hash_style,
         .linker_script = linker_script,
         .version_script = version_script,
+        .linker_allow_undefined_version = linker_allow_undefined_version,
         .disable_c_depfile = disable_c_depfile,
         .soname = resolved_soname,
         .linker_sort_section = linker_sort_section,
@@ -3224,7 +3236,6 @@ fn buildOutputType(
         .verbose_llvm_cpu_features = verbose_llvm_cpu_features,
         .time_report = time_report,
         .stack_report = stack_report,
-        .each_lib_rpath = each_lib_rpath,
         .build_id = build_id,
         .test_filter = test_filter,
         .test_name_prefix = test_name_prefix,
@@ -3438,6 +3449,7 @@ const CreateModule = struct {
     native_system_include_paths: []const []const u8,
     framework_dirs: std.ArrayListUnmanaged([]const u8),
     rpath_list: std.ArrayListUnmanaged([]const u8),
+    each_lib_rpath: ?bool,
     libc_paths_file: ?[]const u8,
     link_objects: std.ArrayListUnmanaged(Compilation.LinkObject),
 };
@@ -3630,6 +3642,10 @@ fn createModule(
             // If we want to link against frameworks, we need system headers.
             if (create_module.frameworks.count() > 0)
                 create_module.want_native_include_dirs = true;
+        }
+
+        if (create_module.each_lib_rpath orelse resolved_target.is_native_os) {
+            try create_module.rpath_list.appendSlice(arena, create_module.lib_dirs.items);
         }
 
         // Trigger native system library path detection if necessary.

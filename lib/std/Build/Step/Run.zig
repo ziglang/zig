@@ -1214,7 +1214,7 @@ fn evalZigTest(
 
     if (stderr.readableLength() > 0) {
         const msg = std.mem.trim(u8, try stderr.toOwnedSlice(), "\n");
-        if (msg.len > 0) try self.step.result_error_msgs.append(arena, msg);
+        if (msg.len > 0) self.step.result_stderr = msg;
     }
 
     // Send EOF to stdin.
@@ -1344,7 +1344,7 @@ fn evalGeneric(self: *Run, child: *std.process.Child) !StdIoResult {
             else => true,
         };
         if (stderr_is_diagnostic) {
-            try self.step.result_error_msgs.append(arena, bytes);
+            self.step.result_stderr = bytes;
         }
     };
 

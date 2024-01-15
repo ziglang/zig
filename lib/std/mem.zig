@@ -665,7 +665,7 @@ fn eqlBytes(a: []const u8, b: []const u8) bool {
 
     // Figure out the fastest way to scan through the input in chunks.
     // Uses vectors when supported and falls back to usize/words when not.
-    const Scan = if (std.simd.suggestVectorSize(u8)) |vec_size|
+    const Scan = if (std.simd.suggestVectorLength(u8)) |vec_size|
         struct {
             pub const size = vec_size;
             pub const Chunk = @Vector(size, u8);
@@ -1032,15 +1032,16 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
             // The below branch assumes that reading past the end of the buffer is valid, as long
             // as we don't read into a new page. This should be the case for most architectures
             // which use paged memory, however should be confirmed before adding a new arch below.
-            .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorSize(T)) |block_len| {
-                comptime std.debug.assert(std.mem.page_size % block_len == 0);
+            .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorLength(T)) |block_len| {
                 const Block = @Vector(block_len, T);
                 const mask: Block = @splat(sentinel);
+
+                comptime std.debug.assert(std.mem.page_size % @sizeOf(Block) == 0);
 
                 // First block may be unaligned
                 const start_addr = @intFromPtr(&p[i]);
                 const offset_in_page = start_addr & (std.mem.page_size - 1);
-                if (offset_in_page < std.mem.page_size - block_len) {
+                if (offset_in_page <= std.mem.page_size - @sizeOf(Block)) {
                     // Will not read past the end of a page, full block.
                     const block: Block = p[i..][0..block_len].*;
                     const matches = block == mask;
@@ -1085,7 +1086,7 @@ test "indexOfSentinel vector paths" {
     const allocator = std.testing.allocator;
 
     inline for (Types) |T| {
-        const block_len = std.simd.suggestVectorSize(T) orelse continue;
+        const block_len = std.simd.suggestVectorLength(T) orelse continue;
 
         // Allocate three pages so we guarantee a page-crossing address with a full page after
         const memory = try allocator.alloc(T, 3 * std.mem.page_size / @sizeOf(T));
@@ -1176,11 +1177,11 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
         !@inComptime() and
         (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
     {
-        if (std.simd.suggestVectorSize(T)) |block_len| {
+        if (std.simd.suggestVectorLength(T)) |block_len| {
             // For Intel Nehalem (2009) and AMD Bulldozer (2012) or later, unaligned loads on aligned data result
             // in the same execution as aligned loads. We ignore older arch's here and don't bother pre-aligning.
             //
-            // Use `std.simd.suggestVectorSize(T)` to get the same alignment as used in this function
+            // Use `std.simd.suggestVectorLength(T)` to get the same alignment as used in this function
             // however this usually isn't necessary unless your arch has a performance penalty due to this.
             //
             // This may differ for other arch's. Arm for example costs a cycle when loading across a cache
@@ -1964,13 +1965,34 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
 /// Swap the byte order of all the members of the fields of a struct
 /// (Changing their endianness)
 pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
-    if (@typeInfo(S) != .Struct) @compileError("byteSwapAllFields expects a struct as the first argument");
-    inline for (std.meta.fields(S)) |f| {
-        if (@typeInfo(f.type) == .Struct) {
-            byteSwapAllFields(f.type, &@field(ptr, f.name));
-        } else {
-            @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
-        }
+    switch (@typeInfo(S)) {
+        .Struct => {
+            inline for (std.meta.fields(S)) |f| {
+                switch (@typeInfo(f.type)) {
+                    .Struct, .Array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
+                    .Enum => {
+                        @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
+                    },
+                    else => {
+                        @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
+                    },
+                }
+            }
+        },
+        .Array => {
+            for (ptr) |*item| {
+                switch (@typeInfo(@TypeOf(item.*))) {
+                    .Struct, .Array => byteSwapAllFields(@TypeOf(item.*), item),
+                    .Enum => {
+                        item.* = @enumFromInt(@byteSwap(@intFromEnum(item.*)));
+                    },
+                    else => {
+                        item.* = @byteSwap(item.*);
+                    },
+                }
+            }
+        },
+        else => @compileError("byteSwapAllFields expects a struct or array as the first argument"),
     }
 }
 
@@ -1979,21 +2001,25 @@ test "byteSwapAllFields" {
         f0: u8,
         f1: u16,
         f2: u32,
+        f3: [1]u8,
     };
     const K = extern struct {
         f0: u8,
         f1: T,
         f2: u16,
+        f3: [1]u8,
     };
     var s = T{
         .f0 = 0x12,
         .f1 = 0x1234,
         .f2 = 0x12345678,
+        .f3 = .{0x12},
     };
     var k = K{
         .f0 = 0x12,
         .f1 = s,
         .f2 = 0x1234,
+        .f3 = .{0x12},
     };
     byteSwapAllFields(T, &s);
     byteSwapAllFields(K, &k);
@@ -2001,11 +2027,13 @@ test "byteSwapAllFields" {
         .f0 = 0x12,
         .f1 = 0x3412,
         .f2 = 0x78563412,
+        .f3 = .{0x12},
     }, s);
     try std.testing.expectEqual(K{
         .f0 = 0x12,
         .f1 = s,
         .f2 = 0x3412,
+        .f3 = .{0x12},
     }, k);
 }
 

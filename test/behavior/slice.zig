@@ -416,6 +416,7 @@ test "slice syntax resulting in pointer-to-array" {
             try testArrayLengthZ();
             try testMultiPointer();
             try testMultiPointerLengthZ();
+            try testSingleItemPointer();
         }
 
         fn testArray() !void {
@@ -590,6 +591,17 @@ test "slice syntax resulting in pointer-to-array" {
             try comptime expect(@TypeOf(ptr_z[1.. :0][0..2]) == *[2]u8);
             try comptime expect(@TypeOf(ptr_z[1.. :0][0..4]) == *[4]u8);
             try comptime expect(@TypeOf(ptr_z[1.. :0][0..2 :4]) == *[2:4]u8);
+        }
+
+        fn testSingleItemPointer() !void {
+            var value: u8 = 1;
+            var ptr = &value;
+
+            const slice = ptr[0..1];
+            try comptime expect(@TypeOf(slice) == *[1]u8);
+            try expect(slice[0] == 1);
+
+            try comptime expect(@TypeOf(ptr[0..0]) == *[0]u8);
         }
     };
 

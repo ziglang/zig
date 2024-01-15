@@ -16,12 +16,12 @@ lib_dirs: []const []const u8,
 hash_style: HashStyle,
 compress_debug_sections: CompressDebugSections,
 symbol_wrap_set: std.StringArrayHashMapUnmanaged(void),
-each_lib_rpath: bool,
 sort_section: ?SortSection,
 soname: ?[]const u8,
 bind_global_refs_locally: bool,
 linker_script: ?[]const u8,
 version_script: ?[]const u8,
+allow_undefined_version: bool,
 print_icf_sections: bool,
 print_map: bool,
 entry_name: ?[]const u8,
@@ -319,12 +319,12 @@ pub fn createEmpty(
         .hash_style = options.hash_style,
         .compress_debug_sections = options.compress_debug_sections,
         .symbol_wrap_set = options.symbol_wrap_set,
-        .each_lib_rpath = options.each_lib_rpath,
         .sort_section = options.sort_section,
         .soname = options.soname,
         .bind_global_refs_locally = options.bind_global_refs_locally,
         .linker_script = options.linker_script,
         .version_script = options.version_script,
+        .allow_undefined_version = options.allow_undefined_version,
         .print_icf_sections = options.print_icf_sections,
         .print_map = options.print_map,
     };
@@ -1106,25 +1106,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
         _ = try rpath_table.put(rpath, {});
     }
 
-    if (self.each_lib_rpath) {
-        var test_path = std.ArrayList(u8).init(gpa);
-        defer test_path.deinit();
-        for (self.lib_dirs) |lib_dir_path| {
-            for (comp.system_libs.keys()) |link_lib| {
-                if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
-                    continue;
-                _ = try rpath_table.put(lib_dir_path, {});
-            }
-        }
-        for (comp.objects) |obj| {
-            if (Compilation.classifyFileExt(obj.path) == .shared_library) {
-                const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
-                if (obj.loption) continue;
-                _ = try rpath_table.put(lib_dir_path, {});
-            }
-        }
-    }
-
     // TSAN
     if (comp.config.any_sanitize_thread) {
         try positionals.append(.{ .path = comp.tsan_static_lib.?.full_object_path });
@@ -1320,6 +1301,11 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
             try gc.dumpPrunedAtoms(self);
         }
     }
+
+    self.checkDuplicates() catch |err| switch (err) {
+        error.HasDuplicates => return error.FlushFailure,
+        else => |e| return e,
+    };
 
     try self.initOutputSections();
     try self.addLinkerDefinedSymbols();
@@ -1689,22 +1675,6 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         for (self.base.rpath_list) |rpath| {
             try argv.append("-rpath");
             try argv.append(rpath);
-        }
-
-        if (self.each_lib_rpath) {
-            for (self.lib_dirs) |lib_dir_path| {
-                try argv.append("-rpath");
-                try argv.append(lib_dir_path);
-            }
-            for (comp.objects) |obj| {
-                if (Compilation.classifyFileExt(obj.path) == .shared_library) {
-                    const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
-                    if (obj.loption) continue;
-
-                    try argv.append("-rpath");
-                    try argv.append(lib_dir_path);
-                }
-            }
         }
 
         try argv.appendSlice(&.{
@@ -2410,10 +2380,11 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 10);
+        comptime assert(Compilation.link_hash_implementation_version == 11);
 
         try man.addOptionalFile(self.linker_script);
         try man.addOptionalFile(self.version_script);
+        man.hash.add(self.allow_undefined_version);
         for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);
             man.hash.add(obj.must_link);
@@ -2436,7 +2407,6 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
         man.hash.add(comp.config.rdynamic);
         man.hash.addListOfBytes(self.lib_dirs);
         man.hash.addListOfBytes(self.base.rpath_list);
-        man.hash.add(self.each_lib_rpath);
         if (output_mode == .Exe) {
             man.hash.add(self.base.stack_size);
             man.hash.add(self.base.build_id);
@@ -2736,31 +2706,6 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             try argv.appendSlice(&.{ "-wrap", symbol_name });
         }
 
-        if (self.each_lib_rpath) {
-            var test_path = std.ArrayList(u8).init(arena);
-            for (self.lib_dirs) |lib_dir_path| {
-                for (comp.system_libs.keys()) |link_lib| {
-                    if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
-                        continue;
-                    if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
-                        try argv.append("-rpath");
-                        try argv.append(lib_dir_path);
-                    }
-                }
-            }
-            for (comp.objects) |obj| {
-                if (Compilation.classifyFileExt(obj.path) == .shared_library) {
-                    const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
-                    if (obj.loption) continue;
-
-                    if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
-                        try argv.append("-rpath");
-                        try argv.append(lib_dir_path);
-                    }
-                }
-            }
-        }
-
         for (self.lib_dirs) |lib_dir| {
             try argv.append("-L");
             try argv.append(lib_dir);
@@ -2788,6 +2733,11 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             if (self.version_script) |version_script| {
                 try argv.append("-version-script");
                 try argv.append(version_script);
+            }
+            if (self.allow_undefined_version) {
+                try argv.append("--undefined-version");
+            } else {
+                try argv.append("--no-undefined-version");
             }
         }
 
@@ -3481,6 +3431,27 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
             stop.output_section_index = shndx;
         }
     }
+}
+
+fn checkDuplicates(self: *Elf) !void {
+    const gpa = self.base.comp.gpa;
+
+    var dupes = std.AutoArrayHashMap(Symbol.Index, std.ArrayListUnmanaged(File.Index)).init(gpa);
+    defer {
+        for (dupes.values()) |*list| {
+            list.deinit(gpa);
+        }
+        dupes.deinit();
+    }
+
+    if (self.zigObjectPtr()) |zig_object| {
+        try zig_object.checkDuplicates(&dupes, self);
+    }
+    for (self.objects.items) |index| {
+        try self.file(index).?.object.checkDuplicates(&dupes, self);
+    }
+
+    try self.reportDuplicates(dupes);
 }
 
 fn initOutputSections(self: *Elf) !void {
@@ -6154,6 +6125,36 @@ fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
             try err.addNote(self, "referenced {d} more times", .{remaining});
         }
     }
+}
+
+fn reportDuplicates(self: *Elf, dupes: anytype) error{ HasDuplicates, OutOfMemory }!void {
+    const max_notes = 3;
+    var has_dupes = false;
+    var it = dupes.iterator();
+    while (it.next()) |entry| {
+        const sym = self.symbol(entry.key_ptr.*);
+        const notes = entry.value_ptr.*;
+        const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
+
+        var err = try self.addErrorWithNotes(nnotes + 1);
+        try err.addMsg(self, "duplicate symbol definition: {s}", .{sym.name(self)});
+        try err.addNote(self, "defined by {}", .{sym.file(self).?.fmtPath()});
+
+        var inote: usize = 0;
+        while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
+            const file_ptr = self.file(notes.items[inote]).?;
+            try err.addNote(self, "defined by {}", .{file_ptr.fmtPath()});
+        }
+
+        if (notes.items.len > max_notes) {
+            const remaining = notes.items.len - max_notes;
+            try err.addNote(self, "defined {d} more times", .{remaining});
+        }
+
+        has_dupes = true;
+    }
+
+    if (has_dupes) return error.HasDuplicates;
 }
 
 fn reportMissingLibraryError(

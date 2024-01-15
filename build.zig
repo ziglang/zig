@@ -165,6 +165,8 @@ pub fn build(b: *std.Build) !void {
                 ".xz",
                 // exclude files from lib/std/tz/
                 ".tzif",
+                // exclude files from lib/std/tar/testdata
+                ".tar",
                 // others
                 "README.md",
             },

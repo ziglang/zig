@@ -1217,16 +1217,46 @@ test "pwrite with empty buffer" {
     _ = try os.pwrite(file.handle, bytes, 0);
 }
 
+fn expectMode(dir: os.fd_t, file: []const u8, mode: os.mode_t) !void {
+    const st = try os.fstatat(dir, file, os.AT.SYMLINK_NOFOLLOW);
+    try expectEqual(mode, st.mode & 0b111_111_111);
+}
+
 test "fchmodat smoke test" {
     if (!std.fs.has_executable_bit) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    try expectError(error.FileNotFound, os.fchmodat(tmp.dir.fd, "foo.txt", 0o666, 0));
-    const fd = try os.openat(tmp.dir.fd, "foo.txt", os.O.RDWR | os.O.CREAT | os.O.EXCL, 0o666);
+    try expectError(error.FileNotFound, os.fchmodat(tmp.dir.fd, "regfile", 0o666, 0));
+    const fd = try os.openat(
+        tmp.dir.fd,
+        "regfile",
+        os.O.WRONLY | os.O.CREAT | os.O.EXCL | os.O.TRUNC,
+        0o644,
+    );
     os.close(fd);
-    try os.fchmodat(tmp.dir.fd, "foo.txt", 0o755, 0);
-    const st = try os.fstatat(tmp.dir.fd, "foo.txt", 0);
-    try expectEqual(@as(os.mode_t, 0o755), st.mode & 0b111_111_111);
+    try os.symlinkat("regfile", tmp.dir.fd, "symlink");
+    const sym_mode = blk: {
+        const st = try os.fstatat(tmp.dir.fd, "symlink", os.AT.SYMLINK_NOFOLLOW);
+        break :blk st.mode & 0b111_111_111;
+    };
+
+    try os.fchmodat(tmp.dir.fd, "regfile", 0o640, 0);
+    try expectMode(tmp.dir.fd, "regfile", 0o640);
+    try os.fchmodat(tmp.dir.fd, "regfile", 0o600, os.AT.SYMLINK_NOFOLLOW);
+    try expectMode(tmp.dir.fd, "regfile", 0o600);
+
+    try os.fchmodat(tmp.dir.fd, "symlink", 0o640, 0);
+    try expectMode(tmp.dir.fd, "regfile", 0o640);
+    try expectMode(tmp.dir.fd, "symlink", sym_mode);
+
+    var test_link = true;
+    os.fchmodat(tmp.dir.fd, "symlink", 0o600, os.AT.SYMLINK_NOFOLLOW) catch |err| switch (err) {
+        error.OperationNotSupported => test_link = false,
+        else => |e| return e,
+    };
+    if (test_link)
+        try expectMode(tmp.dir.fd, "symlink", 0o600);
+    try expectMode(tmp.dir.fd, "regfile", 0o640);
 }
