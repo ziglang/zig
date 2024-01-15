@@ -12,7 +12,6 @@ const math = std.math;
 test "assignment operators" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var i: u32 = 0;
     i += 5;
@@ -649,8 +648,6 @@ test "bit shift a u1" {
 }
 
 test "truncating shift right" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try testShrTrunc(maxInt(u16));
     try comptime testShrTrunc(maxInt(u16));
 }
@@ -1343,8 +1340,6 @@ fn testShlExact(x: u8) !void {
 }
 
 test "exact shift right" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try testShrExact(0b10110100);
     try comptime testShrExact(0b10110100);
 }
