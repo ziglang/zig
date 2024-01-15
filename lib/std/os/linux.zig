@@ -323,6 +323,113 @@ pub fn futex_wake(uaddr: *const i32, futex_op: u32, val: i32) usize {
     return syscall3(.futex, @intFromPtr(uaddr), futex_op, @as(u32, @bitCast(val)));
 }
 
+/// Given an array of `futex_waitv`, wait on each uaddr.
+/// The thread wakes if a futex_wake() is performed at any uaddr.
+/// The syscall returns immediately if any waiter has *uaddr != val.
+/// timeout is an optional timeout value for the operation.
+/// Each waiter has individual flags.
+/// The `flags` argument for the syscall should be used solely for specifying
+/// the timeout as realtime, if needed.
+/// Flags for private futexes, sizes, etc. should be used on the
+/// individual flags of each waiter.
+///
+/// Returns the array index of one of the woken futexes.
+/// No further information is provided: any number of other futexes may also
+/// have been woken by the same event, and if more than one futex was woken,
+/// the retrned index may refer to any one of them.
+/// (It is not necessaryily the futex with the smallest index, nor the one
+/// most recently woken, nor...)
+pub fn futex2_waitv(
+    /// List of futexes to wait on.
+    waiters: [*]futex_waitv,
+    /// Length of `waiters`.
+    nr_futexes: u32,
+    /// Flag for timeout (monotonic/realtime).
+    flags: u32,
+    /// Optional absolute timeout.
+    timeout: ?*const timespec,
+    /// Clock to be used for the timeout, realtime or monotonic.
+    clockid: i32,
+) usize {
+    return syscall6(
+        .futex_waitv,
+        @intFromPtr(waiters),
+        nr_futexes,
+        flags,
+        @intFromPtr(timeout),
+        @bitCast(@as(isize, clockid)),
+    );
+}
+
+/// Wait on a futex.
+/// Identical to `FUTEX.WAIT`, except it is part of the futex2 family of calls.
+pub fn futex2_wait(
+    /// Address of the futex to wait on.
+    uaddr: *const anyopaque,
+    /// Value of `uaddr`.
+    val: usize,
+    /// Bitmask.
+    mask: usize,
+    /// `FUTEX2` flags.
+    flags: u32,
+    /// Optional absolute timeout.
+    timeout: *const timespec,
+    /// Clock to be used for the timeout, realtime or monotonic.
+    clockid: i32,
+) usize {
+    return syscall6(
+        .futex_wait,
+        @intFromPtr(uaddr),
+        val,
+        mask,
+        flags,
+        @intFromPtr(timeout),
+        @bitCast(@as(isize, clockid)),
+    );
+}
+
+/// Wake a number of futexes.
+/// Identical to `FUTEX.WAKE`, except it is part of the futex2 family of calls.
+pub fn futex2_wake(
+    /// Address of the futex(es) to wake.
+    uaddr: [*]const anyopaque,
+    /// Bitmask
+    mask: usize,
+    /// Number of the futexes to wake.
+    nr: i32,
+    /// `FUTEX2` flags.
+    flags: u32,
+) usize {
+    return syscall4(
+        .futex_wake,
+        @intFromPtr(uaddr),
+        mask,
+        @bitCast(@as(isize, nr)),
+        flags,
+    );
+}
+
+/// Requeue a waiter from one futex to another.
+/// Identical to `FUTEX.CMP_REQUEUE`, except it is part of the futex2 family of calls.
+pub fn futex2_requeue(
+    /// Array describing the source and destination futex.
+    waiters: [*]futex_waitv,
+    /// Unsed.
+    flags: u32,
+    /// Number of futexes to wake.
+    nr_wake: i32,
+    /// Number of futexes to requeue.
+    nr_requeue: i32,
+) usize {
+    return syscall4(
+        .futex_requeue,
+        @intFromPtr(waiters),
+        flags,
+        @bitCast(@as(isize, nr_wake)),
+        @bitCast(@as(isize, nr_requeue)),
+    );
+}
+
 pub fn getcwd(buf: [*]u8, size: usize) usize {
     return syscall2(.getcwd, @intFromPtr(buf), size);
 }
@@ -1901,10 +2008,17 @@ pub fn ptrace(
     );
 }
 
+/// Query the page cache statistics of a file.
 pub fn cachestat(
+    /// The open file descriptor to retrieve statistics from.
     fd: fd_t,
+    /// The byte range in `fd` to query.
+    /// When `len > 0`, the range is `[off..off + len]`.
+    /// When `len` == 0, the range is from `off` to the end of `fd`.
     cstat_range: *const cache_stat_range,
+    /// The structure where page cache statistics are stored.
     cstat: *cache_stat,
+    /// Currently unused, and must be set to `0`.
     flags: u32,
 ) usize {
     return syscall4(
@@ -1914,6 +2028,10 @@ pub fn cachestat(
         @intFromPtr(cstat),
         flags,
     );
+}
+
+pub fn map_shadow_stack(addr: u64, size: u64, flags: u32) usize {
+    return syscall3(.map_shadow_stack, addr, size, flags);
 }
 
 pub const E = switch (native_arch) {
@@ -2016,6 +2134,19 @@ pub const FUTEX = struct {
     pub const PRIVATE_FLAG = 128;
 
     pub const CLOCK_REALTIME = 256;
+
+    /// Max numbers of elements in a `futex_waitv` array.
+    pub const WAITV_MAX = 128;
+};
+
+pub const FUTEX2 = struct {
+    pub const SIZE_U8 = 0x00;
+    pub const SIZE_U16 = 0x01;
+    pub const SIZE_U32 = 0x02;
+    pub const SIZE_U64 = 0x03;
+    pub const NUMA = 0x04;
+
+    pub const PRIVATE = FUTEX.PRIVATE_FLAG;
 };
 
 pub const PROT = struct {
@@ -6100,15 +6231,41 @@ pub const PTRACE = struct {
     pub const GET_SYSCALL_INFO = 0x420e;
 };
 
+/// A waiter for vectorized wait.
+pub const futex_waitv = extern struct {
+    // Expected value at uaddr
+    val: u64,
+    /// User address to wait on.
+    uaddr: u64,
+    /// Flags for this waiter.
+    flags: u32,
+    /// Reserved memeber to preserve alignment.
+    /// Should be 0.
+    __reserved: u32,
+};
+
 pub const cache_stat_range = extern struct {
     off: u64,
     len: u64,
 };
 
 pub const cache_stat = extern struct {
+    /// Number of cached pages.
     cache: u64,
+    /// Number of dirty pages.
     dirty: u64,
+    /// Number of pages marked for writeback.
     writeback: u64,
+    /// Number of pages evicted from the cache.
     evicted: u64,
+    /// Number of recently evicted pages.
+    /// A page is recently evicted if its last eviction was recent enough that its
+    /// reentry to the cache would indicate that it is actively being used by the
+    /// system, and that there is memory pressure on the system.
     recently_evicted: u64,
+};
+
+pub const SHADOW_STACK = struct {
+    /// Set up a restore token in the shadow stack.
+    pub const SET_TOKEN: u64 = 1 << 0;
 };
