@@ -8,6 +8,12 @@ void main() {
   intptr_t i_ptr = 400;
   uintptr_t u_ptr = 800;
 
+  void *p = (void *)0UL;
+  p = (void *)-1;
+  s = -2;
+  p = (void *)s;
+  p = (void *)(0-1);
+
   s = (short)s_ptr;
   s_ptr = (short*)s;
 
@@ -28,5 +34,5 @@ void main() {
 }
 
 // run-translated-c
-// c_frontends=aro,clang
-// link_libc=true
+// c_frontends=clang
+// targets=x86_64-linux-none,x86_64-macos-none,x86_64-windows-none,
