@@ -2380,6 +2380,14 @@ fn transCCast(
         });
     }
     if (cIsFloating(src_type) and !cIsFloating(dst_type)) {
+        // bool expression: floating val != 0
+        if (qualTypeIsBoolean(dst_type)) {
+            return Tag.not_equal.create(c.arena, .{
+                .lhs = expr,
+                .rhs = Tag.zero_literal.init(),
+            });
+        }
+
         // @as(dest_type, @intFromFloat(val))
         return Tag.as.create(c.arena, .{
             .lhs = dst_node,
