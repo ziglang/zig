@@ -1369,6 +1369,13 @@ test "expectError demo" {
       {#syntax#}var{#endsyntax#} when declaring a variable. This causes less work for both
       humans and computers to do when reading code, and creates more optimization opportunities.
       </p>
+      <p>
+      The {#syntax#}extern{#endsyntax#} keyword or {#link|@extern#} builtin function can be used to link against a variable that is exported
+      from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
+      can be used to make a variable available to other objects at link time. In both cases,
+      the type of the variable must be C ABI compatible.
+      </p>
+      {#see_also|Exporting a C Library#}
 
       {#header_open|Identifiers#}
       <p>
@@ -1396,13 +1403,6 @@ const Color = enum {
 };
 const color: Color = .@"really red";
       {#code_end#}
-      <p>
-      The {#syntax#}extern{#endsyntax#} keyword or {#link|@extern#} builtin function can be used to link against a variable that is exported
-      from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
-      can be used to make a variable available to other objects at link time. In both cases,
-      the type of the variable must be C ABI compatible.
-      </p>
-      {#see_also|Exporting a C Library#}
       {#header_close#}
 
       {#header_open|Container Level Variables#}
