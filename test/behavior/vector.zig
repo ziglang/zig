@@ -904,9 +904,9 @@ test "vector @reduce comptime" {
     const value = V{ 1, -1, 1, -1 };
     const result = value > @as(V, @splat(0));
     // result is { true, false, true, false };
-    try comptime expect(@TypeOf(result) == @Vector(4, bool));
+    comptime assert(@TypeOf(result) == @Vector(4, bool));
     const is_all_true = @reduce(.And, result);
-    try comptime expect(@TypeOf(is_all_true) == bool);
+    comptime assert(@TypeOf(is_all_true) == bool);
     try expect(is_all_true == false);
 }
 

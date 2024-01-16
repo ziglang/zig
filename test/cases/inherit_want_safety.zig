@@ -23,6 +23,13 @@ pub export fn entry() usize {
             u += 1;
         },
     }
+    if (@as(error{}!usize, u)) |_| {
+        u += 1;
+    } else |e| switch (e) {
+        else => {
+            u += 1;
+        }
+    }
     return u;
 }
 

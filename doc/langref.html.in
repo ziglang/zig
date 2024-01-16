@@ -1369,6 +1369,13 @@ test "expectError demo" {
       {#syntax#}var{#endsyntax#} when declaring a variable. This causes less work for both
       humans and computers to do when reading code, and creates more optimization opportunities.
       </p>
+      <p>
+      The {#syntax#}extern{#endsyntax#} keyword or {#link|@extern#} builtin function can be used to link against a variable that is exported
+      from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
+      can be used to make a variable available to other objects at link time. In both cases,
+      the type of the variable must be C ABI compatible.
+      </p>
+      {#see_also|Exporting a C Library#}
 
       {#header_open|Identifiers#}
       <p>
@@ -1465,13 +1472,6 @@ fn foo() i32 {
     return S.x;
 }
       {#code_end#}
-      <p>
-      The {#syntax#}extern{#endsyntax#} keyword or {#link|@extern#} builtin function can be used to link against a variable that is exported
-      from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
-      can be used to make a variable available to other objects at link time. In both cases,
-      the type of the variable must be C ABI compatible.
-      </p>
-      {#see_also|Exporting a C Library#}
       {#header_close#}
 
       {#header_open|Thread Local Variables#}
@@ -2199,7 +2199,7 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
           <td>
             <pre>{#syntax#}const value: ?u32 = null;
-value == null{#endsyntax#}</pre>
+(value == null) == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -2218,6 +2218,21 @@ value == null{#endsyntax#}</pre>
           </td>
           <td>
             <pre>{#syntax#}(1 != 1) == false{#endsyntax#}</pre>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row"><pre>{#syntax#}a != null{#endsyntax#}</pre></th>
+          <td>
+            <ul>
+              <li>{#link|Optionals#}</li>
+            </ul>
+          </td>
+          <td>
+              Returns {#syntax#}false{#endsyntax#} if a is {#syntax#}null{#endsyntax#}, otherwise returns {#syntax#}true{#endsyntax#}.
+          </td>
+          <td>
+            <pre>{#syntax#}const value: ?u32 = null;
+(value != null) == false{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -5370,6 +5385,44 @@ test "fn type inference" {
       {#code_end#}
 
       {#header_close#}
+
+      {#header_open|inline fn#}
+      <p>
+      Adding the {#syntax#}inline{#endsyntax#} keyword to a function definition makes that
+      function become <em>semantically inlined</em> at the callsite. This is
+      not a hint to be possibly observed by optimization passes, but has
+      implications on the types and values involved in the function call.
+      </p>
+      <p>
+      Unlike normal function calls, arguments at an inline function callsite which are
+      compile-time known are treated as {#link|Compile Time Parameters#}. This can potentially
+      propagate all the way to the return value:
+      </p>
+      {#code_begin|test|inline_call#}
+test "inline function call" {
+    if (foo(1200, 34) != 1234) {
+        @compileError("bad");
+    }
+}
+
+inline fn foo(a: i32, b: i32) i32 {
+    return a + b;
+}
+      {#code_end#}
+      <p>If {#syntax#}inline{#endsyntax#} is removed, the test fails with the compile error
+      instead of passing.</p>
+      <p>It is generally better to let the compiler decide when to inline a
+      function, except for these scenarios:</p>
+      <ul>
+        <li>To change how many stack frames are in the call stack, for debugging purposes.</li>
+        <li>To force comptime-ness of the arguments to propagate to the return value of the function, as in the above example.</li>
+        <li>Real world performance measurements demand it.</li>
+      </ul>
+      <p>Note that {#syntax#}inline{#endsyntax#} actually <em>restricts</em>
+      what the compiler is allowed to do. This can harm binary size,
+      compilation speed, and even runtime performance.</p>
+      {#header_close#}
+
       {#header_open|Function Reflection#}
       {#code_begin|test|test_fn_reflection#}
 const std = @import("std");
@@ -6801,6 +6854,32 @@ test "peer type resolution: *const T and ?*T" {
     try expect(a == b);
     try expect(b == a);
 }
+
+test "peer type resolution: error union switch" {
+    // The non-error and error cases are only peers if the error case is just a switch expression;
+    // the pattern `if (x) {...} else |err| blk: { switch (err) {...} }` does not consider the
+    // non-error and error case to be peers.
+    var a: error{ A, B, C }!u32 = 0;
+    _ = &a;
+    const b = if (a) |x|
+        x + 3
+    else |err| switch (err) {
+        error.A => 0,
+        error.B => 1,
+        error.C => null,
+    };
+    try expect(@TypeOf(b) == ?u32);
+
+    // The non-error and error cases are only peers if the error case is just a switch expression;
+    // the pattern `x catch |err| blk: { switch (err) {...} }` does not consider the unwrapped `x`
+    // and error case to be peers.
+    const c = a catch |err| switch (err) {
+        error.A => 0,
+        error.B => 1,
+        error.C => null,
+    };
+    try expect(@TypeOf(c) == ?u32);
+}
       {#code_end#}
       {#header_close#}
       {#header_close#}
@@ -7366,12 +7445,12 @@ const Node = struct {
 
 var node_a = Node{
     .next = null,
-    .name = &"Node A",
+    .name = "Node A",
 };
 
 var node_b = Node{
     .next = &node_a,
-    .name = &"Node B",
+    .name = "Node B",
 };
       {#code_end#}
       <p>

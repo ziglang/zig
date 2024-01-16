@@ -9,12 +9,12 @@
 // This file is shared between various sanitizers' runtime libraries and
 // provides definitions for OSX-specific functions.
 //===----------------------------------------------------------------------===//
-#ifndef SANITIZER_MAC_H
-#define SANITIZER_MAC_H
+#ifndef SANITIZER_APPLE_H
+#define SANITIZER_APPLE_H
 
 #include "sanitizer_common.h"
 #include "sanitizer_platform.h"
-#if SANITIZER_MAC
+#if SANITIZER_APPLE
 #include "sanitizer_posix.h"
 
 namespace __sanitizer {
@@ -62,7 +62,18 @@ char **GetEnviron();
 
 void RestrictMemoryToMaxAddress(uptr max_address);
 
+using ThreadEventCallback = void (*)(uptr thread);
+using ThreadCreateEventCallback = void (*)(uptr thread, bool gcd_worker);
+struct ThreadEventCallbacks {
+  ThreadCreateEventCallback create;
+  ThreadEventCallback start;
+  ThreadEventCallback terminate;
+  ThreadEventCallback destroy;
+};
+
+void InstallPthreadIntrospectionHook(const ThreadEventCallbacks &callbacks);
+
 }  // namespace __sanitizer
 
-#endif  // SANITIZER_MAC
-#endif  // SANITIZER_MAC_H
+#endif  // SANITIZER_APPLE
+#endif  // SANITIZER_APPLE_H

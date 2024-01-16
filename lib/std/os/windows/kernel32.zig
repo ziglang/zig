@@ -387,6 +387,7 @@ pub extern "kernel32" fn WriteFileEx(
 ) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn LoadLibraryW(lpLibFileName: [*:0]const u16) callconv(WINAPI) ?HMODULE;
+pub extern "kernel32" fn LoadLibraryExW(lpLibFileName: [*:0]const u16, hFile: ?HANDLE, dwFlags: DWORD) callconv(WINAPI) ?HMODULE;
 
 pub extern "kernel32" fn GetProcAddress(hModule: HMODULE, lpProcName: [*:0]const u8) callconv(WINAPI) ?FARPROC;
 

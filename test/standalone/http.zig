@@ -220,7 +220,7 @@ pub fn main() !void {
 
     defer _ = gpa_client.deinit();
 
-    server = Server.init(salloc, .{ .reuse_address = true });
+    server = Server.init(.{ .reuse_address = true });
 
     const addr = std.net.Address.parseIp("127.0.0.1", 0) catch unreachable;
     try server.listen(addr);

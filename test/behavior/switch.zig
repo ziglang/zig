@@ -600,9 +600,9 @@ test "switch on pointer type" {
     try expect(1 == S.doTheTest(S.P1));
     try expect(2 == S.doTheTest(S.P2));
     try expect(3 == S.doTheTest(S.P3));
-    try comptime expect(1 == S.doTheTest(S.P1));
-    try comptime expect(2 == S.doTheTest(S.P2));
-    try comptime expect(3 == S.doTheTest(S.P3));
+    comptime assert(1 == S.doTheTest(S.P1));
+    comptime assert(2 == S.doTheTest(S.P2));
+    comptime assert(3 == S.doTheTest(S.P3));
 }
 
 test "switch on error set with single else" {

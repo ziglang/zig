@@ -33,6 +33,7 @@ version: ?std.SemanticVersion,
 kind: Kind,
 major_only_filename: ?[]const u8,
 name_only_filename: ?[]const u8,
+formatted_panics: ?bool = null,
 // keep in sync with src/link.zig:CompressDebugSections
 compress_debug_sections: enum { none, zlib, zstd } = .none,
 verbose_link: bool,
@@ -109,6 +110,9 @@ link_gc_sections: ?bool = null,
 linker_dynamicbase: bool = true,
 
 linker_allow_shlib_undefined: ?bool = null,
+
+/// Allow version scripts to refer to undefined symbols.
+linker_allow_undefined_version: ?bool = null,
 
 /// Permit read-only relocations in read-only segments. Disallowed by default.
 link_z_notext: bool = false,
@@ -1073,9 +1077,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             .exe => return step.fail("cannot link with an executable build artifact", .{}),
                             .@"test" => return step.fail("cannot link with a test", .{}),
                             .obj => {
-                                const included_in_lib = !my_responsibility and
-                                    compile.kind == .lib and other.kind == .obj;
-                                if (!already_linked and !included_in_lib) {
+                                const included_in_lib_or_obj = !my_responsibility and (compile.kind == .lib or compile.kind == .obj);
+                                if (!already_linked and !included_in_lib_or_obj) {
                                     try zig_args.append(other.getEmittedBin().getPath(b));
                                     total_linker_objects += 1;
                                 }
@@ -1302,6 +1305,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (self.generated_llvm_ir != null) try zig_args.append("-femit-llvm-ir");
     if (self.generated_h != null) try zig_args.append("-femit-h");
 
+    try addFlag(&zig_args, "formatted-panics", self.formatted_panics);
+
     switch (self.compress_debug_sections) {
         .none => {},
         .zlib => try zig_args.append("--compress-debug-sections=zlib"),
@@ -1450,6 +1455,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (self.version_script) |version_script| {
         try zig_args.append("--version-script");
         try zig_args.append(version_script.getPath(b));
+    }
+    if (self.linker_allow_undefined_version) |x| {
+        try zig_args.append(if (x) "--undefined-version" else "--no-undefined-version");
     }
 
     if (self.kind == .@"test") {

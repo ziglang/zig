@@ -23,14 +23,10 @@ VarSizeStackTrace::~VarSizeStackTrace() {
 }
 
 void VarSizeStackTrace::ResizeBuffer(uptr new_size) {
-  if (trace_buffer) {
-    internal_free(trace_buffer);
-  }
-  trace_buffer =
-      (new_size > 0)
-          ? (uptr *)internal_alloc(MBlockStackTrace,
-                                   new_size * sizeof(trace_buffer[0]))
-          : nullptr;
+  Free(trace_buffer);
+  trace_buffer = (new_size > 0)
+                     ? (uptr *)Alloc(new_size * sizeof(trace_buffer[0]))
+                     : nullptr;
   trace = trace_buffer;
   size = new_size;
 }

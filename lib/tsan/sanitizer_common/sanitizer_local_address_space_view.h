@@ -17,7 +17,7 @@
 // instantiated with the `LocalAddressSpaceView` type. This type is used to
 // load any pointers in instance methods. This implementation is effectively
 // a no-op. When an object is to be used in an out-of-process manner it is
-// instansiated with the `RemoteAddressSpaceView` type.
+// instantiated with the `RemoteAddressSpaceView` type.
 //
 // By making `AddressSpaceView` a template parameter of an object, it can
 // change its implementation at compile time which has no run time overhead.
