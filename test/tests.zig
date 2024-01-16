@@ -710,15 +710,21 @@ pub fn addStandaloneTests(
         }
     }
 
-    const test_cases_dep_name = "standalone_test_cases";
-    const test_cases_dep = b.dependency(test_cases_dep_name, .{
-        .@"enable-ios-sdk" = enable_ios_sdk,
-        .@"enable-macos-sdk" = enable_macos_sdk,
-        .@"enable-symlinks-windows" = enable_symlinks_windows,
-    });
-    const test_cases_dep_step = test_cases_dep.builder.default_step;
-    test_cases_dep_step.name = b.dupe(test_cases_dep_name);
-    step.dependOn(test_cases_dep.builder.default_step);
+    // We can only use dependencies if the compiler was built with support for package management.
+    // (zig2 doesn't support it, but we still need to construct a build graph to build stage3.)
+    const package_management_available = b.available_deps.len != 0;
+
+    if (package_management_available) {
+        const test_cases_dep_name = "standalone_test_cases";
+        const test_cases_dep = b.dependency(test_cases_dep_name, .{
+            .@"enable-ios-sdk" = enable_ios_sdk,
+            .@"enable-macos-sdk" = enable_macos_sdk,
+            .@"enable-symlinks-windows" = enable_symlinks_windows,
+        });
+        const test_cases_dep_step = test_cases_dep.builder.default_step;
+        test_cases_dep_step.name = b.dupe(test_cases_dep_name);
+        step.dependOn(test_cases_dep.builder.default_step);
+    }
 
     return step;
 }

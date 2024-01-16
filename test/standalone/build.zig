@@ -20,7 +20,8 @@ pub fn build(b: *std.Build) void {
             if (std.mem.eql(u8, dep_hash, pkg_hash)) {
                 const pkg = @field(all_pkgs, pkg_hash);
                 if (!@hasDecl(pkg, "build_zig")) {
-                    std.debug.panic("standalone test case '{s}' is missing a 'build.zig' file", .{dep_name});
+                    std.debug.print("standalone test case '{s}' is missing a 'build.zig' file\n", .{dep_name});
+                    std.process.exit(1);
                 }
                 const requires_ios_sdk = @hasDecl(pkg.build_zig, "requires_ios_sdk") and
                     pkg.build_zig.requires_ios_sdk;
