@@ -2368,24 +2368,15 @@ fn transCCast(
     if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
         // @as(dest_type, @ptrFromInt(val))
 
-        // since (void *)-1 is allowed code, we need to create a
-        // special case for negative addresses.
+        const as_cast = try Tag.as.create(c.arena, .{
+            .lhs = try Tag.type.create(c.arena, "isize"),
+            .rhs = expr,
+        });
 
-        const rhs = rhs: {
-            if (expr.tag() == .negate) {
-                const payload = @fieldParentPtr(ast.Payload.UnOp, "base", expr.ptr_otherwise).data;
-
-                const as_cast = try Tag.as.create(
-                    c.arena,
-                    .{
-                        .lhs = try Tag.type.create(c.arena, "usize"),
-                        .rhs = payload,
-                    },
-                );
-
-                break :rhs try Tag.negate_wrap.create(c.arena, as_cast);
-            } else break :rhs expr;
-        };
+        const rhs = try Tag.as.create(c.arena, .{
+            .lhs = try Tag.type.create(c.arena, "usize"),
+            .rhs = try Tag.bit_cast.create(c.arena, as_cast),
+        });
 
         return Tag.as.create(c.arena, .{
             .lhs = dst_node,
