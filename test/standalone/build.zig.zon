@@ -2,6 +2,9 @@
     .name = "standalone_test_cases",
     .version = "0.0.0",
     .dependencies = .{
+        // "Simple" test cases (those in the 'simple' directory) are configured by the root build
+        // script, outside of this package.
+
         .test_runner_path = .{
             .path = "test_runner_path",
         },
