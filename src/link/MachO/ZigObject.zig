@@ -49,6 +49,24 @@ pub fn resetGlobals(self: *ZigObject, macho_file: *MachO) void {
     }
 }
 
+pub fn markLive(self: *ZigObject, macho_file: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    for (self.symbols.items, 0..) |index, nlist_idx| {
+        const nlist = self.symtab.items(.nlist)[nlist_idx];
+        if (!nlist.ext()) continue;
+
+        const sym = macho_file.getSymbol(index);
+        const file = sym.getFile(macho_file) orelse continue;
+        const should_keep = nlist.undf() or (nlist.tentative() and !sym.flags.tentative);
+        if (should_keep and file == .object and !file.object.alive) {
+            file.object.alive = true;
+            file.object.markLive(macho_file);
+        }
+    }
+}
+
 pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -100,6 +118,12 @@ pub fn getInputSection(self: ZigObject, atom: Atom, macho_file: *MachO) macho.se
     sect.size = atom.size;
     sect.@"align" = atom.alignment.toLog2Units();
     return sect;
+}
+
+pub fn flushModule(self: *ZigObject, macho_file: *MachO) !void {
+    _ = self;
+    _ = macho_file;
+    @panic("TODO flushModule");
 }
 
 pub fn getDeclVAddr(
@@ -239,6 +263,10 @@ pub fn getGlobalSymbol(self: *ZigObject, macho_file: *MachO, name: []const u8, l
     _ = name;
     _ = lib_name;
     @panic("TODO getGlobalSymbol");
+}
+
+pub fn asFile(self: *ZigObject) File {
+    return .{ .zig_object = self };
 }
 
 pub fn fmtSymtab(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
