@@ -1396,6 +1396,13 @@ const Color = enum {
 };
 const color: Color = .@"really red";
       {#code_end#}
+      <p>
+      The {#syntax#}extern{#endsyntax#} keyword or {#link|@extern#} builtin function can be used to link against a variable that is exported
+      from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
+      can be used to make a variable available to other objects at link time. In both cases,
+      the type of the variable must be C ABI compatible.
+      </p>
+      {#see_also|Exporting a C Library#}
       {#header_close#}
 
       {#header_open|Container Level Variables#}
@@ -1465,13 +1472,6 @@ fn foo() i32 {
     return S.x;
 }
       {#code_end#}
-      <p>
-      The {#syntax#}extern{#endsyntax#} keyword or {#link|@extern#} builtin function can be used to link against a variable that is exported
-      from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
-      can be used to make a variable available to other objects at link time. In both cases,
-      the type of the variable must be C ABI compatible.
-      </p>
-      {#see_also|Exporting a C Library#}
       {#header_close#}
 
       {#header_open|Thread Local Variables#}
