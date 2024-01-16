@@ -4,7 +4,6 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const math = std.math;
 const meta = std.meta;
-const target = @import("builtin").target;
 const CallingConvention = std.builtin.CallingConvention;
 const clang = @import("clang.zig");
 const aro = @import("aro");
@@ -29,6 +28,7 @@ const ArgsPositionMap = std.StringArrayHashMapUnmanaged(usize);
 pub const Context = struct {
     gpa: mem.Allocator,
     arena: mem.Allocator,
+    target: std.Target,
     source_manager: *clang.SourceManager,
     decl_table: std.AutoArrayHashMapUnmanaged(usize, []const u8) = .{},
     alias_list: AliasList,
@@ -85,6 +85,7 @@ pub fn translate(
     gpa: mem.Allocator,
     args_begin: [*]?[*]const u8,
     args_end: [*]?[*]const u8,
+    target: std.Target,
     errors: *std.zig.ErrorBundle,
     resources_path: [*:0]const u8,
 ) !std.zig.Ast {
@@ -146,6 +147,7 @@ pub fn translate(
     var context = Context{
         .gpa = gpa,
         .arena = arena,
+        .target = target,
         .source_manager = ast_unit.getSourceManager(),
         .alias_list = AliasList.init(gpa),
         .global_scope = try arena.create(Scope.Root),
@@ -2373,7 +2375,7 @@ fn transCCast(
         var src_ptr_expr = try Tag.int_from_ptr.create(c.arena, expr);
 
         // @truncate(@intFromPtr(ptr))
-        const src_ptr_width = std.Target.ptrBitWidth(target);
+        const src_ptr_width = c.target.ptrBitWidth();
         const dst_int_width = try qualTypeIntBitWidth(c, dst_type);
         if (src_ptr_width > dst_int_width) {
             src_ptr_expr = try Tag.truncate.create(c.arena, src_ptr_expr);
@@ -2408,9 +2410,9 @@ fn transCCast(
 
         var src_int_expr = expr;
 
-        // @truncate(ptr)
+        // @truncate(srcInteger)
         const src_int_width = try qualTypeIntBitWidth(c, src_type);
-        const dst_ptr_width = std.Target.ptrBitWidth(target);
+        const dst_ptr_width = c.target.ptrBitWidth();
         if (src_int_width > dst_ptr_width) {
             src_int_expr = try Tag.truncate.create(c.arena, src_int_expr);
         }
@@ -4277,7 +4279,6 @@ fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType) !u32 {
 
     switch (ty.getTypeClass()) {
         .Builtin => {
-            const c_type_bit_size = std.Target.c_type_bit_size;
             const builtin_ty = @as(*const clang.BuiltinType, @ptrCast(ty));
 
             switch (builtin_ty.getKind()) {
@@ -4286,10 +4287,10 @@ fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType) !u32 {
                 .Char_S,
                 .SChar,
                 => return 8,
-                .UShort, .Short => return c_type_bit_size(target, .short),
-                .UInt, .Int => return c_type_bit_size(target, .int),
-                .ULong, .Long => return c_type_bit_size(target, .long),
-                .ULongLong, .LongLong => return c_type_bit_size(target, .longlong),
+                .UShort, .Short => return c.target.c_type_bit_size(.short),
+                .UInt, .Int => return c.target.c_type_bit_size(.int),
+                .ULong, .Long => return c.target.c_type_bit_size(.long),
+                .ULongLong, .LongLong => return c.target.c_type_bit_size(.longlong),
                 .Char16 => return 16,
                 .Char32 => return 32,
                 .UInt128,
@@ -4316,6 +4317,12 @@ fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType) !u32 {
             } else {
                 return 0;
             }
+        },
+        .Elaborated => {
+            const elaborated_ty = @as(*const clang.ElaboratedType, @ptrCast(ty));
+            const elaborated_qt = elaborated_ty.getNamedType();
+            const canon_qt = elaborated_qt.getCanonicalType();
+            return qualTypeIntBitWidth(c, canon_qt);
         },
         else => return 0,
     }

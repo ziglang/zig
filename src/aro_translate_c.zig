@@ -24,6 +24,7 @@ const Scope = common.ScopeExtra(Context, Type);
 const Context = struct {
     gpa: mem.Allocator,
     arena: mem.Allocator,
+    target: std.Target,
     decl_table: std.AutoArrayHashMapUnmanaged(usize, []const u8) = .{},
     alias_list: AliasList,
     global_scope: *Scope.Root,
@@ -108,6 +109,7 @@ pub fn translate(
     gpa: mem.Allocator,
     comp: *aro.Compilation,
     args: []const []const u8,
+    target: std.Target,
 ) !std.zig.Ast {
     try comp.addDefaultPragmaHandlers();
     comp.langopts.setEmulatedCompiler(aro.target_util.systemCompiler(comp.target));
@@ -147,6 +149,7 @@ pub fn translate(
     var context = Context{
         .gpa = gpa,
         .arena = arena,
+        .target = target,
         .alias_list = AliasList.init(gpa),
         .global_scope = try arena.create(Scope.Root),
         .pattern_list = try translate_c.PatternList.init(gpa),

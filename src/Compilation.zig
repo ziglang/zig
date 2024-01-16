@@ -4059,6 +4059,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
                 for (argv.items, 0..) |arg, i| {
                     new_argv[i] = try arena.dupeZ(u8, arg);
                 }
+                const target = comp.root_mod.resolved_target.result;
 
                 const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
                 var errors = std.zig.ErrorBundle.empty;
@@ -4067,6 +4068,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
                     comp.gpa,
                     new_argv.ptr,
                     new_argv.ptr + new_argv.len,
+                    target,
                     &errors,
                     c_headers_dir_path_z,
                 ) catch |err| switch (err) {

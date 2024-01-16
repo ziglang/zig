@@ -4510,6 +4510,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
         if (fancy_output) |p| p.cache_hit = false;
         var argv = std.ArrayList([]const u8).init(arena);
         try argv.append(@tagName(comp.config.c_frontend)); // argv[0] is program name, actual args start at [1]
+        const target = comp.root_mod.resolved_target.result;
 
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
@@ -4541,7 +4542,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
                 var aro_comp = aro.Compilation.init(comp.gpa);
                 defer aro_comp.deinit();
 
-                break :tree translate_c.translate(comp.gpa, &aro_comp, argv.items) catch |err| switch (err) {
+                break :tree translate_c.translate(comp.gpa, &aro_comp, argv.items, target) catch |err| switch (err) {
                     error.SemanticAnalyzeFail, error.FatalError => {
                         // TODO convert these to zig errors
                         aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
@@ -4573,6 +4574,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
                     comp.gpa,
                     new_argv.ptr,
                     new_argv.ptr + new_argv.len,
+                    target,
                     &errors,
                     c_headers_dir_path_z,
                 ) catch |err| switch (err) {
