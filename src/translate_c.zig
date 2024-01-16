@@ -2361,17 +2361,10 @@ fn transCCast(
         });
     }
     if (qualTypeIsPtr(src_type) and cIsInteger(dst_type)) {
-        // 1. Truncate if destination integer is wider than pointer
+        // 1. Truncate if src_ptr is wider than dst int
         // 2. Cast to unsigned int of destination size
         // 3. If dest int is signed, bitcast.
-        //
-        // Cases:
-        // 1. u128 <- ptr | @as(u128, @intFromPtr(ptr)))
-        // 2. u64  <- ptr | @as(u64, @intFromPtr(ptr))
-        // 3. u16  <- ptr | @as(u16, @truncate(@intFromPtr(ptr)))
-        // 4. i128 <- ptr | @as(i128, @bitCast(@as(u128, @intFromPtr(ptr))))
-        // 5. i64  <- ptr | @as(i64, @bitCast(@as(u64, @intFromPtr(ptr))))
-        // 6. i16  <- ptr | @as(i16, @bitCast(@as(u16, @truncate(@intFromPtr(ptr)))))
+
         var src_ptr_expr = try Tag.int_from_ptr.create(c.arena, expr);
 
         // @truncate(@intFromPtr(ptr))
@@ -2396,17 +2389,9 @@ fn transCCast(
         });
     }
     if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
-        // 1. Cast integral to usize
-        // 2. Cast usize to ptr
-        //
-        // Cases:
-        // 0. ptr <- usize | @ptrFromInt(usize)
-        // 1. ptr <- u128  | @as(ptr, @ptrFromInt(@as(usize, @truncate(u128))))
-        // 3. ptr <- u64   | @as(ptr, @ptrFromInt(@as(usize, u64)))
-        // 5. ptr <- u16   | @as(ptr, @ptrFromInt(@as(usize, u16)))
-        // 2. ptr <- i128  | @as(ptr, @ptrFromInt(@as(usize, @bitCast(@as(isize, @truncate(i128))))))
-        // 4. ptr <- i64   | @as(ptr, @ptrFromInt(@as(usize, @bitCast(@as(isize, i64)))))
-        // 6. ptr <- i16   | @as(ptr, @ptrFromInt(@as(usize, @bitCast(@as(isize, i16)))))
+        // 1. If src integer is wider than platform ptr width, truncate
+        // 2. If src integer is signed, cast to isize and then bitCast
+        // 3. Cast to usize
 
         var src_int_expr = expr;
 
