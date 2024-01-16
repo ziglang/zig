@@ -11,43 +11,43 @@ pub const SimpleCase = struct {
 
 pub const simple_cases = [_]SimpleCase{
     .{
-        .src_path = "test/standalone/hello_world/hello.zig",
+        .src_path = "test/standalone/simple/hello_world/hello.zig",
         .all_modes = true,
     },
     .{
-        .src_path = "test/standalone/hello_world/hello_libc.zig",
+        .src_path = "test/standalone/simple/hello_world/hello_libc.zig",
         .link_libc = true,
         .all_modes = true,
     },
     .{
-        .src_path = "test/standalone/cat/main.zig",
+        .src_path = "test/standalone/simple/cat/main.zig",
     },
     // https://github.com/ziglang/zig/issues/6025
     //.{
-    //    .src_path = "test/standalone/issue_9693/main.zig",
+    //    .src_path = "test/standalone/simple/issue_9693/main.zig",
     //},
     .{
-        .src_path = "test/standalone/brace_expansion.zig",
+        .src_path = "test/standalone/simple/brace_expansion.zig",
         .is_test = true,
     },
     .{
-        .src_path = "test/standalone/issue_7030.zig",
+        .src_path = "test/standalone/simple/issue_7030.zig",
         .target = .{
             .cpu_arch = .wasm32,
             .os_tag = .freestanding,
         },
     },
 
-    .{ .src_path = "test/standalone/issue_12471/main.zig" },
-    .{ .src_path = "test/standalone/guess_number/main.zig" },
-    .{ .src_path = "test/standalone/main_return_error/error_u8.zig" },
-    .{ .src_path = "test/standalone/main_return_error/error_u8_non_zero.zig" },
-    .{ .src_path = "test/standalone/noreturn_call/inline.zig" },
-    .{ .src_path = "test/standalone/noreturn_call/as_arg.zig" },
-    .{ .src_path = "test/standalone/std_enums_big_enums.zig" },
+    .{ .src_path = "test/standalone/simple/issue_12471/main.zig" },
+    .{ .src_path = "test/standalone/simple/guess_number/main.zig" },
+    .{ .src_path = "test/standalone/simple/main_return_error/error_u8.zig" },
+    .{ .src_path = "test/standalone/simple/main_return_error/error_u8_non_zero.zig" },
+    .{ .src_path = "test/standalone/simple/noreturn_call/inline.zig" },
+    .{ .src_path = "test/standalone/simple/noreturn_call/as_arg.zig" },
+    .{ .src_path = "test/standalone/simple/std_enums_big_enums.zig" },
 
     .{
-        .src_path = "test/standalone/issue_9402/main.zig",
+        .src_path = "test/standalone/simple/issue_9402/main.zig",
         .os_filter = .windows,
         .link_libc = true,
     },
