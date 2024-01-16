@@ -1,38 +1,49 @@
 #include <stdint.h>
+#include <stdlib.h>
 
-void main() {
-  short s = -80;
-  short* s_ptr = &s;
-  unsigned short us = 160;
-  unsigned short* us_ptr = &us;
-  intptr_t i_ptr = 400;
-  uintptr_t u_ptr = 800;
+int main() {
+  int16_t foo16;
+  uint16_t ufoo16;
+  void* void_ptr;
+  intptr_t i_ptr;
+  uintptr_t u_ptr;
+  __int128 bigint;
+  unsigned __int128 biguint;
 
-  void *p = (void *)0UL;
-  p = (void *)-1;
-  s = -2;
-  p = (void *)s;
-  p = (void *)(0-1);
+  foo16 = -1;
+  void_ptr = (void *)foo16;
+  i_ptr = (intptr_t)void_ptr;
+  if (i_ptr != -1) abort();
 
-  s = (short)s_ptr;
-  s_ptr = (short*)s;
+  ufoo16 = -1;
+  void_ptr = (void *)ufoo16;
+  u_ptr = (uintptr_t)void_ptr;
+  if (u_ptr != 0xFFFF) abort();
 
-  us = (unsigned short)us_ptr;
-  us_ptr = (unsigned short*)us;
+  i_ptr = -1;
+  void_ptr = (void *)i_ptr;
+  i_ptr = (intptr_t)void_ptr;
+  if (i_ptr != -1) abort();
 
-  s = (short)i_ptr;
-  i_ptr = (intptr_t)s;
+  u_ptr = -1;
+  void_ptr = (void *)u_ptr;
+  u_ptr = (uintptr_t)void_ptr;
+  if (u_ptr != -1) abort();
+  
+  bigint = -1;
+  void_ptr = (void *)bigint;
+  bigint = (__int128)void_ptr;
+  if (bigint != 0xFFFFFFFFFFFFFFFF) abort();
 
-  s_ptr = (short*)i_ptr;
-  i_ptr = (intptr_t)s_ptr;
+  biguint = 0xFFFFFFFFFFFFFFFF + 64;
+  void_ptr = (void *)biguint;
+  biguint = (unsigned __int128)void_ptr;
+  if (biguint != 64-1) abort();
 
-  s = (short)u_ptr;
-  u_ptr = (uintptr_t)s;
-
-  s_ptr = (short*)u_ptr;
-  u_ptr = (uintptr_t)s_ptr;
+  return 0;
 }
 
 // run-translated-c
 // c_frontends=clang
 // targets=x86_64-linux-none,x86_64-macos-none,x86_64-windows-none,
+// link_libc=true
