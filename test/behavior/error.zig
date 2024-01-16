@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
@@ -458,7 +459,7 @@ test "return function call to error set from error union function" {
         }
     };
     try expectError(error.Failure, S.errorable());
-    try comptime expectError(error.Failure, S.errorable());
+    comptime assert(error.Failure == S.errorable());
 }
 
 test "optional error set is the same size as error set" {
@@ -466,15 +467,15 @@ test "optional error set is the same size as error set" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    try comptime expect(@sizeOf(?anyerror) == @sizeOf(anyerror));
-    try comptime expect(@alignOf(?anyerror) == @alignOf(anyerror));
+    comptime assert(@sizeOf(?anyerror) == @sizeOf(anyerror));
+    comptime assert(@alignOf(?anyerror) == @alignOf(anyerror));
     const S = struct {
         fn returnsOptErrSet() ?anyerror {
             return null;
         }
     };
     try expect(S.returnsOptErrSet() == null);
-    try comptime expect(S.returnsOptErrSet() == null);
+    comptime assert(S.returnsOptErrSet() == null);
 }
 
 test "nested catch" {

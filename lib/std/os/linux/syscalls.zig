@@ -444,6 +444,10 @@ pub const X86 = enum(usize) {
     set_mempolicy_home_node = 450,
     cachestat = 451,
     fchmodat2 = 452,
+    map_shadow_stack = 453,
+    futex_wake = 454,
+    futex_wait = 455,
+    futex_requeue = 456,
 };
 
 pub const X64 = enum(usize) {
@@ -812,6 +816,9 @@ pub const X64 = enum(usize) {
     cachestat = 451,
     fchmodat2 = 452,
     map_shadow_stack = 453,
+    futex_wake = 454,
+    futex_wait = 455,
+    futex_requeue = 456,
 };
 
 pub const Arm = enum(usize) {
@@ -1222,6 +1229,10 @@ pub const Arm = enum(usize) {
     set_mempolicy_home_node = 450,
     cachestat = 451,
     fchmodat2 = 452,
+    map_shadow_stack = 453,
+    futex_wake = 454,
+    futex_wait = 455,
+    futex_requeue = 456,
 
     breakpoint = arm_base + 1,
     cacheflush = arm_base + 2,
@@ -1616,6 +1627,10 @@ pub const Sparc64 = enum(usize) {
     set_mempolicy_home_node = 450,
     cachestat = 451,
     fchmodat2 = 452,
+    map_shadow_stack = 453,
+    futex_wake = 454,
+    futex_wait = 455,
+    futex_requeue = 456,
 };
 
 pub const Mips = enum(usize) {
@@ -2041,6 +2056,10 @@ pub const Mips = enum(usize) {
     set_mempolicy_home_node = Linux + 450,
     cachestat = Linux + 451,
     fchmodat2 = Linux + 452,
+    map_shadow_stack = Linux + 453,
+    futex_wake = Linux + 454,
+    futex_wait = Linux + 455,
+    futex_requeue = Linux + 456,
 };
 
 pub const Mips64 = enum(usize) {
@@ -2402,6 +2421,10 @@ pub const Mips64 = enum(usize) {
     set_mempolicy_home_node = Linux + 450,
     cachestat = Linux + 451,
     fchmodat2 = Linux + 452,
+    map_shadow_stack = Linux + 453,
+    futex_wake = Linux + 454,
+    futex_wait = Linux + 455,
+    futex_requeue = Linux + 456,
 };
 
 pub const PowerPC = enum(usize) {
@@ -2838,6 +2861,10 @@ pub const PowerPC = enum(usize) {
     set_mempolicy_home_node = 450,
     cachestat = 451,
     fchmodat2 = 452,
+    map_shadow_stack = 453,
+    futex_wake = 454,
+    futex_wait = 455,
+    futex_requeue = 456,
 };
 
 pub const PowerPC64 = enum(usize) {
@@ -3246,6 +3273,10 @@ pub const PowerPC64 = enum(usize) {
     set_mempolicy_home_node = 450,
     cachestat = 451,
     fchmodat2 = 452,
+    map_shadow_stack = 453,
+    futex_wake = 454,
+    futex_wait = 455,
+    futex_requeue = 456,
 };
 
 pub const Arm64 = enum(usize) {
@@ -3557,6 +3588,10 @@ pub const Arm64 = enum(usize) {
     set_mempolicy_home_node = 450,
     cachestat = 451,
     fchmodat2 = 452,
+    map_shadow_stack = 453,
+    futex_wake = 454,
+    futex_wait = 455,
+    futex_requeue = 456,
 };
 
 pub const RiscV64 = enum(usize) {
@@ -3869,6 +3904,10 @@ pub const RiscV64 = enum(usize) {
     set_mempolicy_home_node = 450,
     cachestat = 451,
     fchmodat2 = 452,
+    map_shadow_stack = 453,
+    futex_wake = 454,
+    futex_wait = 455,
+    futex_requeue = 456,
 
     riscv_flush_icache = arch_specific_syscall + 15,
 };

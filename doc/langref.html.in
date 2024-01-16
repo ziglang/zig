@@ -1369,6 +1369,13 @@ test "expectError demo" {
       {#syntax#}var{#endsyntax#} when declaring a variable. This causes less work for both
       humans and computers to do when reading code, and creates more optimization opportunities.
       </p>
+      <p>
+      The {#syntax#}extern{#endsyntax#} keyword or {#link|@extern#} builtin function can be used to link against a variable that is exported
+      from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
+      can be used to make a variable available to other objects at link time. In both cases,
+      the type of the variable must be C ABI compatible.
+      </p>
+      {#see_also|Exporting a C Library#}
 
       {#header_open|Identifiers#}
       <p>
@@ -1465,13 +1472,6 @@ fn foo() i32 {
     return S.x;
 }
       {#code_end#}
-      <p>
-      The {#syntax#}extern{#endsyntax#} keyword or {#link|@extern#} builtin function can be used to link against a variable that is exported
-      from another object. The {#syntax#}export{#endsyntax#} keyword or {#link|@export#} builtin function
-      can be used to make a variable available to other objects at link time. In both cases,
-      the type of the variable must be C ABI compatible.
-      </p>
-      {#see_also|Exporting a C Library#}
       {#header_close#}
 
       {#header_open|Thread Local Variables#}
@@ -2199,7 +2199,7 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
           <td>
             <pre>{#syntax#}const value: ?u32 = null;
-value == null{#endsyntax#}</pre>
+(value == null) == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -2218,6 +2218,21 @@ value == null{#endsyntax#}</pre>
           </td>
           <td>
             <pre>{#syntax#}(1 != 1) == false{#endsyntax#}</pre>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row"><pre>{#syntax#}a != null{#endsyntax#}</pre></th>
+          <td>
+            <ul>
+              <li>{#link|Optionals#}</li>
+            </ul>
+          </td>
+          <td>
+              Returns {#syntax#}false{#endsyntax#} if a is {#syntax#}null{#endsyntax#}, otherwise returns {#syntax#}true{#endsyntax#}.
+          </td>
+          <td>
+            <pre>{#syntax#}const value: ?u32 = null;
+(value != null) == false{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>

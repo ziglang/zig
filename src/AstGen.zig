@@ -841,13 +841,16 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .@"if",
         => {
             const if_full = tree.fullIf(node).?;
-            if (if_full.error_token) |error_token| {
-                const tag = node_tags[if_full.ast.else_expr];
-                if ((tag == .@"switch" or tag == .switch_comma) and
-                    std.mem.eql(u8, tree.tokenSlice(error_token), tree.tokenSlice(error_token + 4)))
-                {
-                    return switchExprErrUnion(gz, scope, ri.br(), node, .@"if");
+            no_switch_on_err: {
+                const error_token = if_full.error_token orelse break :no_switch_on_err;
+                switch (node_tags[if_full.ast.else_expr]) {
+                    .@"switch", .switch_comma => {},
+                    else => break :no_switch_on_err,
                 }
+                const switch_operand = node_datas[if_full.ast.else_expr].lhs;
+                if (node_tags[switch_operand] != .identifier) break :no_switch_on_err;
+                if (!mem.eql(u8, tree.tokenSlice(error_token), tree.tokenSlice(main_tokens[switch_operand]))) break :no_switch_on_err;
+                return switchExprErrUnion(gz, scope, ri.br(), node, .@"if");
             }
             return ifExpr(gz, scope, ri.br(), node, if_full);
         },
@@ -1026,16 +1029,21 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         },
         .@"catch" => {
             const catch_token = main_tokens[node];
-            const payload_token: ?Ast.TokenIndex = if (token_tags[catch_token + 1] == .pipe) blk: {
-                if (token_tags.len > catch_token + 6 and
-                    token_tags[catch_token + 4] == .keyword_switch)
-                {
-                    if (std.mem.eql(u8, tree.tokenSlice(catch_token + 2), tree.tokenSlice(catch_token + 6))) {
-                        return switchExprErrUnion(gz, scope, ri.br(), node, .@"catch");
-                    }
+            const payload_token: ?Ast.TokenIndex = if (token_tags[catch_token + 1] == .pipe)
+                catch_token + 2
+            else
+                null;
+            no_switch_on_err: {
+                const capture_token = payload_token orelse break :no_switch_on_err;
+                switch (node_tags[node_datas[node].rhs]) {
+                    .@"switch", .switch_comma => {},
+                    else => break :no_switch_on_err,
                 }
-                break :blk catch_token + 2;
-            } else null;
+                const switch_operand = node_datas[node_datas[node].rhs].lhs;
+                if (node_tags[switch_operand] != .identifier) break :no_switch_on_err;
+                if (!mem.eql(u8, tree.tokenSlice(capture_token), tree.tokenSlice(main_tokens[switch_operand]))) break :no_switch_on_err;
+                return switchExprErrUnion(gz, scope, ri.br(), node, .@"catch");
+            }
             switch (ri.rl) {
                 .ref, .ref_coerced_ty => return orelseCatchExpr(
                     gz,
@@ -6166,7 +6174,7 @@ fn ifExpr(
                     .gen_zir = &then_scope,
                     .name = ident_name,
                     .inst = payload_inst,
-                    .token_src = payload_token,
+                    .token_src = token_name_index,
                     .id_cat = .capture,
                 };
                 try then_scope.addDbgVar(.dbg_var_val, ident_name, payload_inst);
@@ -6407,19 +6415,18 @@ fn whileExpr(
                 // will add this instruction to then_scope.instructions below
                 const payload_inst = try then_scope.makeUnNode(tag, cond.inst, while_full.ast.cond_expr);
                 opt_payload_inst = payload_inst.toOptional();
-                const ident_token = if (payload_is_ref) payload_token + 1 else payload_token;
+                const ident_token = payload_token + @intFromBool(payload_is_ref);
                 const ident_bytes = tree.tokenSlice(ident_token);
                 if (mem.eql(u8, "_", ident_bytes))
                     break :s &then_scope.base;
-                const payload_name_loc = payload_token + @intFromBool(payload_is_ref);
-                const ident_name = try astgen.identAsString(payload_name_loc);
-                try astgen.detectLocalShadowing(&then_scope.base, ident_name, payload_name_loc, ident_bytes, .capture);
+                const ident_name = try astgen.identAsString(ident_token);
+                try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .capture);
                 payload_val_scope = .{
                     .parent = &then_scope.base,
                     .gen_zir = &then_scope,
                     .name = ident_name,
                     .inst = payload_inst.toRef(),
-                    .token_src = payload_token,
+                    .token_src = ident_token,
                     .id_cat = .capture,
                 };
                 dbg_var_name = ident_name;
@@ -7099,7 +7106,7 @@ fn switchExprErrUnion(
                             .gen_zir = &case_scope,
                             .name = ident_name,
                             .inst = unwrapped_payload,
-                            .token_src = payload_token,
+                            .token_src = token_name_index,
                             .id_cat = .capture,
                         };
                         try case_scope.addDbgVar(.dbg_var_val, ident_name, unwrapped_payload);
@@ -7219,7 +7226,9 @@ fn switchExprErrUnion(
             };
 
             const capture_token = case.payload_token orelse break :blk &err_scope.base;
-            assert(token_tags[capture_token] == .identifier);
+            if (token_tags[capture_token] != .identifier) {
+                return astgen.failTok(capture_token + 1, "error set cannot be captured by reference", .{});
+            }
 
             const capture_slice = tree.tokenSlice(capture_token);
             if (mem.eql(u8, capture_slice, "_")) {
@@ -7657,7 +7666,7 @@ fn switchExpr(
                     .gen_zir = &case_scope,
                     .name = capture_name,
                     .inst = switch_block.toRef(),
-                    .token_src = payload_token,
+                    .token_src = ident,
                     .id_cat = .capture,
                 };
                 dbg_var_name = capture_name;

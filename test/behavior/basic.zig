@@ -17,7 +17,7 @@ test "empty function with comments" {
 
 test "truncate" {
     try expect(testTruncate(0x10fd) == 0xfd);
-    try comptime expect(testTruncate(0x10fd) == 0xfd);
+    comptime assert(testTruncate(0x10fd) == 0xfd);
 }
 fn testTruncate(x: u32) u8 {
     return @as(u8, @truncate(x));
@@ -568,7 +568,7 @@ fn emptyFn() void {}
 const addr1 = @as(*const u8, @ptrCast(&emptyFn));
 test "comptime cast fn to ptr" {
     const addr2 = @as(*const u8, @ptrCast(&emptyFn));
-    try comptime expect(addr1 == addr2);
+    comptime assert(addr1 == addr2);
 }
 
 test "equality compare fn ptrs" {
@@ -678,8 +678,8 @@ test "string concatenation" {
     const a = "OK" ++ " IT " ++ "WORKED";
     const b = "OK IT WORKED";
 
-    try comptime expect(@TypeOf(a) == *const [12:0]u8);
-    try comptime expect(@TypeOf(b) == *const [12:0]u8);
+    comptime assert(@TypeOf(a) == *const [12:0]u8);
+    comptime assert(@TypeOf(b) == *const [12:0]u8);
 
     const len = b.len;
     const len_with_null = len + 1;
@@ -747,7 +747,7 @@ test "auto created variables have correct alignment" {
         }
     };
     try expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
-    try comptime expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
+    comptime assert(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
 }
 
 test "extern variable with non-pointer opaque type" {
