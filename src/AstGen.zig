@@ -7219,7 +7219,9 @@ fn switchExprErrUnion(
             };
 
             const capture_token = case.payload_token orelse break :blk &err_scope.base;
-            assert(token_tags[capture_token] == .identifier);
+            if (token_tags[capture_token] != .identifier) {
+                return astgen.failTok(capture_token + 1, "error set cannot be captured by reference", .{});
+            }
 
             const capture_slice = tree.tokenSlice(capture_token);
             if (mem.eql(u8, capture_slice, "_")) {
