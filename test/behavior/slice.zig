@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const expectEqualStrings = std.testing.expectEqualStrings;
@@ -137,7 +138,7 @@ test "slice of hardcoded address to pointer" {
     const S = struct {
         fn doTheTest() !void {
             const pointer = @as([*]u8, @ptrFromInt(0x04))[0..2];
-            try comptime expect(@TypeOf(pointer) == *[2]u8);
+            comptime assert(@TypeOf(pointer) == *[2]u8);
             const slice: []const u8 = pointer;
             try expect(@intFromPtr(slice.ptr) == 4);
             try expect(slice.len == 2);
@@ -210,9 +211,9 @@ test "slice string literal has correct type" {
     }
     var runtime_zero: usize = 0;
     _ = &runtime_zero;
-    try comptime expect(@TypeOf("aoeu"[runtime_zero..]) == [:0]const u8);
+    comptime assert(@TypeOf("aoeu"[runtime_zero..]) == [:0]const u8);
     const array = [_]i32{ 1, 2, 3, 4 };
-    try comptime expect(@TypeOf(array[runtime_zero..]) == []const i32);
+    comptime assert(@TypeOf(array[runtime_zero..]) == []const i32);
 }
 
 test "result location zero sized array inside struct field implicit cast to slice" {
@@ -260,8 +261,8 @@ test "C pointer slice access" {
 
     var runtime_zero: usize = 0;
     _ = &runtime_zero;
-    try comptime expectEqual([]const u32, @TypeOf(c_ptr[runtime_zero..1]));
-    try comptime expectEqual(*const [1]u32, @TypeOf(c_ptr[0..1]));
+    comptime assert(@TypeOf(c_ptr[runtime_zero..1]) == []const u32);
+    comptime assert(@TypeOf(c_ptr[0..1]) == *const [1]u32);
 
     for (c_ptr[0..5]) |*cl| {
         try expect(@as(u32, 42) == cl.*);
@@ -314,11 +315,11 @@ test "obtaining a null terminated slice" {
     _ = &runtime_len;
     const ptr2 = buf[0..runtime_len :0];
     // ptr2 is a null-terminated slice
-    try comptime expect(@TypeOf(ptr2) == [:0]u8);
-    try comptime expect(@TypeOf(ptr2[0..2]) == *[2]u8);
+    comptime assert(@TypeOf(ptr2) == [:0]u8);
+    comptime assert(@TypeOf(ptr2[0..2]) == *[2]u8);
     var runtime_zero: usize = 0;
     _ = &runtime_zero;
-    try comptime expect(@TypeOf(ptr2[runtime_zero..2]) == []u8);
+    comptime assert(@TypeOf(ptr2[runtime_zero..2]) == []u8);
 }
 
 test "empty array to slice" {
@@ -366,7 +367,7 @@ test "slice multi-pointer without end" {
             var array = [5]u8{ 1, 2, 3, 4, 5 };
             const pointer: [*]u8 = &array;
             const slice = pointer[1..];
-            try comptime expect(@TypeOf(slice) == [*]u8);
+            comptime assert(@TypeOf(slice) == [*]u8);
             try expect(slice[0] == 2);
             try expect(slice[1] == 3);
         }
@@ -375,12 +376,11 @@ test "slice multi-pointer without end" {
             var array = [5:0]u8{ 1, 2, 3, 4, 5 };
             const pointer: [*:0]u8 = &array;
 
-            try comptime expect(@TypeOf(pointer[1..3]) == *[2]u8);
-            try comptime expect(@TypeOf(pointer[1..3 :4]) == *[2:4]u8);
-            try comptime expect(@TypeOf(pointer[1..5 :0]) == *[4:0]u8);
+            comptime assert(@TypeOf(pointer[1..]) == [*:0]u8);
+            comptime assert(@TypeOf(pointer[1.. :0]) == [*:0]u8);
 
             const slice = pointer[1..];
-            try comptime expect(@TypeOf(slice) == [*:0]u8);
+            comptime assert(@TypeOf(slice) == [*:0]u8);
             try expect(slice[0] == 2);
             try expect(slice[1] == 3);
         }
@@ -422,29 +422,29 @@ test "slice syntax resulting in pointer-to-array" {
         fn testArray() !void {
             var array = [5]u8{ 1, 2, 3, 4, 5 };
             const slice = array[1..3];
-            try comptime expect(@TypeOf(slice) == *[2]u8);
+            comptime assert(@TypeOf(slice) == *[2]u8);
             try expect(slice[0] == 2);
             try expect(slice[1] == 3);
         }
 
         fn testArrayZ() !void {
             var array = [5:0]u8{ 1, 2, 3, 4, 5 };
-            try comptime expect(@TypeOf(array[1..3]) == *[2]u8);
-            try comptime expect(@TypeOf(array[1..5]) == *[4:0]u8);
-            try comptime expect(@TypeOf(array[1..]) == *[4:0]u8);
-            try comptime expect(@TypeOf(array[1..3 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(array[1..3]) == *[2]u8);
+            comptime assert(@TypeOf(array[1..5]) == *[4:0]u8);
+            comptime assert(@TypeOf(array[1..]) == *[4:0]u8);
+            comptime assert(@TypeOf(array[1..3 :4]) == *[2:4]u8);
         }
 
         fn testArray0() !void {
             {
                 var array = [0]u8{};
                 const slice = array[0..0];
-                try comptime expect(@TypeOf(slice) == *[0]u8);
+                comptime assert(@TypeOf(slice) == *[0]u8);
             }
             {
                 var array = [0:0]u8{};
                 const slice = array[0..0];
-                try comptime expect(@TypeOf(slice) == *[0:0]u8);
+                comptime assert(@TypeOf(slice) == *[0:0]u8);
                 try expect(slice[0] == 0);
             }
         }
@@ -452,16 +452,16 @@ test "slice syntax resulting in pointer-to-array" {
         fn testArrayAlign() !void {
             var array align(4) = [5]u8{ 1, 2, 3, 4, 5 };
             const slice = array[4..5];
-            try comptime expect(@TypeOf(slice) == *align(4) [1]u8);
+            comptime assert(@TypeOf(slice) == *align(4) [1]u8);
             try expect(slice[0] == 5);
-            try comptime expect(@TypeOf(array[0..2]) == *align(4) [2]u8);
+            comptime assert(@TypeOf(array[0..2]) == *align(4) [2]u8);
         }
 
         fn testPointer() !void {
             var array = [5]u8{ 1, 2, 3, 4, 5 };
             var pointer: [*]u8 = &array;
             const slice = pointer[1..3];
-            try comptime expect(@TypeOf(slice) == *[2]u8);
+            comptime assert(@TypeOf(slice) == *[2]u8);
             try expect(slice[0] == 2);
             try expect(slice[1] == 3);
         }
@@ -469,14 +469,14 @@ test "slice syntax resulting in pointer-to-array" {
         fn testPointerZ() !void {
             var array = [5:0]u8{ 1, 2, 3, 4, 5 };
             var pointer: [*:0]u8 = &array;
-            try comptime expect(@TypeOf(pointer[1..3]) == *[2]u8);
-            try comptime expect(@TypeOf(pointer[1..3 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(pointer[1..3]) == *[2]u8);
+            comptime assert(@TypeOf(pointer[1..3 :4]) == *[2:4]u8);
         }
 
         fn testPointer0() !void {
             var pointer: [*]const u0 = &[1]u0{0};
             const slice = pointer[0..1];
-            try comptime expect(@TypeOf(slice) == *const [1]u0);
+            comptime assert(@TypeOf(slice) == *const [1]u0);
             try expect(slice[0] == 0);
         }
 
@@ -484,16 +484,16 @@ test "slice syntax resulting in pointer-to-array" {
             var array align(4) = [5]u8{ 1, 2, 3, 4, 5 };
             var pointer: [*]align(4) u8 = &array;
             const slice = pointer[4..5];
-            try comptime expect(@TypeOf(slice) == *align(4) [1]u8);
+            comptime assert(@TypeOf(slice) == *align(4) [1]u8);
             try expect(slice[0] == 5);
-            try comptime expect(@TypeOf(pointer[0..2]) == *align(4) [2]u8);
+            comptime assert(@TypeOf(pointer[0..2]) == *align(4) [2]u8);
         }
 
         fn testSlice() !void {
             var array = [5]u8{ 1, 2, 3, 4, 5 };
             var src_slice: []u8 = &array;
             const slice = src_slice[1..3];
-            try comptime expect(@TypeOf(slice) == *[2]u8);
+            comptime assert(@TypeOf(slice) == *[2]u8);
             try expect(slice[0] == 2);
             try expect(slice[1] == 3);
         }
@@ -501,30 +501,30 @@ test "slice syntax resulting in pointer-to-array" {
         fn testSliceZ() !void {
             var array = [5:0]u8{ 1, 2, 3, 4, 5 };
             var slice: [:0]u8 = &array;
-            try comptime expect(@TypeOf(slice[1..3]) == *[2]u8);
-            try comptime expect(@TypeOf(slice[1..3 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(slice[1..3]) == *[2]u8);
+            comptime assert(@TypeOf(slice[1..3 :4]) == *[2:4]u8);
             if (@inComptime()) {
-                try comptime expect(@TypeOf(slice[1..]) == *[4:0]u8);
+                comptime assert(@TypeOf(slice[1..]) == *[4:0]u8);
             } else {
-                try comptime expect(@TypeOf(slice[1..]) == [:0]u8);
+                comptime assert(@TypeOf(slice[1..]) == [:0]u8);
             }
         }
 
         fn testSliceOpt() !void {
             var array: [2]u8 = [2]u8{ 1, 2 };
             var slice: ?[]u8 = &array;
-            try comptime expect(@TypeOf(&array, slice) == ?[]u8);
-            try comptime expect(@TypeOf(slice, &array) == ?[]u8);
-            try comptime expect(@TypeOf(slice.?[0..2]) == *[2]u8);
+            comptime assert(@TypeOf(&array, slice) == ?[]u8);
+            comptime assert(@TypeOf(slice, &array) == ?[]u8);
+            comptime assert(@TypeOf(slice.?[0..2]) == *[2]u8);
         }
 
         fn testSliceAlign() !void {
             var array align(4) = [5]u8{ 1, 2, 3, 4, 5 };
             var src_slice: []align(4) u8 = &array;
             const slice = src_slice[4..5];
-            try comptime expect(@TypeOf(slice) == *align(4) [1]u8);
+            comptime assert(@TypeOf(slice) == *align(4) [1]u8);
             try expect(slice[0] == 5);
-            try comptime expect(@TypeOf(src_slice[0..2]) == *align(4) [2]u8);
+            comptime assert(@TypeOf(src_slice[0..2]) == *align(4) [2]u8);
         }
 
         fn testConcatStrLiterals() !void {
@@ -535,62 +535,62 @@ test "slice syntax resulting in pointer-to-array" {
         fn testSliceLength() !void {
             var array = [5]u8{ 1, 2, 3, 4, 5 };
             var slice: []u8 = &array;
-            try comptime expect(@TypeOf(slice[1..][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(slice[1..][0..4]) == *[4]u8);
-            try comptime expect(@TypeOf(slice[1..][0..2 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(slice[1..][0..2]) == *[2]u8);
+            comptime assert(@TypeOf(slice[1..][0..4]) == *[4]u8);
+            comptime assert(@TypeOf(slice[1..][0..2 :4]) == *[2:4]u8);
         }
 
         fn testSliceLengthZ() !void {
             var array = [5:0]u8{ 1, 2, 3, 4, 5 };
             var slice: [:0]u8 = &array;
-            try comptime expect(@TypeOf(slice[1..][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(slice[1..][0..2 :4]) == *[2:4]u8);
-            try comptime expect(@TypeOf(slice[1.. :0][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(slice[1.. :0][0..2 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(slice[1..][0..2]) == *[2]u8);
+            comptime assert(@TypeOf(slice[1..][0..2 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(slice[1.. :0][0..2]) == *[2]u8);
+            comptime assert(@TypeOf(slice[1.. :0][0..2 :4]) == *[2:4]u8);
         }
 
         fn testArrayLength() !void {
             var array = [5]u8{ 1, 2, 3, 4, 5 };
-            try comptime expect(@TypeOf(array[1..][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(array[1..][0..4]) == *[4]u8);
-            try comptime expect(@TypeOf(array[1..][0..2 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(array[1..][0..2]) == *[2]u8);
+            comptime assert(@TypeOf(array[1..][0..4]) == *[4]u8);
+            comptime assert(@TypeOf(array[1..][0..2 :4]) == *[2:4]u8);
         }
 
         fn testArrayLengthZ() !void {
             var array = [5:0]u8{ 1, 2, 3, 4, 5 };
-            try comptime expect(@TypeOf(array[1..][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(array[1..][0..4]) == *[4:0]u8);
-            try comptime expect(@TypeOf(array[1..][0..2 :4]) == *[2:4]u8);
-            try comptime expect(@TypeOf(array[1.. :0][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(array[1.. :0][0..4]) == *[4:0]u8);
-            try comptime expect(@TypeOf(array[1.. :0][0..2 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(array[1..][0..2]) == *[2]u8);
+            comptime assert(@TypeOf(array[1..][0..4]) == *[4:0]u8);
+            comptime assert(@TypeOf(array[1..][0..2 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(array[1.. :0][0..2]) == *[2]u8);
+            comptime assert(@TypeOf(array[1.. :0][0..4]) == *[4:0]u8);
+            comptime assert(@TypeOf(array[1.. :0][0..2 :4]) == *[2:4]u8);
         }
 
         fn testMultiPointer() !void {
             var array = [5]u8{ 1, 2, 3, 4, 5 };
             var ptr: [*]u8 = &array;
-            try comptime expect(@TypeOf(ptr[1..][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(ptr[1..][0..4]) == *[4]u8);
-            try comptime expect(@TypeOf(ptr[1..][0..2 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(ptr[1..][0..2]) == *[2]u8);
+            comptime assert(@TypeOf(ptr[1..][0..4]) == *[4]u8);
+            comptime assert(@TypeOf(ptr[1..][0..2 :4]) == *[2:4]u8);
         }
 
         fn testMultiPointerLengthZ() !void {
             var array = [5:0]u8{ 1, 2, 3, 4, 5 };
             var ptr: [*]u8 = &array;
-            try comptime expect(@TypeOf(ptr[1..][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(ptr[1..][0..4]) == *[4]u8);
-            try comptime expect(@TypeOf(ptr[1..][0..2 :4]) == *[2:4]u8);
-            try comptime expect(@TypeOf(ptr[1.. :0][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(ptr[1.. :0][0..4]) == *[4]u8);
-            try comptime expect(@TypeOf(ptr[1.. :0][0..2 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(ptr[1..][0..2]) == *[2]u8);
+            comptime assert(@TypeOf(ptr[1..][0..4]) == *[4]u8);
+            comptime assert(@TypeOf(ptr[1..][0..2 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(ptr[1.. :0][0..2]) == *[2]u8);
+            comptime assert(@TypeOf(ptr[1.. :0][0..4]) == *[4]u8);
+            comptime assert(@TypeOf(ptr[1.. :0][0..2 :4]) == *[2:4]u8);
 
             var ptr_z: [*:0]u8 = &array;
-            try comptime expect(@TypeOf(ptr_z[1..][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(ptr_z[1..][0..4]) == *[4]u8);
-            try comptime expect(@TypeOf(ptr_z[1..][0..2 :4]) == *[2:4]u8);
-            try comptime expect(@TypeOf(ptr_z[1.. :0][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(ptr_z[1.. :0][0..4]) == *[4]u8);
-            try comptime expect(@TypeOf(ptr_z[1.. :0][0..2 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(ptr_z[1..][0..2]) == *[2]u8);
+            comptime assert(@TypeOf(ptr_z[1..][0..4]) == *[4]u8);
+            comptime assert(@TypeOf(ptr_z[1..][0..2 :4]) == *[2:4]u8);
+            comptime assert(@TypeOf(ptr_z[1.. :0][0..2]) == *[2]u8);
+            comptime assert(@TypeOf(ptr_z[1.. :0][0..4]) == *[4]u8);
+            comptime assert(@TypeOf(ptr_z[1.. :0][0..2 :4]) == *[2:4]u8);
         }
 
         fn testSingleItemPointer() !void {
@@ -598,10 +598,10 @@ test "slice syntax resulting in pointer-to-array" {
             var ptr = &value;
 
             const slice = ptr[0..1];
-            try comptime expect(@TypeOf(slice) == *[1]u8);
+            comptime assert(@TypeOf(slice) == *[1]u8);
             try expect(slice[0] == 1);
 
-            try comptime expect(@TypeOf(ptr[0..0]) == *[0]u8);
+            comptime assert(@TypeOf(ptr[0..0]) == *[0]u8);
         }
     };
 
@@ -623,9 +623,9 @@ test "slice pointer-to-array null terminated" {
 
     var array = [5:0]u8{ 1, 2, 3, 4, 5 };
     var slice: [:0]u8 = &array;
-    try comptime expect(@TypeOf(slice[1..3]) == *[2]u8);
-    try comptime expect(@TypeOf(slice[1..3 :4]) == *[2:4]u8);
-    try comptime expect(@TypeOf(slice[1..]) == [:0]u8);
+    comptime assert(@TypeOf(slice[1..3]) == *[2]u8);
+    comptime assert(@TypeOf(slice[1..3 :4]) == *[2:4]u8);
+    comptime assert(@TypeOf(slice[1..]) == [:0]u8);
 }
 
 test "slice pointer-to-array zero length" {
@@ -650,13 +650,13 @@ test "slice pointer-to-array zero length" {
         var array = [0]u8{};
         var src_slice: []u8 = &array;
         const slice = src_slice[0..0];
-        try comptime expect(@TypeOf(slice) == *[0]u8);
+        comptime assert(@TypeOf(slice) == *[0]u8);
     }
     {
         var array = [0:0]u8{};
         var src_slice: [:0]u8 = &array;
         const slice = src_slice[0..0];
-        try comptime expect(@TypeOf(slice) == *[0]u8);
+        comptime assert(@TypeOf(slice) == *[0]u8);
     }
 }
 

@@ -109,7 +109,7 @@ const ExternPtrOrInt = extern union {
     int: u64,
 };
 test "extern union size" {
-    try comptime expect(@sizeOf(ExternPtrOrInt) == 8);
+    comptime assert(@sizeOf(ExternPtrOrInt) == 8);
 }
 
 test "0-sized extern union definition" {
@@ -161,7 +161,7 @@ test "access a member of tagged union with conflicting enum tag name" {
         const B = void;
     };
 
-    try comptime expect(Bar.A == u8);
+    comptime assert(Bar.A == u8);
 }
 
 test "constant tagged union with payload" {
@@ -371,14 +371,14 @@ const PackedPtrOrInt = packed union {
     int: u64,
 };
 test "packed union size" {
-    try comptime expect(@sizeOf(PackedPtrOrInt) == 8);
+    comptime assert(@sizeOf(PackedPtrOrInt) == 8);
 }
 
 const ZeroBits = union {
     OnlyField: void,
 };
 test "union with only 1 field which is void should be zero bits" {
-    try comptime expect(@sizeOf(ZeroBits) == 0);
+    comptime assert(@sizeOf(ZeroBits) == 0);
 }
 
 test "tagged union initialization with runtime void" {
@@ -428,7 +428,7 @@ test "union with only 1 field casted to its enum type" {
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     _ = &e;
     const ExprTag = Tag(Expr);
-    try comptime expect(Tag(ExprTag) == u0);
+    comptime assert(Tag(ExprTag) == u0);
     var t = @as(ExprTag, e);
     _ = &t;
     try expect(t == Expr.Literal);
@@ -438,7 +438,7 @@ test "union with one member defaults to u0 tag type" {
     const U0 = union(enum) {
         X: u32,
     };
-    try comptime expect(Tag(Tag(U0)) == u0);
+    comptime assert(Tag(Tag(U0)) == u0);
 }
 
 const Foo1 = union(enum) {
@@ -629,7 +629,7 @@ test "union(enum(u32)) with specified and unspecified tag values" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    try comptime expect(Tag(Tag(MultipleChoice2)) == u32);
+    comptime assert(Tag(Tag(MultipleChoice2)) == u32);
     try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
     try comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
 }
@@ -709,11 +709,11 @@ test "union with only 1 field casted to its enum type which has enum value speci
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     _ = &e;
-    try comptime expect(Tag(ExprTag) == comptime_int);
+    comptime assert(Tag(ExprTag) == comptime_int);
     const t = comptime @as(ExprTag, e);
     try expect(t == Expr.Literal);
     try expect(@intFromEnum(t) == 33);
-    try comptime expect(@intFromEnum(t) == 33);
+    comptime assert(@intFromEnum(t) == 33);
 }
 
 test "@intFromEnum works on unions" {
@@ -894,7 +894,7 @@ test "union with comptime_int tag" {
         Y: u16,
         Z: u8,
     };
-    try comptime expect(Tag(Tag(Union)) == comptime_int);
+    comptime assert(Tag(Tag(Union)) == comptime_int);
 }
 
 test "extern union doesn't trigger field check at comptime" {
@@ -904,7 +904,7 @@ test "extern union doesn't trigger field check at comptime" {
     };
 
     const x = U{ .x = 0x55AAAA55 };
-    try comptime expect(x.y == 0x55);
+    comptime assert(x.y == 0x55);
 }
 
 test "anonymous union literal syntax" {

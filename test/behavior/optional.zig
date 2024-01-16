@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
+const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
@@ -20,7 +21,7 @@ test "passing an optional integer as a parameter" {
         }
     };
     try expect(S.entry());
-    try comptime expect(S.entry());
+    comptime assert(S.entry());
 }
 
 pub const EmptyStruct = struct {};

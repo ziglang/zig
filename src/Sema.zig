@@ -28662,7 +28662,7 @@ fn coerceExtra(
                     if (!dest_info.flags.is_const) {
                         const err_msg = err_msg: {
                             const err_msg = try sema.errMsg(block, inst_src, "cannot cast pointer to tuple to '{}'", .{dest_ty.fmt(mod)});
-                            errdefer err_msg.deinit(sema.gpa);
+                            errdefer err_msg.destroy(sema.gpa);
                             try sema.errNote(block, dest_ty_src, err_msg, "pointers to tuples can only coerce to constant pointers", .{});
                             break :err_msg err_msg;
                         };
@@ -32604,31 +32604,39 @@ fn analyzeSlice(
 
                     if (try sema.compareScalar(start_value, .neq, end_value, Type.comptime_int)) {
                         if (try sema.compareScalar(start_value, .neq, Value.zero_comptime_int, Type.comptime_int)) {
-                            const err_msg = try sema.errMsg(block, start_src, bounds_error_message, .{});
-                            try sema.errNote(
-                                block,
-                                start_src,
-                                err_msg,
-                                "expected '{}', found '{}'",
-                                .{
-                                    Value.zero_comptime_int.fmtValue(Type.comptime_int, mod),
-                                    start_value.fmtValue(Type.comptime_int, mod),
-                                },
-                            );
-                            return sema.failWithOwnedErrorMsg(block, err_msg);
+                            const msg = msg: {
+                                const msg = try sema.errMsg(block, start_src, bounds_error_message, .{});
+                                errdefer msg.destroy(sema.gpa);
+                                try sema.errNote(
+                                    block,
+                                    start_src,
+                                    msg,
+                                    "expected '{}', found '{}'",
+                                    .{
+                                        Value.zero_comptime_int.fmtValue(Type.comptime_int, mod),
+                                        start_value.fmtValue(Type.comptime_int, mod),
+                                    },
+                                );
+                                break :msg msg;
+                            };
+                            return sema.failWithOwnedErrorMsg(block, msg);
                         } else if (try sema.compareScalar(end_value, .neq, Value.one_comptime_int, Type.comptime_int)) {
-                            const err_msg = try sema.errMsg(block, end_src, bounds_error_message, .{});
-                            try sema.errNote(
-                                block,
-                                end_src,
-                                err_msg,
-                                "expected '{}', found '{}'",
-                                .{
-                                    Value.one_comptime_int.fmtValue(Type.comptime_int, mod),
-                                    end_value.fmtValue(Type.comptime_int, mod),
-                                },
-                            );
-                            return sema.failWithOwnedErrorMsg(block, err_msg);
+                            const msg = msg: {
+                                const msg = try sema.errMsg(block, end_src, bounds_error_message, .{});
+                                errdefer msg.destroy(sema.gpa);
+                                try sema.errNote(
+                                    block,
+                                    end_src,
+                                    msg,
+                                    "expected '{}', found '{}'",
+                                    .{
+                                        Value.one_comptime_int.fmtValue(Type.comptime_int, mod),
+                                        end_value.fmtValue(Type.comptime_int, mod),
+                                    },
+                                );
+                                break :msg msg;
+                            };
+                            return sema.failWithOwnedErrorMsg(block, msg);
                         }
                     } else {
                         if (try sema.compareScalar(end_value, .gt, Value.one_comptime_int, Type.comptime_int)) {
