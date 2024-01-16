@@ -1328,8 +1328,6 @@ fn testShlTrunc(x: u16) !void {
 }
 
 test "exact shift left" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try testShlExact(0b00110101);
     try comptime testShlExact(0b00110101);
 
