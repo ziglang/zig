@@ -11255,10 +11255,18 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     defer seen_errors.deinit();
 
     const operand_ty = sema.typeOf(raw_operand_val);
-    const operand_err_set_ty = if (extra.data.bits.payload_is_ref)
-        operand_ty.childType(mod).errorUnionSet(mod)
+    const operand_err_set = if (extra.data.bits.payload_is_ref)
+        operand_ty.childType(mod)
     else
-        operand_ty.errorUnionSet(mod);
+        operand_ty;
+
+    if (operand_err_set.zigTypeTag(mod) != .ErrorUnion) {
+        return sema.fail(block, switch_src, "expected error union type, found '{}'", .{
+            operand_ty.fmt(mod),
+        });
+    }
+
+    const operand_err_set_ty = operand_err_set.errorUnionSet(mod);
 
     const block_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
     try sema.air_instructions.append(gpa, .{
