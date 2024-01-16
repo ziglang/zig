@@ -2199,7 +2199,7 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
           <td>
             <pre>{#syntax#}const value: ?u32 = null;
-value == null{#endsyntax#}</pre>
+(value == null) == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -2218,6 +2218,21 @@ value == null{#endsyntax#}</pre>
           </td>
           <td>
             <pre>{#syntax#}(1 != 1) == false{#endsyntax#}</pre>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row"><pre>{#syntax#}a != null{#endsyntax#}</pre></th>
+          <td>
+            <ul>
+              <li>{#link|Optionals#}</li>
+            </ul>
+          </td>
+          <td>
+              Returns {#syntax#}false{#endsyntax#} if a is {#syntax#}null{#endsyntax#}, otherwise returns {#syntax#}true{#endsyntax#}.
+          </td>
+          <td>
+            <pre>{#syntax#}const value: ?u32 = null;
+(value != null) == false{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
