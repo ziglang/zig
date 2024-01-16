@@ -521,7 +521,6 @@ pub fn build(b: *std.Build) !void {
         optimization_modes,
         enable_macos_sdk,
         enable_ios_sdk,
-        false,
         enable_symlinks_windows,
     ));
     test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
