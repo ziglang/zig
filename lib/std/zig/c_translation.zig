@@ -121,6 +121,10 @@ test "cast" {
     try testing.expectEqual(@as(u32, 4), cast(u32, @as(?*u32, @ptrFromInt(4))));
     try testing.expectEqual(@as(u32, 10), cast(u32, @as(u64, 10)));
 
+    try testing.expectEqual(@as(i32, 4), cast(i32, @as(*u32, @ptrFromInt(4))));
+    try testing.expectEqual(@as(i32, 4), cast(i32, @as(?*u32, @ptrFromInt(4))));
+    try testing.expectEqual(@as(i32, 10), cast(i32, @as(u64, 10)));
+
     try testing.expectEqual(@as(i32, @bitCast(@as(u32, 0x8000_0000))), cast(i32, @as(u32, 0x8000_0000)));
 
     try testing.expectEqual(@as(*u8, @ptrFromInt(2)), cast(*u8, @as(*const u8, @ptrFromInt(2))));
