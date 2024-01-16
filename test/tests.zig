@@ -668,11 +668,9 @@ pub fn addStandaloneTests(
     optimize_modes: []const OptimizeMode,
     enable_macos_sdk: bool,
     enable_ios_sdk: bool,
-    omit_stage2: bool,
     enable_symlinks_windows: bool,
 ) *Step {
     const step = b.step("test-standalone", "Run the standalone tests");
-    const omit_symlinks = builtin.os.tag == .windows and !enable_symlinks_windows;
 
     for (standalone.simple_cases) |case| {
         for (optimize_modes) |optimize| {
@@ -712,29 +710,15 @@ pub fn addStandaloneTests(
         }
     }
 
-    inline for (standalone.build_cases) |case| {
-        const requires_stage2 = @hasDecl(case.import, "requires_stage2") and
-            case.import.requires_stage2;
-        const requires_symlinks = @hasDecl(case.import, "requires_symlinks") and
-            case.import.requires_symlinks;
-        const requires_macos_sdk = @hasDecl(case.import, "requires_macos_sdk") and
-            case.import.requires_macos_sdk;
-        const requires_ios_sdk = @hasDecl(case.import, "requires_ios_sdk") and
-            case.import.requires_ios_sdk;
-        const bad =
-            (requires_stage2 and omit_stage2) or
-            (requires_symlinks and omit_symlinks) or
-            (requires_macos_sdk and !enable_macos_sdk) or
-            (requires_ios_sdk and !enable_ios_sdk);
-        if (!bad) {
-            const dep = b.anonymousDependency(case.build_root, case.import, .{});
-            const dep_step = dep.builder.default_step;
-            assert(mem.startsWith(u8, dep.builder.dep_prefix, "test."));
-            const dep_prefix_adjusted = dep.builder.dep_prefix["test.".len..];
-            dep_step.name = b.fmt("{s}{s}", .{ dep_prefix_adjusted, dep_step.name });
-            step.dependOn(dep_step);
-        }
-    }
+    const test_cases_dep_name = "standalone_test_cases";
+    const test_cases_dep = b.dependency(test_cases_dep_name, .{
+        .@"enable-ios-sdk" = enable_ios_sdk,
+        .@"enable-macos-sdk" = enable_macos_sdk,
+        .@"enable-symlinks-windows" = enable_symlinks_windows,
+    });
+    const test_cases_dep_step = test_cases_dep.builder.default_step;
+    test_cases_dep_step.name = b.dupe(test_cases_dep_name);
+    step.dependOn(test_cases_dep.builder.default_step);
 
     return step;
 }
