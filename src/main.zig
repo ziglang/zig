@@ -4510,7 +4510,8 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
         if (fancy_output) |p| p.cache_hit = false;
         var argv = std.ArrayList([]const u8).init(arena);
         try argv.append(@tagName(comp.config.c_frontend)); // argv[0] is program name, actual args start at [1]
-        const target = comp.root_mod.resolved_target.result;
+
+        const target = comp.getTarget();
 
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
