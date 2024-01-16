@@ -2967,60 +2967,16 @@ pub fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
     try self.base.file.?.pwriteAll(buffer.items, offset);
 }
 
-fn shrinkAtom(self: *MachO, atom_index: Atom.Index, new_block_size: u64) void {
-    _ = self;
-    _ = atom_index;
-    _ = new_block_size;
-    // TODO check the new capacity, and if it crosses the size threshold into a big enough
-    // capacity, insert a free list node for it.
-}
-
-fn growAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignment: Alignment) !u64 {
-    _ = self;
-    _ = atom_index;
-    _ = new_atom_size;
-    _ = alignment;
-    @panic("TODO growAtom");
-}
-
 pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
-
-    @panic("TODO updateFunc");
+    return self.getZigObject().?.updateFunc(self, mod, func_index, air, liveness);
 }
 
 pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
-    _ = self;
-    _ = typed_value;
-    _ = decl_index;
-
-    @panic("TODO lowerUnnamedConst");
-}
-
-const LowerConstResult = union(enum) {
-    ok: Atom.Index,
-    fail: *Module.ErrorMsg,
-};
-
-fn lowerConst(
-    self: *MachO,
-    name: []const u8,
-    tv: TypedValue,
-    required_alignment: InternPool.Alignment,
-    sect_id: u8,
-    src_loc: Module.SrcLoc,
-) !LowerConstResult {
-    _ = self;
-    _ = name;
-    _ = tv;
-    _ = required_alignment;
-    _ = sect_id;
-    _ = src_loc;
-
-    @panic("TODO lowerConst");
+    return self.getZigObject().?.lowerUnnamedConst(self, typed_value, decl_index);
 }
 
 pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) !void {
@@ -3028,55 +2984,12 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) 
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
-
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    @panic("TODO updateDecl");
-}
-
-fn updateLazySymbolAtom(
-    self: *MachO,
-    sym: link.File.LazySymbol,
-    atom_index: Atom.Index,
-    section_index: u8,
-) !void {
-    _ = self;
-    _ = sym;
-    _ = atom_index;
-    _ = section_index;
-    @panic("TODO updateLazySymbolAtom");
-}
-
-pub fn getOrCreateAtomForLazySymbol(self: *MachO, sym: link.File.LazySymbol) !Atom.Index {
-    _ = self;
-    _ = sym;
-    @panic("TODO getOrCreateAtomForLazySymbol");
-}
-
-pub fn getOrCreateAtomForDecl(self: *MachO, decl_index: InternPool.DeclIndex) !Atom.Index {
-    _ = self;
-    _ = decl_index;
-    @panic("TODO getOrCreateAtomForDecl");
-}
-
-fn getDeclOutputSection(self: *MachO, decl_index: InternPool.DeclIndex) u8 {
-    _ = self;
-    _ = decl_index;
-    @panic("TODO getDeclOutputSection");
-}
-
-fn updateDeclCode(self: *MachO, decl_index: InternPool.DeclIndex, code: []u8) !u64 {
-    _ = self;
-    _ = decl_index;
-    _ = code;
-    @panic("TODO updateDeclCode");
+    return self.getZigObject().?.updateDecl(self, mod, decl_index);
 }
 
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: InternPool.DeclIndex) !void {
-    if (self.d_sym) |*d_sym| {
-        try d_sym.dwarf.updateDeclLineNumber(module, decl_index);
-    }
+    if (self.llvm_object) |_| return;
+    return self.getZigObject().?.updateDeclLineNumber(module, decl_index);
 }
 
 pub fn updateExports(
@@ -3088,10 +3001,8 @@ pub fn updateExports(
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object|
-        return llvm_object.updateExports(mod, exported, exports);
-
-    @panic("TODO updateExports");
+    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
+    return self.getZigObject().?.updateExports(self, mod, exported, exports);
 }
 
 pub fn deleteDeclExport(
@@ -3100,20 +3011,12 @@ pub fn deleteDeclExport(
     name: InternPool.NullTerminatedString,
 ) Allocator.Error!void {
     if (self.llvm_object) |_| return;
-    _ = decl_index;
-    _ = name;
-    @panic("TODO deleteDeclExport");
-}
-
-fn freeUnnamedConsts(self: *MachO, decl_index: InternPool.DeclIndex) void {
-    _ = self;
-    _ = decl_index;
-    @panic("TODO freeUnnamedConst");
+    return self.getZigObject().?.deleteDeclExport(self, decl_index, name);
 }
 
 pub fn freeDecl(self: *MachO, decl_index: InternPool.DeclIndex) void {
     if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
-    @panic("TODO freeDecl");
+    return self.getZigObject().?.freeDecl(decl_index);
 }
 
 pub fn getDeclVAddr(self: *MachO, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
@@ -3127,25 +3030,16 @@ pub fn lowerAnonDecl(
     explicit_alignment: InternPool.Alignment,
     src_loc: Module.SrcLoc,
 ) !codegen.Result {
-    _ = self;
-    _ = decl_val;
-    _ = explicit_alignment;
-    _ = src_loc;
-    @panic("TODO lowerAnonDecl");
+    return self.getZigObject().?.lowerAnonDecl(self, decl_val, explicit_alignment, src_loc);
 }
 
 pub fn getAnonDeclVAddr(self: *MachO, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-    _ = decl_val;
-    _ = reloc_info;
-    @panic("TODO getAnonDeclVAddr");
+    return self.getZigObject().?.getAnonDeclVAddr(self, decl_val, reloc_info);
 }
 
 pub fn getGlobalSymbol(self: *MachO, name: []const u8, lib_name: ?[]const u8) !u32 {
-    _ = self;
-    _ = name;
-    _ = lib_name;
-    @panic("TODO getGlobalSymbol");
+    return self.getZigObject().?.getGlobalSymbol(self, name, lib_name);
 }
 
 pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
