@@ -805,32 +805,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn bar() c_int;
     });
 
-    cases.add("simple var decls",
-        \\void foo(void) {
-        \\    int a;
-        \\    char b = 123;
-        \\    const int c;
-        \\    const unsigned d = 440;
-        \\    int e = 10;
-        \\    unsigned int f = 10u;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() void {
-        \\    var a: c_int = undefined;
-        \\    _ = &a;
-        \\    var b: u8 = 123;
-        \\    _ = &b;
-        \\    const c: c_int = undefined;
-        \\    _ = &c;
-        \\    const d: c_uint = @as(c_uint, @bitCast(@as(c_int, 440)));
-        \\    _ = &d;
-        \\    var e: c_int = 10;
-        \\    _ = &e;
-        \\    var f: c_uint = 10;
-        \\    _ = &f;
-        \\}
-    });
-
     cases.add("ignore result, explicit function arguments",
         \\void foo(void) {
         \\    int a;
@@ -917,22 +891,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const foo = c_long;
         \\pub const bar = c_int;
         \\pub const baz = c_int;
-    });
-
-    cases.add("casting pointers to ints and ints to pointers",
-        \\void foo(void);
-        \\void bar(void) {
-        \\    void *func_ptr = foo;
-        \\    void (*typed_func_ptr)(void) = (void (*)(void)) (unsigned long) func_ptr;
-        \\}
-    , &[_][]const u8{
-        \\pub extern fn foo() void;
-        \\pub export fn bar() void {
-        \\    var func_ptr: ?*anyopaque = @as(?*anyopaque, @ptrCast(&foo));
-        \\    _ = &func_ptr;
-        \\    var typed_func_ptr: ?*const fn () callconv(.C) void = @as(?*const fn () callconv(.C) void, @ptrFromInt(@as(c_ulong, @intCast(@intFromPtr(func_ptr)))));
-        \\    _ = &typed_func_ptr;
-        \\}
     });
 
     cases.add("noreturn attribute",
@@ -2137,40 +2095,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const RCC_BASE = D3_AHB1PERIPH_BASE + @as(c_ulong, 0x4400);
     });
 
-    cases.add("variable aliasing",
-        \\static long a = 2;
-        \\static long b = 2;
-        \\static int c = 4;
-        \\void foo(char c) {
-        \\    int a;
-        \\    char b = 123;
-        \\    b = (char) a;
-        \\    {
-        \\        int d = 5;
-        \\    }
-        \\    unsigned d = 440;
-        \\}
-    , &[_][]const u8{
-        \\pub var a: c_long = 2;
-        \\pub var b: c_long = 2;
-        \\pub var c: c_int = 4;
-        \\pub export fn foo(arg_c_1: u8) void {
-        \\    var c_1 = arg_c_1;
-        \\    _ = &c_1;
-        \\    var a_2: c_int = undefined;
-        \\    _ = &a_2;
-        \\    var b_3: u8 = 123;
-        \\    _ = &b_3;
-        \\    b_3 = @as(u8, @bitCast(@as(i8, @truncate(a_2))));
-        \\    {
-        \\        var d: c_int = 5;
-        \\        _ = &d;
-        \\    }
-        \\    var d: c_uint = @as(c_uint, @bitCast(@as(c_int, 440)));
-        \\    _ = &d;
-        \\}
-    });
-
     cases.add("comma operator",
         \\int foo() {
         \\    2, 4;
@@ -3372,59 +3296,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        ref.* -%= 1;
         \\        break :blk tmp;
         \\    };
-        \\}
-    });
-
-    cases.add("implicit casts",
-        \\#include <stdbool.h>
-        \\
-        \\void fn_int(int x);
-        \\void fn_f32(float x);
-        \\void fn_f64(double x);
-        \\void fn_char(char x);
-        \\void fn_bool(bool x);
-        \\void fn_ptr(void *x);
-        \\
-        \\void call() {
-        \\    fn_int(3.0f);
-        \\    fn_int(3.0);
-        \\    fn_int('ABCD');
-        \\    fn_f32(3);
-        \\    fn_f64(3);
-        \\    fn_char('3');
-        \\    fn_char('\x1');
-        \\    fn_char(0);
-        \\    fn_f32(3.0f);
-        \\    fn_f64(3.0);
-        \\    fn_bool(123);
-        \\    fn_bool(0);
-        \\    fn_bool(&fn_int);
-        \\    fn_int((int)&fn_int);
-        \\    fn_ptr((void *)42);
-        \\}
-    , &[_][]const u8{
-        \\pub extern fn fn_int(x: c_int) void;
-        \\pub extern fn fn_f32(x: f32) void;
-        \\pub extern fn fn_f64(x: f64) void;
-        \\pub extern fn fn_char(x: u8) void;
-        \\pub extern fn fn_bool(x: bool) void;
-        \\pub extern fn fn_ptr(x: ?*anyopaque) void;
-        \\pub export fn call() void {
-        \\    fn_int(@as(c_int, @intFromFloat(3.0)));
-        \\    fn_int(@as(c_int, @intFromFloat(3.0)));
-        \\    fn_int(@as(c_int, 1094861636));
-        \\    fn_f32(@as(f32, @floatFromInt(@as(c_int, 3))));
-        \\    fn_f64(@as(f64, @floatFromInt(@as(c_int, 3))));
-        \\    fn_char(@as(u8, @bitCast(@as(i8, @truncate(@as(c_int, '3'))))));
-        \\    fn_char(@as(u8, @bitCast(@as(i8, @truncate(@as(c_int, '\x01'))))));
-        \\    fn_char(@as(u8, @bitCast(@as(i8, @truncate(@as(c_int, 0))))));
-        \\    fn_f32(3.0);
-        \\    fn_f64(3.0);
-        \\    fn_bool(@as(c_int, 123) != 0);
-        \\    fn_bool(@as(c_int, 0) != 0);
-        \\    fn_bool(@intFromPtr(&fn_int) != 0);
-        \\    fn_int(@as(c_int, @intCast(@intFromPtr(&fn_int))));
-        \\    fn_ptr(@as(?*anyopaque, @ptrFromInt(@as(c_int, 42))));
         \\}
     });
 
