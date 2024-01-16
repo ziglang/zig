@@ -236,31 +236,32 @@ pub fn createEmpty(
             try self.getZigObject().?.init(self);
 
             // TODO init metadata
+            // TODO init dwarf
 
-            if (comp.config.debug_format != .strip) {
-                // Create dSYM bundle.
-                log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
+            // if (comp.config.debug_format != .strip) {
+            //     // Create dSYM bundle.
+            //     log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
 
-                const d_sym_path = try std.fmt.allocPrint(
-                    arena,
-                    "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
-                    .{emit.sub_path},
-                );
+            //     const d_sym_path = try std.fmt.allocPrint(
+            //         arena,
+            //         "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
+            //         .{emit.sub_path},
+            //     );
 
-                var d_sym_bundle = try emit.directory.handle.makeOpenPath(d_sym_path, .{});
-                defer d_sym_bundle.close();
+            //     var d_sym_bundle = try emit.directory.handle.makeOpenPath(d_sym_path, .{});
+            //     defer d_sym_bundle.close();
 
-                const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
-                    .truncate = false,
-                    .read = true,
-                });
+            //     const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
+            //         .truncate = false,
+            //         .read = true,
+            //     });
 
-                self.d_sym = .{
-                    .allocator = gpa,
-                    .dwarf = link.File.Dwarf.init(&self.base, .dwarf32),
-                    .file = d_sym_file,
-                };
-            }
+            //     self.d_sym = .{
+            //         .allocator = gpa,
+            //         .dwarf = link.File.Dwarf.init(&self.base, .dwarf32),
+            //         .file = d_sym_file,
+            //     };
+            // }
         }
     }
 
@@ -379,6 +380,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     // --verbose-link
     if (comp.verbose_link) try self.dumpArgv(comp);
 
+    if (self.getZigObject()) |zo| try zo.flushModule(self);
     if (self.base.isStaticLib()) return self.flushStaticLib(comp, module_obj_path);
     if (self.base.isObject()) return relocatable.flush(self, comp, module_obj_path);
 
@@ -1311,6 +1313,8 @@ pub fn resolveSymbols(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    // Resolve symbols in the ZigObject. For now, we assume that it's always live.
+    if (self.getZigObject()) |zo| zo.asFile().resolveSymbols(self);
     // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
     for (self.objects.items) |index| self.getFile(index).?.resolveSymbols(self);
     for (self.dylibs.items) |index| self.getFile(index).?.resolveSymbols(self);
@@ -1319,6 +1323,7 @@ pub fn resolveSymbols(self: *MachO) !void {
     self.markLive();
 
     // Reset state of all globals after marking live objects.
+    if (self.getZigObject()) |zo| zo.asFile().resetGlobals(self);
     for (self.objects.items) |index| self.getFile(index).?.resetGlobals(self);
     for (self.dylibs.items) |index| self.getFile(index).?.resetGlobals(self);
 
@@ -1332,6 +1337,7 @@ pub fn resolveSymbols(self: *MachO) !void {
     }
 
     // Re-resolve the symbols.
+    if (self.getZigObject()) |zo| zo.resolveSymbols(self);
     for (self.objects.items) |index| self.getFile(index).?.resolveSymbols(self);
     for (self.dylibs.items) |index| self.getFile(index).?.resolveSymbols(self);
 }
@@ -1351,6 +1357,7 @@ fn markLive(self: *MachO) void {
             if (file == .object) file.object.alive = true;
         }
     }
+    if (self.getZigObject()) |zo| zo.markLive(self);
     for (self.objects.items) |index| {
         const object = self.getFile(index).?.object;
         if (object.alive) object.markLive(self);
@@ -1449,12 +1456,23 @@ fn createObjcSections(self: *MachO) !void {
 }
 
 fn claimUnresolved(self: *MachO) error{OutOfMemory}!void {
-    for (self.objects.items) |index| {
-        const object = self.getFile(index).?.object;
+    const gpa = self.base.comp.gpa;
 
-        for (object.symbols.items, 0..) |sym_index, i| {
+    var objects = try std.ArrayList(File.Index).initCapacity(gpa, self.objects.items.len + 1);
+    defer objects.deinit();
+    if (self.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
+    objects.appendSliceAssumeCapacity(self.objects.items);
+
+    for (objects.items) |index| {
+        const file = self.getFile(index).?;
+
+        for (file.getSymbols(), 0..) |sym_index, i| {
             const nlist_idx = @as(Symbol.Index, @intCast(i));
-            const nlist = object.symtab.items(.nlist)[nlist_idx];
+            const nlist = switch (file) {
+                .object => |x| x.symtab.items(.nlist)[nlist_idx],
+                .zig_object => |x| x.symtab.items(.nlist)[nlist_idx],
+                else => unreachable,
+            };
             if (!nlist.ext()) continue;
             if (!nlist.undf()) continue;
 
