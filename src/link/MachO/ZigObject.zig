@@ -33,19 +33,6 @@ fn addNlist(self: *ZigObject, allocator: Allocator) !Symbol.Index {
     return index;
 }
 
-pub fn getDeclVAddr(
-    self: *ZigObject,
-    macho_file: *MachO,
-    decl_index: InternPool.DeclIndex,
-    reloc_info: link.File.RelocInfo,
-) !u64 {
-    _ = self;
-    _ = macho_file;
-    _ = decl_index;
-    _ = reloc_info;
-    @panic("TODO getDeclVAddr");
-}
-
 pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) void {
     _ = self;
     _ = macho_file;
@@ -113,6 +100,145 @@ pub fn getInputSection(self: ZigObject, atom: Atom, macho_file: *MachO) macho.se
     sect.size = atom.size;
     sect.@"align" = atom.alignment.toLog2Units();
     return sect;
+}
+
+pub fn getDeclVAddr(
+    self: *ZigObject,
+    macho_file: *MachO,
+    decl_index: InternPool.DeclIndex,
+    reloc_info: link.File.RelocInfo,
+) !u64 {
+    _ = self;
+    _ = macho_file;
+    _ = decl_index;
+    _ = reloc_info;
+    @panic("TODO getDeclVAddr");
+}
+
+pub fn getAnonDeclVAddr(
+    self: *ZigObject,
+    macho_file: *MachO,
+    decl_val: InternPool.Index,
+    reloc_info: link.File.RelocInfo,
+) !u64 {
+    _ = self;
+    _ = macho_file;
+    _ = decl_val;
+    _ = reloc_info;
+    @panic("TODO getAnonDeclVAddr");
+}
+
+pub fn lowerAnonDecl(
+    self: *ZigObject,
+    macho_file: *MachO,
+    decl_val: InternPool.Index,
+    explicit_alignment: InternPool.Alignment,
+    src_loc: Module.SrcLoc,
+) !codegen.Result {
+    _ = self;
+    _ = macho_file;
+    _ = decl_val;
+    _ = explicit_alignment;
+    _ = src_loc;
+    @panic("TODO lowerAnonDecl");
+}
+
+pub fn freeDecl(self: *ZigObject, macho_file: *MachO, decl_index: InternPool.DeclIndex) void {
+    _ = self;
+    _ = macho_file;
+    _ = decl_index;
+    @panic("TODO freeDecl");
+}
+
+pub fn updateFunc(
+    self: *ZigObject,
+    macho_file: *MachO,
+    mod: *Module,
+    func_index: InternPool.Index,
+    air: Air,
+    liveness: Liveness,
+) !void {
+    _ = self;
+    _ = macho_file;
+    _ = mod;
+    _ = func_index;
+    _ = air;
+    _ = liveness;
+    @panic("TODO updateFunc");
+}
+
+pub fn updateDecl(
+    self: *ZigObject,
+    macho_file: *MachO,
+    mod: *Module,
+    decl_index: InternPool.DeclIndex,
+) link.File.UpdateDeclError!void {
+    _ = self;
+    _ = macho_file;
+    _ = mod;
+    _ = decl_index;
+    @panic("TODO updateDecl");
+}
+
+pub fn lowerUnnamedConst(
+    self: *ZigObject,
+    macho_file: *MachO,
+    typed_value: TypedValue,
+    decl_index: InternPool.DeclIndex,
+) !u32 {
+    _ = self;
+    _ = macho_file;
+    _ = typed_value;
+    _ = decl_index;
+    @panic("TODO lowerUnnamedConst");
+}
+
+pub fn updateExports(
+    self: *ZigObject,
+    macho_file: *MachO,
+    mod: *Module,
+    exported: Module.Exported,
+    exports: []const *Module.Export,
+) link.File.UpdateExportsError!void {
+    _ = self;
+    _ = macho_file;
+    _ = mod;
+    _ = exported;
+    _ = exports;
+    @panic("TODO updateExports");
+}
+
+/// Must be called only after a successful call to `updateDecl`.
+pub fn updateDeclLineNumber(
+    self: *ZigObject,
+    mod: *Module,
+    decl_index: InternPool.DeclIndex,
+) !void {
+    _ = self;
+    _ = mod;
+    _ = decl_index;
+    @panic("TODO updateDeclLineNumber");
+}
+
+pub fn deleteDeclExport(
+    self: *ZigObject,
+    macho_file: *MachO,
+    decl_index: InternPool.DeclIndex,
+    name: InternPool.NullTerminatedString,
+) void {
+    _ = self;
+    _ = macho_file;
+    _ = decl_index;
+    _ = name;
+    @panic("TODO deleteDeclExport");
+}
+
+pub fn getGlobalSymbol(self: *ZigObject, macho_file: *MachO, name: []const u8, lib_name: ?[]const u8) !u32 {
+    _ = self;
+    _ = macho_file;
+    _ = name;
+    _ = lib_name;
+    @panic("TODO getGlobalSymbol");
 }
 
 pub fn fmtSymtab(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
