@@ -841,13 +841,16 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .@"if",
         => {
             const if_full = tree.fullIf(node).?;
-            if (if_full.error_token) |error_token| {
-                const tag = node_tags[if_full.ast.else_expr];
-                if ((tag == .@"switch" or tag == .switch_comma) and
-                    std.mem.eql(u8, tree.tokenSlice(error_token), tree.tokenSlice(error_token + 4)))
-                {
-                    return switchExprErrUnion(gz, scope, ri.br(), node, .@"if");
+            no_switch_on_err: {
+                const error_token = if_full.error_token orelse break :no_switch_on_err;
+                switch (node_tags[if_full.ast.else_expr]) {
+                    .@"switch", .switch_comma => {},
+                    else => break :no_switch_on_err,
                 }
+                const switch_operand = node_datas[if_full.ast.else_expr].lhs;
+                if (node_tags[switch_operand] != .identifier) break :no_switch_on_err;
+                if (!mem.eql(u8, tree.tokenSlice(error_token), tree.tokenSlice(main_tokens[switch_operand]))) break :no_switch_on_err;
+                return switchExprErrUnion(gz, scope, ri.br(), node, .@"if");
             }
             return ifExpr(gz, scope, ri.br(), node, if_full);
         },
@@ -1026,16 +1029,21 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         },
         .@"catch" => {
             const catch_token = main_tokens[node];
-            const payload_token: ?Ast.TokenIndex = if (token_tags[catch_token + 1] == .pipe) blk: {
-                if (token_tags.len > catch_token + 6 and
-                    token_tags[catch_token + 4] == .keyword_switch)
-                {
-                    if (std.mem.eql(u8, tree.tokenSlice(catch_token + 2), tree.tokenSlice(catch_token + 6))) {
-                        return switchExprErrUnion(gz, scope, ri.br(), node, .@"catch");
-                    }
+            const payload_token: ?Ast.TokenIndex = if (token_tags[catch_token + 1] == .pipe)
+                catch_token + 2
+            else
+                null;
+            no_switch_on_err: {
+                const capture_token = payload_token orelse break :no_switch_on_err;
+                switch (node_tags[node_datas[node].rhs]) {
+                    .@"switch", .switch_comma => {},
+                    else => break :no_switch_on_err,
                 }
-                break :blk catch_token + 2;
-            } else null;
+                const switch_operand = node_datas[node_datas[node].rhs].lhs;
+                if (node_tags[switch_operand] != .identifier) break :no_switch_on_err;
+                if (!mem.eql(u8, tree.tokenSlice(capture_token), tree.tokenSlice(main_tokens[switch_operand]))) break :no_switch_on_err;
+                return switchExprErrUnion(gz, scope, ri.br(), node, .@"catch");
+            }
             switch (ri.rl) {
                 .ref, .ref_coerced_ty => return orelseCatchExpr(
                     gz,
