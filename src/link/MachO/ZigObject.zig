@@ -295,7 +295,8 @@ pub fn updateDecl(
             return;
         },
     };
-    _ = code;
+    const sect_index = try self.getDeclOutputSection(macho_file, decl, code);
+    _ = sect_index;
     // const addr = try self.updateDeclCode(decl_index, code);
 
     // if (decl_state) |*ds| {
@@ -311,6 +312,59 @@ pub fn updateDecl(
     // // Since we updated the vaddr and the size, each corresponding export symbol also
     // // needs to be updated.
     // try self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+}
+
+fn getDeclOutputSection(
+    self: *ZigObject,
+    macho_file: *MachO,
+    decl: *const Module.Decl,
+    code: []const u8,
+) error{OutOfMemory}!u8 {
+    _ = self;
+    const mod = macho_file.base.comp.module.?;
+    const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
+    const sect_id: u8 = switch (decl.ty.zigTypeTag(mod)) {
+        .Fn => macho_file.zig_text_section_index.?,
+        else => blk: {
+            if (decl.getOwnedVariable(mod)) |variable| {
+                if (variable.is_threadlocal and any_non_single_threaded) {
+                    const is_all_zeroes = for (code) |byte| {
+                        if (byte != 0) break false;
+                    } else true;
+                    if (is_all_zeroes) break :blk macho_file.getSectionByName("__DATA", "__thread_bss") orelse try macho_file.addSection(
+                        "__DATA",
+                        "__thread_bss",
+                        .{ .flags = macho.S_THREAD_LOCAL_ZEROFILL },
+                    );
+                    break :blk macho_file.getSectionByName("__DATA", "__thread_data") orelse try macho_file.addSection(
+                        "__DATA",
+                        "__thread_data",
+                        .{ .flags = macho.S_THREAD_LOCAL_REGULAR },
+                    );
+                }
+
+                if (variable.is_const) break :blk macho_file.zig_data_const_section_index.?;
+                if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
+                    // TODO: get the optimize_mode from the Module that owns the decl instead
+                    // of using the root module here.
+                    break :blk switch (macho_file.base.comp.root_mod.optimize_mode) {
+                        .Debug, .ReleaseSafe => macho_file.zig_data_section_index.?,
+                        .ReleaseFast, .ReleaseSmall => macho_file.zig_bss_section_index.?,
+                    };
+                }
+
+                // TODO I blatantly copied the logic from the Wasm linker, but is there a less
+                // intrusive check for all zeroes than this?
+                const is_all_zeroes = for (code) |byte| {
+                    if (byte != 0) break false;
+                } else true;
+                if (is_all_zeroes) break :blk macho_file.zig_bss_section_index.?;
+                break :blk macho_file.zig_data_section_index.?;
+            }
+            break :blk macho_file.zig_data_const_section_index.?;
+        },
+    };
+    return sect_id;
 }
 
 pub fn lowerUnnamedConst(
@@ -386,7 +440,7 @@ pub fn getOrCreateMetadataForDecl(
         const sym_index = try self.addAtom(macho_file);
         const mod = macho_file.base.comp.module.?;
         const decl = mod.declPtr(decl_index);
-        const sym = macho_file.getSymbol(self.symbols.items[sym_index]);
+        const sym = macho_file.getSymbol(sym_index);
         if (decl.getOwnedVariable(mod)) |variable| {
             if (variable.is_threadlocal and any_non_single_threaded) {
                 sym.flags.tlv = true;

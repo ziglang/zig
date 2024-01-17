@@ -82,6 +82,18 @@ lazy_bind: LazyBindSection = .{},
 export_trie: ExportTrieSection = .{},
 unwind_info: UnwindInfo = .{},
 
+/// Tracked loadable segments during incremental linking.
+zig_text_seg_index: ?u8 = null,
+zig_data_const_seg_index: ?u8 = null,
+zig_data_seg_index: ?u8 = null,
+
+/// Tracked section headers with incremental updates to Zig object.
+zig_text_section_index: ?u8 = null,
+zig_data_const_section_index: ?u8 = null,
+zig_data_section_index: ?u8 = null,
+zig_bss_section_index: ?u8 = null,
+zig_got_section_index: ?u8 = null,
+
 has_tlv: bool = false,
 binds_to_weak: bool = false,
 weak_defines: bool = false,
@@ -234,8 +246,11 @@ pub fn createEmpty(
             } });
             self.zig_object = index;
             try self.getZigObject().?.init(self);
+            try self.initMetadata(.{
+                .symbol_count_hint = options.symbol_count_hint,
+                .program_code_size_hint = options.program_code_size_hint,
+            });
 
-            // TODO init metadata
             // TODO init dwarf
 
             // if (comp.config.debug_format != .strip) {
@@ -3103,6 +3118,45 @@ fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u32) u64 {
     return start;
 }
 
+const InitMetadataOptions = struct {
+    symbol_count_hint: u64,
+    program_code_size_hint: u64,
+};
+
+// TODO: move to ZigObject
+// TODO: bring back pre-alloc of segments/sections
+fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
+    _ = options;
+
+    if (!self.base.isRelocatable()) {
+        // TODO: If we are not emitting a relocatable object file, init segments.
+    }
+
+    if (self.zig_text_section_index == null) {
+        self.zig_text_section_index = try self.addSection("__TEXT", "__text", .{
+            .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+        });
+    }
+
+    if (self.zig_got_section_index == null and !self.base.isRelocatable()) {
+        self.zig_got_section_index = try self.addSection("__DATA_CONST", "__got_zig", .{});
+    }
+
+    if (self.zig_data_const_section_index == null) {
+        self.zig_data_const_section_index = try self.addSection("__DATA_CONST", "__const", .{});
+    }
+
+    if (self.zig_data_section_index == null) {
+        self.zig_data_section_index = try self.addSection("__DATA", "__data", .{});
+    }
+
+    if (self.zig_bss_section_index == null) {
+        self.zig_bss_section_index = try self.addSection("__DATA", "_bss", .{
+            .flags = macho.S_ZEROFILL,
+        });
+    }
+}
+
 pub fn getTarget(self: MachO) std.Target {
     return self.base.comp.root_mod.resolved_target.result;
 }
@@ -3146,6 +3200,29 @@ pub fn requiresCodeSig(self: MachO) bool {
 
 inline fn requiresThunks(self: MachO) bool {
     return self.getTarget().cpu.arch == .aarch64;
+}
+
+pub fn addSegment(self: *MachO, name: []const u8, opts: struct {
+    vmaddr: u64 = 0,
+    vmsize: u64 = 0,
+    fileoff: u64 = 0,
+    filesize: u64 = 0,
+    prot: macho.vm_prot_t = macho.PROT.NONE,
+}) error{OutOfMemory}!u8 {
+    const gpa = self.base.comp.gpa;
+    const index = @as(u8, @intCast(self.segments.items.len));
+    try self.segments.append(gpa, .{
+        .segname = makeStaticString(name),
+        .vmaddr = opts.vmaddr,
+        .vmsize = opts.vmsize,
+        .fileoff = opts.fileoff,
+        .filesize = opts.filesize,
+        .maxprot = opts.prot,
+        .initprot = opts.prot,
+        .nsects = 0,
+        .cmdsize = @sizeOf(macho.segment_command_64),
+    });
+    return index;
 }
 
 const AddSectionOpts = struct {
