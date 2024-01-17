@@ -7174,6 +7174,10 @@ fn accessLibPath(
         var dir = fs.cwd().openDir(lib_dir_path, .{}) catch {
             return false;
         };
+
+        var MajMin: i32 = -1;
+        var MajMax: i32 = -1;
+
         defer dir.close();
         var iter = dir.iterate();
 
@@ -7185,13 +7189,38 @@ fn accessLibPath(
             if (!std.mem.containsAtLeast(u8, file.name, 1, name) or file.kind == .directory) {
                 continue;
             }
-            const path = try std.fmt.allocPrint(test_path.allocator, "{s}" ++ sep ++ "{s}", .{
-                lib_dir_path,
-                file.name,
-            });
-            defer test_path.allocator.free(path);
 
-            try test_path.writer().print("{s}", .{path});
+            const version = file.name[name.len + 1 ..];
+            const len = std.mem.indexOf(u8, version, ".").?;
+
+            const max = std.fmt.parseInt(i32, version[0..len], 10) catch {
+                return false;
+            };
+            const min = std.fmt.parseInt(i32, version[len + 1 ..], 10) catch {
+                return false;
+            };
+
+            if (MajMax < max) {
+                MajMax = max;
+                MajMin = min;
+            } else if (MajMax == max and MajMin < min) {
+                MajMin = min;
+            }
+        }
+
+        if (MajMax != -1 and MajMin != -1) {
+            try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}.{}.{}", .{
+                lib_dir_path,
+                target.libPrefix(),
+                lib_name,
+                switch (link_mode) {
+                    .Static => target.staticLibSuffix(),
+                    .Dynamic => target.dynamicLibSuffix(),
+                },
+                MajMax,
+                MajMin,
+            });
+
             try checked_paths.writer().print("\n  {s}", .{test_path.items});
             return true;
         }
