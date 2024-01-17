@@ -149,6 +149,25 @@ pub fn getTlvPtrAddress(symbol: Symbol, macho_file: *MachO) u64 {
     return macho_file.tlv_ptr.getAddress(extra.tlv_ptr, macho_file);
 }
 
+const GetOrCreateZigGotEntryResult = struct {
+    found_existing: bool,
+    index: ZigGotSection.Index,
+};
+
+pub fn getOrCreateZigGotEntry(symbol: *Symbol, symbol_index: Index, macho_file: *MachO) !GetOrCreateZigGotEntryResult {
+    assert(!macho_file.base.isRelocatable());
+    assert(symbol.flags.needs_zig_got);
+    if (symbol.flags.has_zig_got) return .{ .found_existing = true, .index = symbol.getExtra(macho_file).?.zig_got };
+    const index = try macho_file.zig_got.addSymbol(symbol_index, macho_file);
+    return .{ .found_existing = false, .index = index };
+}
+
+pub fn zigGotAddress(symbol: Symbol, macho_file: *MachO) u64 {
+    if (!symbol.flags.has_zig_got) return 0;
+    const extras = symbol.getExtra(macho_file).?;
+    return macho_file.zig_got.entryAddress(extras.zig_got, macho_file);
+}
+
 pub fn getOutputSymtabIndex(symbol: Symbol, macho_file: *MachO) ?u32 {
     if (!symbol.flags.output_symtab) return null;
     assert(!symbol.isSymbolStab(macho_file));
@@ -170,6 +189,7 @@ pub fn getOutputSymtabIndex(symbol: Symbol, macho_file: *MachO) ?u32 {
 
 const AddExtraOpts = struct {
     got: ?u32 = null,
+    zig_got: ?u32 = null,
     stubs: ?u32 = null,
     objc_stubs: ?u32 = null,
     objc_selrefs: ?u32 = null,
@@ -374,6 +394,7 @@ pub const Visibility = enum {
 
 pub const Extra = struct {
     got: u32 = 0,
+    zig_got: u32 = 0,
     stubs: u32 = 0,
     objc_stubs: u32 = 0,
     objc_selrefs: u32 = 0,
@@ -393,3 +414,4 @@ const MachO = @import("../MachO.zig");
 const Nlist = Object.Nlist;
 const Object = @import("Object.zig");
 const Symbol = @This();
+const ZigGotSection = @import("synthetic.zig").ZigGotSection;
