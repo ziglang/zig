@@ -397,7 +397,7 @@ pub const FileInfo = extern struct {
 
     /// The attributes of a file.
     pub const Attributes = packed struct(u64) {
-        read_only: bool = true,
+        read_only: bool = false,
         hidden: bool = false,
         system: bool = false,
         reserved: bool = false,

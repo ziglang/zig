@@ -24,7 +24,7 @@ pub const Header = extern struct {
         crc.update(byte_ptr[0..16]);
         crc.update(&.{ 0, 0, 0, 0 }); // crc32 field replaced with 0
         crc.update(byte_ptr[20..self.header_size]);
-        return crc.finish() == self.crc32;
+        return crc.final() == self.crc32;
     }
 
     /// Checks if the table is at least the specified revision.

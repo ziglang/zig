@@ -784,24 +784,6 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
             std.debug.print("{s}", .{msg});
             std.posix.abort();
         },
-        .uefi => {
-            const uefi = std.os.uefi;
-
-            if (uefi.system_table.boot_services) |bs| {
-                uefi.system_table.std_err.?.setAttribute(.{ .foreground = .red }) catch {};
-                std.debug.print("{s}", .{msg});
-                uefi.system_table.std_err.?.setAttribute(.{}) catch {};
-
-                if (std.unicode.utf8ToUtf16LeWithNull(uefi.raw_pool_allocator, msg)) |data| {
-                    _ = bs.exit(uefi.handle, .aborted, data[0 .. data.len + 1]);
-                } else |_| {
-                    _ = bs.exit(uefi.handle, .aborted, null);
-                }
-            }
-
-            // Didn't have boot_services, just fallback to whatever.
-            std.posix.abort();
-        },
         .cuda, .amdhsa => std.posix.abort(),
         .plan9 => {
             var status: [std.os.plan9.ERRMAX]u8 = undefined;

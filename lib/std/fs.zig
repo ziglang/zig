@@ -258,6 +258,8 @@ pub fn cwd() Dir {
         return .{ .fd = windows.peb().ProcessParameters.CurrentDirectory.Handle };
     } else if (native_os == .wasi) {
         return .{ .fd = std.options.wasiCwd() };
+    } else if (native_os == .uefi) {
+        return defaultUefiCwd();
     } else {
         return .{ .fd = posix.AT.FDCWD };
     }
@@ -266,6 +268,20 @@ pub fn cwd() Dir {
 pub fn defaultWasiCwd() std.os.wasi.fd_t {
     // Expect the first preopen to be current working directory.
     return 3;
+}
+
+pub fn defaultUefiCwd() Dir {
+    const uefi = std.os.uefi;
+
+    if (uefi.system_table.boot_services) |boot_services| blk: {
+        const loaded_image = boot_services.openProtocol(uefi.handle, uefi.protocol.LoadedImage, uefi.handle, null, .{ .by_handle_protocol = true }) catch break :blk orelse break :blk;
+
+        const simple_file_system = boot_services.openProtocol(loaded_image.device_handle.?, uefi.protocol.SimpleFileSystem, uefi.handle, null, .{ .by_handle_protocol = true }) catch break :blk orelse break :blk;
+
+        return Dir{ .fd = .{ .file = simple_file_system.openVolume() catch break :blk } };
+    }
+
+    return Dir{ .fd = .none };
 }
 
 /// Opens a directory at the given path. The directory is a system resource that remains

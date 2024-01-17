@@ -33,7 +33,7 @@ pub const BootServices = extern struct {
     _raiseTpl: *const fn (new_tpl: TaskPriorityLevel) callconv(cc) TaskPriorityLevel,
     _restoreTpl: *const fn (old_tpl: TaskPriorityLevel) callconv(cc) void,
 
-    _allocatePages: *const fn (alloc_type: AllocateType, mem_type: bits.MemoryDescriptor.Type, pages: usize, memory: PhysicalAddress) callconv(cc) Status,
+    _allocatePages: *const fn (alloc_type: AllocateType.Enum, mem_type: bits.MemoryDescriptor.Type, pages: usize, memory: PhysicalAddress) callconv(cc) Status,
     _freePages: *const fn (memory: [*]align(4096) u8, pages: usize) callconv(cc) Status,
     _getMemoryMap: *const fn (mmap_size: *usize, mmap: ?*anyopaque, mapKey: *MemoryMap.Key, descriptor_size: *usize, descriptor_version: *u32) callconv(cc) Status,
     _allocatePool: *const fn (pool_type: bits.MemoryDescriptor.Type, size: usize, buffer: *[*]align(8) u8) callconv(cc) Status,
@@ -56,7 +56,7 @@ pub const BootServices = extern struct {
     reserved: *const anyopaque,
 
     _registerProtocolNotify: *const fn (protocol: *align(8) const Guid, event: Event, registration: *RegistrationValue) callconv(cc) Status,
-    _locateHandle: *const fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?RegistrationValue, buffer_size: *usize, buffer: [*]Handle) callconv(cc) Status,
+    _locateHandle: *const fn (search_type: LocateSearchType.Enum, protocol: ?*align(8) const Guid, search_key: ?RegistrationValue, buffer_size: *usize, buffer: [*]Handle) callconv(cc) Status,
     _locateDevicePath: *const fn (protocol: *align(8) const Guid, device_path: **const DevicePathProtocol, device: *Handle) callconv(cc) Status,
     _installConfigurationTable: *const fn (guid: *align(8) const Guid, table: ?*const anyopaque) callconv(cc) Status,
 
@@ -78,7 +78,7 @@ pub const BootServices = extern struct {
     _closeProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, agent_handle: Handle, controller_handle: ?Handle) callconv(cc) Status,
     _openProtocolInformation: *const fn (handle: Handle, protocol: *align(8) const Guid, entry_buffer: *[*]const ProtocolInformationEntry, entry_count: *usize) callconv(cc) Status,
     _protocolsPerHandle: *const fn (handle: Handle, protocol_buffer: *[*]*align(8) const Guid, protocol_buffer_count: *usize) callconv(cc) Status,
-    _locateHandleBuffer: *const fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, registration: ?RegistrationValue, num_handles: *usize, buffer: *[*]Handle) callconv(cc) Status,
+    _locateHandleBuffer: *const fn (search_type: LocateSearchType.Enum, protocol: ?*align(8) const Guid, registration: ?RegistrationValue, num_handles: *usize, buffer: *[*]Handle) callconv(cc) Status,
     _locateProtocol: *const fn (protocol: *align(8) const Guid, registration: ?RegistrationValue, interface: *?ProtocolInterface) callconv(cc) Status,
 
     // TODO: use callconv(cc) instead once that works
@@ -421,17 +421,19 @@ pub const BootServices = extern struct {
         /// The number of contiguous 4 KiB pages to allocate.
         pages: usize,
     ) ![]align(4096) u8 {
-        var buffer: [*]align(4096) u8 = switch (alloc_type) {
-            .any => @ptrFromInt(0),
-            .max_address => |addr| @ptrFromInt(addr),
-            .at_address => |addr| @ptrFromInt(addr),
+        var buffer_addr: usize = switch (alloc_type) {
+            .any => 0,
+            .max_address => |addr| addr,
+            .at_address => |addr| addr,
         };
 
         // EFI memory addresses are always 64-bit, even on 32-bit systems
-        const pointer: PhysicalAddress = @intFromPtr(&buffer);
+        const pointer: PhysicalAddress = @intFromPtr(&buffer_addr);
 
         try self._allocatePages(alloc_type, mem_type, pages, pointer).err();
-        return buffer[0 .. pages * 4096];
+        const addr: [*]align(4096) u8 = @ptrFromInt(buffer_addr);
+
+        return addr[0 .. pages * 4096];
     }
 
     /// Frees memory pages.
@@ -492,7 +494,7 @@ pub const BootServices = extern struct {
             return .{
                 .map = @ptrCast(buffer.ptr),
                 .size = buffer.len,
-                .key = 0,
+                .key = @enumFromInt(0),
                 .descriptor_size = 0,
                 .descriptor_version = 0,
             };
@@ -541,14 +543,14 @@ pub const BootServices = extern struct {
         previous_size: usize,
     ) !?usize {
         var mmap_size: usize = previous_size;
-        var mmap_key: MemoryMap.Key = 0;
+        var mmap_key: MemoryMap.Key = @enumFromInt(0);
         var descriptor_size: usize = 0;
         var descriptor_version: u32 = 0;
 
         switch (self._getMemoryMap(&mmap_size, null, &mmap_key, &descriptor_size, &descriptor_version)) {
             .buffer_too_small => return mmap_size,
             .invalid_parameter => return null,
-            else => |s| return s.err(),
+            else => |s| { try s.err(); unreachable; },
         }
     }
 
@@ -802,18 +804,18 @@ pub const BootServices = extern struct {
         self: *const BootServices,
         /// The handle for the protocol interface that is being opened.
         handle: Handle,
-        /// The GUID of the protocol to open.
-        protocol_guid: *align(8) const Guid,
+        /// The protocol to open.
+        comptime Protocol: type,
         /// The handle of the agent that is opening the protocol interface specified by `protocol`.
         agent_handle: ?Handle,
         /// The handle of the controller that requires the protocol interface.
         controller_handle: ?Handle,
         /// Attributes to open the protocol with.
         attributes: OpenProtocolAttributes,
-    ) !?ProtocolInterface {
+    ) !?*const Protocol {
         var interface: ?ProtocolInterface = undefined;
-        try self._openProtocol(handle, protocol_guid, &interface, agent_handle, controller_handle, attributes).err();
-        return interface;
+        try self._openProtocol(handle, &Protocol.guid, &interface, agent_handle, controller_handle, attributes).err();
+        return @ptrCast(@alignCast(interface));
     }
 
     /// Closes a protocol on a handle that was opened using `openProtocol()`.
@@ -920,8 +922,8 @@ pub const BootServices = extern struct {
 
         switch (search_type) {
             .all => try self._locateHandleBuffer(search_type, null, null, &num_handles, &handle_buffer).err(),
-            .by_notify => |search_key| self._locateHandleBuffer(search_type, null, search_key, &num_handles, &handle_buffer),
-            .by_protocol => |protocol_guid| self._locateHandleBuffer(search_type, protocol_guid, null, &num_handles, &handle_buffer),
+            .by_notify => |search_key| try self._locateHandleBuffer(search_type, null, search_key, &num_handles, &handle_buffer).err(),
+            .by_protocol => |protocol_guid| try self._locateHandleBuffer(search_type, protocol_guid, null, &num_handles, &handle_buffer).err(),
         }
 
         return handle_buffer[0..num_handles];
@@ -930,14 +932,14 @@ pub const BootServices = extern struct {
     /// Returns the first protocol instance that matches the given protocol.
     pub fn locateProtocol(
         self: *const BootServices,
-        /// The GUID of the protocol.
-        protocol_guid: *align(8) const Guid,
+        /// The protocol to locate.
+        comptime Protocol: type,
         /// An optional registration key returned from `registerProtocolNotify()`.
         registration: ?*const anyopaque,
-    ) !?ProtocolInterface {
+    ) !?*const Protocol {
         var interface: ?ProtocolInterface = undefined;
-        switch (self._locateProtocol(protocol_guid, registration, &interface)) {
-            .success => return interface,
+        switch (self._locateProtocol(&Protocol.guid, registration, &interface)) {
+            .success => return @ptrCast(@alignCast(interface)),
             .not_found => return null,
             else => |status| return status.err(),
         }

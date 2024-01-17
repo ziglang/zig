@@ -14,6 +14,7 @@ const pdb = std.pdb;
 const root = @import("root");
 const File = std.fs.File;
 const windows = std.os.windows;
+const uefi = std.os.uefi;
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
@@ -687,6 +688,29 @@ pub const StackIterator = struct {
             }
 
             return true;
+        } else if (native_os == .uefi) {
+            if (uefi.system_table.boot_services) |boot_services| {
+                var buffer = uefi.global_page_allocator.allocator().alloc(u8, 4096) catch return true;
+                defer uefi.global_page_allocator.allocator().free(buffer);
+
+                while (boot_services.getMemoryMapSize(buffer.len) catch return true) |new_len| {
+                    buffer = uefi.global_page_allocator.allocator().realloc(buffer, new_len) catch return true;
+                }
+
+                var map = uefi.table.BootServices.MemoryMap.initFromBuffer(buffer);
+                boot_services.getMemoryMap(&map) catch return true;
+
+                var it = map.iterator();
+                while (it.next()) |entry| {
+                    if (entry.physical_start <= address and address < entry.physical_start + entry.number_of_pages * mem.page_size) {
+                        return true;
+                    }
+                }
+
+                return false;
+            } else {
+                return true;
+            }
         } else if (@hasDecl(posix.system, "msync") and native_os != .wasi and native_os != .emscripten) {
             posix.msync(aligned_memory, posix.MSF.ASYNC) catch |err| {
                 switch (err) {
@@ -1051,6 +1075,7 @@ pub fn openSelfDebugInfo(allocator: mem.Allocator) OpenSelfDebugInfoError!DebugI
             .solaris,
             .illumos,
             .windows,
+            .uefi,
             => return try DebugInfo.init(allocator),
             else => return error.UnsupportedOperatingSystem,
         }
@@ -1758,6 +1783,8 @@ pub const DebugInfo = struct {
             return self.lookupModuleHaiku(address);
         } else if (comptime builtin.target.isWasm()) {
             return self.lookupModuleWasm(address);
+        } else if (native_os == .uefi) {
+            return self.lookupModuleUefi(address);
         } else {
             return self.lookupModuleDl(address);
         }
@@ -1774,6 +1801,8 @@ pub const DebugInfo = struct {
         } else if (native_os == .haiku) {
             return null;
         } else if (comptime builtin.target.isWasm()) {
+            return null;
+        } else if (native_os == .uefi) {
             return null;
         } else {
             return self.lookupModuleNameDl(address);
@@ -1981,6 +2010,37 @@ pub const DebugInfo = struct {
             }
         }
         return null;
+    }
+
+    fn lookupModuleUefi(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+        if (uefi.system_table.boot_services) |boot_services| {
+            const handles = try boot_services.locateHandleBuffer(.{ .by_protocol = &uefi.protocol.LoadedImage.guid });
+            defer boot_services.freePool(mem.sliceAsBytes(handles));
+
+            for (handles) |handle| {
+                const loaded_image: *const uefi.protocol.LoadedImage = try boot_services.openProtocol(handle, uefi.protocol.LoadedImage, uefi.handle, null, .{ .by_handle_protocol = true }) orelse continue;
+
+                if (address >= @intFromPtr(loaded_image.image_base) and address < @intFromPtr(loaded_image.image_base) + loaded_image.image_size) {
+                    if (self.address_map.get(@intFromPtr(loaded_image.image_base))) |obj_di| {
+                        return obj_di;
+                    }
+
+                    const obj_di = try self.allocator.create(ModuleDebugInfo);
+                    errdefer self.allocator.destroy(obj_di);
+
+                    const mapped_module = @as([*]const u8, @ptrFromInt(@intFromPtr(loaded_image.image_base)))[0..loaded_image.image_size];
+                    var coff_obj = try coff.Coff.init(mapped_module, true);
+
+                    obj_di.* = try readCoffDebugInfo(self.allocator, &coff_obj);
+                    obj_di.base_address = @intFromPtr(loaded_image.image_base);
+
+                    try self.address_map.putNoClobber(@intFromPtr(loaded_image.image_base), obj_di);
+                    return obj_di;
+                }
+            }
+        }
+
+        return error.MissingDebugInfo;
     }
 
     fn lookupModuleNameDl(self: *DebugInfo, address: usize) ?[]const u8 {
@@ -2416,10 +2476,11 @@ pub const ModuleDebugInfo = switch (native_os) {
             _ = allocator;
             _ = address;
 
-            return switch (self.debug_data) {
-                .dwarf => |*dwarf| dwarf,
-                else => null,
-            };
+            if (self.dwarf) |*dwarf| {
+                return dwarf;
+            }
+
+            return null;
         }
     },
     .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => struct {

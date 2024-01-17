@@ -109,7 +109,7 @@ pub const PoolAllocator = struct {
         len: usize,
     };
 
-    fn getHeader(ptr: [*]u8) *Header {
+    fn getHeader(ptr: [*]u8) *align(1) Header {
         return @ptrCast(ptr - @sizeOf(Header));
     }
 
@@ -167,7 +167,9 @@ pub const PoolAllocator = struct {
         ret_addr: usize,
     ) void {
         _ = .{ ctx, log2_buf_align, ret_addr };
-        uefi.system_table.boot_services.?.freePool(getHeader(buf.ptr).ptr);
+        const header = getHeader(buf.ptr);
+
+        uefi.system_table.boot_services.?.freePool(header.ptr[0..header.len]);
     }
 };
 

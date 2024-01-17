@@ -59,7 +59,7 @@ pub const System = extern struct {
     number_of_table_entries: usize,
 
     /// A pointer to the system configuration tables.
-    configuration_table: [*]table.ConfigurationTable,
+    configuration_table: [*]table.Configuration,
 
     pub const signature: u64 = 0x5453595320494249;
 };

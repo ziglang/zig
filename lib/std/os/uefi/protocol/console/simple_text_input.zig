@@ -29,7 +29,10 @@ pub const SimpleTextInput = extern struct {
         switch (self._read_key_stroke(self, &input_key)) {
             .success => return input_key,
             .not_ready => return null,
-            else => |s| return s.err(),
+            else => |s| {
+                try s.err();
+                unreachable;
+            },
         }
     }
 
