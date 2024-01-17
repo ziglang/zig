@@ -507,7 +507,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\    return p.y - p.x - p.x;
             \\}
         , &.{
-            ":4:10: error: duplicate struct field",
+            ":4:10: error: duplicate struct field name",
             ":6:10: note: duplicate name here",
             ":3:21: note: struct declared here",
         });

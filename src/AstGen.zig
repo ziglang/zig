@@ -1781,7 +1781,7 @@ fn structInitExpr(
 
                     try astgen.appendErrorTokNotes(
                         record.items[0],
-                        "duplicate struct field",
+                        "duplicate struct field name",
                         .{},
                         error_notes.items,
                     );
@@ -5102,7 +5102,7 @@ fn structDeclInner(
 
                 try astgen.appendErrorTokNotes(
                     record.items[0],
-                    "duplicate struct field",
+                    "duplicate struct field name",
                     .{},
                     error_notes.items,
                 );

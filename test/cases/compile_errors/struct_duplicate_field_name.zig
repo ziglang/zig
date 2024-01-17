@@ -11,6 +11,6 @@ export fn entry() void {
 // error
 // target=native
 //
-// :2:5: error: duplicate struct field
+// :2:5: error: duplicate struct field name
 // :3:5: note: duplicate field here
 // :1:11: note: struct declared here

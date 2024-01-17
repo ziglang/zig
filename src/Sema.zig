@@ -21704,7 +21704,7 @@ fn reifyStruct(
             }
         } else if (struct_type.addFieldName(ip, field_name)) |prev_index| {
             _ = prev_index; // TODO: better source location
-            return sema.fail(block, src, "duplicate struct field {}", .{field_name.fmt(ip)});
+            return sema.fail(block, src, "duplicate struct field name {}", .{field_name.fmt(ip)});
         }
 
         const field_ty = type_val.toType();
@@ -36707,12 +36707,10 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
 
     var field_types: std.ArrayListUnmanaged(InternPool.Index) = .{};
     var field_aligns: std.ArrayListUnmanaged(InternPool.Alignment) = .{};
-    var field_name_table: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
 
     try field_types.ensureTotalCapacityPrecise(sema.arena, fields_len);
     if (small.any_aligned_fields)
         try field_aligns.ensureTotalCapacityPrecise(sema.arena, fields_len);
-    try field_name_table.ensureTotalCapacity(sema.arena, fields_len);
 
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
