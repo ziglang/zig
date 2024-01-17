@@ -204,7 +204,7 @@ pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
                     (symbol.flags.@"export" and (symbol.flags.weak or symbol.flags.interposable)) or
                     macho_file.getTarget().cpu.arch == .aarch64) // TODO relax on arm64
                 {
-                    symbol.flags.got = true;
+                    symbol.flags.needs_got = true;
                     if (symbol.flags.weak) {
                         macho_file.binds_to_weak = true;
                     }
@@ -212,7 +212,7 @@ pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
             },
 
             .got => {
-                rel.getTargetSymbol(macho_file).flags.got = true;
+                rel.getTargetSymbol(macho_file).flags.needs_got = true;
             },
 
             .tlv,
@@ -452,7 +452,7 @@ fn resolveRelocInner(
             assert(rel.tag == .@"extern");
             assert(rel.meta.length == 2);
             assert(rel.meta.pcrel);
-            if (rel.getTargetSymbol(macho_file).flags.got) {
+            if (rel.getTargetSymbol(macho_file).flags.has_got) {
                 try writer.writeInt(i32, @intCast(G + A - P), .little);
             } else {
                 try x86_64.relaxGotLoad(code[rel_offset - 3 ..]);
