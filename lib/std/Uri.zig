@@ -318,7 +318,7 @@ pub fn format(
 ) @TypeOf(writer).Error!void {
     _ = options;
 
-    const scheme = comptime std.mem.indexOf(u8, fmt, ":") != null or fmt.len == 0;
+    const scheme = comptime std.mem.indexOf(u8, fmt, ";") != null or fmt.len == 0;
     const authentication = comptime std.mem.indexOf(u8, fmt, "@") != null or fmt.len == 0;
     const authority = comptime std.mem.indexOf(u8, fmt, "+") != null or fmt.len == 0;
     const path = comptime std.mem.indexOf(u8, fmt, "/") != null or fmt.len == 0;
