@@ -1,3 +1,121 @@
+pub const ZigGotSection = struct {
+    entries: std.ArrayListUnmanaged(Symbol.Index) = .{},
+    dirty: bool = false,
+
+    pub const Index = u32;
+
+    pub fn deinit(zig_got: *ZigGotSection, allocator: Allocator) void {
+        zig_got.entries.deinit(allocator);
+    }
+
+    fn allocateEntry(zig_got: *ZigGotSection, allocator: Allocator) !Index {
+        try zig_got.entries.ensureUnusedCapacity(allocator, 1);
+        // TODO add free list
+        const index = @as(Index, @intCast(zig_got.entries.items.len));
+        _ = zig_got.entries.addOneAssumeCapacity();
+        zig_got.dirty = true;
+        return index;
+    }
+
+    pub fn addSymbol(zig_got: *ZigGotSection, sym_index: Symbol.Index, macho_file: *MachO) !Index {
+        const comp = macho_file.base.comp;
+        const gpa = comp.gpa;
+        const index = try zig_got.allocateEntry(gpa);
+        const entry = &zig_got.entries.items[index];
+        entry.* = sym_index;
+        const symbol = macho_file.getSymbol(sym_index);
+        symbol.flags.has_zig_got = true;
+        try symbol.addExtra(.{ .zig_got = index }, macho_file);
+        return index;
+    }
+
+    pub fn entryOffset(zig_got: ZigGotSection, index: Index, macho_file: *MachO) u64 {
+        _ = zig_got;
+        const sect = macho_file.sections.items(.header)[macho_file.zig_got_section_index.?];
+        return sect.offset + @sizeOf(u64) * index;
+    }
+
+    pub fn entryAddress(zig_got: ZigGotSection, index: Index, macho_file: *MachO) u64 {
+        _ = zig_got;
+        const sect = macho_file.sections.items(.header)[macho_file.zig_got_section_index.?];
+        return sect.addr + @sizeOf(u64) * index;
+    }
+
+    pub fn size(zig_got: ZigGotSection, macho_file: *MachO) usize {
+        _ = macho_file;
+        return @sizeOf(u64) * zig_got.entries.items.len;
+    }
+
+    pub fn writeOne(zig_got: *ZigGotSection, macho_file: *MachO, index: Index) !void {
+        if (zig_got.dirty) {
+            const needed_size = zig_got.size(macho_file);
+            try macho_file.growSection(macho_file.zig_got_section_index.?, needed_size);
+            zig_got.dirty = false;
+        }
+        const off = zig_got.entryOffset(index, macho_file);
+        const entry = zig_got.entries.items[index];
+        const value = macho_file.getSymbol(entry).getAddress(.{ .stubs = false }, macho_file);
+
+        var buf: [8]u8 = undefined;
+        std.mem.writeInt(u64, &buf, value, .little);
+        try macho_file.base.file.?.pwriteAll(&buf, off);
+    }
+
+    pub fn writeAll(zig_got: ZigGotSection, macho_file: *MachO, writer: anytype) !void {
+        for (zig_got.entries.items) |entry| {
+            const symbol = macho_file.getSymbol(entry);
+            const value = symbol.address(.{ .stubs = false }, macho_file);
+            try writer.writeInt(u64, value, .little);
+        }
+    }
+
+    pub fn addDyldRelocs(zig_got: ZigGotSection, macho_file: *MachO) !void {
+        const tracy = trace(@src());
+        defer tracy.end();
+        const gpa = macho_file.base.comp.gpa;
+        const seg_id = macho_file.sections.items(.segment_id)[macho_file.zig_got_sect_index.?];
+        const seg = macho_file.segments.items[seg_id];
+
+        for (0..zig_got.symbols.items.len) |idx| {
+            const addr = zig_got.entryAddress(@intCast(idx), macho_file);
+            try macho_file.rebase.entries.append(gpa, .{
+                .offset = addr - seg.vmaddr,
+                .segment_id = seg_id,
+            });
+        }
+    }
+
+    const FormatCtx = struct {
+        zig_got: ZigGotSection,
+        macho_file: *MachO,
+    };
+
+    pub fn fmt(zig_got: ZigGotSection, macho_file: *MachO) std.fmt.Formatter(format2) {
+        return .{ .data = .{ .zig_got = zig_got, .macho_file = macho_file } };
+    }
+
+    pub fn format2(
+        ctx: FormatCtx,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = options;
+        _ = unused_fmt_string;
+        try writer.writeAll("__zig_got\n");
+        for (ctx.zig_got.entries.items, 0..) |entry, index| {
+            const symbol = ctx.macho_file.getSymbol(entry);
+            try writer.print("  {d}@0x{x} => {d}@0x{x} ({s})\n", .{
+                index,
+                ctx.zig_got.entryAddress(@intCast(index), ctx.macho_file),
+                entry,
+                symbol.getAddress(.{}, ctx.macho_file),
+                symbol.getName(ctx.macho_file),
+            });
+        }
+    }
+};
+
 pub const GotSection = struct {
     symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 

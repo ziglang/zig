@@ -7,8 +7,35 @@ symtab: std.MultiArrayList(Nlist) = .{},
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 
+/// Table of tracked LazySymbols.
+lazy_syms: LazySymbolTable = .{},
+
 /// Table of tracked Decls.
 decls: DeclTable = .{},
+
+/// Table of unnamed constants associated with a parent `Decl`.
+/// We store them here so that we can free the constants whenever the `Decl`
+/// needs updating or is freed.
+///
+/// For example,
+///
+/// ```zig
+/// const Foo = struct{
+///     a: u8,
+/// };
+///
+/// pub fn main() void {
+///     var foo = Foo{ .a = 1 };
+///     _ = foo;
+/// }
+/// ```
+///
+/// value assigned to label `foo` is an unnamed constant belonging/associated
+/// with `Decl` `main`, and lives as long as that `Decl`.
+unnamed_consts: UnnamedConstTable = .{},
+
+/// Table of tracked AnonDecls.
+anon_decls: AnonDeclTable = .{},
 
 /// A table of relocations.
 relocs: RelocationTable = .{},
@@ -33,6 +60,24 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
             entry.value_ptr.exports.deinit(allocator);
         }
         self.decls.deinit(allocator);
+    }
+
+    self.lazy_syms.deinit(allocator);
+
+    {
+        var it = self.unnamed_consts.valueIterator();
+        while (it.next()) |syms| {
+            syms.deinit(allocator);
+        }
+        self.unnamed_consts.deinit(allocator);
+    }
+
+    {
+        var it = self.anon_decls.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.exports.deinit(allocator);
+        }
+        self.anon_decls.deinit(allocator);
     }
 
     for (self.relocs.items) |*list| {
@@ -296,7 +341,7 @@ pub fn updateDecl(
         },
     };
     const sect_index = try self.getDeclOutputSection(macho_file, decl, code);
-    const is_threadlocal = switch (macho_file.sections.items(.header[sect_index].type())) {
+    const is_threadlocal = switch (macho_file.sections.items(.header)[sect_index].type()) {
         macho.S_THREAD_LOCAL_ZEROFILL, macho.S_THREAD_LOCAL_REGULAR => true,
         else => false,
     };
@@ -317,21 +362,21 @@ pub fn updateDecl(
     //     );
     // }
 
-    // // Since we updated the vaddr and the size, each corresponding export symbol also
-    // // needs to be updated.
-    // try self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    // Since we updated the vaddr and the size, each corresponding export symbol also
+    // needs to be updated.
+    try self.updateExports(macho_file, mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 fn updateDeclCode(
     self: *ZigObject,
     macho_file: *MachO,
-    decl_index: Module.Decl.Index,
+    decl_index: InternPool.DeclIndex,
     sym_index: Symbol.Index,
     sect_index: u8,
     code: []const u8,
 ) !void {
-    const gpa = self.base.comp.gpa;
-    const mod = self.base.comp.module.?;
+    const gpa = macho_file.base.comp.gpa;
+    const mod = macho_file.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
@@ -342,7 +387,6 @@ fn updateDeclCode(
     const sect = &macho_file.sections.items(.header)[sect_index];
     const sym = macho_file.getSymbol(sym_index);
     const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
-    const size = &self.symtab.items(.size)[sym.nlist_idx];
     const atom = sym.getAtom(macho_file).?;
 
     sym.out_n_sect = sect_index;
@@ -354,7 +398,7 @@ fn updateDeclCode(
     nlist.n_strx = sym.name;
     nlist.n_type = macho.N_SECT;
     nlist.n_sect = sect_index + 1;
-    size = code.len;
+    self.symtab.items(.size)[sym.nlist_idx] = code.len;
 
     const old_size = atom.size;
     const old_vaddr = atom.value;
@@ -363,14 +407,14 @@ fn updateDeclCode(
 
     if (old_size > 0) {
         const capacity = atom.capacity(macho_file);
-        const need_realloc = code.len > capacity or !required_alignment.check(sym.value);
+        const need_realloc = code.len > capacity or !required_alignment.check(sym.getAddress(.{}, macho_file));
 
         if (need_realloc) {
             try atom.grow(macho_file);
             log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl_name, old_vaddr, atom.value });
             if (old_vaddr != atom.value) {
-                sym.value = atom.value;
-                nlist.n_value = atom.value;
+                sym.value = 0;
+                nlist.n_value = 0;
 
                 if (!macho_file.base.isRelocatable()) {
                     log.debug("  (updating offset table entry)", .{});
@@ -381,17 +425,17 @@ fn updateDeclCode(
             }
         } else if (code.len < old_size) {
             atom.shrink(macho_file);
-        } else if (atom.next_index == null) {
-            const needed_size = (sym.value + code.len) - sect.addr;
+        } else if (macho_file.getAtom(atom.next_index) == null) {
+            const needed_size = (sym.getAddress(.{}, macho_file) + code.len) - sect.addr;
             sect.size = needed_size;
         }
     } else {
         try atom.allocate(macho_file);
         // TODO: freeDeclMetadata in case of error
 
-        sym.value = atom.value;
+        sym.value = 0;
         sym.flags.needs_zig_got = true;
-        nlist.n_value = atom.value;
+        nlist.n_value = 0;
 
         if (!macho_file.base.isRelocatable()) {
             const gop = try sym.getOrCreateZigGotEntry(sym_index, macho_file);
@@ -400,7 +444,7 @@ fn updateDeclCode(
     }
 
     if (!sect.isZerofill()) {
-        const file_offset = sect.offset + sym.value - sect.addr;
+        const file_offset = sect.offset + sym.getAddress(.{}, macho_file) - sect.addr;
         try macho_file.base.file.?.pwriteAll(code, file_offset);
     }
 }
@@ -478,12 +522,91 @@ pub fn updateExports(
     exported: Module.Exported,
     exports: []const *Module.Export,
 ) link.File.UpdateExportsError!void {
-    _ = self;
-    _ = macho_file;
-    _ = mod;
-    _ = exported;
-    _ = exports;
-    @panic("TODO updateExports");
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
+    const metadata = switch (exported) {
+        .decl_index => |decl_index| blk: {
+            _ = try self.getOrCreateMetadataForDecl(macho_file, decl_index);
+            break :blk self.decls.getPtr(decl_index).?;
+        },
+        .value => |value| self.anon_decls.getPtr(value) orelse blk: {
+            const first_exp = exports[0];
+            const res = try self.lowerAnonDecl(macho_file, value, .none, first_exp.getSrcLoc(mod));
+            switch (res) {
+                .ok => {},
+                .fail => |em| {
+                    // TODO maybe it's enough to return an error here and let Module.processExportsInner
+                    // handle the error?
+                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
+                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
+                    return;
+                },
+            }
+            break :blk self.anon_decls.getPtr(value).?;
+        },
+    };
+    const sym_index = metadata.symbol_index;
+    const nlist_idx = macho_file.getSymbol(sym_index).nlist_idx;
+    const nlist = self.symtab.items(.nlist)[nlist_idx];
+
+    for (exports) |exp| {
+        if (exp.opts.section.unwrap()) |section_name| {
+            if (!mod.intern_pool.stringEqlSlice(section_name, "__text")) {
+                try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
+                mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
+                    gpa,
+                    exp.getSrcLoc(mod),
+                    "Unimplemented: ExportOptions.section",
+                    .{},
+                ));
+                continue;
+            }
+        }
+        if (exp.opts.linkage == .LinkOnce) {
+            try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
+                gpa,
+                exp.getSrcLoc(mod),
+                "Unimplemented: GlobalLinkage.LinkOnce",
+                .{},
+            ));
+            continue;
+        }
+
+        const exp_name = try std.fmt.allocPrint(gpa, "_{}", .{exp.opts.name.fmt(&mod.intern_pool)});
+        defer gpa.free(exp_name);
+
+        const name_off = try macho_file.strings.insert(gpa, exp_name);
+        const global_nlist_index = if (metadata.@"export"(self, macho_file, exp_name)) |exp_index|
+            exp_index.*
+        else blk: {
+            const global_nlist_index = try self.getGlobalSymbol(macho_file, exp_name, null);
+            try metadata.exports.append(gpa, global_nlist_index);
+            break :blk global_nlist_index;
+        };
+        const global_nlist = &self.symtab.items(.nlist)[global_nlist_index];
+        global_nlist.n_strx = name_off;
+        global_nlist.n_value = nlist.n_value;
+        global_nlist.n_sect = nlist.n_sect;
+        global_nlist.n_type = macho.N_EXT | macho.N_SECT;
+        self.symtab.items(.size)[global_nlist_index] = self.symtab.items(.size)[nlist_idx];
+        self.symtab.items(.atom)[global_nlist_index] = self.symtab.items(.atom)[nlist_idx];
+
+        switch (exp.opts.linkage) {
+            .Internal => {
+                // Symbol should be hidden, or in MachO lingo, private extern.
+                global_nlist.n_type |= macho.N_PEXT;
+            },
+            .Strong => {},
+            .Weak => {
+                // Weak linkage is specified as part of n_desc field.
+                // Symbol's n_type is like for a symbol with strong linkage.
+                global_nlist.n_desc |= macho.N_WEAK_DEF;
+            },
+            else => unreachable,
+        }
+    }
 }
 
 /// Must be called only after a successful call to `updateDecl`.
@@ -612,8 +735,19 @@ const DeclMetadata = struct {
         return null;
     }
 };
-const DeclTable = std.AutoHashMapUnmanaged(InternPool.DeclIndex, DeclMetadata);
 
+const LazySymbolMetadata = struct {
+    const State = enum { unused, pending_flush, flushed };
+    text_symbol_index: Symbol.Index = undefined,
+    data_const_symbol_index: Symbol.Index = undefined,
+    text_state: State = .unused,
+    rodata_state: State = .unused,
+};
+
+const DeclTable = std.AutoHashMapUnmanaged(InternPool.DeclIndex, DeclMetadata);
+const UnnamedConstTable = std.AutoHashMapUnmanaged(InternPool.DeclIndex, std.ArrayListUnmanaged(Symbol.Index));
+const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, DeclMetadata);
+const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.OptionalDeclIndex, LazySymbolMetadata);
 const RelocationTable = std.ArrayListUnmanaged(std.ArrayListUnmanaged(Relocation));
 
 const assert = std.debug.assert;

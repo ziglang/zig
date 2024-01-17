@@ -37,6 +37,11 @@ unwind_records: Loc = .{},
 
 flags: Flags = .{},
 
+/// Points to the previous and next neighbors, based on the `text_offset`.
+/// This can be used to find, for example, the capacity of this `TextBlock`.
+prev_index: Index = 0,
+next_index: Index = 0,
+
 pub fn getName(self: Atom, macho_file: *MachO) [:0]const u8 {
     return macho_file.strings.getAssumeExists(self.name);
 }
@@ -169,6 +174,154 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
         macho_file.data_sect_index = osec;
     }
     return osec;
+}
+
+/// Returns how much room there is to grow in virtual address space.
+/// File offset relocation happens transparently, so it is not included in
+/// this calculation.
+pub fn capacity(self: Atom, macho_file: *MachO) u64 {
+    const next_value = if (macho_file.getAtom(self.next_index)) |next| next.value else std.math.maxInt(u32);
+    return next_value - self.value;
+}
+
+pub fn freeListEligible(self: Atom, macho_file: *MachO) bool {
+    // No need to keep a free list node for the last block.
+    const next = macho_file.getAtom(self.next_index) orelse return false;
+    const cap = next.value - self.value;
+    const ideal_cap = MachO.padToIdeal(self.size);
+    if (cap <= ideal_cap) return false;
+    const surplus = cap - ideal_cap;
+    return surplus >= MachO.min_text_capacity;
+}
+
+pub fn allocate(self: *Atom, macho_file: *MachO) !void {
+    const sect = &macho_file.sections.items(.header)[self.out_n_sect];
+    const free_list = &macho_file.sections.items(.free_list)[self.out_n_sect];
+    const last_atom_index = &macho_file.sections.items(.last_atom_index)[self.out_n_sect];
+    const new_atom_ideal_capacity = MachO.padToIdeal(self.size);
+
+    // We use these to indicate our intention to update metadata, placing the new atom,
+    // and possibly removing a free list node.
+    // It would be simpler to do it inside the for loop below, but that would cause a
+    // problem if an error was returned later in the function. So this action
+    // is actually carried out at the end of the function, when errors are no longer possible.
+    var atom_placement: ?Atom.Index = null;
+    var free_list_removal: ?usize = null;
+
+    // First we look for an appropriately sized free list node.
+    // The list is unordered. We'll just take the first thing that works.
+    self.value = blk: {
+        var i: usize = free_list.items.len;
+        while (i < free_list.items.len) {
+            const big_atom_index = free_list.items[i];
+            const big_atom = macho_file.getAtom(big_atom_index).?;
+            // We now have a pointer to a live atom that has too much capacity.
+            // Is it enough that we could fit this new atom?
+            const cap = big_atom.capacity(macho_file);
+            const ideal_capacity = MachO.padToIdeal(cap);
+            const ideal_capacity_end_vaddr = std.math.add(u64, big_atom.value, ideal_capacity) catch ideal_capacity;
+            const capacity_end_vaddr = big_atom.value + cap;
+            const new_start_vaddr_unaligned = capacity_end_vaddr - new_atom_ideal_capacity;
+            const new_start_vaddr = self.alignment.backward(new_start_vaddr_unaligned);
+            if (new_start_vaddr < ideal_capacity_end_vaddr) {
+                // Additional bookkeeping here to notice if this free list node
+                // should be deleted because the block that it points to has grown to take up
+                // more of the extra capacity.
+                if (!big_atom.freeListEligible(macho_file)) {
+                    _ = free_list.swapRemove(i);
+                } else {
+                    i += 1;
+                }
+                continue;
+            }
+            // At this point we know that we will place the new block here. But the
+            // remaining question is whether there is still yet enough capacity left
+            // over for there to still be a free list node.
+            const remaining_capacity = new_start_vaddr - ideal_capacity_end_vaddr;
+            const keep_free_list_node = remaining_capacity >= MachO.min_text_capacity;
+
+            // Set up the metadata to be updated, after errors are no longer possible.
+            atom_placement = big_atom_index;
+            if (!keep_free_list_node) {
+                free_list_removal = i;
+            }
+            break :blk new_start_vaddr;
+        } else if (macho_file.getAtom(last_atom_index.*)) |last| {
+            const ideal_capacity = MachO.padToIdeal(last.size);
+            const ideal_capacity_end_vaddr = last.value + ideal_capacity;
+            const new_start_vaddr = self.alignment.forward(ideal_capacity_end_vaddr);
+            // Set up the metadata to be updated, after errors are no longer possible.
+            atom_placement = last.atom_index;
+            break :blk new_start_vaddr;
+        } else {
+            break :blk sect.addr;
+        }
+    };
+
+    log.debug("allocated atom({d}) : '{s}' at 0x{x} to 0x{x}", .{
+        self.atom_index,
+        self.getName(macho_file),
+        self.value,
+        self.value + self.size,
+    });
+
+    const expand_section = if (atom_placement) |placement_index|
+        macho_file.getAtom(placement_index).?.next_index == 0
+    else
+        true;
+    if (expand_section) {
+        const needed_size = (self.value + self.size) - sect.addr;
+        try macho_file.growSection(self.out_n_sect, needed_size);
+        last_atom_index.* = self.atom_index;
+
+        // const zig_object = macho_file_file.getZigObject().?;
+        // if (zig_object.dwarf) |_| {
+        //     // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
+        //     // range of the compilation unit. When we expand the text section, this range changes,
+        //     // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
+        //     zig_object.debug_info_header_dirty = true;
+        //     // This becomes dirty for the same reason. We could potentially make this more
+        //     // fine-grained with the addition of support for more compilation units. It is planned to
+        //     // model each package as a different compilation unit.
+        //     zig_object.debug_aranges_section_dirty = true;
+        // }
+    }
+    sect.@"align" = @max(sect.@"align", self.alignment.toLog2Units());
+
+    // This function can also reallocate an atom.
+    // In this case we need to "unplug" it from its previous location before
+    // plugging it in to its new location.
+    if (macho_file.getAtom(self.prev_index)) |prev| {
+        prev.next_index = self.next_index;
+    }
+    if (macho_file.getAtom(self.next_index)) |next| {
+        next.prev_index = self.prev_index;
+    }
+
+    if (atom_placement) |big_atom_index| {
+        const big_atom = macho_file.getAtom(big_atom_index).?;
+        self.prev_index = big_atom_index;
+        self.next_index = big_atom.next_index;
+        big_atom.next_index = self.atom_index;
+    } else {
+        self.prev_index = 0;
+        self.next_index = 0;
+    }
+    if (free_list_removal) |i| {
+        _ = free_list.swapRemove(i);
+    }
+
+    self.flags.alive = true;
+}
+
+pub fn shrink(self: *Atom, macho_file: *MachO) void {
+    _ = self;
+    _ = macho_file;
+}
+
+pub fn grow(self: *Atom, macho_file: *MachO) !void {
+    if (!self.alignment.check(self.value) or self.size > self.capacity(macho_file))
+        try self.allocate(macho_file);
 }
 
 pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {

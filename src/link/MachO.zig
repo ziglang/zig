@@ -70,6 +70,7 @@ symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 indsymtab: Indsymtab = .{},
 got: GotSection = .{},
+zig_got: ZigGotSection = .{},
 stubs: StubsSection = .{},
 stubs_helper: StubsHelperSection = .{},
 objc_stubs: ObjcStubsSection = .{},
@@ -337,6 +338,7 @@ pub fn deinit(self: *MachO) void {
     self.symtab.deinit(gpa);
     self.strtab.deinit(gpa);
     self.got.deinit(gpa);
+    self.zig_got.deinit(gpa);
     self.stubs.deinit(gpa);
     self.objc_stubs.deinit(gpa);
     self.tlv_ptr.deinit(gpa);
@@ -3157,6 +3159,13 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
     }
 }
 
+pub fn growSection(self: *MachO, sect_index: u8, size: u64) !void {
+    _ = self;
+    _ = sect_index;
+    _ = size;
+    @panic("TODO growSection");
+}
+
 pub fn getTarget(self: MachO) std.Target {
     return self.base.comp.root_mod.resolved_target.result;
 }
@@ -3657,6 +3666,7 @@ fn fmtDumpState(
     try writer.print("stubs\n{}\n", .{self.stubs.fmt(self)});
     try writer.print("objc_stubs\n{}\n", .{self.objc_stubs.fmt(self)});
     try writer.print("got\n{}\n", .{self.got.fmt(self)});
+    try writer.print("zig_got\n{}\n", .{self.zig_got.fmt(self)});
     try writer.print("tlv_ptr\n{}\n", .{self.tlv_ptr.fmt(self)});
     try writer.writeByte('\n');
     try writer.print("sections\n{}\n", .{self.fmtSections()});
@@ -3759,6 +3769,8 @@ const Section = struct {
     header: macho.section_64,
     segment_id: u8,
     atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
+    free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
+    last_atom_index: Atom.Index = 0,
 };
 
 const HotUpdateState = struct {
@@ -4125,4 +4137,5 @@ const TlvPtrSection = synthetic.TlvPtrSection;
 const TypedValue = @import("../TypedValue.zig");
 const UnwindInfo = @import("MachO/UnwindInfo.zig");
 const WeakBindSection = synthetic.WeakBindSection;
+const ZigGotSection = synthetic.ZigGotSection;
 const ZigObject = @import("MachO/ZigObject.zig");
