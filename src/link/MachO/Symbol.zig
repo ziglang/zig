@@ -118,7 +118,7 @@ pub fn getAddress(symbol: Symbol, opts: struct {
 }
 
 pub fn getGotAddress(symbol: Symbol, macho_file: *MachO) u64 {
-    if (!symbol.flags.got) return 0;
+    if (!symbol.flags.has_got) return 0;
     const extra = symbol.getExtra(macho_file).?;
     return macho_file.got.getAddress(extra.got, macho_file);
 }
@@ -349,7 +349,8 @@ pub const Flags = packed struct {
     output_symtab: bool = false,
 
     /// Whether the symbol contains __got indirection.
-    got: bool = false,
+    needs_got: bool = false,
+    has_got: bool = false,
 
     /// Whether the symbols contains __stubs indirection.
     stubs: bool = false,

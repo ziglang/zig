@@ -1601,18 +1601,18 @@ fn scanRelocs(self: *MachO) !void {
 
     if (self.dyld_stub_binder_index) |index| {
         const sym = self.getSymbol(index);
-        if (sym.getFile(self) != null) sym.flags.got = true;
+        if (sym.getFile(self) != null) sym.flags.needs_got = true;
     }
 
     if (self.objc_msg_send_index) |index| {
         const sym = self.getSymbol(index);
         if (sym.getFile(self) != null)
-            sym.flags.got = true; // TODO is it always needed, or only if we are synthesising fast stubs?
+            sym.flags.needs_got = true; // TODO is it always needed, or only if we are synthesising fast stubs?
     }
 
     for (self.symbols.items, 0..) |*symbol, i| {
         const index = @as(Symbol.Index, @intCast(i));
-        if (symbol.flags.got) {
+        if (symbol.flags.needs_got) {
             log.debug("'{s}' needs GOT", .{symbol.getName(self)});
             try self.got.addSymbol(index, self);
         }

@@ -197,11 +197,88 @@ pub fn updateDecl(
     mod: *Module,
     decl_index: InternPool.DeclIndex,
 ) link.File.UpdateDeclError!void {
-    _ = self;
-    _ = macho_file;
-    _ = mod;
-    _ = decl_index;
-    @panic("TODO updateDecl");
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const decl = mod.declPtr(decl_index);
+
+    if (decl.val.getExternFunc(mod)) |_| {
+        return;
+    }
+
+    if (decl.isExtern(mod)) {
+        // Extern variable gets a __got entry only
+        const variable = decl.getOwnedVariable(mod).?;
+        const name = mod.intern_pool.stringToSlice(decl.name);
+        const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+        const index = try self.getGlobalSymbol(macho_file, name, lib_name);
+        macho_file.getSymbol(index).flags.needs_got = true;
+        return;
+    }
+
+    // const is_threadlocal = if (decl.val.getVariable(mod)) |variable|
+    //     variable.is_threadlocal and comp.config.any_non_single_threaded
+    // else
+    //     false;
+    // if (is_threadlocal) return self.updateThreadlocalVariable(mod, decl_index);
+
+    // const atom_index = try self.getOrCreateAtomForDecl(decl_index);
+    // const sym_index = self.getAtom(atom_index).getSymbolIndex().?;
+    // Atom.freeRelocations(self, atom_index);
+
+    // const comp = macho_file.base.comp;
+    // const gpa = comp.gpa;
+
+    // var code_buffer = std.ArrayList(u8).init(gpa);
+    // defer code_buffer.deinit();
+
+    // var decl_state: ?Dwarf.DeclState = if (self.d_sym) |*d_sym|
+    //     try d_sym.dwarf.initDeclState(mod, decl_index)
+    // else
+    //     null;
+    // defer if (decl_state) |*ds| ds.deinit();
+
+    // const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
+    // const res = if (decl_state) |*ds|
+    //     try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
+    //         .ty = decl.ty,
+    //         .val = decl_val,
+    //     }, &code_buffer, .{
+    //         .dwarf = ds,
+    //     }, .{
+    //         .parent_atom_index = sym_index,
+    //     })
+    // else
+    //     try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
+    //         .ty = decl.ty,
+    //         .val = decl_val,
+    //     }, &code_buffer, .none, .{
+    //         .parent_atom_index = sym_index,
+    //     });
+
+    // const code = switch (res) {
+    //     .ok => code_buffer.items,
+    //     .fail => |em| {
+    //         decl.analysis = .codegen_failure;
+    //         try mod.failed_decls.put(mod.gpa, decl_index, em);
+    //         return;
+    //     },
+    // };
+    // const addr = try self.updateDeclCode(decl_index, code);
+
+    // if (decl_state) |*ds| {
+    //     try self.d_sym.?.dwarf.commitDeclState(
+    //         mod,
+    //         decl_index,
+    //         addr,
+    //         self.getAtom(atom_index).size,
+    //         ds,
+    //     );
+    // }
+
+    // // Since we updated the vaddr and the size, each corresponding export symbol also
+    // // needs to be updated.
+    // try self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 pub fn lowerUnnamedConst(

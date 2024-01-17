@@ -13,6 +13,7 @@ pub const GotSection = struct {
         const entry = try got.symbols.addOne(gpa);
         entry.* = sym_index;
         const symbol = macho_file.getSymbol(sym_index);
+        symbol.flags.has_got = true;
         try symbol.addExtra(.{ .got = index }, macho_file);
     }
 
