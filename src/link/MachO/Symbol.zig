@@ -19,7 +19,7 @@ out_n_sect: u16 = 0,
 
 /// Index of the source nlist this symbol references.
 /// Use `getNlist` to pull the nlist from the relevant file.
-nlist_idx: u32 = 0,
+nlist_idx: Index = 0,
 
 /// Misc flags for the symbol packaged as packed struct for compression.
 flags: Flags = .{},
@@ -352,6 +352,10 @@ pub const Flags = packed struct {
     needs_got: bool = false,
     has_got: bool = false,
 
+    /// Whether the symbol contains __got_zig indirection.
+    needs_zig_got: bool = false,
+    has_zig_got: bool = false,
+
     /// Whether the symbols contains __stubs indirection.
     stubs: bool = false,
 
@@ -386,5 +390,6 @@ const std = @import("std");
 const Atom = @import("Atom.zig");
 const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
+const Nlist = Object.Nlist;
 const Object = @import("Object.zig");
 const Symbol = @This();

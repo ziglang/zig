@@ -7,6 +7,12 @@ symtab: std.MultiArrayList(Nlist) = .{},
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 
+/// Table of tracked Decls.
+decls: DeclTable = .{},
+
+/// A table of relocations.
+relocs: RelocationTable = .{},
+
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
 pub fn init(self: *ZigObject, macho_file: *MachO) !void {
@@ -20,6 +26,19 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
     self.symtab.deinit(allocator);
     self.symbols.deinit(allocator);
     self.atoms.deinit(allocator);
+
+    {
+        var it = self.decls.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.exports.deinit(allocator);
+        }
+        self.decls.deinit(allocator);
+    }
+
+    for (self.relocs.items) |*list| {
+        list.deinit(allocator);
+    }
+    self.relocs.deinit(allocator);
 }
 
 fn addNlist(self: *ZigObject, allocator: Allocator) !Symbol.Index {
@@ -31,6 +50,38 @@ fn addNlist(self: *ZigObject, allocator: Allocator) !Symbol.Index {
         .atom = 0,
     });
     return index;
+}
+
+pub fn addAtom(self: *ZigObject, macho_file: *MachO) !Symbol.Index {
+    const gpa = macho_file.base.comp.gpa;
+    const atom_index = try macho_file.addAtom();
+    const symbol_index = try macho_file.addSymbol();
+    const nlist_index = try self.addNlist(gpa);
+
+    try self.atoms.append(gpa, atom_index);
+    try self.symbols.append(gpa, symbol_index);
+
+    const atom = macho_file.getAtom(atom_index).?;
+    atom.file = self.index;
+
+    const symbol = macho_file.getSymbol(symbol_index);
+    symbol.file = self.index;
+    symbol.atom = atom_index;
+
+    self.symtab.items(.atom)[nlist_index] = atom_index;
+    symbol.nlist_idx = nlist_index;
+
+    const relocs_index = @as(u32, @intCast(self.relocs.items.len));
+    const relocs = try self.relocs.addOne(gpa);
+    relocs.* = .{};
+    atom.relocs = .{ .pos = relocs_index, .len = 0 };
+
+    return symbol_index;
+}
+
+pub fn getAtomRelocs(self: *ZigObject, atom: Atom) []const Relocation {
+    const relocs = self.relocs.items[atom.relocs.pos];
+    return relocs.items[0..atom.relocs.len];
 }
 
 pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) void {
@@ -216,54 +267,35 @@ pub fn updateDecl(
         return;
     }
 
-    // const is_threadlocal = if (decl.val.getVariable(mod)) |variable|
-    //     variable.is_threadlocal and comp.config.any_non_single_threaded
-    // else
-    //     false;
-    // if (is_threadlocal) return self.updateThreadlocalVariable(mod, decl_index);
+    const sym_index = try self.getOrCreateMetadataForDecl(macho_file, decl_index);
+    // TODO: free relocs if any
 
-    // const atom_index = try self.getOrCreateAtomForDecl(decl_index);
-    // const sym_index = self.getAtom(atom_index).getSymbolIndex().?;
-    // Atom.freeRelocations(self, atom_index);
+    const gpa = macho_file.base.comp.gpa;
+    var code_buffer = std.ArrayList(u8).init(gpa);
+    defer code_buffer.deinit();
 
-    // const comp = macho_file.base.comp;
-    // const gpa = comp.gpa;
+    var decl_state: ?Dwarf.DeclState = null; // TODO: Dwarf
+    defer if (decl_state) |*ds| ds.deinit();
 
-    // var code_buffer = std.ArrayList(u8).init(gpa);
-    // defer code_buffer.deinit();
+    const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
+    const dio: codegen.DebugInfoOutput = if (decl_state) |*ds| .{ .dwarf = ds } else .none;
+    const res =
+        try codegen.generateSymbol(&macho_file.base, decl.srcLoc(mod), .{
+        .ty = decl.ty,
+        .val = decl_val,
+    }, &code_buffer, dio, .{
+        .parent_atom_index = sym_index,
+    });
 
-    // var decl_state: ?Dwarf.DeclState = if (self.d_sym) |*d_sym|
-    //     try d_sym.dwarf.initDeclState(mod, decl_index)
-    // else
-    //     null;
-    // defer if (decl_state) |*ds| ds.deinit();
-
-    // const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
-    // const res = if (decl_state) |*ds|
-    //     try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
-    //         .ty = decl.ty,
-    //         .val = decl_val,
-    //     }, &code_buffer, .{
-    //         .dwarf = ds,
-    //     }, .{
-    //         .parent_atom_index = sym_index,
-    //     })
-    // else
-    //     try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
-    //         .ty = decl.ty,
-    //         .val = decl_val,
-    //     }, &code_buffer, .none, .{
-    //         .parent_atom_index = sym_index,
-    //     });
-
-    // const code = switch (res) {
-    //     .ok => code_buffer.items,
-    //     .fail => |em| {
-    //         decl.analysis = .codegen_failure;
-    //         try mod.failed_decls.put(mod.gpa, decl_index, em);
-    //         return;
-    //     },
-    // };
+    const code = switch (res) {
+        .ok => code_buffer.items,
+        .fail => |em| {
+            decl.analysis = .codegen_failure;
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            return;
+        },
+    };
+    _ = code;
     // const addr = try self.updateDeclCode(decl_index, code);
 
     // if (decl_state) |*ds| {
@@ -342,6 +374,32 @@ pub fn getGlobalSymbol(self: *ZigObject, macho_file: *MachO, name: []const u8, l
     @panic("TODO getGlobalSymbol");
 }
 
+pub fn getOrCreateMetadataForDecl(
+    self: *ZigObject,
+    macho_file: *MachO,
+    decl_index: InternPool.DeclIndex,
+) !Symbol.Index {
+    const gpa = macho_file.base.comp.gpa;
+    const gop = try self.decls.getOrPut(gpa, decl_index);
+    if (!gop.found_existing) {
+        const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
+        const sym_index = try self.addAtom(macho_file);
+        const mod = macho_file.base.comp.module.?;
+        const decl = mod.declPtr(decl_index);
+        const sym = macho_file.getSymbol(self.symbols.items[sym_index]);
+        if (decl.getOwnedVariable(mod)) |variable| {
+            if (variable.is_threadlocal and any_non_single_threaded) {
+                sym.flags.tlv = true;
+            }
+        }
+        if (!sym.flags.tlv) {
+            sym.flags.needs_zig_got = true;
+        }
+        gop.value_ptr.* = .{ .symbol_index = sym_index };
+    }
+    return gop.value_ptr.symbol_index;
+}
+
 pub fn asFile(self: *ZigObject) File {
     return .{ .zig_object = self };
 }
@@ -395,11 +453,23 @@ fn formatAtoms(
     }
 }
 
-const Nlist = struct {
-    nlist: macho.nlist_64,
-    size: u64,
-    atom: Atom.Index,
+const DeclMetadata = struct {
+    symbol_index: Symbol.Index,
+    /// A list of all exports aliases of this Decl.
+    exports: std.ArrayListUnmanaged(Symbol.Index) = .{},
+
+    fn @"export"(m: DeclMetadata, zig_object: *ZigObject, macho_file: *MachO, name: []const u8) ?*u32 {
+        for (m.exports.items) |*exp| {
+            const nlist = zig_object.symtab.items(.nlist)[exp.*];
+            const exp_name = macho_file.strings.getAssumeExists(nlist.n_strx);
+            if (mem.eql(u8, name, exp_name)) return exp;
+        }
+        return null;
+    }
 };
+const DeclTable = std.AutoHashMapUnmanaged(InternPool.DeclIndex, DeclMetadata);
+
+const RelocationTable = std.ArrayListUnmanaged(std.ArrayListUnmanaged(Relocation));
 
 const assert = std.debug.assert;
 const builtin = @import("builtin");
@@ -420,8 +490,10 @@ const File = @import("file.zig").File;
 const InternPool = @import("../../InternPool.zig");
 const Liveness = @import("../../Liveness.zig");
 const MachO = @import("../MachO.zig");
+const Nlist = Object.Nlist;
 const Module = @import("../../Module.zig");
 const Object = @import("Object.zig");
+const Relocation = @import("Relocation.zig");
 const Symbol = @import("Symbol.zig");
 const StringTable = @import("../StringTable.zig");
 const Type = @import("../../type.zig").Type;

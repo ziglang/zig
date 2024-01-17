@@ -608,7 +608,7 @@ fn initRelocs(self: *Object, macho_file: *MachO) !void {
     for (slice.items(.header), slice.items(.relocs), slice.items(.subsections)) |sect, relocs, subsections| {
         if (sect.isZerofill()) continue;
 
-        var next_reloc: usize = 0;
+        var next_reloc: u32 = 0;
         for (subsections.items) |subsection| {
             const atom = macho_file.getAtom(subsection.atom).?;
             if (!atom.flags.alive) continue;
@@ -1767,7 +1767,7 @@ const Subsection = struct {
     off: u64,
 };
 
-const Nlist = struct {
+pub const Nlist = struct {
     nlist: macho.nlist_64,
     size: u64,
     atom: Atom.Index,
