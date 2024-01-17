@@ -9,6 +9,7 @@ const std = @import("std");
 const Wasm = @import("../Wasm.zig");
 const Symbol = @import("Symbol.zig");
 const Alignment = types.Alignment;
+const File = @import("file.zig").File;
 
 const Allocator = std.mem.Allocator;
 const leb = std.leb;
@@ -16,12 +17,14 @@ const meta = std.meta;
 
 const log = std.log.scoped(.link);
 
+/// Index into the list of relocatable object files within the linker driver.
+index: File.Index = .null,
 /// Wasm spec version used for this `Object`
 version: u32 = 0,
 /// The file descriptor that represents the wasm object file.
 file: ?std.fs.File = null,
 /// Name (read path) of the object file.
-name: []const u8,
+path: []const u8,
 /// Parsed type section
 func_types: []const std.wasm.Type = &.{},
 /// A list of all imports for this module
@@ -64,6 +67,12 @@ relocatable_data: std.AutoHashMapUnmanaged(RelocatableData.Tag, []RelocatableDat
 /// import name, module name and export names. Each string will be deduplicated
 /// and returns an offset into the table.
 string_table: Wasm.StringTable = .{},
+/// Amount of functions in the `import` sections.
+imported_functions_count: u32 = 0,
+/// Amount of globals in the `import` section.
+imported_globals_count: u32 = 0,
+/// Amount of tables in the `import` section.
+imported_tables_count: u32 = 0,
 
 /// Represents a single item within a section (depending on its `type`)
 const RelocatableData = struct {
@@ -121,7 +130,7 @@ pub const InitError = error{NotObjectFile} || ParseError || std.fs.File.ReadErro
 pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8, maybe_max_size: ?usize) InitError!Object {
     var object: Object = .{
         .file = file,
-        .name = try gpa.dupe(u8, name),
+        .path = try gpa.dupe(u8, name),
     };
 
     var is_object_file: bool = false;
@@ -199,27 +208,15 @@ pub fn deinit(object: *Object, gpa: Allocator) void {
 
 /// Finds the import within the list of imports from a given kind and index of that kind.
 /// Asserts the import exists
-pub fn findImport(object: *const Object, import_kind: std.wasm.ExternalKind, index: u32) types.Import {
+pub fn findImport(object: *const Object, index: u32) types.Import {
+    const sym = object.symtable[index];
     var i: u32 = 0;
     return for (object.imports) |import| {
-        if (std.meta.activeTag(import.kind) == import_kind) {
+        if (std.meta.activeTag(import.kind) == sym.tag) {
             if (i == index) return import;
             i += 1;
         }
     } else unreachable; // Only existing imports are allowed to be found
-}
-
-/// Counts the entries of imported `kind` and returns the result
-pub fn importedCountByKind(object: *const Object, kind: std.wasm.ExternalKind) u32 {
-    var i: u32 = 0;
-    return for (object.imports) |imp| {
-        if (@as(std.wasm.ExternalKind, imp.kind) == kind) i += 1;
-    } else i;
-}
-
-/// From a given `RelocatableDate`, find the corresponding debug section name
-pub fn getDebugName(object: *const Object, relocatable_data: RelocatableData) []const u8 {
-    return object.string_table.get(relocatable_data.index);
 }
 
 /// Checks if the object file is an MVP version.
@@ -427,16 +424,25 @@ fn Parser(comptime ReaderType: type) type {
 
                             const kind = try readEnum(std.wasm.ExternalKind, reader);
                             const kind_value: std.wasm.Import.Kind = switch (kind) {
-                                .function => .{ .function = try readLeb(u32, reader) },
+                                .function => val: {
+                                    parser.object.imported_functions_count += 1;
+                                    break :val .{ .function = try readLeb(u32, reader) };
+                                },
                                 .memory => .{ .memory = try readLimits(reader) },
-                                .global => .{ .global = .{
-                                    .valtype = try readEnum(std.wasm.Valtype, reader),
-                                    .mutable = (try reader.readByte()) == 0x01,
-                                } },
-                                .table => .{ .table = .{
-                                    .reftype = try readEnum(std.wasm.RefType, reader),
-                                    .limits = try readLimits(reader),
-                                } },
+                                .global => val: {
+                                    parser.object.imported_globals_count += 1;
+                                    break :val .{ .global = .{
+                                        .valtype = try readEnum(std.wasm.Valtype, reader),
+                                        .mutable = (try reader.readByte()) == 0x01,
+                                    } };
+                                },
+                                .table => val: {
+                                    parser.object.imported_tables_count += 1;
+                                    break :val .{ .table = .{
+                                        .reftype = try readEnum(std.wasm.RefType, reader),
+                                        .limits = try readLimits(reader),
+                                    } };
+                                },
                             };
 
                             import.* = .{
@@ -904,7 +910,7 @@ fn assertEnd(reader: anytype) !void {
 }
 
 /// Parses an object file into atoms, for code and data sections
-pub fn parseSymbolIntoAtom(object: *Object, object_index: u16, symbol_index: u32, wasm: *Wasm) !Atom.Index {
+pub fn parseSymbolIntoAtom(object: *Object, wasm: *Wasm, symbol_index: u32) !Atom.Index {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const symbol = &object.symtable[symbol_index];
@@ -922,19 +928,16 @@ pub fn parseSymbolIntoAtom(object: *Object, object_index: u16, symbol_index: u32
         },
         else => unreachable,
     };
-    const final_index = try wasm.getMatchingSegment(object_index, symbol_index);
-    const atom_index = @as(Atom.Index, @intCast(wasm.managed_atoms.items.len));
-    const atom = try wasm.managed_atoms.addOne(gpa);
-    atom.* = Atom.empty;
+    const final_index = try wasm.getMatchingSegment(object.index, symbol_index);
+    const atom_index = try wasm.createAtom(symbol_index, object.index);
     try wasm.appendAtomAtIndex(final_index, atom_index);
 
-    atom.sym_index = symbol_index;
-    atom.file = object_index;
+    const atom = wasm.getAtomPtr(atom_index);
     atom.size = relocatable_data.size;
     atom.alignment = relocatable_data.getAlignment(object);
     atom.code = std.ArrayListUnmanaged(u8).fromOwnedSlice(relocatable_data.data[0..relocatable_data.size]);
     atom.original_offset = relocatable_data.offset;
-    try wasm.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), atom_index);
+
     const segment: *Wasm.Segment = &wasm.segments.items[final_index];
     if (relocatable_data.type == .data) { //code section and custom sections are 1-byte aligned
         segment.alignment = segment.alignment.max(atom.alignment);
@@ -952,7 +955,7 @@ pub fn parseSymbolIntoAtom(object: *Object, object_index: u16, symbol_index: u32
                 .R_WASM_TABLE_INDEX_SLEB64,
                 => {
                     try wasm.function_table.put(gpa, .{
-                        .file = object_index,
+                        .file = object.index,
                         .index = reloc.index,
                     }, 0);
                 },
@@ -963,7 +966,7 @@ pub fn parseSymbolIntoAtom(object: *Object, object_index: u16, symbol_index: u32
                     if (sym.tag != .global) {
                         try wasm.got_symbols.append(
                             gpa,
-                            .{ .file = object_index, .index = reloc.index },
+                            .{ .file = object.index, .index = reloc.index },
                         );
                     }
                 },

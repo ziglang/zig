@@ -11,6 +11,9 @@ index: File.Index,
 decls: std.AutoHashMapUnmanaged(InternPool.DeclIndex, Atom.Index) = .{},
 /// List of function type signatures for this Zig module.
 func_types: std.ArrayListUnmanaged(std.wasm.Type) = .{},
+/// List of `std.wasm.Func`. Each entry contains the function signature,
+/// rather than the actual body.
+functions: std.ArrayListUnmanaged(std.wasm.Func) = .{},
 /// Map of symbol locations, represented by its `types.Import`.
 imports: std.AutoHashMapUnmanaged(u32, types.Import) = .{},
 /// List of WebAssembly globals.
@@ -1150,6 +1153,39 @@ pub fn storeDeclType(zig_object: *ZigObject, gpa: std.mem.Allocator, decl_index:
     const index = try zig_object.putOrGetFuncType(gpa, func_type);
     try zig_object.atom_types.put(gpa, atom_index, index);
     return index;
+}
+
+/// The symbols in ZigObject are already represented by an atom as we need to store its data.
+/// So rather than creating a new Atom and returning its index, we use this oppertunity to scan
+/// its relocations and create any GOT symbols or function table indexes it may require.
+pub fn parseSymbolIntoAtom(zig_object: *ZigObject, wasm_file: *Wasm, index: u32) Atom.Index {
+    const gpa = wasm_file.base.comp.gpa;
+    const loc: Wasm.SymbolLoc = .{ .file = @intFromEnum(zig_object.index), .index = index };
+    const final_index = try wasm_file.getMatchingSegment(zig_object.index, index);
+    const atom_index = wasm_file.symbol_atom.get(loc).?;
+    try wasm_file.appendAtomAtIndex(final_index, atom_index);
+    const atom = wasm_file.getAtom(atom_index);
+    for (atom.relocs.items) |reloc| {
+        switch (reloc.relocation_type) {
+            .R_WASM_TABLE_INDEX_I32,
+            .R_WASM_TABLE_INDEX_I64,
+            .R_WASM_TABLE_INDEX_SLEB,
+            .R_WASM_TABLE_INDEX_SLEB64,
+            => {
+                try wasm_file.function_table.put(gpa, loc, 0);
+            },
+            .R_WASM_GLOBAL_INDEX_I32,
+            .R_WASM_GLOBAL_INDEX_LEB,
+            => {
+                const sym = zig_object.symbol(reloc.index);
+                if (sym.tag != .global) {
+                    try wasm_file.got_symbols.append(gpa, loc);
+                }
+            },
+            else => {},
+        }
+    }
+    return atom_index;
 }
 
 const build_options = @import("build_options");
