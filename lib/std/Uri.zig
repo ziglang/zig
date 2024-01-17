@@ -850,7 +850,7 @@ test "format" {
     };
     var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();
-    try uri.format(":/?#", .{}, buf.writer());
+    try buf.writer().print("{;/?#}", .{uri});
     try std.testing.expectEqualSlices(u8, "file:/foo/bar/baz", buf.items);
 }
 
