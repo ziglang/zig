@@ -33094,19 +33094,23 @@ fn analyzeSlice(
                     try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
                 }
 
-                if (slice_ty.isSlice(mod)) {
+                const opt_len_inst = if (array_ty.zigTypeTag(mod) == .Array)
+                    try mod.intRef(Type.usize, array_ty.arrayLenIncludingSentinel(mod))
+                else if (slice_ty.isSlice(mod)) blk: {
                     const slice_len_inst = try block.addTyOp(.slice_len, Type.usize, ptr_or_slice);
                     const actual_len = if (slice_ty.sentinel(mod) == null)
                         slice_len_inst
                     else
                         try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src, true);
-
+                    break :blk actual_len;
+                } else null;
+                if (opt_len_inst) |len_inst| {
                     const actual_end = if (slice_sentinel != null)
                         try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src, true)
                     else
                         end;
 
-                    try sema.panicIndexOutOfBounds(block, src, actual_end, actual_len, .cmp_lte);
+                    try sema.panicIndexOutOfBounds(block, src, actual_end, len_inst, .cmp_lte);
                 }
 
                 // requirement: result[new_len] == slice_sentinel
