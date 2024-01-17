@@ -55,7 +55,7 @@ pub fn getData(self: Atom, macho_file: *MachO) []const u8 {
 
 pub fn getRelocs(self: Atom, macho_file: *MachO) []const Relocation {
     return switch (self.getFile(macho_file)) {
-        .zig_object => @panic("TODO Atom.getRelocs"),
+        .zig_object => |x| x.getAtomRelocs(self),
         .object => |x| x.getAtomRelocs(self),
         else => unreachable,
     };
@@ -890,8 +890,8 @@ pub const Flags = packed struct {
 };
 
 pub const Loc = struct {
-    pos: usize = 0,
-    len: usize = 0,
+    pos: u32 = 0,
+    len: u32 = 0,
 };
 
 pub const Alignment = @import("../../InternPool.zig").Alignment;
