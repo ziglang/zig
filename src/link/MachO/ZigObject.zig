@@ -223,9 +223,33 @@ pub fn getInputSection(self: ZigObject, atom: Atom, macho_file: *MachO) macho.se
 }
 
 pub fn flushModule(self: *ZigObject, macho_file: *MachO) !void {
-    _ = self;
-    _ = macho_file;
-    @panic("TODO flushModule");
+    // Handle any lazy symbols that were emitted by incremental compilation.
+    if (self.lazy_syms.getPtr(.none)) |metadata| {
+        const zcu = macho_file.base.comp.module.?;
+
+        // Most lazy symbols can be updated on first use, but
+        // anyerror needs to wait for everything to be flushed.
+        if (metadata.text_state != .unused) self.updateLazySymbol(
+            macho_file,
+            link.File.LazySymbol.initDecl(.code, null, zcu),
+            metadata.text_symbol_index,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+        if (metadata.const_state != .unused) self.updateLazySymbol(
+            macho_file,
+            link.File.LazySymbol.initDecl(.const_data, null, zcu),
+            metadata.const_symbol_index,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+    }
+    for (self.lazy_syms.values()) |*metadata| {
+        if (metadata.text_state != .unused) metadata.text_state = .flushed;
+        if (metadata.const_state != .unused) metadata.const_state = .flushed;
+    }
 }
 
 pub fn getDeclVAddr(
