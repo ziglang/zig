@@ -542,8 +542,6 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         self.internal_object = index;
     }
 
-    state_log.debug("{}", .{self.dumpState()});
-
     try self.addUndefinedGlobals();
     try self.resolveSymbols();
     try self.resolveSyntheticSymbols();
@@ -2389,14 +2387,23 @@ fn initDyldInfoSections(self: *MachO) !void {
     if (self.la_symbol_ptr_sect_index != null) try self.la_symbol_ptr.addDyldRelocs(self);
     try self.initExportTrie();
 
+    var objects = try std.ArrayList(File.Index).initCapacity(gpa, self.objects.items.len + 1);
+    defer objects.deinit();
+    if (self.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
+    objects.appendSliceAssumeCapacity(self.objects.items);
+
     var nrebases: usize = 0;
     var nbinds: usize = 0;
     var nweak_binds: usize = 0;
-    for (self.objects.items) |index| {
-        const object = self.getFile(index).?.object;
-        nrebases += object.num_rebase_relocs;
-        nbinds += object.num_bind_relocs;
-        nweak_binds += object.num_weak_bind_relocs;
+    for (objects.items) |index| {
+        const ctx = switch (self.getFile(index).?) {
+            .zig_object => |x| x.dynamic_relocs,
+            .object => |x| x.dynamic_relocs,
+            else => unreachable,
+        };
+        nrebases += ctx.rebase_relocs;
+        nbinds += ctx.bind_relocs;
+        nweak_binds += ctx.weak_bind_relocs;
     }
     try self.rebase.entries.ensureUnusedCapacity(gpa, nrebases);
     try self.bind.entries.ensureUnusedCapacity(gpa, nbinds);
@@ -3945,6 +3952,12 @@ const Section = struct {
 
 const HotUpdateState = struct {
     mach_task: ?std.os.darwin.MachTask = null,
+};
+
+pub const DynamicRelocs = struct {
+    rebase_relocs: u32 = 0,
+    bind_relocs: u32 = 0,
+    weak_bind_relocs: u32 = 0,
 };
 
 pub const SymtabCtx = struct {

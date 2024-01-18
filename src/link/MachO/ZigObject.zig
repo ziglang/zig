@@ -41,6 +41,7 @@ anon_decls: AnonDeclTable = .{},
 /// A table of relocations.
 relocs: RelocationTable = .{},
 
+dynamic_relocs: MachO.DynamicRelocs = .{},
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
 pub fn init(self: *ZigObject, macho_file: *MachO) !void {
@@ -222,10 +223,31 @@ pub fn markLive(self: *ZigObject, macho_file: *MachO) void {
 }
 
 pub fn checkDuplicates(self: *ZigObject, dupes: anytype, macho_file: *MachO) !void {
-    _ = self;
-    _ = dupes;
-    _ = macho_file;
-    @panic("TODO checkDuplicates");
+    for (self.symbols.items, 0..) |index, nlist_idx| {
+        const sym = macho_file.getSymbol(index);
+        if (sym.visibility != .global) continue;
+        const file = sym.getFile(macho_file) orelse continue;
+        if (file.getIndex() == self.index) continue;
+
+        const nlist = self.symtab.items(.nlist)[nlist_idx];
+        if (!nlist.undf() and !nlist.tentative() and !(nlist.weakDef() or nlist.pext())) {
+            const gop = try dupes.getOrPut(index);
+            if (!gop.found_existing) {
+                gop.value_ptr.* = .{};
+            }
+            try gop.value_ptr.append(macho_file.base.comp.gpa, self.index);
+        }
+    }
+}
+
+pub fn scanRelocs(self: *ZigObject, macho_file: *MachO) !void {
+    for (self.atoms.items) |atom_index| {
+        const atom = macho_file.getAtom(atom_index) orelse continue;
+        if (!atom.flags.alive) continue;
+        const sect = atom.getInputSection(macho_file);
+        if (sect.isZerofill()) continue;
+        try atom.scanRelocs(macho_file);
+    }
 }
 
 pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) !void {
@@ -537,7 +559,8 @@ pub fn updateDecl(
         const name = mod.intern_pool.stringToSlice(decl.name);
         const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
         const index = try self.getGlobalSymbol(macho_file, name, lib_name);
-        macho_file.getSymbol(index).flags.needs_got = true;
+        const actual_index = self.symbols.items[index];
+        macho_file.getSymbol(actual_index).flags.needs_got = true;
         return;
     }
 

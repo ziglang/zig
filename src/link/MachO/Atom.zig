@@ -402,7 +402,11 @@ pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
     defer tracy.end();
     assert(self.flags.alive);
 
-    const object = self.getFile(macho_file).object;
+    const dynrel_ctx = switch (self.getFile(macho_file)) {
+        .zig_object => |x| &x.dynamic_relocs,
+        .object => |x| &x.dynamic_relocs,
+        else => unreachable,
+    };
     const relocs = self.getRelocs(macho_file);
 
     for (relocs) |rel| {
@@ -437,6 +441,10 @@ pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
                 }
             },
 
+            .zig_got_load => {
+                assert(rel.getTargetSymbol(macho_file).flags.has_zig_got);
+            },
+
             .got => {
                 rel.getTargetSymbol(macho_file).flags.needs_got = true;
             },
@@ -448,7 +456,7 @@ pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
                 const symbol = rel.getTargetSymbol(macho_file);
                 if (!symbol.flags.tlv) {
                     try macho_file.reportParseError2(
-                        object.index,
+                        self.getFile(macho_file).getIndex(),
                         "{s}: illegal thread-local variable reference to regular symbol {s}",
                         .{ self.getName(macho_file), symbol.getName(macho_file) },
                     );
@@ -470,27 +478,34 @@ pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
                             continue;
                         }
                         if (symbol.flags.import) {
-                            object.num_bind_relocs += 1;
+                            dynrel_ctx.bind_relocs += 1;
                             if (symbol.flags.weak) {
-                                object.num_weak_bind_relocs += 1;
+                                dynrel_ctx.weak_bind_relocs += 1;
                                 macho_file.binds_to_weak = true;
                             }
                             continue;
                         }
                         if (symbol.flags.@"export") {
                             if (symbol.flags.weak) {
-                                object.num_weak_bind_relocs += 1;
+                                dynrel_ctx.weak_bind_relocs += 1;
                                 macho_file.binds_to_weak = true;
                             } else if (symbol.flags.interposable) {
-                                object.num_bind_relocs += 1;
+                                dynrel_ctx.bind_relocs += 1;
                             }
                         }
                     }
-                    object.num_rebase_relocs += 1;
+                    dynrel_ctx.rebase_relocs += 1;
                 }
             },
 
-            else => {},
+            .signed,
+            .signed1,
+            .signed2,
+            .signed4,
+            .page,
+            .pageoff,
+            .subtractor,
+            => {},
         }
     }
 }

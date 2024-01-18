@@ -25,10 +25,8 @@ unwind_records: std.ArrayListUnmanaged(UnwindInfo.Record.Index) = .{},
 
 alive: bool = true,
 hidden: bool = false,
-num_rebase_relocs: u32 = 0,
-num_bind_relocs: u32 = 0,
-num_weak_bind_relocs: u32 = 0,
 
+dynamic_relocs: MachO.DynamicRelocs = .{},
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
 pub fn isObject(path: []const u8) !bool {

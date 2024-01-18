@@ -993,7 +993,7 @@ fn genDeclRef(
             else
                 null;
             const sym_index = try macho_file.getGlobalSymbol(sym_name, lib_name);
-            macho_file.getSymbol(sym_index).flags.needs_got = true;
+            macho_file.getSymbol(macho_file.getZigObject().?.symbols.items[sym_index]).flags.needs_got = true;
             return GenResult.mcv(.{ .load_symbol = sym_index });
         }
         const sym_index = try macho_file.getZigObject().?.getOrCreateMetadataForDecl(macho_file, decl_index);
