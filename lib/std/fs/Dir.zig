@@ -896,6 +896,7 @@ pub fn openFileW(self: Dir, sub_path_w: []const u16, flags: File.OpenFlags) File
                 (if (flags.isWrite()) @as(u32, w.GENERIC_WRITE) else 0),
             .creation = w.FILE_OPEN,
             .io_mode = flags.intended_io_mode,
+            .follow_symlinks = flags.follow_symlinks,
         }),
         .capable_io_mode = std.io.default_mode,
         .intended_io_mode = flags.intended_io_mode,
@@ -1130,7 +1131,7 @@ pub fn makePath(self: Dir, sub_path: []const u8) !void {
                 // could cause an infinite loop
                 check_dir: {
                     // workaround for windows, see https://github.com/ziglang/zig/issues/16738
-                    const fstat = self.statFile(component.path) catch |stat_err| switch (stat_err) {
+                    const fstat = self.statFile(component.path, .{}) catch |stat_err| switch (stat_err) {
                         error.IsDir => break :check_dir,
                         else => |e| return e,
                     };
@@ -2466,25 +2467,29 @@ pub fn stat(self: Dir) StatError!Stat {
 
 pub const StatFileError = File.OpenError || File.StatError || posix.FStatAtError;
 
+pub const StatOptions = struct {
+    follow_symlinks: bool = true,
+};
+
 /// Returns metadata for a file inside the directory.
 ///
 /// On Windows, this requires three syscalls. On other operating systems, it
 /// only takes one.
 ///
-/// Symlinks are followed.
+/// Symlinks are followed by default.
 ///
 /// `sub_path` may be absolute, in which case `self` is ignored.
-pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
+pub fn statFile(self: Dir, sub_path: []const u8, options: StatOptions) StatFileError!Stat {
     if (builtin.os.tag == .windows) {
-        var file = try self.openFile(sub_path, .{});
+        var file = try self.openFile(sub_path, .{ .follow_symlinks = options.follow_symlinks });
         defer file.close();
         return file.stat();
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        const st = try posix.fstatatWasi(self.fd, sub_path, posix.wasi.LOOKUP_SYMLINK_FOLLOW);
+        const st = try posix.fstatatWasi(self.fd, sub_path, if (options.follow_symlinks) posix.wasi.LOOKUP_SYMLINK_FOLLOW else 0);
         return Stat.fromSystem(st);
     }
-    const st = try posix.fstatat(self.fd, sub_path, 0);
+    const st = try posix.fstatat(self.fd, sub_path, if (options.follow_symlinks) 0 else posix.AT.SYMLINK_NOFOLLOW);
     return Stat.fromSystem(st);
 }
 

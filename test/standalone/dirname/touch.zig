@@ -37,7 +37,7 @@ fn run(allocator: std.mem.Allocator) !void {
     var dir = try std.fs.openDirAbsolute(dir_path, .{});
     defer dir.close();
 
-    _ = dir.statFile(basename) catch {
+    _ = dir.statFile(basename, {}) catch {
         var file = try dir.createFile(basename, .{});
         file.close();
     };

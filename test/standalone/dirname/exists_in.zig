@@ -42,5 +42,5 @@ fn run(allocator: std.mem.Allocator) !void {
     var dir = try std.fs.openDirAbsolute(dir_path, .{});
     defer dir.close();
 
-    _ = try dir.statFile(relpath);
+    _ = try dir.statFile(relpath, .{});
 }

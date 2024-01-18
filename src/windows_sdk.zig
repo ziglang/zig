@@ -941,7 +941,7 @@ const MsvcLibDir = struct {
         var dir = std.fs.openDirAbsolute(lib_dir_path, .{}) catch return false;
         defer dir.close();
 
-        const stat = dir.statFile("vcruntime.lib") catch return false;
+        const stat = dir.statFile("vcruntime.lib", .{}) catch return false;
         if (stat.kind != .file)
             return false;
 

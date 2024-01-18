@@ -651,11 +651,11 @@ test "Dir.statFile" {
         fn impl(ctx: *TestContext) !void {
             const test_file_name = try ctx.transformPath("test_file");
 
-            try testing.expectError(error.FileNotFound, ctx.dir.statFile(test_file_name));
+            try testing.expectError(error.FileNotFound, ctx.dir.statFile(test_file_name, .{}));
 
             try ctx.dir.writeFile(test_file_name, "");
 
-            const stat = try ctx.dir.statFile(test_file_name);
+            const stat = try ctx.dir.statFile(test_file_name, .{});
             try testing.expectEqual(File.Kind.file, stat.kind);
         }
     }.impl);
@@ -669,7 +669,7 @@ test "statFile on dangling symlink" {
 
             try setupSymlink(ctx.dir, symlink_target, symlink_name, .{});
 
-            try std.testing.expectError(error.FileNotFound, ctx.dir.statFile(symlink_name));
+            try std.testing.expectError(error.FileNotFound, ctx.dir.statFile(symlink_name, .{}));
         }
     }.impl);
 }
