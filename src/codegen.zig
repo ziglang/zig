@@ -1045,7 +1045,12 @@ fn genUnnamedConst(
             const local = elf_file.symbol(local_sym_index);
             return GenResult.mcv(.{ .load_symbol = local.esym_index });
         },
-        .macho, .coff => {
+        .macho => {
+            const macho_file = lf.cast(link.File.MachO).?;
+            const local = macho_file.getSymbol(local_sym_index);
+            return GenResult.mcv(.{ .load_symbol = local.nlist_idx });
+        },
+        .coff => {
             return GenResult.mcv(.{ .load_direct = local_sym_index });
         },
         .plan9 => {
