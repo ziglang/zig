@@ -383,6 +383,15 @@ pub fn free(self: *Atom, macho_file: *MachO) void {
     self.* = .{};
 }
 
+pub fn addReloc(self: *Atom, macho_file: *MachO, reloc: Relocation) !void {
+    const gpa = macho_file.base.comp.gpa;
+    const file = self.getFile(macho_file);
+    assert(file == .zig_object);
+    const rels = &file.zig_object.relocs.items[self.relocs.pos];
+    try rels.append(gpa, reloc);
+    self.relocs.len += 1;
+}
+
 pub fn freeRelocs(self: *Atom, macho_file: *MachO) void {
     self.getFile(macho_file).zig_object.freeAtomRelocs(self.*);
     self.relocs.len = 0;
