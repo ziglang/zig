@@ -3779,6 +3779,13 @@ fn fmtDumpState(
 ) !void {
     _ = options;
     _ = unused_fmt_string;
+    if (self.getZigObject()) |zo| {
+        try writer.print("zig_object({d}) : {s}\n", .{ zo.index, zo.path });
+        try writer.print("{}{}\n", .{
+            zo.fmtAtoms(self),
+            zo.fmtSymtab(self),
+        });
+    }
     for (self.objects.items) |index| {
         const object = self.getFile(index).?.object;
         try writer.print("object({d}) : {} : has_debug({})", .{

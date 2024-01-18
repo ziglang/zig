@@ -110,6 +110,7 @@ pub fn addAtom(self: *ZigObject, macho_file: *MachO) !Symbol.Index {
 
     const atom = macho_file.getAtom(atom_index).?;
     atom.file = self.index;
+    atom.atom_index = atom_index;
 
     const symbol = macho_file.getSymbol(symbol_index);
     symbol.file = self.index;
