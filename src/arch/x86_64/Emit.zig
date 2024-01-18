@@ -156,9 +156,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .Lib => emit.lower.link_mode == .Static,
                     };
                     const atom = macho_file.getSymbol(data.atom_index).getAtom(macho_file).?;
-                    const sym = macho_file.getSymbol(data.sym_index);
+                    const sym_index = macho_file.getZigObject().?.symbols.items[data.sym_index];
+                    const sym = macho_file.getSymbol(sym_index);
                     if (sym.flags.needs_zig_got and !is_obj_or_static_lib) {
-                        _ = try sym.getOrCreateZigGotEntry(data.sym_index, macho_file);
+                        _ = try sym.getOrCreateZigGotEntry(sym_index, macho_file);
                     }
                     const @"type": link.File.MachO.Relocation.Type = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
                         .zig_got_load
