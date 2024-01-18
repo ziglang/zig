@@ -13507,24 +13507,27 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
         },
         .lea_symbol => |sym_index| {
             const atom_index = try self.owner.getSymbolIndex(self);
-            if (self.bin_file.cast(link.File.Elf)) |_| {
-                try self.asmRegisterMemory(
-                    .{ ._, .lea },
-                    dst_reg.to64(),
-                    .{
-                        .base = .{ .reloc = .{
-                            .atom_index = atom_index,
-                            .sym_index = sym_index.sym,
-                        } },
-                        .mod = .{ .rm = .{
-                            .size = .qword,
-                            .disp = sym_index.off,
-                        } },
-                    },
-                );
-            } else return self.fail("TODO emit symbol sequence on {s}", .{
-                @tagName(self.bin_file.tag),
-            });
+            switch (self.bin_file.tag) {
+                .elf, .macho => {
+                    try self.asmRegisterMemory(
+                        .{ ._, .lea },
+                        dst_reg.to64(),
+                        .{
+                            .base = .{ .reloc = .{
+                                .atom_index = atom_index,
+                                .sym_index = sym_index.sym,
+                            } },
+                            .mod = .{ .rm = .{
+                                .size = .qword,
+                                .disp = sym_index.off,
+                            } },
+                        },
+                    );
+                },
+                else => return self.fail("TODO emit symbol sequence on {s}", .{
+                    @tagName(self.bin_file.tag),
+                }),
+            }
         },
         .lea_direct, .lea_got => |sym_index| {
             const atom_index = try self.owner.getSymbolIndex(self);
@@ -16066,7 +16069,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
                     );
                     break :init .{ .load_frame = .{ .index = frame_index } };
                 } else if (self.bin_file.cast(link.File.MachO)) |_| {
-                    return self.fail("TODO implement lowering TLV variable to stack", .{});
+                    return self.fail("TODO implement saving TLV variable to stack", .{});
                 } else break :init const_mcv,
                 else => break :init const_mcv,
             }
