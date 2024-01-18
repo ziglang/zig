@@ -564,7 +564,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         },
     };
 
-    self.markImportsAndExports();
+    try self.markImportsAndExports();
     self.deadStripDylibs();
 
     for (self.dylibs.items, 1..) |index, ord| {
@@ -1533,6 +1533,10 @@ fn checkDuplicates(self: *MachO) !void {
         dupes.deinit();
     }
 
+    if (self.getZigObject()) |zo| {
+        try zo.checkDuplicates(&dupes, self);
+    }
+
     for (self.objects.items) |index| {
         try self.getFile(index).?.object.checkDuplicates(&dupes, self);
     }
@@ -1540,8 +1544,14 @@ fn checkDuplicates(self: *MachO) !void {
     try self.reportDuplicates(dupes);
 }
 
-fn markImportsAndExports(self: *MachO) void {
-    for (self.objects.items) |index| {
+fn markImportsAndExports(self: *MachO) error{OutOfMemory}!void {
+    const gpa = self.base.comp.gpa;
+    var objects = try std.ArrayList(File.Index).initCapacity(gpa, self.objects.items.len + 1);
+    defer objects.deinit();
+    if (self.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
+    objects.appendSliceAssumeCapacity(self.objects.items);
+
+    for (objects.items) |index| {
         for (self.getFile(index).?.getSymbols()) |sym_index| {
             const sym = self.getSymbol(sym_index);
             const file = sym.getFile(self) orelse continue;

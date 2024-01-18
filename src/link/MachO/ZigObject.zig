@@ -137,9 +137,60 @@ pub fn freeAtomRelocs(self: *ZigObject, atom: Atom) void {
 }
 
 pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) void {
-    _ = self;
-    _ = macho_file;
-    @panic("TODO resolveSymbols");
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    for (self.symbols.items, 0..) |index, i| {
+        const nlist_idx = @as(Symbol.Index, @intCast(i));
+        const nlist = self.symtab.items(.nlist)[nlist_idx];
+        const atom_index = self.symtab.items(.atom)[nlist_idx];
+
+        if (!nlist.ext()) continue;
+        if (nlist.undf() and !nlist.tentative()) continue;
+        if (nlist.sect()) {
+            const atom = macho_file.getAtom(atom_index).?;
+            if (!atom.flags.alive) continue;
+        }
+
+        const symbol = macho_file.getSymbol(index);
+        if (self.asFile().getSymbolRank(.{
+            .archive = false,
+            .weak = nlist.weakDef(),
+            .tentative = nlist.tentative(),
+        }) < symbol.getSymbolRank(macho_file)) {
+            const value = if (nlist.sect()) blk: {
+                const atom = macho_file.getAtom(atom_index).?;
+                break :blk nlist.n_value - atom.getInputAddress(macho_file);
+            } else nlist.n_value;
+            symbol.value = value;
+            symbol.atom = atom_index;
+            symbol.nlist_idx = nlist_idx;
+            symbol.file = self.index;
+            symbol.flags.weak = nlist.weakDef();
+            symbol.flags.abs = nlist.abs();
+            symbol.flags.tentative = nlist.tentative();
+            symbol.flags.weak_ref = false;
+            symbol.flags.dyn_ref = nlist.n_desc & macho.REFERENCED_DYNAMICALLY != 0;
+            symbol.flags.no_dead_strip = symbol.flags.no_dead_strip or nlist.noDeadStrip();
+            // TODO: symbol.flags.interposable = macho_file.base.isDynLib() and macho_file.options.namespace == .flat and !nlist.pext();
+            symbol.flags.interposable = false;
+
+            if (nlist.sect() and
+                macho_file.sections.items(.header)[nlist.n_sect - 1].type() == macho.S_THREAD_LOCAL_VARIABLES)
+            {
+                symbol.flags.tlv = true;
+            }
+        }
+
+        // Regardless of who the winner is, we still merge symbol visibility here.
+        if (nlist.pext() or (nlist.weakDef() and nlist.weakRef())) {
+            if (symbol.visibility != .global) {
+                symbol.visibility = .hidden;
+            }
+        } else {
+            symbol.visibility = .global;
+        }
+    }
 }
 
 pub fn resetGlobals(self: *ZigObject, macho_file: *MachO) void {
@@ -168,6 +219,13 @@ pub fn markLive(self: *ZigObject, macho_file: *MachO) void {
             file.object.markLive(macho_file);
         }
     }
+}
+
+pub fn checkDuplicates(self: *ZigObject, dupes: anytype, macho_file: *MachO) !void {
+    _ = self;
+    _ = dupes;
+    _ = macho_file;
+    @panic("TODO checkDuplicates");
 }
 
 pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) !void {
