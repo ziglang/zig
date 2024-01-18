@@ -85,15 +85,17 @@ unwind_info: UnwindInfo = .{},
 
 /// Tracked loadable segments during incremental linking.
 zig_text_seg_index: ?u8 = null,
-zig_data_const_seg_index: ?u8 = null,
+zig_got_seg_index: ?u8 = null,
+zig_const_seg_index: ?u8 = null,
 zig_data_seg_index: ?u8 = null,
+zig_bss_seg_index: ?u8 = null,
 
 /// Tracked section headers with incremental updates to Zig object.
 zig_text_section_index: ?u8 = null,
-zig_data_const_section_index: ?u8 = null,
+zig_got_section_index: ?u8 = null,
+zig_const_section_index: ?u8 = null,
 zig_data_section_index: ?u8 = null,
 zig_bss_section_index: ?u8 = null,
-zig_got_section_index: ?u8 = null,
 
 has_tlv: bool = false,
 binds_to_weak: bool = false,
@@ -251,6 +253,8 @@ pub fn createEmpty(
                 .symbol_count_hint = options.symbol_count_hint,
                 .program_code_size_hint = options.program_code_size_hint,
             });
+
+            std.debug.print("{}", .{self.dumpState()});
 
             // TODO init dwarf
 
@@ -3082,18 +3086,27 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 }
 
 fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
-    // TODO: header and load commands have to be part of the __TEXT segment
-    const header_size = self.segments.items[self.header_segment_cmd_index.?].filesize;
+    // Conservatively commit one page size as reserved space for the headers as we
+    // expect it to grow and everything else be moved in flush anyhow.
+    const header_size = self.getPageSize();
     if (start < header_size)
         return header_size;
 
     const end = start + padToIdeal(size);
 
     for (self.sections.items(.header)) |header| {
-        const tight_size = header.size;
-        const increased_size = padToIdeal(tight_size);
+        if (header.isZerofill()) continue;
+        const increased_size = padToIdeal(header.size);
         const test_end = header.offset + increased_size;
         if (end > header.offset and start < test_end) {
+            return test_end;
+        }
+    }
+
+    for (self.segments.items) |seg| {
+        const increased_size = padToIdeal(seg.filesize);
+        const test_end = seg.fileoff +| increased_size;
+        if (end > seg.fileoff and start < test_end) {
             return test_end;
         }
     }
@@ -3102,12 +3115,15 @@ fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
 }
 
 fn allocatedSize(self: *MachO, start: u64) u64 {
-    if (start == 0)
-        return 0;
+    if (start == 0) return 0;
     var min_pos: u64 = std.math.maxInt(u64);
     for (self.sections.items(.header)) |header| {
         if (header.offset <= start) continue;
         if (header.offset < min_pos) min_pos = header.offset;
+    }
+    for (self.segments.items) |seg| {
+        if (seg.fileoff <= start) continue;
+        if (seg.fileoff < min_pos) min_pos = seg.fileoff;
     }
     return min_pos - start;
 }
@@ -3126,36 +3142,113 @@ const InitMetadataOptions = struct {
 };
 
 // TODO: move to ZigObject
-// TODO: bring back pre-alloc of segments/sections
 fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
-    _ = options;
-
     if (!self.base.isRelocatable()) {
-        // TODO: If we are not emitting a relocatable object file, init segments.
+        const base_vmaddr = blk: {
+            const pagezero_size = self.pagezero_size orelse default_pagezero_size;
+            break :blk mem.alignBackward(u64, pagezero_size, self.getPageSize());
+        };
+
+        {
+            const filesize = options.program_code_size_hint;
+            const off = self.findFreeSpace(filesize, self.getPageSize());
+            self.zig_text_seg_index = try self.addSegment("__TEXT_ZIG", .{
+                .fileoff = off,
+                .filesize = filesize,
+                .vmaddr = base_vmaddr + 0x8000000,
+                .vmsize = filesize,
+                .prot = macho.PROT.READ | macho.PROT.EXEC,
+            });
+        }
+
+        {
+            const filesize = options.symbol_count_hint * @sizeOf(u64);
+            const off = self.findFreeSpace(filesize, self.getPageSize());
+            self.zig_got_seg_index = try self.addSegment("__GOT_ZIG", .{
+                .fileoff = off,
+                .filesize = filesize,
+                .vmaddr = base_vmaddr + 0x4000000,
+                .vmsize = filesize,
+                .prot = macho.PROT.READ | macho.PROT.WRITE,
+            });
+        }
+
+        {
+            const filesize: u64 = 1024;
+            const off = self.findFreeSpace(filesize, self.getPageSize());
+            self.zig_const_seg_index = try self.addSegment("__CONST_ZIG", .{
+                .fileoff = off,
+                .filesize = filesize,
+                .vmaddr = base_vmaddr + 0xc000000,
+                .vmsize = filesize,
+                .prot = macho.PROT.READ | macho.PROT.WRITE,
+            });
+        }
+
+        {
+            const filesize: u64 = 1024;
+            const off = self.findFreeSpace(filesize, self.getPageSize());
+            self.zig_data_seg_index = try self.addSegment("__DATA_ZIG", .{
+                .fileoff = off,
+                .filesize = filesize,
+                .vmaddr = base_vmaddr + 0x10000000,
+                .vmsize = filesize,
+                .prot = macho.PROT.READ | macho.PROT.WRITE,
+            });
+        }
+
+        {
+            const memsize: u64 = 1024;
+            self.zig_bss_seg_index = try self.addSegment("__BSS_ZIG", .{
+                .vmaddr = base_vmaddr + 0x14000000,
+                .vmsize = memsize,
+                .prot = macho.PROT.READ | macho.PROT.WRITE,
+            });
+        }
+    } else {
+        @panic("TODO initMetadata when relocatable");
     }
 
+    const appendSect = struct {
+        fn appendSect(macho_file: *MachO, sect_id: u8, seg_id: u8) void {
+            const sect = &macho_file.sections.items(.header)[sect_id];
+            const seg = &macho_file.segments.items[seg_id];
+            seg.cmdsize += @sizeOf(macho.section_64);
+            seg.nsects += 1;
+            sect.addr = seg.vmaddr;
+            sect.offset = @intCast(seg.fileoff);
+            sect.size = seg.vmsize;
+            macho_file.sections.items(.segment_id)[sect_id] = seg_id;
+        }
+    }.appendSect;
+
     if (self.zig_text_section_index == null) {
-        self.zig_text_section_index = try self.addSection("__TEXT", "__text", .{
+        self.zig_text_section_index = try self.addSection("__TEXT_ZIG", "__text_zig", .{
             .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         });
+        appendSect(self, self.zig_text_section_index.?, self.zig_text_seg_index.?);
     }
 
     if (self.zig_got_section_index == null and !self.base.isRelocatable()) {
-        self.zig_got_section_index = try self.addSection("__DATA_CONST", "__got_zig", .{});
+        self.zig_got_section_index = try self.addSection("__GOT_ZIG", "__got_zig", .{});
+        appendSect(self, self.zig_got_section_index.?, self.zig_got_seg_index.?);
     }
 
-    if (self.zig_data_const_section_index == null) {
-        self.zig_data_const_section_index = try self.addSection("__DATA_CONST", "__const", .{});
+    if (self.zig_const_section_index == null) {
+        self.zig_const_section_index = try self.addSection("__CONST_ZIG", "__const_zig", .{});
+        appendSect(self, self.zig_const_section_index.?, self.zig_const_seg_index.?);
     }
 
     if (self.zig_data_section_index == null) {
-        self.zig_data_section_index = try self.addSection("__DATA", "__data", .{});
+        self.zig_data_section_index = try self.addSection("__DATA_ZIG", "__data_zig", .{});
+        appendSect(self, self.zig_data_section_index.?, self.zig_data_seg_index.?);
     }
 
     if (self.zig_bss_section_index == null) {
-        self.zig_bss_section_index = try self.addSection("__DATA", "_bss", .{
+        self.zig_bss_section_index = try self.addSection("__BSS_ZIG", "__bss_zig", .{
             .flags = macho.S_ZEROFILL,
         });
+        appendSect(self, self.zig_bss_section_index.?, self.zig_bss_seg_index.?);
     }
 }
 
