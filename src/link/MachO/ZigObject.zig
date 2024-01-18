@@ -6,6 +6,7 @@ symtab: std.MultiArrayList(Nlist) = .{},
 
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
+globals_lookup: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .{},
 
 /// Table of tracked LazySymbols.
 lazy_syms: LazySymbolTable = .{},
@@ -53,6 +54,7 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
     self.symtab.deinit(allocator);
     self.symbols.deinit(allocator);
     self.atoms.deinit(allocator);
+    self.globals_lookup.deinit(allocator);
 
     {
         var it = self.decls.iterator();
@@ -918,20 +920,44 @@ pub fn deleteDeclExport(
     macho_file: *MachO,
     decl_index: InternPool.DeclIndex,
     name: InternPool.NullTerminatedString,
-) void {
-    _ = self;
-    _ = macho_file;
-    _ = decl_index;
-    _ = name;
-    @panic("TODO deleteDeclExport");
+) Allocator.Error!void {
+    const metadata = self.decls.getPtr(decl_index) orelse return;
+
+    const gpa = macho_file.base.comp.gpa;
+    const mod = macho_file.base.comp.module.?;
+    const exp_name = try std.fmt.allocPrint(gpa, "_{s}", .{mod.intern_pool.stringToSlice(name)});
+    defer gpa.free(exp_name);
+    const nlist_index = metadata.@"export"(self, macho_file, exp_name) orelse return;
+
+    log.debug("deleting export '{s}'", .{exp_name});
+
+    const nlist = &self.symtab.items(.nlist)[nlist_index.*];
+    self.symtab.items(.size)[nlist_index.*] = 0;
+    _ = self.globals_lookup.remove(nlist.n_strx);
+    const sym_index = macho_file.globals.get(nlist.n_strx).?;
+    const sym = macho_file.getSymbol(sym_index);
+    if (sym.file == self.index) {
+        _ = macho_file.globals.swapRemove(nlist.n_strx);
+        sym.* = .{};
+    }
+    nlist.* = MachO.null_sym;
 }
 
 pub fn getGlobalSymbol(self: *ZigObject, macho_file: *MachO, name: []const u8, lib_name: ?[]const u8) !u32 {
-    _ = self;
-    _ = macho_file;
-    _ = name;
     _ = lib_name;
-    @panic("TODO getGlobalSymbol");
+    const gpa = macho_file.base.comp.gpa;
+    const off = try macho_file.strings.insert(gpa, name);
+    const lookup_gop = try self.globals_lookup.getOrPut(gpa, off);
+    if (!lookup_gop.found_existing) {
+        const nlist_index = try self.addNlist(gpa);
+        const nlist = &self.symtab.items(.nlist)[nlist_index];
+        nlist.n_strx = off;
+        nlist.n_type = macho.N_EXT;
+        lookup_gop.value_ptr.* = nlist_index;
+        const gop = try macho_file.getOrCreateGlobal(off);
+        try self.symbols.append(gpa, gop.index);
+    }
+    return lookup_gop.value_ptr.*;
 }
 
 pub fn getOrCreateMetadataForDecl(
