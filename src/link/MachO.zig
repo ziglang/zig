@@ -3130,6 +3130,16 @@ fn allocatedSize(self: *MachO, start: u64) u64 {
     return min_pos - start;
 }
 
+fn allocatedVirtualSize(self: *MachO, start: u64) u64 {
+    if (start == 0) return 0;
+    var min_pos: u64 = std.math.maxInt(u64);
+    for (self.segments.items) |seg| {
+        if (seg.vmaddr <= start) continue;
+        if (seg.vmaddr < min_pos) min_pos = seg.vmaddr;
+    }
+    return min_pos - start;
+}
+
 fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u32) u64 {
     var start: u64 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
@@ -3261,10 +3271,50 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
     }
 }
 
-pub fn growSection(self: *MachO, sect_index: u8, size: u64) !void {
+pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
     const sect = &self.sections.items(.header)[sect_index];
-    std.debug.print("curr={x}, needed={x}\n", .{ sect.size, size });
-    @panic("TODO growSection");
+    const seg_id = self.sections.items(.segment_id)[sect_index];
+    const seg = &self.segments.items[seg_id];
+
+    if (needed_size > self.allocatedSize(sect.offset) and !sect.isZerofill()) {
+        const existing_size = sect.size;
+        sect.size = 0;
+
+        // Must move the entire section.
+        const new_offset = self.findFreeSpace(needed_size, self.getPageSize());
+
+        log.debug("new '{s},{s}' file offset 0x{x} to 0x{x}", .{
+            sect.segName(),
+            sect.sectName(),
+            new_offset,
+            new_offset + existing_size,
+        });
+
+        const amt = try self.base.file.?.copyRangeAll(sect.offset, self.base.file.?, new_offset, existing_size);
+        // TODO figure out what to about this error condition - how to communicate it up.
+        if (amt != existing_size) return error.InputOutput;
+
+        sect.offset = @intCast(new_offset);
+        seg.fileoff = new_offset;
+    }
+
+    sect.size = needed_size;
+    if (!sect.isZerofill()) {
+        seg.filesize = needed_size;
+    }
+
+    const mem_capacity = self.allocatedVirtualSize(seg.vmaddr);
+    if (needed_size > mem_capacity) {
+        var err = try self.addErrorWithNotes(2);
+        try err.addMsg(self, "fatal linker error: cannot expand segment seg({d})({s}) in virtual memory", .{
+            seg_id,
+            seg.segName(),
+        });
+        try err.addNote(self, "TODO: emit relocations to memory locations in self-hosted backends", .{});
+        try err.addNote(self, "as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
+    }
+
+    seg.vmsize = needed_size;
 }
 
 pub fn getTarget(self: MachO) std.Target {
