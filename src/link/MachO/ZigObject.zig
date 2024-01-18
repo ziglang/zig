@@ -234,11 +234,24 @@ pub fn getDeclVAddr(
     decl_index: InternPool.DeclIndex,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    _ = self;
-    _ = macho_file;
-    _ = decl_index;
-    _ = reloc_info;
-    @panic("TODO getDeclVAddr");
+    const sym_index = try self.getOrCreateMetadataForDecl(macho_file, decl_index);
+    const sym = macho_file.getSymbol(sym_index);
+    const vaddr = sym.getAddress(.{}, macho_file);
+    const parent_atom = macho_file.getSymbol(reloc_info.parent_atom_index).getAtom(macho_file).?;
+    try parent_atom.addReloc(macho_file, .{
+        .tag = .@"extern",
+        .offset = @intCast(reloc_info.offset),
+        .target = sym.nlist_idx,
+        .addend = reloc_info.addend,
+        .type = .unsigned,
+        .meta = .{
+            .pcrel = false,
+            .has_subtractor = false,
+            .length = 3,
+            .symbolnum = @intCast(sym.nlist_idx),
+        },
+    });
+    return vaddr;
 }
 
 pub fn getAnonDeclVAddr(
@@ -247,11 +260,24 @@ pub fn getAnonDeclVAddr(
     decl_val: InternPool.Index,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    _ = self;
-    _ = macho_file;
-    _ = decl_val;
-    _ = reloc_info;
-    @panic("TODO getAnonDeclVAddr");
+    const sym_index = self.anon_decls.get(decl_val).?.symbol_index;
+    const sym = macho_file.getSymbol(sym_index);
+    const vaddr = sym.getAddress(.{}, macho_file);
+    const parent_atom = macho_file.getSymbol(reloc_info.parent_atom_index).getAtom(macho_file).?;
+    try parent_atom.addReloc(macho_file, .{
+        .tag = .@"extern",
+        .offset = @intCast(reloc_info.offset),
+        .target = sym.nlist_idx,
+        .addend = reloc_info.addend,
+        .type = .unsigned,
+        .meta = .{
+            .pcrel = false,
+            .has_subtractor = false,
+            .length = 3,
+            .symbolnum = @intCast(sym.nlist_idx),
+        },
+    });
+    return vaddr;
 }
 
 pub fn lowerAnonDecl(
