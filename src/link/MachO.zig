@@ -255,8 +255,6 @@ pub fn createEmpty(
                 .program_code_size_hint = options.program_code_size_hint,
             });
 
-            std.debug.print("{}", .{self.dumpState()});
-
             // TODO init dwarf
 
             // if (comp.config.debug_format != .strip) {
@@ -543,6 +541,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         self.files.set(index, .{ .internal = .{ .index = index } });
         self.internal_object = index;
     }
+
+    state_log.debug("{}", .{self.dumpState()});
 
     try self.addUndefinedGlobals();
     try self.resolveSymbols();
