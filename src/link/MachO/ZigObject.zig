@@ -259,12 +259,47 @@ pub fn lowerAnonDecl(
     explicit_alignment: InternPool.Alignment,
     src_loc: Module.SrcLoc,
 ) !codegen.Result {
-    _ = self;
-    _ = macho_file;
-    _ = decl_val;
-    _ = explicit_alignment;
-    _ = src_loc;
-    @panic("TODO lowerAnonDecl");
+    const gpa = macho_file.base.comp.gpa;
+    const mod = macho_file.base.comp.module.?;
+    const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
+    const decl_alignment = switch (explicit_alignment) {
+        .none => ty.abiAlignment(mod),
+        else => explicit_alignment,
+    };
+    if (self.anon_decls.get(decl_val)) |metadata| {
+        const existing_alignment = macho_file.getSymbol(metadata.symbol_index).getAtom(macho_file).?.alignment;
+        if (decl_alignment.order(existing_alignment).compare(.lte))
+            return .ok;
+    }
+
+    const val = Value.fromInterned(decl_val);
+    const tv = TypedValue{ .ty = ty, .val = val };
+    var name_buf: [32]u8 = undefined;
+    const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
+        @intFromEnum(decl_val),
+    }) catch unreachable;
+    const res = self.lowerConst(
+        macho_file,
+        name,
+        tv,
+        decl_alignment,
+        macho_file.zig_const_section_index.?,
+        src_loc,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| return .{ .fail = try Module.ErrorMsg.create(
+            gpa,
+            src_loc,
+            "unable to lower constant value: {s}",
+            .{@errorName(e)},
+        ) },
+    };
+    const sym_index = switch (res) {
+        .ok => |sym_index| sym_index,
+        .fail => |em| return .{ .fail = em },
+    };
+    try self.anon_decls.put(gpa, decl_val, .{ .symbol_index = sym_index });
+    return .ok;
 }
 
 fn freeUnnamedConsts(self: *ZigObject, macho_file: *MachO, decl_index: InternPool.DeclIndex) void {
@@ -591,11 +626,100 @@ pub fn lowerUnnamedConst(
     typed_value: TypedValue,
     decl_index: InternPool.DeclIndex,
 ) !u32 {
-    _ = self;
-    _ = macho_file;
-    _ = typed_value;
-    _ = decl_index;
-    @panic("TODO lowerUnnamedConst");
+    const gpa = macho_file.base.comp.gpa;
+    const mod = macho_file.base.comp.module.?;
+    const gop = try self.unnamed_consts.getOrPut(gpa, decl_index);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    const unnamed_consts = gop.value_ptr;
+    const decl = mod.declPtr(decl_index);
+    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const index = unnamed_consts.items.len;
+    const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
+    defer gpa.free(name);
+    const sym_index = switch (try self.lowerConst(
+        macho_file,
+        name,
+        typed_value,
+        typed_value.ty.abiAlignment(mod),
+        macho_file.zig_const_section_index.?,
+        decl.srcLoc(mod),
+    )) {
+        .ok => |sym_index| sym_index,
+        .fail => |em| {
+            decl.analysis = .codegen_failure;
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            log.err("{s}", .{em.msg});
+            return error.CodegenFail;
+        },
+    };
+    const sym = macho_file.getSymbol(sym_index);
+    try unnamed_consts.append(gpa, sym.atom);
+    return sym_index;
+}
+
+const LowerConstResult = union(enum) {
+    ok: Symbol.Index,
+    fail: *Module.ErrorMsg,
+};
+
+fn lowerConst(
+    self: *ZigObject,
+    macho_file: *MachO,
+    name: []const u8,
+    tv: TypedValue,
+    required_alignment: InternPool.Alignment,
+    output_section_index: u8,
+    src_loc: Module.SrcLoc,
+) !LowerConstResult {
+    const gpa = macho_file.base.comp.gpa;
+
+    var code_buffer = std.ArrayList(u8).init(gpa);
+    defer code_buffer.deinit();
+
+    const sym_index = try self.addAtom(macho_file);
+
+    const res = try codegen.generateSymbol(&macho_file.base, src_loc, tv, &code_buffer, .{
+        .none = {},
+    }, .{
+        .parent_atom_index = sym_index,
+    });
+    const code = switch (res) {
+        .ok => code_buffer.items,
+        .fail => |em| return .{ .fail = em },
+    };
+
+    const sym = macho_file.getSymbol(sym_index);
+    const name_str_index = try macho_file.strings.insert(gpa, name);
+    sym.name = name_str_index;
+    sym.out_n_sect = output_section_index;
+
+    const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
+    nlist.n_strx = name_str_index;
+    nlist.n_type = macho.N_SECT;
+    nlist.n_sect = output_section_index + 1;
+    self.symtab.items(.size)[sym.nlist_idx] = code.len;
+
+    const atom = sym.getAtom(macho_file).?;
+    atom.flags.alive = true;
+    atom.name = name_str_index;
+    atom.alignment = required_alignment;
+    atom.size = code.len;
+    atom.out_n_sect = output_section_index;
+
+    try atom.allocate(macho_file);
+    // TODO rename and re-audit this method
+    errdefer self.freeDeclMetadata(macho_file, sym_index);
+
+    sym.value = 0;
+    nlist.n_value = 0;
+
+    const sect = macho_file.sections.items(.header)[output_section_index];
+    const file_offset = sect.offset + atom.value - sect.addr;
+    try macho_file.base.file.?.pwriteAll(code, file_offset);
+
+    return .{ .ok = sym_index };
 }
 
 pub fn updateExports(
@@ -692,6 +816,91 @@ pub fn updateExports(
     }
 }
 
+fn updateLazySymbol(
+    self: *ZigObject,
+    macho_file: *MachO,
+    lazy_sym: link.File.LazySymbol,
+    symbol_index: Symbol.Index,
+) !void {
+    const gpa = macho_file.base.comp.gpa;
+    const mod = macho_file.base.comp.module.?;
+
+    var required_alignment: InternPool.Alignment = .none;
+    var code_buffer = std.ArrayList(u8).init(gpa);
+    defer code_buffer.deinit();
+
+    const name_str_index = blk: {
+        const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
+            @tagName(lazy_sym.kind),
+            lazy_sym.ty.fmt(mod),
+        });
+        defer gpa.free(name);
+        break :blk try macho_file.strings.insert(gpa, name);
+    };
+
+    const src = if (lazy_sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
+        mod.declPtr(owner_decl).srcLoc(mod)
+    else
+        Module.SrcLoc{
+            .file_scope = undefined,
+            .parent_decl_node = undefined,
+            .lazy = .unneeded,
+        };
+    const res = try codegen.generateLazySymbol(
+        &macho_file.base,
+        src,
+        lazy_sym,
+        &required_alignment,
+        &code_buffer,
+        .none,
+        .{ .parent_atom_index = symbol_index },
+    );
+    const code = switch (res) {
+        .ok => code_buffer.items,
+        .fail => |em| {
+            log.err("{s}", .{em.msg});
+            return error.CodegenFail;
+        },
+    };
+
+    const output_section_index = switch (lazy_sym.kind) {
+        .code => macho_file.zig_text_section_index.?,
+        .const_data => macho_file.zig_const_section_index.?,
+    };
+    const sym = macho_file.getSymbol(symbol_index);
+    sym.name = name_str_index;
+    sym.out_n_sect = output_section_index;
+
+    const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
+    nlist.n_strx = name_str_index;
+    nlist.n_type = macho.N_SECT;
+    nlist.n_sect = output_section_index + 1;
+    self.symtab.items(.size)[sym.nlist_idx] = code.len;
+
+    const atom = sym.getAtom(macho_file).?;
+    atom.flags.alive = true;
+    atom.name = name_str_index;
+    atom.alignment = required_alignment;
+    atom.size = code.len;
+    atom.out_n_sect = output_section_index;
+
+    try atom.allocate(macho_file);
+    errdefer self.freeDeclMetadata(macho_file, symbol_index);
+
+    sym.value = 0;
+    sym.flags.needs_zig_got = true;
+    nlist.st_value = 0;
+
+    if (!macho_file.base.isRelocatable()) {
+        const gop = try sym.getOrCreateZigGotEntry(symbol_index, macho_file);
+        try macho_file.zig_got.writeOne(macho_file, gop.index);
+    }
+
+    const sect = macho_file.sections.items(.header)[output_section_index];
+    const file_offset = sect.offset + atom.value - sect.addr;
+    try macho_file.base.file.?.pwriteAll(code, file_offset);
+}
+
 /// Must be called only after a successful call to `updateDecl`.
 pub fn updateDeclLineNumber(
     self: *ZigObject,
@@ -701,7 +910,7 @@ pub fn updateDeclLineNumber(
     _ = self;
     _ = mod;
     _ = decl_index;
-    @panic("TODO updateDeclLineNumber");
+    // TODO: Dwarf
 }
 
 pub fn deleteDeclExport(
@@ -749,6 +958,46 @@ pub fn getOrCreateMetadataForDecl(
         gop.value_ptr.* = .{ .symbol_index = sym_index };
     }
     return gop.value_ptr.symbol_index;
+}
+
+pub fn getOrCreateMetadataForLazySymbol(
+    self: *ZigObject,
+    macho_file: *MachO,
+    lazy_sym: link.File.LazySymbol,
+) !Symbol.Index {
+    const gpa = macho_file.base.comp.gpa;
+    const mod = macho_file.base.comp.module.?;
+    const gop = try self.lazy_syms.getOrPut(gpa, lazy_sym.getDecl(mod));
+    errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
+    if (!gop.found_existing) gop.value_ptr.* = .{};
+    const metadata: struct {
+        symbol_index: *Symbol.Index,
+        state: *LazySymbolMetadata.State,
+    } = switch (lazy_sym.kind) {
+        .code => .{
+            .symbol_index = &gop.value_ptr.text_symbol_index,
+            .state = &gop.value_ptr.text_state,
+        },
+        .const_data => .{
+            .symbol_index = &gop.value_ptr.const_symbol_index,
+            .state = &gop.value_ptr.const_state,
+        },
+    };
+    switch (metadata.state.*) {
+        .unused => {
+            const symbol_index = try self.addAtom(macho_file);
+            const sym = macho_file.getSymbol(symbol_index);
+            sym.flags.needs_zig_got = true;
+            metadata.symbol_index.* = symbol_index;
+        },
+        .pending_flush => return metadata.symbol_index.*,
+        .flushed => {},
+    }
+    metadata.state.* = .pending_flush;
+    const symbol_index = metadata.symbol_index.*;
+    // anyerror needs to be deferred until flushModule
+    if (lazy_sym.getDecl(mod) != .none) try self.updateLazySymbol(macho_file, lazy_sym, symbol_index);
+    return symbol_index;
 }
 
 pub fn asFile(self: *ZigObject) File {
@@ -822,9 +1071,9 @@ const DeclMetadata = struct {
 const LazySymbolMetadata = struct {
     const State = enum { unused, pending_flush, flushed };
     text_symbol_index: Symbol.Index = undefined,
-    data_const_symbol_index: Symbol.Index = undefined,
+    const_symbol_index: Symbol.Index = undefined,
     text_state: State = .unused,
-    rodata_state: State = .unused,
+    const_state: State = .unused,
 };
 
 const DeclTable = std.AutoHashMapUnmanaged(InternPool.DeclIndex, DeclMetadata);
