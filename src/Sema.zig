@@ -11255,10 +11255,18 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     defer seen_errors.deinit();
 
     const operand_ty = sema.typeOf(raw_operand_val);
-    const operand_err_set_ty = if (extra.data.bits.payload_is_ref)
-        operand_ty.childType(mod).errorUnionSet(mod)
+    const operand_err_set = if (extra.data.bits.payload_is_ref)
+        operand_ty.childType(mod)
     else
-        operand_ty.errorUnionSet(mod);
+        operand_ty;
+
+    if (operand_err_set.zigTypeTag(mod) != .ErrorUnion) {
+        return sema.fail(block, switch_src, "expected error union type, found '{}'", .{
+            operand_ty.fmt(mod),
+        });
+    }
+
+    const operand_err_set_ty = operand_err_set.errorUnionSet(mod);
 
     const block_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
     try sema.air_instructions.append(gpa, .{
@@ -16140,6 +16148,10 @@ fn analyzeArithmetic(
                         return casted_lhs;
                     }
                     if (maybe_lhs_val) |lhs_val| {
+                        if (lhs_val.isUndef(mod)) {
+                            return mod.undefRef(resolved_type);
+                        }
+
                         const val = if (scalar_tag == .ComptimeInt)
                             try sema.intAdd(lhs_val, rhs_val, resolved_type, undefined)
                         else
@@ -16202,7 +16214,7 @@ fn analyzeArithmetic(
             },
             .subwrap => {
                 // Integers only; floats are checked above.
-                // If the RHS is zero, then the other operand is returned, even if it is undefined.
+                // If the RHS is zero, then the LHS is returned, even if it is undefined.
                 // If either of the operands are undefined, the result is undefined.
                 if (maybe_rhs_val) |rhs_val| {
                     if (rhs_val.isUndef(mod)) {
@@ -16223,8 +16235,8 @@ fn analyzeArithmetic(
             },
             .sub_sat => {
                 // Integers only; floats are checked above.
-                // If the RHS is zero, result is LHS.
-                // If either of the operands are undefined, result is undefined.
+                // If the RHS is zero, then the LHS is returned, even if it is undefined.
+                // If either of the operands are undefined, the result is undefined.
                 if (maybe_rhs_val) |rhs_val| {
                     if (rhs_val.isUndef(mod)) {
                         return mod.undefRef(resolved_type);
@@ -16255,7 +16267,9 @@ fn analyzeArithmetic(
                 // If either of the operands are undefined, it's a compile error
                 // because there is a possible value for which the addition would
                 // overflow (max_int), causing illegal behavior.
-                // For floats: either operand being undef makes the result undef.
+                //
+                // For floats:
+                // If either of the operands are undefined, the result is undefined.
                 // If either of the operands are inf, and the other operand is zero,
                 // the result is nan.
                 // If either of the operands are nan, the result is nan.
@@ -38093,7 +38107,7 @@ fn numberAddWrapScalar(
     ty: Type,
 ) !Value {
     const mod = sema.mod;
-    if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
+    if (lhs.isUndef(mod) or rhs.isUndef(mod)) return mod.undefValue(ty);
 
     if (ty.zigTypeTag(mod) == .ComptimeInt) {
         return sema.intAdd(lhs, rhs, ty, undefined);
@@ -38183,7 +38197,7 @@ fn numberSubWrapScalar(
     ty: Type,
 ) !Value {
     const mod = sema.mod;
-    if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
+    if (lhs.isUndef(mod) or rhs.isUndef(mod)) return mod.undefValue(ty);
 
     if (ty.zigTypeTag(mod) == .ComptimeInt) {
         return sema.intSub(lhs, rhs, ty, undefined);

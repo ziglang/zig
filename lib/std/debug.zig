@@ -667,20 +667,7 @@ pub const StackIterator = struct {
         if (aligned_address == 0) return false;
         const aligned_memory = @as([*]align(mem.page_size) u8, @ptrFromInt(aligned_address))[0..mem.page_size];
 
-        if (native_os != .windows) {
-            if (native_os != .wasi) {
-                os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
-                    switch (err) {
-                        os.MSyncError.UnmappedMemory => {
-                            return false;
-                        },
-                        else => unreachable,
-                    }
-                };
-            }
-
-            return true;
-        } else {
+        if (native_os == .windows) {
             const w = os.windows;
             var memory_info: w.MEMORY_BASIC_INFORMATION = undefined;
 
@@ -700,6 +687,20 @@ pub const StackIterator = struct {
                 return false;
             }
 
+            return true;
+        } else if (@hasDecl(os.system, "msync") and native_os != .wasi) {
+            os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
+                switch (err) {
+                    os.MSyncError.UnmappedMemory => {
+                        return false;
+                    },
+                    else => unreachable,
+                }
+            };
+
+            return true;
+        } else {
+            // We are unable to determine validity of memory on this target.
             return true;
         }
     }
