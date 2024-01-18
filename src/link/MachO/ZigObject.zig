@@ -478,7 +478,7 @@ fn getDeclOutputSection(
                     );
                 }
 
-                if (variable.is_const) break :blk macho_file.zig_data_const_section_index.?;
+                if (variable.is_const) break :blk macho_file.zig_const_section_index.?;
                 if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
                     // TODO: get the optimize_mode from the Module that owns the decl instead
                     // of using the root module here.
@@ -496,7 +496,7 @@ fn getDeclOutputSection(
                 if (is_all_zeroes) break :blk macho_file.zig_bss_section_index.?;
                 break :blk macho_file.zig_data_section_index.?;
             }
-            break :blk macho_file.zig_data_const_section_index.?;
+            break :blk macho_file.zig_const_section_index.?;
         },
     };
     return sect_id;
