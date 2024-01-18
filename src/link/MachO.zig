@@ -21,7 +21,7 @@ sections: std.MultiArrayList(Section) = .{},
 symbols: std.ArrayListUnmanaged(Symbol) = .{},
 symbols_extra: std.ArrayListUnmanaged(u32) = .{},
 symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
-globals: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .{},
+globals: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index) = .{},
 /// This table will be populated after `scanRelocs` has run.
 /// Key is symbol index.
 undefs: std.AutoHashMapUnmanaged(Symbol.Index, std.ArrayListUnmanaged(Atom.Index)) = .{},
