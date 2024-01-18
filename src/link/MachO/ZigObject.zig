@@ -129,6 +129,10 @@ pub fn getAtomRelocs(self: *ZigObject, atom: Atom) []const Relocation {
     return relocs.items[0..atom.relocs.len];
 }
 
+pub fn freeAtomRelocs(self: *ZigObject, atom: Atom) void {
+    self.relocs.items[atom.relocs.pos].clearRetainingCapacity();
+}
+
 pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) void {
     _ = self;
     _ = macho_file;
@@ -263,11 +267,42 @@ pub fn lowerAnonDecl(
     @panic("TODO lowerAnonDecl");
 }
 
-pub fn freeDecl(self: *ZigObject, macho_file: *MachO, decl_index: InternPool.DeclIndex) void {
+fn freeUnnamedConsts(self: *ZigObject, macho_file: *MachO, decl_index: InternPool.DeclIndex) void {
+    const gpa = macho_file.base.comp.gpa;
+    const unnamed_consts = self.unnamed_consts.getPtr(decl_index) orelse return;
+    for (unnamed_consts.items) |sym_index| {
+        self.freeDeclMetadata(macho_file, sym_index);
+    }
+    unnamed_consts.clearAndFree(gpa);
+}
+
+fn freeDeclMetadata(self: *ZigObject, macho_file: *MachO, sym_index: Symbol.Index) void {
     _ = self;
-    _ = macho_file;
-    _ = decl_index;
-    @panic("TODO freeDecl");
+    const gpa = macho_file.base.comp.gpa;
+    const sym = macho_file.getSymbol(sym_index);
+    sym.getAtom(macho_file).?.free(macho_file);
+    log.debug("adding %{d} to local symbols free list", .{sym_index});
+    macho_file.symbols_free_list.append(gpa, sym_index) catch {};
+    macho_file.symbols.items[sym_index] = .{};
+    // TODO free GOT entry here
+}
+
+pub fn freeDecl(self: *ZigObject, macho_file: *MachO, decl_index: InternPool.DeclIndex) void {
+    const gpa = macho_file.base.comp.gpa;
+    const mod = macho_file.base.comp.module.?;
+    const decl = mod.declPtr(decl_index);
+
+    log.debug("freeDecl {*}", .{decl});
+
+    if (self.decls.fetchRemove(decl_index)) |const_kv| {
+        var kv = const_kv;
+        const sym_index = kv.value.symbol_index;
+        self.freeDeclMetadata(macho_file, sym_index);
+        self.freeUnnamedConsts(macho_file, decl_index);
+        kv.value.exports.deinit(gpa);
+    }
+
+    // TODO free decl in dSYM
 }
 
 pub fn updateFunc(
@@ -278,13 +313,61 @@ pub fn updateFunc(
     air: Air,
     liveness: Liveness,
 ) !void {
-    _ = self;
-    _ = macho_file;
-    _ = mod;
-    _ = func_index;
-    _ = air;
-    _ = liveness;
-    @panic("TODO updateFunc");
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
+    const func = mod.funcInfo(func_index);
+    const decl_index = func.owner_decl;
+    const decl = mod.declPtr(decl_index);
+
+    const sym_index = try self.getOrCreateMetadataForDecl(macho_file, decl_index);
+    self.freeUnnamedConsts(macho_file, decl_index);
+    macho_file.getSymbol(sym_index).getAtom(macho_file).?.freeRelocs(macho_file);
+
+    var code_buffer = std.ArrayList(u8).init(gpa);
+    defer code_buffer.deinit();
+
+    var decl_state: ?Dwarf.DeclState = null; // TODO: Dwarf
+    defer if (decl_state) |*ds| ds.deinit();
+
+    const dio: codegen.DebugInfoOutput = if (decl_state) |*ds| .{ .dwarf = ds } else .none;
+    const res = try codegen.generateFunction(
+        &macho_file.base,
+        decl.srcLoc(mod),
+        func_index,
+        air,
+        liveness,
+        &code_buffer,
+        dio,
+    );
+
+    const code = switch (res) {
+        .ok => code_buffer.items,
+        .fail => |em| {
+            decl.analysis = .codegen_failure;
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            return;
+        },
+    };
+
+    const sect_index = try self.getDeclOutputSection(macho_file, decl, code);
+    try self.updateDeclCode(macho_file, decl_index, sym_index, sect_index, code);
+
+    // if (decl_state) |*ds| {
+    //     const sym = elf_file.symbol(sym_index);
+    //     try self.dwarf.?.commitDeclState(
+    //         mod,
+    //         decl_index,
+    //         sym.value,
+    //         sym.atom(elf_file).?.size,
+    //         ds,
+    //     );
+    // }
+
+    // Since we updated the vaddr and the size, each corresponding export
+    // symbol also needs to be updated.
+    return self.updateExports(macho_file, mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
 pub fn updateDecl(
@@ -313,7 +396,7 @@ pub fn updateDecl(
     }
 
     const sym_index = try self.getOrCreateMetadataForDecl(macho_file, decl_index);
-    // TODO: free relocs if any
+    macho_file.getSymbol(sym_index).getAtom(macho_file).?.freeRelocs(macho_file);
 
     const gpa = macho_file.base.comp.gpa;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -431,7 +514,7 @@ fn updateDeclCode(
         }
     } else {
         try atom.allocate(macho_file);
-        // TODO: freeDeclMetadata in case of error
+        errdefer self.freeDeclMetadata(macho_file, sym_index);
 
         sym.value = 0;
         sym.flags.needs_zig_got = true;

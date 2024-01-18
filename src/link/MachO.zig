@@ -20,6 +20,7 @@ sections: std.MultiArrayList(Section) = .{},
 
 symbols: std.ArrayListUnmanaged(Symbol) = .{},
 symbols_extra: std.ArrayListUnmanaged(u32) = .{},
+symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
 globals: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .{},
 /// This table will be populated after `scanRelocs` has run.
 /// Key is symbol index.
@@ -327,6 +328,7 @@ pub fn deinit(self: *MachO) void {
 
     self.symbols.deinit(gpa);
     self.symbols_extra.deinit(gpa);
+    self.symbols_free_list.deinit(gpa);
     self.globals.deinit(gpa);
     {
         var it = self.undefs.iterator();
@@ -3260,9 +3262,8 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
 }
 
 pub fn growSection(self: *MachO, sect_index: u8, size: u64) !void {
-    _ = self;
-    _ = sect_index;
-    _ = size;
+    const sect = &self.sections.items(.header)[sect_index];
+    std.debug.print("curr={x}, needed={x}\n", .{ sect.size, size });
     @panic("TODO growSection");
 }
 

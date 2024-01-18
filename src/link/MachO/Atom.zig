@@ -324,6 +324,70 @@ pub fn grow(self: *Atom, macho_file: *MachO) !void {
         try self.allocate(macho_file);
 }
 
+pub fn free(self: *Atom, macho_file: *MachO) void {
+    log.debug("freeAtom {d} ({s})", .{ self.atom_index, self.getName(macho_file) });
+
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
+    const free_list = &macho_file.sections.items(.free_list)[self.out_n_sect];
+    const last_atom_index = &macho_file.sections.items(.last_atom_index)[self.out_n_sect];
+    var already_have_free_list_node = false;
+    {
+        var i: usize = 0;
+        // TODO turn free_list into a hash map
+        while (i < free_list.items.len) {
+            if (free_list.items[i] == self.atom_index) {
+                _ = free_list.swapRemove(i);
+                continue;
+            }
+            if (free_list.items[i] == self.prev_index) {
+                already_have_free_list_node = true;
+            }
+            i += 1;
+        }
+    }
+
+    if (macho_file.getAtom(last_atom_index.*)) |last_atom| {
+        if (last_atom.atom_index == self.atom_index) {
+            if (macho_file.getAtom(self.prev_index)) |_| {
+                // TODO shrink the section size here
+                last_atom_index.* = self.prev_index;
+            } else {
+                last_atom_index.* = 0;
+            }
+        }
+    }
+
+    if (macho_file.getAtom(self.prev_index)) |prev| {
+        prev.next_index = self.next_index;
+        if (!already_have_free_list_node and prev.*.freeListEligible(macho_file)) {
+            // The free list is heuristics, it doesn't have to be perfect, so we can
+            // ignore the OOM here.
+            free_list.append(gpa, prev.atom_index) catch {};
+        }
+    } else {
+        self.prev_index = 0;
+    }
+
+    if (macho_file.getAtom(self.next_index)) |next| {
+        next.prev_index = self.prev_index;
+    } else {
+        self.next_index = 0;
+    }
+
+    // TODO create relocs free list
+    self.freeRelocs(macho_file);
+    // TODO figure out how to free input section mappind in ZigModule
+    // const zig_object = macho_file.zigObjectPtr().?
+    // assert(zig_object.atoms.swapRemove(self.atom_index));
+    self.* = .{};
+}
+
+pub fn freeRelocs(self: *Atom, macho_file: *MachO) void {
+    self.getFile(macho_file).zig_object.freeAtomRelocs(self.*);
+    self.relocs.len = 0;
+}
+
 pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
