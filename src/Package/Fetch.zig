@@ -915,7 +915,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
             });
             const notes_start = try eb.reserveNotes(notes_len);
             eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
-                .msg = try eb.printString("try .url = \"{+/}#{}\",", .{
+                .msg = try eb.printString("try .url = \"{;+/}#{}\",", .{
                     uri, std.fmt.fmtSliceHexLower(&want_oid),
                 }),
             }));
