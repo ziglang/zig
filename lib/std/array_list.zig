@@ -242,9 +242,9 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Grows list if `len < new_items.len`.
         /// Shrinks list if `len > new_items.len`.
         /// Invalidates element pointers if this ArrayList is resized.
-        /// Asserts that the start index is in bounds or equal to the length.
+        /// Asserts that the range is in bounds.
         pub fn replaceRange(self: *Self, start: usize, len: usize, new_items: []const T) Allocator.Error!void {
-            const after_range = try addOrOom(start, len);
+            const after_range = start + len;
             const range = self.items[start..after_range];
 
             if (range.len == new_items.len)
@@ -257,7 +257,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
                 try self.insertSlice(after_range, rest);
             } else {
                 @memcpy(range[0..new_items.len], new_items);
-                const after_subrange = try addOrOom(start, new_items.len);
+                const after_subrange = start + new_items.len;
 
                 for (self.items[after_range..], 0..) |item, i| {
                     self.items[after_subrange..][i] = item;
