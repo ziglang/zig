@@ -248,7 +248,7 @@ pub fn getDeclVAddr(
             .pcrel = false,
             .has_subtractor = false,
             .length = 3,
-            .symbolnum = @intCast(sym.nlist_idx),
+            .symbolnum = 0,
         },
     });
     return vaddr;
@@ -274,7 +274,7 @@ pub fn getAnonDeclVAddr(
             .pcrel = false,
             .has_subtractor = false,
             .length = 3,
-            .symbolnum = @intCast(sym.nlist_idx),
+            .symbolnum = 0,
         },
     });
     return vaddr;
@@ -604,25 +604,26 @@ fn getDeclOutputSection(
     _ = self;
     const mod = macho_file.base.comp.module.?;
     const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
+    _ = any_non_single_threaded;
     const sect_id: u8 = switch (decl.ty.zigTypeTag(mod)) {
         .Fn => macho_file.zig_text_section_index.?,
         else => blk: {
             if (decl.getOwnedVariable(mod)) |variable| {
-                if (variable.is_threadlocal and any_non_single_threaded) {
-                    const is_all_zeroes = for (code) |byte| {
-                        if (byte != 0) break false;
-                    } else true;
-                    if (is_all_zeroes) break :blk macho_file.getSectionByName("__DATA", "__thread_bss") orelse try macho_file.addSection(
-                        "__DATA",
-                        "__thread_bss",
-                        .{ .flags = macho.S_THREAD_LOCAL_ZEROFILL },
-                    );
-                    break :blk macho_file.getSectionByName("__DATA", "__thread_data") orelse try macho_file.addSection(
-                        "__DATA",
-                        "__thread_data",
-                        .{ .flags = macho.S_THREAD_LOCAL_REGULAR },
-                    );
-                }
+                // if (variable.is_threadlocal and any_non_single_threaded) {
+                //     const is_all_zeroes = for (code) |byte| {
+                //         if (byte != 0) break false;
+                //     } else true;
+                //     if (is_all_zeroes) break :blk macho_file.getSectionByName("__DATA", "__thread_bss") orelse try macho_file.addSection(
+                //         "__DATA",
+                //         "__thread_bss",
+                //         .{ .flags = macho.S_THREAD_LOCAL_ZEROFILL },
+                //     );
+                //     break :blk macho_file.getSectionByName("__DATA", "__thread_data") orelse try macho_file.addSection(
+                //         "__DATA",
+                //         "__thread_data",
+                //         .{ .flags = macho.S_THREAD_LOCAL_REGULAR },
+                //     );
+                // }
 
                 if (variable.is_const) break :blk macho_file.zig_const_section_index.?;
                 if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
@@ -917,7 +918,7 @@ fn updateLazySymbol(
 
     sym.value = 0;
     sym.flags.needs_zig_got = true;
-    nlist.st_value = 0;
+    nlist.n_value = 0;
 
     if (!macho_file.base.isRelocatable()) {
         const gop = try sym.getOrCreateZigGotEntry(symbol_index, macho_file);

@@ -139,10 +139,7 @@ const Owner = union(enum) {
                 if (ctx.bin_file.cast(link.File.Elf)) |elf_file| {
                     return elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
                 } else if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
-                    _ = macho_file;
-                    // const atom = try macho_file.getOrCreateAtomForDecl(decl_index);
-                    // return macho_file.getAtom(atom).getSymbolIndex().?;
-                    @panic("TODO getSymbolIndex");
+                    return macho_file.getZigObject().?.getOrCreateMetadataForDecl(macho_file, decl_index);
                 } else if (ctx.bin_file.cast(link.File.Coff)) |coff_file| {
                     const atom = try coff_file.getOrCreateAtomForDecl(decl_index);
                     return coff_file.getAtom(atom).getSymbolIndex().?;
@@ -155,11 +152,8 @@ const Owner = union(enum) {
                     return elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, lazy_sym) catch |err|
                         ctx.fail("{s} creating lazy symbol", .{@errorName(err)});
                 } else if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
-                    _ = macho_file;
-                    // const atom = macho_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
-                    //     return ctx.fail("{s} creating lazy symbol", .{@errorName(err)});
-                    // return macho_file.getAtom(atom).getSymbolIndex().?;
-                    @panic("TODO getSymbolIndex");
+                    return macho_file.getZigObject().?.getOrCreateMetadataForLazySymbol(macho_file, lazy_sym) catch |err|
+                        ctx.fail("{s} creating lazy symbol", .{@errorName(err)});
                 } else if (ctx.bin_file.cast(link.File.Coff)) |coff_file| {
                     const atom = coff_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
                         return ctx.fail("{s} creating lazy symbol", .{@errorName(err)});
@@ -10955,12 +10949,10 @@ fn genCall(self: *Self, info: union(enum) {
                         try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index });
                         try self.asmRegister(.{ ._, .call }, .rax);
                     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                        _ = macho_file;
-                        @panic("TODO genCall");
-                        // const atom = try macho_file.getOrCreateAtomForDecl(func.owner_decl);
-                        // const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
-                        // try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index });
-                        // try self.asmRegister(.{ ._, .call }, .rax);
+                        const sym_index = try macho_file.getZigObject().?.getOrCreateMetadataForDecl(macho_file, func.owner_decl);
+                        const sym = macho_file.getSymbol(sym_index);
+                        try self.genSetReg(.rax, Type.usize, .{ .load_symbol = .{ .sym = sym.nlist_idx } });
+                        try self.asmRegister(.{ ._, .call }, .rax);
                     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
                         const atom_index = try p9.seeDecl(func.owner_decl);
                         const atom = p9.getAtom(atom_index);
@@ -13556,30 +13548,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                 } },
             });
         },
-        .lea_tlv => |sym_index| {
-            const atom_index = try self.owner.getSymbolIndex(self);
-            if (self.bin_file.cast(link.File.MachO)) |_| {
-                _ = try self.addInst(.{
-                    .tag = .lea,
-                    .ops = .tlv_reloc,
-                    .data = .{ .rx = .{
-                        .r1 = .rdi,
-                        .payload = try self.addExtra(bits.Symbol{
-                            .atom_index = atom_index,
-                            .sym_index = sym_index,
-                        }),
-                    } },
-                });
-                // TODO: spill registers before calling
-                try self.asmMemory(.{ ._, .call }, .{
-                    .base = .{ .reg = .rdi },
-                    .mod = .{ .rm = .{ .size = .qword } },
-                });
-                try self.genSetReg(dst_reg.to64(), Type.usize, .{ .register = .rax });
-            } else return self.fail("TODO emit ptr to TLV sequence on {s}", .{
-                @tagName(self.bin_file.tag),
-            });
-        },
+        .lea_tlv => unreachable, // TODO: remove this
         .air_ref => |src_ref| try self.genSetReg(dst_reg, ty, try self.resolveInst(src_ref)),
     }
 }
@@ -13816,19 +13785,14 @@ fn genExternSymbolRef(
             else => unreachable,
         }
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-        const global_index = try macho_file.getGlobalSymbol(callee, lib);
         _ = try self.addInst(.{
             .tag = .call,
             .ops = .extern_fn_reloc,
-            .data = .{
-                .reloc = .{
-                    .atom_index = atom_index,
-                    // .sym_index = link.File.MachO.global_symbol_bit | global_index,
-                    .sym_index = global_index,
-                },
-            },
+            .data = .{ .reloc = .{
+                .atom_index = atom_index,
+                .sym_index = try macho_file.getGlobalSymbol(callee, lib),
+            } },
         });
-        @panic("TODO genExternSymbolRef");
     } else return self.fail("TODO implement calling extern functions", .{});
 }
 
@@ -13916,21 +13880,19 @@ fn genLazySymbolRef(
             else => unreachable,
         }
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-        _ = macho_file;
-        @panic("TODO genLazySymbolRef");
-        // const atom_index = macho_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
-        //     return self.fail("{s} creating lazy symbol", .{@errorName(err)});
-        // const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
-        // switch (tag) {
-        //     .lea, .call => try self.genSetReg(reg, Type.usize, .{ .lea_got = sym_index }),
-        //     .mov => try self.genSetReg(reg, Type.usize, .{ .load_got = sym_index }),
-        //     else => unreachable,
-        // }
-        // switch (tag) {
-        //     .lea, .mov => {},
-        //     .call => try self.asmRegister(.{ ._, .call }, reg),
-        //     else => unreachable,
-        // }
+        const sym_index = macho_file.getZigObject().?.getOrCreateMetadataForLazySymbol(macho_file, lazy_sym) catch |err|
+            return self.fail("{s} creating lazy symbol", .{@errorName(err)});
+        const sym = macho_file.getSymbol(sym_index);
+        switch (tag) {
+            .lea, .call => try self.genSetReg(reg, Type.usize, .{ .load_symbol = .{ .sym = sym.nlist_idx } }),
+            .mov => try self.genSetReg(reg, Type.usize, .{ .load_symbol = .{ .sym = sym.nlist_idx } }),
+            else => unreachable,
+        }
+        switch (tag) {
+            .lea, .mov => {},
+            .call => try self.asmRegister(.{ ._, .call }, reg),
+            else => unreachable,
+        }
     } else {
         return self.fail("TODO implement genLazySymbol for x86_64 {s}", .{@tagName(self.bin_file.tag)});
     }
@@ -16103,6 +16065,8 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
                         .{ .lea_symbol = .{ .sym = tlv_sym } },
                     );
                     break :init .{ .load_frame = .{ .index = frame_index } };
+                } else if (self.bin_file.cast(link.File.MachO)) |_| {
+                    return self.fail("TODO implement lowering TLV variable to stack", .{});
                 } else break :init const_mcv,
                 else => break :init const_mcv,
             }

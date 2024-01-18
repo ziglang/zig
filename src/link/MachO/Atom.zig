@@ -686,6 +686,10 @@ fn resolveRelocInner(
             }
         },
 
+        .zig_got_load => {
+            @panic("TODO resolve __got_zig indirection reloc");
+        },
+
         .tlv => {
             assert(rel.tag == .@"extern");
             assert(rel.meta.length == 2);
@@ -987,6 +991,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: *std.Arra
                     .subtractor => .ARM64_RELOC_SUBTRACTOR,
                     .unsigned => .ARM64_RELOC_UNSIGNED,
 
+                    .zig_got_load,
                     .signed,
                     .signed1,
                     .signed2,
@@ -1030,6 +1035,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: *std.Arra
                     .subtractor => .X86_64_RELOC_SUBTRACTOR,
                     .unsigned => .X86_64_RELOC_UNSIGNED,
 
+                    .zig_got_load,
                     .page,
                     .pageoff,
                     .got_load_page,

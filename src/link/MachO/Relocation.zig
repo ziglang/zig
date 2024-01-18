@@ -99,6 +99,8 @@ pub const Type = enum {
     got_load,
     /// RIP-relative TLV load (X86_64_RELOC_TLV)
     tlv,
+    /// Zig-specific __got_zig indirection
+    zig_got_load,
 
     // arm64
     /// PC-relative load (distance to page, ARM64_RELOC_PAGE21)
