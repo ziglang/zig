@@ -3222,29 +3222,36 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         }
     }.appendSect;
 
-    if (self.zig_text_section_index == null) {
+    {
         self.zig_text_section_index = try self.addSection("__TEXT_ZIG", "__text_zig", .{
+            .alignment = switch (self.getTarget().cpu.arch) {
+                .aarch64 => 2,
+                .x86_64 => 0,
+                else => unreachable,
+            },
             .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         });
         appendSect(self, self.zig_text_section_index.?, self.zig_text_seg_index.?);
     }
 
-    if (self.zig_got_section_index == null and !self.base.isRelocatable()) {
-        self.zig_got_section_index = try self.addSection("__GOT_ZIG", "__got_zig", .{});
+    if (!self.base.isRelocatable()) {
+        self.zig_got_section_index = try self.addSection("__GOT_ZIG", "__got_zig", .{
+            .alignment = 3,
+        });
         appendSect(self, self.zig_got_section_index.?, self.zig_got_seg_index.?);
     }
 
-    if (self.zig_const_section_index == null) {
+    {
         self.zig_const_section_index = try self.addSection("__CONST_ZIG", "__const_zig", .{});
         appendSect(self, self.zig_const_section_index.?, self.zig_const_seg_index.?);
     }
 
-    if (self.zig_data_section_index == null) {
+    {
         self.zig_data_section_index = try self.addSection("__DATA_ZIG", "__data_zig", .{});
         appendSect(self, self.zig_data_section_index.?, self.zig_data_seg_index.?);
     }
 
-    if (self.zig_bss_section_index == null) {
+    {
         self.zig_bss_section_index = try self.addSection("__BSS_ZIG", "__bss_zig", .{
             .flags = macho.S_ZEROFILL,
         });
@@ -3328,6 +3335,7 @@ pub fn addSegment(self: *MachO, name: []const u8, opts: struct {
 }
 
 const AddSectionOpts = struct {
+    alignment: u32 = 0,
     flags: u32 = macho.S_REGULAR,
     reserved1: u32 = 0,
     reserved2: u32 = 0,
@@ -3346,6 +3354,7 @@ pub fn addSection(
         .header = .{
             .sectname = makeStaticString(sectname),
             .segname = makeStaticString(segname),
+            .@"align" = opts.alignment,
             .flags = opts.flags,
             .reserved1 = opts.reserved1,
             .reserved2 = opts.reserved2,
