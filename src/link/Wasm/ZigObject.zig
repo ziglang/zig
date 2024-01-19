@@ -110,8 +110,9 @@ fn symbol(zig_object: *const ZigObject, index: u32) *Symbol {
 
 /// Frees and invalidates all memory of the incrementally compiled Zig module.
 /// It is illegal behavior to access the `ZigObject` after calling `deinit`.
-pub fn deinit(zig_object: *ZigObject, gpa: std.mem.Allocator) void {
-    for (zig_object.segment_info.values()) |segment_info| {
+pub fn deinit(zig_object: *ZigObject, wasm_file: *Wasm) void {
+    const gpa = wasm_file.base.comp.gpa;
+    for (zig_object.segment_info.items) |segment_info| {
         gpa.free(segment_info.name);
     }
 
@@ -121,9 +122,9 @@ pub fn deinit(zig_object: *ZigObject, gpa: std.mem.Allocator) void {
     {
         var it = zig_object.decls.valueIterator();
         while (it.next()) |atom_index_ptr| {
-            const atom = zig_object.getAtomPtr(atom_index_ptr.*);
+            const atom = wasm_file.getAtomPtr(atom_index_ptr.*);
             for (atom.locals.items) |local_index| {
-                const local_atom = zig_object.getAtomPtr(local_index);
+                const local_atom = wasm_file.getAtomPtr(local_index);
                 local_atom.deinit(gpa);
             }
             atom.deinit(gpa);
@@ -131,9 +132,9 @@ pub fn deinit(zig_object: *ZigObject, gpa: std.mem.Allocator) void {
     }
     {
         for (zig_object.anon_decls.values()) |atom_index| {
-            const atom = zig_object.getAtomPtr(atom_index);
+            const atom = wasm_file.getAtomPtr(atom_index);
             for (atom.locals.items) |local_index| {
-                const local_atom = zig_object.getAtomPtr(local_index);
+                const local_atom = wasm_file.getAtomPtr(local_index);
                 local_atom.deinit(gpa);
             }
             atom.deinit(gpa);
@@ -1158,7 +1159,7 @@ pub fn storeDeclType(zig_object: *ZigObject, gpa: std.mem.Allocator, decl_index:
 /// The symbols in ZigObject are already represented by an atom as we need to store its data.
 /// So rather than creating a new Atom and returning its index, we use this oppertunity to scan
 /// its relocations and create any GOT symbols or function table indexes it may require.
-pub fn parseSymbolIntoAtom(zig_object: *ZigObject, wasm_file: *Wasm, index: u32) Atom.Index {
+pub fn parseSymbolIntoAtom(zig_object: *ZigObject, wasm_file: *Wasm, index: u32) !Atom.Index {
     const gpa = wasm_file.base.comp.gpa;
     const loc: Wasm.SymbolLoc = .{ .file = @intFromEnum(zig_object.index), .index = index };
     const final_index = try wasm_file.getMatchingSegment(zig_object.index, index);

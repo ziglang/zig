@@ -59,7 +59,10 @@ pub fn format(atom: Atom, comptime fmt: []const u8, options: std.fmt.FormatOptio
 
 /// Returns the location of the symbol that represents this `Atom`
 pub fn symbolLoc(atom: Atom) Wasm.SymbolLoc {
-    return .{ .file = atom.file, .index = atom.sym_index };
+    if (atom.file == .null) {
+        return .{ .file = null, .index = atom.sym_index };
+    }
+    return .{ .file = @intFromEnum(atom.file), .index = atom.sym_index };
 }
 
 pub fn getSymbolIndex(atom: Atom) ?u32 {
@@ -80,7 +83,7 @@ pub fn resolveRelocs(atom: *Atom, wasm_bin: *const Wasm) void {
     for (atom.relocs.items) |reloc| {
         const value = atom.relocationValue(reloc, wasm_bin);
         log.debug("Relocating '{s}' referenced in '{s}' offset=0x{x:0>8} value={d}", .{
-            (Wasm.SymbolLoc{ .file = atom.file, .index = reloc.index }).getName(wasm_bin),
+            (Wasm.SymbolLoc{ .file = @intFromEnum(atom.file), .index = reloc.index }).getName(wasm_bin),
             symbol_name,
             reloc.offset,
             value,
@@ -119,7 +122,11 @@ pub fn resolveRelocs(atom: *Atom, wasm_bin: *const Wasm) void {
 /// All values will be represented as a `u64` as all values can fit within it.
 /// The final value must be casted to the correct size.
 fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wasm) u64 {
-    const target_loc = (Wasm.SymbolLoc{ .file = atom.file, .index = relocation.index }).finalLoc(wasm_bin);
+    const target_loc = if (atom.file == .null)
+        (Wasm.SymbolLoc{ .file = null, .index = relocation.index }).finalLoc(wasm_bin)
+    else
+        (Wasm.SymbolLoc{ .file = @intFromEnum(atom.file), .index = relocation.index }).finalLoc(wasm_bin);
+
     const symbol = target_loc.getSymbol(wasm_bin);
     if (relocation.relocation_type != .R_WASM_TYPE_INDEX_LEB and
         symbol.tag != .section and
@@ -135,13 +142,10 @@ fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wa
         .R_WASM_TABLE_INDEX_I64,
         .R_WASM_TABLE_INDEX_SLEB,
         .R_WASM_TABLE_INDEX_SLEB64,
-        => return wasm_bin.function_table.get(.{ .file = atom.file, .index = relocation.index }) orelse 0,
+        => return wasm_bin.function_table.get(.{ .file = @intFromEnum(atom.file), .index = relocation.index }) orelse 0,
         .R_WASM_TYPE_INDEX_LEB => {
-            const file_index = atom.file orelse {
-                return relocation.index;
-            };
-
-            const original_type = wasm_bin.objects.items[file_index].func_types[relocation.index];
+            const obj_file = wasm_bin.file(atom.file) orelse return relocation.index;
+            const original_type = obj_file.funcTypes()[relocation.index];
             return wasm_bin.getTypeIndex(original_type).?;
         },
         .R_WASM_GLOBAL_INDEX_I32,

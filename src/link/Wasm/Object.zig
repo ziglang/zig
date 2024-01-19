@@ -135,7 +135,7 @@ pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8, maybe_max_siz
 
     var is_object_file: bool = false;
     const size = maybe_max_size orelse size: {
-        errdefer gpa.free(object.name);
+        errdefer gpa.free(object.path);
         const stat = try file.stat();
         break :size @as(usize, @intCast(stat.size));
     };
@@ -202,18 +202,17 @@ pub fn deinit(object: *Object, gpa: Allocator) void {
     }
     object.relocatable_data.deinit(gpa);
     object.string_table.deinit(gpa);
-    gpa.free(object.name);
+    gpa.free(object.path);
     object.* = undefined;
 }
 
 /// Finds the import within the list of imports from a given kind and index of that kind.
 /// Asserts the import exists
-pub fn findImport(object: *const Object, index: u32) types.Import {
-    const sym = object.symtable[index];
+pub fn findImport(object: *const Object, sym: Symbol) types.Import {
     var i: u32 = 0;
     return for (object.imports) |import| {
-        if (std.meta.activeTag(import.kind) == sym.tag) {
-            if (i == index) return import;
+        if (std.meta.activeTag(import.kind) == sym.tag.externalType()) {
+            if (i == sym.index) return import;
             i += 1;
         }
     } else unreachable; // Only existing imports are allowed to be found
@@ -231,14 +230,12 @@ fn checkLegacyIndirectFunctionTable(object: *Object) !?Symbol {
         if (sym.tag == .table) table_count += 1;
     }
 
-    const import_table_count = object.importedCountByKind(.table);
-
     // For each import table, we also have a symbol so this is not a legacy object file
-    if (import_table_count == table_count) return null;
+    if (object.imported_tables_count == table_count) return null;
 
     if (table_count != 0) {
         log.err("Expected a table entry symbol for each of the {d} table(s), but instead got {d} symbols.", .{
-            import_table_count,
+            object.imported_tables_count,
             table_count,
         });
         return error.MissingTableSymbols;
@@ -250,7 +247,7 @@ fn checkLegacyIndirectFunctionTable(object: *Object) !?Symbol {
         return error.UnexpectedTable;
     }
 
-    if (import_table_count != 1) {
+    if (object.imported_tables_count != 1) {
         log.err("Found more than one table import, but no representing table symbols", .{});
         return error.MissingTableSymbols;
     }
@@ -519,7 +516,7 @@ fn Parser(comptime ReaderType: type) type {
                         const start = reader.context.bytes_left;
                         var index: u32 = 0;
                         const count = try readLeb(u32, reader);
-                        const imported_function_count = parser.object.importedCountByKind(.function);
+                        const imported_function_count = parser.object.imported_functions_count;
                         var relocatable_data = try std.ArrayList(RelocatableData).initCapacity(gpa, count);
                         defer relocatable_data.deinit();
                         while (index < count) : (index += 1) {
@@ -836,7 +833,7 @@ fn Parser(comptime ReaderType: type) type {
                         defer gpa.free(name);
                         try reader.readNoEof(name);
                         break :name try parser.object.string_table.put(gpa, name);
-                    } else parser.object.findImport(symbol.tag.externalType(), symbol.index).name;
+                    } else parser.object.findImport(symbol).name;
                 },
             }
             return symbol;
@@ -915,7 +912,7 @@ pub fn parseSymbolIntoAtom(object: *Object, wasm: *Wasm, symbol_index: u32) !Ato
     const gpa = comp.gpa;
     const symbol = &object.symtable[symbol_index];
     const relocatable_data: RelocatableData = switch (symbol.tag) {
-        .function => object.relocatable_data.get(.code).?[symbol.index - object.importedCountByKind(.function)],
+        .function => object.relocatable_data.get(.code).?[symbol.index - object.imported_functions_count],
         .data => object.relocatable_data.get(.data).?[symbol.index],
         .section => blk: {
             const data = object.relocatable_data.get(.custom).?;
@@ -955,7 +952,7 @@ pub fn parseSymbolIntoAtom(object: *Object, wasm: *Wasm, symbol_index: u32) !Ato
                 .R_WASM_TABLE_INDEX_SLEB64,
                 => {
                     try wasm.function_table.put(gpa, .{
-                        .file = object.index,
+                        .file = @intFromEnum(object.index),
                         .index = reloc.index,
                     }, 0);
                 },
@@ -966,7 +963,7 @@ pub fn parseSymbolIntoAtom(object: *Object, wasm: *Wasm, symbol_index: u32) !Ato
                     if (sym.tag != .global) {
                         try wasm.got_symbols.append(
                             gpa,
-                            .{ .file = object.index, .index = reloc.index },
+                            .{ .file = @intFromEnum(object.index), .index = reloc.index },
                         );
                     }
                 },

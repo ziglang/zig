@@ -226,8 +226,8 @@ pub const SymbolLoc = struct {
             return new_loc.getSymbol(wasm_file);
         }
         if (loc.file) |object_index| {
-            const object = wasm_file.objects.items[object_index];
-            return &object.symtable[loc.index];
+            const obj_file = wasm_file.file(@enumFromInt(object_index)).?;
+            return obj_file.symbol(loc.index);
         }
         return &wasm_file.synthetic_symbols.items[loc.index];
     }
@@ -238,8 +238,8 @@ pub const SymbolLoc = struct {
             return new_loc.getName(wasm_file);
         }
         if (loc.file) |object_index| {
-            const object = wasm_file.objects.items[object_index];
-            return object.string_table.get(object.symtable[loc.index].name);
+            const obj_file = wasm_file.file(@enumFromInt(object_index)).?;
+            return obj_file.symbolName(loc.index);
         }
         return wasm_file.string_table.get(wasm_file.synthetic_symbols.items[loc.index].name);
     }
@@ -581,12 +581,13 @@ pub fn createEmpty(
     return wasm;
 }
 
-pub fn file(wasm: *Wasm, index: File.Index) ?File {
-    const tag = wasm.files.items(.tags)[index];
+pub fn file(wasm: *const Wasm, index: File.Index) ?File {
+    if (index == .null) return null;
+    const tag = wasm.files.items(.tags)[@intFromEnum(index)];
     return switch (tag) {
         .null => null,
-        .zig_object => .{ .zig_object = &wasm.files.items(.data)[index].zig_object },
-        .object => .{ .object = &wasm.files.items(.data)[index].object },
+        .zig_object => .{ .zig_object = &wasm.files.items(.data)[@intFromEnum(index)].zig_object },
+        .object => .{ .object = &wasm.files.items(.data)[@intFromEnum(index)].object },
     };
 }
 
@@ -678,7 +679,7 @@ pub fn createAtom(wasm: *Wasm, sym_index: u32, file_index: File.Index) !Atom.Ind
     const gpa = wasm.base.comp.gpa;
     const index: Atom.Index = @intCast(wasm.managed_atoms.items.len);
     const atom = try wasm.managed_atoms.addOne(gpa);
-    atom.* = .{ .file_index = file_index, .sym_index = sym_index };
+    atom.* = .{ .file = file_index, .sym_index = sym_index };
     try wasm.symbol_atom.putNoClobber(gpa, .{ .file = null, .index = sym_index }, index);
 
     return index;
@@ -755,18 +756,18 @@ fn requiresTLSReloc(wasm: *const Wasm) bool {
     return false;
 }
 
-fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
+fn resolveSymbolsInObject(wasm: *Wasm, file_index: File.Index) !void {
     const gpa = wasm.base.comp.gpa;
-    const object: Object = wasm.objects.items[object_index];
-    log.debug("Resolving symbols in object: '{s}'", .{object.name});
+    const obj_file = wasm.file(file_index).?;
+    log.debug("Resolving symbols in object: '{s}'", .{obj_file.path()});
 
-    for (object.symtable, 0..) |symbol, i| {
-        const sym_index = @as(u32, @intCast(i));
+    for (obj_file.symbols(), 0..) |symbol, i| {
+        const sym_index: u32 = @intCast(i);
         const location: SymbolLoc = .{
-            .file = object_index,
+            .file = @intFromEnum(file_index),
             .index = sym_index,
         };
-        const sym_name = object.string_table.get(symbol.name);
+        const sym_name = obj_file.string(symbol.name);
         if (mem.eql(u8, sym_name, "__indirect_function_table")) {
             continue;
         }
@@ -775,7 +776,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
         if (symbol.isLocal()) {
             if (symbol.isUndefined()) {
                 log.err("Local symbols are not allowed to reference imports", .{});
-                log.err("  symbol '{s}' defined in '{s}'", .{ sym_name, object.name });
+                log.err("  symbol '{s}' defined in '{s}'", .{ sym_name, obj_file.path() });
                 return error.UndefinedLocal;
             }
             try wasm.resolved_symbols.putNoClobber(gpa, location, {});
@@ -796,9 +797,10 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
         const existing_loc = maybe_existing.value_ptr.*;
         const existing_sym: *Symbol = existing_loc.getSymbol(wasm);
 
-        const existing_file_path = if (existing_loc.file) |file_index| blk: {
-            break :blk wasm.objects.items[file_index].name;
-        } else wasm.name;
+        const existing_file_path = if (existing_loc.file) |existing_file_index|
+            wasm.file(@enumFromInt(existing_file_index)).?.path()
+        else
+            wasm.name;
 
         if (!existing_sym.isUndefined()) outer: {
             if (!symbol.isUndefined()) inner: {
@@ -811,7 +813,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
                 // both are defined and weak, we have a symbol collision.
                 log.err("symbol '{s}' defined multiple times", .{sym_name});
                 log.err("  first definition in '{s}'", .{existing_file_path});
-                log.err("  next definition in '{s}'", .{object.name});
+                log.err("  next definition in '{s}'", .{obj_file.path()});
                 return error.SymbolCollision;
             }
 
@@ -822,24 +824,24 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
         if (symbol.tag != existing_sym.tag) {
             log.err("symbol '{s}' mismatching type '{s}", .{ sym_name, @tagName(symbol.tag) });
             log.err("  first definition in '{s}'", .{existing_file_path});
-            log.err("  next definition in '{s}'", .{object.name});
+            log.err("  next definition in '{s}'", .{obj_file.path()});
             return error.SymbolMismatchingType;
         }
 
         if (existing_sym.isUndefined() and symbol.isUndefined()) {
             // only verify module/import name for function symbols
             if (symbol.tag == .function) {
-                const existing_name = if (existing_loc.file) |file_index| blk: {
-                    const obj = wasm.objects.items[file_index];
-                    const name_index = obj.findImport(symbol.tag.externalType(), existing_sym.index).module_name;
-                    break :blk obj.string_table.get(name_index);
+                const existing_name = if (existing_loc.file) |existing_file_index| blk: {
+                    const existing_obj = wasm.file(@enumFromInt(existing_file_index)).?;
+                    const imp = existing_obj.import(existing_loc.index);
+                    break :blk existing_obj.string(imp.module_name);
                 } else blk: {
                     const name_index = wasm.imports.get(existing_loc).?.module_name;
                     break :blk wasm.string_table.get(name_index);
                 };
 
-                const module_index = object.findImport(symbol.tag.externalType(), symbol.index).module_name;
-                const module_name = object.string_table.get(module_index);
+                const imp = obj_file.import(sym_index);
+                const module_name = obj_file.string(imp.module_name);
                 if (!mem.eql(u8, existing_name, module_name)) {
                     log.err("symbol '{s}' module name mismatch. Expected '{s}', but found '{s}'", .{
                         sym_name,
@@ -847,7 +849,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
                         module_name,
                     });
                     log.err("  first definition in '{s}'", .{existing_file_path});
-                    log.err("  next definition in '{s}'", .{object.name});
+                    log.err("  next definition in '{s}'", .{obj_file.path()});
                     return error.ModuleNameMismatch;
                 }
             }
@@ -863,7 +865,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
             if (existing_ty.mutable != new_ty.mutable or existing_ty.valtype != new_ty.valtype) {
                 log.err("symbol '{s}' mismatching global types", .{sym_name});
                 log.err("  first definition in '{s}'", .{existing_file_path});
-                log.err("  next definition in '{s}'", .{object.name});
+                log.err("  next definition in '{s}'", .{obj_file.path()});
                 return error.GlobalTypeMismatch;
             }
         }
@@ -875,7 +877,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
                 log.err("symbol '{s}' mismatching function signatures.", .{sym_name});
                 log.err("  expected signature {}, but found signature {}", .{ existing_ty, new_ty });
                 log.err("  first definition in '{s}'", .{existing_file_path});
-                log.err("  next definition in '{s}'", .{object.name});
+                log.err("  next definition in '{s}'", .{obj_file.path()});
                 return error.FunctionSignatureMismatch;
             }
         }
@@ -891,7 +893,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
         // simply overwrite with the new symbol
         log.debug("Overwriting symbol '{s}'", .{sym_name});
         log.debug("  old definition in '{s}'", .{existing_file_path});
-        log.debug("  new definition in '{s}'", .{object.name});
+        log.debug("  new definition in '{s}'", .{obj_file.path()});
         try wasm.discarded.putNoClobber(gpa, existing_loc, location);
         maybe_existing.value_ptr.* = location;
         try wasm.globals.put(gpa, sym_name_index, location);
@@ -1190,7 +1192,7 @@ fn validateFeatures(
     // extract all the used, disallowed and required features from each
     // linked object file so we can test them.
     for (wasm.objects.items) |file_index| {
-        const object: Object = wasm.files.items(.data)[file_index].object;
+        const object: Object = wasm.files.items(.data)[@intFromEnum(file_index)].object;
         for (object.features) |feature| {
             const value = @as(u16, @intFromEnum(file_index)) << 1 | @as(u1, 1);
             switch (feature.prefix) {
@@ -1260,7 +1262,7 @@ fn validateFeatures(
     // For each linked object, validate the required and disallowed features
     for (wasm.objects.items) |file_index| {
         var object_used_features = [_]bool{false} ** known_features_count;
-        const object = wasm.files.items(.data)[file_index].object;
+        const object = wasm.files.items(.data)[@intFromEnum(file_index)].object;
         for (object.features) |feature| {
             if (feature.prefix == .disallowed) continue; // already defined in 'disallowed' set.
             // from here a feature is always used
@@ -1362,7 +1364,7 @@ fn checkUndefinedSymbols(wasm: *const Wasm) !void {
         if (symbol.tag == .data) {
             found_undefined_symbols = true;
             const file_name = if (undef.file) |file_index|
-                wasm.file(file_index).?.path()
+                wasm.file(@enumFromInt(file_index)).?.path()
             else
                 wasm.name;
             const symbol_name = undef.getName(wasm);
@@ -1386,7 +1388,7 @@ pub fn deinit(wasm: *Wasm) void {
         gpa.free(segment_info.name);
     }
     if (wasm.zigObjectPtr()) |zig_obj| {
-        zig_obj.deinit(gpa);
+        zig_obj.deinit(wasm);
     }
     for (wasm.objects.items) |obj_index| {
         wasm.file(obj_index).?.object.deinit(gpa);
@@ -1623,8 +1625,8 @@ fn allocateAtoms(wasm: *Wasm) !void {
             // Ensure we get the original symbol, so we verify the correct symbol on whether
             // it is dead or not and ensure an atom is removed when dead.
             // This is required as we may have parsed aliases into atoms.
-            const sym = if (symbol_loc.file) |object_index|
-                wasm.file(object_index).?.symbol(symbol_loc.index).*
+            const sym = if (symbol_loc.file) |file_index|
+                wasm.file(@enumFromInt(file_index)).?.symbol(symbol_loc.index).*
             else
                 wasm.synthetic_symbols.items[symbol_loc.index];
 
@@ -1672,8 +1674,8 @@ fn allocateVirtualAddresses(wasm: *Wasm) void {
 
         const atom = wasm.getAtom(atom_index);
         const merge_segment = wasm.base.comp.config.output_mode != .Obj;
-        const segment_info = if (atom.file) |object_index|
-            wasm.file(object_index).?.segmentInfo()
+        const segment_info = if (atom.file != .null)
+            wasm.file(atom.file).?.segmentInfo()
         else
             wasm.segment_info.values();
         const segment_name = segment_info[symbol.index].outputName(merge_segment);
@@ -1731,16 +1733,17 @@ fn sortDataSegments(wasm: *Wasm) !void {
 /// contain any parameters.
 fn setupInitFunctions(wasm: *Wasm) !void {
     const gpa = wasm.base.comp.gpa;
+    // There's no constructors for Zig so we can simply search through linked object files only.
     for (wasm.objects.items) |file_index| {
-        const object = wasm.files.items(.data)[file_index].object;
+        const object: Object = wasm.files.items(.data)[@intFromEnum(file_index)].object;
         try wasm.init_funcs.ensureUnusedCapacity(gpa, object.init_funcs.len);
         for (object.init_funcs) |init_func| {
             const symbol = object.symtable[init_func.symbol_index];
             const ty: std.wasm.Type = if (symbol.isUndefined()) ty: {
-                const imp: types.Import = object.findImport(.function, symbol.index);
+                const imp: types.Import = object.findImport(symbol);
                 break :ty object.func_types[imp.kind.function];
             } else ty: {
-                const func_index = symbol.index - object.importedCountByKind(.function);
+                const func_index = symbol.index - object.imported_functions_count;
                 const func = object.functions[func_index];
                 break :ty object.func_types[func.type_index];
             };
@@ -1751,10 +1754,10 @@ fn setupInitFunctions(wasm: *Wasm) !void {
             log.debug("appended init func '{s}'\n", .{object.string_table.get(symbol.name)});
             wasm.init_funcs.appendAssumeCapacity(.{
                 .index = init_func.symbol_index,
-                .file = @as(u16, @intCast(file_index)),
+                .file = @intFromEnum(file_index),
                 .priority = init_func.priority,
             });
-            try wasm.mark(.{ .index = init_func.symbol_index, .file = @intCast(file_index) });
+            try wasm.mark(.{ .index = init_func.symbol_index, .file = @intFromEnum(file_index) });
         }
     }
 
@@ -1993,7 +1996,7 @@ fn setupImports(wasm: *Wasm) !void {
         }
 
         log.debug("Symbol '{s}' will be imported from the host", .{symbol_loc.getName(wasm)});
-        const obj_file = wasm.file(file_index).?;
+        const obj_file = wasm.file(@enumFromInt(file_index)).?;
         const import = obj_file.import(symbol_loc.index);
 
         // We copy the import to a new import to ensure the names contain references
@@ -2058,7 +2061,7 @@ fn mergeSections(wasm: *Wasm) !void {
         };
 
         const obj_file = wasm.file(@enumFromInt(file_index)).?;
-        const symbol = obj_file.symbol[sym_loc.index];
+        const symbol = obj_file.symbol(sym_loc.index);
 
         if (symbol.isDead() or symbol.isUndefined()) {
             // Skip undefined symbols as they go in the `import` section
@@ -2422,7 +2425,7 @@ pub fn getMatchingSegment(wasm: *Wasm, file_index: File.Index, symbol_index: u32
             break :blk index;
         },
         .section => {
-            const section_name = file.symbolName(symbol.index);
+            const section_name = obj_file.symbolName(symbol.index);
             if (mem.eql(u8, section_name, ".debug_info")) {
                 return wasm.debug_info_index orelse blk: {
                     wasm.debug_info_index = index;
@@ -2705,8 +2708,8 @@ fn linkWithZld(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) lin
 
     try wasm.parseInputFiles(positionals.items);
 
-    for (wasm.objects.items, 0..) |_, object_index| {
-        try wasm.resolveSymbolsInObject(@as(u16, @intCast(object_index)));
+    for (wasm.objects.items) |object_index| {
+        try wasm.resolveSymbolsInObject(object_index);
     }
 
     var emit_features_count: u32 = 0;
@@ -2788,8 +2791,8 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node)
 
     try wasm.parseInputFiles(positionals.items);
 
-    for (wasm.objects.items, 0..) |_, object_index| {
-        try wasm.resolveSymbolsInObject(@as(u16, @intCast(object_index)));
+    for (wasm.objects.items) |object_index| {
+        try wasm.resolveSymbolsInObject(object_index);
     }
 
     var emit_features_count: u32 = 0;
