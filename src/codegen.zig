@@ -986,13 +986,11 @@ fn genDeclRef(
     } else if (lf.cast(link.File.MachO)) |macho_file| {
         if (is_extern) {
             const name = zcu.intern_pool.stringToSlice(decl.name);
-            const sym_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
-            defer gpa.free(sym_name);
             const lib_name = if (decl.getOwnedVariable(zcu)) |ov|
                 zcu.intern_pool.stringToSliceUnwrap(ov.lib_name)
             else
                 null;
-            const sym_index = try macho_file.getGlobalSymbol(sym_name, lib_name);
+            const sym_index = try macho_file.getGlobalSymbol(name, lib_name);
             macho_file.getSymbol(macho_file.getZigObject().?.symbols.items[sym_index]).flags.needs_got = true;
             return GenResult.mcv(.{ .load_symbol = sym_index });
         }

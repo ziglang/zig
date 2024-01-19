@@ -916,10 +916,7 @@ pub fn updateExports(
             continue;
         }
 
-        const exp_name = try std.fmt.allocPrint(gpa, "_{}", .{exp.opts.name.fmt(&mod.intern_pool)});
-        defer gpa.free(exp_name);
-
-        const name_off = try macho_file.strings.insert(gpa, exp_name);
+        const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
         const global_nlist_index = if (metadata.@"export"(self, macho_file, exp_name)) |exp_index|
             exp_index.*
         else blk: {
@@ -928,7 +925,6 @@ pub fn updateExports(
             break :blk global_nlist_index;
         };
         const global_nlist = &self.symtab.items(.nlist)[global_nlist_index];
-        global_nlist.n_strx = name_off;
         global_nlist.n_value = nlist.n_value;
         global_nlist.n_sect = nlist.n_sect;
         global_nlist.n_type = macho.N_EXT | macho.N_SECT;
@@ -1053,13 +1049,11 @@ pub fn deleteDeclExport(
     macho_file: *MachO,
     decl_index: InternPool.DeclIndex,
     name: InternPool.NullTerminatedString,
-) Allocator.Error!void {
+) void {
     const metadata = self.decls.getPtr(decl_index) orelse return;
 
-    const gpa = macho_file.base.comp.gpa;
     const mod = macho_file.base.comp.module.?;
-    const exp_name = try std.fmt.allocPrint(gpa, "_{s}", .{mod.intern_pool.stringToSlice(name)});
-    defer gpa.free(exp_name);
+    const exp_name = mod.intern_pool.stringToSlice(name);
     const nlist_index = metadata.@"export"(self, macho_file, exp_name) orelse return;
 
     log.debug("deleting export '{s}'", .{exp_name});
@@ -1079,7 +1073,9 @@ pub fn deleteDeclExport(
 pub fn getGlobalSymbol(self: *ZigObject, macho_file: *MachO, name: []const u8, lib_name: ?[]const u8) !u32 {
     _ = lib_name;
     const gpa = macho_file.base.comp.gpa;
-    const off = try macho_file.strings.insert(gpa, name);
+    const sym_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
+    defer gpa.free(sym_name);
+    const off = try macho_file.strings.insert(gpa, sym_name);
     const lookup_gop = try self.globals_lookup.getOrPut(gpa, off);
     if (!lookup_gop.found_existing) {
         const nlist_index = try self.addNlist(gpa);
