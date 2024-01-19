@@ -37,6 +37,8 @@ attributes_map: std.AutoArrayHashMapUnmanaged(void, void),
 attributes_indices: std.ArrayListUnmanaged(u32),
 attributes_extra: std.ArrayListUnmanaged(u32),
 
+function_attributes_set: std.AutoArrayHashMapUnmanaged(FunctionAttributes, void),
+
 globals: std.AutoArrayHashMapUnmanaged(String, Global),
 next_unnamed_global: String,
 next_replaced_global: String,
@@ -8248,6 +8250,8 @@ pub fn init(options: Options) InitError!Builder {
         .attributes_indices = .{},
         .attributes_extra = .{},
 
+        .function_attributes_set = .{},
+
         .globals = .{},
         .next_unnamed_global = @enumFromInt(0),
         .next_replaced_global = .none,
@@ -8384,6 +8388,8 @@ pub fn deinit(self: *Builder) void {
     self.attributes_map.deinit(self.gpa);
     self.attributes_indices.deinit(self.gpa);
     self.attributes_extra.deinit(self.gpa);
+
+    self.function_attributes_set.deinit(self.gpa);
 
     self.globals.deinit(self.gpa);
     self.next_unique_global_id.deinit(self.gpa);
@@ -8825,12 +8831,16 @@ pub fn attrs(self: *Builder, attributes: []Attribute.Index) Allocator.Error!Attr
 }
 
 pub fn fnAttrs(self: *Builder, fn_attributes: []const Attributes) Allocator.Error!FunctionAttributes {
-    return @enumFromInt(try self.attrGeneric(@ptrCast(
+    try self.function_attributes_set.ensureUnusedCapacity(self.gpa, 1);
+    const function_attributes: FunctionAttributes = @enumFromInt(try self.attrGeneric(@ptrCast(
         fn_attributes[0..if (std.mem.lastIndexOfNone(Attributes, fn_attributes, &.{.none})) |last|
             last + 1
         else
             0],
     )));
+
+    _ = self.function_attributes_set.getOrPutAssumeCapacity(function_attributes);
+    return function_attributes;
 }
 
 pub fn addGlobal(self: *Builder, name: String, global: Global) Allocator.Error!Global.Index {
