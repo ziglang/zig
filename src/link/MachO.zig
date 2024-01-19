@@ -591,8 +591,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     self.allocateSegments();
     self.allocateAtoms();
     self.allocateSyntheticSymbols();
-
-    try self.initLinkeditSegment();
+    try self.allocateLinkeditSegment();
 
     state_log.debug("{}", .{self.dumpState()});
 
@@ -2180,6 +2179,18 @@ fn initSegments(self: *MachO) !void {
         });
     }
 
+    // Add __LINKEDIT
+    {
+        const protection = getSegmentProt("__LINKEDIT");
+        self.linkedit_seg_index = @intCast(self.segments.items.len);
+        try self.segments.append(gpa, .{
+            .cmdsize = @sizeOf(macho.segment_command_64),
+            .segname = makeStaticString("__LINKEDIT"),
+            .maxprot = protection,
+            .initprot = protection,
+        });
+    }
+
     const sortFn = struct {
         fn sortFn(ctx: void, lhs: macho.segment_command_64, rhs: macho.segment_command_64) bool {
             _ = ctx;
@@ -2261,10 +2272,11 @@ fn allocateSegments(self: *MachO) void {
         0;
     var fileoff: u64 = 0;
     const index = if (self.pagezero_seg_index) |index| index + 1 else 0;
+    const last_index = self.linkedit_seg_index.?; // TODO: please clean this up!
 
     const slice = self.sections.slice();
     var next_sect_id: u8 = 0;
-    for (self.segments.items[index..], index..) |*seg, seg_id| {
+    for (self.segments.items[index..last_index], index..last_index) |*seg, seg_id| {
         if (mem.indexOf(u8, seg.segName(), "ZIG")) |_| {
             vmaddr = mem.alignForward(u64, seg.vmaddr + seg.vmsize, page_size);
             if (mem.eql(u8, seg.segName(), "__BSS_ZIG")) {
@@ -2390,7 +2402,7 @@ fn allocateSyntheticSymbols(self: *MachO) void {
     }
 }
 
-fn initLinkeditSegment(self: *MachO) !void {
+fn allocateLinkeditSegment(self: *MachO) !void {
     var fileoff: u64 = 0;
     var vmaddr: u64 = 0;
 
@@ -2400,11 +2412,9 @@ fn initLinkeditSegment(self: *MachO) !void {
     }
 
     const page_size = self.getPageSize();
-    self.linkedit_seg_index = try self.addSegment("__LINKEDIT", .{
-        .vmaddr = mem.alignForward(u64, vmaddr, page_size),
-        .fileoff = mem.alignForward(u64, fileoff, page_size),
-        .prot = getSegmentProt("__LINKEDIT"),
-    });
+    const seg = self.getLinkeditSegment();
+    seg.vmaddr = mem.alignForward(u64, vmaddr, page_size);
+    seg.fileoff = mem.alignForward(u64, fileoff, page_size);
 }
 
 fn initDyldInfoSections(self: *MachO) !void {
