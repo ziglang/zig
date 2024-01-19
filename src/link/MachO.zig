@@ -3243,9 +3243,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
     const appendSect = struct {
         fn appendSect(macho_file: *MachO, sect_id: u8, seg_id: u8) void {
             const sect = &macho_file.sections.items(.header)[sect_id];
-            const seg = &macho_file.segments.items[seg_id];
-            seg.cmdsize += @sizeOf(macho.section_64);
-            seg.nsects += 1;
+            const seg = macho_file.segments.items[seg_id];
             sect.addr = seg.vmaddr;
             sect.offset = @intCast(seg.fileoff);
             sect.size = seg.vmsize;
