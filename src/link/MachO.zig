@@ -40,6 +40,7 @@ codesig_cmd: macho.linkedit_data_command = .{ .cmd = .CODE_SIGNATURE },
 pagezero_seg_index: ?u8 = null,
 text_seg_index: ?u8 = null,
 linkedit_seg_index: ?u8 = null,
+text_sect_index: ?u8 = null,
 data_sect_index: ?u8 = null,
 got_sect_index: ?u8 = null,
 stubs_sect_index: ?u8 = null,
@@ -1757,6 +1758,17 @@ fn initOutputSections(self: *MachO) !void {
             atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(self), self);
         }
     }
+    if (self.text_sect_index == null) {
+        self.text_sect_index = try self.addSection("__TEXT", "__text", .{
+            .alignment = switch (self.getTarget().cpu.arch) {
+                .x86_64 => 0,
+                .aarch64 => 2,
+                else => unreachable,
+            },
+            .flags = macho.S_SYMBOL_STUBS |
+                macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+        });
+    }
     if (self.data_sect_index == null) {
         self.data_sect_index = try self.addSection("__DATA", "__data", .{});
     }
@@ -2227,21 +2239,25 @@ fn allocateSections(self: *MachO) !void {
 
     var next_seg_id: u8 = if (self.pagezero_seg_index) |index| index + 1 else 0;
     for (slice.items(.header), slice.items(.segment_id)) |*header, seg_id| {
-        if (seg_id != next_seg_id) {
-            vmaddr = mem.alignForward(u64, vmaddr, page_size);
-            fileoff = mem.alignForward(u32, fileoff, page_size);
-        }
+        if (mem.indexOf(u8, header.segName(), "ZIG")) |_| {
+            vmaddr = header.addr + header.size;
+        } else {
+            if (seg_id != next_seg_id) {
+                vmaddr = mem.alignForward(u64, vmaddr, page_size);
+                fileoff = mem.alignForward(u32, fileoff, page_size);
+            }
 
-        const alignment = try math.powi(u32, 2, header.@"align");
+            const alignment = try math.powi(u32, 2, header.@"align");
 
-        vmaddr = mem.alignForward(u64, vmaddr, alignment);
-        header.addr = vmaddr;
-        vmaddr += header.size;
+            vmaddr = mem.alignForward(u64, vmaddr, alignment);
+            header.addr = vmaddr;
+            vmaddr += header.size;
 
-        if (!header.isZerofill()) {
-            fileoff = mem.alignForward(u32, fileoff, alignment);
-            header.offset = fileoff;
-            fileoff += @intCast(header.size);
+            if (!header.isZerofill()) {
+                fileoff = mem.alignForward(u32, fileoff, alignment);
+                header.offset = fileoff;
+                fileoff += @intCast(header.size);
+            }
         }
 
         next_seg_id = seg_id;
@@ -2260,28 +2276,35 @@ fn allocateSegments(self: *MachO) void {
     const slice = self.sections.slice();
     var next_sect_id: u8 = 0;
     for (self.segments.items[index..], index..) |*seg, seg_id| {
-        seg.vmaddr = vmaddr;
-        seg.fileoff = fileoff;
+        if (mem.indexOf(u8, seg.segName(), "ZIG")) |_| {
+            vmaddr = mem.alignForward(u64, seg.vmaddr + seg.vmsize, page_size);
+            if (mem.eql(u8, seg.segName(), "__BSS_ZIG")) {
+                fileoff = mem.alignForward(u64, seg.fileoff + seg.filesize, page_size);
+            }
+        } else {
+            seg.vmaddr = vmaddr;
+            seg.fileoff = fileoff;
 
-        for (
-            slice.items(.header)[next_sect_id..],
-            slice.items(.segment_id)[next_sect_id..],
-        ) |header, sid| {
-            if (seg_id != sid) break;
+            for (
+                slice.items(.header)[next_sect_id..],
+                slice.items(.segment_id)[next_sect_id..],
+            ) |header, sid| {
+                if (seg_id != sid) break;
 
-            vmaddr = header.addr + header.size;
-            if (!header.isZerofill()) {
-                fileoff = header.offset + header.size;
+                vmaddr = header.addr + header.size;
+                if (!header.isZerofill()) {
+                    fileoff = header.offset + header.size;
+                }
+
+                next_sect_id += 1;
             }
 
-            next_sect_id += 1;
+            vmaddr = mem.alignForward(u64, vmaddr, page_size);
+            fileoff = mem.alignForward(u64, fileoff, page_size);
+
+            seg.vmsize = vmaddr - seg.vmaddr;
+            seg.filesize = fileoff - seg.fileoff;
         }
-
-        vmaddr = mem.alignForward(u64, vmaddr, page_size);
-        fileoff = mem.alignForward(u64, fileoff, page_size);
-
-        seg.vmsize = vmaddr - seg.vmaddr;
-        seg.filesize = fileoff - seg.fileoff;
     }
 }
 

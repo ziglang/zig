@@ -170,6 +170,9 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
         sectname,
         .{ .flags = flags },
     );
+    if (mem.eql(u8, segname, "__TEXT") and mem.eql(u8, sectname, "__text")) {
+        macho_file.text_sect_index = osec;
+    }
     if (mem.eql(u8, segname, "__DATA") and mem.eql(u8, sectname, "__data")) {
         macho_file.data_sect_index = osec;
     }
