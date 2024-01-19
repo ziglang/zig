@@ -32,13 +32,13 @@ pub const ZigGotSection = struct {
 
     pub fn entryOffset(zig_got: ZigGotSection, index: Index, macho_file: *MachO) u64 {
         _ = zig_got;
-        const sect = macho_file.sections.items(.header)[macho_file.zig_got_section_index.?];
+        const sect = macho_file.sections.items(.header)[macho_file.zig_got_sect_index.?];
         return sect.offset + @sizeOf(u64) * index;
     }
 
     pub fn entryAddress(zig_got: ZigGotSection, index: Index, macho_file: *MachO) u64 {
         _ = zig_got;
-        const sect = macho_file.sections.items(.header)[macho_file.zig_got_section_index.?];
+        const sect = macho_file.sections.items(.header)[macho_file.zig_got_sect_index.?];
         return sect.addr + @sizeOf(u64) * index;
     }
 
@@ -50,7 +50,7 @@ pub const ZigGotSection = struct {
     pub fn writeOne(zig_got: *ZigGotSection, macho_file: *MachO, index: Index) !void {
         if (zig_got.dirty) {
             const needed_size = zig_got.size(macho_file);
-            try macho_file.growSection(macho_file.zig_got_section_index.?, needed_size);
+            try macho_file.growSection(macho_file.zig_got_sect_index.?, needed_size);
             zig_got.dirty = false;
         }
         const off = zig_got.entryOffset(index, macho_file);
@@ -77,7 +77,7 @@ pub const ZigGotSection = struct {
         const seg_id = macho_file.sections.items(.segment_id)[macho_file.zig_got_sect_index.?];
         const seg = macho_file.segments.items[seg_id];
 
-        for (0..zig_got.symbols.items.len) |idx| {
+        for (0..zig_got.entries.items.len) |idx| {
             const addr = zig_got.entryAddress(@intCast(idx), macho_file);
             try macho_file.rebase.entries.append(gpa, .{
                 .offset = addr - seg.vmaddr,
