@@ -238,10 +238,8 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             @memcpy(dst, items);
         }
 
-        /// Replace range of elements `list[start..][0..len]` with `new_items`.
-        /// Grows list if `len < new_items.len`.
-        /// Shrinks list if `len > new_items.len`.
-        /// Invalidates element pointers if this ArrayList is resized.
+        /// Grows or shrinks the list as necessary.
+        /// Invalidates element pointers if additional capacity is allocated.
         /// Asserts that the range is in bounds.
         pub fn replaceRange(self: *Self, start: usize, len: usize, new_items: []const T) Allocator.Error!void {
             var unmanaged = self.moveToUnmanaged();
@@ -249,14 +247,13 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return unmanaged.replaceRange(self.allocator, start, len, new_items);
         }
 
-        /// Replace range of elements `list[start..][0..len]` with `new_items`.
-        /// If `len < new_items.len` then it asserts that `.capacity` is
-        /// large enough for the increase in items.
-        /// Invalidates pointers if this ArrayList is resized.
+        /// Grows or shrinks the list as necessary.
+        /// Never invalidates element pointers.
+        /// Asserts the capacity is enough for additional items.
         pub fn replaceRangeAssumeCapacity(self: *Self, start: usize, len: usize, new_items: []const T) void {
             var unmanaged = self.moveToUnmanaged();
-            unmanaged.replaceRangeAssumeCapacity(start, len, new_items);
-            self.* = unmanaged.toManaged(self.allocator);
+            defer self.* = unmanaged.toManaged(self.allocator);
+            return unmanaged.replaceRangeAssumeCapacity(start, len, new_items);
         }
 
         /// Extends the list by 1 element. Allocates more memory as necessary.
@@ -795,11 +792,9 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             @memcpy(dst, items);
         }
 
-        /// Replace range of elements `list[start..][0..len]` with `new_items`
-        /// Grows list if `len < new_items.len`.
-        /// Shrinks list if `len > new_items.len`
-        /// Invalidates element pointers if this ArrayList is resized.
-        /// Asserts that the start index is in bounds or equal to the length.
+        /// Grows or shrinks the list as necessary.
+        /// Invalidates element pointers if additional capacity is allocated.
+        /// Asserts that the range is in bounds.
         pub fn replaceRange(
             self: *Self,
             allocator: Allocator,
@@ -819,10 +814,9 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             }
         }
 
-        /// Replace range of elements `list[start..][0..len]` with `new_items`.
-        /// Grows list if `len < new_items.len`.
-        /// Shrinks list if `len > new_items.len`.
-        /// Invalidates pointers if this ArrayList is resized.
+        /// Grows or shrinks the list as necessary.
+        /// Never invalidates element pointers.
+        /// Asserts the capacity is enough for additional items.
         pub fn replaceRangeAssumeCapacity(self: *Self, start: usize, len: usize, new_items: []const T) void {
             const after_range = start + len;
             const range = self.items[start..after_range];
