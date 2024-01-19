@@ -4640,6 +4640,7 @@ test "while null capture" {
     }
     try expect(sum1 == 3);
 
+    // null capture with an else block
     var sum2: u32 = 0;
     numbers_left = 3;
     while (eventuallyNullSequence()) |value| {
@@ -4647,6 +4648,15 @@ test "while null capture" {
     } else {
         try expect(sum2 == 3);
     }
+
+    // null capture with a continue expression
+    var i: u32 = 0;
+    var sum3: u32 = 0;
+    numbers_left = 3;
+    while (eventuallyNullSequence()) |value| : (i += 1) {
+        sum3 += value;
+    }
+    try expect(i == 3);
 }
 
 var numbers_left: u32 = undefined;
@@ -4927,46 +4937,6 @@ test "if boolean" {
     }
 }
 
-test "if optional" {
-    // If expressions test for null.
-
-    const a: ?u32 = 0;
-    if (a) |value| {
-        try expect(value == 0);
-    } else {
-        unreachable;
-    }
-
-    const b: ?u32 = null;
-    if (b) |_| {
-        unreachable;
-    } else {
-        try expect(true);
-    }
-
-    // The else is not required.
-    if (a) |value| {
-        try expect(value == 0);
-    }
-
-    // To test against null only, use the binary equality operator.
-    if (b == null) {
-        try expect(true);
-    }
-
-    // Access the value by reference using a pointer capture.
-    var c: ?u32 = 3;
-    if (c) |*value| {
-        value.* = 2;
-    }
-
-    if (c) |value| {
-        try expect(value == 2);
-    } else {
-        unreachable;
-    }
-}
-
 test "if error union" {
     // If expressions test for errors.
     // Note the |err| capture on the else.
@@ -5008,6 +4978,51 @@ test "if error union" {
     if (c) |value| {
         try expect(value == 9);
     } else |_| {
+        unreachable;
+    }
+}
+      {#code_end#}
+      {#header_open|if with Optionals#}
+
+      {#code_begin|test|test_if_optionals#}
+const expect = @import("std").testing.expect;
+
+test "if optional" {
+    // If expressions test for null.
+
+    const a: ?u32 = 0;
+    if (a) |value| {
+        try expect(value == 0);
+    } else {
+        unreachable;
+    }
+
+    const b: ?u32 = null;
+    if (b) |_| {
+        unreachable;
+    } else {
+        try expect(true);
+    }
+
+    // The else is not required.
+    if (a) |value| {
+        try expect(value == 0);
+    }
+
+    // To test against null only, use the binary equality operator.
+    if (b == null) {
+        try expect(true);
+    }
+
+    // Access the value by reference using a pointer capture.
+    var c: ?u32 = 3;
+    if (c) |*value| {
+        value.* = 2;
+    }
+
+    if (c) |value| {
+        try expect(value == 2);
+    } else {
         unreachable;
     }
 }
@@ -5056,6 +5071,7 @@ test "if error union with optional" {
     }
 }
       {#code_end#}
+      {#header_close#}
       {#see_also|Optionals|Errors#}
       {#header_close#}
       {#header_open|defer#}
@@ -6379,6 +6395,8 @@ test "optional pointers" {
 }
       {#code_end#}
       {#header_close#}
+
+      {#see_also|while with Optionals|if with Optionals#}
       {#header_close#}
       {#header_open|Casting#}
       <p>
