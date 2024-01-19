@@ -11,7 +11,8 @@ const maxInt = std.math.maxInt;
 
 /// Returns sqrt(x * x + y * y), avoiding unnecessary overflow and underflow.
 ///
-///      Special Cases:
+/// Special Cases:
+///
 /// |   x   |   y   | hypot |
 /// |-------|-------|-------|
 /// | +inf  |  num  | +inf  |
