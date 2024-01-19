@@ -274,7 +274,7 @@ fn writeAtoms(macho_file: *MachO) !void {
             const atom = macho_file.getAtom(atom_index).?;
             assert(atom.flags.alive);
             const off = atom.value - header.addr;
-            @memcpy(code[off..][0..atom.size], atom.getData(macho_file));
+            @memcpy(code[off..][0..atom.size], atom.getFile(macho_file).object.getAtomData(atom.*));
             try atom.writeRelocs(macho_file, code[off..][0..atom.size], &relocs);
         }
 

@@ -128,6 +128,20 @@ pub fn addAtom(self: *ZigObject, macho_file: *MachO) !Symbol.Index {
     return symbol_index;
 }
 
+/// Caller owns the memory.
+pub fn getAtomDataAlloc(self: ZigObject, macho_file: *MachO, atom: Atom) ![]u8 {
+    const gpa = macho_file.base.comp.gpa;
+    assert(atom.file == self.index);
+    const sect = macho_file.sections.items(.header)[atom.out_n_sect];
+    const file_offset = sect.offset + atom.value - sect.addr;
+    const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+    const code = try gpa.alloc(u8, size);
+    errdefer gpa.free(code);
+    const amt = try macho_file.base.file.?.preadAll(code, file_offset);
+    if (amt != code.len) return error.InputOutput;
+    return code;
+}
+
 pub fn getAtomRelocs(self: *ZigObject, atom: Atom) []const Relocation {
     const relocs = self.relocs.items[atom.relocs.pos];
     return relocs.items[0..atom.relocs.len];
@@ -659,7 +673,7 @@ fn updateDeclCode(
 
     if (old_size > 0) {
         const capacity = atom.capacity(macho_file);
-        const need_realloc = code.len > capacity or !required_alignment.check(sym.getAddress(.{}, macho_file));
+        const need_realloc = code.len > capacity or !required_alignment.check(atom.value);
 
         if (need_realloc) {
             try atom.grow(macho_file);
@@ -678,7 +692,7 @@ fn updateDeclCode(
         } else if (code.len < old_size) {
             atom.shrink(macho_file);
         } else if (macho_file.getAtom(atom.next_index) == null) {
-            const needed_size = (sym.getAddress(.{}, macho_file) + code.len) - sect.addr;
+            const needed_size = atom.value + code.len - sect.addr;
             sect.size = needed_size;
         }
     } else {
@@ -696,7 +710,7 @@ fn updateDeclCode(
     }
 
     if (!sect.isZerofill()) {
-        const file_offset = sect.offset + sym.getAddress(.{}, macho_file) - sect.addr;
+        const file_offset = sect.offset + atom.value - sect.addr;
         try macho_file.base.file.?.pwriteAll(code, file_offset);
     }
 }

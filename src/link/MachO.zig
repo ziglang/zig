@@ -596,6 +596,47 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     state_log.debug("{}", .{self.dumpState()});
 
     try self.initDyldInfoSections();
+
+    // Beyond this point, everything has been allocated a virtual address and we can resolve
+    // the relocations, and commit objects to file.
+    if (self.getZigObject()) |zo| {
+        var has_resolve_error = false;
+
+        for (zo.atoms.items) |atom_index| {
+            const atom = self.getAtom(atom_index) orelse continue;
+            if (!atom.flags.alive) continue;
+            const sect = &self.sections.items(.header)[atom.out_n_sect];
+            if (sect.isZerofill()) continue;
+            const code = zo.getAtomDataAlloc(self, atom.*) catch |err| switch (err) {
+                error.InputOutput => {
+                    try self.reportUnexpectedError("fetching code for '{s}' failed", .{
+                        atom.getName(self),
+                    });
+                    return error.FlushFailure;
+                },
+                else => |e| {
+                    try self.reportUnexpectedError("unexpected error while fetching code for '{s}': {s}", .{
+                        atom.getName(self),
+                        @errorName(e),
+                    });
+                    return error.FlushFailure;
+                },
+            };
+            defer gpa.free(code);
+            const file_offset = sect.offset + atom.value - sect.addr;
+            atom.resolveRelocs(self, code) catch |err| switch (err) {
+                error.ResolveFailed => has_resolve_error = true,
+                else => |e| {
+                    try self.reportUnexpectedError("unexpected error while resolving relocations", .{});
+                    return e;
+                },
+            };
+            try self.base.file.?.pwriteAll(code, file_offset);
+        }
+
+        if (has_resolve_error) return error.FlushFailure;
+    }
+
     self.writeAtoms() catch |err| switch (err) {
         error.ResolveFailed => return error.FlushFailure,
         else => |e| {
@@ -1955,6 +1996,28 @@ pub fn sortSections(self: *MachO) !void {
         self.sections.appendAssumeCapacity(slice.get(sorted.index));
     }
 
+    if (self.getZigObject()) |zo| {
+        for (zo.atoms.items) |atom_index| {
+            const atom = self.getAtom(atom_index) orelse continue;
+            if (!atom.flags.alive) continue;
+            atom.out_n_sect = backlinks[atom.out_n_sect];
+        }
+
+        for (zo.symtab.items(.nlist)) |*sym| {
+            if (sym.sect()) {
+                sym.n_sect = backlinks[sym.n_sect];
+            }
+        }
+
+        for (zo.symbols.items) |sym_index| {
+            const sym = self.getSymbol(sym_index);
+            const atom = sym.getAtom(self) orelse continue;
+            if (!atom.flags.alive) continue;
+            if (sym.getFile(self).?.getIndex() != zo.index) continue;
+            sym.out_n_sect = backlinks[sym.out_n_sect];
+        }
+    }
+
     for (self.objects.items) |index| {
         for (self.getFile(index).?.object.atoms.items) |atom_index| {
             const atom = self.getAtom(atom_index) orelse continue;
@@ -1962,6 +2025,7 @@ pub fn sortSections(self: *MachO) !void {
             atom.out_n_sect = backlinks[atom.out_n_sect];
         }
     }
+
     if (self.getInternalObject()) |object| {
         for (object.atoms.items) |atom_index| {
             const atom = self.getAtom(atom_index) orelse continue;
@@ -2517,6 +2581,7 @@ fn writeAtoms(self: *MachO) !void {
             const atom = self.getAtom(atom_index).?;
             assert(atom.flags.alive);
             const off = atom.value - header.addr;
+            @memcpy(buffer[off..][0..atom.size], atom.getFile(self).object.getAtomData(atom.*));
             atom.resolveRelocs(self, buffer[off..][0..atom.size]) catch |err| switch (err) {
                 error.ResolveFailed => has_resolve_error = true,
                 else => |e| return e,
@@ -2757,7 +2822,8 @@ pub fn calcSymtabSize(self: *MachO) !void {
 
     var files = std.ArrayList(File.Index).init(gpa);
     defer files.deinit();
-    try files.ensureTotalCapacityPrecise(self.objects.items.len + self.dylibs.items.len + 1);
+    try files.ensureTotalCapacityPrecise(self.objects.items.len + self.dylibs.items.len + 2);
+    if (self.zig_object) |index| files.appendAssumeCapacity(index);
     for (self.objects.items) |index| files.appendAssumeCapacity(index);
     for (self.dylibs.items) |index| files.appendAssumeCapacity(index);
     if (self.internal_object) |index| files.appendAssumeCapacity(index);
@@ -2816,6 +2882,9 @@ pub fn writeSymtab(self: *MachO, off: u32) !u32 {
     try self.symtab.resize(gpa, cmd.nsyms);
     try self.strtab.ensureUnusedCapacity(gpa, cmd.strsize - 1);
 
+    if (self.getZigObject()) |zo| {
+        zo.writeSymtab(self);
+    }
     for (self.objects.items) |index| {
         self.getFile(index).?.writeSymtab(self);
     }
@@ -3752,7 +3821,7 @@ fn reportDependencyError(
     try err.addNote(self, "a dependency of {}", .{self.getFile(parent).?.fmtPath()});
 }
 
-fn reportUnexpectedError(self: *MachO, comptime format: []const u8, args: anytype) error{OutOfMemory}!void {
+pub fn reportUnexpectedError(self: *MachO, comptime format: []const u8, args: anytype) error{OutOfMemory}!void {
     var err = try self.addErrorWithNotes(1);
     try err.addMsg(self, format, args);
     try err.addNote(self, "please report this as a linker bug on https://github.com/ziglang/zig/issues/new/choose", .{});
