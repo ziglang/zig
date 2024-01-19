@@ -1156,10 +1156,8 @@ fn addOne(number: i32) i32 {
         {#link|identifier|Identifiers#}, followed by a {#link|block|Blocks#} containing any valid Zig code that
         is allowed in a {#link|function|Functions#}.
       </p>
-      <aside>
-        By convention, non-named tests should only be used to {#link|make other tests run|Nested Container Tests#}.
-        Non-named tests cannot be {#link|filtered|Skip Tests#}.
-      </aside>
+      <p>Non-named test blocks always run during test builds and are exempt from
+        {#link|Skip Tests#}.</p>
       <p>
         Test declarations are similar to {#link|Functions#}: they have a return type and a block of code. The implicit
         return type of {#syntax#}test{#endsyntax#} is the {#link|Error Union Type#} {#syntax#}anyerror!void{#endsyntax#},
@@ -5009,12 +5007,12 @@ test "if error union with optional" {
       {#see_also|Optionals|Errors#}
       {#header_close#}
       {#header_open|defer#}
+      <p>Executes an expression unconditionally at scope exit.</p>
       {#code_begin|test|test_defer#}
 const std = @import("std");
 const expect = std.testing.expect;
 const print = std.debug.print;
 
-// defer will execute an expression at the end of the current scope.
 fn deferExample() !usize {
     var a: usize = 1;
 
@@ -5031,10 +5029,14 @@ fn deferExample() !usize {
 test "defer basics" {
     try expect((try deferExample()) == 5);
 }
+      {#code_end#}
+      <p>Defer expressions are evaluated in reverse order.</p>
+      {#code_begin|test|defer_unwind#}
+const std = @import("std");
+const expect = std.testing.expect;
+const print = std.debug.print;
 
-// If multiple defer statements are specified, they will be executed in
-// the reverse order they were run.
-fn deferUnwindExample() void {
+test "defer unwinding" {
     print("\n", .{});
 
     defer {
@@ -5050,63 +5052,15 @@ fn deferUnwindExample() void {
         }
     }
 }
-
-test "defer unwinding" {
-    deferUnwindExample();
-}
       {#code_end#}
+      <p>Inside a defer expression the return statement is not allowed.</p>
       {#code_begin|test_err|test_invalid_defer|cannot return from defer expression#}
-// Inside a defer expression the return statement is not allowed.
 fn deferInvalidExample() !void {
     defer {
         return error.DeferError;
     }
 
     return error.DeferError;
-}
-      {#code_end#}
-      {#code_begin|test|test_errdefer#}
-const std = @import("std");
-const print = std.debug.print;
-
-// The errdefer keyword is similar to defer, but will only execute if the
-// scope returns with an error.
-//
-// This is especially useful in allowing a function to clean up properly
-// on error, and replaces goto error handling tactics as seen in c.
-fn deferErrorExample(is_error: bool) !void {
-    print("\nstart of function\n", .{});
-
-    // This will always be executed on exit
-    defer {
-        print("end of function\n", .{});
-    }
-
-    errdefer {
-        print("encountered an error!\n", .{});
-    }
-
-    if (is_error) {
-        return error.DeferError;
-    }
-}
-
-// The errdefer keyword also supports an alternative syntax to capture the
-// generated error.
-//
-// This is useful for printing an additional error message during clean up.
-fn deferErrorCaptureExample() !void {
-    errdefer |err| {
-        std.debug.print("the error is {s}\n", .{@errorName(err)});
-    }
-
-    return error.DeferError;
-}
-
-test "errdefer unwinding" {
-    deferErrorExample(false) catch {};
-    deferErrorExample(true) catch {};
-    deferErrorCaptureExample() catch {};
 }
       {#code_end#}
       {#see_also|Errors#}
