@@ -7085,10 +7085,10 @@ pub const AtomicOrdering = enum(u3) {
     none = 0,
     unordered = 1,
     monotonic = 2,
-    acquire = 4,
-    release = 5,
-    acq_rel = 6,
-    seq_cst = 7,
+    acquire = 3,
+    release = 4,
+    acq_rel = 5,
+    seq_cst = 6,
 
     pub fn format(
         self: AtomicOrdering,
