@@ -424,7 +424,8 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             else => unreachable,
                         };
                     } else if (lower.bin_file.cast(link.File.MachO)) |macho_file| {
-                        const macho_sym = macho_file.getSymbol(sym.sym_index);
+                        const sym_index = macho_file.getZigObject().?.symbols.items[sym.sym_index];
+                        const macho_sym = macho_file.getSymbol(sym_index);
 
                         if (macho_sym.flags.tlv) {
                             @panic("TODO lower TLS access on macOS");

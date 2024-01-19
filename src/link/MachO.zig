@@ -1617,6 +1617,8 @@ fn scanRelocs(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    if (self.getZigObject()) |zo| try zo.scanRelocs(self);
+
     for (self.objects.items) |index| {
         try self.getFile(index).?.object.scanRelocs(self);
     }

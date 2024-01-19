@@ -51,10 +51,11 @@ pub fn emitMir(emit: *Emit) Error!void {
                 } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
                     // Add relocation to the decl.
                     const atom = macho_file.getSymbol(symbol.atom_index).getAtom(macho_file).?;
+                    const sym_index = macho_file.getZigObject().?.symbols.items[symbol.sym_index];
                     try atom.addReloc(macho_file, .{
                         .tag = .@"extern",
                         .offset = end_offset - 4,
-                        .target = symbol.sym_index,
+                        .target = sym_index,
                         .addend = 0,
                         .type = .branch,
                         .meta = .{
@@ -170,7 +171,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     try atom.addReloc(macho_file, .{
                         .tag = .@"extern",
                         .offset = @intCast(end_offset - 4),
-                        .target = data.sym_index,
+                        .target = sym_index,
                         .addend = 0,
                         .type = @"type",
                         .meta = .{
