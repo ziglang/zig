@@ -346,7 +346,7 @@ pub fn getDeclVAddr(
     try parent_atom.addReloc(macho_file, .{
         .tag = .@"extern",
         .offset = @intCast(reloc_info.offset),
-        .target = sym.nlist_idx,
+        .target = sym_index,
         .addend = reloc_info.addend,
         .type = .unsigned,
         .meta = .{
@@ -372,7 +372,7 @@ pub fn getAnonDeclVAddr(
     try parent_atom.addReloc(macho_file, .{
         .tag = .@"extern",
         .offset = @intCast(reloc_info.offset),
-        .target = sym.nlist_idx,
+        .target = sym_index,
         .addend = reloc_info.addend,
         .type = .unsigned,
         .meta = .{
@@ -1102,15 +1102,17 @@ pub fn getOrCreateMetadataForDecl(
     const gop = try self.decls.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
+        _ = any_non_single_threaded;
         const sym_index = try self.addAtom(macho_file);
         const mod = macho_file.base.comp.module.?;
         const decl = mod.declPtr(decl_index);
+        _ = decl;
         const sym = macho_file.getSymbol(sym_index);
-        if (decl.getOwnedVariable(mod)) |variable| {
-            if (variable.is_threadlocal and any_non_single_threaded) {
-                sym.flags.tlv = true;
-            }
-        }
+        // if (decl.getOwnedVariable(mod)) |variable| {
+        //     if (variable.is_threadlocal and any_non_single_threaded) {
+        //         sym.flags.tlv = true;
+        //     }
+        // }
         if (!sym.flags.tlv) {
             sym.flags.needs_zig_got = true;
         }

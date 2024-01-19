@@ -24,6 +24,7 @@ pub const ZigGotSection = struct {
         const entry = &zig_got.entries.items[index];
         entry.* = sym_index;
         const symbol = macho_file.getSymbol(sym_index);
+        assert(symbol.flags.needs_zig_got);
         symbol.flags.has_zig_got = true;
         try symbol.addExtra(.{ .zig_got = index }, macho_file);
         return index;
