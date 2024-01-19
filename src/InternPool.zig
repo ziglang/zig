@@ -6186,8 +6186,6 @@ fn finishFuncInstance(
         .generation = generation,
         .is_pub = fn_owner_decl.is_pub,
         .is_exported = fn_owner_decl.is_exported,
-        .has_linksection_or_addrspace = fn_owner_decl.has_linksection_or_addrspace,
-        .has_align = fn_owner_decl.has_align,
         .alive = true,
         .kind = .anon,
     });
