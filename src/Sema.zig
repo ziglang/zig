@@ -13117,6 +13117,7 @@ fn validateErrSetSwitch(
                     .defer_err_code,
                     .err_union_code,
                     .ret_err_value_code,
+                    .save_err_ret_index,
                     .restore_err_ret_index,
                     .is_non_err,
                     .ret_is_non_err,

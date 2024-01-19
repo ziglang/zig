@@ -6919,6 +6919,8 @@ fn switchExprErrUnion(
     };
     assert(node_tags[switch_node] == .@"switch" or node_tags[switch_node] == .switch_comma);
 
+    const do_err_trace = astgen.fn_block != null;
+
     const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
     const case_nodes = tree.extra_data[extra.start..extra.end];
 
@@ -7304,10 +7306,14 @@ fn switchExprErrUnion(
             case_scope.instructions_top = parent_gz.instructions.items.len;
             defer case_scope.unstack();
 
+            if (do_err_trace and nodeMayAppendToErrorTrace(tree, operand_node))
+                _ = try case_scope.addSaveErrRetIndex(.always);
+
             try case_scope.addDbgBlockBegin();
             if (dbg_var_name != .empty) {
                 try case_scope.addDbgVar(.dbg_var_val, dbg_var_name, dbg_var_inst);
             }
+
             const target_expr_node = case.ast.target_expr;
             const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_info, target_expr_node);
             // check capture_scope, not err_scope to avoid false positive unused error capture
@@ -7318,7 +7324,17 @@ fn switchExprErrUnion(
                 any_uses_err_capture = true;
             }
             try case_scope.addDbgBlockEnd();
+
             if (!parent_gz.refIsNoReturn(case_result)) {
+                if (do_err_trace)
+                    try restoreErrRetIndex(
+                        &case_scope,
+                        .{ .block = switch_block },
+                        block_scope.break_result_info,
+                        target_expr_node,
+                        case_result,
+                    );
+
                 _ = try case_scope.addBreakWithSrcNode(.@"break", switch_block, case_result, target_expr_node);
             }
 
