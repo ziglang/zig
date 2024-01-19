@@ -596,3 +596,12 @@ test "pointer to alias behaves same as pointer to function" {
     _ = &a;
     try std.testing.expect(S.foo() == a());
 }
+
+test "comptime parameters don't have to be marked comptime if only called at comptime" {
+    const S = struct {
+        fn foo(x: comptime_int, y: comptime_int) u32 {
+            return x + y;
+        }
+    };
+    comptime std.debug.assert(S.foo(5, 6) == 11);
+}
