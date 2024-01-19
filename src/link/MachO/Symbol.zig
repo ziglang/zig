@@ -162,7 +162,7 @@ pub fn getOrCreateZigGotEntry(symbol: *Symbol, symbol_index: Index, macho_file: 
     return .{ .found_existing = false, .index = index };
 }
 
-pub fn zigGotAddress(symbol: Symbol, macho_file: *MachO) u64 {
+pub fn getZigGotAddress(symbol: Symbol, macho_file: *MachO) u64 {
     if (!symbol.flags.has_zig_got) return 0;
     const extras = symbol.getExtra(macho_file).?;
     return macho_file.zig_got.entryAddress(extras.zig_got, macho_file);

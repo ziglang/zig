@@ -34,6 +34,13 @@ pub fn getGotTargetAddress(rel: Relocation, macho_file: *MachO) u64 {
     };
 }
 
+pub fn getZigGotTargetAddress(rel: Relocation, macho_file: *MachO) u64 {
+    return switch (rel.tag) {
+        .local => 0,
+        .@"extern" => rel.getTargetSymbol(macho_file).getZigGotAddress(macho_file),
+    };
+}
+
 pub fn getRelocAddend(rel: Relocation, cpu_arch: std.Target.Cpu.Arch) i64 {
     const addend: i64 = switch (rel.type) {
         .signed => 0,
