@@ -35,7 +35,6 @@ void ProcDestroy(Processor *proc) {
 #if !SANITIZER_GO
   AllocatorProcFinish(proc);
 #endif
-  ctx->clock_alloc.FlushCache(&proc->clock_cache);
   ctx->metamap.OnProcIdle(proc);
   if (common_flags()->detect_deadlocks)
      ctx->dd->DestroyPhysicalThread(proc->dd_pt);

@@ -662,7 +662,11 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     P.AEAD.encrypt(ciphertext, auth_tag, &out_cleartext, ad, nonce, p.client_handshake_key);
 
                                     const both_msgs = client_change_cipher_spec_msg ++ finished_msg;
-                                    try stream.writeAll(&both_msgs);
+                                    var both_msgs_vec = [_]std.os.iovec_const{.{
+                                        .iov_base = &both_msgs,
+                                        .iov_len = both_msgs.len,
+                                    }};
+                                    try stream.writevAll(&both_msgs_vec);
 
                                     const client_secret = hkdfExpandLabel(P.Hkdf, p.master_secret, "c ap traffic", &handshake_hash, P.Hash.digest_length);
                                     const server_secret = hkdfExpandLabel(P.Hkdf, p.master_secret, "s ap traffic", &handshake_hash, P.Hash.digest_length);
@@ -801,9 +805,9 @@ fn prepareCiphertextRecord(
             const close_notify_alert_reserved = tls.close_notify_alert.len + overhead_len;
             while (true) {
                 const encrypted_content_len: u16 = @intCast(@min(
-                    @min(bytes.len - bytes_i, max_ciphertext_len - 1),
-                    ciphertext_buf.len - close_notify_alert_reserved -
-                        overhead_len - ciphertext_end,
+                    @min(bytes.len - bytes_i, tls.max_cipertext_inner_record_len),
+                    ciphertext_buf.len -|
+                        (close_notify_alert_reserved + overhead_len + ciphertext_end),
                 ));
                 if (encrypted_content_len == 0) return .{
                     .iovec_end = iovec_end,

@@ -12,16 +12,24 @@
 // the lack of interface that would tell us about the Dynamic TLS (DTLS).
 // https://sourceware.org/bugzilla/show_bug.cgi?id=16291
 //
-// The matters get worse because the glibc implementation changed between
-// 2.18 and 2.19:
-// https://groups.google.com/forum/#!topic/address-sanitizer/BfwYD8HMxTM
-//
-// Before 2.19, every DTLS chunk is allocated with __libc_memalign,
+// Before 2.25: every DTLS chunk is allocated with __libc_memalign,
 // which we intercept and thus know where is the DTLS.
-// Since 2.19, DTLS chunks are allocated with __signal_safe_memalign,
-// which is an internal function that wraps a mmap call, neither of which
-// we can intercept. Luckily, __signal_safe_memalign has a simple parseable
-// header which we can use.
+//
+// Since 2.25: DTLS chunks are allocated with malloc. We could co-opt
+// the malloc interceptor to keep track of the last allocation, similar
+// to how we handle __libc_memalign; however, this adds some overhead
+// (since malloc, unlike __libc_memalign, is commonly called), and
+// requires care to avoid false negatives for LeakSanitizer.
+// Instead, we rely on our internal allocators - which keep track of all
+// its allocations - to determine if an address points to a malloc
+// allocation.
+//
+// There exists a since-deprecated version of Google's internal glibc fork
+// that used __signal_safe_memalign. DTLS_on_tls_get_addr relied on a
+// heuristic check (is the allocation 16 bytes from the start of a page
+// boundary?), which was sometimes erroneous:
+//     https://bugs.chromium.org/p/chromium/issues/detail?id=1275223#c15
+// Since that check has no practical use anymore, we have removed it.
 //
 //===----------------------------------------------------------------------===//
 

@@ -11,8 +11,8 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the hyperbolic tangent of z.
-pub fn tanh(z: anytype) @TypeOf(z) {
-    const T = @TypeOf(z.re);
+pub fn tanh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
+    const T = @TypeOf(z.re, z.im);
     return switch (T) {
         f32 => tanh32(z),
         f64 => tanh64(z),

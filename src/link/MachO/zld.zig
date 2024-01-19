@@ -55,7 +55,7 @@ pub fn linkWithZld(
         // We are about to obtain this lock, so here we give other processes a chance first.
         macho_file.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 10);
+        comptime assert(Compilation.link_hash_implementation_version == 11);
 
         for (objects) |obj| {
             _ = try man.addFile(obj.path, null);

@@ -84,9 +84,11 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
     try self.shdrs.ensureTotalCapacityPrecise(gpa, shdrs.len);
 
     for (shdrs, 0..) |shdr, i| {
-        if (self.data.len < shdr.sh_offset or self.data.len < shdr.sh_offset + shdr.sh_size) {
-            try elf_file.reportParseError2(self.index, "corrupted section header", .{});
-            return error.MalformedObject;
+        if (shdr.sh_type != elf.SHT_NOBITS) {
+            if (self.data.len < shdr.sh_offset or self.data.len < shdr.sh_offset + shdr.sh_size) {
+                try elf_file.reportParseError2(self.index, "corrupted section header", .{});
+                return error.MalformedObject;
+            }
         }
         self.shdrs.appendAssumeCapacity(try ElfShdr.fromElf64Shdr(shdr));
         switch (shdr.sh_type) {

@@ -591,7 +591,7 @@ test "bit field access" {
     try expect(getA(&data) == 1);
     try expect(getB(&data) == 2);
     try expect(getC(&data) == 3);
-    try comptime expect(@sizeOf(BitField1) == 1);
+    comptime assert(@sizeOf(BitField1) == 1);
 
     data.b += 1;
     try expect(data.b == 3);
@@ -730,7 +730,7 @@ test "packed struct with u0 field access" {
     };
     var s = S{ .f0 = 0 };
     _ = &s;
-    try comptime expect(s.f0 == 0);
+    comptime assert(s.f0 == 0);
 }
 
 test "access to global struct fields" {
@@ -947,7 +947,7 @@ test "comptime struct field" {
 
     var foo: T = undefined;
     _ = &foo;
-    try comptime expect(foo.b == 1234);
+    comptime assert(foo.b == 1234);
 }
 
 test "tuple element initialized with fn call" {

@@ -90,6 +90,8 @@ pub fn unescapeString(allocator: std.mem.Allocator, input: []const u8) error{Out
                 };
                 inptr += 2;
                 outsize += 1;
+            } else {
+                outsize += 1;
             }
         } else {
             inptr += 1;
@@ -115,6 +117,9 @@ pub fn unescapeString(allocator: std.mem.Allocator, input: []const u8) error{Out
                 output[outptr] = value;
 
                 inptr += 2;
+                outptr += 1;
+            } else {
+                output[outptr] = input[inptr - 1];
                 outptr += 1;
             }
         } else {
@@ -313,7 +318,7 @@ pub fn format(
 ) @TypeOf(writer).Error!void {
     _ = options;
 
-    const scheme = comptime std.mem.indexOf(u8, fmt, ":") != null or fmt.len == 0;
+    const scheme = comptime std.mem.indexOf(u8, fmt, ";") != null or fmt.len == 0;
     const authentication = comptime std.mem.indexOf(u8, fmt, "@") != null or fmt.len == 0;
     const authority = comptime std.mem.indexOf(u8, fmt, "+") != null or fmt.len == 0;
     const path = comptime std.mem.indexOf(u8, fmt, "/") != null or fmt.len == 0;
@@ -353,53 +358,111 @@ pub fn parse(text: []const u8) ParseError!Uri {
     return uri;
 }
 
-/// Resolves a URI against a base URI, conforming to RFC 3986, Section 5.
-/// arena owns any memory allocated by this function.
-pub fn resolve(Base: Uri, R: Uri, strict: bool, arena: std.mem.Allocator) !Uri {
-    var T: Uri = undefined;
+/// Implementation of RFC 3986, Section 5.2.4. Removes dot segments from a URI path.
+///
+/// `std.fs.path.resolvePosix` is not sufficient here because it may return relative paths and does not preserve trailing slashes.
+fn removeDotSegments(allocator: std.mem.Allocator, paths: []const []const u8) std.mem.Allocator.Error![]const u8 {
+    var result = std.ArrayList(u8).init(allocator);
+    defer result.deinit();
 
-    if (R.scheme.len > 0 and !((!strict) and (std.mem.eql(u8, R.scheme, Base.scheme)))) {
-        T.scheme = R.scheme;
-        T.user = R.user;
-        T.host = R.host;
-        T.port = R.port;
-        T.path = try std.fs.path.resolvePosix(arena, &.{ "/", R.path });
-        T.query = R.query;
-    } else {
-        if (R.host) |host| {
-            T.user = R.user;
-            T.host = host;
-            T.port = R.port;
-            T.path = R.path;
-            T.path = try std.fs.path.resolvePosix(arena, &.{ "/", R.path });
-            T.query = R.query;
-        } else {
-            if (R.path.len == 0) {
-                T.path = Base.path;
-                if (R.query) |query| {
-                    T.query = query;
-                } else {
-                    T.query = Base.query;
+    for (paths) |p| {
+        var it = std.mem.tokenizeScalar(u8, p, '/');
+        while (it.next()) |component| {
+            if (std.mem.eql(u8, component, ".")) {
+                continue;
+            } else if (std.mem.eql(u8, component, "..")) {
+                if (result.items.len == 0)
+                    continue;
+
+                while (true) {
+                    const ends_with_slash = result.items[result.items.len - 1] == '/';
+                    result.items.len -= 1;
+                    if (ends_with_slash or result.items.len == 0) break;
                 }
             } else {
-                if (R.path[0] == '/') {
-                    T.path = try std.fs.path.resolvePosix(arena, &.{ "/", R.path });
-                } else {
-                    T.path = try std.fs.path.resolvePosix(arena, &.{ "/", Base.path, R.path });
-                }
-                T.query = R.query;
+                try result.ensureUnusedCapacity(1 + component.len);
+                result.appendAssumeCapacity('/');
+                result.appendSliceAssumeCapacity(component);
             }
-
-            T.user = Base.user;
-            T.host = Base.host;
-            T.port = Base.port;
         }
-        T.scheme = Base.scheme;
     }
 
-    T.fragment = R.fragment;
+    // ensure a trailing slash is kept
+    const last_path = paths[paths.len - 1];
+    if (last_path.len > 0 and last_path[last_path.len - 1] == '/') {
+        try result.append('/');
+    }
 
-    return T;
+    return result.toOwnedSlice();
+}
+
+/// Resolves a URI against a base URI, conforming to RFC 3986, Section 5.
+///
+/// Assumes `arena` owns all memory in `base` and `ref`. `arena` will own all memory in the returned URI.
+pub fn resolve(base: Uri, ref: Uri, strict: bool, arena: std.mem.Allocator) std.mem.Allocator.Error!Uri {
+    var target: Uri = Uri{
+        .scheme = "",
+        .user = null,
+        .password = null,
+        .host = null,
+        .port = null,
+        .path = "",
+        .query = null,
+        .fragment = null,
+    };
+
+    if (ref.scheme.len > 0 and (strict or !std.mem.eql(u8, ref.scheme, base.scheme))) {
+        target.scheme = ref.scheme;
+        target.user = ref.user;
+        target.host = ref.host;
+        target.port = ref.port;
+        target.path = try removeDotSegments(arena, &.{ref.path});
+        target.query = ref.query;
+    } else {
+        target.scheme = base.scheme;
+        if (ref.host) |host| {
+            target.user = ref.user;
+            target.host = host;
+            target.port = ref.port;
+            target.path = ref.path;
+            target.path = try removeDotSegments(arena, &.{ref.path});
+            target.query = ref.query;
+        } else {
+            if (ref.path.len == 0) {
+                target.path = base.path;
+                target.query = ref.query orelse base.query;
+            } else {
+                if (ref.path[0] == '/') {
+                    target.path = try removeDotSegments(arena, &.{ref.path});
+                } else {
+                    target.path = try removeDotSegments(arena, &.{ std.fs.path.dirnamePosix(base.path) orelse "", ref.path });
+                }
+                target.query = ref.query;
+            }
+
+            target.user = base.user;
+            target.host = base.host;
+            target.port = base.port;
+        }
+    }
+
+    target.fragment = ref.fragment;
+
+    return target;
+}
+
+test resolve {
+    const base = try parse("http://a/b/c/d;p?q");
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    try std.testing.expectEqualDeep(try parse("http://a/b/c/blog/"), try base.resolve(try parseWithoutScheme("blog/"), true, arena.allocator()));
+    try std.testing.expectEqualDeep(try parse("http://a/b/c/blog/?k"), try base.resolve(try parseWithoutScheme("blog/?k"), true, arena.allocator()));
+    try std.testing.expectEqualDeep(try parse("http://a/b/blog/"), try base.resolve(try parseWithoutScheme("../blog/"), true, arena.allocator()));
+    try std.testing.expectEqualDeep(try parse("http://a/b/blog"), try base.resolve(try parseWithoutScheme("../blog"), true, arena.allocator()));
+    try std.testing.expectEqualDeep(try parse("http://e"), try base.resolve(try parseWithoutScheme("//e"), true, arena.allocator()));
+    try std.testing.expectEqualDeep(try parse("https://a:1/"), try base.resolve(try parse("https://a:1/"), true, arena.allocator()));
 }
 
 const SliceReader = struct {
@@ -758,6 +821,10 @@ test "URI unescaping" {
     defer std.testing.allocator.free(actual);
 
     try std.testing.expectEqualSlices(u8, expected, actual);
+
+    const decoded = try unescapeString(std.testing.allocator, "/abc%");
+    defer std.testing.allocator.free(decoded);
+    try std.testing.expectEqualStrings("/abc%", decoded);
 }
 
 test "URI query escaping" {
@@ -783,7 +850,7 @@ test "format" {
     };
     var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();
-    try uri.format(":/?#", .{}, buf.writer());
+    try buf.writer().print("{;/?#}", .{uri});
     try std.testing.expectEqualSlices(u8, "file:/foo/bar/baz", buf.items);
 }
 

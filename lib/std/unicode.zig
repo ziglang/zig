@@ -69,6 +69,19 @@ pub fn utf8Encode(c: u21, out: []u8) !u3 {
     return length;
 }
 
+pub inline fn utf8EncodeComptime(comptime c: u21) [
+    utf8CodepointSequenceLength(c) catch |err|
+        @compileError(@errorName(err))
+]u8 {
+    comptime var result: [
+        utf8CodepointSequenceLength(c) catch
+            unreachable
+    ]u8 = undefined;
+    comptime assert((utf8Encode(c, &result) catch |err|
+        @compileError(@errorName(err))) == result.len);
+    return result;
+}
+
 const Utf8DecodeError = Utf8Decode2Error || Utf8Decode3Error || Utf8Decode4Error;
 
 /// Decodes the UTF-8 codepoint encoded in the given slice of bytes.
@@ -202,7 +215,7 @@ pub fn utf8CountCodepoints(s: []const u8) !usize {
 pub fn utf8ValidateSlice(input: []const u8) bool {
     var remaining = input;
 
-    const chunk_len = std.simd.suggestVectorSize(u8) orelse 1;
+    const chunk_len = std.simd.suggestVectorLength(u8) orelse 1;
     const Chunk = @Vector(chunk_len, u8);
 
     // Fast path. Check for and skip ASCII characters at the start of the input.
@@ -525,6 +538,13 @@ fn testUtf8Encode() !void {
     try testing.expect(array[3] == 0b10001000);
 }
 
+test "utf8 encode comptime" {
+    try testing.expectEqualSlices(u8, "€", &utf8EncodeComptime('€'));
+    try testing.expectEqualSlices(u8, "$", &utf8EncodeComptime('$'));
+    try testing.expectEqualSlices(u8, "¢", &utf8EncodeComptime('¢'));
+    try testing.expectEqualSlices(u8, "𐍈", &utf8EncodeComptime('𐍈'));
+}
+
 test "utf8 encode error" {
     try comptime testUtf8EncodeError();
     try testUtf8EncodeError();
@@ -758,7 +778,7 @@ pub fn utf16leToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) ![]u8 
 
     var remaining = utf16le;
     if (builtin.zig_backend != .stage2_x86_64) {
-        const chunk_len = std.simd.suggestVectorSize(u16) orelse 1;
+        const chunk_len = std.simd.suggestVectorLength(u16) orelse 1;
         const Chunk = @Vector(chunk_len, u16);
 
         // Fast path. Check for and encode ASCII characters at the start of the input.
@@ -801,7 +821,7 @@ pub fn utf16leToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) ![:0]
 
     var remaining = utf16le;
     if (builtin.zig_backend != .stage2_x86_64) {
-        const chunk_len = std.simd.suggestVectorSize(u16) orelse 1;
+        const chunk_len = std.simd.suggestVectorLength(u16) orelse 1;
         const Chunk = @Vector(chunk_len, u16);
 
         // Fast path. Check for and encode ASCII characters at the start of the input.
@@ -842,7 +862,7 @@ pub fn utf16leToUtf8(utf8: []u8, utf16le: []const u16) !usize {
 
     var remaining = utf16le;
     if (builtin.zig_backend != .stage2_x86_64) {
-        const chunk_len = std.simd.suggestVectorSize(u16) orelse 1;
+        const chunk_len = std.simd.suggestVectorLength(u16) orelse 1;
         const Chunk = @Vector(chunk_len, u16);
 
         // Fast path. Check for and encode ASCII characters at the start of the input.
@@ -941,7 +961,7 @@ pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u1
     var remaining = utf8;
     // Need support for std.simd.interlace
     if (builtin.zig_backend != .stage2_x86_64 and comptime !builtin.cpu.arch.isMIPS()) {
-        const chunk_len = std.simd.suggestVectorSize(u8) orelse 1;
+        const chunk_len = std.simd.suggestVectorLength(u8) orelse 1;
         const Chunk = @Vector(chunk_len, u8);
 
         // Fast path. Check for and encode ASCII characters at the start of the input.
@@ -986,7 +1006,7 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
     var remaining = utf8;
     // Need support for std.simd.interlace
     if (builtin.zig_backend != .stage2_x86_64 and comptime !builtin.cpu.arch.isMIPS()) {
-        const chunk_len = std.simd.suggestVectorSize(u8) orelse 1;
+        const chunk_len = std.simd.suggestVectorLength(u8) orelse 1;
         const Chunk = @Vector(chunk_len, u8);
 
         // Fast path. Check for and encode ASCII characters at the start of the input.

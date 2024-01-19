@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "sanitizer_platform.h"
-#if SANITIZER_MAC
+#if SANITIZER_APPLE
 #include "sanitizer_mac.h"
 
 #include <sys/mman.h>
@@ -26,4 +26,4 @@ void RestrictMemoryToMaxAddress(uptr max_address) {
 
 }  // namespace __sanitizer
 
-#endif  // SANITIZER_MAC
+#endif  // SANITIZER_APPLE

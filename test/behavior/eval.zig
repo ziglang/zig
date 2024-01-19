@@ -55,7 +55,7 @@ fn staticAdd(a: i32, b: i32) i32 {
 
 test "const expr eval on single expr blocks" {
     try expect(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
-    try comptime expect(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
+    comptime assert(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
 }
 
 fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) i32 {
@@ -426,7 +426,7 @@ test "f64 at compile time is lossy" {
 }
 
 test {
-    try comptime expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
+    comptime assert(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
 }
 
 fn copyWithPartialInline(s: []u32, b: []u8) void {
@@ -613,7 +613,7 @@ test "const global shares pointer with other same one" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try assertEqualPtrs(&hi1[0], &hi2[0]);
-    try comptime expect(&hi1[0] == &hi2[0]);
+    comptime assert(&hi1[0] == &hi2[0]);
 }
 fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) !void {
     try expect(ptr1 == ptr2);
@@ -634,8 +634,8 @@ fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) !void {
 test "string literal used as comptime slice is memoized" {
     const a = "link";
     const b = "link";
-    try comptime expect(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);
-    try comptime expect(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
+    comptime assert(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);
+    comptime assert(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
 }
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
@@ -953,7 +953,7 @@ test "const local with comptime init through array init" {
         S.declarations(E1),
     };
 
-    try comptime expect(decls[0][0].name[0] == 'a');
+    comptime assert(decls[0][0].name[0] == 'a');
 }
 
 test "closure capture type of runtime-known parameter" {
@@ -1339,7 +1339,7 @@ test "value in if block is comptime-known" {
         const s = if (false) S{ .str = "a" } else S{ .str = "b" };
         break :blk "foo" ++ s.str;
     };
-    try comptime expect(std.mem.eql(u8, first, second));
+    comptime assert(std.mem.eql(u8, first, second));
 }
 
 test "lazy sizeof is resolved in division" {
@@ -1561,7 +1561,7 @@ test "comptime function turns function value to function pointer" {
             fnPtr(Nil),
         };
     };
-    try comptime expect(S.foo[0] == &S.Nil);
+    comptime assert(S.foo[0] == &S.Nil);
 }
 
 test "container level const and var have unique addresses" {
