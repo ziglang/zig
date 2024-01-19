@@ -1210,13 +1210,15 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 // --dep arguments
                 try zig_args.ensureUnusedCapacity(module.import_table.count() * 2);
                 for (module.import_table.keys(), module.import_table.values()) |name, dep| {
-                    const dep_index = cli_named_modules.modules.getIndex(dep).?;
-                    const dep_cli_name = cli_named_modules.names.keys()[dep_index];
-                    zig_args.appendAssumeCapacity("--dep");
-                    if (std.mem.eql(u8, dep_cli_name, name)) {
-                        zig_args.appendAssumeCapacity(dep_cli_name);
-                    } else {
-                        zig_args.appendAssumeCapacity(b.fmt("{s}={s}", .{ name, dep_cli_name }));
+                    if (dep.root_source_file != null) {
+                        const dep_index = cli_named_modules.modules.getIndex(dep).?;
+                        const dep_cli_name = cli_named_modules.names.keys()[dep_index];
+                        zig_args.appendAssumeCapacity("--dep");
+                        if (std.mem.eql(u8, dep_cli_name, name)) {
+                            zig_args.appendAssumeCapacity(dep_cli_name);
+                        } else {
+                            zig_args.appendAssumeCapacity(b.fmt("{s}={s}", .{ name, dep_cli_name }));
+                        }
                     }
                 }
 
