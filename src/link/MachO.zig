@@ -592,6 +592,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     self.allocateAtoms();
     self.allocateSyntheticSymbols();
 
+    try self.initLinkeditSegment();
+
     state_log.debug("{}", .{self.dumpState()});
 
     try self.initDyldInfoSections();
@@ -2167,18 +2169,6 @@ fn initSegments(self: *MachO) !void {
         });
     }
 
-    // Add __LINKEDIT
-    {
-        const protection = getSegmentProt("__LINKEDIT");
-        self.linkedit_seg_index = @intCast(self.segments.items.len);
-        try self.segments.append(gpa, .{
-            .cmdsize = @sizeOf(macho.segment_command_64),
-            .segname = makeStaticString("__LINKEDIT"),
-            .maxprot = protection,
-            .initprot = protection,
-        });
-    }
-
     // __TEXT segment is non-optional
     if (self.getSegmentByName("__TEXT") == null) {
         const protection = getSegmentProt("__TEXT");
@@ -2222,7 +2212,6 @@ fn initSegments(self: *MachO) !void {
 
     self.pagezero_seg_index = self.getSegmentByName("__PAGEZERO");
     self.text_seg_index = self.getSegmentByName("__TEXT").?;
-    self.linkedit_seg_index = self.getSegmentByName("__LINKEDIT").?;
 }
 
 fn allocateSections(self: *MachO) !void {
@@ -2399,6 +2388,23 @@ fn allocateSyntheticSymbols(self: *MachO) void {
             sym.out_n_sect = self.objc_stubs_sect_index.?;
         }
     }
+}
+
+fn initLinkeditSegment(self: *MachO) !void {
+    var fileoff: u64 = 0;
+    var vmaddr: u64 = 0;
+
+    for (self.segments.items) |seg| {
+        if (fileoff < seg.fileoff + seg.filesize) fileoff = seg.fileoff + seg.filesize;
+        if (vmaddr < seg.vmaddr + seg.vmsize) vmaddr = seg.vmaddr + seg.vmsize;
+    }
+
+    const page_size = self.getPageSize();
+    self.linkedit_seg_index = try self.addSegment("__LINKEDIT", .{
+        .vmaddr = mem.alignForward(u64, vmaddr, page_size),
+        .fileoff = mem.alignForward(u64, fileoff, page_size),
+        .prot = getSegmentProt("__LINKEDIT"),
+    });
 }
 
 fn initDyldInfoSections(self: *MachO) !void {
