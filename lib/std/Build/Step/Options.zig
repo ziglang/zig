@@ -198,6 +198,8 @@ pub fn createModule(self: *Options) *std.Build.Module {
 /// deprecated: use `getOutput`
 pub const getSource = getOutput;
 
+/// Returns the main artifact of this Build Step which is a Zig source file
+/// generated from the key-value pairs of the Options.
 pub fn getOutput(self: *Options) LazyPath {
     return .{ .generated = &self.generated_file };
 }

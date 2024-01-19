@@ -599,6 +599,11 @@ pub fn resolveInstallPrefix(self: *Build, install_prefix: ?[]const u8, dir_list:
     self.h_dir = self.pathJoin(&h_list);
 }
 
+/// Create a set of key-value pairs that can be converted into a Zig source
+/// file and then inserted into a Zig compilation's module table for importing.
+/// In other words, this provides a way to expose build.zig values to Zig
+/// source code with `@import`.
+/// Related: `Module.addOptions`.
 pub fn addOptions(self: *Build) *Step.Options {
     return Step.Options.create(self);
 }
@@ -1031,6 +1036,11 @@ fn makeUninstall(uninstall_step: *Step, prog_node: *std.Progress.Node) anyerror!
     // TODO remove empty directories
 }
 
+/// Creates a configuration option to be passed to the build.zig script.
+/// When a user directly runs `zig build`, they can set these options with `-D` arguments.
+/// When a project depends on a Zig package as a dependency, it programmatically sets
+/// these options when calling the dependency's build.zig script as a function.
+/// `null` is returned when an option is left to default.
 pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_raw: []const u8) ?T {
     const name = self.dupe(name_raw);
     const description = self.dupe(description_raw);
