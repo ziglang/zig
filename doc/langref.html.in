@@ -1156,10 +1156,8 @@ fn addOne(number: i32) i32 {
         {#link|identifier|Identifiers#}, followed by a {#link|block|Blocks#} containing any valid Zig code that
         is allowed in a {#link|function|Functions#}.
       </p>
-      <aside>
-        By convention, non-named tests should only be used to {#link|make other tests run|Nested Container Tests#}.
-        Non-named tests cannot be {#link|filtered|Skip Tests#}.
-      </aside>
+      <p>Non-named test blocks always run during test builds and are exempt from
+        {#link|Skip Tests#}.</p>
       <p>
         Test declarations are similar to {#link|Functions#}: they have a return type and a block of code. The implicit
         return type of {#syntax#}test{#endsyntax#} is the {#link|Error Union Type#} {#syntax#}anyerror!void{#endsyntax#},
@@ -1172,74 +1170,6 @@ fn addOne(number: i32) i32 {
         be written before or after the code under test.
       </p>
       {#see_also|The Global Error Set|Grammar#}
-      {#header_close#}
-      {#header_open|Nested Container Tests#}
-      <p>
-        When the <kbd>zig test</kbd> tool is building a test runner, only resolved {#syntax#}test{#endsyntax#}
-        declarations are included in the build. Initially, only the given Zig source file's top-level
-        declarations are resolved. Unless nested {#link|containers|Containers#} are referenced from a top-level test declaration,
-        nested container tests will not be resolved.
-      </p>
-      <p>
-        The code sample below uses the {#syntax#}std.testing.refAllDecls(@This()){#endsyntax#} function call to
-        reference all of the containers that are in the file including the imported Zig source file. The code
-        sample also shows an alternative way to reference containers using the {#syntax#}_ = C;{#endsyntax#}
-        syntax. This syntax tells the compiler to ignore the result of the expression on the right side of the
-        assignment operator.
-      </p>
-      {#code_begin|test|testing_nested_container_tests#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-// Imported source file tests will run when referenced from a top-level test declaration.
-// The next line alone does not cause "testing_introduction.zig" tests to run.
-const imported_file = @import("testing_introduction.zig");
-
-test {
-    // To run nested container tests, either, call `refAllDecls` which will
-    // reference all declarations located in the given argument.
-    // `@This()` is a builtin function that returns the innermost container it is called from.
-    // In this example, the innermost container is this file (implicitly a struct).
-    std.testing.refAllDecls(@This());
-
-    // or, reference each container individually from a top-level test declaration.
-    // The `_ = C;` syntax is a no-op reference to the identifier `C`.
-    _ = S;
-    _ = U;
-    _ = @import("testing_introduction.zig");
-}
-
-const S = struct {
-    test "S demo test" {
-        try expect(true);
-    }
-
-    const SE = enum {
-        V,
-
-        // This test won't run because its container (SE) is not referenced.
-        test "This Test Won't Run" {
-            try expect(false);
-        }
-    };
-};
-
-const U = union { // U is referenced by the file's top-level test declaration
-    s: US,        // and US is referenced here; therefore, "U.Us demo test" will run
-
-    const US = struct {
-        test "U.US demo test" {
-            // This test is a top-level test declaration for the struct.
-            // The struct is nested (declared) inside of a union.
-            try expect(true);
-        }
-    };
-
-    test "U demo test" {
-        try expect(true);
-    }
-};
-      {#code_end#}
       {#header_close#}
       {#header_open|Test Failure#}
       <p>
@@ -2856,9 +2786,11 @@ test "volatile" {
       </p>
       {#header_close#}
       <p>
-      To convert one pointer type to another, use {#link|@ptrCast#}. This is an unsafe
-      operation that Zig cannot protect you against. Use {#syntax#}@ptrCast{#endsyntax#} only when other
-      conversions are not possible.
+      {#link|@ptrCast#} converts a pointer's element type to another. This
+      creates a new pointer that can cause undetectable illegal behavior
+      depending on the loads and stores that pass through it. Generally, other
+      kinds of type conversions are preferable to
+      {#syntax#}@ptrCast{#endsyntax#} if possible.
       </p>
       {#code_begin|test|test_pointer_casting#}
 const std = @import("std");
@@ -5075,12 +5007,12 @@ test "if error union with optional" {
       {#see_also|Optionals|Errors#}
       {#header_close#}
       {#header_open|defer#}
+      <p>Executes an expression unconditionally at scope exit.</p>
       {#code_begin|test|test_defer#}
 const std = @import("std");
 const expect = std.testing.expect;
 const print = std.debug.print;
 
-// defer will execute an expression at the end of the current scope.
 fn deferExample() !usize {
     var a: usize = 1;
 
@@ -5097,10 +5029,14 @@ fn deferExample() !usize {
 test "defer basics" {
     try expect((try deferExample()) == 5);
 }
+      {#code_end#}
+      <p>Defer expressions are evaluated in reverse order.</p>
+      {#code_begin|test|defer_unwind#}
+const std = @import("std");
+const expect = std.testing.expect;
+const print = std.debug.print;
 
-// If multiple defer statements are specified, they will be executed in
-// the reverse order they were run.
-fn deferUnwindExample() void {
+test "defer unwinding" {
     print("\n", .{});
 
     defer {
@@ -5116,63 +5052,15 @@ fn deferUnwindExample() void {
         }
     }
 }
-
-test "defer unwinding" {
-    deferUnwindExample();
-}
       {#code_end#}
+      <p>Inside a defer expression the return statement is not allowed.</p>
       {#code_begin|test_err|test_invalid_defer|cannot return from defer expression#}
-// Inside a defer expression the return statement is not allowed.
 fn deferInvalidExample() !void {
     defer {
         return error.DeferError;
     }
 
     return error.DeferError;
-}
-      {#code_end#}
-      {#code_begin|test|test_errdefer#}
-const std = @import("std");
-const print = std.debug.print;
-
-// The errdefer keyword is similar to defer, but will only execute if the
-// scope returns with an error.
-//
-// This is especially useful in allowing a function to clean up properly
-// on error, and replaces goto error handling tactics as seen in c.
-fn deferErrorExample(is_error: bool) !void {
-    print("\nstart of function\n", .{});
-
-    // This will always be executed on exit
-    defer {
-        print("end of function\n", .{});
-    }
-
-    errdefer {
-        print("encountered an error!\n", .{});
-    }
-
-    if (is_error) {
-        return error.DeferError;
-    }
-}
-
-// The errdefer keyword also supports an alternative syntax to capture the
-// generated error.
-//
-// This is useful for printing an additional error message during clean up.
-fn deferErrorCaptureExample() !void {
-    errdefer |err| {
-        std.debug.print("the error is {s}\n", .{@errorName(err)});
-    }
-
-    return error.DeferError;
-}
-
-test "errdefer unwinding" {
-    deferErrorExample(false) catch {};
-    deferErrorExample(true) catch {};
-    deferErrorCaptureExample() catch {};
 }
       {#code_end#}
       {#see_also|Errors#}
@@ -8660,7 +8548,8 @@ test "decl access by string" {
       <pre>{#syntax#}@floatFromInt(int: anytype) anytype{#endsyntax#}</pre>
       <p>
       Converts an integer to the closest floating point representation. The return type is the inferred result type.
-			To convert the other way, use {#link|@intFromFloat#}. This cast is always safe.
+			To convert the other way, use {#link|@intFromFloat#}. This operation is legal
+      for all values of all integer types.
       </p>
       {#header_close#}
 
@@ -10873,6 +10762,9 @@ const separator = if (builtin.os.tag == .windows) '\\' else '/';
       Some examples of tasks the build system can help with:
       </p>
       <ul>
+        <li>Performing tasks in parallel and caching the results.</li>
+        <li>Depending on other projects.</li>
+        <li>Providing a package for other projects to depend on.</li>
         <li>Creating build artifacts by executing the Zig compiler. This includes
           building Zig source code as well as C and C++ source code.</li>
         <li>Capturing user-configured options and using those options to configure
@@ -10891,148 +10783,10 @@ const separator = if (builtin.os.tag == .windows) '\\' else '/';
       to see a command-line usage help menu. This will include project-specific
       options that were declared in the build.zig script.
       </p>
-
-      {#header_open|Building an Executable#}
-      <p>This <code class="file">build.zig</code> file is automatically generated
-        by <kbd>zig init-exe</kbd>.</p>
-      {#code_begin|syntax|build_executable#}
-const std = @import("std");
-
-// Although this function looks imperative, note that its job is to
-// declaratively construct a build graph that will be executed by an external
-// runner.
-pub fn build(b: *std.Build) void {
-    // Standard target options allows the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
-    const target = b.standardTargetOptions(.{});
-
-    // Standard optimization options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
-    // set a preferred release mode, allowing the user to decide how to optimize.
-    const optimize = b.standardOptimizeOption(.{});
-
-    const exe = b.addExecutable(.{
-        .name = "example",
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "src/main.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-
-    // This declares intent for the executable to be installed into the
-    // standard location when the user invokes the "install" step (the default
-    // step when running `zig build`).
-    b.installArtifact(exe);
-
-    // This *creates* a Run step in the build graph, to be executed when another
-    // step is evaluated that depends on it. The next line below will establish
-    // such a dependency.
-    const run_cmd = b.addRunArtifact(exe);
-
-    // By making the run step depend on the install step, it will be run from the
-    // installation directory rather than directly from within the cache directory.
-    // This is not necessary, however, if the application depends on other installed
-    // files, this ensures they will be present and in the expected location.
-    run_cmd.step.dependOn(b.getInstallStep());
-
-    // This allows the user to pass arguments to the application in the build
-    // command itself, like this: `zig build run -- arg1 arg2 etc`
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-
-    // This creates a build step. It will be visible in the `zig build --help` menu,
-    // and can be selected like this: `zig build run`
-    // This will evaluate the `run` step rather than the default, which is "install".
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
-
-    // Creates a step for unit testing. This only builds the test executable
-    // but does not run it.
-    const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const run_unit_tests = b.addRunArtifact(unit_tests);
-
-    // Similar to creating the run step earlier, this exposes a `test` step to
-    // the `zig build --help` menu, providing a way for the user to request
-    // running the unit tests.
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_unit_tests.step);
-}
-      {#code_end#}
-      {#header_close#}
-
-      {#header_open|Building a Library#}
-      <p>This <code class="file">build.zig</code> file is automatically generated
-        by <kbd>zig init-lib</kbd>.</p>
-      {#code_begin|syntax|build_library#}
-const std = @import("std");
-
-// Although this function looks imperative, note that its job is to
-// declaratively construct a build graph that will be executed by an external
-// runner.
-pub fn build(b: *std.Build) void {
-    // Standard target options allows the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
-    const target = b.standardTargetOptions(.{});
-
-    // Standard optimization options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
-    // set a preferred release mode, allowing the user to decide how to optimize.
-    const optimize = b.standardOptimizeOption(.{});
-
-    const lib = b.addStaticLibrary(.{
-        .name = "example",
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "src/main.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-
-    // This declares intent for the library to be installed into the standard
-    // location when the user invokes the "install" step (the default step when
-    // running `zig build`).
-    b.installArtifact(lib);
-
-    // Creates a step for unit testing. This only builds the test executable
-    // but does not run it.
-    const main_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const run_main_tests = b.addRunArtifact(main_tests);
-
-    // This creates a build step. It will be visible in the `zig build --help` menu,
-    // and can be selected like this: `zig build test`
-    // This will evaluate the `test` step rather than the default, which is "install".
-    const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&run_main_tests.step);
-}
-      {#code_end#}
-      {#header_close#}
-
-      {#header_open|Compiling C Source Code#}
-      <pre>{#syntax#}
-lib.addCSourceFile(.{ .file = .{ .path = "src/lib.c" }, .flags = &.{
-        "-Wall",
-        "-Wextra",
-        "-Werror",
-    } });
-      {#endsyntax#}</pre>
-      {#header_close#}
-
+      <p>
+      For the time being, the build system documentation is hosted externally:
+      <a href="https://ziglang.org/learn/build-system/">Build System Documentation</a>
+      </p>
       {#header_close#}
       {#header_open|C#}
       <p>
