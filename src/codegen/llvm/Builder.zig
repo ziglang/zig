@@ -4363,6 +4363,7 @@ pub const Function = struct {
                     .@"store atomic",
                     .@"switch",
                     .@"unreachable",
+                    .block,
                     => false,
                     .call,
                     .@"call fast",
