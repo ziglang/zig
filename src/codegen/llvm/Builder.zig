@@ -3899,6 +3899,7 @@ pub const Function = struct {
     blocks: []const Block = &.{},
     instructions: std.MultiArrayList(Instruction) = .{},
     names: [*]const String = &[0]String{},
+    value_indices: [*]const u32 = &[0]u32{},
     metadata: ?[*]const Metadata = null,
     extra: []const u32 = &.{},
 
@@ -4333,6 +4334,10 @@ pub const Function = struct {
 
             pub fn name(self: Instruction.Index, function: *const Function) String {
                 return function.names[@intFromEnum(self)];
+            }
+
+            pub fn valueIndex(self: Instruction.Index, function: *const Function) u32 {
+                return function.value_indices[@intFromEnum(self)];
             }
 
             pub fn toValue(self: Instruction.Index) Value {
@@ -4993,6 +4998,7 @@ pub const Function = struct {
     pub fn deinit(self: *Function, gpa: Allocator) void {
         gpa.free(self.extra);
         if (self.metadata) |metadata| gpa.free(metadata[0..self.instructions.len]);
+        gpa.free(self.value_indices[0..self.instructions.len]);
         gpa.free(self.names[0..self.instructions.len]);
         self.instructions.deinit(gpa);
         gpa.free(self.blocks);
@@ -6382,6 +6388,9 @@ pub const WipFunction = struct {
         const names = try gpa.alloc(String, final_instructions_len);
         errdefer gpa.free(names);
 
+        const value_indices = try gpa.alloc(u32, final_instructions_len);
+        errdefer gpa.free(value_indices);
+
         const metadata =
             if (self.builder.strip) null else try gpa.alloc(Metadata, final_instructions_len);
         errdefer if (metadata) |new_metadata| gpa.free(new_metadata);
@@ -6475,12 +6484,15 @@ pub const WipFunction = struct {
                 return new_name;
             }
         } = .{};
+        var value_index: u32 = 0;
         for (0..params_len) |param_index| {
             const old_argument_index: Instruction.Index = @enumFromInt(param_index);
             const new_argument_index: Instruction.Index = @enumFromInt(function.instructions.len);
             const argument = self.instructions.get(@intFromEnum(old_argument_index));
             assert(argument.tag == .arg);
             assert(argument.data == param_index);
+            value_indices[function.instructions.len] = value_index;
+            value_index += 1;
             function.instructions.appendAssumeCapacity(argument);
             names[@intFromEnum(new_argument_index)] = wip_name.map(
                 if (self.builder.strip) .empty else self.names.items[@intFromEnum(old_argument_index)],
@@ -6488,6 +6500,7 @@ pub const WipFunction = struct {
         }
         for (self.blocks.items) |current_block| {
             const new_block_index: Instruction.Index = @enumFromInt(function.instructions.len);
+            value_indices[function.instructions.len] = value_index;
             function.instructions.appendAssumeCapacity(.{
                 .tag = .block,
                 .data = current_block.incoming,
@@ -6797,6 +6810,9 @@ pub const WipFunction = struct {
                     if (old_instruction_index.hasResultWip(self)) .empty else .none
                 else
                     self.names.items[@intFromEnum(old_instruction_index)]);
+
+                value_indices[@intFromEnum(new_instruction_index)] = value_index;
+                if (old_instruction_index.hasResultWip(self)) value_index += 1;
             }
         }
 
@@ -6804,6 +6820,7 @@ pub const WipFunction = struct {
         function.extra = wip_extra.finish();
         function.blocks = blocks;
         function.names = names.ptr;
+        function.value_indices = value_indices.ptr;
         function.metadata = if (metadata) |new_metadata| new_metadata.ptr else null;
     }
 
