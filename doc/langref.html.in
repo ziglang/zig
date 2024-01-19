@@ -2788,9 +2788,11 @@ test "volatile" {
       </p>
       {#header_close#}
       <p>
-      To convert one pointer type to another, use {#link|@ptrCast#}. This is an unsafe
-      operation that Zig cannot protect you against. Use {#syntax#}@ptrCast{#endsyntax#} only when other
-      conversions are not possible.
+      {#link|@ptrCast#} converts a pointer's element type to another. This
+      creates a new pointer that can cause undetectable illegal behavior
+      depending on the loads and stores that pass through it. Generally, other
+      kinds of type conversions are preferable to
+      {#syntax#}@ptrCast{#endsyntax#} if possible.
       </p>
       {#code_begin|test|test_pointer_casting#}
 const std = @import("std");
@@ -8592,7 +8594,8 @@ test "decl access by string" {
       <pre>{#syntax#}@floatFromInt(int: anytype) anytype{#endsyntax#}</pre>
       <p>
       Converts an integer to the closest floating point representation. The return type is the inferred result type.
-			To convert the other way, use {#link|@intFromFloat#}. This cast is always safe.
+			To convert the other way, use {#link|@intFromFloat#}. This operation is legal
+      for all values of all integer types.
       </p>
       {#header_close#}
 
