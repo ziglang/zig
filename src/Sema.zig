@@ -22741,7 +22741,14 @@ fn zirPtrCastNoDest(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     var ptr_info = operand_ty.ptrInfo(mod);
     if (flags.const_cast) ptr_info.flags.is_const = false;
     if (flags.volatile_cast) ptr_info.flags.is_volatile = false;
-    const dest_ty = try sema.ptrType(ptr_info);
+
+    const dest_ty = blk: {
+        const dest_ty = try sema.ptrType(ptr_info);
+        if (operand_ty.zigTypeTag(mod) == .Optional) {
+            break :blk try mod.optionalType(dest_ty.toIntern());
+        }
+        break :blk dest_ty;
+    };
 
     if (try sema.resolveValue(operand)) |operand_val| {
         return Air.internedToRef((try mod.getCoerced(operand_val, dest_ty)).toIntern());
