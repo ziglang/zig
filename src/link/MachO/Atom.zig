@@ -588,6 +588,8 @@ fn resolveRelocInner(
     const G: i64 = @intCast(rel.getGotTargetAddress(macho_file));
     const TLS = @as(i64, @intCast(macho_file.getTlsAddress()));
     const SUB = if (subtractor) |sub| @as(i64, @intCast(sub.getTargetAddress(macho_file))) else 0;
+    // Address of the __got_zig table entry if any.
+    const ZIG_GOT = @as(i64, @intCast(rel.getZigGotTargetAddress(macho_file)));
 
     switch (rel.tag) {
         .local => relocs_log.debug("  {x}<+{d}>: {s}: [=> {x}] atom({d})", .{
@@ -597,12 +599,13 @@ fn resolveRelocInner(
             S + A - SUB,
             rel.getTargetAtom(macho_file).atom_index,
         }),
-        .@"extern" => relocs_log.debug("  {x}<+{d}>: {s}: [=> {x}] G({x}) ({s})", .{
+        .@"extern" => relocs_log.debug("  {x}<+{d}>: {s}: [=> {x}] G({x}) ZG({x}) ({s})", .{
             P,
             rel_offset,
             @tagName(rel.type),
             S + A - SUB,
             G + A,
+            ZIG_GOT + A,
             rel.getTargetSymbol(macho_file).getName(macho_file),
         }),
     }
@@ -696,7 +699,14 @@ fn resolveRelocInner(
         },
 
         .zig_got_load => {
-            @panic("TODO resolve __got_zig indirection reloc");
+            assert(rel.tag == .@"extern");
+            assert(rel.meta.length == 2);
+            assert(rel.meta.pcrel);
+            switch (cpu_arch) {
+                .x86_64 => try writer.writeInt(i32, @intCast(ZIG_GOT + A - P), .little),
+                .aarch64 => @panic("TODO resolve __got_zig indirection reloc"),
+                else => unreachable,
+            }
         },
 
         .tlv => {
