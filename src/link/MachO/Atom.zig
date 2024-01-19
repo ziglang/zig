@@ -50,14 +50,6 @@ pub fn getFile(self: Atom, macho_file: *MachO) File {
     return macho_file.getFile(self.file).?;
 }
 
-pub fn getData(self: Atom, macho_file: *MachO) []const u8 {
-    return switch (self.getFile(macho_file)) {
-        .zig_object => @panic("TODO Atom.getData"),
-        .object => |x| x.getAtomData(self),
-        else => unreachable,
-    };
-}
-
 pub fn getRelocs(self: Atom, macho_file: *MachO) []const Relocation {
     return switch (self.getFile(macho_file)) {
         .zig_object => |x| x.getAtomRelocs(self),
@@ -538,7 +530,6 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
     const file = self.getFile(macho_file);
     const name = self.getName(macho_file);
     const relocs = self.getRelocs(macho_file);
-    @memcpy(buffer, self.getData(macho_file));
 
     relocs_log.debug("{x}: {s}", .{ self.value, name });
 
@@ -1153,7 +1144,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const log = std.log.scoped(.link);
-const relocs_log = std.log.scoped(.relocs);
+const relocs_log = std.log.scoped(.link_relocs);
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
 
