@@ -93,11 +93,11 @@ zig_data_seg_index: ?u8 = null,
 zig_bss_seg_index: ?u8 = null,
 
 /// Tracked section headers with incremental updates to Zig object.
-zig_text_section_index: ?u8 = null,
-zig_got_section_index: ?u8 = null,
-zig_const_section_index: ?u8 = null,
-zig_data_section_index: ?u8 = null,
-zig_bss_section_index: ?u8 = null,
+zig_text_sect_index: ?u8 = null,
+zig_got_sect_index: ?u8 = null,
+zig_const_sect_index: ?u8 = null,
+zig_data_sect_index: ?u8 = null,
+zig_bss_sect_index: ?u8 = null,
 
 has_tlv: bool = false,
 binds_to_weak: bool = false,
@@ -2423,6 +2423,7 @@ fn initDyldInfoSections(self: *MachO) !void {
 
     const gpa = self.base.comp.gpa;
 
+    if (self.zig_got_sect_index != null) try self.zig_got.addDyldRelocs(self);
     if (self.got_sect_index != null) try self.got.addDyldRelocs(self);
     if (self.tlv_ptr_sect_index != null) try self.tlv_ptr.addDyldRelocs(self);
     if (self.la_symbol_ptr_sect_index != null) try self.la_symbol_ptr.addDyldRelocs(self);
@@ -3291,7 +3292,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
     }.appendSect;
 
     {
-        self.zig_text_section_index = try self.addSection("__TEXT_ZIG", "__text_zig", .{
+        self.zig_text_sect_index = try self.addSection("__TEXT_ZIG", "__text_zig", .{
             .alignment = switch (self.getTarget().cpu.arch) {
                 .aarch64 => 2,
                 .x86_64 => 0,
@@ -3299,31 +3300,31 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             },
             .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         });
-        appendSect(self, self.zig_text_section_index.?, self.zig_text_seg_index.?);
+        appendSect(self, self.zig_text_sect_index.?, self.zig_text_seg_index.?);
     }
 
     if (!self.base.isRelocatable()) {
-        self.zig_got_section_index = try self.addSection("__GOT_ZIG", "__got_zig", .{
+        self.zig_got_sect_index = try self.addSection("__GOT_ZIG", "__got_zig", .{
             .alignment = 3,
         });
-        appendSect(self, self.zig_got_section_index.?, self.zig_got_seg_index.?);
+        appendSect(self, self.zig_got_sect_index.?, self.zig_got_seg_index.?);
     }
 
     {
-        self.zig_const_section_index = try self.addSection("__CONST_ZIG", "__const_zig", .{});
-        appendSect(self, self.zig_const_section_index.?, self.zig_const_seg_index.?);
+        self.zig_const_sect_index = try self.addSection("__CONST_ZIG", "__const_zig", .{});
+        appendSect(self, self.zig_const_sect_index.?, self.zig_const_seg_index.?);
     }
 
     {
-        self.zig_data_section_index = try self.addSection("__DATA_ZIG", "__data_zig", .{});
-        appendSect(self, self.zig_data_section_index.?, self.zig_data_seg_index.?);
+        self.zig_data_sect_index = try self.addSection("__DATA_ZIG", "__data_zig", .{});
+        appendSect(self, self.zig_data_sect_index.?, self.zig_data_seg_index.?);
     }
 
     {
-        self.zig_bss_section_index = try self.addSection("__BSS_ZIG", "__bss_zig", .{
+        self.zig_bss_sect_index = try self.addSection("__BSS_ZIG", "__bss_zig", .{
             .flags = macho.S_ZEROFILL,
         });
-        appendSect(self, self.zig_bss_section_index.?, self.zig_bss_seg_index.?);
+        appendSect(self, self.zig_bss_sect_index.?, self.zig_bss_seg_index.?);
     }
 }
 

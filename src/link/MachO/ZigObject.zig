@@ -416,7 +416,7 @@ pub fn lowerAnonDecl(
         name,
         tv,
         decl_alignment,
-        macho_file.zig_const_section_index.?,
+        macho_file.zig_const_sect_index.?,
         src_loc,
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -712,7 +712,7 @@ fn getDeclOutputSection(
     const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
     _ = any_non_single_threaded;
     const sect_id: u8 = switch (decl.ty.zigTypeTag(mod)) {
-        .Fn => macho_file.zig_text_section_index.?,
+        .Fn => macho_file.zig_text_sect_index.?,
         else => blk: {
             if (decl.getOwnedVariable(mod)) |variable| {
                 // if (variable.is_threadlocal and any_non_single_threaded) {
@@ -731,13 +731,13 @@ fn getDeclOutputSection(
                 //     );
                 // }
 
-                if (variable.is_const) break :blk macho_file.zig_const_section_index.?;
+                if (variable.is_const) break :blk macho_file.zig_const_sect_index.?;
                 if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
                     // TODO: get the optimize_mode from the Module that owns the decl instead
                     // of using the root module here.
                     break :blk switch (macho_file.base.comp.root_mod.optimize_mode) {
-                        .Debug, .ReleaseSafe => macho_file.zig_data_section_index.?,
-                        .ReleaseFast, .ReleaseSmall => macho_file.zig_bss_section_index.?,
+                        .Debug, .ReleaseSafe => macho_file.zig_data_sect_index.?,
+                        .ReleaseFast, .ReleaseSmall => macho_file.zig_bss_sect_index.?,
                     };
                 }
 
@@ -746,10 +746,10 @@ fn getDeclOutputSection(
                 const is_all_zeroes = for (code) |byte| {
                     if (byte != 0) break false;
                 } else true;
-                if (is_all_zeroes) break :blk macho_file.zig_bss_section_index.?;
-                break :blk macho_file.zig_data_section_index.?;
+                if (is_all_zeroes) break :blk macho_file.zig_bss_sect_index.?;
+                break :blk macho_file.zig_data_sect_index.?;
             }
-            break :blk macho_file.zig_const_section_index.?;
+            break :blk macho_file.zig_const_sect_index.?;
         },
     };
     return sect_id;
@@ -778,7 +778,7 @@ pub fn lowerUnnamedConst(
         name,
         typed_value,
         typed_value.ty.abiAlignment(mod),
-        macho_file.zig_const_section_index.?,
+        macho_file.zig_const_sect_index.?,
         decl.srcLoc(mod),
     )) {
         .ok => |sym_index| sym_index,
@@ -995,8 +995,8 @@ fn updateLazySymbol(
     };
 
     const output_section_index = switch (lazy_sym.kind) {
-        .code => macho_file.zig_text_section_index.?,
-        .const_data => macho_file.zig_const_section_index.?,
+        .code => macho_file.zig_text_sect_index.?,
+        .const_data => macho_file.zig_const_sect_index.?,
     };
     const sym = macho_file.getSymbol(symbol_index);
     sym.name = name_str_index;
