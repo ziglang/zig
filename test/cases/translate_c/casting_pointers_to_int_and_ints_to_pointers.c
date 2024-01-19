@@ -6,6 +6,7 @@ void bar(void) {
 
 // translate-c
 // c_frontends=clang
+// target=x86_64-linux-none,x86_64-macos-none
 //
 // pub extern fn foo() void;
 // pub export fn bar() void {
