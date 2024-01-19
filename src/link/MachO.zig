@@ -2037,6 +2037,7 @@ pub fn sortSections(self: *MachO) !void {
     for (&[_]*?u8{
         &self.data_sect_index,
         &self.got_sect_index,
+        &self.zig_got_sect_index,
         &self.stubs_sect_index,
         &self.stubs_helper_sect_index,
         &self.la_symbol_ptr_sect_index,
