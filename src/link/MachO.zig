@@ -2287,9 +2287,11 @@ fn allocateSections(self: *MachO) !void {
 
     const page_size = self.getPageSize();
     const slice = self.sections.slice();
+    const last_index = for (slice.items(.header), 0..) |header, i| {
+        if (mem.indexOf(u8, header.segName(), "ZIG")) |_| break i;
+    } else slice.items(.header).len;
 
-    for (slice.items(.header), slice.items(.segment_id)) |*header, curr_seg_id| {
-        if (mem.indexOf(u8, header.segName(), "ZIG")) |_| continue;
+    for (slice.items(.header)[0..last_index], slice.items(.segment_id)[0..last_index]) |*header, curr_seg_id| {
         if (prev_seg_id != curr_seg_id) {
             const prev_seg = &self.segments.items[prev_seg_id];
             const curr_seg = &self.segments.items[curr_seg_id];
@@ -2325,8 +2327,7 @@ fn allocateSections(self: *MachO) !void {
     // TODO iterate over sections again, but consider only zig sections
     // and move them if they are allocated in file below page-aligned fileoff
     fileoff = mem.alignForward(u32, fileoff, page_size);
-    for (slice.items(.header), slice.items(.segment_id)) |*header, seg_id| {
-        if (mem.indexOf(u8, header.segName(), "ZIG") == null) continue;
+    for (slice.items(.header)[last_index..], slice.items(.segment_id)[last_index..]) |*header, seg_id| {
         if (header.isZerofill()) continue;
         if (header.offset < fileoff) {
             const existing_size = header.size;
