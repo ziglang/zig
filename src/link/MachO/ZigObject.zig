@@ -724,26 +724,25 @@ fn getDeclOutputSection(
     _ = self;
     const mod = macho_file.base.comp.module.?;
     const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
-    _ = any_non_single_threaded;
     const sect_id: u8 = switch (decl.ty.zigTypeTag(mod)) {
         .Fn => macho_file.zig_text_sect_index.?,
         else => blk: {
             if (decl.getOwnedVariable(mod)) |variable| {
-                // if (variable.is_threadlocal and any_non_single_threaded) {
-                //     const is_all_zeroes = for (code) |byte| {
-                //         if (byte != 0) break false;
-                //     } else true;
-                //     if (is_all_zeroes) break :blk macho_file.getSectionByName("__DATA", "__thread_bss") orelse try macho_file.addSection(
-                //         "__DATA",
-                //         "__thread_bss",
-                //         .{ .flags = macho.S_THREAD_LOCAL_ZEROFILL },
-                //     );
-                //     break :blk macho_file.getSectionByName("__DATA", "__thread_data") orelse try macho_file.addSection(
-                //         "__DATA",
-                //         "__thread_data",
-                //         .{ .flags = macho.S_THREAD_LOCAL_REGULAR },
-                //     );
-                // }
+                if (variable.is_threadlocal and any_non_single_threaded) {
+                    const is_all_zeroes = for (code) |byte| {
+                        if (byte != 0) break false;
+                    } else true;
+                    if (is_all_zeroes) break :blk macho_file.getSectionByName("__DATA", "__thread_bss") orelse try macho_file.addSection(
+                        "__DATA",
+                        "__thread_bss",
+                        .{ .flags = macho.S_THREAD_LOCAL_ZEROFILL },
+                    );
+                    break :blk macho_file.getSectionByName("__DATA", "__thread_data") orelse try macho_file.addSection(
+                        "__DATA",
+                        "__thread_data",
+                        .{ .flags = macho.S_THREAD_LOCAL_REGULAR },
+                    );
+                }
 
                 if (variable.is_const) break :blk macho_file.zig_const_sect_index.?;
                 if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
@@ -1112,17 +1111,15 @@ pub fn getOrCreateMetadataForDecl(
     const gop = try self.decls.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
-        _ = any_non_single_threaded;
         const sym_index = try self.addAtom(macho_file);
         const mod = macho_file.base.comp.module.?;
         const decl = mod.declPtr(decl_index);
-        _ = decl;
         const sym = macho_file.getSymbol(sym_index);
-        // if (decl.getOwnedVariable(mod)) |variable| {
-        //     if (variable.is_threadlocal and any_non_single_threaded) {
-        //         sym.flags.tlv = true;
-        //     }
-        // }
+        if (decl.getOwnedVariable(mod)) |variable| {
+            if (variable.is_threadlocal and any_non_single_threaded) {
+                sym.flags.tlv = true;
+            }
+        }
         if (!sym.flags.tlv) {
             sym.flags.needs_zig_got = true;
         }

@@ -996,10 +996,9 @@ fn genDeclRef(
         }
         const sym_index = try macho_file.getZigObject().?.getOrCreateMetadataForDecl(macho_file, decl_index);
         const sym = macho_file.getSymbol(sym_index);
-        // TODO: tlv
-        // if (is_threadlocal) {
-        //     return GenResult.mcv(.{ .load_tlv = sym.nlist_idx });
-        // }
+        if (is_threadlocal) {
+            return GenResult.mcv(.{ .load_tlv = sym.nlist_idx });
+        }
         return GenResult.mcv(.{ .load_symbol = sym.nlist_idx });
     } else if (lf.cast(link.File.Coff)) |coff_file| {
         if (is_extern) {
