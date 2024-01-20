@@ -757,12 +757,14 @@ fn updateTlv(
     sym.out_n_sect = sect_index;
     atom.out_n_sect = sect_index;
 
+    sym.value = 0;
     sym.name = try macho_file.strings.insert(gpa, decl_name);
     atom.flags.alive = true;
     atom.name = sym.name;
     nlist.n_strx = sym.name;
     nlist.n_sect = sect_index + 1;
-    nlist.n_type = macho.N_EXT;
+    nlist.n_type = macho.N_SECT;
+    nlist.n_value = 0;
     self.symtab.items(.size)[sym.nlist_idx] = code.len;
 
     atom.alignment = required_alignment;
