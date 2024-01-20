@@ -456,17 +456,22 @@ pub fn build(b: *std.Build) !void {
     }).step);
 
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
-    try tests.addCases(b, test_cases_step, test_filter, check_case_exe, .{
-        .enable_llvm = enable_llvm,
-        .llvm_has_m68k = llvm_has_m68k,
-        .llvm_has_csky = llvm_has_csky,
-        .llvm_has_arc = llvm_has_arc,
-        .llvm_has_xtensa = llvm_has_xtensa,
-    });
-    test_cases_step.dependOn(try tests.addTranslateCTests(b, test_filter));
-    if (!skip_run_translated_c) {
-        test_cases_step.dependOn(try tests.addRunTranslatedCTests(b, test_filter, target));
-    }
+    try tests.addCases(
+        b,
+        test_cases_step,
+        test_filter,
+        .{
+            .skip_run_translated_c = skip_run_translated_c,
+        },
+        check_case_exe,
+        .{
+            .enable_llvm = enable_llvm,
+            .llvm_has_m68k = llvm_has_m68k,
+            .llvm_has_csky = llvm_has_csky,
+            .llvm_has_arc = llvm_has_arc,
+            .llvm_has_xtensa = llvm_has_xtensa,
+        },
+    );
     test_step.dependOn(test_cases_step);
 
     test_step.dependOn(tests.addModuleTests(b, .{

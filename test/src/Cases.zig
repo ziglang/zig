@@ -540,7 +540,8 @@ pub const TranslateOptions = struct {
 pub fn lowerToTranslateSteps(
     self: *Cases,
     b: *std.Build,
-    parent_step: *std.Build.Step,
+    test_translate_c_step: *std.Build.Step,
+    test_run_translated_c_step: *std.Build.Step,
     opt_test_filter: ?[]const u8,
     translate_options: TranslateOptions,
 ) void {
@@ -583,7 +584,7 @@ pub fn lowerToTranslateSteps(
             run.step.name = b.fmt("{s} run", .{annotated_case_name});
             run.expectStdOutEqual(output);
 
-            parent_step.dependOn(&run.step);
+            test_run_translated_c_step.dependOn(&run.step);
         },
         .translate => |output| {
             const annotated_case_name = b.fmt("zig translate-c {s}", .{case.name});
@@ -605,7 +606,7 @@ pub fn lowerToTranslateSteps(
             translate_c.step.name = annotated_case_name;
 
             const check_file = translate_c.addCheckFile(output);
-            parent_step.dependOn(&check_file.step);
+            test_translate_c_step.dependOn(&check_file.step);
         },
     };
 }

@@ -985,43 +985,6 @@ pub fn addAssembleAndLinkTests(b: *std.Build, test_filter: ?[]const u8, optimize
     return cases.step;
 }
 
-pub fn addTranslateCTests(b: *std.Build, test_filter: ?[]const u8) !*Step {
-    const cases = b.allocator.create(TranslateCContext) catch @panic("OOM");
-    cases.* = TranslateCContext{
-        .b = b,
-        .step = b.step("test-translate-c", "Run the C translation tests"),
-        .test_index = 0,
-        .test_filter = test_filter,
-    };
-
-    translate_c.addCases(cases);
-
-    try addTranslateCases(b, cases.step, test_filter, .{ .skip_run_translated_c = true });
-
-    return cases.step;
-}
-
-pub fn addRunTranslatedCTests(
-    b: *std.Build,
-    test_filter: ?[]const u8,
-    target: std.Build.ResolvedTarget,
-) !*Step {
-    const cases = b.allocator.create(RunTranslatedCContext) catch @panic("OOM");
-    cases.* = .{
-        .b = b,
-        .step = b.step("test-run-translated-c", "Run the Run-Translated-C tests"),
-        .test_index = 0,
-        .test_filter = test_filter,
-        .target = target,
-    };
-
-    run_translated_c.addCases(cases);
-
-    try addTranslateCases(b, cases.step, test_filter, .{ .skip_translate_c = true });
-
-    return cases.step;
-}
-
 const ModuleTestOptions = struct {
     test_filter: ?[]const u8,
     root_src: []const u8,
@@ -1283,33 +1246,44 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
     return step;
 }
 
-pub fn addTranslateCases(
+pub fn addTranslateCTests(b: *std.Build, test_filter: ?[]const u8) !*Step {
+    const cases = b.allocator.create(TranslateCContext) catch @panic("OOM");
+    cases.* = TranslateCContext{
+        .b = b,
+        .step = b.step("test-translate-c", "Run the C translation tests"),
+        .test_index = 0,
+        .test_filter = test_filter,
+    };
+
+    translate_c.addCases(cases);
+
+    return cases.step;
+}
+
+pub fn addRunTranslatedCTests(
     b: *std.Build,
-    parent_step: *Step,
-    opt_test_filter: ?[]const u8,
-    translate_options: @import("src/Cases.zig").TranslateOptions,
-) !void {
-    const arena = b.allocator;
-    const gpa = b.allocator;
+    test_filter: ?[]const u8,
+    target: std.Build.ResolvedTarget,
+) !*Step {
+    const cases = b.allocator.create(RunTranslatedCContext) catch @panic("OOM");
+    cases.* = .{
+        .b = b,
+        .step = b.step("test-run-translated-c", "Run the Run-Translated-C tests"),
+        .test_index = 0,
+        .test_filter = test_filter,
+        .target = target,
+    };
 
-    var translate_cases = @import("src/Cases.zig").init(gpa, arena);
+    run_translated_c.addCases(cases);
 
-    var dir = try b.build_root.handle.openDir("test/cases", .{ .iterate = true });
-    defer dir.close();
-
-    translate_cases.addFromDir(dir, b);
-    translate_cases.lowerToTranslateSteps(
-        b,
-        parent_step,
-        opt_test_filter,
-        translate_options,
-    );
+    return cases.step;
 }
 
 pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
     opt_test_filter: ?[]const u8,
+    translate_options: @import("src/Cases.zig").TranslateOptions,
     check_case_exe: *std.Build.Step.Compile,
     build_options: @import("cases.zig").BuildOptions,
 ) !void {
@@ -1325,6 +1299,19 @@ pub fn addCases(
     try @import("cases.zig").addCases(&cases, build_options, b);
 
     const cases_dir_path = try b.build_root.join(b.allocator, &.{ "test", "cases" });
+
+    const test_translate_c = try addTranslateCTests(b, opt_test_filter);
+    const test_run_translated_c = try addRunTranslatedCTests(b, opt_test_filter);
+    cases.lowerToTranslateSteps(
+        b,
+        test_translate_c,
+        test_run_translated_c,
+        opt_test_filter,
+        translate_options,
+    );
+    parent_step.dependOn(test_translate_c);
+    parent_step.dependOn(test_run_translated_c);
+
     cases.lowerToBuildSteps(
         b,
         parent_step,
