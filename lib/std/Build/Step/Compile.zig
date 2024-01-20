@@ -1220,15 +1220,18 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     }
                 }
 
-                // The CLI assumes if it sees a --mod argument that it is a zig
-                // compilation unit. If there is no root source file, then this
-                // is not a zig compilation unit - it is perhaps a set of
-                // linker objects, or C source files instead.
-                // In such case, there will be only one module, so we can leave
-                // off the naming here.
+                // When the CLI sees a -M argument, it determines whether it
+                // implies the existence of a Zig compilation unit based on
+                // whether there is a root source file. If there is no root
+                // source file, then this is not a zig compilation unit - it is
+                // perhaps a set of linker objects, or C source files instead.
+                // Linker objects are added to the CLI globally, while C source
+                // files must have a module parent.
                 if (module.root_source_file) |lp| {
                     const src = lp.getPath2(module.owner, step);
-                    try zig_args.appendSlice(&.{ "--mod", module_cli_name, src });
+                    try zig_args.append(b.fmt("-M{s}={s}", .{ module_cli_name, src }));
+                } else if (moduleNeedsCliArg(module)) {
+                    try zig_args.append(b.fmt("-M{s}", .{module_cli_name}));
                 }
             }
         }
@@ -1849,4 +1852,11 @@ fn matchCompileError(actual: []const u8, expected: []const u8) bool {
 pub fn rootModuleTarget(c: *Compile) std.Target {
     // The root module is always given a target, so we know this to be non-null.
     return c.root_module.resolved_target.?.result;
+}
+
+fn moduleNeedsCliArg(mod: *const Module) bool {
+    return for (mod.link_objects.items) |o| switch (o) {
+        .c_source_file, .c_source_files, .assembly_file, .win32_resource_file => break true,
+        else => continue,
+    } else false;
 }
