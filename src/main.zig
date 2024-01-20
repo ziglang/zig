@@ -7173,64 +7173,6 @@ fn accessLibPath(
         return true;
     }
 
-    if (target.os.tag == .openbsd and link_mode == .Dynamic) {
-        test_path.clearRetainingCapacity();
-        var dir = fs.cwd().openDir(lib_dir_path, .{}) catch {
-            return false;
-        };
-
-        var MajMin: i32 = -1;
-        var MajMax: i32 = -1;
-
-        defer dir.close();
-        var iter = dir.iterate();
-
-        while (iter.next() catch {
-            return false;
-        }) |file| {
-            const name = try std.fmt.allocPrint(test_path.allocator, "lib{s}.so", .{lib_name});
-            defer test_path.allocator.free(name);
-            if (!std.mem.containsAtLeast(u8, file.name, 1, name) or file.kind == .directory) {
-                continue;
-            }
-
-            const version = file.name[name.len + 1 ..];
-            const len = std.mem.indexOf(u8, version, ".").?;
-
-            const max = std.fmt.parseInt(i32, version[0..len], 10) catch {
-                return false;
-            };
-            const min = std.fmt.parseInt(i32, version[len + 1 ..], 10) catch {
-                return false;
-            };
-
-            if (MajMax < max) {
-                MajMax = max;
-                MajMin = min;
-            } else if (MajMax == max and MajMin < min) {
-                MajMin = min;
-            }
-        }
-
-        if (MajMax != -1 and MajMin != -1) {
-            try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}.{}.{}", .{
-                lib_dir_path,
-                target.libPrefix(),
-                lib_name,
-                switch (link_mode) {
-                    .Static => target.staticLibSuffix(),
-                    .Dynamic => target.dynamicLibSuffix(),
-                },
-                MajMax,
-                MajMin,
-            });
-
-            try checked_paths.writer().print("\n  {s}", .{test_path.items});
-            return true;
-        }
-
-        return false;
-    }
     main_check: {
         test_path.clearRetainingCapacity();
         try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
@@ -7250,6 +7192,76 @@ fn accessLibPath(
             }),
         };
         return true;
+    }
+
+    if (target.os.tag == .openbsd and link_mode == .Dynamic) find_maj_min_sh_lib: {
+        test_path.clearRetainingCapacity();
+
+        var dir = fs.cwd().openDir(lib_dir_path, .{}) catch |err| switch (err) {
+            error.NotDir, error.FileNotFound => break :find_maj_min_sh_lib,
+            else => |e| fatal("unable to open '{s}': {s}", .{ lib_dir_path, @errorName(e) }),
+        };
+        defer dir.close();
+
+        var lib_version = std.SemanticVersion{
+            .major = 0,
+            .minor = 0,
+            .patch = 0, // only to satisfied SemanticVersion
+        };
+
+        var find = false;
+
+        var iter = dir.iterate();
+
+        while (iter.next() catch break :find_maj_min_sh_lib) |file| {
+            const name = try std.fmt.allocPrint(test_path.allocator, "lib{s}.so", .{lib_name});
+            defer test_path.allocator.free(name);
+
+            // If the current file name doesn't contain the "lib{s}.so" format, skip.
+            if (!std.mem.containsAtLeast(u8, file.name, 1, name) or file.kind == .directory) {
+                continue;
+            }
+
+            // Library found
+            find = true;
+
+            const version_range = file.name[name.len + 1 ..];
+            const len = std.mem.indexOf(u8, version_range, ".").?;
+
+            const max = std.fmt.parseInt(usize, version_range[0..len], 10) catch |err| switch (err) {
+                error.InvalidCharacter => fatal(" {s} should follow `lib{s}.so.X.Y`", .{ file.name, lib_name }),
+                error.Overflow => fatal("Can't resolve this version due to overflow", .{}),
+            };
+
+            const min = std.fmt.parseInt(usize, version_range[len + 1 ..], 10) catch |err| switch (err) {
+                error.InvalidCharacter => fatal(" {s} should follow `lib{s}.so.X.Y` ", .{ file.name, lib_name }),
+                error.Overflow => fatal("Can't resolve this version due to overflow", .{}),
+            };
+
+            if (lib_version.major < max) {
+                lib_version.major = max;
+                lib_version.minor = min;
+            } else if (lib_version.major == max and lib_version.minor < min) {
+                lib_version.minor = min;
+            }
+        }
+
+        if (find) {
+            try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}.{}.{}", .{
+                lib_dir_path,
+                target.libPrefix(),
+                lib_name,
+                switch (link_mode) {
+                    .Static => target.staticLibSuffix(),
+                    .Dynamic => target.dynamicLibSuffix(),
+                },
+                lib_version.major,
+                lib_version.minor,
+            });
+
+            try checked_paths.writer().print("\n  {s}", .{test_path.items});
+            return true;
+        }
     }
 
     // In the case of Darwin, the main check will be .dylib, so here we
