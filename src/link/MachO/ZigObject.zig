@@ -38,6 +38,9 @@ unnamed_consts: UnnamedConstTable = .{},
 /// Table of tracked AnonDecls.
 anon_decls: AnonDeclTable = .{},
 
+/// TLS variables indexed by Atom.Index.
+tls_variables: TlsTable = .{},
+
 /// A table of relocations.
 relocs: RelocationTable = .{},
 
@@ -87,6 +90,11 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
         list.deinit(allocator);
     }
     self.relocs.deinit(allocator);
+
+    for (self.tls_variables.values()) |*tlv| {
+        tlv.deinit(allocator);
+    }
+    self.tls_variables.deinit(allocator);
 }
 
 fn addNlist(self: *ZigObject, allocator: Allocator) !Symbol.Index {
@@ -612,8 +620,7 @@ pub fn updateDecl(
         else => false,
     };
     if (is_threadlocal) {
-        // TODO: emit TLV
-        @panic("TODO updateDecl for TLS");
+        try self.updateTlv(macho_file, decl_index, sym_index, sect_index, code);
     } else {
         try self.updateDeclCode(macho_file, decl_index, sym_index, sect_index, code);
     }
@@ -713,6 +720,58 @@ fn updateDeclCode(
         const file_offset = sect.offset + atom.value - sect.addr;
         try macho_file.base.file.?.pwriteAll(code, file_offset);
     }
+}
+
+fn updateTlv(
+    self: *ZigObject,
+    macho_file: *MachO,
+    decl_index: InternPool.DeclIndex,
+    sym_index: Symbol.Index,
+    sect_index: u8,
+    code: []const u8,
+) !void {
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
+    const mod = comp.module.?;
+    const decl = mod.declPtr(decl_index);
+    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+
+    log.debug("updateTlv {s} ({*})", .{ decl_name, decl });
+
+    const required_alignment = decl.getAlignment(mod);
+
+    const sym = macho_file.getSymbol(sym_index);
+    const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
+    const atom = sym.getAtom(macho_file).?;
+
+    sym.out_n_sect = sect_index;
+    atom.out_n_sect = sect_index;
+
+    sym.name = try macho_file.strings.insert(gpa, decl_name);
+    atom.flags.alive = true;
+    atom.name = sym.name;
+    nlist.n_strx = sym.name;
+    nlist.n_sect = sect_index + 1;
+    nlist.n_type = macho.N_EXT;
+    self.symtab.items(.size)[sym.nlist_idx] = code.len;
+
+    atom.alignment = required_alignment;
+    atom.size = code.len;
+
+    const slice = macho_file.sections.slice();
+    const header = slice.items(.header)[sect_index];
+    const atoms = &slice.items(.atoms)[sect_index];
+
+    const gop = try self.tls_variables.getOrPut(gpa, atom.atom_index);
+    assert(!gop.found_existing); // TODO incremental updates
+    gop.value_ptr.* = .{ .symbol_index = sym_index };
+
+    // We only store the data for the TLV if it's non-zerofill.
+    if (!header.isZerofill()) {
+        gop.value_ptr.code = try gpa.dupe(u8, code);
+    }
+
+    try atoms.append(gpa, atom.atom_index);
 }
 
 fn getDeclOutputSection(
@@ -1244,11 +1303,21 @@ const LazySymbolMetadata = struct {
     const_state: State = .unused,
 };
 
+const TlsVariable = struct {
+    symbol_index: Symbol.Index,
+    code: []const u8 = &[0]u8{},
+
+    fn deinit(tlv: *TlsVariable, allocator: Allocator) void {
+        allocator.free(tlv.code);
+    }
+};
+
 const DeclTable = std.AutoHashMapUnmanaged(InternPool.DeclIndex, DeclMetadata);
 const UnnamedConstTable = std.AutoHashMapUnmanaged(InternPool.DeclIndex, std.ArrayListUnmanaged(Symbol.Index));
 const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, DeclMetadata);
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.OptionalDeclIndex, LazySymbolMetadata);
 const RelocationTable = std.ArrayListUnmanaged(std.ArrayListUnmanaged(Relocation));
+const TlsTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlsVariable);
 
 const assert = std.debug.assert;
 const builtin = @import("builtin");
