@@ -2203,20 +2203,6 @@ fn initSegments(self: *MachO) !void {
     const gpa = self.base.comp.gpa;
     const slice = self.sections.slice();
 
-    // First, create segments required by sections
-    for (slice.items(.header)) |header| {
-        const segname = header.segName();
-        if (self.getSegmentByName(segname) == null) {
-            const prot = getSegmentProt(segname);
-            try self.segments.append(gpa, .{
-                .cmdsize = @sizeOf(macho.segment_command_64),
-                .segname = makeStaticString(segname),
-                .maxprot = prot,
-                .initprot = prot,
-            });
-        }
-    }
-
     // Add __PAGEZERO if required
     const pagezero_size = self.pagezero_size orelse default_pagezero_size;
     const aligned_pagezero_size = mem.alignBackward(u64, pagezero_size, self.getPageSize());
@@ -2226,44 +2212,30 @@ fn initSegments(self: *MachO) !void {
             log.warn("requested __PAGEZERO size (0x{x}) is not page aligned", .{pagezero_size});
             log.warn("  rounding down to 0x{x}", .{aligned_pagezero_size});
         }
-        try self.segments.append(gpa, .{
-            .cmdsize = @sizeOf(macho.segment_command_64),
-            .segname = makeStaticString("__PAGEZERO"),
-            .vmsize = aligned_pagezero_size,
-        });
+        _ = try self.addSegment("__PAGEZERO", .{ .vmsize = aligned_pagezero_size });
     }
 
     // __TEXT segment is non-optional
-    if (self.getSegmentByName("__TEXT") == null) {
-        const protection = getSegmentProt("__TEXT");
-        try self.segments.append(gpa, .{
-            .cmdsize = @sizeOf(macho.segment_command_64),
-            .segname = makeStaticString("__TEXT"),
-            .maxprot = protection,
-            .initprot = protection,
-        });
+    _ = try self.addSegment("__TEXT", .{ .prot = getSegmentProt("__TEXT") });
+
+    // Next, create segments required by sections
+    for (slice.items(.header)) |header| {
+        const segname = header.segName();
+        if (self.getSegmentByName(segname) == null) {
+            _ = try self.addSegment(segname, .{ .prot = getSegmentProt(segname) });
+        }
     }
 
     // Add __LINKEDIT
-    {
-        const protection = getSegmentProt("__LINKEDIT");
-        self.linkedit_seg_index = @intCast(self.segments.items.len);
-        try self.segments.append(gpa, .{
-            .cmdsize = @sizeOf(macho.segment_command_64),
-            .segname = makeStaticString("__LINKEDIT"),
-            .maxprot = protection,
-            .initprot = protection,
-        });
-    }
+    _ = try self.addSegment("__LINKEDIT", .{ .prot = getSegmentProt("__LINKEDIT") });
 
+    // Sort segments
     const sortFn = struct {
         fn sortFn(ctx: void, lhs: macho.segment_command_64, rhs: macho.segment_command_64) bool {
             _ = ctx;
             return getSegmentRank(lhs.segName()) < getSegmentRank(rhs.segName());
         }
     }.sortFn;
-
-    // Sort segments
     mem.sort(macho.segment_command_64, self.segments.items, {}, sortFn);
 
     // Attach sections to segments
@@ -2288,6 +2260,12 @@ fn initSegments(self: *MachO) !void {
 
     self.pagezero_seg_index = self.getSegmentByName("__PAGEZERO");
     self.text_seg_index = self.getSegmentByName("__TEXT").?;
+    self.linkedit_seg_index = self.getSegmentByName("__LINKEDIT").?;
+    self.zig_text_seg_index = self.getSegmentByName("__TEXT_ZIG");
+    self.zig_got_seg_index = self.getSegmentByName("__GOT_ZIG");
+    self.zig_const_seg_index = self.getSegmentByName("__CONST_ZIG");
+    self.zig_data_seg_index = self.getSegmentByName("__DATA_ZIG");
+    self.zig_bss_seg_index = self.getSegmentByName("__BSS_ZIG");
 }
 
 fn allocateSections(self: *MachO) !void {
