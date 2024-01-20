@@ -1923,12 +1923,13 @@ fn getSegmentProt(segname: []const u8) macho.vm_prot_t {
     return macho.PROT.READ | macho.PROT.WRITE;
 }
 
-fn getSegmentRank(segname: []const u8) u4 {
+fn getSegmentRank(segname: []const u8) u8 {
     if (mem.eql(u8, segname, "__PAGEZERO")) return 0x0;
     if (mem.eql(u8, segname, "__TEXT")) return 0x1;
     if (mem.eql(u8, segname, "__DATA_CONST")) return 0x2;
     if (mem.eql(u8, segname, "__DATA")) return 0x3;
-    if (mem.eql(u8, segname, "__LINKEDIT")) return 0x5;
+    if (mem.indexOf(u8, segname, "ZIG")) |_| return 0xe;
+    if (mem.eql(u8, segname, "__LINKEDIT")) return 0xf;
     return 0x4;
 }
 
@@ -2282,28 +2283,55 @@ fn allocateSections(self: *MachO) !void {
 
     var next_seg_id: u8 = if (self.pagezero_seg_index) |index| index + 1 else 0;
     for (slice.items(.header), slice.items(.segment_id)) |*header, seg_id| {
-        if (mem.indexOf(u8, header.segName(), "ZIG")) |_| {
-            vmaddr = header.addr + header.size;
-        } else {
-            if (seg_id != next_seg_id) {
-                vmaddr = mem.alignForward(u64, vmaddr, page_size);
-                fileoff = mem.alignForward(u32, fileoff, page_size);
-            }
+        defer next_seg_id = seg_id;
 
-            const alignment = try math.powi(u32, 2, header.@"align");
-
-            vmaddr = mem.alignForward(u64, vmaddr, alignment);
-            header.addr = vmaddr;
-            vmaddr += header.size;
-
-            if (!header.isZerofill()) {
-                fileoff = mem.alignForward(u32, fileoff, alignment);
-                header.offset = fileoff;
-                fileoff += @intCast(header.size);
-            }
+        if (mem.indexOf(u8, header.segName(), "ZIG")) |_| continue;
+        if (seg_id != next_seg_id) {
+            vmaddr = mem.alignForward(u64, vmaddr, page_size);
+            fileoff = mem.alignForward(u32, fileoff, page_size);
         }
 
-        next_seg_id = seg_id;
+        const alignment = try math.powi(u32, 2, header.@"align");
+
+        vmaddr = mem.alignForward(u64, vmaddr, alignment);
+        header.addr = vmaddr;
+        vmaddr += header.size;
+
+        if (!header.isZerofill()) {
+            fileoff = mem.alignForward(u32, fileoff, alignment);
+            header.offset = fileoff;
+            fileoff += @intCast(header.size);
+        }
+    }
+
+    // TODO iterate over sections again, but consider only zig sections
+    // and move them if they are allocated in file below page-aligned fileoff
+    fileoff = mem.alignForward(u32, fileoff, page_size);
+    for (slice.items(.header), slice.items(.segment_id)) |*header, seg_id| {
+        if (mem.indexOf(u8, header.segName(), "ZIG") == null) continue;
+        if (header.isZerofill()) continue;
+        if (header.offset < fileoff) {
+            const existing_size = header.size;
+            header.size = 0;
+
+            // Must move the entire section.
+            const new_offset = self.findFreeSpace(existing_size, page_size);
+
+            log.debug("new '{s},{s}' file offset 0x{x} to 0x{x}", .{
+                header.segName(),
+                header.sectName(),
+                new_offset,
+                new_offset + existing_size,
+            });
+
+            const amt = try self.base.file.?.copyRangeAll(header.offset, self.base.file.?, new_offset, existing_size);
+            // TODO figure out what to about this error condition - how to communicate it up.
+            if (amt != existing_size) return error.InputOutput;
+
+            header.offset = @intCast(new_offset);
+            header.size = existing_size;
+            self.segments.items[seg_id].fileoff = new_offset;
+        }
     }
 }
 
