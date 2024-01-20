@@ -3046,23 +3046,10 @@ fn zirEnumDecl(
 
         const field_name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_index]);
         const field_name_zir = sema.code.nullTerminatedString(field_name_index);
-        extra_index += 1;
-
-        // doc comment
-        extra_index += 1;
+        extra_index += 2; // field name, doc comment
 
         const field_name = try mod.intern_pool.getOrPutString(gpa, field_name_zir);
-        if (incomplete_enum.addFieldName(&mod.intern_pool, field_name)) |other_index| {
-            const field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = field_i }).lazy;
-            const other_field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = other_index }).lazy;
-            const msg = msg: {
-                const msg = try sema.errMsg(block, field_src, "duplicate enum field '{s}'", .{field_name_zir});
-                errdefer msg.destroy(gpa);
-                try sema.errNote(block, other_field_src, msg, "other field here", .{});
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
-        }
+        assert(incomplete_enum.addFieldName(&mod.intern_pool, field_name) == null);
 
         const tag_overflow = if (has_tag_value) overflow: {
             const tag_val_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
@@ -21732,7 +21719,7 @@ fn reifyStruct(
             }
         } else if (struct_type.addFieldName(ip, field_name)) |prev_index| {
             _ = prev_index; // TODO: better source location
-            return sema.fail(block, src, "duplicate struct field {}", .{field_name.fmt(ip)});
+            return sema.fail(block, src, "duplicate struct field name {}", .{field_name.fmt(ip)});
         }
 
         const field_ty = type_val.toType();
@@ -36284,7 +36271,6 @@ fn semaStructFields(
     const zir = mod.namespacePtr(namespace_index).file_scope.zir;
     const zir_index = struct_type.zir_index;
 
-    const src = LazySrcLoc.nodeOffset(0);
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
     if (fields_len == 0) switch (struct_type.layout) {
@@ -36384,19 +36370,7 @@ fn semaStructFields(
             // This string needs to outlive the ZIR code.
             if (opt_field_name_zir) |field_name_zir| {
                 const field_name = try ip.getOrPutString(gpa, field_name_zir);
-                if (struct_type.addFieldName(ip, field_name)) |other_index| {
-                    const msg = msg: {
-                        const field_src = mod.fieldSrcLoc(decl_index, .{ .index = field_i }).lazy;
-                        const msg = try sema.errMsg(&block_scope, field_src, "duplicate struct field: '{}'", .{field_name.fmt(ip)});
-                        errdefer msg.destroy(gpa);
-
-                        const prev_field_src = mod.fieldSrcLoc(decl_index, .{ .index = other_index });
-                        try mod.errNoteNonLazy(prev_field_src, msg, "other field here", .{});
-                        try sema.errNote(&block_scope, src, msg, "struct declared here", .{});
-                        break :msg msg;
-                    };
-                    return sema.failWithOwnedErrorMsg(&block_scope, msg);
-                }
+                assert(struct_type.addFieldName(ip, field_name) == null);
             }
 
             if (has_align) {
@@ -36840,12 +36814,10 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
 
     var field_types: std.ArrayListUnmanaged(InternPool.Index) = .{};
     var field_aligns: std.ArrayListUnmanaged(InternPool.Alignment) = .{};
-    var field_name_table: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
 
     try field_types.ensureTotalCapacityPrecise(sema.arena, fields_len);
     if (small.any_aligned_fields)
         try field_aligns.ensureTotalCapacityPrecise(sema.arena, fields_len);
-    try field_name_table.ensureTotalCapacity(sema.arena, fields_len);
 
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
@@ -36959,23 +36931,6 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
 
         if (field_ty.isGenericPoison()) {
             return error.GenericPoison;
-        }
-
-        const gop = field_name_table.getOrPutAssumeCapacity(field_name);
-        if (gop.found_existing) {
-            const msg = msg: {
-                const field_src = mod.fieldSrcLoc(union_type.decl, .{ .index = field_i }).lazy;
-                const msg = try sema.errMsg(&block_scope, field_src, "duplicate union field: '{}'", .{
-                    field_name.fmt(ip),
-                });
-                errdefer msg.destroy(gpa);
-
-                const prev_field_src = mod.fieldSrcLoc(union_type.decl, .{ .index = gop.index }).lazy;
-                try mod.errNoteNonLazy(prev_field_src.toSrcLoc(decl, mod), msg, "other field here", .{});
-                try sema.errNote(&block_scope, src, msg, "union declared here", .{});
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
         }
 
         if (explicit_tags_seen.len > 0) {

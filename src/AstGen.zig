@@ -1753,7 +1753,6 @@ fn structInitExpr(
         const sfba_allocator = sfba.get();
 
         var duplicate_names = std.AutoArrayHashMap(Zir.NullTerminatedString, ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
-        defer duplicate_names.deinit();
         try duplicate_names.ensureTotalCapacity(@intCast(struct_init.ast.fields.len));
 
         // When there aren't errors, use this to avoid a second iteration.
@@ -1783,12 +1782,14 @@ fn structInitExpr(
                     var error_notes = std.ArrayList(u32).init(astgen.arena);
 
                     for (record.items[1..]) |duplicate| {
-                        try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
+                        try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate name here", .{}));
                     }
+
+                    try error_notes.append(try astgen.errNoteNode(node, "struct declared here", .{}));
 
                     try astgen.appendErrorTokNotes(
                         record.items[0],
-                        "duplicate field",
+                        "duplicate struct field name",
                         .{},
                         error_notes.items,
                     );
@@ -1815,9 +1816,10 @@ fn structInitExpr(
     switch (ri.rl) {
         .none => return structInitExprAnon(gz, scope, node, struct_init),
         .discard => {
-            // Even if discarding we must perform an anonymous init to check for duplicate field names.
-            // TODO: should duplicate field names be caught in AstGen?
-            _ = try structInitExprAnon(gz, scope, node, struct_init);
+            // Even if discarding we must perform side-effects.
+            for (struct_init.ast.fields) |field_init| {
+                _ = try expr(gz, scope, .{ .rl = .discard }, field_init);
+            }
             return .void_value;
         },
         .ref => {
@@ -5101,15 +5103,15 @@ fn structDeclInner(
                 var error_notes = std.ArrayList(u32).init(astgen.arena);
 
                 for (record.items[1..]) |duplicate| {
-                    try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
+                    try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate field here", .{}));
                 }
 
                 try error_notes.append(try astgen.errNoteNode(node, "struct declared here", .{}));
 
                 try astgen.appendErrorTokNotes(
                     record.items[0],
-                    "duplicate struct field: '{s}'",
-                    .{try astgen.identifierTokenString(record.items[0])},
+                    "duplicate struct field name",
+                    .{},
                     error_notes.items,
                 );
             }
@@ -5117,8 +5119,6 @@ fn structDeclInner(
 
         return error.AnalysisFail;
     }
-
-    duplicate_names.deinit();
 
     try gz.setStruct(decl_inst, .{
         .src_node = node,
@@ -5211,6 +5211,15 @@ fn unionDeclInner(
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
+    var sfba = std.heap.stackFallback(256, astgen.arena);
+    const sfba_allocator = sfba.get();
+
+    var duplicate_names = std.AutoArrayHashMap(Zir.NullTerminatedString, std.ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
+    try duplicate_names.ensureTotalCapacity(field_count);
+
+    // When there aren't errors, use this to avoid a second iteration.
+    var any_duplicate = false;
+
     for (members) |member_node| {
         var member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
             .decl => continue,
@@ -5226,6 +5235,16 @@ fn unionDeclInner(
 
         const field_name = try astgen.identAsString(member.ast.main_token);
         wip_members.appendToField(@intFromEnum(field_name));
+
+        const gop = try duplicate_names.getOrPut(field_name);
+
+        if (gop.found_existing) {
+            try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
+            any_duplicate = true;
+        } else {
+            gop.value_ptr.* = .{};
+            try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
+        }
 
         const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
         wip_members.appendToField(@intFromEnum(doc_comment_index));
@@ -5279,6 +5298,32 @@ fn unionDeclInner(
             const tag_value = try expr(&block_scope, &block_scope.base, .{ .rl = .{ .ty = arg_inst } }, member.ast.value_expr);
             wip_members.appendToField(@intFromEnum(tag_value));
         }
+    }
+
+    if (any_duplicate) {
+        var it = duplicate_names.iterator();
+
+        while (it.next()) |entry| {
+            const record = entry.value_ptr.*;
+            if (record.items.len > 1) {
+                var error_notes = std.ArrayList(u32).init(astgen.arena);
+
+                for (record.items[1..]) |duplicate| {
+                    try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate field here", .{}));
+                }
+
+                try error_notes.append(try astgen.errNoteNode(node, "union declared here", .{}));
+
+                try astgen.appendErrorTokNotes(
+                    record.items[0],
+                    "duplicate union field name",
+                    .{},
+                    error_notes.items,
+                );
+            }
+        }
+
+        return error.AnalysisFail;
     }
 
     if (!block_scope.isEmpty()) {
@@ -5490,6 +5535,15 @@ fn containerDecl(
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, @intCast(counts.decls), @intCast(counts.total_fields), bits_per_field, max_field_size);
             defer wip_members.deinit();
 
+            var sfba = std.heap.stackFallback(256, astgen.arena);
+            const sfba_allocator = sfba.get();
+
+            var duplicate_names = std.AutoArrayHashMap(Zir.NullTerminatedString, std.ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
+            try duplicate_names.ensureTotalCapacity(counts.total_fields);
+
+            // When there aren't errors, use this to avoid a second iteration.
+            var any_duplicate = false;
+
             for (container_decl.ast.members) |member_node| {
                 if (member_node == counts.nonexhaustive_node)
                     continue;
@@ -5505,6 +5559,16 @@ fn containerDecl(
 
                 const field_name = try astgen.identAsString(member.ast.main_token);
                 wip_members.appendToField(@intFromEnum(field_name));
+
+                const gop = try duplicate_names.getOrPut(field_name);
+
+                if (gop.found_existing) {
+                    try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
+                    any_duplicate = true;
+                } else {
+                    gop.value_ptr.* = .{};
+                    try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
+                }
 
                 const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
                 wip_members.appendToField(@intFromEnum(doc_comment_index));
@@ -5531,6 +5595,32 @@ fn containerDecl(
                     const tag_value_inst = try expr(&block_scope, &namespace.base, .{ .rl = .{ .ty = arg_inst } }, member.ast.value_expr);
                     wip_members.appendToField(@intFromEnum(tag_value_inst));
                 }
+            }
+
+            if (any_duplicate) {
+                var it = duplicate_names.iterator();
+
+                while (it.next()) |entry| {
+                    const record = entry.value_ptr.*;
+                    if (record.items.len > 1) {
+                        var error_notes = std.ArrayList(u32).init(astgen.arena);
+
+                        for (record.items[1..]) |duplicate| {
+                            try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate field here", .{}));
+                        }
+
+                        try error_notes.append(try astgen.errNoteNode(node, "enum declared here", .{}));
+
+                        try astgen.appendErrorTokNotes(
+                            record.items[0],
+                            "duplicate enum field name",
+                            .{},
+                            error_notes.items,
+                        );
+                    }
+                }
+
+                return error.AnalysisFail;
             }
 
             if (!block_scope.isEmpty()) {
