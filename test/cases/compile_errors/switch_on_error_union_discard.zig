@@ -1,9 +1,7 @@
 export fn entry() void {
     const x: error{}!u32 = 0;
-    if (x) |v| v else |_| switch (_) {
-    }
+    if (x) |v| v else |_| switch (_) {}
 }
-
 
 // error
 // backend=stage2

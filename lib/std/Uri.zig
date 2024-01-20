@@ -318,7 +318,7 @@ pub fn format(
 ) @TypeOf(writer).Error!void {
     _ = options;
 
-    const scheme = comptime std.mem.indexOf(u8, fmt, ":") != null or fmt.len == 0;
+    const scheme = comptime std.mem.indexOf(u8, fmt, ";") != null or fmt.len == 0;
     const authentication = comptime std.mem.indexOf(u8, fmt, "@") != null or fmt.len == 0;
     const authority = comptime std.mem.indexOf(u8, fmt, "+") != null or fmt.len == 0;
     const path = comptime std.mem.indexOf(u8, fmt, "/") != null or fmt.len == 0;
@@ -850,7 +850,7 @@ test "format" {
     };
     var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();
-    try uri.format(":/?#", .{}, buf.writer());
+    try buf.writer().print("{;/?#}", .{uri});
     try std.testing.expectEqualSlices(u8, "file:/foo/bar/baz", buf.items);
 }
 

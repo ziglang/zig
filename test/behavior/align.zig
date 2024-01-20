@@ -7,11 +7,11 @@ const assert = std.debug.assert;
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    try comptime expect(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
-    try comptime expect(@TypeOf(&foo) == *align(4) u8);
+    comptime assert(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
+    comptime assert(@TypeOf(&foo) == *align(4) u8);
     {
         const slice = @as(*align(4) [1]u8, &foo)[0..];
-        try comptime expect(@TypeOf(slice) == *align(4) [1]u8);
+        comptime assert(@TypeOf(slice) == *align(4) [1]u8);
     }
 }
 
@@ -455,10 +455,10 @@ test "runtime-known array index has best alignment possible" {
     try testIndex2(&array, 3, *u8);
 }
 fn testIndex(smaller: [*]align(2) u32, index: usize, comptime T: type) !void {
-    try comptime expect(@TypeOf(&smaller[index]) == T);
+    comptime assert(@TypeOf(&smaller[index]) == T);
 }
 fn testIndex2(ptr: [*]align(4) u8, index: usize, comptime T: type) !void {
-    try comptime expect(@TypeOf(&ptr[index]) == T);
+    comptime assert(@TypeOf(&ptr[index]) == T);
 }
 
 test "alignment of function with c calling convention" {
@@ -524,7 +524,7 @@ test "struct field explicit alignment" {
     var node: S.Node = undefined;
     node.massive_byte = 100;
     try expect(node.massive_byte == 100);
-    try comptime expect(@TypeOf(&node.massive_byte) == *align(64) u8);
+    comptime assert(@TypeOf(&node.massive_byte) == *align(64) u8);
     try expect(@intFromPtr(&node.massive_byte) % 64 == 0);
 }
 

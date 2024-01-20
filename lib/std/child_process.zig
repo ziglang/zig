@@ -650,7 +650,7 @@ pub const ChildProcess = struct {
     }
 
     fn spawnWindows(self: *ChildProcess) SpawnError!void {
-        const saAttr = windows.SECURITY_ATTRIBUTES{
+        var saAttr = windows.SECURITY_ATTRIBUTES{
             .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
             .bInheritHandle = windows.TRUE,
             .lpSecurityDescriptor = null,
@@ -661,8 +661,9 @@ pub const ChildProcess = struct {
         const nul_handle = if (any_ignore)
             // "\Device\Null" or "\??\NUL"
             windows.OpenFile(&[_]u16{ '\\', 'D', 'e', 'v', 'i', 'c', 'e', '\\', 'N', 'u', 'l', 'l' }, .{
-                .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
-                .share_access = windows.FILE_SHARE_READ,
+                .access_mask = windows.GENERIC_READ | windows.GENERIC_WRITE | windows.SYNCHRONIZE,
+                .share_access = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE,
+                .sa = &saAttr,
                 .creation = windows.OPEN_EXISTING,
                 .io_mode = .blocking,
             }) catch |err| switch (err) {
@@ -679,9 +680,6 @@ pub const ChildProcess = struct {
             undefined;
         defer {
             if (any_ignore) os.close(nul_handle);
-        }
-        if (any_ignore) {
-            try windows.SetHandleInformation(nul_handle, windows.HANDLE_FLAG_INHERIT, 0);
         }
 
         var g_hChildStd_IN_Rd: ?windows.HANDLE = null;

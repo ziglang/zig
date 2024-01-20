@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
@@ -246,7 +247,7 @@ fn testFloatEqualityImpl(x: f64, y: f64) !void {
 }
 
 test "hex float literal parsing" {
-    try comptime expect(0x1.0 == 1.0);
+    comptime assert(0x1.0 == 1.0);
 }
 
 test "hex float literal within range" {
@@ -1530,7 +1531,7 @@ test "@round f32/f64" {
     const x = 14.0;
     const y = x + 0.4;
     const z = @round(y);
-    try comptime expect(x == z);
+    comptime assert(x == z);
 }
 
 test "@round f80" {

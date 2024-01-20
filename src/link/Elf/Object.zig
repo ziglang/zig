@@ -581,30 +581,30 @@ pub fn markEhFrameAtomsDead(self: Object, elf_file: *Elf) void {
     }
 }
 
-pub fn checkDuplicates(self: *Object, elf_file: *Elf) void {
+pub fn checkDuplicates(self: *Object, dupes: anytype, elf_file: *Elf) error{OutOfMemory}!void {
     const first_global = self.first_global orelse return;
     for (self.globals(), 0..) |index, i| {
-        const sym_idx = @as(u32, @intCast(first_global + i));
-        const this_sym = self.symtab.items[sym_idx];
+        const sym_idx = first_global + i;
+        const sym = self.symtab.items[sym_idx];
         const global = elf_file.symbol(index);
-        const global_file = global.getFile(elf_file) orelse continue;
+        const global_file = global.file(elf_file) orelse continue;
 
-        if (self.index == global_file.getIndex() or
-            this_sym.st_shndx == elf.SHN_UNDEF or
-            this_sym.st_bind() == elf.STB_WEAK or
-            this_sym.st_shndx == elf.SHN_COMMON) continue;
+        if (self.index == global_file.index() or
+            sym.st_shndx == elf.SHN_UNDEF or
+            sym.st_bind() == elf.STB_WEAK or
+            sym.st_shndx == elf.SHN_COMMON) continue;
 
-        if (this_sym.st_shndx != elf.SHN_ABS) {
-            const atom_index = self.atoms.items[this_sym.st_shndx];
+        if (sym.st_shndx != elf.SHN_ABS) {
+            const atom_index = self.atoms.items[sym.st_shndx];
             const atom = elf_file.atom(atom_index) orelse continue;
             if (!atom.flags.alive) continue;
         }
 
-        elf_file.base.fatal("multiple definition: {}: {}: {s}", .{
-            self.fmtPath(),
-            global_file.fmtPath(),
-            global.getName(elf_file),
-        });
+        const gop = try dupes.getOrPut(index);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{};
+        }
+        try gop.value_ptr.append(elf_file.base.comp.gpa, self.index);
     }
 }
 

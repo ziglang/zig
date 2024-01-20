@@ -4917,7 +4917,10 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) !vo
             // report a nice error here with the file path if it fails instead of
             // just returning the error code.
             // chmod does not interact with umask, so we use a conservative -rwxr--r-- here.
-            try std.os.fchmodat(fs.cwd().fd, full_out_path, 0o744, 0);
+            std.os.fchmodat(fs.cwd().fd, full_out_path, 0o744, 0) catch |err| switch (err) {
+                error.OperationNotSupported => unreachable, // Not a symlink.
+                else => |e| return e,
+            };
         }
     }
 

@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -10,11 +11,11 @@ test "super basic invocations" {
         }
     }.foo;
     try expect(@call(.auto, foo, .{}) == 1234);
-    try comptime expect(@call(.always_inline, foo, .{}) == 1234);
+    comptime assert(@call(.always_inline, foo, .{}) == 1234);
     {
         // comptime call without comptime keyword
         const result = @call(.compile_time, foo, .{}) == 1234;
-        try comptime expect(result);
+        comptime assert(result);
     }
 }
 
@@ -42,7 +43,7 @@ test "basic invocations" {
     {
         // comptime call without comptime keyword
         const result = @call(.compile_time, foo, .{}) == 1234;
-        try comptime expect(result);
+        comptime assert(result);
     }
     {
         // call of non comptime-known function
@@ -73,7 +74,7 @@ test "tuple parameters" {
     try expect(@call(.auto, add, .{ a, b }) == 46);
     try expect(@call(.auto, add, .{ 12, 34 }) == 46);
     if (false) {
-        try comptime expect(@call(.auto, add, .{ 12, 34 }) == 46); // TODO
+        comptime assert(@call(.auto, add, .{ 12, 34 }) == 46); // TODO
     }
     try expect(comptime @call(.auto, add, .{ 12, 34 }) == 46);
     {
