@@ -588,7 +588,6 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     try self.initSegments();
 
     try self.allocateSections();
-    self.allocateSegments();
     self.allocateAtoms();
     self.allocateSyntheticSymbols();
     try self.allocateLinkeditSegment();
@@ -2275,20 +2274,31 @@ fn allocateSections(self: *MachO) !void {
         self.segments.items[index].vmaddr + self.segments.items[index].vmsize
     else
         0;
+
+    var prev_seg_id: u8 = if (self.pagezero_seg_index) |index| index + 1 else 0;
+    {
+        const seg = &self.segments.items[prev_seg_id];
+        seg.vmaddr = vmaddr;
+        seg.fileoff = 0;
+    }
+
     vmaddr += headerpad;
     var fileoff = headerpad;
 
     const page_size = self.getPageSize();
     const slice = self.sections.slice();
 
-    var next_seg_id: u8 = if (self.pagezero_seg_index) |index| index + 1 else 0;
-    for (slice.items(.header), slice.items(.segment_id)) |*header, seg_id| {
-        defer next_seg_id = seg_id;
-
+    for (slice.items(.header), slice.items(.segment_id)) |*header, curr_seg_id| {
         if (mem.indexOf(u8, header.segName(), "ZIG")) |_| continue;
-        if (seg_id != next_seg_id) {
+        if (prev_seg_id != curr_seg_id) {
+            const prev_seg = &self.segments.items[prev_seg_id];
+            const curr_seg = &self.segments.items[curr_seg_id];
+            prev_seg.vmsize = vmaddr - prev_seg.vmaddr;
+            prev_seg.filesize = fileoff - prev_seg.fileoff;
             vmaddr = mem.alignForward(u64, vmaddr, page_size);
             fileoff = mem.alignForward(u32, fileoff, page_size);
+            curr_seg.vmaddr = vmaddr;
+            curr_seg.fileoff = fileoff;
         }
 
         const alignment = try math.powi(u32, 2, header.@"align");
@@ -2302,6 +2312,14 @@ fn allocateSections(self: *MachO) !void {
             header.offset = fileoff;
             fileoff += @intCast(header.size);
         }
+
+        prev_seg_id = curr_seg_id;
+    }
+
+    {
+        const prev_seg = &self.segments.items[prev_seg_id];
+        prev_seg.vmsize = vmaddr - prev_seg.vmaddr;
+        prev_seg.filesize = fileoff - prev_seg.fileoff;
     }
 
     // TODO iterate over sections again, but consider only zig sections
@@ -2331,51 +2349,6 @@ fn allocateSections(self: *MachO) !void {
             header.offset = @intCast(new_offset);
             header.size = existing_size;
             self.segments.items[seg_id].fileoff = new_offset;
-        }
-    }
-}
-
-fn allocateSegments(self: *MachO) void {
-    const page_size = self.getPageSize();
-    var vmaddr = if (self.pagezero_seg_index) |index|
-        self.segments.items[index].vmaddr + self.segments.items[index].vmsize
-    else
-        0;
-    var fileoff: u64 = 0;
-    const index = if (self.pagezero_seg_index) |index| index + 1 else 0;
-    const last_index = self.linkedit_seg_index.?; // TODO: please clean this up!
-
-    const slice = self.sections.slice();
-    var next_sect_id: u8 = 0;
-    for (self.segments.items[index..last_index], index..last_index) |*seg, seg_id| {
-        if (mem.indexOf(u8, seg.segName(), "ZIG")) |_| {
-            vmaddr = mem.alignForward(u64, seg.vmaddr + seg.vmsize, page_size);
-            if (mem.eql(u8, seg.segName(), "__BSS_ZIG")) {
-                fileoff = mem.alignForward(u64, seg.fileoff + seg.filesize, page_size);
-            }
-        } else {
-            seg.vmaddr = vmaddr;
-            seg.fileoff = fileoff;
-
-            for (
-                slice.items(.header)[next_sect_id..],
-                slice.items(.segment_id)[next_sect_id..],
-            ) |header, sid| {
-                if (seg_id != sid) break;
-
-                vmaddr = header.addr + header.size;
-                if (!header.isZerofill()) {
-                    fileoff = header.offset + header.size;
-                }
-
-                next_sect_id += 1;
-            }
-
-            vmaddr = mem.alignForward(u64, vmaddr, page_size);
-            fileoff = mem.alignForward(u64, fileoff, page_size);
-
-            seg.vmsize = vmaddr - seg.vmaddr;
-            seg.filesize = fileoff - seg.fileoff;
         }
     }
 }
