@@ -409,10 +409,10 @@ const usage_build_generic =
     \\  --libc [file]             Provide a file which specifies libc paths
     \\  -x language               Treat subsequent input files as having type <language>
     \\  --dep [[import=]name]     Add an entry to the next module's import table
-    \\  --mod [name] [src]        Create a module based on the current per-module settings.
+    \\  -M[name][=src]            Create a module based on the current per-module settings.
     \\                            The first module is the main module.
-    \\                            "std" can be configured by leaving src blank.
-    \\                            After a --mod argument, per-module settings are reset.
+    \\                            "std" can be configured by omitting src
+    \\                            After a -M argument, per-module settings are reset.
     \\  --error-limit [num]       Set the maximum amount of distinct error values
     \\  -fllvm                    Force using LLVM as the codegen backend
     \\  -fno-llvm                 Prevent using LLVM as the codegen backend
@@ -1040,56 +1040,39 @@ fn buildOutputType(
                             .value = value,
                         });
                     } else if (mem.eql(u8, arg, "--mod")) {
-                        const mod_name = args_iter.nextOrFatal();
-                        const root_src_orig = args_iter.nextOrFatal();
-
-                        const gop = try create_module.modules.getOrPut(arena, mod_name);
-
-                        if (gop.found_existing) {
-                            fatal("unable to add module '{s}': already exists as '{s}'", .{
-                                mod_name, gop.value_ptr.paths.root_src_path,
-                            });
-                        }
-
-                        // See duplicate logic: ModCreationGlobalFlags
-                        create_module.opts.have_zcu = true;
-                        if (mod_opts.single_threaded == false)
-                            create_module.opts.any_non_single_threaded = true;
-                        if (mod_opts.sanitize_thread == true)
-                            create_module.opts.any_sanitize_thread = true;
-                        if (mod_opts.unwind_tables == true)
-                            create_module.opts.any_unwind_tables = true;
-                        if (mod_opts.strip == false)
-                            create_module.opts.any_non_stripped = true;
-                        if (mod_opts.error_tracing == true)
-                            create_module.opts.any_error_tracing = true;
-
-                        const root_src = try introspect.resolvePath(arena, root_src_orig);
-                        gop.value_ptr.* = .{
-                            .paths = .{
-                                .root = .{
-                                    .root_dir = Cache.Directory.cwd(),
-                                    .sub_path = fs.path.dirname(root_src) orelse "",
-                                },
-                                .root_src_path = fs.path.basename(root_src),
-                            },
-                            .cc_argv = try cc_argv.toOwnedSlice(arena),
-                            .inherited = mod_opts,
-                            .target_arch_os_abi = target_arch_os_abi,
-                            .target_mcpu = target_mcpu,
-                            .deps = try deps.toOwnedSlice(arena),
-                            .resolved = null,
-                            .c_source_files_start = c_source_files_owner_index,
-                            .c_source_files_end = create_module.c_source_files.items.len,
-                            .rc_source_files_start = rc_source_files_owner_index,
-                            .rc_source_files_end = create_module.rc_source_files.items.len,
-                        };
-                        cssan.reset();
-                        mod_opts = .{};
-                        target_arch_os_abi = null;
-                        target_mcpu = null;
-                        c_source_files_owner_index = create_module.c_source_files.items.len;
-                        rc_source_files_owner_index = create_module.rc_source_files.items.len;
+                        // deprecated, kept around until the next zig1.wasm update
+                        try handleModArg(
+                            arena,
+                            args_iter.nextOrFatal(),
+                            args_iter.nextOrFatal(),
+                            &create_module,
+                            &mod_opts,
+                            &cc_argv,
+                            &target_arch_os_abi,
+                            &target_mcpu,
+                            &deps,
+                            &c_source_files_owner_index,
+                            &rc_source_files_owner_index,
+                            &cssan,
+                        );
+                    } else if (mem.startsWith(u8, arg, "-M")) {
+                        var it = mem.splitScalar(u8, arg["-M".len..], '=');
+                        const mod_name = it.next().?;
+                        const root_src_orig = it.next();
+                        try handleModArg(
+                            arena,
+                            mod_name,
+                            root_src_orig,
+                            &create_module,
+                            &mod_opts,
+                            &cc_argv,
+                            &target_arch_os_abi,
+                            &target_mcpu,
+                            &deps,
+                            &c_source_files_owner_index,
+                            &rc_source_files_owner_index,
+                            &cssan,
+                        );
                     } else if (mem.eql(u8, arg, "--error-limit")) {
                         const next_arg = args_iter.nextOrFatal();
                         error_limit = std.fmt.parseUnsigned(Module.ErrorInt, next_arg, 0) catch |err| {
@@ -7809,4 +7792,75 @@ fn parseStackSize(s: []const u8) u64 {
 fn parseImageBase(s: []const u8) u64 {
     return std.fmt.parseUnsigned(u64, s, 0) catch |err|
         fatal("unable to parse image base '{s}': {s}", .{ s, @errorName(err) });
+}
+
+fn handleModArg(
+    arena: Allocator,
+    mod_name: []const u8,
+    opt_root_src_orig: ?[]const u8,
+    create_module: *CreateModule,
+    mod_opts: *Package.Module.CreateOptions.Inherited,
+    cc_argv: *std.ArrayListUnmanaged([]const u8),
+    target_arch_os_abi: *?[]const u8,
+    target_mcpu: *?[]const u8,
+    deps: *std.ArrayListUnmanaged(CliModule.Dep),
+    c_source_files_owner_index: *usize,
+    rc_source_files_owner_index: *usize,
+    cssan: *ClangSearchSanitizer,
+) !void {
+    const gop = try create_module.modules.getOrPut(arena, mod_name);
+
+    if (gop.found_existing) {
+        fatal("unable to add module '{s}': already exists as '{s}'", .{
+            mod_name, gop.value_ptr.paths.root_src_path,
+        });
+    }
+
+    // See duplicate logic: ModCreationGlobalFlags
+    if (mod_opts.single_threaded == false)
+        create_module.opts.any_non_single_threaded = true;
+    if (mod_opts.sanitize_thread == true)
+        create_module.opts.any_sanitize_thread = true;
+    if (mod_opts.unwind_tables == true)
+        create_module.opts.any_unwind_tables = true;
+    if (mod_opts.strip == false)
+        create_module.opts.any_non_stripped = true;
+    if (mod_opts.error_tracing == true)
+        create_module.opts.any_error_tracing = true;
+
+    gop.value_ptr.* = .{
+        .paths = p: {
+            if (opt_root_src_orig) |root_src_orig| {
+                create_module.opts.have_zcu = true;
+                const root_src = try introspect.resolvePath(arena, root_src_orig);
+                break :p .{
+                    .root = .{
+                        .root_dir = Cache.Directory.cwd(),
+                        .sub_path = fs.path.dirname(root_src) orelse "",
+                    },
+                    .root_src_path = fs.path.basename(root_src),
+                };
+            }
+            break :p .{
+                .root = .{ .root_dir = Cache.Directory.cwd() },
+                .root_src_path = "",
+            };
+        },
+        .cc_argv = try cc_argv.toOwnedSlice(arena),
+        .inherited = mod_opts.*,
+        .target_arch_os_abi = target_arch_os_abi.*,
+        .target_mcpu = target_mcpu.*,
+        .deps = try deps.toOwnedSlice(arena),
+        .resolved = null,
+        .c_source_files_start = c_source_files_owner_index.*,
+        .c_source_files_end = create_module.c_source_files.items.len,
+        .rc_source_files_start = rc_source_files_owner_index.*,
+        .rc_source_files_end = create_module.rc_source_files.items.len,
+    };
+    cssan.reset();
+    mod_opts.* = .{};
+    target_arch_os_abi.* = null;
+    target_mcpu.* = null;
+    c_source_files_owner_index.* = create_module.c_source_files.items.len;
+    rc_source_files_owner_index.* = create_module.rc_source_files.items.len;
 }
