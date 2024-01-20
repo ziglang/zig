@@ -62,7 +62,6 @@ pub const Reloc = struct {
         linker_got: bits.Symbol,
         linker_direct: bits.Symbol,
         linker_import: bits.Symbol,
-        linker_tlv: bits.Symbol,
     };
 };
 
@@ -428,7 +427,23 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                         const macho_sym = macho_file.getSymbol(sym_index);
 
                         if (macho_sym.flags.tlv) {
-                            @panic("TODO lower TLS access on macOS");
+                            _ = lower.reloc(.{ .linker_reloc = sym });
+                            lower.result_insts[lower.result_insts_len] =
+                                try Instruction.new(.none, .mov, &[_]Operand{
+                                .{ .reg = .rdi },
+                                .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
+                            });
+                            lower.result_insts_len += 1;
+                            lower.result_insts[lower.result_insts_len] =
+                                try Instruction.new(.none, .call, &[_]Operand{
+                                .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .rdi } }) },
+                            });
+                            lower.result_insts_len += 1;
+                            emit_mnemonic = .lea;
+                            break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                .base = .{ .reg = .rax },
+                                .disp = std.math.minInt(i32),
+                            }) };
                         }
 
                         _ = lower.reloc(.{ .linker_reloc = sym });
@@ -594,14 +609,13 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .extern_fn_reloc => &.{
             .{ .imm = lower.reloc(.{ .linker_extern_fn = inst.data.reloc }) },
         },
-        .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ops: {
+        .got_reloc, .direct_reloc, .import_reloc => ops: {
             const reg = inst.data.rx.r1;
             const extra = lower.mir.extraData(bits.Symbol, inst.data.rx.payload).data;
             _ = lower.reloc(switch (inst.ops) {
                 .got_reloc => .{ .linker_got = extra },
                 .direct_reloc => .{ .linker_direct = extra },
                 .import_reloc => .{ .linker_import = extra },
-                .tlv_reloc => .{ .linker_tlv = extra },
                 else => unreachable,
             });
             break :ops &.{

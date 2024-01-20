@@ -141,13 +141,23 @@ pub fn getAtomDataAlloc(self: ZigObject, macho_file: *MachO, atom: Atom) ![]u8 {
     const gpa = macho_file.base.comp.gpa;
     assert(atom.file == self.index);
     const sect = macho_file.sections.items(.header)[atom.out_n_sect];
-    const file_offset = sect.offset + atom.value - sect.addr;
-    const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
-    const code = try gpa.alloc(u8, size);
-    errdefer gpa.free(code);
-    const amt = try macho_file.base.file.?.preadAll(code, file_offset);
-    if (amt != code.len) return error.InputOutput;
-    return code;
+
+    switch (sect.type()) {
+        macho.S_THREAD_LOCAL_REGULAR => {
+            const tlv = self.tls_variables.get(atom.atom_index).?;
+            const code = try gpa.dupe(u8, tlv.code);
+            return code;
+        },
+        else => {
+            const file_offset = sect.offset + atom.value - sect.addr;
+            const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+            const code = try gpa.alloc(u8, size);
+            errdefer gpa.free(code);
+            const amt = try macho_file.base.file.?.preadAll(code, file_offset);
+            if (amt != code.len) return error.InputOutput;
+            return code;
+        },
+    }
 }
 
 pub fn getAtomRelocs(self: *ZigObject, atom: Atom) []const Relocation {
