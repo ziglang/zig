@@ -3755,7 +3755,7 @@ fn resolveComptimeKnownAllocValue(sema: *Sema, block: *Block, alloc: Air.Inst.Re
                 const idx_val = (try sema.resolveValue(data.rhs)).?;
                 break :blk .{
                     data.lhs,
-                    .{ .elem = idx_val.toUnsignedInt(mod) },
+                    .{ .elem = try idx_val.toUnsignedIntAdvanced(sema) },
                 };
             },
             .bitcast => .{
@@ -8399,7 +8399,7 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
     const operand = try sema.coerce(block, err_int_ty, uncasted_operand, operand_src);
 
     if (try sema.resolveDefinedValue(block, operand_src, operand)) |value| {
-        const int = try sema.usizeCast(block, operand_src, value.toUnsignedInt(mod));
+        const int = try sema.usizeCast(block, operand_src, try value.toUnsignedIntAdvanced(sema));
         if (int > mod.global_error_set.count() or int == 0)
             return sema.fail(block, operand_src, "integer value '{d}' represents no error", .{int});
         return Air.internedToRef((try mod.intern(.{ .err = .{
@@ -16522,7 +16522,7 @@ fn analyzePtrArithmetic(
         // it being a multiple of the type size.
         const elem_size = Type.fromInterned(ptr_info.child).abiSize(mod);
         const addend = if (opt_off_val) |off_val| a: {
-            const off_int = try sema.usizeCast(block, offset_src, off_val.toUnsignedInt(mod));
+            const off_int = try sema.usizeCast(block, offset_src, try off_val.toUnsignedIntAdvanced(sema));
             break :a elem_size * off_int;
         } else elem_size;
 
@@ -16554,7 +16554,7 @@ fn analyzePtrArithmetic(
             if (opt_off_val) |offset_val| {
                 if (ptr_val.isUndef(mod)) return mod.undefRef(new_ptr_ty);
 
-                const offset_int = try sema.usizeCast(block, offset_src, offset_val.toUnsignedInt(mod));
+                const offset_int = try sema.usizeCast(block, offset_src, try offset_val.toUnsignedIntAdvanced(sema));
                 if (offset_int == 0) return ptr;
                 if (try ptr_val.getUnsignedIntAdvanced(mod, sema)) |addr| {
                     const elem_size = Type.fromInterned(ptr_info.child).abiSize(mod);
@@ -20815,7 +20815,7 @@ fn zirReify(
             );
 
             const signedness = mod.toEnum(std.builtin.Signedness, signedness_val);
-            const bits: u16 = @intCast(bits_val.toUnsignedInt(mod));
+            const bits: u16 = @intCast(try bits_val.toUnsignedIntAdvanced(sema));
             const ty = try mod.intType(signedness, bits);
             return Air.internedToRef(ty.toIntern());
         },
@@ -20830,7 +20830,7 @@ fn zirReify(
                 try ip.getOrPutString(gpa, "child"),
             ).?);
 
-            const len: u32 = @intCast(len_val.toUnsignedInt(mod));
+            const len: u32 = @intCast(try len_val.toUnsignedIntAdvanced(sema));
             const child_ty = child_val.toType();
 
             try sema.checkVectorElemType(block, src, child_ty);
@@ -20848,7 +20848,7 @@ fn zirReify(
                 try ip.getOrPutString(gpa, "bits"),
             ).?);
 
-            const bits: u16 = @intCast(bits_val.toUnsignedInt(mod));
+            const bits: u16 = @intCast(try bits_val.toUnsignedIntAdvanced(sema));
             const ty = switch (bits) {
                 16 => Type.f16,
                 32 => Type.f32,
@@ -20986,7 +20986,7 @@ fn zirReify(
                 try ip.getOrPutString(gpa, "sentinel"),
             ).?);
 
-            const len = len_val.toUnsignedInt(mod);
+            const len = try len_val.toUnsignedIntAdvanced(sema);
             const child_ty = child_val.toType();
             const sentinel = if (sentinel_val.optionalValue(mod)) |p| blk: {
                 const ptr_ty = try mod.singleMutPtrType(child_ty);
@@ -21537,7 +21537,7 @@ fn zirReify(
             }
 
             const alignment = alignment: {
-                const alignment = try sema.validateAlignAllowZero(block, src, alignment_val.toUnsignedInt(mod));
+                const alignment = try sema.validateAlignAllowZero(block, src, try alignment_val.toUnsignedIntAdvanced(sema));
                 const default = target_util.defaultFunctionAlignment(target);
                 break :alignment if (alignment == default) .none else alignment;
             };
@@ -22148,7 +22148,7 @@ fn ptrFromIntVal(
     ptr_align: Alignment,
 ) !Value {
     const mod = sema.mod;
-    const addr = operand_val.toUnsignedInt(mod);
+    const addr = try operand_val.toUnsignedIntAdvanced(sema);
     if (!ptr_ty.isAllowzeroPtr(mod) and addr == 0)
         return sema.fail(block, operand_src, "pointer type '{}' does not allow address zero", .{ptr_ty.fmt(sema.mod)});
     if (addr != 0 and ptr_align != .none and !ptr_align.check(addr))
@@ -23878,7 +23878,8 @@ fn analyzeShuffle(
     for (0..@intCast(mask_len)) |i| {
         const elem = try mask.elemValue(sema.mod, i);
         if (elem.isUndef(mod)) continue;
-        const int = elem.toSignedInt(mod);
+        const elem_resolved = try sema.resolveLazyValue(elem);
+        const int = elem_resolved.toSignedInt(mod);
         var unsigned: u32 = undefined;
         var chosen: u32 = undefined;
         if (int >= 0) {
@@ -24952,7 +24953,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     var new_dest_ptr = dest_ptr;
     var new_src_ptr = src_ptr;
     if (len_val) |val| {
-        const len = val.toUnsignedInt(mod);
+        const len = try val.toUnsignedIntAdvanced(sema);
         if (len == 0) {
             // This AIR instruction guarantees length > 0 if it is comptime-known.
             return;
@@ -25257,7 +25258,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         if (val.isGenericPoison()) {
             break :blk null;
         }
-        const alignment = try sema.validateAlignAllowZero(block, align_src, val.toUnsignedInt(mod));
+        const alignment = try sema.validateAlignAllowZero(block, align_src, try val.toUnsignedIntAdvanced(sema));
         const default = target_util.defaultFunctionAlignment(target);
         break :blk if (alignment == default) .none else alignment;
     } else if (extra.data.bits.has_align_ref) blk: {
@@ -25271,7 +25272,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             },
             else => |e| return e,
         };
-        const alignment = try sema.validateAlignAllowZero(block, align_src, align_tv.val.toUnsignedInt(mod));
+        const alignment = try sema.validateAlignAllowZero(block, align_src, try align_tv.val.toUnsignedIntAdvanced(sema));
         const default = target_util.defaultFunctionAlignment(target);
         break :blk if (alignment == default) .none else alignment;
     } else .none;
@@ -25569,7 +25570,7 @@ fn resolvePrefetchOptions(
 
     return std.builtin.PrefetchOptions{
         .rw = mod.toEnum(std.builtin.PrefetchOptions.Rw, rw_val),
-        .locality = @intCast(locality_val.toUnsignedInt(mod)),
+        .locality = @intCast(try locality_val.toUnsignedIntAdvanced(sema)),
         .cache = mod.toEnum(std.builtin.PrefetchOptions.Cache, cache_val),
     };
 }
@@ -27757,7 +27758,7 @@ fn elemPtr(
             const index_val = try sema.resolveConstDefinedValue(block, elem_index_src, elem_index, .{
                 .needed_comptime_reason = "tuple field access index must be comptime-known",
             });
-            const index: u32 = @intCast(index_val.toUnsignedInt(mod));
+            const index: u32 = @intCast(try index_val.toUnsignedIntAdvanced(sema));
             break :blk try sema.tupleFieldPtr(block, src, indexable_ptr, elem_index_src, index, init);
         },
         else => {
@@ -27795,7 +27796,7 @@ fn elemPtrOneLayerOnly(
             const runtime_src = rs: {
                 const ptr_val = maybe_ptr_val orelse break :rs indexable_src;
                 const index_val = maybe_index_val orelse break :rs elem_index_src;
-                const index: usize = @intCast(index_val.toUnsignedInt(mod));
+                const index: usize = @intCast(try index_val.toUnsignedIntAdvanced(sema));
                 const result_ty = try sema.elemPtrType(indexable_ty, index);
                 const elem_ptr = try ptr_val.elemPtr(result_ty, index, mod);
                 return Air.internedToRef(elem_ptr.toIntern());
@@ -27814,7 +27815,7 @@ fn elemPtrOneLayerOnly(
                     const index_val = try sema.resolveConstDefinedValue(block, elem_index_src, elem_index, .{
                         .needed_comptime_reason = "tuple field access index must be comptime-known",
                     });
-                    const index: u32 = @intCast(index_val.toUnsignedInt(mod));
+                    const index: u32 = @intCast(try index_val.toUnsignedIntAdvanced(sema));
                     break :blk try sema.tupleFieldPtr(block, indexable_src, indexable, elem_index_src, index, false);
                 },
                 else => unreachable, // Guaranteed by checkIndexable
@@ -27854,7 +27855,7 @@ fn elemVal(
                 const runtime_src = rs: {
                     const indexable_val = maybe_indexable_val orelse break :rs indexable_src;
                     const index_val = maybe_index_val orelse break :rs elem_index_src;
-                    const index: usize = @intCast(index_val.toUnsignedInt(mod));
+                    const index: usize = @intCast(try index_val.toUnsignedIntAdvanced(sema));
                     const elem_ty = indexable_ty.elemType2(mod);
                     const many_ptr_ty = try mod.manyConstPtrType(elem_ty);
                     const many_ptr_val = try mod.getCoerced(indexable_val, many_ptr_ty);
@@ -27875,7 +27876,7 @@ fn elemVal(
                     if (inner_ty.zigTypeTag(mod) != .Array) break :arr_sent;
                     const sentinel = inner_ty.sentinel(mod) orelse break :arr_sent;
                     const index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index) orelse break :arr_sent;
-                    const index = try sema.usizeCast(block, src, index_val.toUnsignedInt(mod));
+                    const index = try sema.usizeCast(block, src, try index_val.toUnsignedIntAdvanced(sema));
                     if (index != inner_ty.arrayLen(mod)) break :arr_sent;
                     return Air.internedToRef(sentinel.toIntern());
                 }
@@ -27893,7 +27894,7 @@ fn elemVal(
             const index_val = try sema.resolveConstDefinedValue(block, elem_index_src, elem_index, .{
                 .needed_comptime_reason = "tuple field access index must be comptime-known",
             });
-            const index: u32 = @intCast(index_val.toUnsignedInt(mod));
+            const index: u32 = @intCast(try index_val.toUnsignedIntAdvanced(sema));
             return sema.tupleField(block, indexable_src, indexable, elem_index_src, index);
         },
         else => unreachable,
@@ -28059,7 +28060,7 @@ fn elemValArray(
     const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
 
     if (maybe_index_val) |index_val| {
-        const index: usize = @intCast(index_val.toUnsignedInt(mod));
+        const index: usize = @intCast(try index_val.toUnsignedIntAdvanced(sema));
         if (array_sent) |s| {
             if (index == array_len) {
                 return Air.internedToRef(s.toIntern());
@@ -28075,7 +28076,7 @@ fn elemValArray(
             return mod.undefRef(elem_ty);
         }
         if (maybe_index_val) |index_val| {
-            const index: usize = @intCast(index_val.toUnsignedInt(mod));
+            const index: usize = @intCast(try index_val.toUnsignedIntAdvanced(sema));
             const elem_val = try array_val.elemValue(mod, index);
             return Air.internedToRef(elem_val.toIntern());
         }
@@ -28122,7 +28123,7 @@ fn elemPtrArray(
     const maybe_undef_array_ptr_val = try sema.resolveValue(array_ptr);
     // The index must not be undefined since it can be out of bounds.
     const offset: ?usize = if (try sema.resolveDefinedValue(block, elem_index_src, elem_index)) |index_val| o: {
-        const index = try sema.usizeCast(block, elem_index_src, index_val.toUnsignedInt(mod));
+        const index = try sema.usizeCast(block, elem_index_src, try index_val.toUnsignedIntAdvanced(sema));
         if (index >= array_len_s) {
             const sentinel_label: []const u8 = if (array_sent) " +1 (sentinel)" else "";
             return sema.fail(block, elem_index_src, "index {d} outside array of length {d}{s}", .{ index, array_len, sentinel_label });
@@ -28188,7 +28189,7 @@ fn elemValSlice(
             return sema.fail(block, slice_src, "indexing into empty slice is not allowed", .{});
         }
         if (maybe_index_val) |index_val| {
-            const index: usize = @intCast(index_val.toUnsignedInt(mod));
+            const index: usize = @intCast(try index_val.toUnsignedIntAdvanced(sema));
             if (index >= slice_len_s) {
                 const sentinel_label: []const u8 = if (slice_sent) " +1 (sentinel)" else "";
                 return sema.fail(block, elem_index_src, "index {d} outside slice of length {d}{s}", .{ index, slice_len, sentinel_label });
@@ -28234,7 +28235,7 @@ fn elemPtrSlice(
     const maybe_undef_slice_val = try sema.resolveValue(slice);
     // The index must not be undefined since it can be out of bounds.
     const offset: ?usize = if (try sema.resolveDefinedValue(block, elem_index_src, elem_index)) |index_val| o: {
-        const index = try sema.usizeCast(block, elem_index_src, index_val.toUnsignedInt(mod));
+        const index = try sema.usizeCast(block, elem_index_src, try index_val.toUnsignedIntAdvanced(sema));
         break :o index;
     } else null;
 
@@ -32931,7 +32932,7 @@ fn analyzeSlice(
     const new_allowzero = new_ptr_ty_info.flags.is_allowzero and sema.typeOf(ptr).ptrSize(mod) != .C;
 
     if (opt_new_len_val) |new_len_val| {
-        const new_len_int = new_len_val.toUnsignedInt(mod);
+        const new_len_int = try new_len_val.toUnsignedIntAdvanced(sema);
 
         const return_ty = try sema.ptrType(.{
             .child = (try mod.arrayType(.{
@@ -36279,6 +36280,7 @@ fn semaStructFields(
             return;
         },
         .Auto, .Extern => {
+            struct_type.size(ip).* = 0;
             struct_type.flagsPtr(ip).layout_resolved = true;
             return;
         },
