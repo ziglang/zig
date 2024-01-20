@@ -21,7 +21,7 @@ const Compile = @This();
 pub const base_id: Step.Id = .compile;
 
 step: Step,
-root_module: Module,
+root_module: *Module,
 
 name: []const u8,
 linker_script: ?LazyPath = null,
@@ -287,7 +287,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
     const self = owner.allocator.create(Compile) catch @panic("OOM");
     self.* = .{
-        .root_module = undefined,
+        .root_module = Module.create(owner, options.root_module),
         .verbose_link = false,
         .verbose_cc = false,
         .linkage = options.linkage,
@@ -329,7 +329,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .use_lld = options.use_lld,
     };
 
-    self.root_module.init(owner, options.root_module, self);
+    self.step.dependOn(&self.root_module.step);
 
     if (options.zig_lib_dir) |lp| {
         self.zig_lib_dir = lp.dupe(self.step.owner);
@@ -988,7 +988,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             }
         }
 
-        var cli_named_modules = try CliNamedModules.init(arena, &self.root_module);
+        var cli_named_modules = try CliNamedModules.init(arena, self.root_module);
 
         // For this loop, don't chase dynamic libraries because their link
         // objects are already linked.
@@ -1016,7 +1016,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 switch (link_object) {
                     .static_path => |static_path| {
                         if (my_responsibility) {
-                            try zig_args.append(static_path.getPath2(module.owner, step));
+                            try zig_args.append(static_path.getPath2(module.step.owner, step));
                             total_linker_objects += 1;
                         }
                     },
@@ -1142,7 +1142,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("--");
                             prev_has_cflags = false;
                         }
-                        try zig_args.append(asm_file.getPath2(module.owner, step));
+                        try zig_args.append(asm_file.getPath2(module.step.owner, step));
                         total_linker_objects += 1;
                     },
 
@@ -1163,7 +1163,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("--");
                             prev_has_cflags = true;
                         }
-                        try zig_args.append(c_source_file.file.getPath2(module.owner, step));
+                        try zig_args.append(c_source_file.file.getPath2(module.step.owner, step));
                         total_linker_objects += 1;
                     },
 
@@ -1214,7 +1214,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("--");
                             prev_has_rcflags = true;
                         }
-                        try zig_args.append(rc_source_file.file.getPath2(module.owner, step));
+                        try zig_args.append(rc_source_file.file.getPath2(module.step.owner, step));
                         total_linker_objects += 1;
                     },
                 }
@@ -1248,7 +1248,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 // Linker objects are added to the CLI globally, while C source
                 // files must have a module parent.
                 if (module.root_source_file) |lp| {
-                    const src = lp.getPath2(module.owner, step);
+                    const src = lp.getPath2(module.step.owner, step);
                     try zig_args.append(b.fmt("-M{s}={s}", .{ module_cli_name, src }));
                 } else if (moduleNeedsCliArg(module)) {
                     try zig_args.append(b.fmt("-M{s}", .{module_cli_name}));

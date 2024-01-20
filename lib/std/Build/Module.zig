@@ -1,9 +1,9 @@
-/// The one responsible for creating this module.
-owner: *std.Build,
-/// Tracks the set of steps that depend on this `Module`. This ensures that
-/// when making this `Module` depend on other `Module` objects and `Step`
-/// objects, respective `Step` dependencies can be added.
-depending_steps: std.AutoArrayHashMapUnmanaged(*Step.Compile, void),
+/// In order to participate in the `Step` graph for dependency resolution, each
+/// `Module` is modeled as a dummy `Step` whose `make` function is a no-op.
+step: Step,
+
+/// If this module contains Zig code, this is the Zig source file representing
+/// the module's root. Otherwise, it is `null`.
 root_source_file: ?LazyPath,
 /// The modules that are mapped into this module's import table.
 /// Use `addImport` rather than modifying this field directly in order to
@@ -186,13 +186,17 @@ pub const Import = struct {
     module: *Module,
 };
 
-pub fn init(m: *Module, owner: *std.Build, options: CreateOptions, compile: ?*Step.Compile) void {
+pub fn create(owner: *std.Build, options: CreateOptions) *Module {
     const allocator = owner.allocator;
-
+    const m = allocator.create(Module) catch @panic("OOM");
     m.* = .{
-        .owner = owner,
-        .depending_steps = .{},
-        .root_source_file = if (options.root_source_file) |lp| lp.dupe(owner) else null,
+        .step = Step.init(.{
+            .id = .module,
+            .name = "module",
+            .owner = owner,
+            .makeFn = &make,
+        }),
+        .root_source_file = undefined, // set below
         .import_table = .{},
         .resolved_target = options.target,
         .optimize = options.optimize,
@@ -222,100 +226,39 @@ pub fn init(m: *Module, owner: *std.Build, options: CreateOptions, compile: ?*St
         .export_symbol_names = &.{},
     };
 
+    if (options.root_source_file) |lp| {
+        lp.addStepDependencies(&m.step);
+        m.root_source_file = lp.dupe(owner);
+    } else {
+        m.root_source_file = null;
+    }
+
     m.import_table.ensureUnusedCapacity(allocator, options.imports.len) catch @panic("OOM");
     for (options.imports) |dep| {
         m.import_table.putAssumeCapacity(dep.name, dep.module);
+        m.step.dependOn(&dep.module.step);
     }
 
-    if (compile) |c| {
-        m.depending_steps.put(allocator, c, {}) catch @panic("OOM");
-    }
-
-    // This logic accesses `depending_steps` which was just modified above.
-    var it = m.iterateDependencies(null, false);
-    while (it.next()) |item| addShallowDependencies(m, item.module);
-}
-
-pub fn create(owner: *std.Build, options: CreateOptions) *Module {
-    const m = owner.allocator.create(Module) catch @panic("OOM");
-    m.init(owner, options, null);
     return m;
 }
 
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    // A `Module` does not itself require any work to construct.
+    // Compilation work is deferred to e.g. a Compile step.
+    _ = .{ step, prog_node };
+}
+
 /// Adds an existing module to be used with `@import`.
-pub fn addImport(m: *Module, name: []const u8, module: *Module) void {
-    const b = m.owner;
-    m.import_table.put(b.allocator, b.dupe(name), module) catch @panic("OOM");
-
-    var it = module.iterateDependencies(null, false);
-    while (it.next()) |item| addShallowDependencies(m, item.module);
-}
-
-/// Creates step dependencies and updates `depending_steps` of `dependee` so that
-/// subsequent calls to `addImport` on `dependee` will additionally create step
-/// dependencies on `m`'s `depending_steps`.
-fn addShallowDependencies(m: *Module, dependee: *Module) void {
-    if (dependee.root_source_file) |lazy_path| addLazyPathDependencies(m, dependee, lazy_path);
-    for (dependee.lib_paths.items) |lib_path| addLazyPathDependencies(m, dependee, lib_path);
-    for (dependee.rpaths.items) |rpath| switch (rpath) {
-        .lazy_path => |lp| addLazyPathDependencies(m, dependee, lp),
-        .special => {},
-    };
-
-    for (dependee.link_objects.items) |link_object| switch (link_object) {
-        .other_step => |compile| {
-            addStepDependencies(m, dependee, &compile.step);
-            for (compile.installed_headers.items) |install_step|
-                addStepDependenciesOnly(m, install_step);
-        },
-
-        .static_path,
-        .assembly_file,
-        => |lp| addLazyPathDependencies(m, dependee, lp),
-
-        .c_source_file => |x| addLazyPathDependencies(m, dependee, x.file),
-        .win32_resource_file => |x| addLazyPathDependencies(m, dependee, x.file),
-
-        .c_source_files,
-        .system_lib,
-        => {},
-    };
-}
-
-fn addLazyPathDependencies(m: *Module, module: *Module, lazy_path: LazyPath) void {
-    addLazyPathDependenciesOnly(m, lazy_path);
-    if (m != module) {
-        for (m.depending_steps.keys()) |compile| {
-            module.depending_steps.put(m.owner.allocator, compile, {}) catch @panic("OOM");
-        }
-    }
-}
-
-fn addLazyPathDependenciesOnly(m: *Module, lazy_path: LazyPath) void {
-    for (m.depending_steps.keys()) |compile| {
-        lazy_path.addStepDependencies(&compile.step);
-    }
-}
-
-fn addStepDependencies(m: *Module, module: *Module, dependee: *Step) void {
-    addStepDependenciesOnly(m, dependee);
-    if (m != module) {
-        for (m.depending_steps.keys()) |compile| {
-            module.depending_steps.put(m.owner.allocator, compile, {}) catch @panic("OOM");
-        }
-    }
-}
-
-fn addStepDependenciesOnly(m: *Module, dependee: *Step) void {
-    for (m.depending_steps.keys()) |compile| {
-        compile.step.dependOn(dependee);
-    }
+pub fn addImport(m: *Module, name: []const u8, other_mod: *Module) void {
+    const b = m.step.owner;
+    m.import_table.put(b.allocator, b.dupe(name), other_mod) catch @panic("OOM");
+    m.step.dependOn(&other_mod.step);
 }
 
 /// Creates a new module and adds it to be used with `@import`.
 pub fn addAnonymousImport(m: *Module, name: []const u8, options: CreateOptions) void {
-    const module = create(m.owner, options);
-    return addImport(m, name, module);
+    const module = create(m.step.owner, options);
+    addImport(m, name, module);
 }
 
 /// Converts a set of key-value pairs into a Zig source file, and then inserts it into
@@ -375,7 +318,7 @@ pub const DependencyIterator = struct {
                     if (!it.chase_dyn_libs and compile.isDynamicLibrary()) continue;
 
                     it.set.put(it.allocator, .{
-                        .module = &compile.root_module,
+                        .module = compile.root_module,
                         .compile = compile,
                     }, "root") catch @panic("OOM");
                 },
@@ -397,12 +340,12 @@ pub fn iterateDependencies(
     chase_dyn_libs: bool,
 ) DependencyIterator {
     var it: DependencyIterator = .{
-        .allocator = m.owner.allocator,
+        .allocator = m.step.owner.allocator,
         .index = 0,
         .set = .{},
         .chase_dyn_libs = chase_dyn_libs,
     };
-    it.set.ensureUnusedCapacity(m.owner.allocator, m.import_table.count() + 1) catch @panic("OOM");
+    it.set.ensureUnusedCapacity(m.step.owner.allocator, m.import_table.count() + 1) catch @panic("OOM");
     it.set.putAssumeCapacity(.{
         .module = m,
         .compile = chase_steps,
@@ -423,7 +366,7 @@ pub fn linkSystemLibrary(
     name: []const u8,
     options: LinkSystemLibraryOptions,
 ) void {
-    const b = m.owner;
+    const b = m.step.owner;
 
     const target = m.requireKnownTarget();
     if (target.is_libc_lib_name(name)) {
@@ -448,7 +391,7 @@ pub fn linkSystemLibrary(
 }
 
 pub fn linkFramework(m: *Module, name: []const u8, options: LinkFrameworkOptions) void {
-    const b = m.owner;
+    const b = m.step.owner;
     m.frameworks.put(b.allocator, b.dupe(name), options) catch @panic("OOM");
 }
 
@@ -462,7 +405,7 @@ pub const AddCSourceFilesOptions = struct {
 
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
 pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
-    const b = m.owner;
+    const b = m.step.owner;
     const allocator = b.allocator;
     const c_source_files = allocator.create(CSourceFiles) catch @panic("OOM");
     c_source_files.* = .{
@@ -474,19 +417,19 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
 }
 
 pub fn addCSourceFile(m: *Module, source: CSourceFile) void {
-    const b = m.owner;
+    const b = m.step.owner;
     const allocator = b.allocator;
     const c_source_file = allocator.create(CSourceFile) catch @panic("OOM");
     c_source_file.* = source.dupe(b);
     m.link_objects.append(allocator, .{ .c_source_file = c_source_file }) catch @panic("OOM");
-    addLazyPathDependenciesOnly(m, source.file);
+    source.file.addStepDependencies(&m.step);
 }
 
 /// Resource files must have the extension `.rc`.
 /// Can be called regardless of target. The .rc file will be ignored
 /// if the target object format does not support embedded resources.
 pub fn addWin32ResourceFile(m: *Module, source: RcSourceFile) void {
-    const b = m.owner;
+    const b = m.step.owner;
     const allocator = b.allocator;
     const target = m.requireKnownTarget();
     // Only the PE/COFF format has a Resource Table, so for any other target
@@ -496,19 +439,19 @@ pub fn addWin32ResourceFile(m: *Module, source: RcSourceFile) void {
     const rc_source_file = allocator.create(RcSourceFile) catch @panic("OOM");
     rc_source_file.* = source.dupe(b);
     m.link_objects.append(allocator, .{ .win32_resource_file = rc_source_file }) catch @panic("OOM");
-    addLazyPathDependenciesOnly(m, source.file);
+    source.file.addStepDependencies(&m.step);
 }
 
 pub fn addAssemblyFile(m: *Module, source: LazyPath) void {
-    const b = m.owner;
+    const b = m.step.owner;
     m.link_objects.append(b.allocator, .{ .assembly_file = source.dupe(b) }) catch @panic("OOM");
-    addLazyPathDependenciesOnly(m, source);
+    source.addStepDependencies(&m.step);
 }
 
 pub fn addObjectFile(m: *Module, object: LazyPath) void {
-    const b = m.owner;
+    const b = m.step.owner;
     m.link_objects.append(b.allocator, .{ .static_path = object.dupe(b) }) catch @panic("OOM");
-    addLazyPathDependenciesOnly(m, object);
+    object.addStepDependencies(&m.step);
 }
 
 pub fn addObject(m: *Module, object: *Step.Compile) void {
@@ -522,51 +465,51 @@ pub fn linkLibrary(m: *Module, library: *Step.Compile) void {
 }
 
 pub fn addAfterIncludePath(m: *Module, lazy_path: LazyPath) void {
-    const b = m.owner;
+    const b = m.step.owner;
     m.include_dirs.append(b.allocator, .{ .path_after = lazy_path.dupe(b) }) catch @panic("OOM");
-    addLazyPathDependenciesOnly(m, lazy_path);
+    lazy_path.addStepDependencies(&m.step);
 }
 
 pub fn addSystemIncludePath(m: *Module, lazy_path: LazyPath) void {
-    const b = m.owner;
+    const b = m.step.owner;
     m.include_dirs.append(b.allocator, .{ .path_system = lazy_path.dupe(b) }) catch @panic("OOM");
-    addLazyPathDependenciesOnly(m, lazy_path);
+    lazy_path.addStepDependencies(&m.step);
 }
 
 pub fn addIncludePath(m: *Module, lazy_path: LazyPath) void {
-    const b = m.owner;
+    const b = m.step.owner;
     m.include_dirs.append(b.allocator, .{ .path = lazy_path.dupe(b) }) catch @panic("OOM");
-    addLazyPathDependenciesOnly(m, lazy_path);
+    lazy_path.addStepDependencies(&m.step);
 }
 
 pub fn addConfigHeader(m: *Module, config_header: *Step.ConfigHeader) void {
-    const allocator = m.owner.allocator;
+    const allocator = m.step.owner.allocator;
     m.include_dirs.append(allocator, .{ .config_header_step = config_header }) catch @panic("OOM");
-    addStepDependenciesOnly(m, &config_header.step);
+    m.step.dependOn(&config_header.step);
 }
 
 pub fn addSystemFrameworkPath(m: *Module, directory_path: LazyPath) void {
-    const b = m.owner;
+    const b = m.step.owner;
     m.include_dirs.append(b.allocator, .{ .framework_path_system = directory_path.dupe(b) }) catch
         @panic("OOM");
-    addLazyPathDependenciesOnly(m, directory_path);
+    directory_path.addStepDependencies(&m.step);
 }
 
 pub fn addFrameworkPath(m: *Module, directory_path: LazyPath) void {
-    const b = m.owner;
+    const b = m.step.owner;
     m.include_dirs.append(b.allocator, .{ .framework_path = directory_path.dupe(b) }) catch
         @panic("OOM");
-    addLazyPathDependenciesOnly(m, directory_path);
+    directory_path.addStepDependencies(&m.step);
 }
 
 pub fn addLibraryPath(m: *Module, directory_path: LazyPath) void {
-    const b = m.owner;
+    const b = m.step.owner;
     m.lib_paths.append(b.allocator, directory_path.dupe(b)) catch @panic("OOM");
-    addLazyPathDependenciesOnly(m, directory_path);
+    directory_path.addStepDependencies(&m.step);
 }
 
 pub fn addRPath(m: *Module, directory_path: LazyPath) void {
-    const b = m.owner;
+    const b = m.step.owner;
     switch (directory_path) {
         .path, .cwd_relative => |path| {
             // TODO: remove this check after people upgrade and stop expecting it to work
@@ -579,11 +522,11 @@ pub fn addRPath(m: *Module, directory_path: LazyPath) void {
         else => {},
     }
     m.rpaths.append(b.allocator, .{ .lazy_path = directory_path.dupe(b) }) catch @panic("OOM");
-    addLazyPathDependenciesOnly(m, directory_path);
+    directory_path.addStepDependencies(&m.step);
 }
 
 pub fn addRPathSpecial(m: *Module, bytes: []const u8) void {
-    const b = m.owner;
+    const b = m.step.owner;
     m.rpaths.append(b.allocator, .{ .special = b.dupe(bytes) }) catch @panic("OOM");
 }
 
@@ -594,7 +537,7 @@ pub fn addRPathSpecial(m: *Module, bytes: []const u8) void {
 /// ```
 /// `name` and `value` need not live longer than the function call.
 pub fn addCMacro(m: *Module, name: []const u8, value: []const u8) void {
-    const b = m.owner;
+    const b = m.step.owner;
     m.c_macros.append(b.allocator, b.fmt("-D{s}={s}", .{ name, value })) catch @panic("OOM");
 }
 
@@ -603,7 +546,7 @@ pub fn appendZigProcessFlags(
     zig_args: *std.ArrayList([]const u8),
     asking_step: ?*Step,
 ) !void {
-    const b = m.owner;
+    const b = m.step.owner;
 
     try addFlag(zig_args, m.strip, "-fstrip", "-fno-strip");
     try addFlag(zig_args, m.unwind_tables, "-funwind-tables", "-fno-unwind-tables");
@@ -731,20 +674,17 @@ fn addFlag(
 }
 
 fn linkLibraryOrObject(m: *Module, other: *Step.Compile) void {
-    const allocator = m.owner.allocator;
-    _ = other.getEmittedBin(); // Indicate there is a dependency on the outputted binary.
-    addStepDependenciesOnly(m, &other.step);
+    const allocator = m.step.owner.allocator;
 
+    _ = other.getEmittedBin(); // Indicate there is a dependency on the outputted binary.
     if (other.rootModuleTarget().os.tag == .windows and other.isDynamicLibrary()) {
         _ = other.getEmittedImplib(); // Indicate dependency on the outputted implib.
     }
 
+    m.step.dependOn(&other.step);
+
     m.link_objects.append(allocator, .{ .other_step = other }) catch @panic("OOM");
     m.include_dirs.append(allocator, .{ .other_step = other }) catch @panic("OOM");
-
-    for (other.installed_headers.items) |install_step| {
-        addStepDependenciesOnly(m, install_step);
-    }
 }
 
 fn requireKnownTarget(m: *Module) std.Target {

@@ -92,6 +92,7 @@ pub const Id = enum {
     config_header,
     objcopy,
     options,
+    module,
     custom,
 
     pub fn Type(comptime id: Id) type {
@@ -111,6 +112,7 @@ pub const Id = enum {
             .config_header => ConfigHeader,
             .objcopy => ObjCopy,
             .options => Options,
+            .module => Module,
             .custom => @compileError("no type available for custom step"),
         };
     }
@@ -265,6 +267,7 @@ pub fn dump(step: *Step, file: std.fs.File) void {
 const Step = @This();
 const std = @import("../std.zig");
 const Build = std.Build;
+const Module = Build.Module;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const builtin = @import("builtin");
