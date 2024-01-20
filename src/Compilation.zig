@@ -1170,7 +1170,7 @@ fn addModuleTableToCacheHash(
                 hash.addOptionalBytes(mod.root.root_dir.path);
                 hash.addBytes(mod.root.sub_path);
             },
-            .files => |man| {
+            .files => |man| if (mod.root_src_path.len != 0) {
                 const pkg_zig_file = try mod.root.joinString(arena, mod.root_src_path);
                 _ = try man.addFile(pkg_zig_file, null);
             },
@@ -2467,8 +2467,6 @@ fn addNonIncrementalStuffToCacheManifest(
     comptime assert(link_hash_implementation_version == 11);
 
     if (comp.module) |mod| {
-        const main_zig_file = try mod.main_mod.root.joinString(arena, mod.main_mod.root_src_path);
-        _ = try man.addFile(main_zig_file, null);
         try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.root_mod, mod.main_mod, .{ .files = man });
 
         // Synchronize with other matching comments: ZigOnlyHashStuff
