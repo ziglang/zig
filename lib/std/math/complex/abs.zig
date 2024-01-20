@@ -5,9 +5,8 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the absolute value (modulus) of z.
-pub fn abs(z: anytype) @TypeOf(z.re) {
-    const T = @TypeOf(z.re);
-    return math.hypot(T, z.re, z.im);
+pub fn abs(z: anytype) @TypeOf(z.re, z.im) {
+    return math.hypot(z.re, z.im);
 }
 
 const epsilon = 0.0001;

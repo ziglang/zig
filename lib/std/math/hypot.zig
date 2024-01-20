@@ -12,11 +12,15 @@ const maxInt = std.math.maxInt;
 /// Returns sqrt(x * x + y * y), avoiding unnecessary overflow and underflow.
 ///
 /// Special Cases:
-///  - hypot(+-inf, y)  = +inf
-///  - hypot(x, +-inf)  = +inf
-///  - hypot(nan, y)    = nan
-///  - hypot(x, nan)    = nan
-pub fn hypot(comptime T: type, x: T, y: T) T {
+///
+/// |   x   |   y   | hypot |
+/// |-------|-------|-------|
+/// | +inf  |  num  | +inf  |
+/// |  num  | +-inf | +inf  |
+/// |  nan  |  any  |  nan  |
+/// |  any  |  nan  |  nan  |
+pub fn hypot(x: anytype, y: anytype) @TypeOf(x, y) {
+    const T = @TypeOf(x, y);
     return switch (T) {
         f32 => hypot32(x, y),
         f64 => hypot64(x, y),
@@ -121,8 +125,12 @@ fn hypot64(x: f64, y: f64) f64 {
 }
 
 test "math.hypot" {
-    try expect(hypot(f32, 0.0, -1.2) == hypot32(0.0, -1.2));
-    try expect(hypot(f64, 0.0, -1.2) == hypot64(0.0, -1.2));
+    const x32: f32 = 0.0;
+    const y32: f32 = -1.2;
+    const x64: f64 = 0.0;
+    const y64: f64 = -1.2;
+    try expect(hypot(x32, y32) == hypot32(0.0, -1.2));
+    try expect(hypot(x64, y64) == hypot64(0.0, -1.2));
 }
 
 test "math.hypot32" {
