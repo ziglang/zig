@@ -638,11 +638,28 @@ pub const ExecutableOptions = struct {
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
 };
+pub const ExecutableOptions2 = struct {
+    name: []const u8,
+    root_module: *Module,
+    version: ?std.SemanticVersion = null,
+    linkage: ?Step.Compile.Linkage = null,
+    max_rss: usize = 0,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    /// Embed a `.manifest` file in the compilation if the object format supports it.
+    /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
+    /// Manifest files must have the extension `.manifest`.
+    /// Can be set regardless of target. The `.manifest` file will be ignored
+    /// if the target object format does not support embedded manifests.
+    win32_manifest: ?LazyPath = null,
+};
 
+/// Deprecated; see `addExecutable2`.
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    return b.addExecutable2(.{
         .name = options.name,
-        .root_module = .{
+        .root_module = b.createModule(.{
             .root_source_file = options.root_source_file,
             .target = options.target,
             .optimize = options.optimize,
@@ -655,7 +672,20 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
-        },
+        }),
+        .version = options.version,
+        .linkage = options.linkage,
+        .max_rss = options.max_rss,
+        .use_llvm = options.use_llvm,
+        .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir,
+        .win32_manifest = options.win32_manifest,
+    });
+}
+pub fn addExecutable2(b: *Build, options: ExecutableOptions2) *Step.Compile {
+    return Step.Compile.create(b, .{
+        .name = options.name,
+        .root_module = options.root_module,
         .version = options.version,
         .kind = .exe,
         .linkage = options.linkage,
@@ -688,11 +718,20 @@ pub const ObjectOptions = struct {
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
 };
+pub const ObjectOptions2 = struct {
+    name: []const u8,
+    root_module: *Module,
+    max_rss: usize = 0,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+};
 
+/// Deprecated; see `addObject2`.
 pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    return b.addObject2(.{
         .name = options.name,
-        .root_module = .{
+        .root_module = b.createModule(.{
             .root_source_file = options.root_source_file,
             .target = options.target,
             .optimize = options.optimize,
@@ -705,7 +744,17 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
-        },
+        }),
+        .max_rss = options.max_rss,
+        .use_llvm = options.use_llvm,
+        .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir,
+    });
+}
+pub fn addObject2(b: *Build, options: ObjectOptions2) *Step.Compile {
+    return Step.Compile.create(b, .{
+        .name = options.name,
+        .root_module = options.root_module,
         .kind = .obj,
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
@@ -742,11 +791,27 @@ pub const SharedLibraryOptions = struct {
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
 };
+pub const SharedLibraryOptions2 = struct {
+    name: []const u8,
+    root_module: *Module,
+    version: ?std.SemanticVersion = null,
+    max_rss: usize = 0,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    /// Embed a `.manifest` file in the compilation if the object format supports it.
+    /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
+    /// Manifest files must have the extension `.manifest`.
+    /// Can be set regardless of target. The `.manifest` file will be ignored
+    /// if the target object format does not support embedded manifests.
+    win32_manifest: ?LazyPath = null,
+};
 
+/// Deprecated; see `addSharedLibrary2`.
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    return b.addSharedLibrary2(.{
         .name = options.name,
-        .root_module = .{
+        .root_module = b.createModule(.{
             .target = options.target,
             .optimize = options.optimize,
             .root_source_file = options.root_source_file,
@@ -759,7 +824,19 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
-        },
+        }),
+        .version = options.version,
+        .max_rss = options.max_rss,
+        .use_llvm = options.use_llvm,
+        .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir,
+        .win32_manifest = options.win32_manifest,
+    });
+}
+pub fn addSharedLibrary2(b: *Build, options: SharedLibraryOptions2) *Step.Compile {
+    return Step.Compile.create(b, .{
+        .name = options.name,
+        .root_module = options.root_module,
         .kind = .lib,
         .linkage = .dynamic,
         .version = options.version,
@@ -793,11 +870,21 @@ pub const StaticLibraryOptions = struct {
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
 };
+pub const StaticLibraryOptions2 = struct {
+    name: []const u8,
+    root_module: *Module,
+    version: ?std.SemanticVersion = null,
+    max_rss: usize = 0,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+};
 
+/// Deprecated; see `addStaticLibrary2`.
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    return b.addStaticLibrary2(.{
         .name = options.name,
-        .root_module = .{
+        .root_module = b.createModule(.{
             .target = options.target,
             .optimize = options.optimize,
             .root_source_file = options.root_source_file,
@@ -810,7 +897,18 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
-        },
+        }),
+        .version = options.version,
+        .max_rss = options.max_rss,
+        .use_llvm = options.use_llvm,
+        .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir,
+    });
+}
+pub fn addStaticLibrary2(b: *Build, options: StaticLibraryOptions2) *Step.Compile {
+    return Step.Compile.create(b, .{
+        .name = options.name,
+        .root_module = options.root_module,
         .kind = .lib,
         .linkage = .static,
         .version = options.version,
@@ -842,12 +940,23 @@ pub const TestOptions = struct {
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
 };
+pub const TestOptions2 = struct {
+    name: []const u8 = "test",
+    root_module: *Module,
+    version: ?std.SemanticVersion = null,
+    max_rss: usize = 0,
+    filter: ?[]const u8 = null,
+    test_runner: ?[]const u8 = null,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+};
 
+/// Deprecated; see `addTest2`.
 pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    return b.addTest2(.{
         .name = options.name,
-        .kind = .@"test",
-        .root_module = .{
+        .root_module = b.createModule(.{
             .root_source_file = options.root_source_file,
             .target = options.target orelse b.host,
             .optimize = options.optimize,
@@ -859,7 +968,22 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
             .omit_frame_pointer = options.omit_frame_pointer,
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
-        },
+        }),
+        .version = options.version,
+        .max_rss = options.max_rss,
+        .filter = options.filter,
+        .test_runner = options.test_runner,
+        .use_llvm = options.use_llvm,
+        .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir,
+    });
+}
+pub fn addTest2(b: *Build, options: TestOptions2) *Step.Compile {
+    return Step.Compile.create(b, .{
+        .name = options.name,
+        .root_module = options.root_module,
+        .kind = .@"test",
+        .version = options.version,
         .max_rss = options.max_rss,
         .filter = options.filter,
         .test_runner = options.test_runner,

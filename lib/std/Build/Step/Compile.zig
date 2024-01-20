@@ -216,7 +216,7 @@ pub const Entry = union(enum) {
 
 pub const Options = struct {
     name: []const u8,
-    root_module: Module.CreateOptions,
+    root_module: *Module,
     kind: Kind,
     linkage: ?Linkage = null,
     version: ?std.SemanticVersion = null,
@@ -255,7 +255,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     else
         owner.fmt("{s} ", .{name});
 
-    const resolved_target = options.root_module.target.?;
+    const resolved_target = options.root_module.resolved_target orelse
+        @panic("the root Module of a Compile step must be created with a known 'target' field");
     const target = resolved_target.result;
 
     const step_name = owner.fmt("{s} {s}{s} {s}", .{
@@ -287,7 +288,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
     const self = owner.allocator.create(Compile) catch @panic("OOM");
     self.* = .{
-        .root_module = Module.create(owner, options.root_module),
+        .root_module = options.root_module,
         .verbose_link = false,
         .verbose_cc = false,
         .linkage = options.linkage,
