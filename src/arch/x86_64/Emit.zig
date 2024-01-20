@@ -166,6 +166,8 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .zig_got_load
                     else if (sym.flags.needs_got)
                         .got_load
+                    else if (sym.flags.tlv)
+                        .tlv
                     else
                         .signed;
                     try atom.addReloc(macho_file, .{
@@ -185,7 +187,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                 .linker_got,
                 .linker_direct,
                 .linker_import,
-                .linker_tlv,
                 => |symbol| if (emit.lower.bin_file.cast(link.File.Elf)) |_| {
                     unreachable;
                 } else if (emit.lower.bin_file.cast(link.File.MachO)) |_| {
