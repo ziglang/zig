@@ -2167,21 +2167,20 @@ const DeclGen = struct {
         const air_tags = self.air.instructions.items(.tag);
         const maybe_result_id: ?IdRef = switch (air_tags[@intFromEnum(inst)]) {
             // zig fmt: off
-            .add, .add_wrap => try self.airArithOp(inst, .OpFAdd, .OpIAdd, .OpIAdd, true),
-            .sub, .sub_wrap => try self.airArithOp(inst, .OpFSub, .OpISub, .OpISub, true),
-            .mul, .mul_wrap => try self.airArithOp(inst, .OpFMul, .OpIMul, .OpIMul, true),
+            .add, .add_wrap => try self.airArithOp(inst, .OpFAdd, .OpIAdd, .OpIAdd),
+            .sub, .sub_wrap => try self.airArithOp(inst, .OpFSub, .OpISub, .OpISub),
+            .mul, .mul_wrap => try self.airArithOp(inst, .OpFMul, .OpIMul, .OpIMul),
 
             .div_float,
             .div_float_optimized,
             // TODO: Check that this is the right operation.
             .div_trunc,
             .div_trunc_optimized,
-            => try self.airArithOp(inst, .OpFDiv, .OpSDiv, .OpUDiv, false),
+            => try self.airArithOp(inst, .OpFDiv, .OpSDiv, .OpUDiv),
             // TODO: Check if this is the right operation
-            // TODO: Make airArithOp for rem not emit a mask for the LHS.
             .rem,
             .rem_optimized,
-            => try self.airArithOp(inst, .OpFRem, .OpSRem, .OpSRem, false),
+            => try self.airArithOp(inst, .OpFRem, .OpSRem, .OpSRem),
 
             .add_with_overflow => try self.airAddSubOverflow(inst, .OpIAdd, .OpULessThan, .OpSLessThan),
             .sub_with_overflow => try self.airAddSubOverflow(inst, .OpISub, .OpUGreaterThan, .OpSGreaterThan),
@@ -2346,12 +2345,9 @@ const DeclGen = struct {
 
         var wip = try self.elementWise(result_ty);
         defer wip.deinit();
-        for (0..wip.results.len) |i| {
+        for (wip.results, 0..) |*result_id, i| {
             const lhs_elem_id = try wip.elementAt(result_ty, lhs_id, i);
             const rhs_elem_id = try wip.elementAt(shift_ty, rhs_id, i);
-
-            // TODO: Can we omit normalizing lhs?
-            const lhs_norm_id = try self.normalizeInt(wip.scalar_ty_ref, lhs_elem_id, info);
 
             // Sometimes Zig doesn't make both of the arguments the same types here. SPIR-V expects that,
             // so just manually upcast it if required.
@@ -2364,13 +2360,13 @@ const DeclGen = struct {
                 });
                 break :blk shift_id;
             } else rhs_elem_id;
-            const shift_norm_id = try self.normalizeInt(wip.scalar_ty_ref, shift_id, info);
 
+            const value_id = self.spv.allocId();
             const args = .{
                 .id_result_type = wip.scalar_ty_id,
-                .id_result = wip.allocId(i),
-                .base = lhs_norm_id,
-                .shift = shift_norm_id,
+                .id_result = value_id,
+                .base = lhs_elem_id,
+                .shift = shift_id,
             };
 
             if (result_ty.isSignedInt(mod)) {
@@ -2378,6 +2374,8 @@ const DeclGen = struct {
             } else {
                 try self.func.body.emit(self.spv.gpa, unsigned, args);
             }
+
+            result_id.* = try self.normalize(wip.scalar_ty_ref, value_id, info);
         }
         return try wip.finalize();
     }
@@ -2435,47 +2433,52 @@ const DeclGen = struct {
         return result_id;
     }
 
-    /// This function canonicalizes a "strange" integer value:
-    /// For unsigned integers, the value is masked so that only the relevant bits can contain
-    /// non-zeros.
-    /// For signed integers, the value is also sign extended.
-    fn normalizeInt(self: *DeclGen, ty_ref: CacheRef, value_id: IdRef, info: ArithmeticTypeInfo) !IdRef {
-        assert(info.class != .composite_integer); // TODO
-        if (info.bits == info.backing_bits) {
-            return value_id;
-        }
-
-        switch (info.signedness) {
-            .unsigned => {
-                const mask_value = if (info.bits == 64) 0xFFFF_FFFF_FFFF_FFFF else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1;
-                const result_id = self.spv.allocId();
-                const mask_id = try self.constInt(ty_ref, mask_value);
-                try self.func.body.emit(self.spv.gpa, .OpBitwiseAnd, .{
-                    .id_result_type = self.typeId(ty_ref),
-                    .id_result = result_id,
-                    .operand_1 = value_id,
-                    .operand_2 = mask_id,
-                });
-                return result_id;
-            },
-            .signed => {
-                // Shift left and right so that we can copy the sight bit that way.
-                const shift_amt_id = try self.constInt(ty_ref, info.backing_bits - info.bits);
-                const left_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpShiftLeftLogical, .{
-                    .id_result_type = self.typeId(ty_ref),
-                    .id_result = left_id,
-                    .base = value_id,
-                    .shift = shift_amt_id,
-                });
-                const right_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpShiftRightArithmetic, .{
-                    .id_result_type = self.typeId(ty_ref),
-                    .id_result = right_id,
-                    .base = left_id,
-                    .shift = shift_amt_id,
-                });
-                return right_id;
+    /// This function normalizes values to a canonical representation
+    /// after some arithmetic operation. This mostly consists of wrapping
+    /// behavior for strange integers:
+    /// - Unsigned integers are bitwise masked with a mask that only passes
+    ///   the valid bits through.
+    /// - Signed integers are also sign extended if they are negative.
+    /// All other values are returned unmodified (this makes strange integer
+    /// wrapping easier to use in generic operations).
+    fn normalize(self: *DeclGen, ty_ref: CacheRef, value_id: IdRef, info: ArithmeticTypeInfo) !IdRef {
+        switch (info.class) {
+            .integer, .bool, .float => return value_id,
+            .composite_integer => unreachable, // TODO
+            .strange_integer => {
+                switch (info.signedness) {
+                    .unsigned => {
+                        const mask_value = if (info.bits == 64) 0xFFFF_FFFF_FFFF_FFFF else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1;
+                        const result_id = self.spv.allocId();
+                        const mask_id = try self.constInt(ty_ref, mask_value);
+                        try self.func.body.emit(self.spv.gpa, .OpBitwiseAnd, .{
+                            .id_result_type = self.typeId(ty_ref),
+                            .id_result = result_id,
+                            .operand_1 = value_id,
+                            .operand_2 = mask_id,
+                        });
+                        return result_id;
+                    },
+                    .signed => {
+                        // Shift left and right so that we can copy the sight bit that way.
+                        const shift_amt_id = try self.constInt(ty_ref, info.backing_bits - info.bits);
+                        const left_id = self.spv.allocId();
+                        try self.func.body.emit(self.spv.gpa, .OpShiftLeftLogical, .{
+                            .id_result_type = self.typeId(ty_ref),
+                            .id_result = left_id,
+                            .base = value_id,
+                            .shift = shift_amt_id,
+                        });
+                        const right_id = self.spv.allocId();
+                        try self.func.body.emit(self.spv.gpa, .OpShiftRightArithmetic, .{
+                            .id_result_type = self.typeId(ty_ref),
+                            .id_result = right_id,
+                            .base = left_id,
+                            .shift = shift_amt_id,
+                        });
+                        return right_id;
+                    },
+                }
             },
         }
     }
@@ -2486,8 +2489,6 @@ const DeclGen = struct {
         comptime fop: Opcode,
         comptime sop: Opcode,
         comptime uop: Opcode,
-        /// true if this operation holds under modular arithmetic.
-        comptime modular: bool,
     ) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
@@ -2501,7 +2502,7 @@ const DeclGen = struct {
         assert(self.typeOf(bin_op.lhs).eql(ty, self.module));
         assert(self.typeOf(bin_op.rhs).eql(ty, self.module));
 
-        return try self.arithOp(ty, lhs_id, rhs_id, fop, sop, uop, modular);
+        return try self.arithOp(ty, lhs_id, rhs_id, fop, sop, uop);
     }
 
     fn arithOp(
@@ -2512,8 +2513,6 @@ const DeclGen = struct {
         comptime fop: Opcode,
         comptime sop: Opcode,
         comptime uop: Opcode,
-        /// true if this operation holds under modular arithmetic.
-        comptime modular: bool,
     ) !IdRef {
         // Binary operations are generally applicable to both scalar and vector operations
         // in SPIR-V, but int and float versions of operations require different opcodes.
@@ -2533,25 +2532,16 @@ const DeclGen = struct {
 
         var wip = try self.elementWise(ty);
         defer wip.deinit();
-        for (0..wip.results.len) |i| {
+        for (wip.results, 0..) |*result_id, i| {
             const lhs_elem_id = try wip.elementAt(ty, lhs_id, i);
             const rhs_elem_id = try wip.elementAt(ty, rhs_id, i);
 
-            const lhs_norm_id = if (modular and info.class == .strange_integer)
-                try self.normalizeInt(wip.scalar_ty_ref, lhs_elem_id, info)
-            else
-                lhs_elem_id;
-
-            const rhs_norm_id = if (modular and info.class == .strange_integer)
-                try self.normalizeInt(wip.scalar_ty_ref, rhs_elem_id, info)
-            else
-                rhs_elem_id;
-
+            const value_id = self.spv.allocId();
             const operands = .{
                 .id_result_type = wip.scalar_ty_id,
-                .id_result = wip.allocId(i),
-                .operand_1 = lhs_norm_id,
-                .operand_2 = rhs_norm_id,
+                .id_result = value_id,
+                .operand_1 = lhs_elem_id,
+                .operand_2 = rhs_elem_id,
             };
 
             switch (opcode_index) {
@@ -2563,6 +2553,7 @@ const DeclGen = struct {
 
             // TODO: Trap on overflow? Probably going to be annoying.
             // TODO: Look into SPV_KHR_no_integer_wrap_decoration which provides NoSignedWrap/NoUnsignedWrap.
+            result_id.* = try self.normalize(wip.scalar_ty_ref, value_id, info);
         }
 
         return try wip.finalize();
@@ -2599,24 +2590,22 @@ const DeclGen = struct {
         defer wip_result.deinit();
         var wip_ov = try self.elementWise(ov_ty);
         defer wip_ov.deinit();
-        for (wip_result.results, wip_ov.results, 0..) |*value_id, *ov_id, i| {
+        for (wip_result.results, wip_ov.results, 0..) |*result_id, *ov_id, i| {
             const lhs_elem_id = try wip_result.elementAt(operand_ty, lhs, i);
             const rhs_elem_id = try wip_result.elementAt(operand_ty, rhs, i);
 
             // Normalize both so that we can properly check for overflow
-            const lhs_norm_id = try self.normalizeInt(wip_result.scalar_ty_ref, lhs_elem_id, info);
-            const rhs_norm_id = try self.normalizeInt(wip_result.scalar_ty_ref, rhs_elem_id, info);
-            const op_result_id = self.spv.allocId();
+            const value_id = self.spv.allocId();
 
             try self.func.body.emit(self.spv.gpa, add, .{
                 .id_result_type = wip_result.scalar_ty_id,
-                .id_result = op_result_id,
-                .operand_1 = lhs_norm_id,
-                .operand_2 = rhs_norm_id,
+                .id_result = value_id,
+                .operand_1 = lhs_elem_id,
+                .operand_2 = rhs_elem_id,
             });
 
             // Normalize the result so that the comparisons go well
-            value_id.* = try self.normalizeInt(wip_result.scalar_ty_ref, op_result_id, info);
+            result_id.* = try self.normalize(wip_result.scalar_ty_ref, value_id, info);
 
             const overflowed_id = switch (info.signedness) {
                 .unsigned => blk: {
@@ -2626,8 +2615,8 @@ const DeclGen = struct {
                     try self.func.body.emit(self.spv.gpa, ucmp, .{
                         .id_result_type = self.typeId(bool_ty_ref),
                         .id_result = overflowed_id,
-                        .operand_1 = value_id.*,
-                        .operand_2 = lhs_norm_id,
+                        .operand_1 = result_id.*,
+                        .operand_2 = lhs_elem_id,
                     });
                     break :blk overflowed_id;
                 },
@@ -2654,7 +2643,7 @@ const DeclGen = struct {
                     try self.func.body.emit(self.spv.gpa, .OpSLessThan, .{
                         .id_result_type = self.typeId(bool_ty_ref),
                         .id_result = rhs_lt_zero_id,
-                        .operand_1 = rhs_norm_id,
+                        .operand_1 = rhs_elem_id,
                         .operand_2 = zero_id,
                     });
 
@@ -2662,8 +2651,8 @@ const DeclGen = struct {
                     try self.func.body.emit(self.spv.gpa, scmp, .{
                         .id_result_type = self.typeId(bool_ty_ref),
                         .id_result = value_gt_lhs_id,
-                        .operand_1 = lhs_norm_id,
-                        .operand_2 = value_id.*,
+                        .operand_1 = lhs_elem_id,
+                        .operand_2 = result_id.*,
                     });
 
                     const overflowed_id = self.spv.allocId();
@@ -2715,12 +2704,9 @@ const DeclGen = struct {
         defer wip_result.deinit();
         var wip_ov = try self.elementWise(ov_ty);
         defer wip_ov.deinit();
-        for (0..wip_result.results.len, wip_ov.results) |i, *ov_id| {
+        for (wip_result.results, wip_ov.results, 0..) |*result_id, *ov_id, i| {
             const lhs_elem_id = try wip_result.elementAt(operand_ty, lhs, i);
             const rhs_elem_id = try wip_result.elementAt(shift_ty, rhs, i);
-
-            // Normalize both so that we can shift back and check if the result is the same.
-            const lhs_norm_id = try self.normalizeInt(wip_result.scalar_ty_ref, lhs_elem_id, info);
 
             // Sometimes Zig doesn't make both of the arguments the same types here. SPIR-V expects that,
             // so just manually upcast it if required.
@@ -2733,29 +2719,41 @@ const DeclGen = struct {
                 });
                 break :blk shift_id;
             } else rhs_elem_id;
-            const shift_norm_id = try self.normalizeInt(wip_result.scalar_ty_ref, shift_id, info);
 
+            const value_id = self.spv.allocId();
             try self.func.body.emit(self.spv.gpa, .OpShiftLeftLogical, .{
                 .id_result_type = wip_result.scalar_ty_id,
-                .id_result = wip_result.allocId(i),
-                .base = lhs_norm_id,
-                .shift = shift_norm_id,
+                .id_result = value_id,
+                .base = lhs_elem_id,
+                .shift = shift_id,
             });
+            result_id.* = try self.normalize(wip_result.scalar_ty_ref, value_id, info);
 
-            // To check if overflow happened, just check if the right-shifted result is the same value.
             const right_shift_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpShiftRightLogical, .{
-                .id_result_type = wip_result.scalar_ty_id,
-                .id_result = right_shift_id,
-                .base = try self.normalizeInt(wip_result.scalar_ty_ref, wip_result.results[i], info),
-                .shift = shift_norm_id,
-            });
+            switch (info.signedness) {
+                .signed => {
+                    try self.func.body.emit(self.spv.gpa, .OpShiftRightArithmetic, .{
+                        .id_result_type = wip_result.scalar_ty_id,
+                        .id_result = right_shift_id,
+                        .base = result_id.*,
+                        .shift = shift_id,
+                    });
+                },
+                .unsigned => {
+                    try self.func.body.emit(self.spv.gpa, .OpShiftRightLogical, .{
+                        .id_result_type = wip_result.scalar_ty_id,
+                        .id_result = right_shift_id,
+                        .base = result_id.*,
+                        .shift = shift_id,
+                    });
+                },
+            }
 
             const overflowed_id = self.spv.allocId();
             try self.func.body.emit(self.spv.gpa, .OpINotEqual, .{
                 .id_result_type = self.typeId(bool_ty_ref),
                 .id_result = overflowed_id,
-                .operand_1 = lhs_norm_id,
+                .operand_1 = lhs_elem_id,
                 .operand_2 = right_shift_id,
             });
 
@@ -3113,14 +3111,7 @@ const DeclGen = struct {
                     .neq => .OpLogicalNotEqual,
                     else => unreachable,
                 },
-                .strange_integer => sign: {
-                    const op_ty_ref = try self.resolveType(op_ty, .direct);
-                    // Mask operands before performing comparison.
-                    cmp_lhs_id = try self.normalizeInt(op_ty_ref, cmp_lhs_id, info);
-                    cmp_rhs_id = try self.normalizeInt(op_ty_ref, cmp_rhs_id, info);
-                    break :sign info.signedness;
-                },
-                .integer => info.signedness,
+                .integer, .strange_integer => info.signedness,
             };
 
             break :opcode switch (signedness) {
@@ -3252,18 +3243,13 @@ const DeclGen = struct {
         const operand_id = try self.resolve(ty_op.operand);
         const src_ty = self.typeOf(ty_op.operand);
         const dst_ty = self.typeOfIndex(inst);
-        const src_ty_ref = try self.resolveType(src_ty, .direct);
         const dst_ty_ref = try self.resolveType(dst_ty, .direct);
 
         const src_info = try self.arithmeticTypeInfo(src_ty);
         const dst_info = try self.arithmeticTypeInfo(dst_ty);
 
-        // While intcast promises that the value already fits, the upper bits of a
-        // strange integer may contain garbage. Therefore, mask/sign extend it before.
-        const src_id = try self.normalizeInt(src_ty_ref, operand_id, src_info);
-
         if (src_info.backing_bits == dst_info.backing_bits) {
-            return src_id;
+            return operand_id;
         }
 
         const result_id = self.spv.allocId();
@@ -3271,14 +3257,23 @@ const DeclGen = struct {
             .signed => try self.func.body.emit(self.spv.gpa, .OpSConvert, .{
                 .id_result_type = self.typeId(dst_ty_ref),
                 .id_result = result_id,
-                .signed_value = src_id,
+                .signed_value = operand_id,
             }),
             .unsigned => try self.func.body.emit(self.spv.gpa, .OpUConvert, .{
                 .id_result_type = self.typeId(dst_ty_ref),
                 .id_result = result_id,
-                .unsigned_value = src_id,
+                .unsigned_value = operand_id,
             }),
         }
+
+        // Make sure to normalize the result if shrinking.
+        // Because strange ints are sign extended in their backing
+        // type, we don't need to normalize when growing the type. The
+        // representation is already the same.
+        if (dst_info.bits < src_info.bits) {
+            return try self.normalize(dst_ty_ref, result_id, dst_info);
+        }
+
         return result_id;
     }
 
