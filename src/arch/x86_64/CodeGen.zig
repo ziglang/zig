@@ -16051,26 +16051,27 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
         if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(init: {
             const const_mcv = try self.genTypedValue(.{ .ty = ty, .val = Value.fromInterned(ip_index) });
             switch (const_mcv) {
-                .lea_tlv => |tlv_sym| if (self.bin_file.cast(link.File.Elf)) |_| {
-                    if (self.mod.pic) {
-                        try self.spillRegisters(&.{ .rdi, .rax });
-                    } else {
-                        try self.spillRegisters(&.{.rax});
-                    }
-                    const frame_index = try self.allocFrameIndex(FrameAlloc.init(.{
-                        .size = 8,
-                        .alignment = .@"8",
-                    }));
-                    try self.genSetMem(
-                        .{ .frame = frame_index },
-                        0,
-                        Type.usize,
-                        .{ .lea_symbol = .{ .sym = tlv_sym } },
-                    );
-                    break :init .{ .load_frame = .{ .index = frame_index } };
-                } else if (self.bin_file.cast(link.File.MachO)) |_| {
-                    return self.fail("TODO implement saving TLV variable to stack", .{});
-                } else break :init const_mcv,
+                .lea_tlv => |tlv_sym| switch (self.bin_file.tag) {
+                    .elf, .macho => {
+                        if (self.mod.pic) {
+                            try self.spillRegisters(&.{ .rdi, .rax });
+                        } else {
+                            try self.spillRegisters(&.{.rax});
+                        }
+                        const frame_index = try self.allocFrameIndex(FrameAlloc.init(.{
+                            .size = 8,
+                            .alignment = .@"8",
+                        }));
+                        try self.genSetMem(
+                            .{ .frame = frame_index },
+                            0,
+                            Type.usize,
+                            .{ .lea_symbol = .{ .sym = tlv_sym } },
+                        );
+                        break :init .{ .load_frame = .{ .index = frame_index } };
+                    },
+                    else => break :init const_mcv,
+                },
                 else => break :init const_mcv,
             }
         });
