@@ -333,13 +333,15 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
         try page.write(info, macho_file, writer);
         const nwritten = cwriter.bytes_written - start;
         if (nwritten < second_level_page_bytes) {
-            try writer.writeByteNTimes(0, second_level_page_bytes - nwritten);
+            const padding = math.cast(usize, second_level_page_bytes - nwritten) orelse return error.Overflow;
+            try writer.writeByteNTimes(0, padding);
         }
     }
 
     const padding = buffer.len - cwriter.bytes_written;
     if (padding > 0) {
-        @memset(buffer[cwriter.bytes_written..], 0);
+        const off = math.cast(usize, cwriter.bytes_written) orelse return error.Overflow;
+        @memset(buffer[off..], 0);
     }
 }
 

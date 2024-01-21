@@ -20,7 +20,7 @@ pub fn deinit(dw: *DwarfInfo, allocator: Allocator) void {
     dw.compile_units.deinit(allocator);
 }
 
-fn getString(dw: DwarfInfo, off: u64) [:0]const u8 {
+fn getString(dw: DwarfInfo, off: usize) [:0]const u8 {
     assert(off < dw.debug_str.len);
     return mem.sliceTo(@as([*:0]const u8, @ptrCast(dw.debug_str.ptr + off)), 0);
 }
@@ -144,9 +144,9 @@ fn parseDie(
         try cu.diePtr(die).values.ensureTotalCapacityPrecise(allocator, decl.attrs.values().len);
 
         for (decl.attrs.values()) |attr| {
-            const start = creader.bytes_read;
+            const start = std.math.cast(usize, creader.bytes_read) orelse return error.Overflow;
             try advanceByFormSize(cu, attr.form, creader);
-            const end = creader.bytes_read;
+            const end = std.math.cast(usize, creader.bytes_read) orelse return error.Overflow;
             cu.diePtr(die).values.appendAssumeCapacity(data[start..end]);
         }
 
@@ -184,14 +184,16 @@ fn advanceByFormSize(cu: *CompileUnit, form: Form, creader: anytype) !void {
                 dwarf.FORM.block => try leb.readULEB128(u64, reader),
                 else => unreachable,
             };
-            for (0..len) |_| {
+            var i: u64 = 0;
+            while (i < len) : (i += 1) {
                 _ = try reader.readByte();
             }
         },
 
         dwarf.FORM.exprloc => {
             const len = try leb.readULEB128(u64, reader);
-            for (0..len) |_| {
+            var i: u64 = 0;
+            while (i < len) : (i += 1) {
                 _ = try reader.readByte();
             }
         },
@@ -292,7 +294,7 @@ pub const CompileUnitHeader = struct {
 
 pub const CompileUnit = struct {
     header: CompileUnitHeader,
-    pos: usize,
+    pos: u64,
     dies: std.ArrayListUnmanaged(Die) = .{},
     children: std.ArrayListUnmanaged(Die.Index) = .{},
 
@@ -314,14 +316,14 @@ pub const CompileUnit = struct {
         return &cu.dies.items[index];
     }
 
-    pub fn getCompileDir(cu: CompileUnit, ctx: DwarfInfo) ?[:0]const u8 {
+    pub fn getCompileDir(cu: CompileUnit, ctx: DwarfInfo) error{Overflow}!?[:0]const u8 {
         assert(cu.dies.items.len > 0);
         const die = cu.dies.items[0];
         const res = die.find(dwarf.AT.comp_dir, cu, ctx) orelse return null;
         return res.getString(cu.header.format, ctx);
     }
 
-    pub fn getSourceFile(cu: CompileUnit, ctx: DwarfInfo) ?[:0]const u8 {
+    pub fn getSourceFile(cu: CompileUnit, ctx: DwarfInfo) error{Overflow}!?[:0]const u8 {
         assert(cu.dies.items.len > 0);
         const die = cu.dies.items[0];
         const res = die.find(dwarf.AT.name, cu, ctx) orelse return null;
@@ -370,7 +372,7 @@ pub const DieValue = struct {
         };
     }
 
-    pub fn getString(value: DieValue, format: Format, ctx: DwarfInfo) ?[:0]const u8 {
+    pub fn getString(value: DieValue, format: Format, ctx: DwarfInfo) error{Overflow}!?[:0]const u8 {
         switch (value.attr.form) {
             dwarf.FORM.string => {
                 return mem.sliceTo(@as([*:0]const u8, @ptrCast(value.bytes.ptr)), 0);
@@ -380,7 +382,8 @@ pub const DieValue = struct {
                     .dwarf64 => mem.readInt(u64, value.bytes[0..8], .little),
                     .dwarf32 => mem.readInt(u32, value.bytes[0..4], .little),
                 };
-                return ctx.getString(off);
+                const off_u = std.math.cast(usize, off) orelse return error.Overflow;
+                return ctx.getString(off_u);
             },
             else => return null,
         }
