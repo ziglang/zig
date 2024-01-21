@@ -2876,37 +2876,31 @@ const DeclGen = struct {
     fn airShuffle(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const mod = self.module;
         if (self.liveness.isUnused(inst)) return null;
-        const ty = self.typeOfIndex(inst);
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
         const a = try self.resolve(extra.a);
         const b = try self.resolve(extra.b);
         const mask = Value.fromInterned(extra.mask);
-        const mask_len = extra.mask_len;
-        const a_len = self.typeOf(extra.a).vectorLen(mod);
 
-        const result_id = self.spv.allocId();
-        const result_type_id = try self.resolveTypeId(ty);
-        // Similar to LLVM, SPIR-V uses indices larger than the length of the first vector
-        // to index into the second vector.
-        try self.func.body.emitRaw(self.spv.gpa, .OpVectorShuffle, 4 + mask_len);
-        self.func.body.writeOperand(spec.IdResultType, result_type_id);
-        self.func.body.writeOperand(spec.IdResult, result_id);
-        self.func.body.writeOperand(spec.IdRef, a);
-        self.func.body.writeOperand(spec.IdRef, b);
+        const ty = self.typeOfIndex(inst);
 
-        var i: usize = 0;
-        while (i < mask_len) : (i += 1) {
+        var wip = try self.elementWise(ty);
+        defer wip.deinit();
+        for (wip.results, 0..) |*result_id, i| {
             const elem = try mask.elemValue(mod, i);
             if (elem.isUndef(mod)) {
-                self.func.body.writeOperand(spec.LiteralInteger, 0xFFFF_FFFF);
+                result_id.* = try self.spv.constUndef(wip.scalar_ty_ref);
+                continue;
+            }
+
+            const index = elem.toSignedInt(mod);
+            if (index >= 0) {
+                result_id.* = try self.extractField(wip.scalar_ty, a, @intCast(index));
             } else {
-                const int = elem.toSignedInt(mod);
-                const unsigned = if (int >= 0) @as(u32, @intCast(int)) else @as(u32, @intCast(~int + a_len));
-                self.func.body.writeOperand(spec.LiteralInteger, unsigned);
+                result_id.* = try self.extractField(wip.scalar_ty, b, @intCast(~index));
             }
         }
-        return result_id;
+        return try wip.finalize();
     }
 
     fn indicesToIds(self: *DeclGen, indices: []const u32) ![]IdRef {
