@@ -1,7 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const leb = std.leb;
-const log = std.log.scoped(.dyld_info);
+const log = std.log.scoped(.link_dyld_info);
 const macho = std.macho;
 const testing = std.testing;
 
@@ -47,6 +47,8 @@ pub const Bind = struct {
         if (self.entries.items.len == 0) return;
 
         const writer = self.buffer.writer(gpa);
+
+        log.debug("bind opcodes", .{});
 
         std.mem.sort(Entry, self.entries.items, ctx, Entry.lessThan);
 
@@ -201,6 +203,8 @@ pub const WeakBind = struct {
 
         const writer = self.buffer.writer(gpa);
 
+        log.debug("weak bind opcodes", .{});
+
         std.mem.sort(Entry, self.entries.items, ctx, Entry.lessThan);
 
         var start: usize = 0;
@@ -347,6 +351,8 @@ pub const LazyBind = struct {
 
         var cwriter = std.io.countingWriter(self.buffer.writer(gpa));
         const writer = cwriter.writer();
+
+        log.debug("lazy bind opcodes", .{});
 
         var addend: i64 = 0;
 
