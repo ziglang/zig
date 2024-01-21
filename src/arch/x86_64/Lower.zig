@@ -439,10 +439,9 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .rdi } }) },
                             });
                             lower.result_insts_len += 1;
-                            emit_mnemonic = .lea;
+                            emit_mnemonic = .mov;
                             break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = .rax },
-                                .disp = std.math.minInt(i32),
                             }) };
                         }
 

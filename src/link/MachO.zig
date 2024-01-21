@@ -606,7 +606,10 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
             if (!atom.flags.alive) continue;
             const sect = &self.sections.items(.header)[atom.out_n_sect];
             if (sect.isZerofill()) continue;
-            const code = zo.getAtomDataAlloc(self, atom.*) catch |err| switch (err) {
+            if (mem.indexOf(u8, sect.segName(), "ZIG") == null) continue; // Non-Zig sections are handled separately
+            // TODO: we will resolve and write ZigObject's TLS data twice:
+            // once here, and once in writeAtoms
+            const code = zo.getAtomDataAlloc(self, gpa, atom.*) catch |err| switch (err) {
                 error.InputOutput => {
                     try self.reportUnexpectedError("fetching code for '{s}' failed", .{
                         atom.getName(self),
@@ -1806,7 +1809,7 @@ fn initOutputSections(self: *MachO) !void {
                 .aarch64 => 2,
                 else => unreachable,
             },
-            .flags = macho.S_SYMBOL_STUBS |
+            .flags = macho.S_REGULAR |
                 macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         });
     }
@@ -2545,6 +2548,9 @@ fn writeAtoms(self: *MachO) !void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+
     const cpu_arch = self.getTarget().cpu.arch;
     const slice = self.sections.slice();
 
@@ -2562,7 +2568,12 @@ fn writeAtoms(self: *MachO) !void {
             const atom = self.getAtom(atom_index).?;
             assert(atom.flags.alive);
             const off = atom.value - header.addr;
-            @memcpy(buffer[off..][0..atom.size], atom.getFile(self).object.getAtomData(atom.*));
+            const data = switch (atom.getFile(self)) {
+                .object => |x| x.getAtomData(atom.*),
+                .zig_object => |x| try x.getAtomDataAlloc(self, arena.allocator(), atom.*),
+                else => unreachable,
+            };
+            @memcpy(buffer[off..][0..atom.size], data);
             atom.resolveRelocs(self, buffer[off..][0..atom.size]) catch |err| switch (err) {
                 error.ResolveFailed => has_resolve_error = true,
                 else => |e| return e,

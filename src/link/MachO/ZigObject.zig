@@ -38,8 +38,8 @@ unnamed_consts: UnnamedConstTable = .{},
 /// Table of tracked AnonDecls.
 anon_decls: AnonDeclTable = .{},
 
-/// TLS variables indexed by Atom.Index.
-tls_variables: TlsTable = .{},
+/// TLV initializers indexed by Atom.Index.
+tlv_initializers: TlvInitializerTable = .{},
 
 /// A table of relocations.
 relocs: RelocationTable = .{},
@@ -91,10 +91,10 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
     }
     self.relocs.deinit(allocator);
 
-    for (self.tls_variables.values()) |*tlv| {
-        tlv.deinit(allocator);
+    for (self.tlv_initializers.values()) |*tlv_init| {
+        tlv_init.deinit(allocator);
     }
-    self.tls_variables.deinit(allocator);
+    self.tlv_initializers.deinit(allocator);
 }
 
 fn addNlist(self: *ZigObject, allocator: Allocator) !Symbol.Index {
@@ -137,25 +137,35 @@ pub fn addAtom(self: *ZigObject, macho_file: *MachO) !Symbol.Index {
 }
 
 /// Caller owns the memory.
-pub fn getAtomDataAlloc(self: ZigObject, macho_file: *MachO, atom: Atom) ![]u8 {
-    const gpa = macho_file.base.comp.gpa;
+pub fn getAtomDataAlloc(
+    self: ZigObject,
+    macho_file: *MachO,
+    allocator: Allocator,
+    atom: Atom,
+) ![]u8 {
     assert(atom.file == self.index);
     const sect = macho_file.sections.items(.header)[atom.out_n_sect];
+    assert(!sect.isZerofill());
 
     switch (sect.type()) {
         macho.S_THREAD_LOCAL_REGULAR => {
-            const tlv = self.tls_variables.get(atom.atom_index).?;
-            const code = try gpa.dupe(u8, tlv.code);
-            return code;
+            const tlv = self.tlv_initializers.get(atom.atom_index).?;
+            const data = try allocator.dupe(u8, tlv.data);
+            return data;
+        },
+        macho.S_THREAD_LOCAL_VARIABLES => {
+            const data = try allocator.alloc(u8, atom.size);
+            @memset(data, 0);
+            return data;
         },
         else => {
             const file_offset = sect.offset + atom.value - sect.addr;
             const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
-            const code = try gpa.alloc(u8, size);
-            errdefer gpa.free(code);
-            const amt = try macho_file.base.file.?.preadAll(code, file_offset);
-            if (amt != code.len) return error.InputOutput;
-            return code;
+            const data = try allocator.alloc(u8, size);
+            errdefer allocator.free(data);
+            const amt = try macho_file.base.file.?.preadAll(data, file_offset);
+            if (amt != data.len) return error.InputOutput;
+            return data;
         },
     }
 }
@@ -421,7 +431,7 @@ pub fn lowerAnonDecl(
     self: *ZigObject,
     macho_file: *MachO,
     decl_val: InternPool.Index,
-    explicit_alignment: InternPool.Alignment,
+    explicit_alignment: Atom.Alignment,
     src_loc: Module.SrcLoc,
 ) !codegen.Result {
     const gpa = macho_file.base.comp.gpa;
@@ -732,6 +742,9 @@ fn updateDeclCode(
     }
 }
 
+/// Lowering a TLV on macOS involves two stages:
+/// 1. first we lower the initializer into appopriate section (__thread_data or __thread_bss)
+/// 2. next, we create a corresponding threadlocal variable descriptor in __thread_vars
 fn updateTlv(
     self: *ZigObject,
     macho_file: *MachO,
@@ -740,9 +753,7 @@ fn updateTlv(
     sect_index: u8,
     code: []const u8,
 ) !void {
-    const comp = macho_file.base.comp;
-    const gpa = comp.gpa;
-    const mod = comp.module.?;
+    const mod = macho_file.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
@@ -750,6 +761,32 @@ fn updateTlv(
 
     const required_alignment = decl.getAlignment(mod);
 
+    // 1. Lower TLV initializer
+    const init_sym_index = try self.createTlvInitializer(
+        macho_file,
+        decl_name,
+        required_alignment,
+        sect_index,
+        code,
+    );
+
+    // 2. Create TLV descriptor
+    try self.createTlvDescriptor(macho_file, sym_index, init_sym_index, decl_name);
+}
+
+fn createTlvInitializer(
+    self: *ZigObject,
+    macho_file: *MachO,
+    name: []const u8,
+    alignment: Atom.Alignment,
+    sect_index: u8,
+    code: []const u8,
+) !Symbol.Index {
+    const gpa = macho_file.base.comp.gpa;
+    const sym_name = try std.fmt.allocPrint(gpa, "{s}$tlv$init", .{name});
+    defer gpa.free(sym_name);
+
+    const sym_index = try self.addAtom(macho_file);
     const sym = macho_file.getSymbol(sym_index);
     const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
     const atom = sym.getAtom(macho_file).?;
@@ -758,7 +795,7 @@ fn updateTlv(
     atom.out_n_sect = sect_index;
 
     sym.value = 0;
-    sym.name = try macho_file.strings.insert(gpa, decl_name);
+    sym.name = try macho_file.strings.insert(gpa, sym_name);
     atom.flags.alive = true;
     atom.name = sym.name;
     nlist.n_strx = sym.name;
@@ -767,23 +804,94 @@ fn updateTlv(
     nlist.n_value = 0;
     self.symtab.items(.size)[sym.nlist_idx] = code.len;
 
-    atom.alignment = required_alignment;
+    atom.alignment = alignment;
     atom.size = code.len;
 
     const slice = macho_file.sections.slice();
     const header = slice.items(.header)[sect_index];
     const atoms = &slice.items(.atoms)[sect_index];
 
-    const gop = try self.tls_variables.getOrPut(gpa, atom.atom_index);
+    const gop = try self.tlv_initializers.getOrPut(gpa, atom.atom_index);
     assert(!gop.found_existing); // TODO incremental updates
     gop.value_ptr.* = .{ .symbol_index = sym_index };
 
     // We only store the data for the TLV if it's non-zerofill.
     if (!header.isZerofill()) {
-        gop.value_ptr.code = try gpa.dupe(u8, code);
+        gop.value_ptr.data = try gpa.dupe(u8, code);
     }
 
     try atoms.append(gpa, atom.atom_index);
+
+    return sym_index;
+}
+
+fn createTlvDescriptor(
+    self: *ZigObject,
+    macho_file: *MachO,
+    sym_index: Symbol.Index,
+    init_sym_index: Symbol.Index,
+    name: []const u8,
+) !void {
+    const gpa = macho_file.base.comp.gpa;
+
+    const sym = macho_file.getSymbol(sym_index);
+    const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
+    const atom = sym.getAtom(macho_file).?;
+    const alignment = Atom.Alignment.fromNonzeroByteUnits(@alignOf(u64));
+    const size: u64 = @sizeOf(u64) * 3;
+
+    const sect_index = macho_file.getSectionByName("__DATA", "__thread_vars") orelse
+        try macho_file.addSection("__DATA", "__thread_vars", .{
+        .flags = macho.S_THREAD_LOCAL_VARIABLES,
+    });
+    sym.out_n_sect = sect_index;
+    atom.out_n_sect = sect_index;
+
+    sym.value = 0;
+    sym.name = try macho_file.strings.insert(gpa, name);
+    atom.flags.alive = true;
+    atom.name = sym.name;
+    nlist.n_strx = sym.name;
+    nlist.n_sect = sect_index + 1;
+    nlist.n_type = macho.N_SECT;
+    nlist.n_value = 0;
+    self.symtab.items(.size)[sym.nlist_idx] = size;
+
+    atom.alignment = alignment;
+    atom.size = size;
+
+    const tlv_bootstrap_index = blk: {
+        const index = try self.getGlobalSymbol(macho_file, "_tlv_bootstrap", null);
+        break :blk self.symbols.items[index];
+    };
+    try atom.addReloc(macho_file, .{
+        .tag = .@"extern",
+        .offset = 0,
+        .target = tlv_bootstrap_index,
+        .addend = 0,
+        .type = .unsigned,
+        .meta = .{
+            .pcrel = false,
+            .has_subtractor = false,
+            .length = 3,
+            .symbolnum = 0,
+        },
+    });
+    try atom.addReloc(macho_file, .{
+        .tag = .@"extern",
+        .offset = 16,
+        .target = init_sym_index,
+        .addend = 0,
+        .type = .unsigned,
+        .meta = .{
+            .pcrel = false,
+            .has_subtractor = false,
+            .length = 3,
+            .symbolnum = 0,
+        },
+    });
+
+    try macho_file.sections.items(.atoms)[sect_index].append(gpa, atom.atom_index);
 }
 
 fn getDeclOutputSection(
@@ -888,7 +996,7 @@ fn lowerConst(
     macho_file: *MachO,
     name: []const u8,
     tv: TypedValue,
-    required_alignment: InternPool.Alignment,
+    required_alignment: Atom.Alignment,
     output_section_index: u8,
     src_loc: Module.SrcLoc,
 ) !LowerConstResult {
@@ -1040,7 +1148,7 @@ fn updateLazySymbol(
     const gpa = macho_file.base.comp.gpa;
     const mod = macho_file.base.comp.module.?;
 
-    var required_alignment: InternPool.Alignment = .none;
+    var required_alignment: Atom.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
@@ -1315,12 +1423,12 @@ const LazySymbolMetadata = struct {
     const_state: State = .unused,
 };
 
-const TlsVariable = struct {
+const TlvInitializer = struct {
     symbol_index: Symbol.Index,
-    code: []const u8 = &[0]u8{},
+    data: []const u8 = &[0]u8{},
 
-    fn deinit(tlv: *TlsVariable, allocator: Allocator) void {
-        allocator.free(tlv.code);
+    fn deinit(tlv_init: *TlvInitializer, allocator: Allocator) void {
+        allocator.free(tlv_init.data);
     }
 };
 
@@ -1329,7 +1437,7 @@ const UnnamedConstTable = std.AutoHashMapUnmanaged(InternPool.DeclIndex, std.Arr
 const AnonDeclTable = std.AutoHashMapUnmanaged(InternPool.Index, DeclMetadata);
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.OptionalDeclIndex, LazySymbolMetadata);
 const RelocationTable = std.ArrayListUnmanaged(std.ArrayListUnmanaged(Relocation));
-const TlsTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlsVariable);
+const TlvInitializerTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlvInitializer);
 
 const assert = std.debug.assert;
 const builtin = @import("builtin");
