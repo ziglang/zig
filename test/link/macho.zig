@@ -1402,6 +1402,7 @@ fn testStackSize(b: *Build, opts: Options) *Step {
     exe.stack_size = 0x100000000;
 
     const run = addRunArtifact(exe);
+    run.expectExitCode(0);
     test_step.dependOn(&run.step);
 
     const check = exe.checkObject();
