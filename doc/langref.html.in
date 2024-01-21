@@ -410,109 +410,20 @@ pub fn main() !void {
 }
       {#code_end#}
       <p>
-        The Zig code sample above demonstrates one way to create a program that will output: <samp>Hello, world!</samp>.
-      </p>
-      <p>
-        The code sample shows the contents of a file named <code class="file">hello.zig</code>. Files storing Zig
-        source code are {#link|UTF-8 encoded|Source Encoding#} text files. The files storing
-        Zig source code must be named with the <code class="file"><em>.zig</em></code> extension.
-      </p>
-      <p>
-        Following the <code class="file">hello.zig</code> Zig code sample, the {#link|Zig Build System#} is used
-        to build an executable program from the <code class="file">hello.zig</code> source code. Then, the
-        <code class="file">hello</code> program is executed showing its output <samp>Hello, world!</samp>. The
-        lines beginning with <samp>$</samp> represent command line prompts and a command.
-        Everything else is program output.
-      </p>
-      <p>
-        The code sample begins by adding the {#link|Zig Standard Library#} to the build using the {#link|@import#} builtin function.
-        The {#syntax#}@import("std"){#endsyntax#} function call creates a structure that represents the Zig Standard Library.
-        The code then {#link|declares|Container Level Variables#} a
-        {#link|constant identifier|Assignment#}, named {#syntax#}std{#endsyntax#}, that gives access to the features of the Zig Standard Library.
-      </p>
-      <p>
-        Next, a {#link|public function|Functions#}, {#syntax#}pub fn{#endsyntax#}, named {#syntax#}main{#endsyntax#}
-        is declared. The {#syntax#}main{#endsyntax#} function is necessary because it tells the Zig compiler where the program starts. Programs
-        designed to be executed will need a {#syntax#}pub fn main{#endsyntax#} function.
-      </p>
-      <aside role="note" aria-label="Note about main function">
-        <p>
-          For more advanced use cases, Zig offers other features to inform the compiler where the program starts. Also, libraries do not need a
-          {#syntax#}pub fn main{#endsyntax#} function because library code is called by other programs or libraries.
-        </p>
-      </aside>
-      <p>
-        A function is a block of any number of statements and expressions, that as a whole, perform a task.
-        Functions may or may not return data after they are done performing their task. If a function
-        cannot perform its task, it might return an error. Zig makes all of this explicit.
-      </p>
-      <p>
-        In the <code class="file">hello.zig</code> code sample, the <code>main</code> function is declared
-        with the {#syntax#}!void{#endsyntax#} return type. This return type is known as an {#link|Error Union Type#}.
-        This syntax tells the Zig compiler that the function will either return an
-        error or a value. An error union type combines an {#link|Error Set Type#} and any other data type
-        (e.g. a {#link|Primitive Type|Primitive Types#} or a user-defined type such as a {#link|struct#}, {#link|enum#}, or {#link|union#}).
-        The full form of an error union type is
-        <code>&lt;error set type&gt;</code>{#syntax#}!{#endsyntax#}<code>&lt;any data type&gt;</code>. In the code
-        sample, the error set type is not explicitly written on the left side of the {#syntax#}!{#endsyntax#} operator.
-        When written this way, the error set type is an {#link|inferred error set type|Inferred Error Sets#}. The
-        {#syntax#}void{#endsyntax#} after the {#syntax#}!{#endsyntax#} operator
-        tells the compiler that the function will not return a value under normal circumstances (i.e. when no errors occur).
-      </p>
-      <aside role="note" aria-label="Note to disambiguate exclamation mark operator">
-        <p>
-          Note to experienced programmers: Zig also has the boolean {#link|operator|Operators#} {#syntax#}!a{#endsyntax#}
-          where {#syntax#}a{#endsyntax#} is a value of type {#syntax#}bool{#endsyntax#}. Error union types contain the
-          name of the type in the syntax: {#syntax#}!{#endsyntax#}<code>&lt;any data type&gt;</code>.
-        </p>
-      </aside>
-      <p>
-        In Zig, a function's block of statements and expressions are surrounded by an open curly-brace <code>{</code> and
-        close curly-brace <code>}</code>. In <code class="file">hello.zig</code>, the {#syntax#}main{#endsyntax#} function
-        contains two statements.
-      </p>
-      <p>
-        In the first statement, a constant identifier, {#syntax#}stdout{#endsyntax#}, is initialized to represent standard output's
-        writer. In the second statement, the program tries to print the <samp>Hello, world!</samp> message to standard output.
-      </p>
-      <p>
-        Functions sometimes need inputs to perform their task. Inputs are passed, in between parentheses, to functions. These
-        inputs are also known as arguments. When multiple arguments are passed to a function, they are separated by commas.
-      </p>
-      <p>
-        Two arguments are passed to the {#syntax#}stdout.print(){#endsyntax#} function: {#syntax#}"Hello, {s}!\n"{#endsyntax#}
-        and {#syntax#}.{"world"}{#endsyntax#}. The first argument is called a format string, which is a string containing one or
-        more placeholders. {#syntax#}"Hello, {s}!\n"{#endsyntax#} contains the placeholder {#syntax#}{s}{#endsyntax#}, which is
-        replaced with {#syntax#}"world"{#endsyntax#} from the second argument. The file <code class="file">string_literals.zig</code> in
-        {#link|String Literals and Unicode Code Point Literals|String Literals and Unicode Code Point Literals#} contains examples of format
-        strings that can be used with the {#syntax#}stdout.print(){#endsyntax#} function. The <code>\n</code> inside of
-        {#syntax#}"Hello, {s}!\n"{#endsyntax#} is the {#link|escape sequence|Escape Sequences#} for the newline character.
-      </p>
-      <p>
-        The {#link|try#} expression evaluates the result of {#syntax#}stdout.print{#endsyntax#}. If the result is an error, then the
-        {#syntax#}try{#endsyntax#} expression will return from {#syntax#}main{#endsyntax#} with the error. Otherwise, the program will continue.
-        In this case, there are no more statements or expressions left to execute in the {#syntax#}main{#endsyntax#} function, so the program exits.
-      </p>
-      <p>
-        In Zig, the standard output writer's {#syntax#}print{#endsyntax#} function is allowed to fail because
-        it is actually a function defined as part of a generic Writer. Consider a generic Writer that
-        represents writing data to a file. When the disk is full, a write to the file will fail.
-        However, we typically do not expect writing text to the standard output to fail. To avoid having
-        to handle the failure case of printing to standard output, you can use alternate functions: the
-        functions in {#syntax#}std.log{#endsyntax#} for proper logging or the {#syntax#}std.debug.print{#endsyntax#} function.
-        This documentation will use the latter option to print to standard error (stderr) and silently return
-        on failure. The next code sample, <code class="file">hello_again.zig</code> demonstrates the use of
-        {#syntax#}std.debug.print{#endsyntax#}.
+      Most of the time, it more appropriate to write to stderr rather than stdout, and
+      whether or not the message is successfully written to the stream is irrelevant.
+      For this common case, there is a simpler API:
       </p>
       {#code_begin|exe|hello_again#}
-const print = @import("std").debug.print;
+const std = @import("std");
 
 pub fn main() void {
-    print("Hello, world!\n", .{});
+    std.debug.print("Hello, world!\n", .{});
 }
       {#code_end#}
       <p>
-      Note that you can leave off the {#syntax#}!{#endsyntax#} from the return type because {#syntax#}std.debug.print{#endsyntax#} cannot fail.
+      In this case, the {#syntax#}!{#endsyntax#} may be omitted from the return
+      type because no errors are returned from the function.
       </p>
       {#see_also|Values|@import|Errors|Root Source File|Source Encoding#}
       {#header_close#}
