@@ -678,6 +678,18 @@ const DeclGen = struct {
         }
     }
 
+    /// Emits a float constant
+    fn constFloat(self: *DeclGen, ty_ref: CacheRef, value: f128) !IdRef {
+        const ty = self.spv.cache.lookup(ty_ref).float_type;
+        return switch (ty.bits) {
+            16 => try self.spv.resolveId(.{ .float = .{ .ty = ty_ref, .value = .{ .float16 = @floatCast(value) } } }),
+            32 => try self.spv.resolveId(.{ .float = .{ .ty = ty_ref, .value = .{ .float32 = @floatCast(value) } } }),
+            64 => try self.spv.resolveId(.{ .float = .{ .ty = ty_ref, .value = .{ .float64 = @floatCast(value) } } }),
+            80, 128 => unreachable, // TODO
+            else => unreachable,
+        };
+    }
+
     /// Construct a struct at runtime.
     /// ty must be a struct type.
     /// Constituents should be in `indirect` representation (as the elements of a struct should be).
@@ -2164,6 +2176,8 @@ const DeclGen = struct {
             .sub, .sub_wrap, .sub_optimized => try self.airArithOp(inst, .OpFSub, .OpISub, .OpISub),
             .mul, .mul_wrap, .mul_optimized => try self.airArithOp(inst, .OpFMul, .OpIMul, .OpIMul),
 
+            .abs => try self.airAbs(inst),
+
             .div_float,
             .div_float_optimized,
             // TODO: Check that this is the right operation.
@@ -2559,6 +2573,63 @@ const DeclGen = struct {
             result_id.* = try self.normalize(wip.scalar_ty_ref, value_id, info);
         }
 
+        return try wip.finalize();
+    }
+
+    fn airAbs(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const mod = self.module;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+        const operand_id = try self.resolve(ty_op.operand);
+        // Note: operand_ty may be signed, while ty is always unsigned!
+        const operand_ty = self.typeOf(ty_op.operand);
+        const ty = self.typeOfIndex(inst);
+        const info = self.arithmeticTypeInfo(ty);
+        const operand_scalar_ty = operand_ty.scalarType(mod);
+        const operand_scalar_ty_ref = try self.resolveType(operand_scalar_ty, .direct);
+
+        var wip = try self.elementWise(ty);
+        defer wip.deinit();
+
+        const zero_id = switch (info.class) {
+            .float => try self.constFloat(operand_scalar_ty_ref, 0),
+            .integer, .strange_integer => try self.constInt(operand_scalar_ty_ref, 0),
+            .composite_integer => unreachable, // TODO
+            .bool => unreachable,
+        };
+        for (wip.results, 0..) |*result_id, i| {
+            const elem_id = try wip.elementAt(operand_ty, operand_id, i);
+            // Idk why spir-v doesn't have a dedicated abs() instruction in the base
+            // instruction set. For now we're just going to negate and check to avoid
+            // importing the extinst.
+            const neg_id = self.spv.allocId();
+            const args = .{
+                .id_result_type = self.typeId(operand_scalar_ty_ref),
+                .id_result = neg_id,
+                .operand_1 = zero_id,
+                .operand_2 = elem_id,
+            };
+            switch (info.class) {
+                .float => try self.func.body.emit(self.spv.gpa, .OpFSub, args),
+                .integer, .strange_integer => try self.func.body.emit(self.spv.gpa, .OpISub, args),
+                .composite_integer => unreachable, // TODO
+                .bool => unreachable,
+            }
+            const neg_norm_id = try self.normalize(wip.scalar_ty_ref, neg_id, info);
+
+            const gt_zero_id = try self.cmp(.gt, Type.bool, operand_scalar_ty, elem_id, zero_id);
+            const abs_id = self.spv.allocId();
+            try self.func.body.emit(self.spv.gpa, .OpSelect, .{
+                .id_result_type = self.typeId(operand_scalar_ty_ref),
+                .id_result = abs_id,
+                .condition = gt_zero_id,
+                .object_1 = elem_id,
+                .object_2 = neg_norm_id,
+            });
+            // For Shader, we may need to cast from signed to unsigned here.
+            result_id.* = try self.bitCast(wip.scalar_ty, operand_scalar_ty, abs_id);
+        }
         return try wip.finalize();
     }
 
