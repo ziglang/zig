@@ -2346,9 +2346,7 @@ fn allocateSections(self: *MachO) !void {
                 new_offset + existing_size,
             });
 
-            const amt = try self.base.file.?.copyRangeAll(header.offset, self.base.file.?, new_offset, existing_size);
-            // TODO figure out what to about this error condition - how to communicate it up.
-            if (amt != existing_size) return error.InputOutput;
+            try self.copyRangeAllZeroOut(header.offset, new_offset, existing_size);
 
             header.offset = @intCast(new_offset);
             header.size = existing_size;
@@ -3268,6 +3266,19 @@ fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u32) u64 {
     return start;
 }
 
+/// Like File.copyRangeAll but also ensures the source region is zeroed out after copy.
+/// This is so that we guarantee zeroed out regions for mapping of zerofill sections by the loader.
+fn copyRangeAllZeroOut(self: *MachO, old_offset: u64, new_offset: u64, size: u64) !void {
+    const gpa = self.base.comp.gpa;
+    const file = self.base.file.?;
+    const amt = try file.copyRangeAll(old_offset, file, new_offset, size);
+    if (amt != size) return error.InputOutput;
+    const zeroes = try gpa.alloc(u8, size);
+    defer gpa.free(zeroes);
+    @memset(zeroes, 0);
+    try file.pwriteAll(zeroes, old_offset);
+}
+
 const InitMetadataOptions = struct {
     symbol_count_hint: u64,
     program_code_size_hint: u64,
@@ -3408,9 +3419,7 @@ pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
             new_offset + existing_size,
         });
 
-        const amt = try self.base.file.?.copyRangeAll(sect.offset, self.base.file.?, new_offset, existing_size);
-        // TODO figure out what to about this error condition - how to communicate it up.
-        if (amt != existing_size) return error.InputOutput;
+        try self.copyRangeAllZeroOut(sect.offset, new_offset, existing_size);
 
         sect.offset = @intCast(new_offset);
         seg.fileoff = new_offset;
