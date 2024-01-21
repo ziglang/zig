@@ -1286,6 +1286,7 @@ pub fn addCases(
     translate_options: @import("src/Cases.zig").TranslateOptions,
     check_case_exe: *std.Build.Step.Compile,
     build_options: @import("cases.zig").BuildOptions,
+    target: std.Build.ResolvedTarget,
 ) !void {
     const arena = b.allocator;
     const gpa = b.allocator;
@@ -1301,7 +1302,7 @@ pub fn addCases(
     const cases_dir_path = try b.build_root.join(b.allocator, &.{ "test", "cases" });
 
     const test_translate_c = try addTranslateCTests(b, opt_test_filter);
-    const test_run_translated_c = try addRunTranslatedCTests(b, opt_test_filter);
+    const test_run_translated_c = try addRunTranslatedCTests(b, opt_test_filter, target);
     cases.lowerToTranslateSteps(
         b,
         test_translate_c,

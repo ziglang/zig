@@ -471,6 +471,7 @@ pub fn build(b: *std.Build) !void {
             .llvm_has_arc = llvm_has_arc,
             .llvm_has_xtensa = llvm_has_xtensa,
         },
+        target,
     );
     test_step.dependOn(test_cases_step);
 
