@@ -40,9 +40,9 @@ pub const FormatOptions = struct {
 ///   - when using a field name, you are required to enclose the field name (an identifier) in square
 ///     brackets, e.g. {[score]...} as opposed to the numeric index form which can be written e.g. {2...}
 /// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
-/// - *fill* is a single character which is used to pad the formatted text
-/// - *alignment* is one of the three characters `<`, `^`, or `>` to make the text left-, center-, or right-aligned, respectively
-/// - *width* is the total width of the field in characters
+/// - *fill* is a single unicode codepoint which is used to pad the formatted text
+/// - *alignment* is one of the three bytes '<', '^', or '>' to make the text left-, center-, or right-aligned, respectively
+/// - *width* is the total width of the field in unicode codepoints
 /// - *precision* specifies how many decimals a formatted number should have
 ///
 /// Note that most of the parameters are optional and may be omitted. Also you can leave out separators like `:` and `.` when
