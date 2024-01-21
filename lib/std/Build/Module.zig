@@ -318,6 +318,9 @@ pub fn addAnonymousImport(m: *Module, name: []const u8, options: CreateOptions) 
     return addImport(m, name, module);
 }
 
+/// Converts a set of key-value pairs into a Zig source file, and then inserts it into
+/// the Module's import table with the specified name. This makes the options importable
+/// via `@import("module_name")`.
 pub fn addOptions(m: *Module, module_name: []const u8, options: *Step.Options) void {
     addImport(m, module_name, options.createModule());
 }

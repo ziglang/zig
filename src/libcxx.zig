@@ -233,6 +233,13 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
         }
 
+        if (target.isGnuLibC()) {
+            // glibc 2.16 introduced aligned_alloc
+            if (target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
+                try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
+            }
+        }
+
         if (target.os.tag == .wasi) {
             // WASI doesn't support exceptions yet.
             try cflags.append("-fno-exceptions");
@@ -431,6 +438,13 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
 
         if (target.abi.isMusl()) {
             try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
+        }
+
+        if (target.isGnuLibC()) {
+            // glibc 2.16 introduced aligned_alloc
+            if (target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
+                try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
+            }
         }
 
         if (target_util.supports_fpic(target)) {

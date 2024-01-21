@@ -554,7 +554,7 @@ pub const File = struct {
             return @fieldParentPtr(C, "base", base).flush(arena, prog_node);
         }
         const comp = base.comp;
-        if (comp.clang_preprocessor_mode == .yes) {
+        if (comp.clang_preprocessor_mode == .yes or comp.clang_preprocessor_mode == .pch) {
             const gpa = comp.gpa;
             const emit = base.emit;
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)

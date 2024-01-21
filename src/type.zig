@@ -1380,12 +1380,15 @@ pub const Type = struct {
                         },
                         .eager => {},
                     }
-                    return switch (struct_type.layout) {
-                        .Packed => .{
+                    switch (struct_type.layout) {
+                        .Packed => return .{
                             .scalar = Type.fromInterned(struct_type.backingIntType(ip).*).abiSize(mod),
                         },
-                        .Auto, .Extern => .{ .scalar = struct_type.size(ip).* },
-                    };
+                        .Auto, .Extern => {
+                            assert(struct_type.haveLayout(ip));
+                            return .{ .scalar = struct_type.size(ip).* };
+                        },
+                    }
                 },
                 .anon_struct_type => |tuple| {
                     switch (strat) {
@@ -1411,6 +1414,7 @@ pub const Type = struct {
                         .eager => {},
                     }
 
+                    assert(union_type.haveLayout(ip));
                     return .{ .scalar = union_type.size(ip).* };
                 },
                 .opaque_type => unreachable, // no size available

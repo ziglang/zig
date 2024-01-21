@@ -429,3 +429,12 @@ test "Extern function calls, dereferences and field access in @TypeOf" {
     try Test.doTheTest();
     try comptime Test.doTheTest();
 }
+
+test "@sizeOf struct is resolved when used as operand of slicing" {
+    const dummy = struct {};
+    const S = struct {
+        var buf: [1]u8 = undefined;
+    };
+    S.buf[@sizeOf(dummy)..][0] = 0;
+    try expect(S.buf[0] == 0);
+}

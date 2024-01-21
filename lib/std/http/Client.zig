@@ -821,13 +821,15 @@ pub const Request = struct {
                 if (req.handle_continue)
                     continue;
 
-                break;
+                return; // we're not handling the 100-continue, return to the caller
             }
 
             // we're switching protocols, so this connection is no longer doing http
-            if (req.response.status == .switching_protocols or (req.method == .CONNECT and req.response.status == .ok)) {
+            if (req.method == .CONNECT and req.response.status.class() == .success) {
                 req.connection.?.closing = false;
                 req.response.parser.done = true;
+
+                return; // the connection is not HTTP past this point, return to the caller
             }
 
             // we default to using keep-alive if not provided in the client if the server asks for it
@@ -840,6 +842,15 @@ pub const Request = struct {
                 req.connection.?.closing = false;
             } else {
                 req.connection.?.closing = true;
+            }
+
+            // Any response to a HEAD request and any response with a 1xx (Informational), 204 (No Content), or 304 (Not Modified)
+            // status code is always terminated by the first empty line after the header fields, regardless of the header fields
+            // present in the message
+            if (req.method == .HEAD or req.response.status.class() == .informational or req.response.status == .no_content or req.response.status == .not_modified) {
+                req.response.parser.done = true;
+
+                return; // the response is empty, no further setup or redirection is necessary
             }
 
             if (req.response.transfer_encoding != .none) {
@@ -855,12 +866,8 @@ pub const Request = struct {
 
                 if (cl == 0) req.response.parser.done = true;
             } else {
-                req.response.parser.done = true;
-            }
-
-            // HEAD requests have no body
-            if (req.method == .HEAD) {
-                req.response.parser.done = true;
+                // read until the connection is closed
+                req.response.parser.next_chunk_length = std.math.maxInt(u64);
             }
 
             if (req.response.status.class() == .redirect and req.handle_redirects) {

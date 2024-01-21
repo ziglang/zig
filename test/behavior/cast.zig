@@ -1585,6 +1585,13 @@ test "@constCast without a result location" {
     try expect(y.* == 1234);
 }
 
+test "@constCast optional" {
+    const x: u8 = 10;
+    const m: ?*const u8 = &x;
+    const p = @constCast(m);
+    try expect(@TypeOf(p) == ?*u8);
+}
+
 test "@volatileCast without a result location" {
     var x: i32 = 1234;
     const y: *volatile i32 = &x;
