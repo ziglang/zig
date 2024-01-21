@@ -1481,7 +1481,7 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
             const ty_index = obj_file.import(loc.index).kind.function;
             return obj_file.funcTypes()[ty_index];
         }
-        const type_index = obj_file.functions()[symbol.index - obj_file.importedFunctions()].type_index;
+        const type_index = obj_file.function(loc.index).type_index;
         return obj_file.funcTypes()[type_index];
     }
     if (is_undefined) {
@@ -1850,9 +1850,7 @@ fn createSyntheticFunction(
 }
 
 /// Unlike `createSyntheticFunction` this function is to be called by
-/// the codegeneration backend. This will not allocate the created Atom yet,
-/// but will instead be appended to `synthetic_functions` list and will be
-/// parsed at the end of code generation.
+/// the codegeneration backend. This will not allocate the created Atom yet.
 /// Returns the index of the symbol.
 pub fn createFunction(
     wasm: *Wasm,
@@ -1861,31 +1859,7 @@ pub fn createFunction(
     function_body: *std.ArrayList(u8),
     relocations: *std.ArrayList(Relocation),
 ) !u32 {
-    const gpa = wasm.base.comp.gpa;
-    const loc = try wasm.createSyntheticSymbol(symbol_name, .function);
-
-    const atom_index = try wasm.createAtom(loc.index, wasm.zig_object_index);
-    const atom = wasm.getAtomPtr(atom_index);
-    atom.code = function_body.moveToUnmanaged();
-    atom.relocs = relocations.moveToUnmanaged();
-    atom.size = @intCast(function_body.items.len);
-    const symbol = loc.getSymbol(wasm);
-    symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN); // ensure function does not get exported
-
-    const section_index = wasm.code_section_index orelse idx: {
-        const index = @as(u32, @intCast(wasm.segments.items.len));
-        try wasm.appendDummySegment();
-        break :idx index;
-    };
-    try wasm.appendAtomAtIndex(section_index, atom_index);
-    try wasm.zigObjectPtr().?.atom_types.put(
-        gpa,
-        atom_index,
-        try wasm.zigObjectPtr().?.putOrGetFuncType(gpa, func_ty),
-    );
-    try wasm.synthetic_functions.append(gpa, atom_index);
-
-    return loc.index;
+    return wasm.zigObjectPtr().?.createFunction(wasm, symbol_name, func_ty, function_body, relocations);
 }
 
 /// If required, sets the function index in the `start` section.
@@ -2050,7 +2024,6 @@ fn mergeSections(wasm: *Wasm) !void {
 
         switch (symbol.tag) {
             .function => {
-                const index = symbol.index - obj_file.importedFunctions();
                 const gop = try wasm.functions.getOrPut(
                     gpa,
                     .{ .file = sym_loc.file, .index = symbol.index },
@@ -2068,7 +2041,7 @@ fn mergeSections(wasm: *Wasm) !void {
                     try removed_duplicates.append(sym_loc);
                     continue;
                 }
-                gop.value_ptr.* = .{ .func = obj_file.functions()[index], .sym_index = sym_loc.index };
+                gop.value_ptr.* = .{ .func = obj_file.function(sym_loc.index), .sym_index = sym_loc.index };
                 symbol.index = @as(u32, @intCast(gop.index)) + wasm.imported_functions_count;
             },
             .global => {

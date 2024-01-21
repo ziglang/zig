@@ -13,7 +13,7 @@ decls: std.AutoHashMapUnmanaged(InternPool.DeclIndex, Atom.Index) = .{},
 func_types: std.ArrayListUnmanaged(std.wasm.Type) = .{},
 /// List of `std.wasm.Func`. Each entry contains the function signature,
 /// rather than the actual body.
-functions: std.ArrayListUnmanaged(std.wasm.Func) = .{},
+functions: std.AutoHashMapUnmanaged(u32, std.wasm.Func) = .{},
 /// Map of symbol locations, represented by its `types.Import`.
 imports: std.AutoHashMapUnmanaged(u32, types.Import) = .{},
 /// List of WebAssembly globals.
@@ -1187,6 +1187,33 @@ pub fn parseSymbolIntoAtom(zig_object: *ZigObject, wasm_file: *Wasm, index: u32)
         }
     }
     return atom_index;
+}
+
+/// Creates a new Wasm function with a given symbol name and body.
+/// Returns the symbol index of the new function.
+pub fn createFunction(
+    zig_object: *ZigObject,
+    wasm_file: *Wasm,
+    symbol_name: []const u8,
+    func_ty: std.wasm.Type,
+    function_body: *std.ArrayList(u8),
+    relocations: *std.ArrayList(types.Relocation),
+) !u32 {
+    const gpa = wasm_file.base.comp.gpa;
+    const sym_index = try zig_object.allocateSymbol(gpa);
+    const sym = &zig_object.symbols.items[sym_index];
+    sym.tag = .function;
+    sym.name = try zig_object.string_table.insert(gpa, symbol_name);
+    const type_index = try zig_object.putOrGetFuncType(gpa, func_ty);
+    try zig_object.functions.putNoClobber(gpa, sym_index, .{ .type_index = type_index });
+
+    const atom_index = try wasm_file.createAtom(sym_index, zig_object.index);
+    const atom = wasm_file.getAtomPtr(atom_index);
+    atom.size = @intCast(function_body.items.len);
+    atom.code = function_body.moveToUnmanaged();
+    atom.relocs = relocations.moveToUnmanaged();
+
+    return sym_index;
 }
 
 const build_options = @import("build_options");

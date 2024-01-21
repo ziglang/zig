@@ -89,11 +89,14 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn functions(file: File) []const std.wasm.Func {
-        return switch (file) {
-            .zig_object => |obj| obj.functions.items,
-            .object => |obj| obj.functions,
-        };
+    pub fn function(file: File, sym_index: u32) std.wasm.Func {
+        switch (file) {
+            .zig_object => |obj| return obj.functions.get(sym_index).?,
+            .object => |obj| {
+                const sym = obj.symtable[sym_index];
+                return obj.functions[sym.index - obj.imported_functions_count];
+            },
+        }
     }
 
     pub fn globals(file: File) []const std.wasm.Global {
