@@ -6,23 +6,29 @@ pub fn build(b: *std.Build) void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const shared = b.createModule(.{
-        .root_source_file = .{ .path = "shared.zig" },
-    });
-
-    const exe = b.addExecutable(.{
-        .name = "test",
+    const main = b.createModule(.{
         .root_source_file = .{ .path = "test.zig" },
         .target = b.host,
         .optimize = optimize,
     });
-    exe.root_module.addAnonymousImport("foo", .{
+    const foo = b.createModule(.{
         .root_source_file = .{ .path = "foo.zig" },
-        .imports = &.{.{ .name = "shared", .module = shared }},
     });
-    exe.root_module.addAnonymousImport("bar", .{
-        .root_source_file = .{ .path = "bar.zig" },
-        .imports = &.{.{ .name = "shared", .module = shared }},
+    const bar = b.createModule(.{
+        .root_source_file = .{ .path = "foo.zig" },
+    });
+    const shared = b.createModule(.{
+        .root_source_file = .{ .path = "shared.zig" },
+    });
+
+    main.addImport("foo", foo);
+    main.addImport("bar", bar);
+    foo.addImport("shared", shared);
+    bar.addImport("shared", shared);
+
+    const exe = b.addExecutable2(.{
+        .name = "test",
+        .root_module = main,
     });
 
     const run = b.addRunArtifact(exe);

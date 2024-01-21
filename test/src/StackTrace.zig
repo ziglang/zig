@@ -52,12 +52,14 @@ fn addExpect(
     }
 
     const write_src = b.addWriteFile("source.zig", source);
-    const exe = b.addExecutable(.{
+    const exe = b.addExecutable2(.{
         .name = "test",
-        .root_source_file = write_src.files.items[0].getPath(),
-        .optimize = optimize_mode,
-        .target = b.host,
-        .error_tracing = mode_config.error_tracing,
+        .root_module = b.createModule(.{
+            .root_source_file = write_src.files.items[0].getPath(),
+            .optimize = optimize_mode,
+            .target = b.host,
+            .error_tracing = mode_config.error_tracing,
+        }),
     });
 
     const run = b.addRunArtifact(exe);

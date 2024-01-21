@@ -56,80 +56,81 @@ const OverlayOptions = struct {
 };
 
 pub fn addExecutable(b: *std.Build, base: Options, overlay: OverlayOptions) *Compile {
-    return addCompileStep(b, base, overlay, .exe);
+    return b.addExecutable2(.{
+        .name = overlay.name,
+        .use_llvm = base.use_llvm,
+        .use_lld = base.use_lld,
+        .root_module = setupModule(b, base, overlay),
+    });
 }
 
 pub fn addObject(b: *Build, base: Options, overlay: OverlayOptions) *Compile {
-    return addCompileStep(b, base, overlay, .obj);
+    return b.addObject2(.{
+        .name = overlay.name,
+        .use_llvm = base.use_llvm,
+        .use_lld = base.use_lld,
+        .root_module = setupModule(b, base, overlay),
+    });
 }
 
 pub fn addStaticLibrary(b: *Build, base: Options, overlay: OverlayOptions) *Compile {
-    return addCompileStep(b, base, overlay, .static_lib);
+    return b.addStaticLibrary2(.{
+        .name = overlay.name,
+        .use_llvm = base.use_llvm,
+        .use_lld = base.use_lld,
+        .root_module = setupModule(b, base, overlay),
+    });
 }
 
 pub fn addSharedLibrary(b: *Build, base: Options, overlay: OverlayOptions) *Compile {
-    return addCompileStep(b, base, overlay, .shared_lib);
-}
-
-fn addCompileStep(
-    b: *Build,
-    base: Options,
-    overlay: OverlayOptions,
-    kind: enum { exe, obj, shared_lib, static_lib },
-) *Compile {
-    const compile_step = Compile.create(b, .{
+    return b.addSharedLibrary2(.{
         .name = overlay.name,
-        .root_module = .{
-            .target = base.target,
-            .optimize = base.optimize,
-            .root_source_file = rsf: {
-                const bytes = overlay.zig_source_bytes orelse break :rsf null;
-                break :rsf b.addWriteFiles().add("a.zig", bytes);
-            },
-            .pic = overlay.pic,
-            .strip = overlay.strip,
-        },
         .use_llvm = base.use_llvm,
         .use_lld = base.use_lld,
-        .kind = switch (kind) {
-            .exe => .exe,
-            .obj => .obj,
-            .shared_lib, .static_lib => .lib,
+        .root_module = setupModule(b, base, overlay),
+    });
+}
+
+fn setupModule(b: *Build, base: Options, overlay: OverlayOptions) *Module {
+    const wf = b.addWriteFiles();
+    const mod = b.createModule(.{
+        .root_source_file = rsf: {
+            const bytes = overlay.zig_source_bytes orelse break :rsf null;
+            break :rsf wf.add("a.zig", bytes);
         },
-        .linkage = switch (kind) {
-            .exe, .obj => null,
-            .shared_lib => .dynamic,
-            .static_lib => .static,
-        },
+        .target = base.target,
+        .optimize = base.optimize,
+        .pic = overlay.pic,
+        .strip = overlay.strip,
     });
     if (overlay.objcpp_source_bytes) |bytes| {
-        compile_step.addCSourceFile(.{
+        mod.addCSourceFile(.{
             .file = b.addWriteFiles().add("a.mm", bytes),
             .flags = overlay.objcpp_source_flags,
         });
     }
     if (overlay.objc_source_bytes) |bytes| {
-        compile_step.addCSourceFile(.{
+        mod.addCSourceFile(.{
             .file = b.addWriteFiles().add("a.m", bytes),
             .flags = overlay.objc_source_flags,
         });
     }
-    if (overlay.cpp_source_bytes) |bytes| {
-        compile_step.addCSourceFile(.{
-            .file = b.addWriteFiles().add("a.cpp", bytes),
-            .flags = overlay.cpp_source_flags,
-        });
-    }
     if (overlay.c_source_bytes) |bytes| {
-        compile_step.addCSourceFile(.{
-            .file = b.addWriteFiles().add("a.c", bytes),
+        mod.addCSourceFile(.{
+            .file = wf.add("a.c", bytes),
             .flags = overlay.c_source_flags,
         });
     }
-    if (overlay.asm_source_bytes) |bytes| {
-        compile_step.addAssemblyFile(b.addWriteFiles().add("a.s", bytes));
+    if (overlay.cpp_source_bytes) |bytes| {
+        mod.addCSourceFile(.{
+            .file = wf.add("a.cpp", bytes),
+            .flags = overlay.cpp_source_flags,
+        });
     }
-    return compile_step;
+    if (overlay.asm_source_bytes) |bytes| {
+        mod.addAssemblyFile(wf.add("a.s", bytes));
+    }
+    return mod;
 }
 
 pub fn addRunArtifact(comp: *Compile) *Run {
@@ -167,6 +168,7 @@ pub fn expectLinkErrors(comp: *Compile, test_step: *Step, expected_errors: Compi
 const std = @import("std");
 
 const Build = std.Build;
+const Module = Build.Module;
 const Compile = Step.Compile;
 const Run = Step.Run;
 const Step = Build.Step;

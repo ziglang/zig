@@ -36,12 +36,14 @@ pub fn build(b: *std.Build) !void {
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
     const only_reduce = b.option(bool, "only-reduce", "only build zig reduce") orelse false;
 
-    const docgen_exe = b.addExecutable(.{
+    const docgen_exe = b.addExecutable2(.{
         .name = "docgen",
-        .root_source_file = .{ .path = "tools/docgen.zig" },
-        .target = b.host,
-        .optimize = .Debug,
-        .single_threaded = single_threaded,
+        .root_module = b.createModule(.{
+            .root_source_file = .{ .path = "tools/docgen.zig" },
+            .target = b.host,
+            .optimize = .Debug,
+            .single_threaded = single_threaded,
+        }),
     });
 
     const docgen_cmd = b.addRunArtifact(docgen_exe);
@@ -57,9 +59,11 @@ pub fn build(b: *std.Build) !void {
         b.getInstallStep().dependOn(&install_langref.step);
     }
 
-    const autodoc_test = b.addTest(.{
-        .root_source_file = .{ .path = "lib/std/std.zig" },
-        .target = target,
+    const autodoc_test = b.addTest2(.{
+        .root_module = b.createModule(.{
+            .root_source_file = .{ .path = "lib/std/std.zig" },
+            .target = target,
+        }),
         .zig_lib_dir = .{ .path = "lib" },
     });
     const install_std_docs = b.addInstallDirectory(.{
@@ -86,12 +90,14 @@ pub fn build(b: *std.Build) !void {
     docs_step.dependOn(langref_step);
     docs_step.dependOn(std_docs_step);
 
-    const check_case_exe = b.addExecutable(.{
+    const check_case_exe = b.addExecutable2(.{
         .name = "check-case",
-        .root_source_file = .{ .path = "test/src/Cases.zig" },
-        .target = b.host,
-        .optimize = optimize,
-        .single_threaded = single_threaded,
+        .root_module = b.createModule(.{
+            .root_source_file = .{ .path = "test/src/Cases.zig" },
+            .target = b.host,
+            .optimize = optimize,
+            .single_threaded = single_threaded,
+        }),
     });
     check_case_exe.stack_size = stack_size;
 
@@ -542,10 +548,12 @@ pub fn build(b: *std.Build) !void {
 
     const update_mingw_step = b.step("update-mingw", "Update zig's bundled mingw");
     const opt_mingw_src_path = b.option([]const u8, "mingw-src", "path to mingw-w64 source directory");
-    const update_mingw_exe = b.addExecutable(.{
+    const update_mingw_exe = b.addExecutable2(.{
         .name = "update_mingw",
-        .target = b.host,
-        .root_source_file = .{ .path = "tools/update_mingw.zig" },
+        .root_module = b.createModule(.{
+            .target = b.host,
+            .root_source_file = .{ .path = "tools/update_mingw.zig" },
+        }),
     });
     const update_mingw_run = b.addRunArtifact(update_mingw_exe);
     update_mingw_run.addDirectoryArg(.{ .path = "lib" });
@@ -618,15 +626,17 @@ const AddCompilerStepOptions = struct {
 };
 
 fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
-    const exe = b.addExecutable(.{
+    const exe = b.addExecutable2(.{
         .name = "zig",
-        .root_source_file = .{ .path = "src/main.zig" },
-        .target = options.target,
-        .optimize = options.optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = .{ .path = "src/main.zig" },
+            .target = options.target,
+            .optimize = options.optimize,
+            .strip = options.strip,
+            .sanitize_thread = options.sanitize_thread,
+            .single_threaded = options.single_threaded,
+        }),
         .max_rss = 7_000_000_000,
-        .strip = options.strip,
-        .sanitize_thread = options.sanitize_thread,
-        .single_threaded = options.single_threaded,
     });
     exe.stack_size = stack_size;
 

@@ -585,29 +585,27 @@ pub fn lowerToBuildSteps(
         }
         const root_source_file = writefiles.files.items[0].getPath();
 
-        const artifact = if (case.is_test) b.addTest(.{
+        const module = b.createModule(.{
             .root_source_file = root_source_file,
-            .name = case.name,
             .target = case.target,
             .optimize = case.optimize_mode,
+        });
+
+        const artifact = if (case.is_test) b.addTest2(.{
+            .name = case.name,
+            .root_module = module,
         }) else switch (case.output_mode) {
-            .Obj => b.addObject(.{
-                .root_source_file = root_source_file,
+            .Obj => b.addObject2(.{
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = module,
             }),
-            .Lib => b.addStaticLibrary(.{
-                .root_source_file = root_source_file,
+            .Lib => b.addStaticLibrary2(.{
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = module,
             }),
-            .Exe => b.addExecutable(.{
-                .root_source_file = root_source_file,
+            .Exe => b.addExecutable2(.{
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = module,
             }),
         };
 
