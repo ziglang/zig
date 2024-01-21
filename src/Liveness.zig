@@ -489,7 +489,7 @@ pub fn categorizeOperand(
                 for (args, 0..) |arg, i| {
                     if (arg == operand_ref) return matchOperandSmallIndex(l, inst, @as(OperandInt, @intCast(i + 1)), .write);
                 }
-                return .write;
+                return .none;
             }
             var bt = l.iterateBigTomb(inst);
             if (bt.feed()) {
@@ -504,7 +504,7 @@ pub fn categorizeOperand(
                     if (arg == operand_ref) return .write;
                 }
             }
-            return .write;
+            return .none;
         },
         .select => {
             const pl_op = air_datas[@intFromEnum(inst)].pl_op;
