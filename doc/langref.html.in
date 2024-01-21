@@ -11521,9 +11521,9 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}addrspace{#endsyntax#}</pre>
           </th>
           <td>
-            The {#syntax#}addrspace{#endsyntax#} keyword.
+            {#syntax#}addrspace{#endsyntax#} can be used to set the address space for a variable.
             <ul>
-              <li>TODO add documentation for addrspace</li>
+              <li>Also see the documentation for {#syntax#}std.builtin.AddressSpace{#endsyntax#} for a list of available address spaces.</li>
             </ul>
           </td>
         </tr>
