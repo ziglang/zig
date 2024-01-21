@@ -4311,10 +4311,11 @@ test "enum literals with switch" {
       {#code_end#}
       {#header_close#}
 
-      {#header_open|Inline switch#}
+      {#header_open|Inline Switch Prongs#}
       <p>
       Switch prongs can be marked as {#syntax#}inline{#endsyntax#} to generate
-      the prong's body for each possible value it could have:
+      the prong's body for each possible value it could have, making the
+      captured value {#link|comptime#}.
       </p>
       {#code_begin|test|test_inline_switch#}
 const std = @import("std");
@@ -4324,9 +4325,9 @@ const expectError = std.testing.expectError;
 fn isFieldOptional(comptime T: type, field_index: usize) !bool {
     const fields = @typeInfo(T).Struct.fields;
     return switch (field_index) {
-        // This prong is analyzed `fields.len - 1` times with `idx` being a
-        // unique comptime-known value each time.
-        inline 0...fields.len - 1 => |idx| @typeInfo(fields[idx].type) == .Optional,
+        // This prong is analyzed twice with `idx` being a
+        // comptime-known value each time.
+        inline 0, 1 => |idx| @typeInfo(fields[idx].type) == .Optional,
         else => return error.IndexOutOfBounds,
     };
 }
@@ -4348,6 +4349,16 @@ fn isFieldOptionalUnrolled(field_index: usize) !bool {
     return switch (field_index) {
         0 => false,
         1 => true,
+        else => return error.IndexOutOfBounds,
+    };
+}
+      {#code_end#}
+      <p>The {#syntax#}inline{#endsyntax#} keyword may also be combined with ranges:</p>
+      {#code_begin|syntax|inline_prong_range#}
+fn isFieldOptional(comptime T: type, field_index: usize) !bool {
+    const fields = @typeInfo(T).Struct.fields;
+    return switch (field_index) {
+        inline 0...fields.len - 1 => |idx| @typeInfo(fields[idx].type) == .Optional,
         else => return error.IndexOutOfBounds,
     };
 }
