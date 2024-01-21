@@ -468,7 +468,7 @@ pub fn getErrorTableSymbol(zig_object: *ZigObject, wasm_file: *Wasm) !u32 {
 fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm) !void {
     const symbol_index = zig_object.error_table_symbol orelse return;
     const gpa = wasm_file.base.comp.gpa;
-    const atom_index = wasm_file.symbol_atom.get(.{ .file = null, .index = symbol_index }).?;
+    const atom_index = wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = symbol_index }).?;
 
     // Rather than creating a symbol for each individual error name,
     // we create a symbol for the entire region of error names. We then calculate
@@ -633,7 +633,7 @@ pub fn getDeclVAddr(
     const target_symbol_index = wasm_file.getAtom(target_atom_index).sym_index;
 
     std.debug.assert(reloc_info.parent_atom_index != 0);
-    const atom_index = wasm_file.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
+    const atom_index = wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = reloc_info.parent_atom_index }).?;
     const atom = wasm_file.getAtomPtr(atom_index);
     const is_wasm32 = target.cpu.arch == .wasm32;
     if (decl.ty.zigTypeTag(mod) == .Fn) {
@@ -670,7 +670,7 @@ pub fn getAnonDeclVAddr(
     const atom_index = zig_object.anon_decls.get(decl_val).?;
     const target_symbol_index = wasm_file.getAtom(atom_index).getSymbolIndex().?;
 
-    const parent_atom_index = wasm_file.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
+    const parent_atom_index = wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = reloc_info.parent_atom_index }).?;
     const parent_atom = wasm_file.getAtomPtr(parent_atom_index);
     const is_wasm32 = target.cpu.arch == .wasm32;
     const mod = wasm_file.base.comp.module.?;
@@ -705,7 +705,7 @@ pub fn deleteDeclExport(
 ) void {
     const atom_index = zig_object.decls.get(decl_index) orelse return;
     const sym_index = wasm_file.getAtom(atom_index).sym_index;
-    const loc: Wasm.SymbolLoc = .{ .file = null, .index = sym_index };
+    const loc: Wasm.SymbolLoc = .{ .file = zig_object.index, .index = sym_index };
     const sym = loc.getSymbol(wasm_file);
     std.debug.assert(zig_object.global_syms.remove(sym.name));
 }
@@ -1161,7 +1161,7 @@ pub fn storeDeclType(zig_object: *ZigObject, gpa: std.mem.Allocator, decl_index:
 /// its relocations and create any GOT symbols or function table indexes it may require.
 pub fn parseSymbolIntoAtom(zig_object: *ZigObject, wasm_file: *Wasm, index: u32) !Atom.Index {
     const gpa = wasm_file.base.comp.gpa;
-    const loc: Wasm.SymbolLoc = .{ .file = @intFromEnum(zig_object.index), .index = index };
+    const loc: Wasm.SymbolLoc = .{ .file = zig_object.index, .index = index };
     const final_index = try wasm_file.getMatchingSegment(zig_object.index, index);
     const atom_index = wasm_file.symbol_atom.get(loc).?;
     try wasm_file.appendAtomAtIndex(final_index, atom_index);

@@ -952,7 +952,7 @@ pub fn parseSymbolIntoAtom(object: *Object, wasm: *Wasm, symbol_index: u32) !Ato
                 .R_WASM_TABLE_INDEX_SLEB64,
                 => {
                     try wasm.function_table.put(gpa, .{
-                        .file = @intFromEnum(object.index),
+                        .file = object.index,
                         .index = reloc.index,
                     }, 0);
                 },
@@ -961,10 +961,7 @@ pub fn parseSymbolIntoAtom(object: *Object, wasm: *Wasm, symbol_index: u32) !Ato
                 => {
                     const sym = object.symtable[reloc.index];
                     if (sym.tag != .global) {
-                        try wasm.got_symbols.append(
-                            gpa,
-                            .{ .file = @intFromEnum(object.index), .index = reloc.index },
-                        );
+                        try wasm.got_symbols.append(gpa, .{ .file = object.index, .index = reloc.index });
                     }
                 },
                 else => {},

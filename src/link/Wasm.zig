@@ -125,7 +125,10 @@ func_types: std.ArrayListUnmanaged(std.wasm.Type) = .{},
 /// Output function section where the key is the original
 /// function index and the value is function.
 /// This allows us to map multiple symbols to the same function.
-functions: std.AutoArrayHashMapUnmanaged(struct { file: ?u16, index: u32 }, struct { func: std.wasm.Func, sym_index: u32 }) = .{},
+functions: std.AutoArrayHashMapUnmanaged(
+    struct { file: File.Index, index: u32 },
+    struct { func: std.wasm.Func, sym_index: u32 },
+) = .{},
 /// Output global section
 wasm_globals: std.ArrayListUnmanaged(std.wasm.Global) = .{},
 /// Memory section
@@ -217,16 +220,14 @@ pub const SymbolLoc = struct {
     /// The index of the symbol within the specified file
     index: u32,
     /// The index of the object file where the symbol resides.
-    /// When this is `null` the symbol comes from a non-object file.
-    file: ?u16,
+    file: File.Index,
 
     /// From a given location, returns the corresponding symbol in the wasm binary
     pub fn getSymbol(loc: SymbolLoc, wasm_file: *const Wasm) *Symbol {
         if (wasm_file.discarded.get(loc)) |new_loc| {
             return new_loc.getSymbol(wasm_file);
         }
-        if (loc.file) |object_index| {
-            const obj_file = wasm_file.file(@enumFromInt(object_index)).?;
+        if (wasm_file.file(loc.file)) |obj_file| {
             return obj_file.symbol(loc.index);
         }
         return &wasm_file.synthetic_symbols.items[loc.index];
@@ -237,8 +238,7 @@ pub const SymbolLoc = struct {
         if (wasm_file.discarded.get(loc)) |new_loc| {
             return new_loc.getName(wasm_file);
         }
-        if (loc.file) |object_index| {
-            const obj_file = wasm_file.file(@enumFromInt(object_index)).?;
+        if (wasm_file.file(loc.file)) |obj_file| {
             return obj_file.symbolName(loc.index);
         }
         return wasm_file.string_table.get(wasm_file.synthetic_symbols.items[loc.index].name);
@@ -263,7 +263,7 @@ pub const InitFuncLoc = struct {
     /// object file index in the list of objects.
     /// Unlike `SymbolLoc` this cannot be `null` as we never define
     /// our own ctors.
-    file: u16,
+    file: File.Index,
     /// Symbol index within the corresponding object file.
     index: u32,
     /// The priority in which the constructor must be called.
@@ -633,7 +633,7 @@ fn createSyntheticSymbol(wasm: *Wasm, name: []const u8, tag: Symbol.Tag) !Symbol
 
 fn createSyntheticSymbolOffset(wasm: *Wasm, name_offset: u32, tag: Symbol.Tag) !SymbolLoc {
     const sym_index = @as(u32, @intCast(wasm.synthetic_symbols.items.len));
-    const loc: SymbolLoc = .{ .index = sym_index, .file = null };
+    const loc: SymbolLoc = .{ .index = sym_index, .file = .null };
     const gpa = wasm.base.comp.gpa;
     try wasm.synthetic_symbols.append(gpa, .{
         .name = name_offset,
@@ -680,7 +680,7 @@ pub fn createAtom(wasm: *Wasm, sym_index: u32, file_index: File.Index) !Atom.Ind
     const index: Atom.Index = @intCast(wasm.managed_atoms.items.len);
     const atom = try wasm.managed_atoms.addOne(gpa);
     atom.* = .{ .file = file_index, .sym_index = sym_index };
-    try wasm.symbol_atom.putNoClobber(gpa, .{ .file = null, .index = sym_index }, index);
+    try wasm.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), index);
 
     return index;
 }
@@ -763,10 +763,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, file_index: File.Index) !void {
 
     for (obj_file.symbols(), 0..) |symbol, i| {
         const sym_index: u32 = @intCast(i);
-        const location: SymbolLoc = .{
-            .file = @intFromEnum(file_index),
-            .index = sym_index,
-        };
+        const location: SymbolLoc = .{ .file = file_index, .index = sym_index };
         const sym_name = obj_file.string(symbol.name);
         if (mem.eql(u8, sym_name, "__indirect_function_table")) {
             continue;
@@ -796,9 +793,10 @@ fn resolveSymbolsInObject(wasm: *Wasm, file_index: File.Index) !void {
 
         const existing_loc = maybe_existing.value_ptr.*;
         const existing_sym: *Symbol = existing_loc.getSymbol(wasm);
+        const existing_file = wasm.file(existing_loc.file);
 
-        const existing_file_path = if (existing_loc.file) |existing_file_index|
-            wasm.file(@enumFromInt(existing_file_index)).?.path()
+        const existing_file_path = if (existing_file) |existing_obj_file|
+            existing_obj_file.path()
         else
             wasm.name;
 
@@ -831,8 +829,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, file_index: File.Index) !void {
         if (existing_sym.isUndefined() and symbol.isUndefined()) {
             // only verify module/import name for function symbols
             if (symbol.tag == .function) {
-                const existing_name = if (existing_loc.file) |existing_file_index| blk: {
-                    const existing_obj = wasm.file(@enumFromInt(existing_file_index)).?;
+                const existing_name = if (existing_file) |existing_obj| blk: {
                     const imp = existing_obj.import(existing_loc.index);
                     break :blk existing_obj.string(imp.module_name);
                 } else blk: {
@@ -1363,8 +1360,8 @@ fn checkUndefinedSymbols(wasm: *const Wasm) !void {
         const symbol = undef.getSymbol(wasm);
         if (symbol.tag == .data) {
             found_undefined_symbols = true;
-            const file_name = if (undef.file) |file_index|
-                wasm.file(@enumFromInt(file_index)).?.path()
+            const file_name = if (wasm.file(undef.file)) |obj_file|
+                obj_file.path()
             else
                 wasm.name;
             const symbol_name = undef.getName(wasm);
@@ -1461,8 +1458,7 @@ fn getGlobalType(wasm: *const Wasm, loc: SymbolLoc) std.wasm.GlobalType {
     const symbol = loc.getSymbol(wasm);
     assert(symbol.tag == .global);
     const is_undefined = symbol.isUndefined();
-    if (loc.file) |file_index| {
-        const obj_file = wasm.file(@enumFromInt(file_index)).?;
+    if (wasm.file(loc.file)) |obj_file| {
         if (is_undefined) {
             return obj_file.import(loc.index).kind.global;
         }
@@ -1480,8 +1476,7 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
     const symbol = loc.getSymbol(wasm);
     assert(symbol.tag == .function);
     const is_undefined = symbol.isUndefined();
-    if (loc.file) |file_index| {
-        const obj_file = wasm.file(@enumFromInt(file_index)).?;
+    if (wasm.file(loc.file)) |obj_file| {
         if (is_undefined) {
             const ty_index = obj_file.import(loc.index).kind.function;
             return obj_file.funcTypes()[ty_index];
@@ -1625,8 +1620,8 @@ fn allocateAtoms(wasm: *Wasm) !void {
             // Ensure we get the original symbol, so we verify the correct symbol on whether
             // it is dead or not and ensure an atom is removed when dead.
             // This is required as we may have parsed aliases into atoms.
-            const sym = if (symbol_loc.file) |file_index|
-                wasm.file(@enumFromInt(file_index)).?.symbol(symbol_loc.index).*
+            const sym = if (wasm.file(symbol_loc.file)) |obj_file|
+                obj_file.symbol(symbol_loc.index).*
             else
                 wasm.synthetic_symbols.items[symbol_loc.index];
 
@@ -1754,10 +1749,10 @@ fn setupInitFunctions(wasm: *Wasm) !void {
             log.debug("appended init func '{s}'\n", .{object.string_table.get(symbol.name)});
             wasm.init_funcs.appendAssumeCapacity(.{
                 .index = init_func.symbol_index,
-                .file = @intFromEnum(file_index),
+                .file = file_index,
                 .priority = init_func.priority,
             });
-            try wasm.mark(.{ .index = init_func.symbol_index, .file = @intFromEnum(file_index) });
+            try wasm.mark(.{ .index = init_func.symbol_index, .file = file_index });
         }
     }
 
@@ -1841,7 +1836,7 @@ fn createSyntheticFunction(
     const func_index = wasm.imported_functions_count + @as(u32, @intCast(wasm.functions.count()));
     try wasm.functions.putNoClobber(
         gpa,
-        .{ .file = null, .index = func_index },
+        .{ .file = .null, .index = func_index },
         .{ .func = .{ .type_index = ty_index }, .sym_index = loc.index },
     );
     symbol.index = func_index;
@@ -1849,8 +1844,8 @@ fn createSyntheticFunction(
     // create the atom that will be output into the final binary
     const atom_index = try wasm.createAtom(loc.index, .null);
     const atom = wasm.getAtomPtr(atom_index);
-    atom.code = function_body.moveToUnmanaged();
     atom.size = @intCast(function_body.items.len);
+    atom.code = function_body.moveToUnmanaged();
     try wasm.appendAtomAtIndex(wasm.code_section_index.?, atom_index);
 }
 
@@ -1969,20 +1964,8 @@ fn initializeTLSFunction(wasm: *Wasm) !void {
 fn setupImports(wasm: *Wasm) !void {
     const gpa = wasm.base.comp.gpa;
     log.debug("Merging imports", .{});
-    var discarded_it = wasm.discarded.keyIterator();
-    while (discarded_it.next()) |discarded| {
-        if (discarded.file == null) {
-            // remove an import if it was resolved
-            if (wasm.imports.remove(discarded.*)) {
-                log.debug("Removed symbol '{s}' as an import", .{
-                    discarded.getName(wasm),
-                });
-            }
-        }
-    }
-
     for (wasm.resolved_symbols.keys()) |symbol_loc| {
-        const file_index = symbol_loc.file orelse {
+        const obj_file = wasm.file(symbol_loc.file) orelse {
             // Synthetic symbols will already exist in the `import` section
             continue;
         };
@@ -1996,7 +1979,6 @@ fn setupImports(wasm: *Wasm) !void {
         }
 
         log.debug("Symbol '{s}' will be imported from the host", .{symbol_loc.getName(wasm)});
-        const obj_file = wasm.file(@enumFromInt(file_index)).?;
         const import = obj_file.import(symbol_loc.index);
 
         // We copy the import to a new import to ensure the names contain references
@@ -2054,15 +2036,13 @@ fn mergeSections(wasm: *Wasm) !void {
     defer removed_duplicates.deinit();
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
-        const file_index = sym_loc.file orelse {
+        const obj_file = wasm.file(sym_loc.file) orelse {
             // Zig code-generated symbols are already within the sections and do not
             // require to be merged
             continue;
         };
 
-        const obj_file = wasm.file(@enumFromInt(file_index)).?;
         const symbol = obj_file.symbol(sym_loc.index);
-
         if (symbol.isDead() or symbol.isUndefined()) {
             // Skip undefined symbols as they go in the `import` section
             continue;
@@ -2105,7 +2085,7 @@ fn mergeSections(wasm: *Wasm) !void {
                 symbol.index = @as(u32, @intCast(wasm.tables.items.len)) + wasm.imported_tables_count;
                 try wasm.tables.append(gpa, original_table);
             },
-            else => continue,
+            else => {},
         }
     }
 
@@ -2132,12 +2112,11 @@ fn mergeTypes(wasm: *Wasm) !void {
     defer dirty.deinit();
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
-        const file_index = sym_loc.file orelse {
+        const obj_file = wasm.file(sym_loc.file) orelse {
             // zig code-generated symbols are already present in final type section
             continue;
         };
 
-        const obj_file = wasm.file(@enumFromInt(file_index)).?;
         const symbol = obj_file.symbol(sym_loc.index);
         if (symbol.tag != .function or symbol.isDead()) {
             // Only functions have types. Only retrieve the type of referenced functions.
@@ -2191,7 +2170,7 @@ fn setupExports(wasm: *Wasm) !void {
 
         const sym_name = sym_loc.getName(wasm);
         const export_name = if (wasm.export_names.get(sym_loc)) |name| name else blk: {
-            if (sym_loc.file == null) break :blk symbol.name;
+            if (sym_loc.file == .null) break :blk symbol.name;
             break :blk try wasm.string_table.put(gpa, sym_name);
         };
         const exp: types.Export = if (symbol.tag == .data) exp: {
@@ -2425,7 +2404,7 @@ pub fn getMatchingSegment(wasm: *Wasm, file_index: File.Index, symbol_index: u32
             break :blk index;
         },
         .section => {
-            const section_name = obj_file.symbolName(symbol.index);
+            const section_name = obj_file.symbolName(symbol_index);
             if (mem.eql(u8, section_name, ".debug_info")) {
                 return wasm.debug_info_index orelse blk: {
                     wasm.debug_info_index = index;
@@ -2475,7 +2454,7 @@ pub fn getMatchingSegment(wasm: *Wasm, file_index: File.Index, symbol_index: u32
                     break :blk index;
                 };
             } else {
-                log.warn("found unknown section '{s}'", .{section_name});
+                log.err("found unknown section '{s}'", .{section_name});
                 return error.UnexpectedValue;
             }
         },
@@ -4221,10 +4200,7 @@ fn emitDataRelocations(
             size_offset += getULEB128Size(atom.size);
             for (atom.relocs.items) |relocation| {
                 count += 1;
-                const sym_loc: SymbolLoc = .{
-                    .file = atom.file,
-                    .index = relocation.index,
-                };
+                const sym_loc: SymbolLoc = .{ .file = atom.file, .index = relocation.index };
                 const symbol_index = symbol_table.get(sym_loc).?;
                 try leb.writeULEB128(writer, @intFromEnum(relocation.relocation_type));
                 const offset = atom.offset + relocation.offset + size_offset;
@@ -4322,8 +4298,7 @@ fn markReferences(wasm: *Wasm) !void {
         // Debug sections may require to be parsed and marked when it contains
         // relocations to alive symbols.
         if (sym.tag == .section and comp.config.debug_format != .strip) {
-            const file_index = sym_loc.file orelse continue; // Incremental debug info is done independently
-            const obj_file = wasm.file(@enumFromInt(file_index)).?;
+            const obj_file = wasm.file(sym_loc.file) orelse continue; // Incremental debug info is done independently
             _ = try obj_file.parseSymbolIntoAtom(wasm, sym_loc.index);
             sym.mark();
         }
@@ -4347,10 +4322,10 @@ fn mark(wasm: *Wasm, loc: SymbolLoc) !void {
         return;
     }
 
-    const atom_index = if (loc.file) |file_index| idx: {
-        const obj_file = wasm.file(@enumFromInt(file_index)).?;
-        break :idx try obj_file.parseSymbolIntoAtom(wasm, loc.index);
-    } else wasm.symbol_atom.get(loc) orelse return;
+    const atom_index = if (wasm.file(loc.file)) |obj_file|
+        try obj_file.parseSymbolIntoAtom(wasm, loc.index)
+    else
+        wasm.symbol_atom.get(loc) orelse return;
 
     const atom = wasm.getAtom(atom_index);
     for (atom.relocs.items) |reloc| {
