@@ -440,9 +440,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             });
                             lower.result_insts_len += 1;
                             emit_mnemonic = .mov;
-                            break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
-                                .base = .{ .reg = .rax },
-                            }) };
+                            break :op .{ .reg = .rax };
                         }
 
                         _ = lower.reloc(.{ .linker_reloc = sym });
