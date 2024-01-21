@@ -2557,7 +2557,8 @@ fn writeAtoms(self: *MachO) !void {
         if (atoms.items.len == 0) continue;
         if (header.isZerofill()) continue;
 
-        const buffer = try gpa.alloc(u8, header.size);
+        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        const buffer = try gpa.alloc(u8, size);
         defer gpa.free(buffer);
         const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
         @memset(buffer, padding_byte);
@@ -2565,14 +2566,15 @@ fn writeAtoms(self: *MachO) !void {
         for (atoms.items) |atom_index| {
             const atom = self.getAtom(atom_index).?;
             assert(atom.flags.alive);
-            const off = atom.value - header.addr;
+            const off = math.cast(usize, atom.value - header.addr) orelse return error.Overflow;
             const data = switch (atom.getFile(self)) {
-                .object => |x| x.getAtomData(atom.*),
+                .object => |x| try x.getAtomData(atom.*),
                 .zig_object => |x| try x.getAtomDataAlloc(self, arena.allocator(), atom.*),
                 else => unreachable,
             };
-            @memcpy(buffer[off..][0..atom.size], data);
-            atom.resolveRelocs(self, buffer[off..][0..atom.size]) catch |err| switch (err) {
+            const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
+            @memcpy(buffer[off..][0..atom_size], data);
+            atom.resolveRelocs(self, buffer[off..][0..atom_size]) catch |err| switch (err) {
                 error.ResolveFailed => has_resolve_error = true,
                 else => |e| return e,
             };
@@ -2602,7 +2604,8 @@ fn writeUnwindInfo(self: *MachO) !void {
 
     if (self.eh_frame_sect_index) |index| {
         const header = self.sections.items(.header)[index];
-        const buffer = try gpa.alloc(u8, header.size);
+        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        const buffer = try gpa.alloc(u8, size);
         defer gpa.free(buffer);
         eh_frame.write(self, buffer);
         try self.base.file.?.pwriteAll(buffer, header.offset);
@@ -2610,7 +2613,8 @@ fn writeUnwindInfo(self: *MachO) !void {
 
     if (self.unwind_info_sect_index) |index| {
         const header = self.sections.items(.header)[index];
-        const buffer = try gpa.alloc(u8, header.size);
+        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        const buffer = try gpa.alloc(u8, size);
         defer gpa.free(buffer);
         try self.unwind_info.write(self, buffer);
         try self.base.file.?.pwriteAll(buffer, header.offset);
@@ -2637,7 +2641,8 @@ fn writeSyntheticSections(self: *MachO) !void {
 
     if (self.got_sect_index) |sect_id| {
         const header = self.sections.items(.header)[sect_id];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, header.size);
+        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, size);
         defer buffer.deinit();
         try self.got.write(self, buffer.writer());
         assert(buffer.items.len == header.size);
@@ -2646,7 +2651,8 @@ fn writeSyntheticSections(self: *MachO) !void {
 
     if (self.stubs_sect_index) |sect_id| {
         const header = self.sections.items(.header)[sect_id];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, header.size);
+        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, size);
         defer buffer.deinit();
         try self.stubs.write(self, buffer.writer());
         assert(buffer.items.len == header.size);
@@ -2655,7 +2661,8 @@ fn writeSyntheticSections(self: *MachO) !void {
 
     if (self.stubs_helper_sect_index) |sect_id| {
         const header = self.sections.items(.header)[sect_id];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, header.size);
+        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, size);
         defer buffer.deinit();
         try self.stubs_helper.write(self, buffer.writer());
         assert(buffer.items.len == header.size);
@@ -2664,7 +2671,8 @@ fn writeSyntheticSections(self: *MachO) !void {
 
     if (self.la_symbol_ptr_sect_index) |sect_id| {
         const header = self.sections.items(.header)[sect_id];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, header.size);
+        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, size);
         defer buffer.deinit();
         try self.la_symbol_ptr.write(self, buffer.writer());
         assert(buffer.items.len == header.size);
@@ -2673,7 +2681,8 @@ fn writeSyntheticSections(self: *MachO) !void {
 
     if (self.tlv_ptr_sect_index) |sect_id| {
         const header = self.sections.items(.header)[sect_id];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, header.size);
+        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, size);
         defer buffer.deinit();
         try self.tlv_ptr.write(self, buffer.writer());
         assert(buffer.items.len == header.size);
@@ -2682,7 +2691,8 @@ fn writeSyntheticSections(self: *MachO) !void {
 
     if (self.objc_stubs_sect_index) |sect_id| {
         const header = self.sections.items(.header)[sect_id];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, header.size);
+        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, size);
         defer buffer.deinit();
         try self.objc_stubs.write(self, buffer.writer());
         assert(buffer.items.len == header.size);
@@ -2876,10 +2886,10 @@ pub fn writeSymtab(self: *MachO, off: u32) !u32 {
         zo.writeSymtab(self);
     }
     for (self.objects.items) |index| {
-        self.getFile(index).?.writeSymtab(self);
+        try self.getFile(index).?.writeSymtab(self);
     }
     for (self.dylibs.items) |index| {
-        self.getFile(index).?.writeSymtab(self);
+        try self.getFile(index).?.writeSymtab(self);
     }
     if (self.getInternalObject()) |internal| {
         internal.writeSymtab(self);
@@ -2916,7 +2926,7 @@ pub fn writeStrtab(self: *MachO, off: u32) !u32 {
     return off + cmd.strsize;
 }
 
-fn writeLoadCommands(self: *MachO) !struct { usize, usize, usize } {
+fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
     const gpa = self.base.comp.gpa;
     const needed_size = load_commands.calcLoadCommandsSize(self, false);
     const buffer = try gpa.alloc(u8, needed_size);
@@ -3075,7 +3085,7 @@ fn writeHeader(self: *MachO, ncmds: usize, sizeofcmds: usize) !void {
     try self.base.file.?.pwriteAll(mem.asBytes(&header), 0);
 }
 
-fn writeUuid(self: *MachO, uuid_cmd_offset: usize, has_codesig: bool) !void {
+fn writeUuid(self: *MachO, uuid_cmd_offset: u64, has_codesig: bool) !void {
     const file_size = if (!has_codesig) blk: {
         const seg = self.getLinkeditSegment();
         break :blk seg.fileoff + seg.filesize;
@@ -3273,7 +3283,8 @@ fn copyRangeAllZeroOut(self: *MachO, old_offset: u64, new_offset: u64, size: u64
     const file = self.base.file.?;
     const amt = try file.copyRangeAll(old_offset, file, new_offset, size);
     if (amt != size) return error.InputOutput;
-    const zeroes = try gpa.alloc(u8, size);
+    const size_u = math.cast(usize, size) orelse return error.Overflow;
+    const zeroes = try gpa.alloc(u8, size_u);
     defer gpa.free(zeroes);
     @memset(zeroes, 0);
     try file.pwriteAll(zeroes, old_offset);

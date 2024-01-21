@@ -632,7 +632,7 @@ fn initEhFrameRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
     const sect = slice.items(.header)[sect_id];
     const relocs = slice.items(.relocs)[sect_id];
 
-    const data = self.getSectionData(sect_id);
+    const data = try self.getSectionData(sect_id);
     try self.eh_frame_data.ensureTotalCapacityPrecise(gpa, data.len);
     self.eh_frame_data.appendSliceAssumeCapacity(data);
 
@@ -733,7 +733,7 @@ fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
     };
 
     const gpa = macho_file.base.comp.gpa;
-    const data = self.getSectionData(sect_id);
+    const data = try self.getSectionData(sect_id);
     const nrecs = @divExact(data.len, @sizeOf(macho.compact_unwind_entry));
     const recs = @as([*]align(1) const macho.compact_unwind_entry, @ptrCast(data.ptr))[0..nrecs];
     const sym_lookup = SymbolLookup{ .ctx = self };
@@ -974,9 +974,9 @@ fn initDwarfInfo(self: *Object, macho_file: *MachO) !void {
     if (debug_info_index == null or debug_abbrev_index == null) return;
 
     var dwarf_info = DwarfInfo{
-        .debug_info = self.getSectionData(@intCast(debug_info_index.?)),
-        .debug_abbrev = self.getSectionData(@intCast(debug_abbrev_index.?)),
-        .debug_str = if (debug_str_index) |index| self.getSectionData(@intCast(index)) else "",
+        .debug_info = try self.getSectionData(@intCast(debug_info_index.?)),
+        .debug_abbrev = try self.getSectionData(@intCast(debug_abbrev_index.?)),
+        .debug_str = if (debug_str_index) |index| try self.getSectionData(@intCast(index)) else "",
     };
     dwarf_info.init(gpa) catch {
         try macho_file.reportParseError2(self.index, "invalid __DWARF info found", .{});
@@ -1203,15 +1203,15 @@ pub fn calcSymtabSize(self: *Object, macho_file: *MachO) !void {
     }
 
     if (macho_file.base.comp.config.debug_format != .strip and self.hasDebugInfo())
-        self.calcStabsSize(macho_file);
+        try self.calcStabsSize(macho_file);
 }
 
-pub fn calcStabsSize(self: *Object, macho_file: *MachO) void {
+pub fn calcStabsSize(self: *Object, macho_file: *MachO) error{Overflow}!void {
     if (self.dwarf_info) |dw| {
         // TODO handle multiple CUs
         const cu = dw.compile_units.items[0];
-        const comp_dir = cu.getCompileDir(dw) orelse return;
-        const tu_name = cu.getSourceFile(dw) orelse return;
+        const comp_dir = try cu.getCompileDir(dw) orelse return;
+        const tu_name = try cu.getSourceFile(dw) orelse return;
 
         self.output_symtab_ctx.nstabs += 4; // N_SO, N_SO, N_OSO, N_SO
         self.output_symtab_ctx.strsize += @as(u32, @intCast(comp_dir.len + 1)); // comp_dir
@@ -1266,7 +1266,7 @@ pub fn calcStabsSize(self: *Object, macho_file: *MachO) void {
     }
 }
 
-pub fn writeSymtab(self: Object, macho_file: *MachO) void {
+pub fn writeSymtab(self: Object, macho_file: *MachO) error{Overflow}!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1284,10 +1284,10 @@ pub fn writeSymtab(self: Object, macho_file: *MachO) void {
     }
 
     if (macho_file.base.comp.config.debug_format != .strip and self.hasDebugInfo())
-        self.writeStabs(macho_file);
+        try self.writeStabs(macho_file);
 }
 
-pub fn writeStabs(self: *const Object, macho_file: *MachO) void {
+pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void {
     const writeFuncStab = struct {
         inline fn writeFuncStab(
             n_strx: u32,
@@ -1333,8 +1333,8 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) void {
     if (self.dwarf_info) |dw| {
         // TODO handle multiple CUs
         const cu = dw.compile_units.items[0];
-        const comp_dir = cu.getCompileDir(dw) orelse return;
-        const tu_name = cu.getSourceFile(dw) orelse return;
+        const comp_dir = try cu.getCompileDir(dw) orelse return;
+        const tu_name = try cu.getSourceFile(dw) orelse return;
 
         // Open scope
         // N_SO comp_dir
@@ -1540,16 +1540,20 @@ fn getLoadCommand(self: Object, lc: macho.LC) ?LoadCommandIterator.LoadCommand {
     } else return null;
 }
 
-pub fn getSectionData(self: *const Object, index: u32) []const u8 {
+pub fn getSectionData(self: *const Object, index: u32) error{Overflow}![]const u8 {
     const slice = self.sections.slice();
     assert(index < slice.items(.header).len);
     const sect = slice.items(.header)[index];
-    return self.data[sect.offset..][0..sect.size];
+    const off = math.cast(usize, sect.offset) orelse return error.Overflow;
+    const size = math.cast(usize, sect.size) orelse return error.Overflow;
+    return self.data[off..][0..size];
 }
 
-pub fn getAtomData(self: *const Object, atom: Atom) []const u8 {
-    const data = self.getSectionData(atom.n_sect);
-    return data[atom.off..][0..atom.size];
+pub fn getAtomData(self: *const Object, atom: Atom) error{Overflow}![]const u8 {
+    const data = try self.getSectionData(atom.n_sect);
+    const off = math.cast(usize, atom.off) orelse return error.Overflow;
+    const size = math.cast(usize, atom.size) orelse return error.Overflow;
+    return data[off..][0..size];
 }
 
 pub fn getAtomRelocs(self: *const Object, atom: Atom) []const Relocation {
@@ -1821,7 +1825,7 @@ const x86_64 = struct {
             [*]align(1) const macho.relocation_info,
             @ptrCast(self.data.ptr + sect.reloff),
         )[0..sect.nreloc];
-        const code = self.getSectionData(@intCast(n_sect));
+        const code = try self.getSectionData(@intCast(n_sect));
 
         try out.ensureTotalCapacityPrecise(gpa, relocs.len);
 
@@ -1977,7 +1981,7 @@ const aarch64 = struct {
             [*]align(1) const macho.relocation_info,
             @ptrCast(self.data.ptr + sect.reloff),
         )[0..sect.nreloc];
-        const code = self.getSectionData(@intCast(n_sect));
+        const code = try self.getSectionData(@intCast(n_sect));
 
         try out.ensureTotalCapacityPrecise(gpa, relocs.len);
 

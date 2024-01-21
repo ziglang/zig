@@ -448,7 +448,7 @@ fn doBind(writer: anytype) !void {
 
 fn doBindAddAddr(addr: u64, writer: anytype) !void {
     log.debug(">>> bind with add: {x}", .{addr});
-    if (std.mem.isAligned(addr, @sizeOf(u64))) {
+    if (std.mem.isAlignedGeneric(u64, addr, @sizeOf(u64))) {
         const imm = @divExact(addr, @sizeOf(u64));
         if (imm <= 0xf) {
             try writer.writeByte(

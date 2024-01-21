@@ -154,7 +154,8 @@ pub fn getAtomDataAlloc(
             return data;
         },
         macho.S_THREAD_LOCAL_VARIABLES => {
-            const data = try allocator.alloc(u8, atom.size);
+            const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+            const data = try allocator.alloc(u8, size);
             @memset(data, 0);
             return data;
         },

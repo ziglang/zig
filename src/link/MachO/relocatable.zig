@@ -262,7 +262,8 @@ fn writeAtoms(macho_file: *MachO) !void {
         if (atoms.items.len == 0) continue;
         if (header.isZerofill()) continue;
 
-        const code = try gpa.alloc(u8, header.size);
+        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        const code = try gpa.alloc(u8, size);
         defer gpa.free(code);
         const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
         @memset(code, padding_byte);
@@ -273,9 +274,11 @@ fn writeAtoms(macho_file: *MachO) !void {
         for (atoms.items) |atom_index| {
             const atom = macho_file.getAtom(atom_index).?;
             assert(atom.flags.alive);
-            const off = atom.value - header.addr;
-            @memcpy(code[off..][0..atom.size], atom.getFile(macho_file).object.getAtomData(atom.*));
-            try atom.writeRelocs(macho_file, code[off..][0..atom.size], &relocs);
+            const off = math.cast(usize, atom.value - header.addr) orelse return error.Overflow;
+            const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
+            const atom_data = try atom.getFile(macho_file).object.getAtomData(atom.*);
+            @memcpy(code[off..][0..atom_size], atom_data);
+            try atom.writeRelocs(macho_file, code[off..][0..atom_size], &relocs);
         }
 
         assert(relocs.items.len == header.nreloc);
@@ -293,7 +296,7 @@ fn writeCompactUnwind(macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
     const header = macho_file.sections.items(.header)[sect_index];
 
-    const nrecs = @divExact(header.size, @sizeOf(macho.compact_unwind_entry));
+    const nrecs = math.cast(usize, @divExact(header.size, @sizeOf(macho.compact_unwind_entry))) orelse return error.Overflow;
     var entries = try std.ArrayList(macho.compact_unwind_entry).initCapacity(gpa, nrecs);
     defer entries.deinit();
 
@@ -379,8 +382,9 @@ fn writeEhFrame(macho_file: *MachO) !void {
     const sect_index = macho_file.eh_frame_sect_index orelse return;
     const gpa = macho_file.base.comp.gpa;
     const header = macho_file.sections.items(.header)[sect_index];
+    const size = math.cast(usize, header.size) orelse return error.Overflow;
 
-    const code = try gpa.alloc(u8, header.size);
+    const code = try gpa.alloc(u8, size);
     defer gpa.free(code);
 
     var relocs = try std.ArrayList(macho.relocation_info).initCapacity(gpa, header.nreloc);

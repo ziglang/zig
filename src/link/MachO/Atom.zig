@@ -579,7 +579,7 @@ fn resolveRelocInner(
     writer: anytype,
 ) ResolveError!void {
     const cpu_arch = macho_file.getTarget().cpu.arch;
-    const rel_offset = rel.offset - self.off;
+    const rel_offset = math.cast(usize, rel.offset - self.off) orelse return error.Overflow;
     const seg_id = macho_file.sections.items(.segment_id)[self.out_n_sect];
     const seg = macho_file.segments.items[seg_id];
     const P = @as(i64, @intCast(self.value)) + @as(i64, @intCast(rel_offset));

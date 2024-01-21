@@ -139,7 +139,7 @@ const TrieIterator = struct {
         var creader = std.io.countingReader(stream.reader());
         const reader = creader.reader();
         const value = try std.leb.readULEB128(u64, reader);
-        it.pos += creader.bytes_read;
+        it.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
         return value;
     }
 
@@ -212,7 +212,7 @@ fn parseTrieNode(
         const off = try it.readULEB128();
         const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
         const curr = it.pos;
-        it.pos = off;
+        it.pos = math.cast(usize, off) orelse return error.Overflow;
         try self.parseTrieNode(it, allocator, arena, prefix_label);
         it.pos = curr;
     }
