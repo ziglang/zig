@@ -301,39 +301,6 @@
           color: #fff;
         }
       }
-
-      @media all {
-        main {
-          counter-reset: section-2;
-        }
-        h2 {
-          counter-reset: section-3;
-        }
-        h2::before {
-          counter-increment: section-2;
-          content: counter(section-2) ". ";
-          font-weight: normal;
-        }
-        h3 {
-          counter-reset: section-4;
-        }
-        h3::before {
-          counter-increment: section-3;
-          content: counter(section-2) "." counter(section-3) ". ";
-          font-weight: normal;
-        }
-        h4::before {
-          counter-increment: section-4;
-          content: counter(section-2) "." counter(section-3) "." counter(section-4) ". ";
-          font-weight: normal;
-        }
-        #zig-version::before {
-          content: "";
-        }
-        #table-of-contents::before {
-          content: "";
-        }
-      }
     </style>
 </head>
 <body>
