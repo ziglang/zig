@@ -2195,6 +2195,7 @@ const DeclGen = struct {
 
             .mul_add => try self.airMulAdd(inst),
 
+            .splat => try self.airSplat(inst),
             .reduce, .reduce_optimized => try self.airReduce(inst),
             .shuffle => try self.airShuffle(inst),
 
@@ -2603,6 +2604,7 @@ const DeclGen = struct {
             // Idk why spir-v doesn't have a dedicated abs() instruction in the base
             // instruction set. For now we're just going to negate and check to avoid
             // importing the extinst.
+            // TODO: Make this a call to compiler rt / ext inst
             const neg_id = self.spv.allocId();
             const args = .{
                 .id_result_type = self.typeId(operand_scalar_ty_ref),
@@ -2873,6 +2875,19 @@ const DeclGen = struct {
                 .operand_1 = mul_result,
                 .operand_2 = try wip.elementAt(ty, addend, i),
             });
+        }
+        return try wip.finalize();
+    }
+
+    fn airSplat(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+        const operand_id = try self.resolve(ty_op.operand);
+        const result_ty = self.typeOfIndex(inst);
+        var wip = try self.elementWise(result_ty);
+        defer wip.deinit();
+        for (wip.results) |*result_id| {
+            result_id.* = operand_id;
         }
         return try wip.finalize();
     }
