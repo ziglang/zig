@@ -2365,7 +2365,7 @@ fn renameTmpIntoCache(
             // See https://github.com/ziglang/zig/issues/8362
             error.AccessDenied => switch (builtin.os.tag) {
                 .windows => {
-                    if (!seen_eaccess) return error.AccessDenied;
+                    if (seen_eaccess) return error.AccessDenied;
                     seen_eaccess = true;
                     try cache_directory.handle.deleteTree(o_sub_path);
                     continue;
