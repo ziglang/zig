@@ -3290,7 +3290,6 @@ const DeclGen = struct {
         const operand_id = try self.resolve(ty_op.operand);
         const src_ty = self.typeOf(ty_op.operand);
         const dst_ty = self.typeOfIndex(inst);
-        const dst_ty_ref = try self.resolveType(dst_ty, .direct);
 
         const src_info = self.arithmeticTypeInfo(src_ty);
         const dst_info = self.arithmeticTypeInfo(dst_ty);
@@ -3299,29 +3298,35 @@ const DeclGen = struct {
             return operand_id;
         }
 
-        const result_id = self.spv.allocId();
-        switch (dst_info.signedness) {
-            .signed => try self.func.body.emit(self.spv.gpa, .OpSConvert, .{
-                .id_result_type = self.typeId(dst_ty_ref),
-                .id_result = result_id,
-                .signed_value = operand_id,
-            }),
-            .unsigned => try self.func.body.emit(self.spv.gpa, .OpUConvert, .{
-                .id_result_type = self.typeId(dst_ty_ref),
-                .id_result = result_id,
-                .unsigned_value = operand_id,
-            }),
-        }
+        var wip = try self.elementWise(dst_ty);
+        defer wip.deinit();
+        for (wip.results, 0..) |*result_id, i| {
+            const elem_id = try wip.elementAt(src_ty, operand_id, i);
+            const value_id = self.spv.allocId();
+            switch (dst_info.signedness) {
+                .signed => try self.func.body.emit(self.spv.gpa, .OpSConvert, .{
+                    .id_result_type = wip.scalar_ty_id,
+                    .id_result = value_id,
+                    .signed_value = elem_id,
+                }),
+                .unsigned => try self.func.body.emit(self.spv.gpa, .OpUConvert, .{
+                    .id_result_type = wip.scalar_ty_id,
+                    .id_result = value_id,
+                    .unsigned_value = elem_id,
+                }),
+            }
 
-        // Make sure to normalize the result if shrinking.
-        // Because strange ints are sign extended in their backing
-        // type, we don't need to normalize when growing the type. The
-        // representation is already the same.
-        if (dst_info.bits < src_info.bits) {
-            return try self.normalize(dst_ty_ref, result_id, dst_info);
+            // Make sure to normalize the result if shrinking.
+            // Because strange ints are sign extended in their backing
+            // type, we don't need to normalize when growing the type. The
+            // representation is already the same.
+            if (dst_info.bits < src_info.bits) {
+                result_id.* = try self.normalize(wip.scalar_ty_ref, value_id, dst_info);
+            } else {
+                result_id.* = value_id;
+            }
         }
-
-        return result_id;
+        return try wip.finalize();
     }
 
     fn intFromPtr(self: *DeclGen, operand_id: IdRef) !IdRef {
