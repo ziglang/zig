@@ -19,7 +19,7 @@ link_libc: bool,
 use_clang: bool,
 
 pub const Options = struct {
-    source_file: std.Build.LazyPath,
+    root_source_file: std.Build.LazyPath,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     link_libc: bool = true,
@@ -28,7 +28,7 @@ pub const Options = struct {
 
 pub fn create(owner: *std.Build, options: Options) *TranslateC {
     const self = owner.allocator.create(TranslateC) catch @panic("OOM");
-    const source = options.source_file.dupe(owner);
+    const source = options.root_source_file.dupe(owner);
     self.* = TranslateC{
         .step = Step.init(.{
             .id = .translate_c,
@@ -79,7 +79,7 @@ pub fn addExecutable(self: *TranslateC, options: AddExecutableOptions) *Step.Com
 /// `createModule` can be used instead to create a private module.
 pub fn addModule(self: *TranslateC, name: []const u8) *std.Build.Module {
     return self.step.owner.addModule(name, .{
-        .source_file = self.getOutput(),
+        .root_source_file = self.getOutput(),
     });
 }
 
@@ -92,7 +92,7 @@ pub fn createModule(self: *TranslateC) *std.Build.Module {
 
     module.* = .{
         .builder = b,
-        .source_file = self.getOutput(),
+        .root_source_file = self.getOutput(),
         .dependencies = std.StringArrayHashMap(*std.Build.Module).init(b.allocator),
     };
     return module;

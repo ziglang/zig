@@ -702,7 +702,7 @@ pub fn lowerToBuildSteps(
             const file_source = write_src.add("tmp.c", case.input);
 
             const translate_c = b.addTranslateC(.{
-                .source_file = file_source,
+                .root_source_file = file_source,
                 .optimize = .Debug,
                 .target = case.target,
                 .link_libc = case.link_libc,
@@ -729,7 +729,7 @@ pub fn lowerToBuildSteps(
             const file_source = write_src.add("tmp.c", case.input);
 
             const translate_c = b.addTranslateC(.{
-                .source_file = file_source,
+                .root_source_file = file_source,
                 .optimize = .Debug,
                 .target = case.target,
                 .link_libc = case.link_libc,
