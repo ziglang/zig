@@ -537,7 +537,7 @@ fn replace_variables(
             switch (value) {
                 .boolean => |b| {
                     const buf = try std.fmt.allocPrint(allocator, "{s}{}{s}", .{ beginline, @intFromBool(b), endline });
-                    last_index = start_index + 1;
+                    last_index = prefix_index + 1;
 
                     allocator.free(content_buf);
                     content_buf = buf;
@@ -546,14 +546,14 @@ fn replace_variables(
                     const buf = try std.fmt.allocPrint(allocator, "{s}{}{s}", .{ beginline, i, endline });
                     const isNegative = i < 0;
                     const digits = (if (0 < i) std.math.log10(@abs(i)) else 0) + 1;
-                    last_index = start_index + @intFromBool(isNegative) + digits + 1;
+                    last_index = prefix_index + @intFromBool(isNegative) + digits;
 
                     allocator.free(content_buf);
                     content_buf = buf;
                 },
                 .string, .ident => |x| {
                     const buf = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ beginline, x, endline });
-                    last_index = start_index + x.len + 1;
+                    last_index = prefix_index + x.len;
 
                     allocator.free(content_buf);
                     content_buf = buf;
@@ -561,7 +561,7 @@ fn replace_variables(
 
                 else => {
                     const buf = try std.fmt.allocPrint(allocator, "{s}{s}", .{ beginline, endline });
-                    last_index = start_index + 1;
+                    last_index = prefix_index;
 
                     allocator.free(content_buf);
                     content_buf = buf;
