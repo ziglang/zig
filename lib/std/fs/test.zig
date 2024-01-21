@@ -852,9 +852,6 @@ test "Dir.rename directories" {
 }
 
 test "Dir.rename directory onto empty dir" {
-    // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const test_dir_path = try ctx.transformPath("test_dir");
@@ -873,9 +870,6 @@ test "Dir.rename directory onto empty dir" {
 }
 
 test "Dir.rename directory onto non-empty dir" {
-    // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const test_dir_path = try ctx.transformPath("test_dir");
@@ -899,9 +893,6 @@ test "Dir.rename directory onto non-empty dir" {
 }
 
 test "Dir.rename file <-> dir" {
-    // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const test_file_path = try ctx.transformPath("test_file");

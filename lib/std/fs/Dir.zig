@@ -1626,7 +1626,10 @@ pub const RenameError = posix.RenameError;
 /// Change the name or location of a file or directory.
 /// If new_sub_path already exists, it will be replaced.
 /// Renaming a file over an existing directory or a directory
-/// over an existing file will fail with `error.IsDir` or `error.NotDir`
+/// over an existing file will fail with `error.IsDir` or `error.NotDir`.
+/// Renaming a directory over an existing directory will succeed if
+/// new_sub_path is an empty directory, or fail with `error.PathAlreadyExists`
+/// if new_sub_path not an empty directory.
 pub fn rename(self: Dir, old_sub_path: []const u8, new_sub_path: []const u8) RenameError!void {
     return posix.renameat(self.fd, old_sub_path, self.fd, new_sub_path);
 }

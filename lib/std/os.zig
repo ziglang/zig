@@ -2795,7 +2795,7 @@ pub fn renameatW(
 ) RenameError!void {
     const src_fd = windows.OpenFile(old_path_w, .{
         .dir = old_dir_fd,
-        .access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE,
+        .access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE | windows.GENERIC_READ,
         .creation = windows.FILE_OPEN,
         .io_mode = .blocking,
         .filter = .any, // This function is supposed to rename both files and directories.
@@ -2852,6 +2852,69 @@ pub fn renameatW(
     }
 
     if (need_fallback) {
+        // FileRenameInformation has surprising behavior around renaming a directory to the
+        // path of a file: it succeeds and replaces the file with the directory.
+        //
+        // To avoid this behavior and instead return error.NotDir, we (unfortunately) have
+        // to query the type of both the source and destination. However, doing so also
+        // allows us to return error.IsDir/error.PathAlreadyExists in cases where NtSetInformationFile
+        // with FileRenameInformation would have only returned a generic ACCESS_DENIED.
+        const src_kind = src_kind: {
+            const src_file = fs.File{ .handle = src_fd, .capable_io_mode = .blocking, .intended_io_mode = .blocking };
+            break :src_kind (try src_file.stat()).kind;
+        };
+
+        const maybe_dest_kind: ?fs.File.Kind = dest_kind: {
+            const dest_fd = windows.OpenFile(new_path_w, .{
+                .dir = new_dir_fd,
+                .access_mask = windows.SYNCHRONIZE | windows.GENERIC_READ | windows.DELETE,
+                .creation = windows.FILE_OPEN,
+                .io_mode = .blocking,
+                .filter = .any, // This function is supposed to rename both files and directories.
+                .follow_symlinks = false,
+            }) catch |err| switch (err) {
+                error.FileNotFound => break :dest_kind null,
+                error.WouldBlock => unreachable, // Not possible without `.share_access_nonblocking = true`.
+                else => |e| return e,
+            };
+            defer windows.CloseHandle(dest_fd);
+
+            const dest_file = fs.File{ .handle = dest_fd, .capable_io_mode = .blocking, .intended_io_mode = .blocking };
+            const dest_kind = (try dest_file.stat()).kind;
+
+            // To match POSIX behavior, we want to be able to rename directories onto empty directories,
+            // so if the src and dest are both directories, we try deleting the dest (which will
+            // fail if the dest dir is non-empty). Hwoever, any error when attempting to delete
+            // can be treated the same, since any failure to delete here will lead to the rename
+            // failing anyway.
+            if (src_kind == .directory and dest_kind == .directory) {
+                var file_dispo = windows.FILE_DISPOSITION_INFORMATION{
+                    .DeleteFile = windows.TRUE,
+                };
+
+                var io: windows.IO_STATUS_BLOCK = undefined;
+                rc = windows.ntdll.NtSetInformationFile(
+                    dest_fd,
+                    &io,
+                    &file_dispo,
+                    @sizeOf(windows.FILE_DISPOSITION_INFORMATION),
+                    .FileDispositionInformation,
+                );
+
+                switch (rc) {
+                    .SUCCESS => break :dest_kind null,
+                    else => return error.PathAlreadyExists,
+                }
+            }
+
+            break :dest_kind dest_kind;
+        };
+
+        if (maybe_dest_kind) |dest_kind| {
+            if (src_kind == .file and dest_kind == .directory) return error.IsDir;
+            if (src_kind == .directory and dest_kind == .file) return error.NotDir;
+        }
+
         const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION) + (MAX_PATH_BYTES - 1);
         var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION)) = undefined;
         const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION) - 1 + new_path_w.len * 2;
