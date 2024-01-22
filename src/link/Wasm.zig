@@ -585,7 +585,6 @@ pub fn file(wasm: *const Wasm, index: File.Index) ?File {
     if (index == .null) return null;
     const tag = wasm.files.items(.tags)[@intFromEnum(index)];
     return switch (tag) {
-        .null => null,
         .zig_object => .{ .zig_object = &wasm.files.items(.data)[@intFromEnum(index)].zig_object },
         .object => .{ .object = &wasm.files.items(.data)[@intFromEnum(index)].object },
     };

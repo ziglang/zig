@@ -114,7 +114,6 @@ pub const File = union(enum) {
     }
 
     pub const Entry = union(enum) {
-        null: void,
         zig_object: ZigObject,
         object: Object,
     };

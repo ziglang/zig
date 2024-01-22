@@ -29,6 +29,8 @@ global_syms: std.AutoHashMapUnmanaged(u32, u32) = .{},
 symbols_free_list: std.ArrayListUnmanaged(u32) = .{},
 /// Extra metadata about the linking section, such as alignment of segments and their name.
 segment_info: std.ArrayListUnmanaged(types.Segment) = .{},
+/// List of indexes which contain a free slot in the `segment_info` list.
+segment_free_list: std.ArrayListUnmanaged(u32) = .{},
 /// File encapsulated string table, used to deduplicate strings within the generated file.
 string_table: StringTable = .{},
 /// Map for storing anonymous declarations. Each anonymous decl maps to its Atom's index.
@@ -145,6 +147,7 @@ pub fn deinit(zig_object: *ZigObject, wasm_file: *Wasm) void {
     zig_object.symbols.deinit(gpa);
     zig_object.symbols_free_list.deinit(gpa);
     zig_object.segment_info.deinit(gpa);
+    zig_object.segment_free_list.deinit(gpa);
 
     zig_object.string_table.deinit(gpa);
     if (zig_object.dwarf) |*dwarf| {
@@ -223,7 +226,7 @@ pub fn updateDecl(
         },
     };
 
-    return zig_object.finishUpdateDecl(wasm_file, decl_index, code, .data);
+    return zig_object.finishUpdateDecl(wasm_file, decl_index, code);
 }
 
 pub fn updateFunc(
@@ -263,7 +266,7 @@ pub fn updateFunc(
         },
     };
 
-    return zig_object.finishUpdateDecl(wasm_file, decl_index, code, .function);
+    return zig_object.finishUpdateDecl(wasm_file, decl_index, code);
 }
 
 fn finishUpdateDecl(
@@ -271,23 +274,87 @@ fn finishUpdateDecl(
     wasm_file: *Wasm,
     decl_index: InternPool.DeclIndex,
     code: []const u8,
-    symbol_tag: Symbol.Tag,
 ) !void {
     const gpa = wasm_file.base.comp.gpa;
     const mod = wasm_file.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const atom_index = zig_object.decls.get(decl_index).?;
     const atom = wasm_file.getAtomPtr(atom_index);
-    const sym = zig_object.symbol(atom.getSymbolIndex().?);
+    const sym = zig_object.symbol(atom.sym_index);
     const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
     sym.name = try zig_object.string_table.insert(gpa, full_name);
-    sym.tag = symbol_tag;
     try atom.code.appendSlice(gpa, code);
-    try wasm_file.resolved_symbols.put(gpa, atom.symbolLoc(), {});
-
     atom.size = @intCast(code.len);
+
+    switch (decl.ty.zigTypeTag(mod)) {
+        .Fn => {
+            try zig_object.functions.put(
+                gpa,
+                atom.sym_index,
+                .{ .type_index = zig_object.atom_types.get(atom_index).? },
+            );
+            sym.tag = .function;
+        },
+        else => {
+            const segment_name: []const u8 = if (decl.getOwnedVariable(mod)) |variable| name: {
+                if (variable.is_const) {
+                    break :name ".rodata.";
+                } else if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
+                    const decl_namespace = mod.namespacePtr(decl.src_namespace);
+                    const optimize_mode = decl_namespace.file_scope.mod.optimize_mode;
+                    const is_initialized = switch (optimize_mode) {
+                        .Debug, .ReleaseSafe => true,
+                        .ReleaseFast, .ReleaseSmall => false,
+                    };
+                    if (is_initialized) {
+                        break :name ".data.";
+                    }
+                    break :name ".bss.";
+                }
+                // when the decl is all zeroes, we store the atom in the bss segment,
+                // in all other cases it will be in the data segment.
+                for (atom.code.items) |byte| {
+                    if (byte != 0) break :name ".data.";
+                }
+                break :name ".bss.";
+            } else ".rodata.";
+            if ((wasm_file.base.isObject() or wasm_file.base.comp.config.import_memory) and
+                std.mem.startsWith(u8, segment_name, ".bss"))
+            {
+                @memset(atom.code.items, 0);
+            }
+            // Will be freed upon freeing of decl or after cleanup of Wasm binary.
+            const full_segment_name = try std.mem.concat(gpa, u8, &.{
+                segment_name,
+                full_name,
+            });
+            errdefer gpa.free(full_segment_name);
+            sym.tag = .data;
+            sym.index = try zig_object.createDataSegment(gpa, full_segment_name, decl.alignment);
+        },
+    }
     if (code.len == 0) return;
     atom.alignment = decl.getAlignment(mod);
+}
+
+fn createDataSegment(
+    zig_object: *ZigObject,
+    gpa: std.mem.Allocator,
+    name: []const u8,
+    alignment: InternPool.Alignment,
+) !u32 {
+    const segment_index: u32 = if (zig_object.segment_free_list.popOrNull()) |index|
+        index
+    else index: {
+        const idx: u32 = @intCast(zig_object.segment_info.items.len);
+        _ = try zig_object.segment_info.addOne(gpa);
+        break :index idx;
+    };
+    zig_object.segment_info.items[segment_index] = .{
+        .alignment = alignment,
+        .flags = 0,
+        .name = name,
+    };
 }
 
 /// For a given `InternPool.DeclIndex` returns its corresponding `Atom.Index`.
@@ -840,20 +907,24 @@ pub fn freeDecl(zig_object: *ZigObject, wasm_file: *Wasm, decl_index: InternPool
     const atom_index = zig_object.decls.get(decl_index).?;
     const atom = wasm_file.getAtomPtr(atom_index);
     zig_object.symbols_free_list.append(gpa, atom.sym_index) catch {};
-    _ = zig_object.decls.remove(decl_index);
-    zig_object.symbols.items[atom.sym_index].tag = .dead;
+    std.debug.assert(zig_object.decls.remove(decl_index));
+    const sym = &zig_object.symbols.items[atom.sym_index];
     for (atom.locals.items) |local_atom_index| {
         const local_atom = wasm_file.getAtom(local_atom_index);
         const local_symbol = &zig_object.symbols.items[local_atom.sym_index];
-        local_symbol.tag = .dead; // also for any local symbol
+        std.debug.assert(local_symbol.tag == .data);
         zig_object.symbols_free_list.append(gpa, local_atom.sym_index) catch {};
-        std.denug.assert(wasm_file.symbol_atom.remove(local_atom.symbolLoc()));
+        std.debug.assert(wasm_file.symbol_atom.remove(local_atom.symbolLoc()));
+        local_symbol.tag = .dead; // also for any local symbol
+        const segment = &zig_object.segment_info.items[local_atom.sym_index];
+        gpa.free(segment.name);
+        segment.name = &.{}; // Ensure no accidental double free
     }
 
     if (decl.isExtern(mod)) {
-        _ = zig_object.imports.remove(atom.getSymbolIndex().?);
+        std.debug.assert(zig_object.imports.remove(atom.sym_index));
     }
-    _ = wasm_file.symbol_atom.remove(atom.symbolLoc());
+    std.debug.assert(wasm_file.symbol_atom.remove(atom.symbolLoc()));
 
     // if (wasm.dwarf) |*dwarf| {
     //     dwarf.freeDecl(decl_index);
@@ -868,6 +939,20 @@ pub fn freeDecl(zig_object: *ZigObject, wasm_file: *Wasm, decl_index: InternPool
         const prev_atom = wasm_file.getAtomPtr(prev_index);
         prev_atom.next = atom.next;
         atom.prev = null;
+    }
+
+    sym.tag = .dead;
+    switch (decl.ty.zigTypeTag(mod)) {
+        .Fn => {
+            std.debug.assert(zig_object.functions.remove(atom.sym_index));
+            std.debug.assert(zig_object.atom_types.remove(atom_index));
+        },
+        else => {
+            zig_object.segment_free_list.append(gpa, sym.index) catch {};
+            const segment = &zig_object.segment_info.items[sym.index];
+            gpa.free(segment.name);
+            segment.name = &.{}; // Prevent accidental double free
+        },
     }
 }
 
