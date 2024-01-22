@@ -200,23 +200,8 @@
         visibility: visible;
       }
 
-      pre {
-        counter-reset: line;
-      }
-      pre .line:before {
-        counter-increment: line;
-        content: counter(line);
-        display: inline-block;
-        padding-right: 1em;
-        width: 2em;
-        text-align: right;
-        color: #999;
-      }
       th pre code {
           background: none;
-      }
-      th .line:before {
-          display: none;
       }
 
       @media (prefers-color-scheme: dark) {
