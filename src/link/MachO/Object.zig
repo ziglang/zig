@@ -156,10 +156,12 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
     try self.initSymbolStabs(nlists.items, macho_file);
     try self.initRelocs(macho_file);
 
+    // Parse DWARF __TEXT,__eh_frame section
     if (self.eh_frame_sect_index) |index| {
         try self.initEhFrameRecords(index, macho_file);
     }
 
+    // Parse Apple's __LD,__compact_unwind section
     if (self.compact_unwind_sect_index) |index| {
         try self.initUnwindRecords(index, macho_file);
     }
@@ -841,7 +843,7 @@ fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
         if (nlist.stab()) continue;
         if (!nlist.sect()) continue;
         const sect = self.sections.items(.header)[nlist.n_sect - 1];
-        if (sect.isCode()) {
+        if (sect.isCode() and sect.size > 0) {
             try superposition.ensureUnusedCapacity(1);
             const gop = superposition.getOrPutAssumeCapacity(nlist.n_value);
             if (gop.found_existing) {
