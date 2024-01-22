@@ -674,7 +674,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         // The most important here is to have the correct vm and filesize of the __LINKEDIT segment
         // where the code signature goes into.
         var codesig = CodeSignature.init(self.getPageSize());
-        codesig.code_directory.ident = self.base.emit.sub_path;
+        codesig.code_directory.ident = fs.path.basename(full_out_path);
         if (self.entitlements) |path| try codesig.addEntitlements(gpa, path);
         try self.writeCodeSignaturePadding(&codesig);
         break :blk codesig;
