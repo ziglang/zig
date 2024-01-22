@@ -1106,6 +1106,7 @@ test "expect addOne adds one to 41" {
 
 test addOne {
     // A test name can also be written using an identifier.
+    // This is a doctest, and serves as documentation for `addOne`.
     try std.testing.expect(addOne(41) == 42);
 }
 
@@ -1170,6 +1171,19 @@ fn addOne(number: i32) i32 {
         be written before or after the code under test.
       </p>
       {#see_also|The Global Error Set|Grammar#}
+      {#header_open|Doctests#}
+      <p>
+        Test declarations named using an identifier are <em>doctests</em>. The identifier must refer to another declaration in
+        scope. A doctest, like a {#link|doc comment|Doc Comments#}, serves as documentation for the associated declaration, and
+        will appear in the generated documentation for the declaration.
+      </p>
+      <p>
+        An effective doctest should be self-contained and focused on the declaration being tested, answering questions a new
+        user might have about its interface or intended usage, while avoiding unnecessary or confusing details. A doctest is not
+        a substitute for a doc comment, but rather a supplement and companion providing a testable, code-driven example, verified
+        by <kbd>zig test</kbd>.
+      </p>
+      {#header_close#}
       {#header_close#}
       {#header_open|Test Failure#}
       <p>
