@@ -12,6 +12,20 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
 
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
+    if (positionals.items.len == 1) {
+        // Instead of invoking a full-blown `-r` mode on the input which sadly will strip all
+        // debug info segments/sections (this is apparently by design by Apple), we copy
+        // the *only* input file over.
+        // TODO: in the future, when we implement `dsymutil` alternative directly in the Zig
+        // compiler, investigate if we can get rid of this `if` prong here.
+        const path = positionals.items[0].path;
+        const in_file = try std.fs.cwd().openFile(path, .{});
+        const stat = try in_file.stat();
+        const amt = try in_file.copyRangeAll(0, macho_file.base.file.?, 0, stat.size);
+        if (amt != stat.size) return error.InputOutput; // TODO: report an actual user error
+        return;
+    }
+
     for (positionals.items) |obj| {
         macho_file.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
             error.MalformedObject,
