@@ -1,6 +1,6 @@
 pub fn isFatLibrary(file: std.fs.File) bool {
     const reader = file.reader();
-    const hdr = reader.readStructBig(macho.fat_header) catch return false;
+    const hdr = reader.readStructEndian(macho.fat_header, .big) catch return false;
     defer file.seekTo(0) catch {};
     return hdr.magic == macho.FAT_MAGIC;
 }
@@ -13,7 +13,7 @@ pub const Arch = struct {
 /// Caller owns the memory.
 pub fn parseArchs(gpa: Allocator, file: std.fs.File) ![]const Arch {
     const reader = file.reader();
-    const fat_header = try reader.readStructBig(macho.fat_header);
+    const fat_header = try reader.readStructEndian(macho.fat_header, .big);
     assert(fat_header.magic == macho.FAT_MAGIC);
 
     var archs = try std.ArrayList(Arch).initCapacity(gpa, fat_header.nfat_arch);
@@ -21,7 +21,7 @@ pub fn parseArchs(gpa: Allocator, file: std.fs.File) ![]const Arch {
 
     var fat_arch_index: u32 = 0;
     while (fat_arch_index < fat_header.nfat_arch) : (fat_arch_index += 1) {
-        const fat_arch = try reader.readStructBig(macho.fat_arch);
+        const fat_arch = try reader.readStructEndian(macho.fat_arch, .big);
         // If we come across an architecture that we do not know how to handle, that's
         // fine because we can keep looking for one that might match.
         const arch: std.Target.Cpu.Arch = switch (fat_arch.cputype) {

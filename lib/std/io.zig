@@ -300,8 +300,8 @@ pub fn GenericReader(
             return @errorCast(self.any().readStruct(T));
         }
 
-        pub inline fn readStructBig(self: Self, comptime T: type) NoEofError!T {
-            return @errorCast(self.any().readStructBig(T));
+        pub inline fn readStructEndian(self: Self, comptime T: type, endian: std.builtin.Endian) NoEofError!T {
+            return @errorCast(self.any().readStructEndian(T, endian));
         }
 
         pub const ReadEnumError = NoEofError || error{
