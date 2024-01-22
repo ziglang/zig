@@ -1862,14 +1862,14 @@ fn initSyntheticSections(self: *MachO) !void {
     }
 
     const needs_unwind_info = for (self.objects.items) |index| {
-        if (self.getFile(index).?.object.compact_unwind_sect_index != null) break true;
+        if (self.getFile(index).?.object.hasUnwindRecords()) break true;
     } else false;
     if (needs_unwind_info) {
         self.unwind_info_sect_index = try self.addSection("__TEXT", "__unwind_info", .{});
     }
 
     const needs_eh_frame = for (self.objects.items) |index| {
-        if (self.getFile(index).?.object.eh_frame_sect_index != null) break true;
+        if (self.getFile(index).?.object.hasEhFrameRecords()) break true;
     } else false;
     if (needs_eh_frame) {
         assert(needs_unwind_info);

@@ -164,6 +164,10 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
         try self.initUnwindRecords(index, macho_file);
     }
 
+    if (self.hasUnwindRecords() or self.hasEhFrameRecords()) {
+        try self.parseUnwindRecords(macho_file);
+    }
+
     self.initPlatform();
 
     if (self.platform) |platform| {
@@ -816,36 +820,9 @@ fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
             }
         }
     }
-
-    if (!macho_file.base.isObject()) try self.synthesiseNullUnwindRecords(macho_file);
-
-    const sortFn = struct {
-        fn sortFn(ctx: *MachO, lhs_index: UnwindInfo.Record.Index, rhs_index: UnwindInfo.Record.Index) bool {
-            const lhs = ctx.getUnwindRecord(lhs_index);
-            const rhs = ctx.getUnwindRecord(rhs_index);
-            const lhsa = lhs.getAtom(ctx);
-            const rhsa = rhs.getAtom(ctx);
-            return lhsa.getInputAddress(ctx) + lhs.atom_offset < rhsa.getInputAddress(ctx) + rhs.atom_offset;
-        }
-    }.sortFn;
-    mem.sort(UnwindInfo.Record.Index, self.unwind_records.items, macho_file, sortFn);
-
-    // Associate unwind records to atoms
-    var next_cu: u32 = 0;
-    while (next_cu < self.unwind_records.items.len) {
-        const start = next_cu;
-        const rec_index = self.unwind_records.items[start];
-        const rec = macho_file.getUnwindRecord(rec_index);
-        while (next_cu < self.unwind_records.items.len and
-            macho_file.getUnwindRecord(self.unwind_records.items[next_cu]).atom == rec.atom) : (next_cu += 1)
-        {}
-
-        const atom = rec.getAtom(macho_file);
-        atom.unwind_records = .{ .pos = start, .len = next_cu - start };
-    }
 }
 
-fn synthesiseNullUnwindRecords(self: *Object, macho_file: *MachO) !void {
+fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
     // Synthesise missing unwind records.
     // The logic here is as follows:
     // 1. if an atom has unwind info record that is not DWARF, FDE is marked dead
@@ -902,12 +879,10 @@ fn synthesiseNullUnwindRecords(self: *Object, macho_file: *MachO) !void {
                 }
             } else {
                 // Synthesise new unwind info record
-                const fde_data = fde.getData(macho_file);
-                const atom_size = mem.readInt(u64, fde_data[16..][0..8], .little);
                 const rec_index = try macho_file.addUnwindRecord();
                 const rec = macho_file.getUnwindRecord(rec_index);
                 try self.unwind_records.append(gpa, rec_index);
-                rec.length = @intCast(atom_size);
+                rec.length = @intCast(meta.size);
                 rec.atom = fde.atom;
                 rec.atom_offset = fde.atom_offset;
                 rec.fde = fde_index;
@@ -929,6 +904,31 @@ fn synthesiseNullUnwindRecords(self: *Object, macho_file: *MachO) !void {
             rec.atom_offset = @intCast(addr - atom.getInputAddress(macho_file));
             rec.file = self.index;
         }
+    }
+
+    const sortFn = struct {
+        fn sortFn(ctx: *MachO, lhs_index: UnwindInfo.Record.Index, rhs_index: UnwindInfo.Record.Index) bool {
+            const lhs = ctx.getUnwindRecord(lhs_index);
+            const rhs = ctx.getUnwindRecord(rhs_index);
+            const lhsa = lhs.getAtom(ctx);
+            const rhsa = rhs.getAtom(ctx);
+            return lhsa.getInputAddress(ctx) + lhs.atom_offset < rhsa.getInputAddress(ctx) + rhs.atom_offset;
+        }
+    }.sortFn;
+    mem.sort(UnwindInfo.Record.Index, self.unwind_records.items, macho_file, sortFn);
+
+    // Associate unwind records to atoms
+    var next_cu: u32 = 0;
+    while (next_cu < self.unwind_records.items.len) {
+        const start = next_cu;
+        const rec_index = self.unwind_records.items[start];
+        const rec = macho_file.getUnwindRecord(rec_index);
+        while (next_cu < self.unwind_records.items.len and
+            macho_file.getUnwindRecord(self.unwind_records.items[next_cu]).atom == rec.atom) : (next_cu += 1)
+        {}
+
+        const atom = rec.getAtom(macho_file);
+        atom.unwind_records = .{ .pos = start, .len = next_cu - start };
     }
 }
 
@@ -1564,6 +1564,14 @@ pub fn getAtomRelocs(self: *const Object, atom: Atom) []const Relocation {
 fn getString(self: Object, off: u32) [:0]const u8 {
     assert(off < self.strtab.len);
     return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.ptr + off)), 0);
+}
+
+pub fn hasUnwindRecords(self: Object) bool {
+    return self.unwind_records.items.len > 0;
+}
+
+pub fn hasEhFrameRecords(self: Object) bool {
+    return self.cies.items.len > 0;
 }
 
 /// TODO handle multiple CUs
