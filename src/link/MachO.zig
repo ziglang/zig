@@ -588,6 +588,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     try self.initSegments();
 
     try self.allocateSections();
+    self.allocateSegments();
     self.allocateAtoms();
     self.allocateSyntheticSymbols();
     try self.allocateLinkeditSegment();
@@ -1927,43 +1928,60 @@ fn getSegmentProt(segname: []const u8) macho.vm_prot_t {
 
 fn getSegmentRank(segname: []const u8) u8 {
     if (mem.eql(u8, segname, "__PAGEZERO")) return 0x0;
-    if (mem.eql(u8, segname, "__TEXT")) return 0x1;
-    if (mem.eql(u8, segname, "__DATA_CONST")) return 0x2;
-    if (mem.eql(u8, segname, "__DATA")) return 0x3;
-    if (mem.indexOf(u8, segname, "ZIG")) |_| return 0xe;
     if (mem.eql(u8, segname, "__LINKEDIT")) return 0xf;
+    if (mem.indexOf(u8, segname, "ZIG")) |_| return 0xe;
+    if (mem.startsWith(u8, segname, "__TEXT")) return 0x1;
+    if (mem.startsWith(u8, segname, "__DATA_CONST")) return 0x2;
+    if (mem.startsWith(u8, segname, "__DATA")) return 0x3;
     return 0x4;
 }
 
-fn getSectionRank(self: *MachO, sect_index: u8) u8 {
-    const header = self.sections.items(.header)[sect_index];
-    const segment_rank = getSegmentRank(header.segName());
-    const section_rank: u4 = blk: {
-        if (header.isCode()) {
-            if (mem.eql(u8, "__text", header.sectName())) break :blk 0x0;
-            if (header.type() == macho.S_SYMBOL_STUBS) break :blk 0x1;
-            break :blk 0x2;
-        }
-        switch (header.type()) {
-            macho.S_NON_LAZY_SYMBOL_POINTERS,
-            macho.S_LAZY_SYMBOL_POINTERS,
-            => break :blk 0x0,
+fn segmentLessThan(ctx: void, lhs: []const u8, rhs: []const u8) bool {
+    _ = ctx;
+    const lhs_rank = getSegmentRank(lhs);
+    const rhs_rank = getSegmentRank(rhs);
+    if (lhs_rank == rhs_rank) {
+        return mem.order(u8, lhs, rhs) == .lt;
+    }
+    return lhs_rank < rhs_rank;
+}
 
-            macho.S_MOD_INIT_FUNC_POINTERS => break :blk 0x1,
-            macho.S_MOD_TERM_FUNC_POINTERS => break :blk 0x2,
-            macho.S_ZEROFILL => break :blk 0xf,
-            macho.S_THREAD_LOCAL_REGULAR => break :blk 0xd,
-            macho.S_THREAD_LOCAL_ZEROFILL => break :blk 0xe,
+fn getSectionRank(section: macho.section_64) u8 {
+    if (section.isCode()) {
+        if (mem.eql(u8, "__text", section.sectName())) return 0x0;
+        if (section.type() == macho.S_SYMBOL_STUBS) return 0x1;
+        return 0x2;
+    }
+    switch (section.type()) {
+        macho.S_NON_LAZY_SYMBOL_POINTERS,
+        macho.S_LAZY_SYMBOL_POINTERS,
+        => return 0x0,
 
-            else => {
-                if (mem.eql(u8, "__unwind_info", header.sectName())) break :blk 0xe;
-                if (mem.eql(u8, "__compact_unwind", header.sectName())) break :blk 0xe;
-                if (mem.eql(u8, "__eh_frame", header.sectName())) break :blk 0xf;
-                break :blk 0x3;
-            },
+        macho.S_MOD_INIT_FUNC_POINTERS => return 0x1,
+        macho.S_MOD_TERM_FUNC_POINTERS => return 0x2,
+        macho.S_ZEROFILL => return 0xf,
+        macho.S_THREAD_LOCAL_REGULAR => return 0xd,
+        macho.S_THREAD_LOCAL_ZEROFILL => return 0xe,
+
+        else => {
+            if (mem.eql(u8, "__unwind_info", section.sectName())) return 0xe;
+            if (mem.eql(u8, "__compact_unwind", section.sectName())) return 0xe;
+            if (mem.eql(u8, "__eh_frame", section.sectName())) return 0xf;
+            return 0x3;
+        },
+    }
+}
+
+fn sectionLessThan(ctx: void, lhs: macho.section_64, rhs: macho.section_64) bool {
+    if (mem.eql(u8, lhs.segName(), rhs.segName())) {
+        const lhs_rank = getSectionRank(lhs);
+        const rhs_rank = getSectionRank(rhs);
+        if (lhs_rank == rhs_rank) {
+            return mem.order(u8, lhs.sectName(), rhs.sectName()) == .lt;
         }
-    };
-    return (@as(u8, @intCast(segment_rank)) << 4) + section_rank;
+        return lhs_rank < rhs_rank;
+    }
+    return segmentLessThan(ctx, lhs.segName(), rhs.segName());
 }
 
 pub fn sortSections(self: *MachO) !void {
@@ -1971,7 +1989,11 @@ pub fn sortSections(self: *MachO) !void {
         index: u8,
 
         pub fn lessThan(macho_file: *MachO, lhs: @This(), rhs: @This()) bool {
-            return macho_file.getSectionRank(lhs.index) < macho_file.getSectionRank(rhs.index);
+            return sectionLessThan(
+                {},
+                macho_file.sections.items(.header)[lhs.index],
+                macho_file.sections.items(.header)[rhs.index],
+            );
         }
     };
 
@@ -2235,8 +2257,7 @@ fn initSegments(self: *MachO) !void {
     // Sort segments
     const sortFn = struct {
         fn sortFn(ctx: void, lhs: macho.segment_command_64, rhs: macho.segment_command_64) bool {
-            _ = ctx;
-            return getSegmentRank(lhs.segName()) < getSegmentRank(rhs.segName());
+            return segmentLessThan(ctx, lhs.segName(), rhs.segName());
         }
     }.sortFn;
     mem.sort(macho.segment_command_64, self.segments.items, {}, sortFn);
@@ -2277,16 +2298,9 @@ fn allocateSections(self: *MachO) !void {
         self.segments.items[index].vmaddr + self.segments.items[index].vmsize
     else
         0;
-
-    var prev_seg_id: u8 = if (self.pagezero_seg_index) |index| index + 1 else 0;
-    {
-        const seg = &self.segments.items[prev_seg_id];
-        seg.vmaddr = vmaddr;
-        seg.fileoff = 0;
-    }
-
     vmaddr += headerpad;
     var fileoff = headerpad;
+    var prev_seg_id: u8 = if (self.pagezero_seg_index) |index| index + 1 else 0;
 
     const page_size = self.getPageSize();
     const slice = self.sections.slice();
@@ -2296,14 +2310,8 @@ fn allocateSections(self: *MachO) !void {
 
     for (slice.items(.header)[0..last_index], slice.items(.segment_id)[0..last_index]) |*header, curr_seg_id| {
         if (prev_seg_id != curr_seg_id) {
-            const prev_seg = &self.segments.items[prev_seg_id];
-            const curr_seg = &self.segments.items[curr_seg_id];
-            prev_seg.vmsize = vmaddr - prev_seg.vmaddr;
-            prev_seg.filesize = fileoff - prev_seg.fileoff;
             vmaddr = mem.alignForward(u64, vmaddr, page_size);
             fileoff = mem.alignForward(u32, fileoff, page_size);
-            curr_seg.vmaddr = vmaddr;
-            curr_seg.fileoff = fileoff;
         }
 
         const alignment = try math.powi(u32, 2, header.@"align");
@@ -2321,14 +2329,6 @@ fn allocateSections(self: *MachO) !void {
         prev_seg_id = curr_seg_id;
     }
 
-    {
-        const prev_seg = &self.segments.items[prev_seg_id];
-        prev_seg.vmsize = vmaddr - prev_seg.vmaddr;
-        prev_seg.filesize = fileoff - prev_seg.fileoff;
-    }
-
-    // TODO iterate over sections again, but consider only zig sections
-    // and move them if they are allocated in file below page-aligned fileoff
     fileoff = mem.alignForward(u32, fileoff, page_size);
     for (slice.items(.header)[last_index..], slice.items(.segment_id)[last_index..]) |*header, seg_id| {
         if (header.isZerofill()) continue;
@@ -2352,6 +2352,47 @@ fn allocateSections(self: *MachO) !void {
             header.size = existing_size;
             self.segments.items[seg_id].fileoff = new_offset;
         }
+    }
+}
+
+/// We allocate segments in a separate step to also consider segments that have no sections.
+fn allocateSegments(self: *MachO) void {
+    const first_index = if (self.pagezero_seg_index) |index| index + 1 else 0;
+    const last_index = for (self.segments.items, 0..) |seg, i| {
+        if (mem.indexOf(u8, seg.segName(), "ZIG")) |_| break i;
+    } else self.segments.items.len;
+
+    var vmaddr: u64 = if (self.pagezero_seg_index) |index|
+        self.segments.items[index].vmaddr + self.segments.items[index].vmsize
+    else
+        0;
+    var fileoff: u64 = 0;
+
+    const page_size = self.getPageSize();
+    const slice = self.sections.slice();
+
+    var next_sect_id: u8 = 0;
+    for (self.segments.items[first_index..last_index], first_index..last_index) |*seg, seg_id| {
+        seg.vmaddr = vmaddr;
+        seg.fileoff = fileoff;
+
+        while (next_sect_id < slice.items(.header).len) : (next_sect_id += 1) {
+            const header = slice.items(.header)[next_sect_id];
+            const sid = slice.items(.segment_id)[next_sect_id];
+
+            if (seg_id != sid) break;
+
+            vmaddr = header.addr + header.size;
+            if (!header.isZerofill()) {
+                fileoff = header.offset + header.size;
+            }
+        }
+
+        seg.vmsize = vmaddr - seg.vmaddr;
+        seg.filesize = fileoff - seg.fileoff;
+
+        vmaddr = mem.alignForward(u64, vmaddr, page_size);
+        fileoff = mem.alignForward(u64, fileoff, page_size);
     }
 }
 
