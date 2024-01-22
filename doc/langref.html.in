@@ -8,7 +8,7 @@
     <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNTMgMTQwIj48ZyBmaWxsPSIjRjdBNDFEIj48Zz48cG9seWdvbiBwb2ludHM9IjQ2LDIyIDI4LDQ0IDE5LDMwIi8+PHBvbHlnb24gcG9pbnRzPSI0NiwyMiAzMywzMyAyOCw0NCAyMiw0NCAyMiw5NSAzMSw5NSAyMCwxMDAgMTIsMTE3IDAsMTE3IDAsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMzEsOTUgMTIsMTE3IDQsMTA2Ii8+PC9nPjxnPjxwb2x5Z29uIHBvaW50cz0iNTYsMjIgNjIsMzYgMzcsNDQiLz48cG9seWdvbiBwb2ludHM9IjU2LDIyIDExMSwyMiAxMTEsNDQgMzcsNDQgNTYsMzIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTE2LDk1IDk3LDExNyA5MCwxMDQiLz48cG9seWdvbiBwb2ludHM9IjExNiw5NSAxMDAsMTA0IDk3LDExNyA0MiwxMTcgNDIsOTUiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTUwLDAgNTIsMTE3IDMsMTQwIDEwMSwyMiIvPjwvZz48Zz48cG9seWdvbiBwb2ludHM9IjE0MSwyMiAxNDAsNDAgMTIyLDQ1Ii8+PHBvbHlnb24gcG9pbnRzPSIxNTMsMjIgMTUzLDExNyAxMDYsMTE3IDEyMCwxMDUgMTI1LDk1IDEzMSw5NSAxMzEsNDUgMTIyLDQ1IDEzMiwzNiAxNDEsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTI1LDk1IDEzMCwxMTAgMTA2LDExNyIvPjwvZz48L2c+PC9zdmc+">
     <style>
       :root{
-         --nav-width: 24em;
+         --nav-width: 26em;
          --nav-margin-l: 1em;
       }
       body{
@@ -26,6 +26,25 @@
       }
       #navigation {
         padding: 0 1em;
+      }
+      table ul {
+        list-style-type: none;
+        padding: 0em;
+      }
+      table li {
+        padding-bottom: 1em;
+        line-height:1.2em;
+      }
+      table, th, td {
+        border-collapse: collapse;
+        border: 1px solid grey;
+      }
+      th, td {
+        padding: 0.5em;
+      }
+      th[scope=row] {
+          text-align: left;
+          font-weight: normal;
       }
 
       @media screen and (min-width: 1025px) {
@@ -60,17 +79,6 @@
       }
       dt {
         font-weight: bold;
-      }
-      table, th, td {
-        border-collapse: collapse;
-        border: 1px solid grey;
-      }
-      th, td {
-        padding: 0.1em;
-      }
-      th[scope=row] {
-          text-align: left;
-          font-weight: normal;
       }
       .sgr-1m {
         font-weight: bold;
@@ -1475,26 +1483,27 @@ pub fn main() void {
       {#header_open|Table of Operators#}
       <div class="table-wrapper">
       <table>
-        <caption>Table of Operators</caption>
         <thead>
         <tr>
+          <th scope="col">Name</th>
           <th scope="col">Syntax</th>
-          <th scope="col">Relevant Types</th>
-          <th scope="col">Description</th>
+          <th scope="col">Types</th>
+          <th scope="col">Remarks</th>
           <th scope="col">Example</th>
         </tr>
         </thead>
         <tbody>
         <tr>
-          <th scope="row"><pre>{#syntax#}a + b
-a += b{#endsyntax#}</pre></th>
+          <td>Addition</td>
+          <td><pre>{#syntax#}a + b
+a += b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
               <li>{#link|Floats#}</li>
             </ul>
           </td>
-          <td>Addition.
+          <td>
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
@@ -1506,51 +1515,54 @@ a += b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a +% b
-a +%= b{#endsyntax#}</pre></th>
+          <td>Wrapping Addition</td>
+          <td><pre>{#syntax#}a +% b
+a +%= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Wrapping Addition.
+          <td>
             <ul>
-              <li>Guaranteed to have twos-complement wrapping behavior.</li>
+              <li>Twos-complement wrapping behavior.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
               <li>See also {#link|@addWithOverflow#}.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}@as(u32, std.math.maxInt(u32)) +% 1 == 0{#endsyntax#}</pre>
+            <pre>{#syntax#}@as(u32, 0xffffffff) +% 1 == 0{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a +| b
-a +|= b{#endsyntax#}</pre></th>
+          <td>Saturating Addition</td>
+          <td><pre>{#syntax#}a +| b
+a +|= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Saturating Addition.
+          <td>
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}@as(u32, std.math.maxInt(u32)) +| 1 == @as(u32, std.math.maxInt(u32)){#endsyntax#}</pre>
+            <pre>{#syntax#}@as(u8, 255) +| 1 == @as(u8, 255){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a - b
-a -= b{#endsyntax#}</pre></th>
+          <td>Subtraction</td>
+          <td><pre>{#syntax#}a - b
+a -= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
               <li>{#link|Floats#}</li>
             </ul>
           </td>
-          <td>Subtraction.
+          <td>
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
@@ -1562,33 +1574,35 @@ a -= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a -% b
-a -%= b{#endsyntax#}</pre></th>
+          <td>Wrapping Subtraction</td>
+          <td><pre>{#syntax#}a -% b
+a -%= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Wrapping Subtraction.
+          <td>
             <ul>
-              <li>Guaranteed to have twos-complement wrapping behavior.</li>
+              <li>Twos-complement wrapping behavior.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
               <li>See also {#link|@subWithOverflow#}.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}@as(u32, 0) -% 1 == std.math.maxInt(u32){#endsyntax#}</pre>
+            <pre>{#syntax#}@as(u8, 0) -% 1 == 255{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a -| b
-a -|= b{#endsyntax#}</pre></th>
+          <td>Saturating Subtraction</td>
+          <td><pre>{#syntax#}a -| b
+a -|= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Saturating Subtraction.
+          <td>
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
@@ -1598,7 +1612,8 @@ a -|= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}-a{#endsyntax#}</pre></th>
+          <td>Negation</td>
+          <td><pre>{#syntax#}-a{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1606,7 +1621,6 @@ a -|= b{#endsyntax#}</pre></th>
             </ul>
           </td>
           <td>
-            Negation.
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
             </ul>
@@ -1616,32 +1630,33 @@ a -|= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}-%a{#endsyntax#}</pre></th>
+          <td>Wrapping Negation</td>
+          <td><pre>{#syntax#}-%a{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
           <td>
-            Wrapping Negation.
             <ul>
-              <li>Guaranteed to have twos-complement wrapping behavior.</li>
+              <li>Twos-complement wrapping behavior.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}-%@as(i32, std.math.minInt(i32)) == std.math.minInt(i32){#endsyntax#}</pre>
+            <pre>{#syntax#}-%@as(i8, -127) == -127{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a * b
-a *= b{#endsyntax#}</pre></th>
+          <td>Multiplication</td>
+          <td><pre>{#syntax#}a * b
+a *= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
               <li>{#link|Floats#}</li>
             </ul>
           </td>
-          <td>Multiplication.
+          <td>
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
@@ -1653,16 +1668,17 @@ a *= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a *% b
-a *%= b{#endsyntax#}</pre></th>
+          <td>Wrapping Multiplication</td>
+          <td><pre>{#syntax#}a *% b
+a *%= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Wrapping Multiplication.
+          <td>
             <ul>
-              <li>Guaranteed to have twos-complement wrapping behavior.</li>
+              <li>Twos-complement wrapping behavior.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
               <li>See also {#link|@mulWithOverflow#}.</li>
             </ul>
@@ -1672,14 +1688,15 @@ a *%= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a *| b
-a *|= b{#endsyntax#}</pre></th>
+          <td>Saturating Multiplication</td>
+          <td><pre>{#syntax#}a *| b
+a *|= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Saturating Multiplication.
+          <td>
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
@@ -1689,15 +1706,16 @@ a *|= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a / b
-a /= b{#endsyntax#}</pre></th>
+          <td>Division</td>
+          <td><pre>{#syntax#}a / b
+a /= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
               <li>{#link|Floats#}</li>
             </ul>
           </td>
-          <td>Division.
+          <td>
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
               <li>Can cause {#link|Division by Zero#} for integers.</li>
@@ -1715,15 +1733,16 @@ a /= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a % b
-a %= b{#endsyntax#}</pre></th>
+          <td>Remainder Division</td>
+          <td><pre>{#syntax#}a % b
+a %= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
               <li>{#link|Floats#}</li>
             </ul>
           </td>
-          <td>Remainder Division.
+          <td>
             <ul>
               <li>Can cause {#link|Division by Zero#} for integers.</li>
               <li>Can cause {#link|Division by Zero#} for floats in {#link|FloatMode.Optimized Mode|Floating Point Operations#}.</li>
@@ -1739,33 +1758,39 @@ a %= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a << b
-a <<= b{#endsyntax#}</pre></th>
+          <td>Bit Shift Left</td>
+          <td><pre>{#syntax#}a << b
+a <<= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Bit Shift Left.
+          <td>
             <ul>
-                <li>{#syntax#}b{#endsyntax#} must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as {#syntax#}a{#endsyntax#}.</li>
+              <li>Moves all bits to the left, inserting new zeroes at the
+              least-significant bit.</li>
+              <li>{#syntax#}b{#endsyntax#} must be
+              {#link|comptime-known|comptime#} or have a type with log2 number
+              of bits as {#syntax#}a{#endsyntax#}.</li>
               <li>See also {#link|@shlExact#}.</li>
               <li>See also {#link|@shlWithOverflow#}.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}1 << 8 == 256{#endsyntax#}</pre>
+            <pre>{#syntax#}0b1 << 8 == 0b100000000{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a <<| b
-a <<|= b{#endsyntax#}</pre></th>
+          <td>Saturating Bit Shift Left</td>
+          <td><pre>{#syntax#}a <<| b
+a <<|= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Saturating Bit Shift Left.
+          <td>
             <ul>
               <li>See also {#link|@shlExact#}.</li>
               <li>See also {#link|@shlWithOverflow#}.</li>
@@ -1776,32 +1801,37 @@ a <<|= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a >> b
-a >>= b{#endsyntax#}</pre></th>
+          <td>Bit Shift Right</td>
+          <td><pre>{#syntax#}a >> b
+a >>= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Bit Shift Right.
+          <td>
             <ul>
-                <li>{#syntax#}b{#endsyntax#} must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as {#syntax#}a{#endsyntax#}.</li>
+              <li>Moves all bits to the right, inserting zeroes at the most-significant bit.</li>
+              <li>{#syntax#}b{#endsyntax#} must be
+                {#link|comptime-known|comptime#} or have a type with log2 number
+                of bits as {#syntax#}a{#endsyntax#}.</li>
               <li>See also {#link|@shrExact#}.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}10 >> 1 == 5{#endsyntax#}</pre>
+            <pre>{#syntax#}0b1010 >> 1 == 0b101{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a & b
-a &= b{#endsyntax#}</pre></th>
+          <td>Bitwise And</td>
+          <td><pre>{#syntax#}a & b
+a &= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Bitwise AND.
+          <td>
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
@@ -1811,14 +1841,15 @@ a &= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a | b
-a |= b{#endsyntax#}</pre></th>
+          <td>Bitwise Or</td>
+          <td><pre>{#syntax#}a | b
+a |= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Bitwise OR.
+          <td>
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
@@ -1828,14 +1859,15 @@ a |= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a ^ b
-a ^= b{#endsyntax#}</pre></th>
+          <td>Bitwise Xor</td>
+          <td><pre>{#syntax#}a ^ b
+a ^= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Bitwise XOR.
+          <td>
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
@@ -1845,30 +1877,30 @@ a ^= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}~a{#endsyntax#}</pre></th>
+          <td>Bitwise Not</td>
+          <td><pre>{#syntax#}~a{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>
-            Bitwise NOT.
-          </td>
+          <td></td>
           <td>
             <pre>{#syntax#}~@as(u8, 0b10101111) == 0b01010000{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a orelse b{#endsyntax#}</pre></th>
+          <td>Defaulting Optional Unwrap</td>
+          <td><pre>{#syntax#}a orelse b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
             </ul>
           </td>
           <td>If {#syntax#}a{#endsyntax#} is {#syntax#}null{#endsyntax#},
-                      returns {#syntax#}b{#endsyntax#} ("default value"),
-                          otherwise returns the unwrapped value of {#syntax#}a{#endsyntax#}.
-                              Note that {#syntax#}b{#endsyntax#} may be a value of type {#link|noreturn#}.
+          returns {#syntax#}b{#endsyntax#} ("default value"),
+          otherwise returns the unwrapped value of {#syntax#}a{#endsyntax#}.
+          Note that {#syntax#}b{#endsyntax#} may be a value of type {#link|noreturn#}.
           </td>
           <td>
             <pre>{#syntax#}const value: ?u32 = null;
@@ -1877,7 +1909,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a.?{#endsyntax#}</pre></th>
+          <td>Optional Unwrap</td>
+          <td><pre>{#syntax#}a.?{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
@@ -1893,18 +1926,19 @@ value.? == 5678{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a catch b
-a catch |err| b{#endsyntax#}</pre></th>
+          <td>Defaulting Error Unwrap</td>
+          <td><pre>{#syntax#}a catch b
+a catch |err| b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Error Unions|Errors#}</li>
             </ul>
           </td>
           <td>If {#syntax#}a{#endsyntax#} is an {#syntax#}error{#endsyntax#},
-                      returns {#syntax#}b{#endsyntax#} ("default value"),
-                          otherwise returns the unwrapped value of {#syntax#}a{#endsyntax#}.
-                              Note that {#syntax#}b{#endsyntax#} may be a value of type {#link|noreturn#}.
-                                  {#syntax#}err{#endsyntax#} is the {#syntax#}error{#endsyntax#} and is in scope of the expression {#syntax#}b{#endsyntax#}.
+          returns {#syntax#}b{#endsyntax#} ("default value"),
+          otherwise returns the unwrapped value of {#syntax#}a{#endsyntax#}.
+          Note that {#syntax#}b{#endsyntax#} may be a value of type {#link|noreturn#}.
+{#syntax#}err{#endsyntax#} is the {#syntax#}error{#endsyntax#} and is in scope of the expression {#syntax#}b{#endsyntax#}.
           </td>
           <td>
             <pre>{#syntax#}const value: anyerror!u32 = error.Broken;
@@ -1913,51 +1947,55 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a and b{#endsyntax#}</pre></th>
+          <td>Logical And</td>
+          <td><pre>{#syntax#}a and b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|bool|Primitive Types#}</li>
             </ul>
           </td>
           <td>
-              If {#syntax#}a{#endsyntax#} is {#syntax#}false{#endsyntax#}, returns {#syntax#}false{#endsyntax#}
-                          without evaluating {#syntax#}b{#endsyntax#}. Otherwise, returns {#syntax#}b{#endsyntax#}.
+          If {#syntax#}a{#endsyntax#} is {#syntax#}false{#endsyntax#}, returns {#syntax#}false{#endsyntax#}
+          without evaluating {#syntax#}b{#endsyntax#}. Otherwise, returns {#syntax#}b{#endsyntax#}.
           </td>
           <td>
             <pre>{#syntax#}(false and true) == false{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a or b{#endsyntax#}</pre></th>
+          <td>Logical Or</td>
+          <td><pre>{#syntax#}a or b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|bool|Primitive Types#}</li>
             </ul>
           </td>
           <td>
-              If {#syntax#}a{#endsyntax#} is {#syntax#}true{#endsyntax#}, returns {#syntax#}true{#endsyntax#}
-                          without evaluating {#syntax#}b{#endsyntax#}. Otherwise, returns {#syntax#}b{#endsyntax#}.
+              If {#syntax#}a{#endsyntax#} is {#syntax#}true{#endsyntax#},
+              returns {#syntax#}true{#endsyntax#} without evaluating
+              {#syntax#}b{#endsyntax#}. Otherwise, returns
+              {#syntax#}b{#endsyntax#}.
           </td>
           <td>
             <pre>{#syntax#}(false or true) == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}!a{#endsyntax#}</pre></th>
+          <td>Boolean Not</td>
+          <td><pre>{#syntax#}!a{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|bool|Primitive Types#}</li>
             </ul>
           </td>
-          <td>
-            Boolean NOT.
-          </td>
+          <td></td>
           <td>
             <pre>{#syntax#}!false == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a == b{#endsyntax#}</pre></th>
+          <td>Equality</td>
+          <td><pre>{#syntax#}a == b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1975,7 +2013,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a == null{#endsyntax#}</pre></th>
+          <td>Null Check</td>
+          <td><pre>{#syntax#}a == null{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
@@ -1990,7 +2029,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a != b{#endsyntax#}</pre></th>
+          <td>Inequality</td>
+          <td><pre>{#syntax#}a != b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -2008,7 +2048,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a != null{#endsyntax#}</pre></th>
+          <td>Non-Null Check</td>
+          <td><pre>{#syntax#}a != null{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
@@ -2023,7 +2064,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a > b{#endsyntax#}</pre></th>
+          <td>Greater Than</td>
+          <td><pre>{#syntax#}a > b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -2039,7 +2081,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a >= b{#endsyntax#}</pre></th>
+          <td>Greater or Equal</td>
+          <td><pre>{#syntax#}a >= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -2055,7 +2098,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a < b{#endsyntax#}</pre></th>
+          <td>Less Than</td>
+          <td><pre>{#syntax#}a < b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -2071,7 +2115,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a <= b{#endsyntax#}</pre></th>
+          <td>Lesser or Equal</td>
+          <td><pre>{#syntax#}a <= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -2087,14 +2132,14 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a ++ b{#endsyntax#}</pre></th>
+          <td>Array Concatenation</td>
+          <td><pre>{#syntax#}a ++ b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Arrays#}</li>
             </ul>
           </td>
           <td>
-            Array concatenation.
             <ul>
               <li>Only available when the lengths of both {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
             </ul>
@@ -2108,14 +2153,14 @@ mem.eql(u32, &together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a ** b{#endsyntax#}</pre></th>
+          <td>Array Multiplication</td>
+          <td><pre>{#syntax#}a ** b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Arrays#}</li>
             </ul>
           </td>
           <td>
-            Array multiplication.
             <ul>
               <li>Only available when the length of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
             </ul>
@@ -2127,7 +2172,8 @@ mem.eql(u8, pattern, "ababab"){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a.*{#endsyntax#}</pre></th>
+          <td>Pointer Dereference</td>
+          <td><pre>{#syntax#}a.*{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Pointers#}</li>
@@ -2143,12 +2189,12 @@ ptr.* == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}&a{#endsyntax#}</pre></th>
+          <td>Address Of</td>
+          <td><pre>{#syntax#}&a{#endsyntax#}</pre></td>
           <td>
             All types
           </td>
           <td>
-            Address of.
           </td>
           <td>
             <pre>{#syntax#}const x: u32 = 1234;
@@ -2157,7 +2203,8 @@ ptr.* == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a || b{#endsyntax#}</pre></th>
+          <td>Error Set Merge</td>
+          <td><pre>{#syntax#}a || b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Error Set Type#}</li>
@@ -11376,7 +11423,6 @@ fn readU32Be() u32 {}
       {#header_open|Keyword Reference#}
       <div class="table-wrapper">
       <table>
-        <caption>Keywords</caption>
         <thead>
         <tr>
           <th scope="col">Keyword</th>
