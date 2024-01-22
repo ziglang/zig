@@ -8,7 +8,7 @@
     <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNTMgMTQwIj48ZyBmaWxsPSIjRjdBNDFEIj48Zz48cG9seWdvbiBwb2ludHM9IjQ2LDIyIDI4LDQ0IDE5LDMwIi8+PHBvbHlnb24gcG9pbnRzPSI0NiwyMiAzMywzMyAyOCw0NCAyMiw0NCAyMiw5NSAzMSw5NSAyMCwxMDAgMTIsMTE3IDAsMTE3IDAsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMzEsOTUgMTIsMTE3IDQsMTA2Ii8+PC9nPjxnPjxwb2x5Z29uIHBvaW50cz0iNTYsMjIgNjIsMzYgMzcsNDQiLz48cG9seWdvbiBwb2ludHM9IjU2LDIyIDExMSwyMiAxMTEsNDQgMzcsNDQgNTYsMzIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTE2LDk1IDk3LDExNyA5MCwxMDQiLz48cG9seWdvbiBwb2ludHM9IjExNiw5NSAxMDAsMTA0IDk3LDExNyA0MiwxMTcgNDIsOTUiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTUwLDAgNTIsMTE3IDMsMTQwIDEwMSwyMiIvPjwvZz48Zz48cG9seWdvbiBwb2ludHM9IjE0MSwyMiAxNDAsNDAgMTIyLDQ1Ii8+PHBvbHlnb24gcG9pbnRzPSIxNTMsMjIgMTUzLDExNyAxMDYsMTE3IDEyMCwxMDUgMTI1LDk1IDEzMSw5NSAxMzEsNDUgMTIyLDQ1IDEzMiwzNiAxNDEsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTI1LDk1IDEzMCwxMTAgMTA2LDExNyIvPjwvZz48L2c+PC9zdmc+">
     <style>
       :root{
-         --nav-width: 24em;
+         --nav-width: 26em;
          --nav-margin-l: 1em;
       }
       body{
@@ -26,6 +26,25 @@
       }
       #navigation {
         padding: 0 1em;
+      }
+      table ul {
+        list-style-type: none;
+        padding: 0em;
+      }
+      table li {
+        padding-bottom: 1em;
+        line-height:1.2em;
+      }
+      table, th, td {
+        border-collapse: collapse;
+        border: 1px solid grey;
+      }
+      th, td {
+        padding: 0.5em;
+      }
+      th[scope=row] {
+          text-align: left;
+          font-weight: normal;
       }
 
       @media screen and (min-width: 1025px) {
@@ -60,17 +79,6 @@
       }
       dt {
         font-weight: bold;
-      }
-      table, th, td {
-        border-collapse: collapse;
-        border: 1px solid grey;
-      }
-      th, td {
-        padding: 0.1em;
-      }
-      th[scope=row] {
-          text-align: left;
-          font-weight: normal;
       }
       .sgr-1m {
         font-weight: bold;
@@ -200,23 +208,8 @@
         visibility: visible;
       }
 
-      pre {
-        counter-reset: line;
-      }
-      pre .line:before {
-        counter-increment: line;
-        content: counter(line);
-        display: inline-block;
-        padding-right: 1em;
-        width: 2em;
-        text-align: right;
-        color: #999;
-      }
       th pre code {
           background: none;
-      }
-      th .line:before {
-          display: none;
       }
 
       @media (prefers-color-scheme: dark) {
@@ -301,39 +294,6 @@
           color: #fff;
         }
       }
-
-      @media all {
-        main {
-          counter-reset: section-2;
-        }
-        h2 {
-          counter-reset: section-3;
-        }
-        h2::before {
-          counter-increment: section-2;
-          content: counter(section-2) ". ";
-          font-weight: normal;
-        }
-        h3 {
-          counter-reset: section-4;
-        }
-        h3::before {
-          counter-increment: section-3;
-          content: counter(section-2) "." counter(section-3) ". ";
-          font-weight: normal;
-        }
-        h4::before {
-          counter-increment: section-4;
-          content: counter(section-2) "." counter(section-3) "." counter(section-4) ". ";
-          font-weight: normal;
-        }
-        #zig-version::before {
-          content: "";
-        }
-        #table-of-contents::before {
-          content: "";
-        }
-      }
     </style>
 </head>
 <body>
@@ -410,109 +370,20 @@ pub fn main() !void {
 }
       {#code_end#}
       <p>
-        The Zig code sample above demonstrates one way to create a program that will output: <samp>Hello, world!</samp>.
-      </p>
-      <p>
-        The code sample shows the contents of a file named <code class="file">hello.zig</code>. Files storing Zig
-        source code are {#link|UTF-8 encoded|Source Encoding#} text files. The files storing
-        Zig source code must be named with the <code class="file"><em>.zig</em></code> extension.
-      </p>
-      <p>
-        Following the <code class="file">hello.zig</code> Zig code sample, the {#link|Zig Build System#} is used
-        to build an executable program from the <code class="file">hello.zig</code> source code. Then, the
-        <code class="file">hello</code> program is executed showing its output <samp>Hello, world!</samp>. The
-        lines beginning with <samp>$</samp> represent command line prompts and a command.
-        Everything else is program output.
-      </p>
-      <p>
-        The code sample begins by adding the {#link|Zig Standard Library#} to the build using the {#link|@import#} builtin function.
-        The {#syntax#}@import("std"){#endsyntax#} function call creates a structure that represents the Zig Standard Library.
-        The code then {#link|declares|Container Level Variables#} a
-        {#link|constant identifier|Assignment#}, named {#syntax#}std{#endsyntax#}, that gives access to the features of the Zig Standard Library.
-      </p>
-      <p>
-        Next, a {#link|public function|Functions#}, {#syntax#}pub fn{#endsyntax#}, named {#syntax#}main{#endsyntax#}
-        is declared. The {#syntax#}main{#endsyntax#} function is necessary because it tells the Zig compiler where the program starts. Programs
-        designed to be executed will need a {#syntax#}pub fn main{#endsyntax#} function.
-      </p>
-      <aside role="note" aria-label="Note about main function">
-        <p>
-          For more advanced use cases, Zig offers other features to inform the compiler where the program starts. Also, libraries do not need a
-          {#syntax#}pub fn main{#endsyntax#} function because library code is called by other programs or libraries.
-        </p>
-      </aside>
-      <p>
-        A function is a block of any number of statements and expressions, that as a whole, perform a task.
-        Functions may or may not return data after they are done performing their task. If a function
-        cannot perform its task, it might return an error. Zig makes all of this explicit.
-      </p>
-      <p>
-        In the <code class="file">hello.zig</code> code sample, the <code>main</code> function is declared
-        with the {#syntax#}!void{#endsyntax#} return type. This return type is known as an {#link|Error Union Type#}.
-        This syntax tells the Zig compiler that the function will either return an
-        error or a value. An error union type combines an {#link|Error Set Type#} and any other data type
-        (e.g. a {#link|Primitive Type|Primitive Types#} or a user-defined type such as a {#link|struct#}, {#link|enum#}, or {#link|union#}).
-        The full form of an error union type is
-        <code>&lt;error set type&gt;</code>{#syntax#}!{#endsyntax#}<code>&lt;any data type&gt;</code>. In the code
-        sample, the error set type is not explicitly written on the left side of the {#syntax#}!{#endsyntax#} operator.
-        When written this way, the error set type is an {#link|inferred error set type|Inferred Error Sets#}. The
-        {#syntax#}void{#endsyntax#} after the {#syntax#}!{#endsyntax#} operator
-        tells the compiler that the function will not return a value under normal circumstances (i.e. when no errors occur).
-      </p>
-      <aside role="note" aria-label="Note to disambiguate exclamation mark operator">
-        <p>
-          Note to experienced programmers: Zig also has the boolean {#link|operator|Operators#} {#syntax#}!a{#endsyntax#}
-          where {#syntax#}a{#endsyntax#} is a value of type {#syntax#}bool{#endsyntax#}. Error union types contain the
-          name of the type in the syntax: {#syntax#}!{#endsyntax#}<code>&lt;any data type&gt;</code>.
-        </p>
-      </aside>
-      <p>
-        In Zig, a function's block of statements and expressions are surrounded by an open curly-brace <code>{</code> and
-        close curly-brace <code>}</code>. In <code class="file">hello.zig</code>, the {#syntax#}main{#endsyntax#} function
-        contains two statements.
-      </p>
-      <p>
-        In the first statement, a constant identifier, {#syntax#}stdout{#endsyntax#}, is initialized to represent standard output's
-        writer. In the second statement, the program tries to print the <samp>Hello, world!</samp> message to standard output.
-      </p>
-      <p>
-        Functions sometimes need inputs to perform their task. Inputs are passed, in between parentheses, to functions. These
-        inputs are also known as arguments. When multiple arguments are passed to a function, they are separated by commas.
-      </p>
-      <p>
-        Two arguments are passed to the {#syntax#}stdout.print(){#endsyntax#} function: {#syntax#}"Hello, {s}!\n"{#endsyntax#}
-        and {#syntax#}.{"world"}{#endsyntax#}. The first argument is called a format string, which is a string containing one or
-        more placeholders. {#syntax#}"Hello, {s}!\n"{#endsyntax#} contains the placeholder {#syntax#}{s}{#endsyntax#}, which is
-        replaced with {#syntax#}"world"{#endsyntax#} from the second argument. The file <code class="file">string_literals.zig</code> in
-        {#link|String Literals and Unicode Code Point Literals|String Literals and Unicode Code Point Literals#} contains examples of format
-        strings that can be used with the {#syntax#}stdout.print(){#endsyntax#} function. The <code>\n</code> inside of
-        {#syntax#}"Hello, {s}!\n"{#endsyntax#} is the {#link|escape sequence|Escape Sequences#} for the newline character.
-      </p>
-      <p>
-        The {#link|try#} expression evaluates the result of {#syntax#}stdout.print{#endsyntax#}. If the result is an error, then the
-        {#syntax#}try{#endsyntax#} expression will return from {#syntax#}main{#endsyntax#} with the error. Otherwise, the program will continue.
-        In this case, there are no more statements or expressions left to execute in the {#syntax#}main{#endsyntax#} function, so the program exits.
-      </p>
-      <p>
-        In Zig, the standard output writer's {#syntax#}print{#endsyntax#} function is allowed to fail because
-        it is actually a function defined as part of a generic Writer. Consider a generic Writer that
-        represents writing data to a file. When the disk is full, a write to the file will fail.
-        However, we typically do not expect writing text to the standard output to fail. To avoid having
-        to handle the failure case of printing to standard output, you can use alternate functions: the
-        functions in {#syntax#}std.log{#endsyntax#} for proper logging or the {#syntax#}std.debug.print{#endsyntax#} function.
-        This documentation will use the latter option to print to standard error (stderr) and silently return
-        on failure. The next code sample, <code class="file">hello_again.zig</code> demonstrates the use of
-        {#syntax#}std.debug.print{#endsyntax#}.
+      Most of the time, it more appropriate to write to stderr rather than stdout, and
+      whether or not the message is successfully written to the stream is irrelevant.
+      For this common case, there is a simpler API:
       </p>
       {#code_begin|exe|hello_again#}
-const print = @import("std").debug.print;
+const std = @import("std");
 
 pub fn main() void {
-    print("Hello, world!\n", .{});
+    std.debug.print("Hello, world!\n", .{});
 }
       {#code_end#}
       <p>
-      Note that you can leave off the {#syntax#}!{#endsyntax#} from the return type because {#syntax#}std.debug.print{#endsyntax#} cannot fail.
+      In this case, the {#syntax#}!{#endsyntax#} may be omitted from the return
+      type because no errors are returned from the function.
       </p>
       {#see_also|Values|@import|Errors|Root Source File|Source Encoding#}
       {#header_close#}
@@ -896,41 +767,21 @@ pub fn main() void {
       The type of string literals encodes both the length, and the fact that they are null-terminated,
       and thus they can be {#link|coerced|Type Coercion#} to both {#link|Slices#} and
       {#link|Null-Terminated Pointers|Sentinel-Terminated Pointers#}.
+      Dereferencing string literals converts them to {#link|Arrays#}.
       </p>
       <p>
-      Dereferencing string literals converts them to {#link|Arrays#}, allowing you to initialize a buffer with the contents of a string literal.
+      Because Zig source code is {#link|UTF-8 encoded|Source Encoding#}, any
+      non-ASCII bytes appearing within a string literal in source code carry
+      their UTF-8 meaning into the content of the string in the Zig program;
+      the bytes are not modified by the compiler. It is possible to embed
+      non-UTF-8 bytes into a string literal using <code>\xNN</code> notation.
       </p>
-      {#code_begin|syntax|mutable_string_buffer#}
-test {
-    var buffer = [_]u8{0}**256;
-    const home_dir = "C:/Users/root";
-    buffer[0..home_dir.len].* = home_dir.*;
-}
-      {#code_end#}
-      <p>
-      The encoding of a string in Zig is de-facto assumed to be UTF-8.
-      Because Zig source code is {#link|UTF-8 encoded|Source Encoding#}, any non-ASCII bytes appearing within a string literal
-      in source code carry their UTF-8 meaning into the content of the string in the Zig program;
-      the bytes are not modified by the compiler.
-      However, it is possible to embed non-UTF-8 bytes into a string literal using <code>\xNN</code> notation.
-      </p>
-      <p>
-      Indexing into a string containing non-ASCII bytes will return individual bytes, whether valid
-      UTF-8 or not.
-      The {#link|Zig Standard Library#} provides routines for checking the validity of UTF-8 encoded
-      strings, accessing their code points and other encoding/decoding related tasks in
-      {#syntax#}std.unicode{#endsyntax#}.
-      </p>
+      <p>Indexing into a string containing non-ASCII bytes returns individual
+      bytes, whether valid UTF-8 or not.</p>
       <p>
       Unicode code point literals have type {#syntax#}comptime_int{#endsyntax#}, the same as
       {#link|Integer Literals#}. All {#link|Escape Sequences#} are valid in both string literals
       and Unicode code point literals.
-      </p>
-      <p>
-      In many other programming languages, a Unicode code point literal is called a "character literal".
-      However, there is <a href="https://unicode.org/glossary">no precise technical definition of a "character"</a>
-      in recent versions of the Unicode specification (as of Unicode 13.0).
-      In Zig, a Unicode code point literal corresponds to the Unicode definition of a code point.
       </p>
       {#code_begin|exe|string_literals#}
 const print = @import("std").debug.print;
@@ -1632,26 +1483,27 @@ pub fn main() void {
       {#header_open|Table of Operators#}
       <div class="table-wrapper">
       <table>
-        <caption>Table of Operators</caption>
         <thead>
         <tr>
+          <th scope="col">Name</th>
           <th scope="col">Syntax</th>
-          <th scope="col">Relevant Types</th>
-          <th scope="col">Description</th>
+          <th scope="col">Types</th>
+          <th scope="col">Remarks</th>
           <th scope="col">Example</th>
         </tr>
         </thead>
         <tbody>
         <tr>
-          <th scope="row"><pre>{#syntax#}a + b
-a += b{#endsyntax#}</pre></th>
+          <td>Addition</td>
+          <td><pre>{#syntax#}a + b
+a += b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
               <li>{#link|Floats#}</li>
             </ul>
           </td>
-          <td>Addition.
+          <td>
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
@@ -1663,51 +1515,54 @@ a += b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a +% b
-a +%= b{#endsyntax#}</pre></th>
+          <td>Wrapping Addition</td>
+          <td><pre>{#syntax#}a +% b
+a +%= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Wrapping Addition.
+          <td>
             <ul>
-              <li>Guaranteed to have twos-complement wrapping behavior.</li>
+              <li>Twos-complement wrapping behavior.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
               <li>See also {#link|@addWithOverflow#}.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}@as(u32, std.math.maxInt(u32)) +% 1 == 0{#endsyntax#}</pre>
+            <pre>{#syntax#}@as(u32, 0xffffffff) +% 1 == 0{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a +| b
-a +|= b{#endsyntax#}</pre></th>
+          <td>Saturating Addition</td>
+          <td><pre>{#syntax#}a +| b
+a +|= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Saturating Addition.
+          <td>
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}@as(u32, std.math.maxInt(u32)) +| 1 == @as(u32, std.math.maxInt(u32)){#endsyntax#}</pre>
+            <pre>{#syntax#}@as(u8, 255) +| 1 == @as(u8, 255){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a - b
-a -= b{#endsyntax#}</pre></th>
+          <td>Subtraction</td>
+          <td><pre>{#syntax#}a - b
+a -= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
               <li>{#link|Floats#}</li>
             </ul>
           </td>
-          <td>Subtraction.
+          <td>
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
@@ -1719,33 +1574,35 @@ a -= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a -% b
-a -%= b{#endsyntax#}</pre></th>
+          <td>Wrapping Subtraction</td>
+          <td><pre>{#syntax#}a -% b
+a -%= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Wrapping Subtraction.
+          <td>
             <ul>
-              <li>Guaranteed to have twos-complement wrapping behavior.</li>
+              <li>Twos-complement wrapping behavior.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
               <li>See also {#link|@subWithOverflow#}.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}@as(u32, 0) -% 1 == std.math.maxInt(u32){#endsyntax#}</pre>
+            <pre>{#syntax#}@as(u8, 0) -% 1 == 255{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a -| b
-a -|= b{#endsyntax#}</pre></th>
+          <td>Saturating Subtraction</td>
+          <td><pre>{#syntax#}a -| b
+a -|= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Saturating Subtraction.
+          <td>
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
@@ -1755,7 +1612,8 @@ a -|= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}-a{#endsyntax#}</pre></th>
+          <td>Negation</td>
+          <td><pre>{#syntax#}-a{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -1763,7 +1621,6 @@ a -|= b{#endsyntax#}</pre></th>
             </ul>
           </td>
           <td>
-            Negation.
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
             </ul>
@@ -1773,32 +1630,33 @@ a -|= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}-%a{#endsyntax#}</pre></th>
+          <td>Wrapping Negation</td>
+          <td><pre>{#syntax#}-%a{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
           <td>
-            Wrapping Negation.
             <ul>
-              <li>Guaranteed to have twos-complement wrapping behavior.</li>
+              <li>Twos-complement wrapping behavior.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}-%@as(i32, std.math.minInt(i32)) == std.math.minInt(i32){#endsyntax#}</pre>
+            <pre>{#syntax#}-%@as(i8, -127) == -127{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a * b
-a *= b{#endsyntax#}</pre></th>
+          <td>Multiplication</td>
+          <td><pre>{#syntax#}a * b
+a *= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
               <li>{#link|Floats#}</li>
             </ul>
           </td>
-          <td>Multiplication.
+          <td>
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
@@ -1810,16 +1668,17 @@ a *= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a *% b
-a *%= b{#endsyntax#}</pre></th>
+          <td>Wrapping Multiplication</td>
+          <td><pre>{#syntax#}a *% b
+a *%= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Wrapping Multiplication.
+          <td>
             <ul>
-              <li>Guaranteed to have twos-complement wrapping behavior.</li>
+              <li>Twos-complement wrapping behavior.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
               <li>See also {#link|@mulWithOverflow#}.</li>
             </ul>
@@ -1829,14 +1688,15 @@ a *%= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a *| b
-a *|= b{#endsyntax#}</pre></th>
+          <td>Saturating Multiplication</td>
+          <td><pre>{#syntax#}a *| b
+a *|= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Saturating Multiplication.
+          <td>
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
@@ -1846,15 +1706,16 @@ a *|= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a / b
-a /= b{#endsyntax#}</pre></th>
+          <td>Division</td>
+          <td><pre>{#syntax#}a / b
+a /= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
               <li>{#link|Floats#}</li>
             </ul>
           </td>
-          <td>Division.
+          <td>
             <ul>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
               <li>Can cause {#link|Division by Zero#} for integers.</li>
@@ -1872,15 +1733,16 @@ a /= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a % b
-a %= b{#endsyntax#}</pre></th>
+          <td>Remainder Division</td>
+          <td><pre>{#syntax#}a % b
+a %= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
               <li>{#link|Floats#}</li>
             </ul>
           </td>
-          <td>Remainder Division.
+          <td>
             <ul>
               <li>Can cause {#link|Division by Zero#} for integers.</li>
               <li>Can cause {#link|Division by Zero#} for floats in {#link|FloatMode.Optimized Mode|Floating Point Operations#}.</li>
@@ -1896,33 +1758,39 @@ a %= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a << b
-a <<= b{#endsyntax#}</pre></th>
+          <td>Bit Shift Left</td>
+          <td><pre>{#syntax#}a << b
+a <<= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Bit Shift Left.
+          <td>
             <ul>
-                <li>{#syntax#}b{#endsyntax#} must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as {#syntax#}a{#endsyntax#}.</li>
+              <li>Moves all bits to the left, inserting new zeroes at the
+              least-significant bit.</li>
+              <li>{#syntax#}b{#endsyntax#} must be
+              {#link|comptime-known|comptime#} or have a type with log2 number
+              of bits as {#syntax#}a{#endsyntax#}.</li>
               <li>See also {#link|@shlExact#}.</li>
               <li>See also {#link|@shlWithOverflow#}.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}1 << 8 == 256{#endsyntax#}</pre>
+            <pre>{#syntax#}0b1 << 8 == 0b100000000{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a <<| b
-a <<|= b{#endsyntax#}</pre></th>
+          <td>Saturating Bit Shift Left</td>
+          <td><pre>{#syntax#}a <<| b
+a <<|= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Saturating Bit Shift Left.
+          <td>
             <ul>
               <li>See also {#link|@shlExact#}.</li>
               <li>See also {#link|@shlWithOverflow#}.</li>
@@ -1933,32 +1801,37 @@ a <<|= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a >> b
-a >>= b{#endsyntax#}</pre></th>
+          <td>Bit Shift Right</td>
+          <td><pre>{#syntax#}a >> b
+a >>= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Bit Shift Right.
+          <td>
             <ul>
-                <li>{#syntax#}b{#endsyntax#} must be {#link|comptime-known|comptime#} or have a type with log2 number of bits as {#syntax#}a{#endsyntax#}.</li>
+              <li>Moves all bits to the right, inserting zeroes at the most-significant bit.</li>
+              <li>{#syntax#}b{#endsyntax#} must be
+                {#link|comptime-known|comptime#} or have a type with log2 number
+                of bits as {#syntax#}a{#endsyntax#}.</li>
               <li>See also {#link|@shrExact#}.</li>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}10 >> 1 == 5{#endsyntax#}</pre>
+            <pre>{#syntax#}0b1010 >> 1 == 0b101{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a & b
-a &= b{#endsyntax#}</pre></th>
+          <td>Bitwise And</td>
+          <td><pre>{#syntax#}a & b
+a &= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Bitwise AND.
+          <td>
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
@@ -1968,14 +1841,15 @@ a &= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a | b
-a |= b{#endsyntax#}</pre></th>
+          <td>Bitwise Or</td>
+          <td><pre>{#syntax#}a | b
+a |= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Bitwise OR.
+          <td>
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
@@ -1985,14 +1859,15 @@ a |= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a ^ b
-a ^= b{#endsyntax#}</pre></th>
+          <td>Bitwise Xor</td>
+          <td><pre>{#syntax#}a ^ b
+a ^= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>Bitwise XOR.
+          <td>
             <ul>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
             </ul>
@@ -2002,30 +1877,30 @@ a ^= b{#endsyntax#}</pre></th>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}~a{#endsyntax#}</pre></th>
+          <td>Bitwise Not</td>
+          <td><pre>{#syntax#}~a{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
             </ul>
           </td>
-          <td>
-            Bitwise NOT.
-          </td>
+          <td></td>
           <td>
             <pre>{#syntax#}~@as(u8, 0b10101111) == 0b01010000{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a orelse b{#endsyntax#}</pre></th>
+          <td>Defaulting Optional Unwrap</td>
+          <td><pre>{#syntax#}a orelse b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
             </ul>
           </td>
           <td>If {#syntax#}a{#endsyntax#} is {#syntax#}null{#endsyntax#},
-                      returns {#syntax#}b{#endsyntax#} ("default value"),
-                          otherwise returns the unwrapped value of {#syntax#}a{#endsyntax#}.
-                              Note that {#syntax#}b{#endsyntax#} may be a value of type {#link|noreturn#}.
+          returns {#syntax#}b{#endsyntax#} ("default value"),
+          otherwise returns the unwrapped value of {#syntax#}a{#endsyntax#}.
+          Note that {#syntax#}b{#endsyntax#} may be a value of type {#link|noreturn#}.
           </td>
           <td>
             <pre>{#syntax#}const value: ?u32 = null;
@@ -2034,7 +1909,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a.?{#endsyntax#}</pre></th>
+          <td>Optional Unwrap</td>
+          <td><pre>{#syntax#}a.?{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
@@ -2050,18 +1926,19 @@ value.? == 5678{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a catch b
-a catch |err| b{#endsyntax#}</pre></th>
+          <td>Defaulting Error Unwrap</td>
+          <td><pre>{#syntax#}a catch b
+a catch |err| b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Error Unions|Errors#}</li>
             </ul>
           </td>
           <td>If {#syntax#}a{#endsyntax#} is an {#syntax#}error{#endsyntax#},
-                      returns {#syntax#}b{#endsyntax#} ("default value"),
-                          otherwise returns the unwrapped value of {#syntax#}a{#endsyntax#}.
-                              Note that {#syntax#}b{#endsyntax#} may be a value of type {#link|noreturn#}.
-                                  {#syntax#}err{#endsyntax#} is the {#syntax#}error{#endsyntax#} and is in scope of the expression {#syntax#}b{#endsyntax#}.
+          returns {#syntax#}b{#endsyntax#} ("default value"),
+          otherwise returns the unwrapped value of {#syntax#}a{#endsyntax#}.
+          Note that {#syntax#}b{#endsyntax#} may be a value of type {#link|noreturn#}.
+{#syntax#}err{#endsyntax#} is the {#syntax#}error{#endsyntax#} and is in scope of the expression {#syntax#}b{#endsyntax#}.
           </td>
           <td>
             <pre>{#syntax#}const value: anyerror!u32 = error.Broken;
@@ -2070,51 +1947,55 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a and b{#endsyntax#}</pre></th>
+          <td>Logical And</td>
+          <td><pre>{#syntax#}a and b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|bool|Primitive Types#}</li>
             </ul>
           </td>
           <td>
-              If {#syntax#}a{#endsyntax#} is {#syntax#}false{#endsyntax#}, returns {#syntax#}false{#endsyntax#}
-                          without evaluating {#syntax#}b{#endsyntax#}. Otherwise, returns {#syntax#}b{#endsyntax#}.
+          If {#syntax#}a{#endsyntax#} is {#syntax#}false{#endsyntax#}, returns {#syntax#}false{#endsyntax#}
+          without evaluating {#syntax#}b{#endsyntax#}. Otherwise, returns {#syntax#}b{#endsyntax#}.
           </td>
           <td>
             <pre>{#syntax#}(false and true) == false{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a or b{#endsyntax#}</pre></th>
+          <td>Logical Or</td>
+          <td><pre>{#syntax#}a or b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|bool|Primitive Types#}</li>
             </ul>
           </td>
           <td>
-              If {#syntax#}a{#endsyntax#} is {#syntax#}true{#endsyntax#}, returns {#syntax#}true{#endsyntax#}
-                          without evaluating {#syntax#}b{#endsyntax#}. Otherwise, returns {#syntax#}b{#endsyntax#}.
+              If {#syntax#}a{#endsyntax#} is {#syntax#}true{#endsyntax#},
+              returns {#syntax#}true{#endsyntax#} without evaluating
+              {#syntax#}b{#endsyntax#}. Otherwise, returns
+              {#syntax#}b{#endsyntax#}.
           </td>
           <td>
             <pre>{#syntax#}(false or true) == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}!a{#endsyntax#}</pre></th>
+          <td>Boolean Not</td>
+          <td><pre>{#syntax#}!a{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|bool|Primitive Types#}</li>
             </ul>
           </td>
-          <td>
-            Boolean NOT.
-          </td>
+          <td></td>
           <td>
             <pre>{#syntax#}!false == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a == b{#endsyntax#}</pre></th>
+          <td>Equality</td>
+          <td><pre>{#syntax#}a == b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -2132,7 +2013,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a == null{#endsyntax#}</pre></th>
+          <td>Null Check</td>
+          <td><pre>{#syntax#}a == null{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
@@ -2147,7 +2029,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a != b{#endsyntax#}</pre></th>
+          <td>Inequality</td>
+          <td><pre>{#syntax#}a != b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -2165,7 +2048,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a != null{#endsyntax#}</pre></th>
+          <td>Non-Null Check</td>
+          <td><pre>{#syntax#}a != null{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Optionals#}</li>
@@ -2180,7 +2064,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a > b{#endsyntax#}</pre></th>
+          <td>Greater Than</td>
+          <td><pre>{#syntax#}a > b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -2196,7 +2081,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a >= b{#endsyntax#}</pre></th>
+          <td>Greater or Equal</td>
+          <td><pre>{#syntax#}a >= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -2212,7 +2098,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a < b{#endsyntax#}</pre></th>
+          <td>Less Than</td>
+          <td><pre>{#syntax#}a < b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -2228,7 +2115,8 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a <= b{#endsyntax#}</pre></th>
+          <td>Lesser or Equal</td>
+          <td><pre>{#syntax#}a <= b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Integers#}</li>
@@ -2244,14 +2132,14 @@ unwrapped == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a ++ b{#endsyntax#}</pre></th>
+          <td>Array Concatenation</td>
+          <td><pre>{#syntax#}a ++ b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Arrays#}</li>
             </ul>
           </td>
           <td>
-            Array concatenation.
             <ul>
               <li>Only available when the lengths of both {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
             </ul>
@@ -2265,14 +2153,14 @@ mem.eql(u32, &together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a ** b{#endsyntax#}</pre></th>
+          <td>Array Multiplication</td>
+          <td><pre>{#syntax#}a ** b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Arrays#}</li>
             </ul>
           </td>
           <td>
-            Array multiplication.
             <ul>
               <li>Only available when the length of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#} are {#link|compile-time known|comptime#}.</li>
             </ul>
@@ -2284,7 +2172,8 @@ mem.eql(u8, pattern, "ababab"){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a.*{#endsyntax#}</pre></th>
+          <td>Pointer Dereference</td>
+          <td><pre>{#syntax#}a.*{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Pointers#}</li>
@@ -2300,12 +2189,12 @@ ptr.* == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}&a{#endsyntax#}</pre></th>
+          <td>Address Of</td>
+          <td><pre>{#syntax#}&a{#endsyntax#}</pre></td>
           <td>
             All types
           </td>
           <td>
-            Address of.
           </td>
           <td>
             <pre>{#syntax#}const x: u32 = 1234;
@@ -2314,7 +2203,8 @@ ptr.* == 1234{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
-          <th scope="row"><pre>{#syntax#}a || b{#endsyntax#}</pre></th>
+          <td>Error Set Merge</td>
+          <td><pre>{#syntax#}a || b{#endsyntax#}</pre></td>
           <td>
             <ul>
               <li>{#link|Error Set Type#}</li>
@@ -4311,10 +4201,11 @@ test "enum literals with switch" {
       {#code_end#}
       {#header_close#}
 
-      {#header_open|Inline switch#}
+      {#header_open|Inline Switch Prongs#}
       <p>
       Switch prongs can be marked as {#syntax#}inline{#endsyntax#} to generate
-      the prong's body for each possible value it could have:
+      the prong's body for each possible value it could have, making the
+      captured value {#link|comptime#}.
       </p>
       {#code_begin|test|test_inline_switch#}
 const std = @import("std");
@@ -4324,9 +4215,9 @@ const expectError = std.testing.expectError;
 fn isFieldOptional(comptime T: type, field_index: usize) !bool {
     const fields = @typeInfo(T).Struct.fields;
     return switch (field_index) {
-        // This prong is analyzed `fields.len - 1` times with `idx` being a
-        // unique comptime-known value each time.
-        inline 0...fields.len - 1 => |idx| @typeInfo(fields[idx].type) == .Optional,
+        // This prong is analyzed twice with `idx` being a
+        // comptime-known value each time.
+        inline 0, 1 => |idx| @typeInfo(fields[idx].type) == .Optional,
         else => return error.IndexOutOfBounds,
     };
 }
@@ -4348,6 +4239,16 @@ fn isFieldOptionalUnrolled(field_index: usize) !bool {
     return switch (field_index) {
         0 => false,
         1 => true,
+        else => return error.IndexOutOfBounds,
+    };
+}
+      {#code_end#}
+      <p>The {#syntax#}inline{#endsyntax#} keyword may also be combined with ranges:</p>
+      {#code_begin|syntax|inline_prong_range#}
+fn isFieldOptional(comptime T: type, field_index: usize) !bool {
+    const fields = @typeInfo(T).Struct.fields;
+    return switch (field_index) {
+        inline 0...fields.len - 1 => |idx| @typeInfo(fields[idx].type) == .Optional,
         else => return error.IndexOutOfBounds,
     };
 }
@@ -7853,7 +7754,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@atomicLoad#}
-      <pre>{#syntax#}@atomicLoad(comptime T: type, ptr: *const T, comptime ordering: builtin.AtomicOrder) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@atomicLoad(comptime T: type, ptr: *const T, comptime ordering: AtomicOrder) T{#endsyntax#}</pre>
       <p>
       This builtin function atomically dereferences a pointer to a {#syntax#}T{#endsyntax#} and returns the value.
       </p>
@@ -7861,11 +7762,12 @@ comptime {
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
+      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       {#see_also|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@atomicRmw#}
-      <pre>{#syntax#}@atomicRmw(comptime T: type, ptr: *T, comptime op: builtin.AtomicRmwOp, operand: T, comptime ordering: builtin.AtomicOrder) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@atomicRmw(comptime T: type, ptr: *T, comptime op: AtomicRmwOp, operand: T, comptime ordering: AtomicOrder) T{#endsyntax#}</pre>
       <p>
       This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and atomically
       modifies the value and returns the previous value.
@@ -7874,27 +7776,13 @@ comptime {
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
-      <p>
-      Supported values for the {#syntax#}op{#endsyntax#} parameter:
-      </p>
-      <ul>
-        <li>{#syntax#}.Xchg{#endsyntax#} - stores the operand unmodified. Supports enums, integers and floats.</li>
-        <li>{#syntax#}.Add{#endsyntax#} - for integers, twos complement wraparound addition.
-            Also supports {#link|Floats#}.</li>
-        <li>{#syntax#}.Sub{#endsyntax#} - for integers, twos complement wraparound subtraction.
-            Also supports {#link|Floats#}.</li>
-        <li>{#syntax#}.And{#endsyntax#} - bitwise and</li>
-        <li>{#syntax#}.Nand{#endsyntax#} - bitwise nand</li>
-        <li>{#syntax#}.Or{#endsyntax#} - bitwise or</li>
-        <li>{#syntax#}.Xor{#endsyntax#} - bitwise xor</li>
-        <li>{#syntax#}.Max{#endsyntax#} - stores the operand if it is larger. Supports integers and floats.</li>
-        <li>{#syntax#}.Min{#endsyntax#} - stores the operand if it is smaller. Supports integers and floats.</li>
-      </ul>
+      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
+      <p>{#syntax#}AtomicRmwOp{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicRmwOp{#endsyntax#}.</p>
       {#see_also|@atomicStore|@atomicLoad|@fence|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@atomicStore#}
-      <pre>{#syntax#}@atomicStore(comptime T: type, ptr: *T, value: T, comptime ordering: builtin.AtomicOrder) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@atomicStore(comptime T: type, ptr: *T, value: T, comptime ordering: AtomicOrder) void{#endsyntax#}</pre>
       <p>
       This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and atomically stores the given value.
       </p>
@@ -7902,6 +7790,7 @@ comptime {
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
+      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       {#see_also|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
@@ -8178,6 +8067,7 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       an integer or an enum.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak#}
       {#header_close#}
 
@@ -8209,6 +8099,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       an integer or an enum.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgStrong#}
       {#header_close#}
 
@@ -8499,9 +8390,7 @@ export fn @"A function name that is a complete sentence."() void {}
       <p>
       The {#syntax#}fence{#endsyntax#} function is used to introduce happens-before edges between operations.
       </p>
-      <p>
-      {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.
-      </p>
+      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
@@ -8909,7 +8798,7 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@prefetch#}
-      <pre>{#syntax#}@prefetch(ptr: anytype, comptime options: std.builtin.PrefetchOptions) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@prefetch(ptr: anytype, comptime options: PrefetchOptions) void{#endsyntax#}</pre>
       <p>
       This builtin tells the compiler to emit a prefetch instruction if supported by the
       target CPU. If the target CPU does not support the requested prefetch instruction,
@@ -8921,37 +8810,7 @@ test "@wasmMemoryGrow" {
       address to prefetch. This function does not dereference the pointer, it is perfectly legal
       to pass a pointer to invalid memory to this function and no illegal behavior will result.
       </p>
-      <p>
-      The {#syntax#}options{#endsyntax#} argument is the following struct:
-      </p>
-      {#code_begin|syntax|builtin#}
-/// This data structure is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub const PrefetchOptions = struct {
-    /// Whether the prefetch should prepare for a read or a write.
-    rw: Rw = .read,
-    /// The data's locality in an inclusive range from 0 to 3.
-    ///
-    /// 0 means no temporal locality. That is, the data can be immediately
-    /// dropped from the cache after it is accessed.
-    ///
-    /// 3 means high temporal locality. That is, the data should be kept in
-    /// the cache as it is likely to be accessed again soon.
-    locality: u2 = 3,
-    /// The cache that the prefetch should be preformed on.
-    cache: Cache = .data,
-
-    pub const Rw = enum(u1) {
-        read,
-        write,
-    };
-
-    pub const Cache = enum(u1) {
-        instruction,
-        data,
-    };
-};
-      {#code_end#}
+      <p>{#syntax#}PrefetchOptions{#endsyntax#} can be found with {#syntax#}@import("std").builtin.PrefetchOptions{#endsyntax#}.</p>
       {#header_close#}
 
       {#header_open|@ptrCast#}
@@ -9080,16 +8939,8 @@ test "foo" {
       {#header_close#}
 
       {#header_open|@setFloatMode#}
-      <pre>{#syntax#}@setFloatMode(comptime mode: @import("std").builtin.FloatMode) void{#endsyntax#}</pre>
-      <p>
-      Sets the floating point mode of the current scope. Possible values are:
-      </p>
-      {#code_begin|syntax|FloatMode#}
-pub const FloatMode = enum {
-    Strict,
-    Optimized,
-};
-      {#code_end#}
+      <pre>{#syntax#}@setFloatMode(comptime mode: FloatMode) void{#endsyntax#}</pre>
+      <p>Changes the current scope's rules about how floating point operations are defined.</p>
       <ul>
         <li>
             {#syntax#}Strict{#endsyntax#} (default) - Floating point operations follow strict IEEE compliance.
@@ -9111,6 +8962,7 @@ pub const FloatMode = enum {
       The floating point mode is inherited by child scopes, and can be overridden in any scope.
       You can set the floating point mode in a struct or module scope by using a comptime block.
       </p>
+      <p>{#syntax#}FloatMode{#endsyntax#} can be found with {#syntax#}@import("std").builtin.FloatMode{#endsyntax#}.</p>
       {#see_also|Floating Point Operations#}
       {#header_close#}
 
@@ -11522,7 +11374,6 @@ fn readU32Be() u32 {}
       {#header_open|Keyword Reference#}
       <div class="table-wrapper">
       <table>
-        <caption>Keywords</caption>
         <thead>
         <tr>
           <th scope="col">Keyword</th>
