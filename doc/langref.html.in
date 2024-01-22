@@ -762,29 +762,18 @@ pub fn main() void {
       Dereferencing string literals converts them to {#link|Arrays#}.
       </p>
       <p>
-      The encoding of a string in Zig is de-facto assumed to be UTF-8.
-      Because Zig source code is {#link|UTF-8 encoded|Source Encoding#}, any non-ASCII bytes appearing within a string literal
-      in source code carry their UTF-8 meaning into the content of the string in the Zig program;
-      the bytes are not modified by the compiler.
-      However, it is possible to embed non-UTF-8 bytes into a string literal using <code>\xNN</code> notation.
+      Because Zig source code is {#link|UTF-8 encoded|Source Encoding#}, any
+      non-ASCII bytes appearing within a string literal in source code carry
+      their UTF-8 meaning into the content of the string in the Zig program;
+      the bytes are not modified by the compiler. It is possible to embed
+      non-UTF-8 bytes into a string literal using <code>\xNN</code> notation.
       </p>
-      <p>
-      Indexing into a string containing non-ASCII bytes will return individual bytes, whether valid
-      UTF-8 or not.
-      The {#link|Zig Standard Library#} provides routines for checking the validity of UTF-8 encoded
-      strings, accessing their code points and other encoding/decoding related tasks in
-      {#syntax#}std.unicode{#endsyntax#}.
-      </p>
+      <p>Indexing into a string containing non-ASCII bytes returns individual
+      bytes, whether valid UTF-8 or not.</p>
       <p>
       Unicode code point literals have type {#syntax#}comptime_int{#endsyntax#}, the same as
       {#link|Integer Literals#}. All {#link|Escape Sequences#} are valid in both string literals
       and Unicode code point literals.
-      </p>
-      <p>
-      In many other programming languages, a Unicode code point literal is called a "character literal".
-      However, there is <a href="https://unicode.org/glossary">no precise technical definition of a "character"</a>
-      in recent versions of the Unicode specification (as of Unicode 13.0).
-      In Zig, a Unicode code point literal corresponds to the Unicode definition of a code point.
       </p>
       {#code_begin|exe|string_literals#}
 const print = @import("std").debug.print;
