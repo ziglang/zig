@@ -16575,7 +16575,7 @@ fn analyzePtrArithmetic(
         }
         // If the addend is not a comptime-known value we can still count on
         // it being a multiple of the type size.
-        const elem_size = Type.fromInterned(ptr_info.child).abiSize(mod);
+        const elem_size = try sema.typeAbiSize(Type.fromInterned(ptr_info.child));
         const addend = if (opt_off_val) |off_val| a: {
             const off_int = try sema.usizeCast(block, offset_src, try off_val.toUnsignedIntAdvanced(sema));
             break :a elem_size * off_int;
@@ -16612,7 +16612,7 @@ fn analyzePtrArithmetic(
                 const offset_int = try sema.usizeCast(block, offset_src, try offset_val.toUnsignedIntAdvanced(sema));
                 if (offset_int == 0) return ptr;
                 if (try ptr_val.getUnsignedIntAdvanced(mod, sema)) |addr| {
-                    const elem_size = Type.fromInterned(ptr_info.child).abiSize(mod);
+                    const elem_size = try sema.typeAbiSize(Type.fromInterned(ptr_info.child));
                     const new_addr = switch (air_tag) {
                         .ptr_add => addr + elem_size * offset_int,
                         .ptr_sub => addr - elem_size * offset_int,
