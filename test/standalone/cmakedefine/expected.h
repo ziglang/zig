@@ -49,11 +49,23 @@
 // no substition
 // 
 
+// no substition
+// 
+
+// no substition
+// .
+
 // 1
 // 1
 
 // 0
 // 0
+
+// 10
+// 10
+
+// 0.1
+// 0.1
 
 // 0
 // 0
@@ -64,20 +76,46 @@
 // 10
 // 10
 
+// 01
+// 01
+
+// 0.10
+// 0.10
+
 // test
 // test
 
+// testtest
+// testtest
+
+// test.test
+// test.test
+
+// test10
+// test10
 
 //  substition
 
-// removal
+// no substition
 // 
 
+// no substition
+// 
+
+// no substition
+// .
+
 // 1
 // 1
 
 // 0
 // 0
+
+// 10
+// 10
+
+// 0.1
+// 0.1
 
 // 0
 // 0
@@ -88,6 +126,20 @@
 // 10
 // 10
 
+// 01
+// 01
+
+// 0.10
+// 0.10
+
 // test
 // test
 
+// testtest
+// testtest
+
+// test.test
+// test.test
+
+// test10
+// test10

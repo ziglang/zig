@@ -35,10 +35,9 @@ pub fn init(pool: *Pool, options: Options) !void {
     }
 
     const thread_count = options.n_jobs orelse @max(1, std.Thread.getCpuCount() catch 1);
-    pool.threads = try allocator.alloc(std.Thread, thread_count);
-    errdefer allocator.free(pool.threads);
 
-    // kill and join any threads we spawned previously on error.
+    // kill and join any threads we spawned and free memory on error.
+    pool.threads = try allocator.alloc(std.Thread, thread_count);
     var spawned: usize = 0;
     errdefer pool.join(spawned);
 

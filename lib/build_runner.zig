@@ -95,7 +95,7 @@ pub fn main() !void {
     var install_prefix: ?[]const u8 = null;
     var dir_list = std.Build.DirList{};
     var summary: ?Summary = null;
-    var max_rss: usize = 0;
+    var max_rss: u64 = 0;
     var skip_oom_steps: bool = false;
     var color: Color = .auto;
     var seed: u32 = 0;
@@ -337,7 +337,7 @@ pub fn main() !void {
     };
 
     if (run.max_rss == 0) {
-        run.max_rss = process.totalSystemMemory() catch std.math.maxInt(usize);
+        run.max_rss = process.totalSystemMemory() catch std.math.maxInt(u64);
         run.max_rss_is_default = true;
     }
 
@@ -356,7 +356,7 @@ pub fn main() !void {
 }
 
 const Run = struct {
-    max_rss: usize,
+    max_rss: u64,
     max_rss_is_default: bool,
     max_rss_mutex: std.Thread.Mutex,
     skip_oom_steps: bool,

@@ -1129,6 +1129,15 @@ pub inline fn hasFn(comptime T: type, comptime name: []const u8) bool {
     return @typeInfo(@TypeOf(@field(T, name))) == .Fn;
 }
 
+/// Returns true if a type has a `name` method; `false` otherwise.
+/// Result is always comptime-known.
+pub inline fn hasMethod(comptime T: type, comptime name: []const u8) bool {
+    return switch (@typeInfo(T)) {
+        .Pointer => |P| hasFn(P.child, name),
+        else => hasFn(T, name),
+    };
+}
+
 /// True if every value of the type `T` has a unique bit pattern representing it.
 /// In other words, `T` has no unused bits and no padding.
 /// Result is always comptime-known.

@@ -34,6 +34,7 @@ func_index: InternPool.Index,
 func_is_naked: bool,
 /// Used to restore the error return trace when returning a non-error from a function.
 error_return_trace_index_on_fn_entry: Air.Inst.Ref = .none,
+comptime_err_ret_trace: *std.ArrayList(Module.SrcLoc),
 /// When semantic analysis needs to know the return type of the function whose body
 /// is being analyzed, this `Type` should be used instead of going through `func`.
 /// This will correctly handle the case of a comptime/inline function call of a
@@ -1569,7 +1570,22 @@ fn analyzeBodyInner(
                 const inst_data = datas[@intFromEnum(inst)].pl_node;
                 const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
                 const inline_body = sema.code.bodySlice(extra.end, extra.data.body_len);
-                const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
+
+                // Create a temporary child block so that this loop is properly
+                // labeled for any .restore_err_ret_index instructions
+                var child_block = block.makeSubBlock();
+
+                var label: Block.Label = .{
+                    .zir_block = inst,
+                    .merges = undefined,
+                };
+                child_block.label = &label;
+
+                // Write these instructions directly into the parent block
+                child_block.instructions = block.instructions;
+                defer block.instructions = child_block.instructions;
+
+                const break_data = (try sema.analyzeBodyBreak(&child_block, inline_body)) orelse
                     break always_noreturn;
                 if (inst == break_data.block_inst) {
                     break :blk try sema.resolveInst(break_data.operand);
@@ -1585,13 +1601,22 @@ fn analyzeBodyInner(
                 const inst_data = datas[@intFromEnum(inst)].pl_node;
                 const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
                 const inline_body = sema.code.bodySlice(extra.end, extra.data.body_len);
-                // If this block contains a function prototype, we need to reset the
-                // current list of parameters and restore it later.
-                // Note: this probably needs to be resolved in a more general manner.
-                const prev_params = block.params;
-                block.params = .{};
-                defer block.params = prev_params;
-                const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
+
+                // Create a temporary child block so that this block is properly
+                // labeled for any .restore_err_ret_index instructions
+                var child_block = block.makeSubBlock();
+
+                var label: Block.Label = .{
+                    .zir_block = inst,
+                    .merges = undefined,
+                };
+                child_block.label = &label;
+
+                // Write these instructions directly into the parent block
+                child_block.instructions = block.instructions;
+                defer block.instructions = child_block.instructions;
+
+                const break_data = (try sema.analyzeBodyBreak(&child_block, inline_body)) orelse
                     break always_noreturn;
                 if (inst == break_data.block_inst) {
                     break :blk try sema.resolveInst(break_data.operand);
@@ -2377,6 +2402,25 @@ fn typeSupportsFieldAccess(mod: *const Module, ty: Type, field_name: InternPool.
         .Type, .Struct, .Union => return true,
         else => return false,
     }
+}
+
+fn failWithComptimeErrorRetTrace(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    name: InternPool.NullTerminatedString,
+) CompileError {
+    const mod = sema.mod;
+    const msg = msg: {
+        const msg = try sema.errMsg(block, src, "caught unexpected error '{}'", .{name.fmt(&mod.intern_pool)});
+        errdefer msg.destroy(sema.gpa);
+
+        for (sema.comptime_err_ret_trace.items) |src_loc| {
+            try mod.errNoteNonLazy(src_loc, msg, "error returned here", .{});
+        }
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(block, msg);
 }
 
 /// We don't return a pointer to the new error note because the pointer
@@ -6534,10 +6578,12 @@ pub fn analyzeSaveErrRetIndex(sema: *Sema, block: *Block) SemaError!Air.Inst.Ref
     const gpa = sema.gpa;
     const src = sema.src;
 
-    if (!block.ownerModule().error_tracing) return .none;
+    if (block.is_comptime or block.is_typeof) {
+        const index_val = try mod.intValue_u64(Type.usize, sema.comptime_err_ret_trace.items.len);
+        return Air.internedToRef(index_val.toIntern());
+    }
 
-    if (block.is_comptime)
-        return .none;
+    if (!block.ownerModule().error_tracing) return .none;
 
     const stack_trace_ty = sema.getBuiltinType("StackTrace") catch |err| switch (err) {
         error.NeededSourceLocation, error.GenericPoison, error.ComptimeReturn, error.ComptimeBreak => unreachable,
@@ -7498,6 +7544,14 @@ fn analyzeCall(
                 try sema.ensureResultUsed(block, sema.fn_ret_ty, call_src);
             }
 
+            if (is_comptime_call or block.is_typeof) {
+                // Save the error trace as our first action in the function
+                // to match the behavior of runtime function calls.
+                const error_return_trace_index = try sema.analyzeSaveErrRetIndex(&child_block);
+                sema.error_return_trace_index_on_fn_entry = error_return_trace_index;
+                child_block.error_return_trace_index = error_return_trace_index;
+            }
+
             const result = result: {
                 sema.analyzeBody(&child_block, fn_info.body) catch |err| switch (err) {
                     error.ComptimeReturn => break :result inlining.comptime_result,
@@ -7858,6 +7912,7 @@ fn instantiateGenericCall(
         .branch_quota = sema.branch_quota,
         .branch_count = sema.branch_count,
         .comptime_mutable_decls = sema.comptime_mutable_decls,
+        .comptime_err_ret_trace = sema.comptime_err_ret_trace,
     };
     defer child_sema.deinit();
 
@@ -8783,7 +8838,7 @@ fn analyzeErrUnionPayload(
     const payload_ty = err_union_ty.errorUnionPayload(mod);
     if (try sema.resolveDefinedValue(block, operand_src, operand)) |val| {
         if (val.getErrorName(mod).unwrap()) |name| {
-            return sema.fail(block, src, "caught unexpected error '{}'", .{name.fmt(&mod.intern_pool)});
+            return sema.failWithComptimeErrorRetTrace(block, src, name);
         }
         return Air.internedToRef(mod.intern_pool.indexToKey(val.toIntern()).error_union.val.payload);
     }
@@ -8861,7 +8916,7 @@ fn analyzeErrUnionPayloadPtr(
         }
         if (try sema.pointerDeref(block, src, ptr_val, operand_ty)) |val| {
             if (val.getErrorName(mod).unwrap()) |name| {
-                return sema.fail(block, src, "caught unexpected error '{}'", .{name.fmt(&mod.intern_pool)});
+                return sema.failWithComptimeErrorRetTrace(block, src, name);
             }
             return Air.internedToRef((try mod.intern(.{ .ptr = .{
                 .ty = operand_pointer_ty.toIntern(),
@@ -13437,7 +13492,7 @@ fn maybeErrorUnwrapComptime(sema: *Sema, block: *Block, body: []const Zir.Inst.I
 
     if (try sema.resolveDefinedValue(block, src, operand)) |val| {
         if (val.getErrorName(sema.mod).unwrap()) |name| {
-            return sema.fail(block, src, "caught unexpected error '{}'", .{name.fmt(&sema.mod.intern_pool)});
+            return sema.failWithComptimeErrorRetTrace(block, src, name);
         }
     }
 }
@@ -16520,7 +16575,7 @@ fn analyzePtrArithmetic(
         }
         // If the addend is not a comptime-known value we can still count on
         // it being a multiple of the type size.
-        const elem_size = Type.fromInterned(ptr_info.child).abiSize(mod);
+        const elem_size = try sema.typeAbiSize(Type.fromInterned(ptr_info.child));
         const addend = if (opt_off_val) |off_val| a: {
             const off_int = try sema.usizeCast(block, offset_src, try off_val.toUnsignedIntAdvanced(sema));
             break :a elem_size * off_int;
@@ -16557,7 +16612,7 @@ fn analyzePtrArithmetic(
                 const offset_int = try sema.usizeCast(block, offset_src, try offset_val.toUnsignedIntAdvanced(sema));
                 if (offset_int == 0) return ptr;
                 if (try ptr_val.getUnsignedIntAdvanced(mod, sema)) |addr| {
-                    const elem_size = Type.fromInterned(ptr_info.child).abiSize(mod);
+                    const elem_size = try sema.typeAbiSize(Type.fromInterned(ptr_info.child));
                     const new_addr = switch (air_tag) {
                         .ptr_add => addr + elem_size * offset_int,
                         .ptr_sub => addr - elem_size * offset_int,
@@ -19227,14 +19282,8 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index)
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].restore_err_ret_index;
     const src = sema.src; // TODO
 
-    // This is only relevant at runtime.
-    if (start_block.is_comptime or start_block.is_typeof) return;
-
     const mod = sema.mod;
     const ip = &mod.intern_pool;
-
-    if (!ip.funcAnalysis(sema.owner_func_index).calls_or_awaits_errorable_fn) return;
-    if (!start_block.ownerModule().error_tracing) return;
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -19263,9 +19312,29 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index)
         return; // No need to restore
     };
 
+    const operand = try sema.resolveInstAllowNone(inst_data.operand);
+
+    if (start_block.is_comptime or start_block.is_typeof) {
+        const is_non_error = if (operand != .none) blk: {
+            const is_non_error_inst = try sema.analyzeIsNonErr(start_block, src, operand);
+            const cond_val = try sema.resolveDefinedValue(start_block, src, is_non_error_inst);
+            break :blk cond_val.?.toBool();
+        } else true; // no operand means pop unconditionally
+
+        if (is_non_error) return;
+
+        const saved_index_val = try sema.resolveDefinedValue(start_block, src, saved_index);
+        const saved_index_int = saved_index_val.?.toUnsignedInt(mod);
+        assert(saved_index_int <= sema.comptime_err_ret_trace.items.len);
+        sema.comptime_err_ret_trace.items.len = @intCast(saved_index_int);
+        return;
+    }
+
+    if (!ip.funcAnalysis(sema.owner_func_index).calls_or_awaits_errorable_fn) return;
+    if (!start_block.ownerModule().error_tracing) return;
+
     assert(saved_index != .none); // The .error_return_trace_index field was dropped somewhere
 
-    const operand = try sema.resolveInstAllowNone(inst_data.operand);
     return sema.popErrorReturnTrace(start_block, src, operand, saved_index);
 }
 
@@ -19319,10 +19388,16 @@ fn analyzeRet(
 
     if (block.inlining) |inlining| {
         if (block.is_comptime) {
-            _ = try sema.resolveConstValue(block, src, operand, .{
+            const ret_val = try sema.resolveConstValue(block, src, operand, .{
                 .needed_comptime_reason = "value being returned at comptime must be comptime-known",
             });
             inlining.comptime_result = operand;
+
+            if (sema.fn_ret_ty.isError(mod) and ret_val.getErrorName(mod) != .none) {
+                const src_decl = mod.declPtr(block.src_decl);
+                const src_loc = src.toSrcLoc(src_decl, mod);
+                try sema.comptime_err_ret_trace.append(src_loc);
+            }
             return error.ComptimeReturn;
         }
         // We are inlining a function call; rewrite the `ret` as a `break`.
@@ -35467,6 +35542,9 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.Key.StructType) Comp
     var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
     defer comptime_mutable_decls.deinit();
 
+    var comptime_err_ret_trace = std.ArrayList(Module.SrcLoc).init(gpa);
+    defer comptime_err_ret_trace.deinit();
+
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
@@ -35480,6 +35558,7 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.Key.StructType) Comp
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
         .comptime_mutable_decls = &comptime_mutable_decls,
+        .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
 
@@ -36289,6 +36368,9 @@ fn semaStructFields(
     var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
     defer comptime_mutable_decls.deinit();
 
+    var comptime_err_ret_trace = std.ArrayList(Module.SrcLoc).init(gpa);
+    defer comptime_err_ret_trace.deinit();
+
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
@@ -36302,6 +36384,7 @@ fn semaStructFields(
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
         .comptime_mutable_decls = &comptime_mutable_decls,
+        .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
 
@@ -36543,6 +36626,9 @@ fn semaStructFieldInits(
     var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
     defer comptime_mutable_decls.deinit();
 
+    var comptime_err_ret_trace = std.ArrayList(Module.SrcLoc).init(gpa);
+    defer comptime_err_ret_trace.deinit();
+
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
@@ -36556,6 +36642,7 @@ fn semaStructFieldInits(
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
         .comptime_mutable_decls = &comptime_mutable_decls,
+        .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
 
@@ -36727,6 +36814,9 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
     var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
     defer comptime_mutable_decls.deinit();
 
+    var comptime_err_ret_trace = std.ArrayList(Module.SrcLoc).init(gpa);
+    defer comptime_err_ret_trace.deinit();
+
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
@@ -36740,6 +36830,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
         .comptime_mutable_decls = &comptime_mutable_decls,
+        .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
 
