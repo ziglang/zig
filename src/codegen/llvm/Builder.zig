@@ -7340,7 +7340,8 @@ const MemoryAccessInfo = packed struct(u32) {
     _: u13 = undefined,
 };
 
-pub const FastMath = packed struct(u32) {
+pub const FastMath = packed struct(u8) {
+    unsafe_algebra: bool = false, // Legacy
     nnan: bool = false,
     ninf: bool = false,
     nsz: bool = false,
