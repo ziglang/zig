@@ -1628,7 +1628,7 @@ test "ChildProcess.exec cleanup process on success" {
     try testing.expectEqual(@as(usize, 0), try countNumChildProcesses());
 
     const allocator = testing.allocator;
-    var execResult = try ChildProcess.exec(.{
+    const execResult = try ChildProcess.run(.{
         .allocator = allocator,
         .argv = &.{ "echo", "-n", "hello world" },
         .max_output_bytes = 32,
@@ -1638,7 +1638,7 @@ test "ChildProcess.exec cleanup process on success" {
         allocator.free(execResult.stderr);
     }
 
-    try testing.expectEqual(ChildProcess.Term.Exited, execResult.term);
+    try testing.expectEqual(ChildProcess.Term.Exited, std.meta.activeTag(execResult.term));
     try testing.expectEqual(@as(u8, 0), execResult.term.Exited);
     try testing.expectEqualSlices(u8, "hello world", execResult.stdout);
     try testing.expectEqual(@as(usize, 0), try countNumChildProcesses());
@@ -1650,7 +1650,7 @@ test "ChildProcess.exec cleanup process on error after spawn" {
     const testing = std.testing;
     try testing.expectEqual(@as(usize, 0), try countNumChildProcesses());
 
-    const err = ChildProcess.exec(.{
+    const err = ChildProcess.run(.{
         .allocator = testing.allocator,
         .argv = &.{ "echo", "-n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
         .max_output_bytes = 10,
