@@ -21,12 +21,12 @@ const tc64 = Tc64.init;
 // Special-case tests shared between different float sizes, see genTests().
 const special_tests = .{
     // zig fmt: off
-    .{ 0,        1       },
-    .{-0,        1       },
-    .{ 1,        2       },
-    .{-1,        0.5     },
+    .{ 0.0,      1.0     },
+    .{-0.0,      1.0     },
+    .{ 1.0,      2.0     },
+    .{-1.0,      0.5     },
     .{ math.inf, math.inf},
-    .{ negInf,   0       },
+    .{ negInf,   0.0     },
     // zig fmt: on
 };
 
