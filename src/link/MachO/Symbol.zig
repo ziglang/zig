@@ -223,7 +223,7 @@ pub fn setOutputSym(symbol: Symbol, macho_file: *MachO, out: *macho.nlist_64) vo
         out.n_type = if (symbol.flags.abs) macho.N_ABS else macho.N_SECT;
         out.n_sect = if (symbol.flags.abs) 0 else @intCast(symbol.out_n_sect + 1);
         out.n_desc = 0;
-        out.n_value = symbol.getAddress(.{}, macho_file);
+        out.n_value = symbol.getAddress(.{ .stubs = false }, macho_file);
 
         switch (symbol.visibility) {
             .hidden => out.n_type |= macho.N_PEXT,
@@ -234,7 +234,7 @@ pub fn setOutputSym(symbol: Symbol, macho_file: *MachO, out: *macho.nlist_64) vo
         out.n_type = macho.N_EXT;
         out.n_type |= if (symbol.flags.abs) macho.N_ABS else macho.N_SECT;
         out.n_sect = if (symbol.flags.abs) 0 else @intCast(symbol.out_n_sect + 1);
-        out.n_value = symbol.getAddress(.{}, macho_file);
+        out.n_value = symbol.getAddress(.{ .stubs = false }, macho_file);
         out.n_desc = 0;
 
         if (symbol.flags.weak) {
