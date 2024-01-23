@@ -158,7 +158,7 @@ pub const ChildProcess = struct {
         Ignore,
         Pipe,
         Close,
-        File, // Pass an open file to the process. This will take ownership of the file, so **do not close it.**
+        File,
     };
 
     /// First argument in argv is the executable.
@@ -798,16 +798,17 @@ pub const ChildProcess = struct {
 
         var attrs: windows.kernel32.LPPROC_THREAD_ATTRIBUTE_LIST = undefined;
         var attrs_len: windows.SIZE_T = undefined;
+        var attrs_buf: []u8 = undefined;
 
         // This is supposed to error
         _ = windows.kernel32.InitializeProcThreadAttributeList(null, 1, 0, &attrs_len);
-        const attrs_buf: []u8 = try self.allocator.alloc(u8, attrs_len);
+        attrs_buf = try self.allocator.alloc(u8, attrs_len);
         defer self.allocator.free(attrs_buf);
         @memset(attrs_buf, 0);
         attrs = @alignCast(@ptrCast(attrs_buf));
         try windows.InitializeProcThreadAttributeList(attrs, 1, 0, &attrs_len);
-        try windows.UpdateProcThreadAttribute(attrs, 0, windows.kernel32.PROC_THREAD_ATTRIBUTE.HANDLE_LIST, @as(*anyopaque, @ptrCast(@constCast(inheritableHandles.items))), @sizeOf(@TypeOf(std.fs.File.Handle)), null, null);
         defer windows.kernel32.DeleteProcThreadAttributeList(attrs);
+        try windows.UpdateProcThreadAttribute(attrs, 0, windows.kernel32.PROC_THREAD_ATTRIBUTE.HANDLE_LIST, @as(*anyopaque, @ptrCast(@constCast(inheritableHandles.items.ptr))), @sizeOf(@TypeOf(std.fs.File.Handle)) * inheritableHandles.items.len, null, null);
 
         var siStartInfo = windows.STARTUPINFOW{
             .cb = @sizeOf(windows.STARTUPINFOW),
