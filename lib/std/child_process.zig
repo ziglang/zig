@@ -349,8 +349,11 @@ pub const ChildProcess = struct {
             stderr.deinit();
         }
 
-        try child.spawn();
-        try child.collectOutput(&stdout, &stderr, args.max_output_bytes);
+        {
+            try child.spawn();
+            errdefer _ = child.kill() catch {};
+            try child.collectOutput(&stdout, &stderr, args.max_output_bytes);
+        }
 
         return RunResult{
             .term = try child.wait(),
@@ -380,6 +383,12 @@ pub const ChildProcess = struct {
     }
 
     fn waitUnwrappedWindows(self: *ChildProcess) !void {
+        defer {
+            os.close(self.id);
+            os.close(self.thread_handle);
+            self.cleanupStreams();
+        }
+
         const result = windows.WaitForSingleObjectEx(self.id, windows.INFINITE, false);
 
         self.term = @as(SpawnError!Term, x: {
@@ -395,9 +404,6 @@ pub const ChildProcess = struct {
             self.resource_usage_statistics.rusage = try windows.GetProcessMemoryInfo(self.id);
         }
 
-        os.close(self.id);
-        os.close(self.thread_handle);
-        self.cleanupStreams();
         return result;
     }
 
@@ -1594,4 +1600,62 @@ test "createNullDelimitedEnvMap" {
             try testing.expect(false); // Environment variable not found
         }
     }
+}
+
+fn countNumChildProcesses() !usize {
+    var pathBuf: [255]u8 = undefined;
+    const childrenPath = try std.fmt.bufPrint(&pathBuf, "/proc/self/task/{d}/children", .{std.os.linux.gettid()});
+    const file = try std.fs.openFileAbsolute(childrenPath, .{});
+    defer file.close();
+
+    var fileBuf: [2048]u8 = undefined;
+    const fileContent = fileBuf[0..try file.readAll(&fileBuf)];
+
+    var numChildProcesses: usize = 0;
+    var it = std.mem.splitScalar(u8, fileContent, ' ');
+    while (it.next()) |childPid| {
+        if (childPid.len > 0) {
+            numChildProcesses += 1;
+        }
+    }
+    return numChildProcesses;
+}
+
+test "ChildProcess.exec cleanup process on success" {
+    // TODO: Add equivalent test for windows?
+    if (builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const testing = std.testing;
+    try testing.expectEqual(@as(usize, 0), try countNumChildProcesses());
+
+    const allocator = testing.allocator;
+    var execResult = try ChildProcess.exec(.{
+        .allocator = allocator,
+        .argv = &.{ "echo", "-n", "hello world" },
+        .max_output_bytes = 32,
+    });
+    defer {
+        allocator.free(execResult.stdout);
+        allocator.free(execResult.stderr);
+    }
+
+    try testing.expectEqual(ChildProcess.Term.Exited, execResult.term);
+    try testing.expectEqual(@as(u8, 0), execResult.term.Exited);
+    try testing.expectEqualSlices(u8, "hello world", execResult.stdout);
+    try testing.expectEqual(@as(usize, 0), try countNumChildProcesses());
+}
+
+test "ChildProcess.exec cleanup process on error after spawn" {
+    // TODO: Add equivalent test for windows?
+    if (builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const testing = std.testing;
+    try testing.expectEqual(@as(usize, 0), try countNumChildProcesses());
+
+    const err = ChildProcess.exec(.{
+        .allocator = testing.allocator,
+        .argv = &.{ "echo", "-n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        .max_output_bytes = 10,
+    });
+
+    try testing.expectError(error.StdoutStreamTooLong, err);
+    try testing.expectEqual(@as(usize, 0), try countNumChildProcesses());
 }
