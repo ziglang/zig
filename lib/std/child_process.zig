@@ -142,7 +142,9 @@ pub const ChildProcess = struct {
         os.ChangeCurDirError ||
         windows.CreateProcessError ||
         windows.GetProcessMemoryInfoError ||
-        windows.WaitForSingleObjectError;
+        windows.WaitForSingleObjectError ||
+        windows.InitializeProcThreadAttributeListError ||
+        windows.UpdateProcThreadAttributeError;
 
     pub const Term = union(enum) {
         Exited: u8,
@@ -156,6 +158,7 @@ pub const ChildProcess = struct {
         Ignore,
         Pipe,
         Close,
+        File, // Pass an open file to the process. This will take ownership of the file, so **do not close it.**
     };
 
     /// First argument in argv is the executable.
@@ -492,19 +495,33 @@ pub const ChildProcess = struct {
             Term{ .Unknown = status };
     }
 
+    // Reformat a file into an error union of file descriptors with one undefined
+    // Read determines if the file descriptor is placed into the read slot (true) or write slot (false)
+    // Returns file not found for now, because I'm not sure what error should go there otherwise
+    fn fileToFdFormat(file_opt: *const ?File, read: bool) ![2]os.fd_t {
+        // Pair of file descriptors is {R, W}
+        return if (file_opt.*) |file|
+            if (read)
+                [2]os.fd_t{ file.handle, undefined }
+            else
+                [2]os.fd_t{ undefined, file.handle }
+        else
+            error.FileNotFound;
+    }
+
     fn spawnPosix(self: *ChildProcess) SpawnError!void {
         const pipe_flags = if (io.is_async) os.O.NONBLOCK else 0;
-        const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
+        const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else if (self.stdin_behavior == StdIo.File) try fileToFdFormat(&self.stdin, true) else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             destroyPipe(stdin_pipe);
         };
 
-        const stdout_pipe = if (self.stdout_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
+        const stdout_pipe = if (self.stdout_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else if (self.stdout_behavior == StdIo.File) try fileToFdFormat(&self.stdout, false) else undefined;
         errdefer if (self.stdout_behavior == StdIo.Pipe) {
             destroyPipe(stdout_pipe);
         };
 
-        const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
+        const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else if (self.stderr_behavior == StdIo.File) try fileToFdFormat(&self.stderr, false) else undefined;
         errdefer if (self.stderr_behavior == StdIo.Pipe) {
             destroyPipe(stderr_pipe);
         };
@@ -697,6 +714,13 @@ pub const ChildProcess = struct {
             StdIo.Close => {
                 g_hChildStd_IN_Rd = null;
             },
+            StdIo.File => {
+                if (self.stdin) |stdin| {
+                    g_hChildStd_IN_Rd = try dupWinHandleInherit(stdin.handle);
+                } else {
+                    return error.FileNotFound;
+                }
+            },
         }
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             windowsDestroyPipe(g_hChildStd_IN_Rd, g_hChildStd_IN_Wr);
@@ -716,6 +740,13 @@ pub const ChildProcess = struct {
             },
             StdIo.Close => {
                 g_hChildStd_OUT_Wr = null;
+            },
+            StdIo.File => {
+                if (self.stdout) |stdout| {
+                    g_hChildStd_OUT_Wr = try dupWinHandleInherit(stdout.handle);
+                } else {
+                    return error.FileNotFound;
+                }
             },
         }
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
@@ -737,10 +768,46 @@ pub const ChildProcess = struct {
             StdIo.Close => {
                 g_hChildStd_ERR_Wr = null;
             },
+            StdIo.File => {
+                if (self.stderr) |stderr| {
+                    g_hChildStd_ERR_Wr = try dupWinHandleInherit(stderr.handle);
+                } else {
+                    return error.FileNotFound;
+                }
+            },
         }
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             windowsDestroyPipe(g_hChildStd_ERR_Rd, g_hChildStd_ERR_Wr);
         };
+
+        var inheritableHandles: std.ArrayList(std.fs.File.Handle) = std.ArrayList(std.fs.File.Handle).init(self.allocator);
+        defer inheritableHandles.deinit();
+
+        if (nul_handle != undefined) {
+            try inheritableHandles.append(nul_handle);
+        }
+        if (g_hChildStd_IN_Rd) |stdin_rd| {
+            try inheritableHandles.append(stdin_rd);
+        }
+        if (g_hChildStd_OUT_Wr) |stdout_wr| {
+            try inheritableHandles.append(stdout_wr);
+        }
+        if (g_hChildStd_ERR_Wr) |stderr_wr| {
+            try inheritableHandles.append(stderr_wr);
+        }
+
+        var attrs: windows.kernel32.LPPROC_THREAD_ATTRIBUTE_LIST = undefined;
+        var attrs_len: windows.SIZE_T = undefined;
+
+        // This is supposed to error
+        _ = windows.kernel32.InitializeProcThreadAttributeList(null, 1, 0, &attrs_len);
+        const attrs_buf: []u8 = try self.allocator.alloc(u8, attrs_len);
+        defer self.allocator.free(attrs_buf);
+        @memset(attrs_buf, 0);
+        attrs = @alignCast(@ptrCast(attrs_buf));
+        try windows.InitializeProcThreadAttributeList(attrs, 1, 0, &attrs_len);
+        try windows.UpdateProcThreadAttribute(attrs, 0, windows.kernel32.PROC_THREAD_ATTRIBUTE.HANDLE_LIST, @as(*anyopaque, @ptrCast(@constCast(inheritableHandles.items))), @sizeOf(@TypeOf(std.fs.File.Handle)), null, null);
+        defer windows.kernel32.DeleteProcThreadAttributeList(attrs);
 
         var siStartInfo = windows.STARTUPINFOW{
             .cb = @sizeOf(windows.STARTUPINFOW),
@@ -921,6 +988,17 @@ pub const ChildProcess = struct {
             .Close => os.close(std_fileno),
             .Inherit => {},
             .Ignore => try os.dup2(dev_null_fd, std_fileno),
+            .File => try os.dup2(pipe_fd, std_fileno),
+        }
+    }
+
+    fn dupWinHandleInherit(handle: windows.HANDLE) !windows.HANDLE {
+        const pid = windows.kernel32.GetCurrentProcess();
+        var dup: windows.HANDLE = undefined;
+        if (windows.kernel32.DuplicateHandle(pid, handle, pid, &dup, 0, windows.TRUE, windows.DUPLICATE_SAME_ACCESS) == 0) {
+            return windows.unexpectedError(windows.kernel32.GetLastError());
+        } else {
+            return dup;
         }
     }
 };

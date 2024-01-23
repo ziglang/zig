@@ -5283,3 +5283,23 @@ pub fn ProcessBaseAddress(handle: HANDLE) ProcessBaseAddressError!HMODULE {
     const ppeb: *const PEB = @ptrCast(@alignCast(peb_out.ptr));
     return ppeb.ImageBaseAddress;
 }
+
+pub const InitializeProcThreadAttributeListError = error{ Unexpected, InsufficientBuffer };
+pub fn InitializeProcThreadAttributeList(lpAttributeList: ?kernel32.LPPROC_THREAD_ATTRIBUTE_LIST, dwAttributeCount: DWORD, dwFlags: DWORD, lpSize: ?*usize) InitializeProcThreadAttributeListError!void {
+    if (kernel32.InitializeProcThreadAttributeList(lpAttributeList, dwAttributeCount, dwFlags, lpSize) == 0) {
+        switch (kernel32.GetLastError()) {
+            .INSUFFICIENT_BUFFER => return error.InsufficientBuffer,
+            else => |err| return unexpectedError(err),
+        }
+    }
+}
+
+pub const UpdateProcThreadAttributeError = error{ NoSpaceLeft, Unexpected };
+pub fn UpdateProcThreadAttribute(lpAttributeList: ?kernel32.LPPROC_THREAD_ATTRIBUTE_LIST, dwFlags: DWORD, attribute: usize, lpValue: ?*anyopaque, cbSize: SIZE_T, lpPreviousValue: ?*anyopaque, lpReturnSize: ?*anyopaque) UpdateProcThreadAttributeError!void {
+    if (kernel32.UpdateProcThreadAttribute(lpAttributeList, dwFlags, attribute, lpValue, cbSize, lpPreviousValue, lpReturnSize) == 0) {
+        switch (kernel32.GetLastError()) {
+            .BAD_LENGTH => return error.NoSpaceLeft,
+            else => |err| return unexpectedError(err),
+        }
+    }
+}
