@@ -2236,6 +2236,8 @@ const DeclGen = struct {
             .ptr_elem_val   => try self.airPtrElemVal(inst),
             .array_elem_val => try self.airArrayElemVal(inst),
 
+            .vector_store_elem  => return self.airVectorStoreElem(inst),
+
             .set_union_tag => return self.airSetUnionTag(inst),
             .get_union_tag => try self.airGetUnionTag(inst),
             .union_init => try self.airUnionInit(inst),
@@ -3822,6 +3824,28 @@ const DeclGen = struct {
         const index_id = try self.resolve(bin_op.rhs);
         const elem_ptr_id = try self.ptrElemPtr(ptr_ty, ptr_id, index_id);
         return try self.load(elem_ty, elem_ptr_id, .{ .is_volatile = ptr_ty.isVolatilePtr(mod) });
+    }
+
+    fn airVectorStoreElem(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const mod = self.module;
+        const data = self.air.instructions.items(.data)[@intFromEnum(inst)].vector_store_elem;
+        const extra = self.air.extraData(Air.Bin, data.payload).data;
+
+        const vector_ptr_ty = self.typeOf(data.vector_ptr);
+        const vector_ty = vector_ptr_ty.childType(mod);
+        const scalar_ty = vector_ty.scalarType(mod);
+
+        const storage_class = spvStorageClass(vector_ptr_ty.ptrAddressSpace(mod));
+        const scalar_ptr_ty_ref = try self.ptrType(scalar_ty, storage_class);
+
+        const vector_ptr = try self.resolve(data.vector_ptr);
+        const index = try self.resolve(extra.lhs);
+        const operand = try self.resolve(extra.rhs);
+
+        const elem_ptr_id = try self.accessChainId(scalar_ptr_ty_ref, vector_ptr, &.{index});
+        try self.store(scalar_ty, elem_ptr_id, operand, .{
+            .is_volatile = vector_ptr_ty.isVolatilePtr(mod),
+        });
     }
 
     fn airSetUnionTag(self: *DeclGen, inst: Air.Inst.Index) !void {
