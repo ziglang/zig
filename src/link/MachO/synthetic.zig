@@ -315,7 +315,7 @@ pub const StubsSection = struct {
 pub const StubsHelperSection = struct {
     pub inline fn preambleSize(cpu_arch: std.Target.Cpu.Arch) usize {
         return switch (cpu_arch) {
-            .x86_64 => 15,
+            .x86_64 => 16,
             .aarch64 => 6 * @sizeOf(u32),
             else => 0,
         };
@@ -408,6 +408,7 @@ pub const StubsHelperSection = struct {
                 try writer.writeInt(i32, @intCast(dyld_private_addr - sect.addr - 3 - 4), .little);
                 try writer.writeAll(&.{ 0x41, 0x53, 0xff, 0x25 });
                 try writer.writeInt(i32, @intCast(dyld_stub_binder_addr - sect.addr - 11 - 4), .little);
+                try writer.writeByte(0x90);
             },
             .aarch64 => {
                 {
@@ -460,7 +461,11 @@ pub const LaSymbolPtrSection = struct {
         for (macho_file.stubs.symbols.items, 0..) |sym_index, idx| {
             const sym = macho_file.getSymbol(sym_index);
             const addr = sect.addr + idx * @sizeOf(u64);
-            const entry = bind.Entry{
+            const rebase_entry = Rebase.Entry{
+                .offset = addr - seg.vmaddr,
+                .segment_id = seg_id,
+            };
+            const bind_entry = bind.Entry{
                 .target = sym_index,
                 .offset = addr - seg.vmaddr,
                 .segment_id = seg_id,
@@ -468,20 +473,19 @@ pub const LaSymbolPtrSection = struct {
             };
             if (sym.flags.import) {
                 if (sym.flags.weak) {
-                    try macho_file.bind.entries.append(gpa, entry);
-                    try macho_file.weak_bind.entries.append(gpa, entry);
+                    try macho_file.bind.entries.append(gpa, bind_entry);
+                    try macho_file.weak_bind.entries.append(gpa, bind_entry);
                 } else {
-                    try macho_file.lazy_bind.entries.append(gpa, entry);
+                    try macho_file.lazy_bind.entries.append(gpa, bind_entry);
+                    try macho_file.rebase.entries.append(gpa, rebase_entry);
                 }
             } else {
                 if (sym.flags.weak) {
-                    try macho_file.rebase.entries.append(gpa, .{
-                        .offset = addr - seg.vmaddr,
-                        .segment_id = seg_id,
-                    });
-                    try macho_file.weak_bind.entries.append(gpa, entry);
+                    try macho_file.rebase.entries.append(gpa, rebase_entry);
+                    try macho_file.weak_bind.entries.append(gpa, bind_entry);
                 } else if (sym.flags.interposable) {
-                    try macho_file.lazy_bind.entries.append(gpa, entry);
+                    try macho_file.lazy_bind.entries.append(gpa, bind_entry);
+                    try macho_file.rebase.entries.append(gpa, rebase_entry);
                 }
             }
         }
@@ -493,15 +497,19 @@ pub const LaSymbolPtrSection = struct {
         _ = laptr;
         const cpu_arch = macho_file.getTarget().cpu.arch;
         const sect = macho_file.sections.items(.header)[macho_file.stubs_helper_sect_index.?];
-        for (macho_file.stubs.symbols.items, 0..) |sym_index, idx| {
+        var stub_helper_idx: u32 = 0;
+        for (macho_file.stubs.symbols.items) |sym_index| {
             const sym = macho_file.getSymbol(sym_index);
             const value: u64 = if (sym.flags.@"export")
                 sym.getAddress(.{ .stubs = false }, macho_file)
             else if (sym.flags.weak)
                 @as(u64, 0)
-            else
-                sect.addr + StubsHelperSection.preambleSize(cpu_arch) +
-                    StubsHelperSection.entrySize(cpu_arch) * idx;
+            else value: {
+                const value = sect.addr + StubsHelperSection.preambleSize(cpu_arch) +
+                    StubsHelperSection.entrySize(cpu_arch) * stub_helper_idx;
+                stub_helper_idx += 1;
+                break :value value;
+            };
             try writer.writeInt(u64, @intCast(value), .little);
         }
     }

@@ -12,7 +12,7 @@ const Allocator = std.mem.Allocator;
 entries: std.ArrayListUnmanaged(Entry) = .{},
 buffer: std.ArrayListUnmanaged(u8) = .{},
 
-const Entry = struct {
+pub const Entry = struct {
     offset: u64,
     segment_id: u8,
 
