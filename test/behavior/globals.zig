@@ -66,7 +66,7 @@ test "global loads can affect liveness" {
         }
     };
 
-    var x: ByRef = .{ .a = 1 };
+    var x: S.ByRef = .{ .a = 1 };
     S.global_ptr = &x;
     const y = x;
     S.f();
