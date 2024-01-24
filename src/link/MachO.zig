@@ -2243,7 +2243,8 @@ fn initSegments(self: *MachO) !void {
     for (slice.items(.header)) |header| {
         const segname = header.segName();
         if (self.getSegmentByName(segname) == null) {
-            _ = try self.addSegment(segname, .{ .prot = getSegmentProt(segname) });
+            const flags: u32 = if (mem.startsWith(u8, segname, "__DATA_CONST")) macho.SG_READ_ONLY else 0;
+            _ = try self.addSegment(segname, .{ .prot = getSegmentProt(segname), .flags = flags });
         }
     }
 
@@ -3543,6 +3544,7 @@ pub fn addSegment(self: *MachO, name: []const u8, opts: struct {
     fileoff: u64 = 0,
     filesize: u64 = 0,
     prot: macho.vm_prot_t = macho.PROT.NONE,
+    flags: u32 = 0,
 }) error{OutOfMemory}!u8 {
     const gpa = self.base.comp.gpa;
     const index = @as(u8, @intCast(self.segments.items.len));
