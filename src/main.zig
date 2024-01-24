@@ -7242,7 +7242,7 @@ fn accessLibPath(
         }
 
         if (find) {
-            try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}.{}.{}", .{
+            try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}.{d}.{d}", .{
                 lib_dir_path,
                 target.libPrefix(),
                 lib_name,
