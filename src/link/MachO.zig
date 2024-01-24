@@ -1257,23 +1257,15 @@ fn parseDependentDylibs(self: *MachO) !void {
             const full_path = full_path: {
                 fail: {
                     const stem = std.fs.path.stem(id.name);
-                    const framework_name = try std.fmt.allocPrint(gpa, "{s}.framework" ++ std.fs.path.sep_str ++ "{s}", .{
-                        stem,
-                        stem,
-                    });
-                    defer gpa.free(framework_name);
 
-                    if (mem.endsWith(u8, id.name, framework_name)) {
-                        // Framework
-                        if (try resolveFramework(
-                            arena,
-                            &test_path,
-                            &checked_paths,
-                            framework_dirs,
-                            stem,
-                        )) break :full_path test_path.items;
-                        break :fail;
-                    }
+                    // Framework
+                    if (try resolveFramework(
+                        arena,
+                        &test_path,
+                        &checked_paths,
+                        framework_dirs,
+                        stem,
+                    )) break :full_path test_path.items;
 
                     // Library
                     const lib_name = eatPrefix(stem, "lib") orelse stem;
