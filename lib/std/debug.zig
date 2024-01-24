@@ -811,6 +811,22 @@ pub fn writeCurrentStackTrace(
         return writeStackTraceWindows(out_stream, debug_info, tty_config, &context, start_addr);
     }
 
+    if (native_os == .uefi) {
+        // problem: zig does not have a way to emit dwarf debug info for a COFF object
+        // result: we cannot use the DWARF unwinder on UEFI
+        // problem: UEFI uses the windows x64 frame layout, which means the frame pointer is basically useless
+        // result: we cannot use the frame pointer unwinder on UEFI
+        // problem: zig does not emit the .pdata section for UEFI binaries
+        // result: we cannot use the windows x64 unwinder (well, a port of one) on UEFI
+        // until one of these problems is solved, just don't even try to unwind the stack on UEFI, print the address of the first frame and give up
+
+        if (start_addr) |address| {
+            try printSourceAtAddress(debug_info, out_stream, address, tty_config);
+        }
+
+        return;
+    }
+
     var it = (if (has_context) blk: {
         break :blk StackIterator.initWithContext(start_addr, debug_info, &context) catch null;
     } else null) orelse StackIterator.init(start_addr, null);
