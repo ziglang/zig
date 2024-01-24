@@ -101,28 +101,136 @@ fn addOptionFallible(self: *Options, comptime T: type, name: []const u8, value: 
         },
         else => {},
     }
+
     switch (@typeInfo(T)) {
         .Enum => |enum_info| {
-            const gop = try self.encountered_types.getOrPut(@typeName(T));
-            if (!gop.found_existing) {
-                try out.print("pub const {} = enum {{\n", .{std.zig.fmtId(@typeName(T))});
-                inline for (enum_info.fields) |field| {
-                    try out.print("    {},\n", .{std.zig.fmtId(field.name)});
-                }
-                try out.writeAll("};\n");
-            }
-            try out.print("pub const {}: {s} = .{s};\n", .{
+            try printEnum(self, out, T, enum_info, 0);
+            return try out.print("pub const {}: {s} = .{s};\n", .{
                 std.zig.fmtId(name),
                 std.zig.fmtId(@typeName(T)),
                 std.zig.fmtId(@tagName(value)),
             });
-            return;
+        },
+        .Struct => |struct_info| {
+            try printStruct(self, out, T, struct_info, 0);
+            try out.print("pub const {}: {s} = ", .{
+                std.zig.fmtId(name),
+                std.zig.fmtId(@typeName(T)),
+            });
+
+            return printStructValue(out, struct_info, value, 0);
         },
         else => {},
     }
+
     try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(name), @typeName(T) });
     try printLiteral(out, value, 0);
     try out.writeAll(";\n");
+}
+
+fn printUserDefinedType(self: *Options, out: anytype, comptime T: type, indent: u8) !bool {
+    switch (@typeInfo(T)) {
+        .Enum => |enum_info| {
+            try printEnum(self, out, T, enum_info, indent);
+            return true;
+        },
+        .Struct => |struct_info| {
+            try printStruct(self, out, T, struct_info, indent);
+            return true;
+        },
+        else => return false,
+    }
+}
+
+fn printEnum(self: *Options, out: anytype, comptime T: type, comptime val: std.builtin.Type.Enum, indent: u8) !void {
+    const gop = try self.encountered_types.getOrPut(@typeName(T));
+    if (!gop.found_existing) {
+        try out.writeByteNTimes(' ', indent);
+        try out.print("pub const {} = enum ({s}) {{\n", .{ std.zig.fmtId(@typeName(T)), @typeName(val.tag_type) });
+
+        inline for (val.fields) |field| {
+            try out.writeByteNTimes(' ', indent);
+            try out.print("    {} = {d},\n", .{ std.zig.fmtId(field.name), field.value });
+        }
+        try out.writeByteNTimes(' ', indent);
+        try out.writeAll("};\n");
+    }
+}
+
+fn printStruct(self: *Options, out: anytype, comptime T: type, comptime val: std.builtin.Type.Struct, indent: u8) !void {
+    const gop = try self.encountered_types.getOrPut(@typeName(T));
+    if (!gop.found_existing) {
+        try out.writeByteNTimes(' ', indent);
+        try out.print("pub const {} = struct {{\n", .{std.zig.fmtId(@typeName(T))});
+
+        inline for (val.fields) |field| {
+            _ = try printUserDefinedType(self, out, field.type, indent + 4);
+        }
+
+        inline for (val.fields) |field| {
+            try out.writeByteNTimes(' ', indent);
+            try out.print("    {}: {}", .{ std.zig.fmtId(field.name), std.zig.fmtId(@typeName(field.type)) });
+
+            if (field.default_value != null) {
+                const default_value = @as(*field.type, @ptrCast(@alignCast(@constCast(field.default_value.?)))).*;
+
+                try out.writeAll(" = ");
+                switch (@typeInfo(@TypeOf(default_value))) {
+                    .Enum => {
+                        try out.print(".{s},\n", .{@tagName(default_value)});
+                    },
+                    .Struct => |struct_info| {
+                        try printStructValue(out, struct_info, default_value, indent + 4);
+                    },
+                    else => try out.print("{},\n", .{default_value}),
+                }
+            } else {
+                try out.writeAll(",\n");
+            }
+        }
+
+        // TODO: write declarations
+
+        try out.writeByteNTimes(' ', indent);
+        try out.writeAll("};\n");
+    }
+}
+
+fn printStructValue(out: anytype, comptime struct_val: std.builtin.Type.Struct, val: anytype, indent: u8) !void {
+    try out.writeAll(".{\n");
+
+    if (struct_val.is_tuple) {
+        inline for (struct_val.fields) |field| {
+            try out.writeByteNTimes(' ', indent);
+            try std.fmt.formatType(@field(val, field.name), "any", .{}, out, 0);
+            try out.writeAll(",\n");
+        }
+    } else {
+        inline for (struct_val.fields) |field| {
+            try out.writeByteNTimes(' ', indent);
+            try out.print("    .{} = ", .{std.zig.fmtId(field.name)});
+
+            switch (@typeInfo(@TypeOf(@field(val, field.name)))) {
+                .Enum => {
+                    try out.print(".{s},\n", .{@tagName(@field(val, field.name))});
+                },
+                .Struct => |struct_info| {
+                    try printStructValue(out, struct_info, @field(val, field.name), indent + 4);
+                },
+                else => {
+                    try std.fmt.formatType(@field(val, field.name), "any", .{}, out, 0);
+                    try out.writeAll(",\n");
+                },
+            }
+        }
+    }
+
+    if (indent == 0) {
+        try out.writeAll("};\n");
+    } else {
+        try out.writeByteNTimes(' ', indent);
+        try out.writeAll("},\n");
+    }
 }
 
 // TODO: non-recursive?
@@ -380,8 +488,8 @@ test Options {
         \\        200,
         \\    },
         \\};
-        \\pub const @"Build.Step.Options.decltest.Options.KeywordEnum" = enum {
-        \\    @"0.8.1",
+        \\pub const @"Build.Step.Options.decltest.Options.KeywordEnum" = enum (u0) {
+        \\    @"0.8.1" = 0,
         \\};
         \\pub const keyword_enum: @"Build.Step.Options.decltest.Options.KeywordEnum" = .@"0.8.1";
         \\pub const semantic_version: @import("std").SemanticVersion = .{
@@ -391,9 +499,9 @@ test Options {
         \\    .pre = "foo",
         \\    .build = "bar",
         \\};
-        \\pub const @"Build.Step.Options.decltest.Options.NormalEnum" = enum {
-        \\    foo,
-        \\    bar,
+        \\pub const @"Build.Step.Options.decltest.Options.NormalEnum" = enum (u1) {
+        \\    foo = 0,
+        \\    bar = 1,
         \\};
         \\pub const normal1: @"Build.Step.Options.decltest.Options.NormalEnum" = .foo;
         \\pub const normal2: @"Build.Step.Options.decltest.Options.NormalEnum" = .bar;
