@@ -337,9 +337,8 @@ pub const StubsHelperSection = struct {
         var s: usize = preambleSize(cpu_arch);
         for (macho_file.stubs.symbols.items) |sym_index| {
             const sym = macho_file.getSymbol(sym_index);
-            if ((sym.flags.import and !sym.flags.weak) or (!sym.flags.weak and sym.flags.interposable)) {
-                s += entrySize(cpu_arch);
-            }
+            if (sym.flags.weak) continue;
+            s += entrySize(cpu_arch);
         }
         return s;
     }
@@ -358,35 +357,34 @@ pub const StubsHelperSection = struct {
         var idx: usize = 0;
         for (macho_file.stubs.symbols.items) |sym_index| {
             const sym = macho_file.getSymbol(sym_index);
-            if ((sym.flags.import and !sym.flags.weak) or (!sym.flags.weak and sym.flags.interposable)) {
-                const offset = macho_file.lazy_bind.offsets.items[idx];
-                const source: i64 = @intCast(sect.addr + preamble_size + entry_size * idx);
-                const target: i64 = @intCast(sect.addr);
-                switch (cpu_arch) {
-                    .x86_64 => {
-                        try writer.writeByte(0x68);
-                        try writer.writeInt(u32, offset, .little);
-                        try writer.writeByte(0xe9);
-                        try writer.writeInt(i32, @intCast(target - source - 6 - 4), .little);
-                    },
-                    .aarch64 => {
-                        const literal = blk: {
-                            const div_res = try std.math.divExact(u64, entry_size - @sizeOf(u32), 4);
-                            break :blk std.math.cast(u18, div_res) orelse return error.Overflow;
-                        };
-                        try writer.writeInt(u32, aarch64.Instruction.ldrLiteral(
-                            .w16,
-                            literal,
-                        ).toU32(), .little);
-                        const disp = math.cast(i28, @as(i64, @intCast(target)) - @as(i64, @intCast(source + 4))) orelse
-                            return error.Overflow;
-                        try writer.writeInt(u32, aarch64.Instruction.b(disp).toU32(), .little);
-                        try writer.writeAll(&.{ 0x0, 0x0, 0x0, 0x0 });
-                    },
-                    else => unreachable,
-                }
-                idx += 1;
+            if (sym.flags.weak) continue;
+            const offset = macho_file.lazy_bind.offsets.items[idx];
+            const source: i64 = @intCast(sect.addr + preamble_size + entry_size * idx);
+            const target: i64 = @intCast(sect.addr);
+            switch (cpu_arch) {
+                .x86_64 => {
+                    try writer.writeByte(0x68);
+                    try writer.writeInt(u32, offset, .little);
+                    try writer.writeByte(0xe9);
+                    try writer.writeInt(i32, @intCast(target - source - 6 - 4), .little);
+                },
+                .aarch64 => {
+                    const literal = blk: {
+                        const div_res = try std.math.divExact(u64, entry_size - @sizeOf(u32), 4);
+                        break :blk std.math.cast(u18, div_res) orelse return error.Overflow;
+                    };
+                    try writer.writeInt(u32, aarch64.Instruction.ldrLiteral(
+                        .w16,
+                        literal,
+                    ).toU32(), .little);
+                    const disp = math.cast(i28, @as(i64, @intCast(target)) - @as(i64, @intCast(source + 4))) orelse
+                        return error.Overflow;
+                    try writer.writeInt(u32, aarch64.Instruction.b(disp).toU32(), .little);
+                    try writer.writeAll(&.{ 0x0, 0x0, 0x0, 0x0 });
+                },
+                else => unreachable,
             }
+            idx += 1;
         }
     }
 
@@ -500,17 +498,15 @@ pub const LaSymbolPtrSection = struct {
         var stub_helper_idx: u32 = 0;
         for (macho_file.stubs.symbols.items) |sym_index| {
             const sym = macho_file.getSymbol(sym_index);
-            const value: u64 = if (sym.flags.@"export")
-                sym.getAddress(.{ .stubs = false }, macho_file)
-            else if (sym.flags.weak)
-                @as(u64, 0)
-            else value: {
+            if (sym.flags.weak) {
+                const value = sym.getAddress(.{ .stubs = false }, macho_file);
+                try writer.writeInt(u64, @intCast(value), .little);
+            } else {
                 const value = sect.addr + StubsHelperSection.preambleSize(cpu_arch) +
                     StubsHelperSection.entrySize(cpu_arch) * stub_helper_idx;
                 stub_helper_idx += 1;
-                break :value value;
-            };
-            try writer.writeInt(u64, @intCast(value), .little);
+                try writer.writeInt(u64, @intCast(value), .little);
+            }
         }
     }
 };
