@@ -2742,6 +2742,9 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node)
 
     try wasm.parseInputFiles(positionals.items);
 
+    if (wasm.zig_object_index != .null) {
+        try wasm.resolveSymbolsInObject(wasm.zig_object_index);
+    }
     for (wasm.objects.items) |object_index| {
         try wasm.resolveSymbolsInObject(object_index);
     }

@@ -2239,7 +2239,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     }
 
     if (callee) |direct| {
-        const atom_index = func.bin_file.zigObjectPtr().?.decls.get(direct).?;
+        const atom_index = func.bin_file.zigObjectPtr().?.decls_map.get(direct).?.atom;
         try func.addLabel(.call, func.bin_file.getAtom(atom_index).sym_index);
     } else {
         // in this case we call a function pointer
