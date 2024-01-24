@@ -148,7 +148,10 @@ const blacklist = [_][]const u8{
     "msvcr80.def.in",
     "msvcr90.def.in",
     "msvcr90d.def.in",
+    "msvcrt.def.in",
     "msvcrt10.def.in",
     "msvcrt20.def.in",
     "msvcrt40.def.in",
+
+    "crtdll.def.in",
 };

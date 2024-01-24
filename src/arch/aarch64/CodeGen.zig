@@ -4013,10 +4013,11 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                     .import => unreachable,
                                 };
                                 const atom_index = switch (self.bin_file.tag) {
-                                    .macho => blk: {
-                                        const macho_file = self.bin_file.cast(link.File.MachO).?;
-                                        const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
-                                        break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                                    .macho => {
+                                        // const macho_file = self.bin_file.cast(link.File.MachO).?;
+                                        // const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
+                                        // break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                                        @panic("TODO store");
                                     },
                                     .coff => blk: {
                                         const coff_file = self.bin_file.cast(link.File.Coff).?;
@@ -4321,14 +4322,16 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const got_addr = @as(u32, @intCast(sym.zigGotAddress(elf_file)));
                 try self.genSetReg(Type.usize, .x30, .{ .memory = got_addr });
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                const atom = try macho_file.getOrCreateAtomForDecl(func.owner_decl);
-                const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
-                try self.genSetReg(Type.u64, .x30, .{
-                    .linker_load = .{
-                        .type = .got,
-                        .sym_index = sym_index,
-                    },
-                });
+                _ = macho_file;
+                @panic("TODO airCall");
+                // const atom = try macho_file.getOrCreateAtomForDecl(func.owner_decl);
+                // const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
+                // try self.genSetReg(Type.u64, .x30, .{
+                //     .linker_load = .{
+                //         .type = .got,
+                //         .sym_index = sym_index,
+                //     },
+                // });
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const atom = try coff_file.getOrCreateAtomForDecl(func.owner_decl);
                 const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
@@ -4352,18 +4355,20 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             const decl_name = mod.intern_pool.stringToSlice(mod.declPtr(extern_func.decl).name);
             const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                const sym_index = try macho_file.getGlobalSymbol(decl_name, lib_name);
-                const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
-                const atom_index = macho_file.getAtom(atom).getSymbolIndex().?;
-                _ = try self.addInst(.{
-                    .tag = .call_extern,
-                    .data = .{
-                        .relocation = .{
-                            .atom_index = atom_index,
-                            .sym_index = sym_index,
-                        },
-                    },
-                });
+                _ = macho_file;
+                @panic("TODO airCall");
+                // const sym_index = try macho_file.getGlobalSymbol(decl_name, lib_name);
+                // const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
+                // const atom_index = macho_file.getAtom(atom).getSymbolIndex().?;
+                // _ = try self.addInst(.{
+                //     .tag = .call_extern,
+                //     .data = .{
+                //         .relocation = .{
+                //             .atom_index = atom_index,
+                //             .sym_index = sym_index,
+                //         },
+                //     },
+                // });
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const sym_index = try coff_file.getGlobalSymbol(decl_name, lib_name);
                 try self.genSetReg(Type.u64, .x30, .{
@@ -5532,10 +5537,11 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                             .import => unreachable,
                         };
                         const atom_index = switch (self.bin_file.tag) {
-                            .macho => blk: {
-                                const macho_file = self.bin_file.cast(link.File.MachO).?;
-                                const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
-                                break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                            .macho => {
+                                // const macho_file = self.bin_file.cast(link.File.MachO).?;
+                                // const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
+                                // break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                                @panic("TODO genSetStack");
                             },
                             .coff => blk: {
                                 const coff_file = self.bin_file.cast(link.File.Coff).?;
@@ -5653,10 +5659,11 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .import => .load_memory_import,
             };
             const atom_index = switch (self.bin_file.tag) {
-                .macho => blk: {
-                    const macho_file = self.bin_file.cast(link.File.MachO).?;
-                    const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
-                    break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                .macho => {
+                    @panic("TODO genSetReg");
+                    // const macho_file = self.bin_file.cast(link.File.MachO).?;
+                    // const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
+                    // break :blk macho_file.getAtom(atom).getSymbolIndex().?;
                 },
                 .coff => blk: {
                     const coff_file = self.bin_file.cast(link.File.Coff).?;
@@ -5850,10 +5857,11 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                             .import => unreachable,
                         };
                         const atom_index = switch (self.bin_file.tag) {
-                            .macho => blk: {
-                                const macho_file = self.bin_file.cast(link.File.MachO).?;
-                                const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
-                                break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                            .macho => {
+                                @panic("TODO genSetStackArgument");
+                                // const macho_file = self.bin_file.cast(link.File.MachO).?;
+                                // const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
+                                // break :blk macho_file.getAtom(atom).getSymbolIndex().?;
                             },
                             .coff => blk: {
                                 const coff_file = self.bin_file.cast(link.File.Coff).?;

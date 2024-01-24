@@ -947,19 +947,8 @@ fn isType(name: []const u8) bool {
     return false;
 }
 
-const start_line = "<span class=\"line\">";
-const end_line = "</span>";
-
 fn writeEscapedLines(out: anytype, text: []const u8) !void {
-    for (text) |char| {
-        if (char == '\n') {
-            try out.writeAll(end_line);
-            try out.writeAll("\n");
-            try out.writeAll(start_line);
-        } else {
-            try writeEscaped(out, &[_]u8{char});
-        }
-    }
+    return writeEscaped(out, text);
 }
 
 fn tokenizeAndPrintRaw(
@@ -972,7 +961,7 @@ fn tokenizeAndPrintRaw(
     const src_non_terminated = mem.trim(u8, raw_src, " \r\n");
     const src = try allocator.dupeZ(u8, src_non_terminated);
 
-    try out.writeAll("<code>" ++ start_line);
+    try out.writeAll("<code>");
     var tokenizer = std.zig.Tokenizer.init(src);
     var index: usize = 0;
     var next_tok_is_fn = false;
@@ -1062,23 +1051,12 @@ fn tokenizeAndPrintRaw(
             },
 
             .string_literal,
+            .multiline_string_literal_line,
             .char_literal,
             => {
                 try out.writeAll("<span class=\"tok-str\">");
                 try writeEscaped(out, src[token.loc.start..token.loc.end]);
                 try out.writeAll("</span>");
-            },
-
-            .multiline_string_literal_line => {
-                if (src[token.loc.end - 1] == '\n') {
-                    try out.writeAll("<span class=\"tok-str\">");
-                    try writeEscaped(out, src[token.loc.start .. token.loc.end - 1]);
-                    try out.writeAll("</span>" ++ end_line ++ "\n" ++ start_line);
-                } else {
-                    try out.writeAll("<span class=\"tok-str\">");
-                    try writeEscaped(out, src[token.loc.start..token.loc.end]);
-                    try out.writeAll("</span>");
-                }
             },
 
             .builtin => {
@@ -1211,7 +1189,7 @@ fn tokenizeAndPrintRaw(
         }
         index = token.loc.end;
     }
-    try out.writeAll(end_line ++ "</code>");
+    try out.writeAll("</code>");
 }
 
 fn tokenizeAndPrint(
@@ -1234,9 +1212,9 @@ fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: any
             const raw_source = docgen_tokenizer.buffer[syntax_block.source_token.start..syntax_block.source_token.end];
             const trimmed_raw_source = mem.trim(u8, raw_source, " \r\n");
 
-            try out.writeAll("<code>" ++ start_line);
+            try out.writeAll("<code>");
             try writeEscapedLines(out, trimmed_raw_source);
-            try out.writeAll(end_line ++ "</code>");
+            try out.writeAll("</code>");
         },
     }
     try out.writeAll("</pre></figure>");

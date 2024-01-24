@@ -575,6 +575,11 @@ pub const Value = struct {
         return getUnsignedInt(val, mod).?;
     }
 
+    /// Asserts the value is an integer and it fits in a u64
+    pub fn toUnsignedIntAdvanced(val: Value, sema: *Sema) !u64 {
+        return (try getUnsignedIntAdvanced(val, sema.mod, sema)).?;
+    }
+
     /// Asserts the value is an integer and it fits in a i64
     pub fn toSignedInt(val: Value, mod: *Module) i64 {
         return switch (val.toIntern()) {

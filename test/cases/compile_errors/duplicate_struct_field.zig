@@ -24,10 +24,10 @@ export fn b() void {
 // backend=stage2
 // target=native
 //
-// :2:5: error: duplicate struct field: 'Bar'
-// :3:5: note: other field here
+// :2:5: error: duplicate struct field name
+// :3:5: note: duplicate field here
 // :1:13: note: struct declared here
-// :7:5: error: duplicate struct field: 'a'
-// :9:5: note: other field here
-// :10:5: note: other field here
+// :7:5: error: duplicate struct field name
+// :9:5: note: duplicate field here
+// :10:5: note: duplicate field here
 // :6:11: note: struct declared here

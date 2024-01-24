@@ -507,8 +507,9 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\    return p.y - p.x - p.x;
             \\}
         , &.{
-            ":4:10: error: duplicate field",
-            ":6:10: note: other field here",
+            ":4:10: error: duplicate struct field name",
+            ":6:10: note: duplicate name here",
+            ":3:21: note: struct declared here",
         });
         case.addError(
             \\const Point = struct { x: i32, y: i32 };
@@ -722,8 +723,9 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\    _ = E1.a;
             \\}
         , &.{
-            ":1:28: error: duplicate enum field 'b'",
-            ":1:22: note: other field here",
+            ":1:22: error: duplicate enum field name",
+            ":1:28: note: duplicate field here",
+            ":1:12: note: enum declared here",
         });
 
         case.addError(

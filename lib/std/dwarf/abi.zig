@@ -369,6 +369,14 @@ pub fn regBytes(
 
                 else => error.InvalidRegister,
             },
+            .openbsd => switch (reg_number) {
+                0...30 => mem.asBytes(&ucontext_ptr.sc_x[reg_number]),
+                31 => mem.asBytes(&ucontext_ptr.sc_sp),
+                32 => mem.asBytes(&ucontext_ptr.sc_lr),
+                33 => mem.asBytes(&ucontext_ptr.sc_elr),
+                34 => mem.asBytes(&ucontext_ptr.sc_spsr),
+                else => error.InvalidRegister,
+            },
             else => switch (reg_number) {
                 0...30 => mem.asBytes(&ucontext_ptr.mcontext.regs[reg_number]),
                 31 => mem.asBytes(&ucontext_ptr.mcontext.sp),
