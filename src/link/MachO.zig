@@ -844,6 +844,11 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(arg);
         }
 
+        for (self.lib_dirs) |lib_dir| {
+            const arg = try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir});
+            try argv.append(arg);
+        }
+
         for (self.frameworks) |framework| {
             const name = std.fs.path.stem(framework.path);
             const arg = if (framework.needed)
@@ -853,6 +858,11 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             else
                 try std.fmt.allocPrint(arena, "-framework {s}", .{name});
             try argv.append(arg);
+        }
+
+        for (self.framework_dirs) |f_dir| {
+            try argv.append("-F");
+            try argv.append(f_dir);
         }
 
         if (self.base.isDynLib() and self.base.allow_shlib_undefined) {
