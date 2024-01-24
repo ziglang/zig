@@ -2823,9 +2823,7 @@ fn buildOutputType(
     }
     // After this point, resolved_frameworks is used instead of frameworks.
 
-    if (create_module.resolved_options.output_mode == .Obj and
-        (target.ofmt == .coff or target.ofmt == .macho))
-    {
+    if (create_module.resolved_options.output_mode == .Obj and target.ofmt == .coff) {
         const total_obj_count = create_module.c_source_files.items.len +
             @intFromBool(root_src_file != null) +
             create_module.rc_source_files.items.len +
@@ -3220,6 +3218,7 @@ fn buildOutputType(
         .clang_passthrough_mode = clang_passthrough_mode,
         .clang_preprocessor_mode = clang_preprocessor_mode,
         .version = optional_version,
+        .compatibility_version = compatibility_version,
         .libc_installation = if (create_module.libc_installation) |*lci| lci else null,
         .verbose_cc = verbose_cc,
         .verbose_link = verbose_link,

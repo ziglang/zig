@@ -677,6 +677,7 @@ fn mirDebugEpilogueBegin(emit: *Emit) !void {
 fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
     assert(emit.mir.instructions.items(.tag)[inst] == .call_extern);
     const relocation = emit.mir.instructions.items(.data)[inst].relocation;
+    _ = relocation;
 
     const offset = blk: {
         const offset = @as(u32, @intCast(emit.code.items.len));
@@ -684,19 +685,22 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
         try emit.writeInstruction(Instruction.bl(0));
         break :blk offset;
     };
+    _ = offset;
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
-        // Add relocation to the decl.
-        const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = relocation.atom_index }).?;
-        const target = macho_file.getGlobalByIndex(relocation.sym_index);
-        try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
-            .type = .branch,
-            .target = target,
-            .offset = offset,
-            .addend = 0,
-            .pcrel = true,
-            .length = 2,
-        });
+        _ = macho_file;
+        @panic("TODO mirCallExtern");
+        // // Add relocation to the decl.
+        // const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = relocation.atom_index }).?;
+        // const target = macho_file.getGlobalByIndex(relocation.sym_index);
+        // try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
+        //     .type = .branch,
+        //     .target = target,
+        //     .offset = offset,
+        //     .addend = 0,
+        //     .pcrel = true,
+        //     .length = 2,
+        // });
     } else if (emit.bin_file.cast(link.File.Coff)) |_| {
         unreachable; // Calling imports is handled via `.load_memory_import`
     } else {
@@ -900,32 +904,34 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
-        const Atom = link.File.MachO.Atom;
-        const Relocation = Atom.Relocation;
-        const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = data.atom_index }).?;
-        try Atom.addRelocations(macho_file, atom_index, &[_]Relocation{ .{
-            .target = .{ .sym_index = data.sym_index },
-            .offset = offset,
-            .addend = 0,
-            .pcrel = true,
-            .length = 2,
-            .type = switch (tag) {
-                .load_memory_got, .load_memory_ptr_got => Relocation.Type.got_page,
-                .load_memory_direct, .load_memory_ptr_direct => Relocation.Type.page,
-                else => unreachable,
-            },
-        }, .{
-            .target = .{ .sym_index = data.sym_index },
-            .offset = offset + 4,
-            .addend = 0,
-            .pcrel = false,
-            .length = 2,
-            .type = switch (tag) {
-                .load_memory_got, .load_memory_ptr_got => Relocation.Type.got_pageoff,
-                .load_memory_direct, .load_memory_ptr_direct => Relocation.Type.pageoff,
-                else => unreachable,
-            },
-        } });
+        _ = macho_file;
+        @panic("TODO mirLoadMemoryPie");
+        // const Atom = link.File.MachO.Atom;
+        // const Relocation = Atom.Relocation;
+        // const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = data.atom_index }).?;
+        // try Atom.addRelocations(macho_file, atom_index, &[_]Relocation{ .{
+        //     .target = .{ .sym_index = data.sym_index },
+        //     .offset = offset,
+        //     .addend = 0,
+        //     .pcrel = true,
+        //     .length = 2,
+        //     .type = switch (tag) {
+        //         .load_memory_got, .load_memory_ptr_got => Relocation.Type.got_page,
+        //         .load_memory_direct, .load_memory_ptr_direct => Relocation.Type.page,
+        //         else => unreachable,
+        //     },
+        // }, .{
+        //     .target = .{ .sym_index = data.sym_index },
+        //     .offset = offset + 4,
+        //     .addend = 0,
+        //     .pcrel = false,
+        //     .length = 2,
+        //     .type = switch (tag) {
+        //         .load_memory_got, .load_memory_ptr_got => Relocation.Type.got_pageoff,
+        //         .load_memory_direct, .load_memory_ptr_direct => Relocation.Type.pageoff,
+        //         else => unreachable,
+        //     },
+        // } });
     } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
         const atom_index = coff_file.getAtomIndexForSymbol(.{ .sym_index = data.atom_index, .file = null }).?;
         const target = switch (tag) {

@@ -985,19 +985,21 @@ fn genDeclRef(
         return GenResult.mcv(.{ .load_symbol = sym.esym_index });
     } else if (lf.cast(link.File.MachO)) |macho_file| {
         if (is_extern) {
-            // TODO make this part of getGlobalSymbol
             const name = zcu.intern_pool.stringToSlice(decl.name);
-            const sym_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
-            defer gpa.free(sym_name);
-            const global_index = try macho_file.addUndefined(sym_name, .{ .add_got = true });
-            return GenResult.mcv(.{ .load_got = link.File.MachO.global_symbol_bit | global_index });
+            const lib_name = if (decl.getOwnedVariable(zcu)) |ov|
+                zcu.intern_pool.stringToSliceUnwrap(ov.lib_name)
+            else
+                null;
+            const sym_index = try macho_file.getGlobalSymbol(name, lib_name);
+            macho_file.getSymbol(macho_file.getZigObject().?.symbols.items[sym_index]).flags.needs_got = true;
+            return GenResult.mcv(.{ .load_symbol = sym_index });
         }
-        const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
-        const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
+        const sym_index = try macho_file.getZigObject().?.getOrCreateMetadataForDecl(macho_file, decl_index);
+        const sym = macho_file.getSymbol(sym_index);
         if (is_threadlocal) {
-            return GenResult.mcv(.{ .load_tlv = sym_index });
+            return GenResult.mcv(.{ .load_tlv = sym.nlist_idx });
         }
-        return GenResult.mcv(.{ .load_got = sym_index });
+        return GenResult.mcv(.{ .load_symbol = sym.nlist_idx });
     } else if (lf.cast(link.File.Coff)) |coff_file| {
         if (is_extern) {
             const name = zcu.intern_pool.stringToSlice(decl.name);
@@ -1041,7 +1043,12 @@ fn genUnnamedConst(
             const local = elf_file.symbol(local_sym_index);
             return GenResult.mcv(.{ .load_symbol = local.esym_index });
         },
-        .macho, .coff => {
+        .macho => {
+            const macho_file = lf.cast(link.File.MachO).?;
+            const local = macho_file.getSymbol(local_sym_index);
+            return GenResult.mcv(.{ .load_symbol = local.nlist_idx });
+        },
+        .coff => {
             return GenResult.mcv(.{ .load_direct = local_sym_index });
         },
         .plan9 => {

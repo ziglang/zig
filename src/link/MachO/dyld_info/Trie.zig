@@ -28,347 +28,16 @@
 //! After the optional exported symbol information is a byte of how many edges (0-255) that
 //! this node has leaving it, followed by each edge. Each edge is a zero terminated UTF8 of
 //! the addition chars in the symbol, followed by a uleb128 offset for the node that edge points to.
-/// The root node of the trie.
-root: ?*Node = null,
+const Trie = @This();
 
-/// If you want to access nodes ordered in DFS fashion,
-/// you should call `finalize` first since the nodes
-/// in this container are not guaranteed to not be stale
-/// if more insertions took place after the last `finalize`
-/// call.
-ordered_nodes: std.ArrayListUnmanaged(*Node) = .{},
-
-/// The size of the trie in bytes.
-/// This value may be outdated if there were additional
-/// insertions performed after `finalize` was called.
-/// Call `finalize` before accessing this value to ensure
-/// it is up-to-date.
-size: u64 = 0,
-
-/// Number of nodes currently in the trie.
-node_count: usize = 0,
-
-trie_dirty: bool = true,
-
-/// Export symbol that is to be placed in the trie.
-pub const ExportSymbol = struct {
-    /// Name of the symbol.
-    name: []const u8,
-
-    /// Offset of this symbol's virtual memory address from the beginning
-    /// of the __TEXT segment.
-    vmaddr_offset: u64,
-
-    /// Export flags of this exported symbol.
-    export_flags: u64,
-};
-
-/// Insert a symbol into the trie, updating the prefixes in the process.
-/// This operation may change the layout of the trie by splicing edges in
-/// certain circumstances.
-pub fn put(self: *Trie, allocator: Allocator, symbol: ExportSymbol) !void {
-    const node = try self.root.?.put(allocator, symbol.name);
-    node.terminal_info = .{
-        .vmaddr_offset = symbol.vmaddr_offset,
-        .export_flags = symbol.export_flags,
-    };
-    self.trie_dirty = true;
-}
-
-/// Finalizes this trie for writing to a byte stream.
-/// This step performs multiple passes through the trie ensuring
-/// there are no gaps after every `Node` is ULEB128 encoded.
-/// Call this method before trying to `write` the trie to a byte stream.
-pub fn finalize(self: *Trie, allocator: Allocator) !void {
-    if (!self.trie_dirty) return;
-
-    self.ordered_nodes.shrinkRetainingCapacity(0);
-    try self.ordered_nodes.ensureTotalCapacity(allocator, self.node_count);
-
-    var fifo = std.fifo.LinearFifo(*Node, .Dynamic).init(allocator);
-    defer fifo.deinit();
-
-    try fifo.writeItem(self.root.?);
-
-    while (fifo.readItem()) |next| {
-        for (next.edges.items) |*edge| {
-            try fifo.writeItem(edge.to);
-        }
-        self.ordered_nodes.appendAssumeCapacity(next);
-    }
-
-    var more: bool = true;
-    while (more) {
-        self.size = 0;
-        more = false;
-        for (self.ordered_nodes.items) |node| {
-            const res = try node.finalize(self.size);
-            self.size += res.node_size;
-            if (res.updated) more = true;
-        }
-    }
-
-    self.trie_dirty = false;
-}
-
-const ReadError = error{
-    OutOfMemory,
-    EndOfStream,
-    Overflow,
-};
-
-/// Parse the trie from a byte stream.
-pub fn read(self: *Trie, allocator: Allocator, reader: anytype) ReadError!usize {
-    return self.root.?.read(allocator, reader);
-}
-
-/// Write the trie to a byte stream.
-/// Panics if the trie was not finalized using `finalize` before calling this method.
-pub fn write(self: Trie, writer: anytype) !u64 {
-    assert(!self.trie_dirty);
-    var counting_writer = std.io.countingWriter(writer);
-    for (self.ordered_nodes.items) |node| {
-        try node.write(counting_writer.writer());
-    }
-    return counting_writer.bytes_written;
-}
-
-pub fn init(self: *Trie, allocator: Allocator) !void {
-    assert(self.root == null);
-    const root = try allocator.create(Node);
-    root.* = .{ .base = self };
-    self.root = root;
-    self.node_count += 1;
-}
-
-pub fn deinit(self: *Trie, allocator: Allocator) void {
-    if (self.root) |root| {
-        root.deinit(allocator);
-        allocator.destroy(root);
-    }
-    self.ordered_nodes.deinit(allocator);
-}
-
-test "Trie node count" {
-    const gpa = testing.allocator;
-    var trie: Trie = .{};
-    defer trie.deinit(gpa);
-    try trie.init(gpa);
-
-    try testing.expectEqual(trie.node_count, 0);
-    try testing.expect(trie.root == null);
-
-    try trie.put(gpa, .{
-        .name = "_main",
-        .vmaddr_offset = 0,
-        .export_flags = 0,
-    });
-    try testing.expectEqual(trie.node_count, 2);
-
-    // Inserting the same node shouldn't update the trie.
-    try trie.put(gpa, .{
-        .name = "_main",
-        .vmaddr_offset = 0,
-        .export_flags = 0,
-    });
-    try testing.expectEqual(trie.node_count, 2);
-
-    try trie.put(gpa, .{
-        .name = "__mh_execute_header",
-        .vmaddr_offset = 0x1000,
-        .export_flags = 0,
-    });
-    try testing.expectEqual(trie.node_count, 4);
-
-    // Inserting the same node shouldn't update the trie.
-    try trie.put(gpa, .{
-        .name = "__mh_execute_header",
-        .vmaddr_offset = 0x1000,
-        .export_flags = 0,
-    });
-    try testing.expectEqual(trie.node_count, 4);
-    try trie.put(gpa, .{
-        .name = "_main",
-        .vmaddr_offset = 0,
-        .export_flags = 0,
-    });
-    try testing.expectEqual(trie.node_count, 4);
-}
-
-test "Trie basic" {
-    const gpa = testing.allocator;
-    var trie: Trie = .{};
-    defer trie.deinit(gpa);
-    try trie.init(gpa);
-
-    // root --- _st ---> node
-    try trie.put(gpa, .{
-        .name = "_st",
-        .vmaddr_offset = 0,
-        .export_flags = 0,
-    });
-    try testing.expect(trie.root.?.edges.items.len == 1);
-    try testing.expect(mem.eql(u8, trie.root.?.edges.items[0].label, "_st"));
-
-    {
-        // root --- _st ---> node --- art ---> node
-        try trie.put(gpa, .{
-            .name = "_start",
-            .vmaddr_offset = 0,
-            .export_flags = 0,
-        });
-        try testing.expect(trie.root.?.edges.items.len == 1);
-
-        const nextEdge = &trie.root.?.edges.items[0];
-        try testing.expect(mem.eql(u8, nextEdge.label, "_st"));
-        try testing.expect(nextEdge.to.edges.items.len == 1);
-        try testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "art"));
-    }
-    {
-        // root --- _ ---> node --- st ---> node --- art ---> node
-        //                  |
-        //                  |   --- main ---> node
-        try trie.put(gpa, .{
-            .name = "_main",
-            .vmaddr_offset = 0,
-            .export_flags = 0,
-        });
-        try testing.expect(trie.root.?.edges.items.len == 1);
-
-        const nextEdge = &trie.root.?.edges.items[0];
-        try testing.expect(mem.eql(u8, nextEdge.label, "_"));
-        try testing.expect(nextEdge.to.edges.items.len == 2);
-        try testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "st"));
-        try testing.expect(mem.eql(u8, nextEdge.to.edges.items[1].label, "main"));
-
-        const nextNextEdge = &nextEdge.to.edges.items[0];
-        try testing.expect(mem.eql(u8, nextNextEdge.to.edges.items[0].label, "art"));
-    }
-}
-
-fn expectEqualHexStrings(expected: []const u8, given: []const u8) !void {
-    assert(expected.len > 0);
-    if (mem.eql(u8, expected, given)) return;
-    const expected_fmt = try std.fmt.allocPrint(testing.allocator, "{x}", .{std.fmt.fmtSliceHexLower(expected)});
-    defer testing.allocator.free(expected_fmt);
-    const given_fmt = try std.fmt.allocPrint(testing.allocator, "{x}", .{std.fmt.fmtSliceHexLower(given)});
-    defer testing.allocator.free(given_fmt);
-    const idx = mem.indexOfDiff(u8, expected_fmt, given_fmt).?;
-    const padding = try testing.allocator.alloc(u8, idx + 5);
-    defer testing.allocator.free(padding);
-    @memset(padding, ' ');
-    std.debug.print("\nEXP: {s}\nGIV: {s}\n{s}^ -- first differing byte\n", .{ expected_fmt, given_fmt, padding });
-    return error.TestFailed;
-}
-
-test "write Trie to a byte stream" {
-    var gpa = testing.allocator;
-    var trie: Trie = .{};
-    defer trie.deinit(gpa);
-    try trie.init(gpa);
-
-    try trie.put(gpa, .{
-        .name = "__mh_execute_header",
-        .vmaddr_offset = 0,
-        .export_flags = 0,
-    });
-    try trie.put(gpa, .{
-        .name = "_main",
-        .vmaddr_offset = 0x1000,
-        .export_flags = 0,
-    });
-
-    try trie.finalize(gpa);
-    try trie.finalize(gpa); // Finalizing multiple times is a nop subsequently unless we add new nodes.
-
-    const exp_buffer = [_]u8{
-        0x0, 0x1, // node root
-        0x5f, 0x0, 0x5, // edge '_'
-        0x0, 0x2, // non-terminal node
-        0x5f, 0x6d, 0x68, 0x5f, 0x65, 0x78, 0x65, 0x63, 0x75, 0x74, // edge '_mh_execute_header'
-        0x65, 0x5f, 0x68, 0x65, 0x61, 0x64, 0x65, 0x72, 0x0, 0x21, // edge '_mh_execute_header'
-        0x6d, 0x61, 0x69, 0x6e, 0x0, 0x25, // edge 'main'
-        0x2, 0x0, 0x0, 0x0, // terminal node
-        0x3, 0x0, 0x80, 0x20, 0x0, // terminal node
-    };
-
-    const buffer = try gpa.alloc(u8, trie.size);
-    defer gpa.free(buffer);
-    var stream = std.io.fixedBufferStream(buffer);
-    {
-        _ = try trie.write(stream.writer());
-        try expectEqualHexStrings(&exp_buffer, buffer);
-    }
-    {
-        // Writing finalized trie again should yield the same result.
-        try stream.seekTo(0);
-        _ = try trie.write(stream.writer());
-        try expectEqualHexStrings(&exp_buffer, buffer);
-    }
-}
-
-test "parse Trie from byte stream" {
-    var gpa = testing.allocator;
-
-    const in_buffer = [_]u8{
-        0x0, 0x1, // node root
-        0x5f, 0x0, 0x5, // edge '_'
-        0x0, 0x2, // non-terminal node
-        0x5f, 0x6d, 0x68, 0x5f, 0x65, 0x78, 0x65, 0x63, 0x75, 0x74, // edge '_mh_execute_header'
-        0x65, 0x5f, 0x68, 0x65, 0x61, 0x64, 0x65, 0x72, 0x0, 0x21, // edge '_mh_execute_header'
-        0x6d, 0x61, 0x69, 0x6e, 0x0, 0x25, // edge 'main'
-        0x2, 0x0, 0x0, 0x0, // terminal node
-        0x3, 0x0, 0x80, 0x20, 0x0, // terminal node
-    };
-
-    var in_stream = std.io.fixedBufferStream(&in_buffer);
-    var trie: Trie = .{};
-    defer trie.deinit(gpa);
-    try trie.init(gpa);
-    const nread = try trie.read(gpa, in_stream.reader());
-
-    try testing.expect(nread == in_buffer.len);
-
-    try trie.finalize(gpa);
-
-    const out_buffer = try gpa.alloc(u8, trie.size);
-    defer gpa.free(out_buffer);
-    var out_stream = std.io.fixedBufferStream(out_buffer);
-    _ = try trie.write(out_stream.writer());
-    try expectEqualHexStrings(&in_buffer, out_buffer);
-}
-
-test "ordering bug" {
-    var gpa = testing.allocator;
-    var trie: Trie = .{};
-    defer trie.deinit(gpa);
-    try trie.init(gpa);
-
-    try trie.put(gpa, .{
-        .name = "_asStr",
-        .vmaddr_offset = 0x558,
-        .export_flags = 0,
-    });
-    try trie.put(gpa, .{
-        .name = "_a",
-        .vmaddr_offset = 0x8008,
-        .export_flags = 0,
-    });
-    try trie.finalize(gpa);
-
-    const exp_buffer = [_]u8{
-        0x00, 0x01, 0x5F, 0x61, 0x00, 0x06, 0x04, 0x00,
-        0x88, 0x80, 0x02, 0x01, 0x73, 0x53, 0x74, 0x72,
-        0x00, 0x12, 0x03, 0x00, 0xD8, 0x0A, 0x00,
-    };
-
-    const buffer = try gpa.alloc(u8, trie.size);
-    defer gpa.free(buffer);
-    var stream = std.io.fixedBufferStream(buffer);
-    // Writing finalized trie again should yield the same result.
-    _ = try trie.write(stream.writer());
-    try expectEqualHexStrings(&exp_buffer, buffer);
-}
+const std = @import("std");
+const mem = std.mem;
+const leb = std.leb;
+const log = std.log.scoped(.macho);
+const macho = std.macho;
+const testing = std.testing;
+const assert = std.debug.assert;
+const Allocator = mem.Allocator;
 
 pub const Node = struct {
     base: *Trie,
@@ -601,13 +270,343 @@ pub const Node = struct {
     }
 };
 
-const Trie = @This();
+/// The root node of the trie.
+root: ?*Node = null,
 
-const std = @import("std");
-const mem = std.mem;
-const leb = std.leb;
-const log = std.log.scoped(.link);
-const macho = std.macho;
-const testing = std.testing;
-const assert = std.debug.assert;
-const Allocator = mem.Allocator;
+/// If you want to access nodes ordered in DFS fashion,
+/// you should call `finalize` first since the nodes
+/// in this container are not guaranteed to not be stale
+/// if more insertions took place after the last `finalize`
+/// call.
+ordered_nodes: std.ArrayListUnmanaged(*Node) = .{},
+
+/// The size of the trie in bytes.
+/// This value may be outdated if there were additional
+/// insertions performed after `finalize` was called.
+/// Call `finalize` before accessing this value to ensure
+/// it is up-to-date.
+size: u64 = 0,
+
+/// Number of nodes currently in the trie.
+node_count: usize = 0,
+
+trie_dirty: bool = true,
+
+/// Export symbol that is to be placed in the trie.
+pub const ExportSymbol = struct {
+    /// Name of the symbol.
+    name: []const u8,
+
+    /// Offset of this symbol's virtual memory address from the beginning
+    /// of the __TEXT segment.
+    vmaddr_offset: u64,
+
+    /// Export flags of this exported symbol.
+    export_flags: u64,
+};
+
+/// Insert a symbol into the trie, updating the prefixes in the process.
+/// This operation may change the layout of the trie by splicing edges in
+/// certain circumstances.
+pub fn put(self: *Trie, allocator: Allocator, symbol: ExportSymbol) !void {
+    const node = try self.root.?.put(allocator, symbol.name);
+    node.terminal_info = .{
+        .vmaddr_offset = symbol.vmaddr_offset,
+        .export_flags = symbol.export_flags,
+    };
+    self.trie_dirty = true;
+}
+
+/// Finalizes this trie for writing to a byte stream.
+/// This step performs multiple passes through the trie ensuring
+/// there are no gaps after every `Node` is ULEB128 encoded.
+/// Call this method before trying to `write` the trie to a byte stream.
+pub fn finalize(self: *Trie, allocator: Allocator) !void {
+    if (!self.trie_dirty) return;
+
+    self.ordered_nodes.shrinkRetainingCapacity(0);
+    try self.ordered_nodes.ensureTotalCapacity(allocator, self.node_count);
+
+    var fifo = std.fifo.LinearFifo(*Node, .Dynamic).init(allocator);
+    defer fifo.deinit();
+
+    try fifo.writeItem(self.root.?);
+
+    while (fifo.readItem()) |next| {
+        for (next.edges.items) |*edge| {
+            try fifo.writeItem(edge.to);
+        }
+        self.ordered_nodes.appendAssumeCapacity(next);
+    }
+
+    var more: bool = true;
+    while (more) {
+        self.size = 0;
+        more = false;
+        for (self.ordered_nodes.items) |node| {
+            const res = try node.finalize(self.size);
+            self.size += res.node_size;
+            if (res.updated) more = true;
+        }
+    }
+
+    self.trie_dirty = false;
+}
+
+const ReadError = error{
+    OutOfMemory,
+    EndOfStream,
+    Overflow,
+};
+
+/// Parse the trie from a byte stream.
+pub fn read(self: *Trie, allocator: Allocator, reader: anytype) ReadError!usize {
+    return self.root.?.read(allocator, reader);
+}
+
+/// Write the trie to a byte stream.
+/// Panics if the trie was not finalized using `finalize` before calling this method.
+pub fn write(self: Trie, writer: anytype) !void {
+    assert(!self.trie_dirty);
+    for (self.ordered_nodes.items) |node| {
+        try node.write(writer);
+    }
+}
+
+pub fn init(self: *Trie, allocator: Allocator) !void {
+    assert(self.root == null);
+    const root = try allocator.create(Node);
+    root.* = .{ .base = self };
+    self.root = root;
+    self.node_count += 1;
+}
+
+pub fn deinit(self: *Trie, allocator: Allocator) void {
+    if (self.root) |root| {
+        root.deinit(allocator);
+        allocator.destroy(root);
+    }
+    self.ordered_nodes.deinit(allocator);
+}
+
+test "Trie node count" {
+    const gpa = testing.allocator;
+    var trie: Trie = .{};
+    defer trie.deinit(gpa);
+    try trie.init(gpa);
+
+    try testing.expectEqual(@as(usize, 1), trie.node_count);
+    try testing.expect(trie.root != null);
+
+    try trie.put(gpa, .{
+        .name = "_main",
+        .vmaddr_offset = 0,
+        .export_flags = 0,
+    });
+    try testing.expectEqual(@as(usize, 2), trie.node_count);
+
+    // Inserting the same node shouldn't update the trie.
+    try trie.put(gpa, .{
+        .name = "_main",
+        .vmaddr_offset = 0,
+        .export_flags = 0,
+    });
+    try testing.expectEqual(@as(usize, 2), trie.node_count);
+
+    try trie.put(gpa, .{
+        .name = "__mh_execute_header",
+        .vmaddr_offset = 0x1000,
+        .export_flags = 0,
+    });
+    try testing.expectEqual(@as(usize, 4), trie.node_count);
+
+    // Inserting the same node shouldn't update the trie.
+    try trie.put(gpa, .{
+        .name = "__mh_execute_header",
+        .vmaddr_offset = 0x1000,
+        .export_flags = 0,
+    });
+    try testing.expectEqual(@as(usize, 4), trie.node_count);
+    try trie.put(gpa, .{
+        .name = "_main",
+        .vmaddr_offset = 0,
+        .export_flags = 0,
+    });
+    try testing.expectEqual(@as(usize, 4), trie.node_count);
+}
+
+test "Trie basic" {
+    const gpa = testing.allocator;
+    var trie: Trie = .{};
+    defer trie.deinit(gpa);
+    try trie.init(gpa);
+
+    // root --- _st ---> node
+    try trie.put(gpa, .{
+        .name = "_st",
+        .vmaddr_offset = 0,
+        .export_flags = 0,
+    });
+    try testing.expect(trie.root.?.edges.items.len == 1);
+    try testing.expect(mem.eql(u8, trie.root.?.edges.items[0].label, "_st"));
+
+    {
+        // root --- _st ---> node --- art ---> node
+        try trie.put(gpa, .{
+            .name = "_start",
+            .vmaddr_offset = 0,
+            .export_flags = 0,
+        });
+        try testing.expect(trie.root.?.edges.items.len == 1);
+
+        const nextEdge = &trie.root.?.edges.items[0];
+        try testing.expect(mem.eql(u8, nextEdge.label, "_st"));
+        try testing.expect(nextEdge.to.edges.items.len == 1);
+        try testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "art"));
+    }
+    {
+        // root --- _ ---> node --- st ---> node --- art ---> node
+        //                  |
+        //                  |   --- main ---> node
+        try trie.put(gpa, .{
+            .name = "_main",
+            .vmaddr_offset = 0,
+            .export_flags = 0,
+        });
+        try testing.expect(trie.root.?.edges.items.len == 1);
+
+        const nextEdge = &trie.root.?.edges.items[0];
+        try testing.expect(mem.eql(u8, nextEdge.label, "_"));
+        try testing.expect(nextEdge.to.edges.items.len == 2);
+        try testing.expect(mem.eql(u8, nextEdge.to.edges.items[0].label, "st"));
+        try testing.expect(mem.eql(u8, nextEdge.to.edges.items[1].label, "main"));
+
+        const nextNextEdge = &nextEdge.to.edges.items[0];
+        try testing.expect(mem.eql(u8, nextNextEdge.to.edges.items[0].label, "art"));
+    }
+}
+
+fn expectEqualHexStrings(expected: []const u8, given: []const u8) !void {
+    assert(expected.len > 0);
+    if (mem.eql(u8, expected, given)) return;
+    const expected_fmt = try std.fmt.allocPrint(testing.allocator, "{x}", .{std.fmt.fmtSliceHexLower(expected)});
+    defer testing.allocator.free(expected_fmt);
+    const given_fmt = try std.fmt.allocPrint(testing.allocator, "{x}", .{std.fmt.fmtSliceHexLower(given)});
+    defer testing.allocator.free(given_fmt);
+    const idx = mem.indexOfDiff(u8, expected_fmt, given_fmt).?;
+    const padding = try testing.allocator.alloc(u8, idx + 5);
+    defer testing.allocator.free(padding);
+    @memset(padding, ' ');
+    std.debug.print("\nEXP: {s}\nGIV: {s}\n{s}^ -- first differing byte\n", .{ expected_fmt, given_fmt, padding });
+    return error.TestFailed;
+}
+
+test "write Trie to a byte stream" {
+    var gpa = testing.allocator;
+    var trie: Trie = .{};
+    defer trie.deinit(gpa);
+    try trie.init(gpa);
+
+    try trie.put(gpa, .{
+        .name = "__mh_execute_header",
+        .vmaddr_offset = 0,
+        .export_flags = 0,
+    });
+    try trie.put(gpa, .{
+        .name = "_main",
+        .vmaddr_offset = 0x1000,
+        .export_flags = 0,
+    });
+
+    try trie.finalize(gpa);
+    try trie.finalize(gpa); // Finalizing mulitple times is a nop subsequently unless we add new nodes.
+
+    const exp_buffer = [_]u8{
+        0x0, 0x1, // node root
+        0x5f, 0x0, 0x5, // edge '_'
+        0x0, 0x2, // non-terminal node
+        0x5f, 0x6d, 0x68, 0x5f, 0x65, 0x78, 0x65, 0x63, 0x75, 0x74, // edge '_mh_execute_header'
+        0x65, 0x5f, 0x68, 0x65, 0x61, 0x64, 0x65, 0x72, 0x0, 0x21, // edge '_mh_execute_header'
+        0x6d, 0x61, 0x69, 0x6e, 0x0, 0x25, // edge 'main'
+        0x2, 0x0, 0x0, 0x0, // terminal node
+        0x3, 0x0, 0x80, 0x20, 0x0, // terminal node
+    };
+
+    const buffer = try gpa.alloc(u8, trie.size);
+    defer gpa.free(buffer);
+    var stream = std.io.fixedBufferStream(buffer);
+    {
+        _ = try trie.write(stream.writer());
+        try expectEqualHexStrings(&exp_buffer, buffer);
+    }
+    {
+        // Writing finalized trie again should yield the same result.
+        try stream.seekTo(0);
+        _ = try trie.write(stream.writer());
+        try expectEqualHexStrings(&exp_buffer, buffer);
+    }
+}
+
+test "parse Trie from byte stream" {
+    const gpa = testing.allocator;
+
+    const in_buffer = [_]u8{
+        0x0, 0x1, // node root
+        0x5f, 0x0, 0x5, // edge '_'
+        0x0, 0x2, // non-terminal node
+        0x5f, 0x6d, 0x68, 0x5f, 0x65, 0x78, 0x65, 0x63, 0x75, 0x74, // edge '_mh_execute_header'
+        0x65, 0x5f, 0x68, 0x65, 0x61, 0x64, 0x65, 0x72, 0x0, 0x21, // edge '_mh_execute_header'
+        0x6d, 0x61, 0x69, 0x6e, 0x0, 0x25, // edge 'main'
+        0x2, 0x0, 0x0, 0x0, // terminal node
+        0x3, 0x0, 0x80, 0x20, 0x0, // terminal node
+    };
+
+    var in_stream = std.io.fixedBufferStream(&in_buffer);
+    var trie: Trie = .{};
+    defer trie.deinit(gpa);
+    try trie.init(gpa);
+    const nread = try trie.read(gpa, in_stream.reader());
+
+    try testing.expect(nread == in_buffer.len);
+
+    try trie.finalize(gpa);
+
+    const out_buffer = try gpa.alloc(u8, trie.size);
+    defer gpa.free(out_buffer);
+    var out_stream = std.io.fixedBufferStream(out_buffer);
+    _ = try trie.write(out_stream.writer());
+    try expectEqualHexStrings(&in_buffer, out_buffer);
+}
+
+test "ordering bug" {
+    const gpa = testing.allocator;
+    var trie: Trie = .{};
+    defer trie.deinit(gpa);
+    try trie.init(gpa);
+
+    try trie.put(gpa, .{
+        .name = "_asStr",
+        .vmaddr_offset = 0x558,
+        .export_flags = 0,
+    });
+    try trie.put(gpa, .{
+        .name = "_a",
+        .vmaddr_offset = 0x8008,
+        .export_flags = 0,
+    });
+
+    try trie.finalize(gpa);
+
+    const exp_buffer = [_]u8{
+        0x00, 0x01, 0x5F, 0x61, 0x00, 0x06, 0x04, 0x00,
+        0x88, 0x80, 0x02, 0x01, 0x73, 0x53, 0x74, 0x72,
+        0x00, 0x12, 0x03, 0x00, 0xD8, 0x0A, 0x00,
+    };
+
+    const buffer = try gpa.alloc(u8, trie.size);
+    defer gpa.free(buffer);
+    var stream = std.io.fixedBufferStream(buffer);
+    // Writing finalized trie again should yield the same result.
+    _ = try trie.write(stream.writer());
+    try expectEqualHexStrings(&exp_buffer, buffer);
+}

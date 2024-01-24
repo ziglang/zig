@@ -1240,6 +1240,22 @@ pub const FAT_MAGIC_64 = 0xcafebabf;
 /// NXSwapLong(FAT_MAGIC_64)
 pub const FAT_CIGAM_64 = 0xbfbafeca;
 
+/// Segment flags
+/// The file contents for this segment is for the high part of the VM space, the low part
+/// is zero filled (for stacks in core files).
+pub const SG_HIGHVM = 0x1;
+/// This segment is the VM that is allocated by a fixed VM library, for overlap checking in
+/// the link editor.
+pub const SG_FVMLIB = 0x2;
+/// This segment has nothing that was relocated in it and nothing relocated to it, that is
+/// it maybe safely replaced without relocation.
+pub const SG_NORELOC = 0x4;
+/// This segment is protected.  If the segment starts at file offset 0, the
+/// first page of the segment is not protected.  All other pages of the segment are protected.
+pub const SG_PROTECTED_VERSION_1 = 0x8;
+/// This segment is made read-only after fixups
+pub const SG_READ_ONLY = 0x10;
+
 /// The flags field of a section structure is separated into two parts a section
 /// type and section attributes.  The section types are mutually exclusive (it
 /// can only have one type) but the section attributes are not (it may have more
