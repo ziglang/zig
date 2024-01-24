@@ -1534,9 +1534,8 @@ pub fn deleteDeclExport(
     decl_index: InternPool.DeclIndex,
     name: InternPool.NullTerminatedString,
 ) void {
-    _ = name;
     if (wasm.llvm_object) |_| return;
-    return wasm.zigObjectPtr().?.deleteDeclExport(wasm, decl_index);
+    return wasm.zigObjectPtr().?.deleteDeclExport(wasm, decl_index, name);
 }
 
 pub fn updateExports(

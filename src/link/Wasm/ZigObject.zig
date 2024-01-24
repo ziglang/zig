@@ -98,6 +98,16 @@ const DeclInfo = struct {
     fn appendExport(di: *DeclInfo, gpa: std.mem.Allocator, sym_index: u32) !void {
         return di.exports.append(gpa, sym_index);
     }
+
+    fn deleteExport(di: *DeclInfo, sym_index: u32) void {
+        for (di.exports.items, 0..) |idx, index| {
+            if (idx == sym_index) {
+                _ = di.exports.swapRemove(index);
+                return;
+            }
+        }
+        unreachable; // invalid sym_index
+    }
 };
 
 /// Initializes the `ZigObject` with initial symbols.
@@ -800,12 +810,23 @@ pub fn deleteDeclExport(
     zig_object: *ZigObject,
     wasm_file: *Wasm,
     decl_index: InternPool.DeclIndex,
+    name: InternPool.NullTerminatedString,
 ) void {
-    const decl_info = zig_object.decls_map.get(decl_index) orelse return;
-    const sym_index = wasm_file.getAtom(decl_info.atom).sym_index;
-    const loc: Wasm.SymbolLoc = .{ .file = zig_object.index, .index = sym_index };
-    const sym = loc.getSymbol(wasm_file);
-    std.debug.assert(zig_object.global_syms.remove(sym.name));
+    const mod = wasm_file.base.comp.module.?;
+    const decl_info = zig_object.decls_map.getPtr(decl_index) orelse return;
+    const export_name = mod.intern_pool.stringToSlice(name);
+    if (decl_info.@"export"(zig_object, export_name)) |sym_index| {
+        const sym = zig_object.symbol(sym_index);
+        decl_info.deleteExport(sym_index);
+        std.debug.assert(zig_object.global_syms.remove(sym.name));
+        std.debug.assert(wasm_file.symbol_atom.remove(.{ .file = zig_object.index, .index = sym_index }));
+        zig_object.symbols_free_list.append(wasm_file.base.comp.gpa, sym_index) catch {};
+
+        if (sym.tag == .function) {
+            std.debug.assert(zig_object.functions.remove(sym_index));
+        }
+        sym.tag = .dead;
+    }
 }
 
 pub fn updateExports(
@@ -846,6 +867,17 @@ pub fn updateExports(
         else index: {
             const sym_index = try zig_object.allocateSymbol(gpa);
             try decl_info.appendExport(gpa, sym_index);
+
+            // For functions, we also need to put the alias in the function section.
+            // We simply copy the aliased function.
+            // The final linakge will deduplicate these functions.
+            if (decl.ty.zigTypeTag(mod) == .Fn) {
+                try zig_object.functions.putNoClobber(
+                    gpa,
+                    sym_index,
+                    zig_object.functions.get(atom.sym_index).?,
+                );
+            }
             break :index sym_index;
         };
 
@@ -879,6 +911,7 @@ pub fn updateExports(
             sym.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
         }
         try zig_object.global_syms.put(gpa, export_name, sym_index);
+        try wasm_file.symbol_atom.put(gpa, .{ .file = zig_object.index, .index = sym_index }, atom_index);
     }
 }
 
@@ -1145,8 +1178,8 @@ pub fn storeDeclType(zig_object: *ZigObject, gpa: std.mem.Allocator, decl_index:
 pub fn parseSymbolIntoAtom(zig_object: *ZigObject, wasm_file: *Wasm, index: u32) !Atom.Index {
     const gpa = wasm_file.base.comp.gpa;
     const loc: Wasm.SymbolLoc = .{ .file = zig_object.index, .index = index };
-    const final_index = try wasm_file.getMatchingSegment(zig_object.index, index);
     const atom_index = wasm_file.symbol_atom.get(loc).?;
+    const final_index = try wasm_file.getMatchingSegment(zig_object.index, index);
     try wasm_file.appendAtomAtIndex(final_index, atom_index);
     const atom = wasm_file.getAtom(atom_index);
     for (atom.relocs.items) |reloc| {
