@@ -1163,37 +1163,59 @@ fn isHoisted(self: *MachO, install_name: []const u8) bool {
     return false;
 }
 
-fn accessPath(path: []const u8) !bool {
+fn accessPath(
+    arena: Allocator,
+    test_path: *std.ArrayList(u8),
+    checked_paths: *std.ArrayList([]const u8),
+    path: []const u8,
+) !bool {
+    test_path.clearRetainingCapacity();
+    try test_path.appendSlice(path);
     std.fs.cwd().access(path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return false,
+        error.FileNotFound => {
+            try checked_paths.append(try arena.dupe(u8, test_path.items));
+            return false;
+        },
         else => |e| return e,
     };
     return true;
 }
 
-fn resolveLib(arena: Allocator, search_dirs: []const []const u8, name: []const u8) !?[]const u8 {
+fn resolveLib(
+    arena: Allocator,
+    test_path: *std.ArrayList(u8),
+    checked_paths: *std.ArrayList([]const u8),
+    search_dirs: []const []const u8,
+    name: []const u8,
+) !bool {
     const path = try std.fmt.allocPrint(arena, "lib{s}", .{name});
     for (search_dirs) |dir| {
         for (&[_][]const u8{ ".tbd", ".dylib" }) |ext| {
             const with_ext = try std.fmt.allocPrint(arena, "{s}{s}", .{ path, ext });
             const full_path = try std.fs.path.join(arena, &[_][]const u8{ dir, with_ext });
-            if (try accessPath(full_path)) return full_path;
+            if (try accessPath(arena, test_path, checked_paths, full_path)) return true;
         }
     }
-    return null;
+    return false;
 }
 
-fn resolveFramework(arena: Allocator, search_dirs: []const []const u8, name: []const u8) !?[]const u8 {
+fn resolveFramework(
+    arena: Allocator,
+    test_path: *std.ArrayList(u8),
+    checked_paths: *std.ArrayList([]const u8),
+    search_dirs: []const []const u8,
+    name: []const u8,
+) !bool {
     const prefix = try std.fmt.allocPrint(arena, "{s}.framework", .{name});
     const path = try std.fs.path.join(arena, &[_][]const u8{ prefix, name });
     for (search_dirs) |dir| {
         for (&[_][]const u8{ ".tbd", ".dylib" }) |ext| {
             const with_ext = try std.fmt.allocPrint(arena, "{s}{s}", .{ path, ext });
             const full_path = try std.fs.path.join(arena, &[_][]const u8{ dir, with_ext });
-            if (try accessPath(full_path)) return full_path;
+            if (try accessPath(arena, test_path, checked_paths, full_path)) return true;
         }
     }
-    return null;
+    return false;
 }
 
 fn parseDependentDylibs(self: *MachO) !void {
@@ -1204,8 +1226,9 @@ fn parseDependentDylibs(self: *MachO) !void {
     const lib_dirs = self.lib_dirs;
     const framework_dirs = self.framework_dirs;
 
-    var arena = std.heap.ArenaAllocator.init(gpa);
-    defer arena.deinit();
+    var arena_alloc = std.heap.ArenaAllocator.init(gpa);
+    defer arena_alloc.deinit();
+    const arena = arena_alloc.allocator();
 
     // TODO handle duplicate dylibs - it is not uncommon to have the same dylib loaded multiple times
     // in which case we should track that and return File.Index immediately instead re-parsing paths.
@@ -1215,7 +1238,7 @@ fn parseDependentDylibs(self: *MachO) !void {
     while (index < self.dylibs.items.len) : (index += 1) {
         const dylib_index = self.dylibs.items[index];
 
-        var dependents = std.ArrayList(File.Index).init(gpa);
+        var dependents = std.ArrayList(struct { id: Dylib.Id, file: File.Index }).init(gpa);
         defer dependents.deinit();
         try dependents.ensureTotalCapacityPrecise(self.getFile(dylib_index).?.dylib.dependents.items.len);
 
@@ -1228,6 +1251,9 @@ fn parseDependentDylibs(self: *MachO) !void {
             // 3. If name is a relative path, substitute @rpath, @loader_path, @executable_path with
             //    dependees list of rpaths, and search there.
             // 4. Finally, just search the provided relative path directly in CWD.
+            var test_path = std.ArrayList(u8).init(arena);
+            var checked_paths = std.ArrayList([]const u8).init(arena);
+
             const full_path = full_path: {
                 fail: {
                     const stem = std.fs.path.stem(id.name);
@@ -1239,24 +1265,36 @@ fn parseDependentDylibs(self: *MachO) !void {
 
                     if (mem.endsWith(u8, id.name, framework_name)) {
                         // Framework
-                        const full_path = (try resolveFramework(arena.allocator(), framework_dirs, stem)) orelse break :fail;
-                        break :full_path full_path;
+                        if (try resolveFramework(
+                            arena,
+                            &test_path,
+                            &checked_paths,
+                            framework_dirs,
+                            stem,
+                        )) break :full_path test_path.items;
+                        break :fail;
                     }
 
                     // Library
                     const lib_name = eatPrefix(stem, "lib") orelse stem;
-                    const full_path = (try resolveLib(arena.allocator(), lib_dirs, lib_name)) orelse break :fail;
-                    break :full_path full_path;
+                    if (try resolveLib(
+                        arena,
+                        &test_path,
+                        &checked_paths,
+                        lib_dirs,
+                        lib_name,
+                    )) break :full_path test_path.items;
+                    break :fail;
                 }
 
                 if (std.fs.path.isAbsolute(id.name)) {
                     const path = if (self.base.comp.sysroot) |root|
-                        try std.fs.path.join(arena.allocator(), &.{ root, id.name })
+                        try std.fs.path.join(arena, &.{ root, id.name })
                     else
                         id.name;
                     for (&[_][]const u8{ "", ".tbd", ".dylib" }) |ext| {
-                        const full_path = try std.fmt.allocPrint(arena.allocator(), "{s}{s}", .{ path, ext });
-                        if (try accessPath(full_path)) break :full_path full_path;
+                        const full_path = try std.fmt.allocPrint(arena, "{s}{s}", .{ path, ext });
+                        if (try accessPath(arena, &test_path, &checked_paths, full_path)) break :full_path test_path.items;
                     }
                 }
 
@@ -1264,7 +1302,7 @@ fn parseDependentDylibs(self: *MachO) !void {
                     const dylib = self.getFile(dylib_index).?.dylib;
                     for (self.getFile(dylib.umbrella).?.dylib.rpaths.keys()) |rpath| {
                         const prefix = eatPrefix(rpath, "@loader_path/") orelse rpath;
-                        const rel_path = try std.fs.path.join(arena.allocator(), &.{ prefix, path });
+                        const rel_path = try std.fs.path.join(arena, &.{ prefix, path });
                         var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
                         const full_path = std.fs.realpath(rel_path, &buffer) catch continue;
                         break :full_path full_path;
@@ -1279,7 +1317,14 @@ fn parseDependentDylibs(self: *MachO) !void {
 
                 var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
                 const full_path = std.fs.realpath(id.name, &buffer) catch {
-                    dependents.appendAssumeCapacity(0);
+                    try self.reportMissingDependencyError(
+                        self.getFile(dylib_index).?.dylib.getUmbrella(self).index,
+                        id.name,
+                        checked_paths.items,
+                        "unable to resolve dependency",
+                        .{},
+                    );
+                    has_errors = true;
                     continue;
                 };
                 break :full_path full_path;
@@ -1304,11 +1349,13 @@ fn parseDependentDylibs(self: *MachO) !void {
                     break :file_index file_index;
                 }
             };
-            dependents.appendAssumeCapacity(file_index);
+            dependents.appendAssumeCapacity(.{ .id = id, .file = file_index });
         }
 
         const dylib = self.getFile(dylib_index).?.dylib;
-        for (dylib.dependents.items, dependents.items) |id, file_index| {
+        for (dependents.items) |entry| {
+            const id = entry.id;
+            const file_index = entry.file;
             if (self.getFile(file_index)) |file| {
                 const dep_dylib = file.dylib;
                 dep_dylib.hoisted = self.isHoisted(id.name);
@@ -3857,18 +3904,33 @@ fn reportMissingLibraryError(
     }
 }
 
+fn reportMissingDependencyError(
+    self: *MachO,
+    parent: File.Index,
+    path: []const u8,
+    checked_paths: []const []const u8,
+    comptime format: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
+    var err = try self.addErrorWithNotes(2 + checked_paths.len);
+    try err.addMsg(self, format, args);
+    try err.addNote(self, "while resolving {s}", .{path});
+    try err.addNote(self, "a dependency of {}", .{self.getFile(parent).?.fmtPath()});
+    for (checked_paths) |p| {
+        try err.addNote(self, "tried {s}", .{p});
+    }
+}
+
 fn reportDependencyError(
     self: *MachO,
     parent: File.Index,
-    path: ?[]const u8,
+    path: []const u8,
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
     var err = try self.addErrorWithNotes(2);
     try err.addMsg(self, format, args);
-    if (path) |p| {
-        try err.addNote(self, "while parsing {s}", .{p});
-    }
+    try err.addNote(self, "while parsing {s}", .{path});
     try err.addNote(self, "a dependency of {}", .{self.getFile(parent).?.fmtPath()});
 }
 
