@@ -10312,7 +10312,7 @@ pub const FuncGen = struct {
 
         const o = self.dg.object;
 
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.typeOfIndex(inst);
@@ -10467,7 +10467,7 @@ pub const FuncGen = struct {
 
         const o = self.dg.object;
 
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.typeOfIndex(inst);
