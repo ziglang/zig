@@ -248,9 +248,24 @@ pub fn isCygwinPty(file: File) bool {
 /// Test whether ANSI escape codes will be treated as such.
 pub fn supportsAnsiEscapeCodes(self: File) bool {
     if (builtin.os.tag == .windows) {
-        var console_mode: windows.DWORD = 0;
-        if (windows.kernel32.GetConsoleMode(self.handle, &console_mode) != 0) {
-            if (console_mode & windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0) return true;
+        var original_console_mode: windows.DWORD = 0;
+
+        // For Windows Terminal, VT Sequences processing is enabled by default.
+        if (windows.kernel32.GetConsoleMode(self.handle, &original_console_mode) != 0) {
+            if (original_console_mode & windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0) return true;
+
+            // For Windows Console, VT Sequences processing support was added in Windows 10 build 14361, but disabled by default.
+            // https://devblogs.microsoft.com/commandline/tmux-support-arrives-for-bash-on-ubuntu-on-windows/
+            // Use Microsoft's recommended way to enable virtual terminal processing.
+            // https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#example-of-enabling-virtual-terminal-processing
+            var requested_console_modes: windows.DWORD = windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING | windows.DISABLE_NEWLINE_AUTO_RETURN;
+            var console_mode = original_console_mode | requested_console_modes;
+            if (windows.kernel32.SetConsoleMode(self.handle, console_mode) != 0) return true;
+
+            // An application receiving ERROR_INVALID_PARAMETER with one of the newer console mode flags in the bit field should gracefully degrade behavior and try again.
+            requested_console_modes = windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            console_mode = original_console_mode | requested_console_modes;
+            if (windows.kernel32.SetConsoleMode(self.handle, console_mode) != 0) return true;
         }
 
         return self.isCygwinPty();
