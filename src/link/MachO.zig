@@ -897,11 +897,11 @@ pub fn resolveLibSystem(
         if (self.sdk_layout) |sdk_layout| switch (sdk_layout) {
             .sdk => {
                 const dir = try fs.path.join(arena, &[_][]const u8{ comp.sysroot.?, "usr", "lib" });
-                if (try accessLibPath(arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
+                if (try accessLibPath(arena, &test_path, &checked_paths, dir, "System")) break :success;
             },
             .vendored => {
                 const dir = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "darwin" });
-                if (try accessLibPath(arena, &test_path, &checked_paths, dir, "libSystem")) break :success;
+                if (try accessLibPath(arena, &test_path, &checked_paths, dir, "System")) break :success;
             },
         };
 
@@ -914,51 +914,6 @@ pub fn resolveLibSystem(
         .needed = true,
         .path = libsystem_path,
     });
-}
-
-fn accessLibPath(
-    gpa: Allocator,
-    test_path: *std.ArrayList(u8),
-    checked_paths: *std.ArrayList([]const u8),
-    search_dir: []const u8,
-    lib_name: []const u8,
-) !bool {
-    const sep = fs.path.sep_str;
-
-    tbd: {
-        test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "{s}.tbd", .{ search_dir, lib_name });
-        try checked_paths.append(try gpa.dupe(u8, test_path.items));
-        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-            error.FileNotFound => break :tbd,
-            else => |e| return e,
-        };
-        return true;
-    }
-
-    dylib: {
-        test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "{s}.dylib", .{ search_dir, lib_name });
-        try checked_paths.append(try gpa.dupe(u8, test_path.items));
-        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-            error.FileNotFound => break :dylib,
-            else => |e| return e,
-        };
-        return true;
-    }
-
-    noextension: {
-        test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "{s}", .{ search_dir, lib_name });
-        try checked_paths.append(try gpa.dupe(u8, test_path.items));
-        fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
-            error.FileNotFound => break :noextension,
-            else => |e| return e,
-        };
-        return true;
-    }
-
-    return false;
 }
 
 const ParseError = error{
@@ -1173,7 +1128,7 @@ fn isHoisted(self: *MachO, install_name: []const u8) bool {
     return false;
 }
 
-fn accessLibPath2(
+fn accessLibPath(
     arena: Allocator,
     test_path: *std.ArrayList(u8),
     checked_paths: *std.ArrayList([]const u8),
@@ -1274,7 +1229,7 @@ fn parseDependentDylibs(self: *MachO) !void {
                     const lib_name = eatPrefix(stem, "lib") orelse stem;
                     for (lib_dirs) |dir| {
                         test_path.clearRetainingCapacity();
-                        if (try accessLibPath2(arena, &test_path, &checked_paths, dir, lib_name)) break :full_path test_path.items;
+                        if (try accessLibPath(arena, &test_path, &checked_paths, dir, lib_name)) break :full_path test_path.items;
                     }
                 }
 
