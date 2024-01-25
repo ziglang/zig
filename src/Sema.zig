@@ -19963,13 +19963,23 @@ fn finishStructInit(
 
                 const field_init = struct_type.fieldInit(ip, i);
                 if (field_init == .none) {
-                    const field_name = struct_type.field_names.get(ip)[i];
-                    const template = "missing struct field: {}";
-                    const args = .{field_name.fmt(ip)};
-                    if (root_msg) |msg| {
-                        try sema.errNote(block, init_src, msg, template, args);
+                    if (!struct_type.isTuple(ip)) {
+                        const field_name = struct_type.field_names.get(ip)[i];
+                        const template = "missing struct field: {}";
+                        const args = .{field_name.fmt(ip)};
+                        if (root_msg) |msg| {
+                            try sema.errNote(block, init_src, msg, template, args);
+                        } else {
+                            root_msg = try sema.errMsg(block, init_src, template, args);
+                        }
                     } else {
-                        root_msg = try sema.errMsg(block, init_src, template, args);
+                        const template = "missing struct field: @\"{}\"";
+                        const args = .{i};
+                        if (root_msg) |msg| {
+                            try sema.errNote(block, init_src, msg, template, args);
+                        } else {
+                            root_msg = try sema.errMsg(block, init_src, template, args);
+                        }
                     }
                 } else {
                     field_inits[i] = Air.internedToRef(field_init);
