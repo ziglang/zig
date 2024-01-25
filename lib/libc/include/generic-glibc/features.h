@@ -469,7 +469,10 @@
    instance, with GCC, -std=gnu11 will have C99-compliant scanf with
    or without -D_GNU_SOURCE, but -std=c89 -D_GNU_SOURCE will have the
    old extension.  */
-#if (defined __USE_GNU							\
+#if (__GLIBC__ == 2 && __GLIBC_MINOR__ < 7)
+/* support for ISOC99 was added in glibc-2.7 */
+# define __GLIBC_USE_DEPRECATED_SCANF 1
+#elif (defined __USE_GNU							\
      && (defined __cplusplus						\
 	 ? (__cplusplus < 201103L && !defined __GXX_EXPERIMENTAL_CXX0X__) \
 	 : (!defined __STDC_VERSION__ || __STDC_VERSION__ < 199901L)))
