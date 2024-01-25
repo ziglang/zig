@@ -19973,12 +19973,11 @@ fn finishStructInit(
                             root_msg = try sema.errMsg(block, init_src, template, args);
                         }
                     } else {
-                        const template = "missing struct field: @\"{}\"";
-                        const args = .{i};
+                        const template = "missing tuple field with index {d}";
                         if (root_msg) |msg| {
-                            try sema.errNote(block, init_src, msg, template, args);
+                            try sema.errNote(block, init_src, msg, template, .{i});
                         } else {
-                            root_msg = try sema.errMsg(block, init_src, template, args);
+                            root_msg = try sema.errMsg(block, init_src, template, .{i});
                         }
                     }
                 } else {
