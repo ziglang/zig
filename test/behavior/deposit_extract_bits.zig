@@ -4,11 +4,20 @@ const mem = std.mem;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-test "@depositBits" {
+fn runnerSupportsPextPdep(int_width: u16) bool {
     switch (builtin.zig_backend) {
-        .stage2_llvm, .stage2_x86_64 => {},
-        else => return error.SkipZigTest, // TODO
+        .stage2_llvm => return true,
+        .stage2_x86_64 => {
+            if (int_width > 64) return false;
+            if (!builtin.cpu.features.isEnabled(@intFromEnum(std.Target.x86.Feature.bmi2))) return false;
+            return true;
+        },
+        else => return false,
     }
+}
+
+test "@depositBits" {
+    if (comptime !runnerSupportsPextPdep(64)) return error.SkipZigTest; // TODO
 
     const S = struct {
         pub fn doTheTest() !void {
@@ -37,7 +46,7 @@ test "@depositBits" {
 }
 
 test "@depositBits u128" {
-    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
+    if (comptime !runnerSupportsPextPdep(128)) return error.SkipZigTest; // TODO
 
     const S = struct {
         pub fn doTheTest() !void {
@@ -56,10 +65,7 @@ test "@depositBits u128" {
 }
 
 test "@extractBits" {
-    switch (builtin.zig_backend) {
-        .stage2_llvm, .stage2_x86_64 => {},
-        else => return error.SkipZigTest, // TODO
-    }
+    if (comptime !runnerSupportsPextPdep(64)) return error.SkipZigTest; // TODO
 
     const S = struct {
         pub fn doTheTest() !void {
@@ -88,7 +94,7 @@ test "@extractBits" {
 }
 
 test "@extractBits u128" {
-    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+    if (comptime !runnerSupportsPextPdep(128)) return error.SkipZigTest; // TODO
 
     const S = struct {
         pub fn doTheTest() !void {
