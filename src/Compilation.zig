@@ -1143,12 +1143,14 @@ fn addModuleTableToCacheHash(
     try seen_table.put(gpa, main_mod, {});
 
     const SortByName = struct {
+        has_builtin: bool,
         names: []const []const u8,
 
-        pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
-            const lhs_key = ctx.names[lhs_index];
-            const rhs_key = ctx.names[rhs_index];
-            return mem.lessThan(u8, lhs_key, rhs_key);
+        pub fn lessThan(ctx: @This(), lhs: usize, rhs: usize) bool {
+            return if (ctx.has_builtin and (lhs == 0 or rhs == 0))
+                lhs < rhs
+            else
+                mem.lessThan(u8, ctx.names[lhs], ctx.names[rhs]);
         }
     };
 
@@ -1175,7 +1177,11 @@ fn addModuleTableToCacheHash(
             },
         }
 
-        mod.deps.sortUnstable(SortByName{ .names = mod.deps.keys() });
+        mod.deps.sortUnstable(SortByName{
+            .has_builtin = mod.deps.count() >= 1 and
+                mod.deps.values()[0].isBuiltin(),
+            .names = mod.deps.keys(),
+        });
 
         hash.addListOfBytes(mod.deps.keys());
 
