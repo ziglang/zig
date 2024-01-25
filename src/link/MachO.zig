@@ -1173,58 +1173,54 @@ fn isHoisted(self: *MachO, install_name: []const u8) bool {
     return false;
 }
 
-fn accessPath(
+fn accessLibPath2(
     arena: Allocator,
     test_path: *std.ArrayList(u8),
     checked_paths: *std.ArrayList([]const u8),
-    path: []const u8,
-) !bool {
-    test_path.clearRetainingCapacity();
-    try test_path.appendSlice(path);
-    std.fs.cwd().access(path, .{}) catch |err| switch (err) {
-        error.FileNotFound => {
-            try checked_paths.append(try arena.dupe(u8, test_path.items));
-            return false;
-        },
-        else => |e| return e,
-    };
-    return true;
-}
-
-fn resolveLib(
-    arena: Allocator,
-    test_path: *std.ArrayList(u8),
-    checked_paths: *std.ArrayList([]const u8),
-    search_dirs: []const []const u8,
+    search_dir: []const u8,
     name: []const u8,
 ) !bool {
-    const path = try std.fmt.allocPrint(arena, "lib{s}", .{name});
-    for (search_dirs) |dir| {
-        for (&[_][]const u8{ ".tbd", ".dylib" }) |ext| {
-            const with_ext = try std.fmt.allocPrint(arena, "{s}{s}", .{ path, ext });
-            const full_path = try std.fs.path.join(arena, &[_][]const u8{ dir, with_ext });
-            if (try accessPath(arena, test_path, checked_paths, full_path)) return true;
-        }
+    const sep = fs.path.sep_str;
+
+    for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
+        test_path.clearRetainingCapacity();
+        try test_path.writer().print("{s}" ++ sep ++ "lib{s}{s}", .{ search_dir, name, ext });
+        try checked_paths.append(try arena.dupe(u8, test_path.items));
+        std.fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => |e| return e,
+        };
+        return true;
     }
+
     return false;
 }
 
-fn resolveFramework(
+fn accessFrameworkPath(
     arena: Allocator,
     test_path: *std.ArrayList(u8),
     checked_paths: *std.ArrayList([]const u8),
-    search_dirs: []const []const u8,
+    search_dir: []const u8,
     name: []const u8,
 ) !bool {
-    const prefix = try std.fmt.allocPrint(arena, "{s}.framework", .{name});
-    const path = try std.fs.path.join(arena, &[_][]const u8{ prefix, name });
-    for (search_dirs) |dir| {
-        for (&[_][]const u8{ ".tbd", ".dylib" }) |ext| {
-            const with_ext = try std.fmt.allocPrint(arena, "{s}{s}", .{ path, ext });
-            const full_path = try std.fs.path.join(arena, &[_][]const u8{ dir, with_ext });
-            if (try accessPath(arena, test_path, checked_paths, full_path)) return true;
-        }
+    const sep = fs.path.sep_str;
+
+    for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
+        test_path.clearRetainingCapacity();
+        try test_path.writer().print("{s}" ++ sep ++ "{s}.framework" ++ sep ++ "{s}{s}", .{
+            search_dir,
+            name,
+            name,
+            ext,
+        });
+        try checked_paths.append(try arena.dupe(u8, test_path.items));
+        std.fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => |e| return e,
+        };
+        return true;
     }
+
     return false;
 }
 
@@ -1265,38 +1261,39 @@ fn parseDependentDylibs(self: *MachO) !void {
             var checked_paths = std.ArrayList([]const u8).init(arena);
 
             const full_path = full_path: {
-                fail: {
+                {
                     const stem = std.fs.path.stem(id.name);
 
                     // Framework
-                    if (try resolveFramework(
-                        arena,
-                        &test_path,
-                        &checked_paths,
-                        framework_dirs,
-                        stem,
-                    )) break :full_path test_path.items;
+                    for (framework_dirs) |dir| {
+                        test_path.clearRetainingCapacity();
+                        if (try accessFrameworkPath(arena, &test_path, &checked_paths, dir, stem)) break :full_path test_path.items;
+                    }
 
                     // Library
                     const lib_name = eatPrefix(stem, "lib") orelse stem;
-                    if (try resolveLib(
-                        arena,
-                        &test_path,
-                        &checked_paths,
-                        lib_dirs,
-                        lib_name,
-                    )) break :full_path test_path.items;
-                    break :fail;
+                    for (lib_dirs) |dir| {
+                        test_path.clearRetainingCapacity();
+                        if (try accessLibPath2(arena, &test_path, &checked_paths, dir, lib_name)) break :full_path test_path.items;
+                    }
                 }
 
                 if (std.fs.path.isAbsolute(id.name)) {
-                    const path = if (self.base.comp.sysroot) |root|
-                        try std.fs.path.join(arena, &.{ root, id.name })
-                    else
-                        id.name;
-                    for (&[_][]const u8{ "", ".tbd", ".dylib" }) |ext| {
-                        const full_path = try std.fmt.allocPrint(arena, "{s}{s}", .{ path, ext });
-                        if (try accessPath(arena, &test_path, &checked_paths, full_path)) break :full_path test_path.items;
+                    const existing_ext = std.fs.path.extension(id.name);
+                    const path = if (existing_ext.len > 0) id.name[0 .. id.name.len - existing_ext.len] else id.name;
+                    for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
+                        test_path.clearRetainingCapacity();
+                        if (self.base.comp.sysroot) |root| {
+                            try test_path.writer().print("{s}" ++ std.fs.path.sep_str ++ "{s}{s}", .{ root, path, ext });
+                        } else {
+                            try test_path.writer().print("{s}{s}", .{ path, ext });
+                        }
+                        try checked_paths.append(try arena.dupe(u8, test_path.items));
+                        std.fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
+                            error.FileNotFound => continue,
+                            else => |e| return e,
+                        };
+                        break :full_path test_path.items;
                     }
                 }
 
@@ -1305,6 +1302,7 @@ fn parseDependentDylibs(self: *MachO) !void {
                     for (self.getFile(dylib.umbrella).?.dylib.rpaths.keys()) |rpath| {
                         const prefix = eatPrefix(rpath, "@loader_path/") orelse rpath;
                         const rel_path = try std.fs.path.join(arena, &.{ prefix, path });
+                        try checked_paths.append(rel_path);
                         var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
                         const full_path = std.fs.realpath(rel_path, &buffer) catch continue;
                         break :full_path full_path;
@@ -1317,8 +1315,11 @@ fn parseDependentDylibs(self: *MachO) !void {
                     return error.Unhandled;
                 }
 
+                try checked_paths.append(try arena.dupe(u8, id.name));
                 var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-                const full_path = std.fs.realpath(id.name, &buffer) catch {
+                if (std.fs.realpath(id.name, &buffer)) |full_path| {
+                    break :full_path full_path;
+                } else |_| {
                     try self.reportMissingDependencyError(
                         self.getFile(dylib_index).?.dylib.getUmbrella(self).index,
                         id.name,
@@ -1328,8 +1329,7 @@ fn parseDependentDylibs(self: *MachO) !void {
                     );
                     has_errors = true;
                     continue;
-                };
-                break :full_path full_path;
+                }
             };
             const lib = SystemLib{
                 .path = full_path,
