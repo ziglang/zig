@@ -159,6 +159,14 @@
 # define __KERNEL_STRICT_NAMES
 #endif
 
+/* Major and minor version number of the GNU C library package.  Use
+   these macros to test for features in specific releases.  */
+#define	__GLIBC__	2
+/* Zig patch: we pass `-D__GLIBC_MINOR__=XX` depending on the target. */
+
+#define __GLIBC_PREREQ(maj, min) \
+	((__GLIBC__ << 16) + __GLIBC_MINOR__ >= ((maj) << 16) + (min))
+
 /* Convenience macro to test the version of gcc.
    Use like this:
    #if __GNUC_PREREQ (2,8)
@@ -501,14 +509,6 @@
    the sonames of the shared libraries.  */
 #undef  __GNU_LIBRARY__
 #define __GNU_LIBRARY__ 6
-
-/* Major and minor version number of the GNU C library package.  Use
-   these macros to test for features in specific releases.  */
-#define	__GLIBC__	2
-/* Zig patch: we pass `-D__GLIBC_MINOR__=XX` depending on the target. */
-
-#define __GLIBC_PREREQ(maj, min) \
-	((__GLIBC__ << 16) + __GLIBC_MINOR__ >= ((maj) << 16) + (min))
 
 /* This is here only because every header file already includes this one.  */
 #ifndef __ASSEMBLER__
