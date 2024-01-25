@@ -251,7 +251,8 @@ fn initOutputSection(self: Object, elf_file: *Elf, shdr: ElfShdr) error{OutOfMem
     const name = blk: {
         const name = self.getString(shdr.sh_name);
         if (elf_file.base.isRelocatable()) break :blk name;
-        if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
+        if (shdr.sh_flags & elf.SHF_MERGE != 0 and shdr.sh_flags & elf.SHF_STRINGS == 0)
+            break :blk name; // TODO: consider dropping SHF_STRINGS once ICF is implemented
         const sh_name_prefixes: []const [:0]const u8 = &.{
             ".text",       ".data.rel.ro", ".data", ".rodata", ".bss.rel.ro",       ".bss",
             ".init_array", ".fini_array",  ".tbss", ".tdata",  ".gcc_except_table", ".ctors",
