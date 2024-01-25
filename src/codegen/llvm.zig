@@ -10420,7 +10420,7 @@ pub const FuncGen = struct {
         const source_bit_set = try self.wip.icmp(.ne, source_bit, zero, "");
         const bit_or_zero = try self.wip.select(.normal, source_bit_set, bit, zero, ""); // avoid using control flow
         const new_result = try self.wip.bin(.@"or", result_phi.toValue(), bit_or_zero, "");
-        const new_bb = try self.wip.bin(.@"add", bb_phi.toValue(), bb_phi.toValue(), "");
+        const new_bb = try self.wip.bin(.add, bb_phi.toValue(), bb_phi.toValue(), "");
         const while_cond = try self.wip.icmp(.ne, new_mask, zero, "");
         _ = try self.wip.brCond(while_cond, loop_block, after_block);
 
@@ -10577,7 +10577,7 @@ pub const FuncGen = struct {
         const source_bit_set = try self.wip.icmp(.ne, source_bit, zero, "");
         const bb_or_zero = try self.wip.select(.normal, source_bit_set, bb_phi.toValue(), zero, ""); // avoid using control flow
         const new_result = try self.wip.bin(.@"or", result_phi.toValue(), bb_or_zero, "");
-        const new_bb = try self.wip.bin(.@"add", bb_phi.toValue(), bb_phi.toValue(), "");
+        const new_bb = try self.wip.bin(.add, bb_phi.toValue(), bb_phi.toValue(), "");
         const while_cond = try self.wip.icmp(.ne, new_mask, zero, "");
         _ = try self.wip.brCond(while_cond, loop_block, after_block);
 
