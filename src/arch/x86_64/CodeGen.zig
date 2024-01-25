@@ -5573,9 +5573,9 @@ fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airDepositBits(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
 
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const lhs_mcv = try self.resolveInst(bin_op.lhs);
     const rhs_mcv = try self.resolveInst(bin_op.rhs);
     const dest_ty = self.typeOfIndex(inst);
@@ -5640,9 +5640,9 @@ fn airDepositBits(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airExtractBits(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
+    const mod = self.bin_file.comp.module.?;
 
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const lhs_mcv = try self.resolveInst(bin_op.lhs);
     const rhs_mcv = try self.resolveInst(bin_op.rhs);
     const dest_ty = self.typeOfIndex(inst);

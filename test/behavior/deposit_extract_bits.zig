@@ -17,6 +17,11 @@ test "@depositBits" {
             var c: u64 = 0x1234_5678_9012_3456;
             var d: u64 = 0x00F0_FF00_F00F_00FF;
 
+            _ = &a;
+            _ = &b;
+            _ = &c;
+            _ = &d;
+
             try expect(@depositBits(b, a) == 0);
             try expect(@depositBits(a, b) == 0);
 
@@ -36,8 +41,11 @@ test "@depositBits u128" {
 
     const S = struct {
         pub fn doTheTest() !void {
-            var a: u64 = 0x1234_5678_9012_3456;
-            var b: u128 = 0x00F0_FF00_F00F_00FF << 64;
+            const a: u64 = 0x1234_5678_9012_3456;
+            const b: u128 = 0x00F0_FF00_F00F_00FF << 64;
+
+            _ = &a;
+            _ = &b;
 
             try expect(@depositBits(a, b) == 0x0000_1200_3004_0056 << 64);
         }
@@ -55,10 +63,15 @@ test "@extractBits" {
 
     const S = struct {
         pub fn doTheTest() !void {
-            var a: u64 = 0;
-            var b: u64 = 0xFFFF_FFFF_FFFF_FFFF;
-            var c: u64 = 0x1234_5678_9012_3456;
-            var d: u64 = 0x00F0_FF00_F00F_00FF;
+            const a: u64 = 0;
+            const b: u64 = 0xFFFF_FFFF_FFFF_FFFF;
+            const c: u64 = 0x1234_5678_9012_3456;
+            const d: u64 = 0x00F0_FF00_F00F_00FF;
+
+            _ = &a;
+            _ = &b;
+            _ = &c;
+            _ = &d;
 
             try expect(@extractBits(b, a) == 0);
             try expect(@extractBits(a, b) == 0);
@@ -79,8 +92,11 @@ test "@extractBits u128" {
 
     const S = struct {
         pub fn doTheTest() !void {
-            var a: u128 = 0x1234_5678_9012_3456 << 64;
-            var b: u128 = 0x00F0_FF00_F00F_00FF << 64;
+            const a: u128 = 0x1234_5678_9012_3456 << 64;
+            const b: u128 = 0x00F0_FF00_F00F_00FF << 64;
+
+            _ = &a;
+            _ = &b;
 
             try expect(@extractBits(a, b) == 0x0356_9256);
         }
