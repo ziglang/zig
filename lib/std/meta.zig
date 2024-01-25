@@ -1126,7 +1126,10 @@ pub inline fn hasFn(comptime T: type, comptime name: []const u8) bool {
 /// Result is always comptime-known.
 pub inline fn hasMethod(comptime T: type, comptime name: []const u8) bool {
     return switch (@typeInfo(T)) {
-        .Pointer => |P| hasFn(P.child, name),
+        .Pointer => |P| switch (P.size) {
+            .One => hasFn(P.child, name),
+            else => false,
+        },
         else => hasFn(T, name),
     };
 }
