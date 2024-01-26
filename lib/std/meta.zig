@@ -1099,13 +1099,6 @@ test "ArgsTuple forwarding" {
     }
 }
 
-/// TODO: https://github.com/ziglang/zig/issues/425
-pub fn globalOption(comptime name: []const u8, comptime T: type) ?T {
-    if (!@hasDecl(root, name))
-        return null;
-    return @as(T, @field(root, name));
-}
-
 /// Returns whether `error_union` contains an error.
 pub fn isError(error_union: anytype) bool {
     return if (error_union) |_| false else |_| true;
