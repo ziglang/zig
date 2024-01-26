@@ -7,7 +7,7 @@ pub const Style = union(enum) {
     /// The configure format supported by autotools. It uses `#undef foo` to
     /// mark lines that can be substituted with different values.
     autoconf: std.Build.LazyPath,
-    /// The configure format supported by CMake. It uses `@@FOO@@` and
+    /// The configure format supported by CMake. It uses `@FOO@`, `${}` and
     /// `#cmakedefine` for template substitution.
     cmake: std.Build.LazyPath,
     /// Instead of starting with an input file, start with nothing.
@@ -31,28 +31,6 @@ pub const Value = union(enum) {
     ident: []const u8,
     string: []const u8,
 };
-
-fn formatValueCMake(data: Value, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-    _ = fmt;
-    _ = options;
-
-    switch (data) {
-        .undef, .defined => {},
-        .boolean => |b| {
-            try writer.print("{d}", .{@intFromBool(b)});
-        },
-        .int => |i| {
-            try writer.print("{d}", .{i});
-        },
-        .ident, .string => |s| {
-            try writer.writeAll(s);
-        },
-    }
-}
-
-fn fmtValueCMake(value: Value) std.fmt.Formatter(formatValueCMake) {
-    return .{ .data = value };
-}
 
 step: Step,
 values: std.StringArrayHashMap(Value),
@@ -344,7 +322,11 @@ fn render_cmake(
                 continue;
             },
             else => {
-                @panic("Failed to substitute");
+                try step.addError("{s}:{d}: unable to substitute variable: error: {s}", .{
+                    src_path, line_index + 1, @errorName(err),
+                });
+                any_errors = true;
+                continue;
             },
         };
         defer allocator.free(line);
@@ -549,8 +531,8 @@ fn expand_variables_cmake(
     contents: []const u8,
     values: std.StringArrayHashMap(Value),
 ) ![]const u8 {
-    var result = allocator.alloc(u8, 0) catch @panic("OOM");
-    errdefer allocator.free(result);
+    var result = std.ArrayList(u8).init(allocator);
+    errdefer result.deinit();
 
     const valid_varname_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.+-";
     const open_var = "${";
@@ -571,8 +553,8 @@ fn expand_variables_cmake(
                         // closed immediately, preserve as a literal
                         break :blk;
                     }
-                    const valid_varname_end = std.mem.indexOfNonePos(u8, contents, curr + 1, valid_varname_chars);
-                    if (valid_varname_end == null or valid_varname_end != close_pos) {
+                    const valid_varname_end = std.mem.indexOfNonePos(u8, contents, curr + 1, valid_varname_chars) orelse 0;
+                    if (valid_varname_end != close_pos) {
                         // contains invalid characters, preserve as a literal
                         break :blk;
                     }
@@ -580,9 +562,19 @@ fn expand_variables_cmake(
                     const key = contents[curr + 1 .. close_pos];
                     const value = values.get(key) orelse .undef;
                     const missing = contents[source_offset..curr];
-                    const buf = try std.fmt.allocPrint(allocator, "{s}{s}{}", .{ result, missing, fmtValueCMake(value) });
-                    allocator.free(result);
-                    result = buf;
+                    try result.appendSlice(missing);
+                    switch (value) {
+                        .undef, .defined => {},
+                        .boolean => |b| {
+                            try result.append(if (b) '1' else '0');
+                        },
+                        .int => |i| {
+                            try result.writer().print("{d}", .{i});
+                        },
+                        .ident, .string => |s| {
+                            try result.appendSlice(s);
+                        },
+                    }
 
                     curr = close_pos;
                     source_offset = close_pos + 1;
@@ -597,15 +589,14 @@ fn expand_variables_cmake(
                     break :blk;
                 }
                 const missing = contents[source_offset..curr];
-                const buf = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ result, missing, open_var });
-                allocator.free(result);
-                result = buf;
+                try result.appendSlice(missing);
+                try result.appendSlice(open_var);
 
                 source_offset = curr + open_var.len;
                 curr = next;
                 try var_stack.append(Position{
                     .source = curr,
-                    .target = result.len - open_var.len,
+                    .target = result.items.len - open_var.len,
                 });
 
                 continue :loop;
@@ -620,14 +611,24 @@ fn expand_variables_cmake(
                     source_offset += open_var.len;
                 }
                 const missing = contents[source_offset..curr];
-                const key_start = open_pos.target + open_var.len;
-                const key = try std.fmt.allocPrint(allocator, "{s}{s}", .{ result[key_start..], missing });
-                defer allocator.free(key);
+                try result.appendSlice(missing);
 
+                const key_start = open_pos.target + open_var.len;
+                const key = result.items[key_start..];
                 const value = values.get(key) orelse .undef;
-                const buf = try std.fmt.allocPrint(allocator, "{s}{}", .{ result[0..open_pos.target], fmtValueCMake(value) });
-                allocator.free(result);
-                result = buf;
+                result.shrinkRetainingCapacity(result.items.len - key.len - open_var.len);
+                switch (value) {
+                    .undef, .defined => {},
+                    .boolean => |b| {
+                        try result.append(if (b) '1' else '0');
+                    },
+                    .int => |i| {
+                        try result.writer().print("{d}", .{i});
+                    },
+                    .ident, .string => |s| {
+                        try result.appendSlice(s);
+                    },
+                }
 
                 source_offset = curr + 1;
 
@@ -646,12 +647,11 @@ fn expand_variables_cmake(
     }
 
     if (source_offset != contents.len) {
-        const buf = try std.fmt.allocPrint(allocator, "{s}{s}", .{ result, contents[source_offset..] });
-        allocator.free(result);
-        result = buf;
+        const missing = contents[source_offset..];
+        try result.appendSlice(missing);
     }
 
-    return result;
+    return result.toOwnedSlice();
 }
 
 fn testReplaceVariables(
