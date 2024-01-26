@@ -4376,6 +4376,21 @@ test "zig fmt: invalid doc comments on comptime and test blocks" {
     });
 }
 
+test "zig fmt: else comptime expr" {
+    try testCanonical(
+        \\comptime {
+        \\    if (true) {} else comptime foo();
+        \\}
+        \\comptime {
+        \\    while (true) {} else comptime foo();
+        \\}
+        \\comptime {
+        \\    for ("") |_| {} else comptime foo();
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: invalid else branch statement" {
     try testError(
         \\comptime {
