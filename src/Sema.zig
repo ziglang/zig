@@ -1224,6 +1224,10 @@ fn analyzeBodyInner(
             .trap           => break sema.zirTrap(block, inst),
             // zig fmt: on
 
+            // This instruction never exists in an analyzed body. It exists only in the declaration
+            // list for a container type.
+            .declaration => unreachable,
+
             .extended => ext: {
                 const extended = datas[@intFromEnum(inst)].extended;
                 break :ext switch (extended.opcode) {
@@ -2704,11 +2708,12 @@ pub fn getStructType(
     sema: *Sema,
     decl: InternPool.DeclIndex,
     namespace: InternPool.NamespaceIndex,
-    zir_index: Zir.Inst.Index,
+    tracked_inst: InternPool.TrackedInst.Index,
 ) !InternPool.Index {
     const mod = sema.mod;
     const gpa = sema.gpa;
     const ip = &mod.intern_pool;
+    const zir_index = tracked_inst.resolve(ip);
     const extended = sema.code.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .struct_decl);
     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
@@ -2736,12 +2741,14 @@ pub fn getStructType(
         }
     }
 
-    extra_index = try mod.scanNamespace(namespace, extra_index, decls_len, mod.declPtr(decl));
+    const decls = sema.code.bodySlice(extra_index, decls_len);
+    try mod.scanNamespace(namespace, decls, mod.declPtr(decl));
+    extra_index += decls_len;
 
     const ty = try ip.getStructType(gpa, .{
         .decl = decl,
         .namespace = namespace.toOptional(),
-        .zir_index = zir_index,
+        .zir_index = tracked_inst,
         .layout = small.layout,
         .known_non_opv = small.known_non_opv,
         .is_tuple = small.is_tuple,
@@ -2791,7 +2798,8 @@ fn zirStructDecl(
     errdefer mod.destroyNamespace(new_namespace_index);
 
     const struct_ty = ty: {
-        const ty = try sema.getStructType(new_decl_index, new_namespace_index, inst);
+        const tracked_inst = try ip.trackZir(mod.gpa, block.getFileScope(mod), inst);
+        const ty = try sema.getStructType(new_decl_index, new_namespace_index, tracked_inst);
         if (sema.builtin_type_target_index != .none) {
             ip.resolveBuiltinType(sema.builtin_type_target_index, ty);
             break :ty sema.builtin_type_target_index;
@@ -2850,7 +2858,7 @@ fn createAnonymousDeclTypeNamed(
             return new_decl_index;
         },
         .func => {
-            const fn_info = sema.code.getFnInfo(ip.funcZirBodyInst(sema.func_index));
+            const fn_info = sema.code.getFnInfo(ip.funcZirBodyInst(sema.func_index).resolve(ip));
             const zir_tags = sema.code.instructions.items(.tag);
 
             var buf = std.ArrayList(u8).init(gpa);
@@ -2973,7 +2981,9 @@ fn zirEnumDecl(
     const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer if (!done) mod.destroyNamespace(new_namespace_index);
 
-    extra_index = try mod.scanNamespace(new_namespace_index, extra_index, decls_len, new_decl);
+    const decls = sema.code.bodySlice(extra_index, decls_len);
+    try mod.scanNamespace(new_namespace_index, decls, new_decl);
+    extra_index += decls_len;
 
     const body = sema.code.bodySlice(extra_index, body_len);
     extra_index += body.len;
@@ -3244,7 +3254,7 @@ fn zirUnionDecl(
             },
             .decl = new_decl_index,
             .namespace = new_namespace_index,
-            .zir_index = inst,
+            .zir_index = try mod.intern_pool.trackZir(gpa, block.getFileScope(mod), inst),
             .fields_len = fields_len,
             .enum_tag_ty = .none,
             .field_types = &.{},
@@ -3263,7 +3273,8 @@ fn zirUnionDecl(
     new_decl.val = Value.fromInterned(union_ty);
     new_namespace.ty = Type.fromInterned(union_ty);
 
-    _ = try mod.scanNamespace(new_namespace_index, extra_index, decls_len, new_decl);
+    const decls = sema.code.bodySlice(extra_index, decls_len);
+    try mod.scanNamespace(new_namespace_index, decls, new_decl);
 
     const decl_val = sema.analyzeDeclVal(block, src, new_decl_index);
     try mod.finalizeAnonDecl(new_decl_index);
@@ -3326,7 +3337,8 @@ fn zirOpaqueDecl(
     new_decl.val = Value.fromInterned(opaque_ty);
     new_namespace.ty = Type.fromInterned(opaque_ty);
 
-    extra_index = try mod.scanNamespace(new_namespace_index, extra_index, decls_len, new_decl);
+    const decls = sema.code.bodySlice(extra_index, decls_len);
+    try mod.scanNamespace(new_namespace_index, decls, new_decl);
 
     const decl_val = sema.analyzeDeclVal(block, src, new_decl_index);
     try mod.finalizeAnonDecl(new_decl_index);
@@ -7436,7 +7448,7 @@ fn analyzeCall(
         // the AIR instructions of the callsite. The callee could be a generic function
         // which means its parameter type expressions must be resolved in order and used
         // to successively coerce the arguments.
-        const fn_info = ics.callee().code.getFnInfo(module_fn.zir_body_inst);
+        const fn_info = ics.callee().code.getFnInfo(module_fn.zir_body_inst.resolve(ip));
         try ics.callee().inst_map.ensureSpaceForInstructions(gpa, fn_info.param_body);
 
         var arg_i: u32 = 0;
@@ -7484,7 +7496,7 @@ fn analyzeCall(
         // each of the parameters, resolving the return type and providing it to the child
         // `Sema` so that it can be used for the `ret_ptr` instruction.
         const ret_ty_inst = if (fn_info.ret_ty_body.len != 0)
-            try sema.resolveBody(&child_block, fn_info.ret_ty_body, module_fn.zir_body_inst)
+            try sema.resolveBody(&child_block, fn_info.ret_ty_body, module_fn.zir_body_inst.resolve(ip))
         else
             try sema.resolveInst(fn_info.ret_ty_ref);
         const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = 0 };
@@ -7875,7 +7887,7 @@ fn instantiateGenericCall(
     const namespace_index = fn_owner_decl.src_namespace;
     const namespace = mod.namespacePtr(namespace_index);
     const fn_zir = namespace.file_scope.zir;
-    const fn_info = fn_zir.getFnInfo(generic_owner_func.zir_body_inst);
+    const fn_info = fn_zir.getFnInfo(generic_owner_func.zir_body_inst.resolve(ip));
 
     const comptime_args = try sema.arena.alloc(InternPool.Index, args_info.count());
     @memset(comptime_args, .none);
@@ -9457,7 +9469,7 @@ fn funcCommon(
             .is_generic = final_is_generic,
             .is_noinline = is_noinline,
 
-            .zir_body_inst = func_inst,
+            .zir_body_inst = try ip.trackZir(gpa, block.getFileScope(mod), func_inst),
             .lbrace_line = src_locs.lbrace_line,
             .rbrace_line = src_locs.rbrace_line,
             .lbrace_column = @as(u16, @truncate(src_locs.columns)),
@@ -9535,7 +9547,7 @@ fn funcCommon(
             .ty = func_ty,
             .cc = cc,
             .is_noinline = is_noinline,
-            .zir_body_inst = func_inst,
+            .zir_body_inst = try ip.trackZir(gpa, block.getFileScope(mod), func_inst),
             .lbrace_line = src_locs.lbrace_line,
             .rbrace_line = src_locs.rbrace_line,
             .lbrace_column = @as(u16, @truncate(src_locs.columns)),
@@ -21552,7 +21564,7 @@ fn zirReify(
                 .namespace = new_namespace_index,
                 .enum_tag_ty = enum_tag_ty,
                 .fields_len = fields_len,
-                .zir_index = inst,
+                .zir_index = try ip.trackZir(gpa, block.getFileScope(mod), inst), // TODO: should reified types be handled differently?
                 .flags = .{
                     .layout = layout,
                     .status = .have_field_types,
@@ -21720,7 +21732,7 @@ fn reifyStruct(
     const ty = try ip.getStructType(gpa, .{
         .decl = new_decl_index,
         .namespace = .none,
-        .zir_index = inst,
+        .zir_index = try mod.intern_pool.trackZir(gpa, block.getFileScope(mod), inst), // TODO: should reified types be handled differently?
         .layout = layout,
         .known_non_opv = false,
         .fields_len = fields_len,
@@ -35592,7 +35604,8 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.Key.StructType) Comp
         break :blk accumulator;
     };
 
-    const extended = zir.instructions.items(.data)[@intFromEnum(struct_type.zir_index)].extended;
+    const zir_index = struct_type.zir_index.resolve(ip);
+    const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .struct_decl);
     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
 
@@ -35612,7 +35625,7 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.Key.StructType) Comp
                 break :blk try sema.resolveType(&block, backing_int_src, backing_int_ref);
             } else {
                 const body = zir.bodySlice(extra_index, backing_int_body_len);
-                const ty_ref = try sema.resolveBody(&block, body, struct_type.zir_index);
+                const ty_ref = try sema.resolveBody(&block, body, zir_index);
                 break :blk try sema.analyzeAsType(&block, backing_int_src, ty_ref);
             }
         };
@@ -36340,9 +36353,7 @@ fn structZirInfo(zir: Zir, zir_index: Zir.Inst.Index) struct {
     }
 
     // Skip over decls.
-    var decls_it = zir.declIteratorInner(extra_index, decls_len);
-    while (decls_it.next()) |_| {}
-    extra_index = decls_it.extra_index;
+    extra_index += decls_len;
 
     return .{ fields_len, small, extra_index };
 }
@@ -36358,7 +36369,7 @@ fn semaStructFields(
     const decl = mod.declPtr(decl_index);
     const namespace_index = struct_type.namespace.unwrap() orelse decl.src_namespace;
     const zir = mod.namespacePtr(namespace_index).file_scope.zir;
-    const zir_index = struct_type.zir_index;
+    const zir_index = struct_type.zir_index.resolve(ip);
 
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
@@ -36629,7 +36640,7 @@ fn semaStructFieldInits(
     const decl = mod.declPtr(decl_index);
     const namespace_index = struct_type.namespace.unwrap() orelse decl.src_namespace;
     const zir = mod.namespacePtr(namespace_index).file_scope.zir;
-    const zir_index = struct_type.zir_index;
+    const zir_index = struct_type.zir_index.resolve(ip);
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
     var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
@@ -36778,7 +36789,8 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
     const ip = &mod.intern_pool;
     const decl_index = union_type.decl;
     const zir = mod.namespacePtr(union_type.namespace).file_scope.zir;
-    const extended = zir.instructions.items(.data)[@intFromEnum(union_type.zir_index)].extended;
+    const zir_index = union_type.zir_index.resolve(ip);
+    const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .union_decl);
     const small: Zir.Inst.UnionDecl.Small = @bitCast(extended.small);
     var extra_index: usize = extended.operand;
@@ -36811,9 +36823,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
     } else 0;
 
     // Skip over decls.
-    var decls_it = zir.declIteratorInner(extra_index, decls_len);
-    while (decls_it.next()) |_| {}
-    extra_index = decls_it.extra_index;
+    extra_index += decls_len;
 
     const body = zir.bodySlice(extra_index, body_len);
     extra_index += body.len;
@@ -37810,10 +37820,12 @@ pub fn analyzeAddressSpace(
     ctx: AddressSpaceContext,
 ) !std.builtin.AddressSpace {
     const mod = sema.mod;
-    const addrspace_tv = try sema.resolveInstConst(block, src, zir_ref, .{
+    const air_ref = try sema.resolveInst(zir_ref);
+    const coerced = try sema.coerce(block, Type.fromInterned(.address_space_type), air_ref, src);
+    const addrspace_val = try sema.resolveConstDefinedValue(block, src, coerced, .{
         .needed_comptime_reason = "address space must be comptime-known",
     });
-    const address_space = mod.toEnum(std.builtin.AddressSpace, addrspace_tv.val);
+    const address_space = mod.toEnum(std.builtin.AddressSpace, addrspace_val);
     const target = sema.mod.getTarget();
     const arch = target.cpu.arch;
 

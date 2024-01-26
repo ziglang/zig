@@ -6855,10 +6855,7 @@ pub fn cmdChangelist(
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
     defer inst_map.deinit(gpa);
 
-    var extra_map: std.AutoHashMapUnmanaged(Zir.ExtraIndex, Zir.ExtraIndex) = .{};
-    defer extra_map.deinit(gpa);
-
-    try Module.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map, &extra_map);
+    try Module.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map);
 
     var bw = io.bufferedWriter(io.getStdOut().writer());
     const stdout = bw.writer();
@@ -6867,16 +6864,8 @@ pub fn cmdChangelist(
         var it = inst_map.iterator();
         while (it.next()) |entry| {
             try stdout.print(" %{d} => %{d}\n", .{
-                entry.key_ptr.*, entry.value_ptr.*,
-            });
-        }
-    }
-    {
-        try stdout.print("Extra mappings:\n", .{});
-        var it = extra_map.iterator();
-        while (it.next()) |entry| {
-            try stdout.print(" {d} => {d}\n", .{
-                entry.key_ptr.*, entry.value_ptr.*,
+                @intFromEnum(entry.key_ptr.*),
+                @intFromEnum(entry.value_ptr.*),
             });
         }
     }

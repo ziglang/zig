@@ -54,6 +54,34 @@ string_table: std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 ) = .{},
 
+/// An index into `tracked_insts` gives a reference to a single ZIR instruction which
+/// persists across incremental updates.
+tracked_insts: std.AutoArrayHashMapUnmanaged(TrackedInst, void) = .{},
+
+pub const TrackedInst = extern struct {
+    path_digest: Cache.BinDigest,
+    inst: Zir.Inst.Index,
+    comptime {
+        // The fields should be tightly packed. See also serialiation logic in `Compilation.saveState`.
+        assert(@sizeOf(@This()) == Cache.bin_digest_len + @sizeOf(Zir.Inst.Index));
+    }
+    pub const Index = enum(u32) {
+        _,
+        pub fn resolve(i: TrackedInst.Index, ip: *const InternPool) Zir.Inst.Index {
+            return ip.tracked_insts.keys()[@intFromEnum(i)].inst;
+        }
+    };
+};
+
+pub fn trackZir(ip: *InternPool, gpa: Allocator, file: *Module.File, inst: Zir.Inst.Index) Allocator.Error!TrackedInst.Index {
+    const key: TrackedInst = .{
+        .path_digest = file.path_digest,
+        .inst = inst,
+    };
+    const gop = try ip.tracked_insts.getOrPut(gpa, key);
+    return @enumFromInt(gop.index);
+}
+
 const FieldMap = std.ArrayHashMapUnmanaged(void, void, std.array_hash_map.AutoContext(void), false);
 
 const builtin = @import("builtin");
@@ -62,11 +90,13 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
+const Cache = std.Build.Cache;
 const Limb = std.math.big.Limb;
 const Hash = std.hash.Wyhash;
 
 const InternPool = @This();
 const Module = @import("Module.zig");
+const Zcu = Module;
 const Zir = @import("Zir.zig");
 
 const KeyAdapter = struct {
@@ -409,7 +439,7 @@ pub const Key = union(enum) {
         /// `none` when the struct has no declarations.
         namespace: OptionalNamespaceIndex,
         /// Index of the struct_decl ZIR instruction.
-        zir_index: Zir.Inst.Index,
+        zir_index: TrackedInst.Index,
         layout: std.builtin.Type.ContainerLayout,
         field_names: NullTerminatedString.Slice,
         field_types: Index.Slice,
@@ -653,7 +683,7 @@ pub const Key = union(enum) {
         }
 
         /// Asserts the struct is not packed.
-        pub fn setZirIndex(s: @This(), ip: *InternPool, new_zir_index: Zir.Inst.Index) void {
+        pub fn setZirIndex(s: @This(), ip: *InternPool, new_zir_index: TrackedInst.Index) void {
             assert(s.layout != .Packed);
             const field_index = std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?;
             ip.extra.items[s.extra_index + field_index] = @intFromEnum(new_zir_index);
@@ -769,7 +799,7 @@ pub const Key = union(enum) {
         flags: Tag.TypeUnion.Flags,
         /// The enum that provides the list of field names and values.
         enum_tag_ty: Index,
-        zir_index: Zir.Inst.Index,
+        zir_index: TrackedInst.Index,
 
         /// The returned pointer expires with any addition to the `InternPool`.
         pub fn flagsPtr(self: @This(), ip: *const InternPool) *Tag.TypeUnion.Flags {
@@ -1056,7 +1086,7 @@ pub const Key = union(enum) {
         /// the body. We store this rather than the body directly so that when ZIR
         /// is regenerated on update(), we can map this to the new corresponding
         /// ZIR instruction.
-        zir_body_inst: Zir.Inst.Index,
+        zir_body_inst: TrackedInst.Index,
         /// Relative to owner Decl.
         lbrace_line: u32,
         /// Relative to owner Decl.
@@ -1082,7 +1112,7 @@ pub const Key = union(enum) {
         }
 
         /// Returns a pointer that becomes invalid after any additions to the `InternPool`.
-        pub fn zirBodyInst(func: *const Func, ip: *const InternPool) *Zir.Inst.Index {
+        pub fn zirBodyInst(func: *const Func, ip: *const InternPool) *TrackedInst.Index {
             return @ptrCast(&ip.extra.items[func.zir_body_inst_extra_index]);
         }
 
@@ -1860,7 +1890,7 @@ pub const UnionType = struct {
     /// If this slice has length 0 it means all elements are `none`.
     field_aligns: Alignment.Slice,
     /// Index of the union_decl ZIR instruction.
-    zir_index: Zir.Inst.Index,
+    zir_index: TrackedInst.Index,
     /// Index into extra array of the `flags` field.
     flags_index: u32,
     /// Copied from `enum_tag_ty`.
@@ -1954,10 +1984,10 @@ pub const UnionType = struct {
     }
 
     /// This does not mutate the field of UnionType.
-    pub fn setZirIndex(self: @This(), ip: *InternPool, new_zir_index: Zir.Inst.Index) void {
+    pub fn setZirIndex(self: @This(), ip: *InternPool, new_zir_index: TrackedInst.Index) void {
         const flags_field_index = std.meta.fieldIndex(Tag.TypeUnion, "flags").?;
         const zir_index_field_index = std.meta.fieldIndex(Tag.TypeUnion, "zir_index").?;
-        const ptr: *Zir.Inst.Index =
+        const ptr: *TrackedInst.Index =
             @ptrCast(&ip.extra.items[self.flags_index - flags_field_index + zir_index_field_index]);
         ptr.* = new_zir_index;
     }
@@ -2976,7 +3006,7 @@ pub const Tag = enum(u8) {
         analysis: FuncAnalysis,
         owner_decl: DeclIndex,
         ty: Index,
-        zir_body_inst: Zir.Inst.Index,
+        zir_body_inst: TrackedInst.Index,
         lbrace_line: u32,
         rbrace_line: u32,
         lbrace_column: u32,
@@ -3050,7 +3080,7 @@ pub const Tag = enum(u8) {
         namespace: NamespaceIndex,
         /// The enum that provides the list of field names and values.
         tag_ty: Index,
-        zir_index: Zir.Inst.Index,
+        zir_index: TrackedInst.Index,
 
         pub const Flags = packed struct(u32) {
             runtime_tag: UnionType.RuntimeTag,
@@ -3072,7 +3102,7 @@ pub const Tag = enum(u8) {
     /// 2. init: Index for each fields_len // if tag is type_struct_packed_inits
     pub const TypeStructPacked = struct {
         decl: DeclIndex,
-        zir_index: Zir.Inst.Index,
+        zir_index: TrackedInst.Index,
         fields_len: u32,
         namespace: OptionalNamespaceIndex,
         backing_int_ty: Index,
@@ -3119,7 +3149,7 @@ pub const Tag = enum(u8) {
     /// 7. field_offset: u32 // for each field in declared order, undef until layout_resolved
     pub const TypeStruct = struct {
         decl: DeclIndex,
-        zir_index: Zir.Inst.Index,
+        zir_index: TrackedInst.Index,
         fields_len: u32,
         flags: Flags,
         size: u32,
@@ -3707,6 +3737,8 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.maps.deinit(gpa);
 
     ip.string_table.deinit(gpa);
+
+    ip.tracked_insts.deinit(gpa);
 
     ip.* = undefined;
 }
@@ -5358,7 +5390,7 @@ pub const UnionTypeInit = struct {
     flags: Tag.TypeUnion.Flags,
     decl: DeclIndex,
     namespace: NamespaceIndex,
-    zir_index: Zir.Inst.Index,
+    zir_index: TrackedInst.Index,
     fields_len: u32,
     enum_tag_ty: Index,
     /// May have length 0 which leaves the values unset until later.
@@ -5430,7 +5462,7 @@ pub const StructTypeInit = struct {
     decl: DeclIndex,
     namespace: OptionalNamespaceIndex,
     layout: std.builtin.Type.ContainerLayout,
-    zir_index: Zir.Inst.Index,
+    zir_index: TrackedInst.Index,
     fields_len: u32,
     known_non_opv: bool,
     requires_comptime: RequiresComptime,
@@ -5704,7 +5736,7 @@ pub fn getExternFunc(ip: *InternPool, gpa: Allocator, key: Key.ExternFunc) Alloc
 pub const GetFuncDeclKey = struct {
     owner_decl: DeclIndex,
     ty: Index,
-    zir_body_inst: Zir.Inst.Index,
+    zir_body_inst: TrackedInst.Index,
     lbrace_line: u32,
     rbrace_line: u32,
     lbrace_column: u32,
@@ -5773,7 +5805,7 @@ pub const GetFuncDeclIesKey = struct {
     is_var_args: bool,
     is_generic: bool,
     is_noinline: bool,
-    zir_body_inst: Zir.Inst.Index,
+    zir_body_inst: TrackedInst.Index,
     lbrace_line: u32,
     rbrace_line: u32,
     lbrace_column: u32,
@@ -6186,8 +6218,6 @@ fn finishFuncInstance(
         .generation = generation,
         .is_pub = fn_owner_decl.is_pub,
         .is_exported = fn_owner_decl.is_exported,
-        .has_linksection_or_addrspace = fn_owner_decl.has_linksection_or_addrspace,
-        .has_align = fn_owner_decl.has_align,
         .alive = true,
         .kind = .anon,
     });
@@ -6537,7 +6567,7 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
             NullTerminatedString,
             OptionalNullTerminatedString,
             Tag.TypePointer.VectorIndex,
-            Zir.Inst.Index,
+            TrackedInst.Index,
             => @intFromEnum(@field(extra, field.name)),
 
             u32,
@@ -6613,7 +6643,7 @@ fn extraDataTrail(ip: *const InternPool, comptime T: type, index: usize) struct 
             NullTerminatedString,
             OptionalNullTerminatedString,
             Tag.TypePointer.VectorIndex,
-            Zir.Inst.Index,
+            TrackedInst.Index,
             => @enumFromInt(int32),
 
             u32,
@@ -8319,7 +8349,7 @@ pub fn funcHasInferredErrorSet(ip: *const InternPool, i: Index) bool {
     return funcAnalysis(ip, i).inferred_error_set;
 }
 
-pub fn funcZirBodyInst(ip: *const InternPool, i: Index) Zir.Inst.Index {
+pub fn funcZirBodyInst(ip: *const InternPool, i: Index) TrackedInst.Index {
     assert(i != .none);
     const item = ip.items.get(@intFromEnum(i));
     const zir_body_inst_field_index = std.meta.fieldIndex(Tag.FuncDecl, "zir_body_inst").?;

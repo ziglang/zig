@@ -2802,6 +2802,7 @@ const Header = extern struct {
         extra_len: u32,
         limbs_len: u32,
         string_bytes_len: u32,
+        tracked_insts_len: u32,
     },
 };
 
@@ -2809,7 +2810,7 @@ const Header = extern struct {
 /// saved, such as the target and most CLI flags. A cache hit will only occur
 /// when subsequent compiler invocations use the same set of flags.
 pub fn saveState(comp: *Compilation) !void {
-    var bufs_list: [6]std.os.iovec_const = undefined;
+    var bufs_list: [7]std.os.iovec_const = undefined;
     var bufs_len: usize = 0;
 
     const lf = comp.bin_file orelse return;
@@ -2822,6 +2823,7 @@ pub fn saveState(comp: *Compilation) !void {
                 .extra_len = @intCast(ip.extra.items.len),
                 .limbs_len = @intCast(ip.limbs.items.len),
                 .string_bytes_len = @intCast(ip.string_bytes.items.len),
+                .tracked_insts_len = @intCast(ip.tracked_insts.count()),
             },
         };
         addBuf(&bufs_list, &bufs_len, mem.asBytes(&header));
@@ -2830,6 +2832,7 @@ pub fn saveState(comp: *Compilation) !void {
         addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.items.items(.data)));
         addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.items.items(.tag)));
         addBuf(&bufs_list, &bufs_len, ip.string_bytes.items);
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.tracked_insts.keys()));
 
         // TODO: compilation errors
         // TODO: files

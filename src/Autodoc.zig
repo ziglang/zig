@@ -2846,22 +2846,14 @@ fn walkInstruction(
             return res;
         },
         .block_inline => {
-            return self.walkRef(
+            const pl_node = data[@intFromEnum(inst)].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
+            return self.walkInlineBody(
                 file,
                 parent_scope,
+                try self.srcLocInfo(file, pl_node.src_node, parent_src),
                 parent_src,
-                getBlockInlineBreak(file.zir, inst) orelse {
-                    const res = DocData.WalkResult{
-                        .typeRef = .{ .type = @intFromEnum(Ref.type_type) },
-                        .expr = .{ .comptimeExpr = self.comptime_exprs.items.len },
-                    };
-                    const pl_node = data[@intFromEnum(inst)].pl_node;
-                    const block_inline_expr = try self.getBlockSource(file, parent_src, pl_node.src_node);
-                    try self.comptime_exprs.append(self.arena, .{
-                        .code = block_inline_expr,
-                    });
-                    return res;
-                },
+                file.zir.bodySlice(extra.end, extra.data.body_len),
                 need_type,
                 call_ctx,
             );
@@ -4084,19 +4076,11 @@ fn analyzeAllDecls(
     // First loop to discover decl names
     {
         var it = original_it;
-        while (it.next()) |d| {
-            const decl_name_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[@intFromEnum(d.sub_index) + 5]);
-            switch (decl_name_index) {
-                .empty,
-                .unnamed_test_decl,
-                .decltest,
-                => continue,
-                _ => if (file.zir.nullTerminatedString(decl_name_index).len == 0) {
-                    continue;
-                },
-            }
-
-            try scope.insertDeclRef(self.arena, decl_name_index, .Pending);
+        while (it.next()) |zir_index| {
+            const declaration, _ = file.zir.getDeclaration(zir_index);
+            if (declaration.name.isNamedTest(file.zir)) continue;
+            const decl_name = declaration.name.toString(file.zir) orelse continue;
+            try scope.insertDeclRef(self.arena, decl_name, .Pending);
         }
     }
 
@@ -4104,74 +4088,94 @@ fn analyzeAllDecls(
     {
         var it = original_it;
         var decl_indexes_slot = first_decl_indexes_slot;
-        while (it.next()) |d| : (decl_indexes_slot += 1) {
-            const decl_name_index = file.zir.extra[@intFromEnum(d.sub_index) + 5];
-            switch (decl_name_index) {
-                0 => {
-                    const is_exported = @as(u1, @truncate(d.flags >> 1));
-                    switch (is_exported) {
-                        0 => continue, // comptime decl
-                        1 => {
-                            try self.analyzeUsingnamespaceDecl(
-                                file,
-                                scope,
-                                parent_src,
-                                decl_indexes,
-                                priv_decl_indexes,
-                                d,
-                                call_ctx,
-                            );
-                        },
-                    }
-                },
-                else => continue,
-            }
+        while (it.next()) |zir_index| : (decl_indexes_slot += 1) {
+            const pl_node = file.zir.instructions.items(.data)[@intFromEnum(zir_index)].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Declaration, pl_node.payload_index);
+            if (extra.data.name != .@"usingnamespace") continue;
+            try self.analyzeUsingnamespaceDecl(
+                file,
+                scope,
+                try self.srcLocInfo(file, pl_node.src_node, parent_src),
+                decl_indexes,
+                priv_decl_indexes,
+                extra.data,
+                @intCast(extra.end),
+                call_ctx,
+            );
         }
     }
 
     // Third loop to analyze all remaining decls
-    var it = original_it;
-    while (it.next()) |d| {
-        const decl_name_index = file.zir.extra[@intFromEnum(d.sub_index) + 5];
-        switch (decl_name_index) {
-            0, 1 => continue, // skip over usingnamespace decls
-            2 => continue, // skip decltests
-
-            else => if (file.zir.string_bytes[decl_name_index] == 0) {
-                continue;
-            },
+    {
+        var it = original_it;
+        while (it.next()) |zir_index| {
+            const pl_node = file.zir.instructions.items(.data)[@intFromEnum(zir_index)].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Declaration, pl_node.payload_index);
+            switch (extra.data.name) {
+                .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                _ => if (extra.data.name.isNamedTest(file.zir)) continue,
+            }
+            try self.analyzeDecl(
+                file,
+                scope,
+                try self.srcLocInfo(file, pl_node.src_node, parent_src),
+                decl_indexes,
+                priv_decl_indexes,
+                zir_index,
+                extra.data,
+                @intCast(extra.end),
+                call_ctx,
+            );
         }
-
-        try self.analyzeDecl(
-            file,
-            scope,
-            parent_src,
-            decl_indexes,
-            priv_decl_indexes,
-            d,
-            call_ctx,
-        );
     }
 
     // Fourth loop to analyze decltests
-    it = original_it;
-    while (it.next()) |d| {
-        const decl_name_index = file.zir.extra[@intFromEnum(d.sub_index) + 5];
-        switch (decl_name_index) {
-            0, 1 => continue, // skip over usingnamespace decls
-            2 => {},
-            else => continue, // skip tests and normal decls
-        }
-
+    var it = original_it;
+    while (it.next()) |zir_index| {
+        const pl_node = file.zir.instructions.items(.data)[@intFromEnum(zir_index)].pl_node;
+        const extra = file.zir.extraData(Zir.Inst.Declaration, pl_node.payload_index);
+        if (extra.data.name != .decltest) continue;
         try self.analyzeDecltest(
             file,
             scope,
-            parent_src,
-            d,
+            try self.srcLocInfo(file, pl_node.src_node, parent_src),
+            extra.data,
+            @intCast(extra.end),
         );
     }
 
     return it.extra_index;
+}
+
+fn walkInlineBody(
+    autodoc: *Autodoc,
+    file: *File,
+    scope: *Scope,
+    block_src: SrcLocInfo,
+    parent_src: SrcLocInfo,
+    body: []const Zir.Inst.Index,
+    need_type: bool,
+    call_ctx: ?*const CallContext,
+) AutodocErrors!DocData.WalkResult {
+    const tags = file.zir.instructions.items(.tag);
+    const break_inst = switch (tags[@intFromEnum(body[body.len - 1])]) {
+        .condbr_inline => {
+            // Unresolvable.
+            const res: DocData.WalkResult = .{
+                .typeRef = .{ .type = @intFromEnum(Ref.type_type) },
+                .expr = .{ .comptimeExpr = autodoc.comptime_exprs.items.len },
+            };
+            const source = (try file.getTree(autodoc.zcu.gpa)).getNodeSource(block_src.src_node);
+            try autodoc.comptime_exprs.append(autodoc.arena, .{
+                .code = source,
+            });
+            return res;
+        },
+        .break_inline => body[body.len - 1],
+        else => unreachable,
+    };
+    const break_data = file.zir.instructions.items(.data)[@intFromEnum(break_inst)].@"break";
+    return autodoc.walkRef(file, scope, parent_src, break_data.operand, need_type, call_ctx);
 }
 
 // Asserts the given decl is public
@@ -4179,72 +4183,19 @@ fn analyzeDecl(
     self: *Autodoc,
     file: *File,
     scope: *Scope,
-    parent_src: SrcLocInfo,
+    decl_src: SrcLocInfo,
     decl_indexes: *std.ArrayListUnmanaged(usize),
     priv_decl_indexes: *std.ArrayListUnmanaged(usize),
-    d: Zir.DeclIterator.Item,
+    decl_inst: Zir.Inst.Index,
+    declaration: Zir.Inst.Declaration,
+    extra_index: u32,
     call_ctx: ?*const CallContext,
 ) AutodocErrors!void {
-    const data = file.zir.instructions.items(.data);
-    const is_pub = @as(u1, @truncate(d.flags >> 0)) != 0;
-    // const is_exported = @truncate(u1, d.flags >> 1) != 0;
-    const has_align = @as(u1, @truncate(d.flags >> 2)) != 0;
-    const has_section_or_addrspace = @as(u1, @truncate(d.flags >> 3)) != 0;
+    const bodies = declaration.getBodies(extra_index, file.zir);
+    const name = file.zir.nullTerminatedString(declaration.name.toString(file.zir).?);
 
-    var extra_index = @intFromEnum(d.sub_index);
-    // const hash_u32s = file.zir.extra[extra_index..][0..4];
-
-    extra_index += 4;
-    // const line = file.zir.extra[extra_index];
-
-    extra_index += 1;
-    const decl_name_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[extra_index]);
-
-    extra_index += 1;
-    const value_index: Zir.Inst.Index = @enumFromInt(file.zir.extra[extra_index]);
-
-    extra_index += 1;
-    const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[extra_index]);
-
-    extra_index += 1;
-    const align_inst: Zir.Inst.Ref = if (!has_align) .none else inst: {
-        const inst: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
-        extra_index += 1;
-        break :inst inst;
-    };
-    _ = align_inst;
-
-    const section_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
-        const inst: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
-        extra_index += 1;
-        break :inst inst;
-    };
-    _ = section_inst;
-
-    const addrspace_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
-        const inst: Zir.Inst.Ref = @enumFromInt(file.zir.extra[extra_index]);
-        extra_index += 1;
-        break :inst inst;
-    };
-    _ = addrspace_inst;
-
-    // This is known to work because decl values are always block_inlines
-    const value_pl_node = data[@intFromEnum(value_index)].pl_node;
-    const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
-
-    const name: []const u8 = switch (decl_name_index) {
-        .empty, .unnamed_test_decl, .decltest => unreachable,
-        _ => blk: {
-            if (decl_name_index == .empty) {
-                // test decl
-                unreachable;
-            }
-            break :blk file.zir.nullTerminatedString(decl_name_index);
-        },
-    };
-
-    const doc_comment: ?[]const u8 = if (doc_comment_index != .empty)
-        file.zir.nullTerminatedString(doc_comment_index)
+    const doc_comment: ?[]const u8 = if (declaration.flags.has_doc_comment)
+        file.zir.nullTerminatedString(@enumFromInt(file.zir.extra[extra_index]))
     else
         null;
 
@@ -4261,16 +4212,22 @@ fn analyzeDecl(
         break :idx idx;
     };
 
-    const walk_result = try self.walkInstruction(
+    const walk_result = try self.walkInlineBody(
         file,
         scope,
         decl_src,
-        value_index,
+        decl_src,
+        bodies.value_body,
         true,
         call_ctx,
     );
 
-    const kind: []const u8 = if (try self.declIsVar(file, value_pl_node.src_node, parent_src)) "var" else "const";
+    const tree = try file.getTree(self.zcu.gpa);
+    const kind_token = tree.nodes.items(.main_token)[decl_src.src_node];
+    const kind: []const u8 = switch (tree.tokens.items(.tag)[kind_token]) {
+        .keyword_var => "var",
+        else => "const",
+    };
 
     const decls_slot_index = self.decls.items.len;
     try self.decls.append(self.arena, .{
@@ -4281,13 +4238,13 @@ fn analyzeDecl(
         .parent_container = scope.enclosing_type,
     });
 
-    if (is_pub) {
+    if (declaration.flags.is_pub) {
         try decl_indexes.append(self.arena, decls_slot_index);
     } else {
         try priv_decl_indexes.append(self.arena, decls_slot_index);
     }
 
-    const decl_status_ptr = scope.resolveDeclName(decl_name_index, file, .none);
+    const decl_status_ptr = scope.resolveDeclName(declaration.name.toString(file.zir).?, file, .none);
     std.debug.assert(decl_status_ptr.* == .Pending);
     decl_status_ptr.* = .{ .Analyzed = decls_slot_index };
 
@@ -4296,7 +4253,7 @@ fn analyzeDecl(
         for (paths.items) |resume_info| {
             try self.tryResolveRefPath(
                 resume_info.file,
-                value_index,
+                decl_inst,
                 resume_info.ref_path,
             );
         }
@@ -4312,24 +4269,17 @@ fn analyzeUsingnamespaceDecl(
     self: *Autodoc,
     file: *File,
     scope: *Scope,
-    parent_src: SrcLocInfo,
+    decl_src: SrcLocInfo,
     decl_indexes: *std.ArrayListUnmanaged(usize),
     priv_decl_indexes: *std.ArrayListUnmanaged(usize),
-    d: Zir.DeclIterator.Item,
+    declaration: Zir.Inst.Declaration,
+    extra_index: u32,
     call_ctx: ?*const CallContext,
 ) AutodocErrors!void {
-    const data = file.zir.instructions.items(.data);
+    const bodies = declaration.getBodies(extra_index, file.zir);
 
-    const is_pub = @as(u1, @truncate(d.flags)) != 0;
-    const value_index: Zir.Inst.Index = @enumFromInt(file.zir.extra[@intFromEnum(d.sub_index) + 6]);
-    const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[@intFromEnum(d.sub_index) + 7]);
-
-    // This is known to work because decl values are always block_inlines
-    const value_pl_node = data[@intFromEnum(value_index)].pl_node;
-    const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
-
-    const doc_comment: ?[]const u8 = if (doc_comment_index != .empty)
-        file.zir.nullTerminatedString(doc_comment_index)
+    const doc_comment: ?[]const u8 = if (declaration.flags.has_doc_comment)
+        file.zir.nullTerminatedString(@enumFromInt(file.zir.extra[extra_index]))
     else
         null;
 
@@ -4346,11 +4296,12 @@ fn analyzeUsingnamespaceDecl(
         break :idx idx;
     };
 
-    const walk_result = try self.walkInstruction(
+    const walk_result = try self.walkInlineBody(
         file,
         scope,
         decl_src,
-        value_index,
+        decl_src,
+        bodies.value_body,
         true,
         call_ctx,
     );
@@ -4365,7 +4316,7 @@ fn analyzeUsingnamespaceDecl(
         .parent_container = scope.enclosing_type,
     });
 
-    if (is_pub) {
+    if (declaration.flags.is_pub) {
         try decl_indexes.append(self.arena, decl_slot_index);
     } else {
         try priv_decl_indexes.append(self.arena, decl_slot_index);
@@ -4376,18 +4327,14 @@ fn analyzeDecltest(
     self: *Autodoc,
     file: *File,
     scope: *Scope,
-    parent_src: SrcLocInfo,
-    d: Zir.DeclIterator.Item,
+    decl_src: SrcLocInfo,
+    declaration: Zir.Inst.Declaration,
+    extra_index: u32,
 ) AutodocErrors!void {
-    const data = file.zir.instructions.items(.data);
+    std.debug.assert(declaration.flags.has_doc_comment);
+    const decl_name_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[extra_index]);
 
-    const value_index = file.zir.extra[@intFromEnum(d.sub_index) + 6];
-    const decl_name_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[@intFromEnum(d.sub_index) + 7]);
-
-    const value_pl_node = data[value_index].pl_node;
-    const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
-
-    const test_source_code = try self.getBlockSource(file, parent_src, value_pl_node.src_node);
+    const test_source_code = (try file.getTree(self.zcu.gpa)).getNodeSource(decl_src.src_node);
 
     const decl_name: ?[]const u8 = if (decl_name_index != .empty)
         file.zir.nullTerminatedString(decl_name_index)
@@ -5828,17 +5775,6 @@ fn walkRef(
             // },
         }
     }
-}
-
-fn getBlockInlineBreak(zir: Zir, inst: Zir.Inst.Index) ?Zir.Inst.Ref {
-    const tags = zir.instructions.items(.tag);
-    const data = zir.instructions.items(.data);
-    const pl_node = data[@intFromEnum(inst)].pl_node;
-    const extra = zir.extraData(Zir.Inst.Block, pl_node.payload_index);
-    const break_index = zir.extra[extra.end..][extra.data.body_len - 1];
-    if (tags[break_index] == .condbr_inline) return null;
-    std.debug.assert(tags[break_index] == .break_inline);
-    return data[break_index].@"break".operand;
 }
 
 fn printWithContext(
