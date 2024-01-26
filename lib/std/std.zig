@@ -264,6 +264,11 @@ pub const options = struct {
     else
         false;
 
+    pub const crypto_fork_safety: bool = if (@hasDecl(options_override, "crypto_fork_safety"))
+        options_override.crypto_fork_safety
+    else
+        true;
+
     /// By default Zig disables SIGPIPE by setting a "no-op" handler for it.  Set this option
     /// to `true` to prevent that.
     ///
