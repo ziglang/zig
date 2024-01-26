@@ -557,6 +557,34 @@ pub fn writeManifest(s: *Step, man: *std.Build.Cache.Manifest) !void {
     }
 }
 
+/// Locates a dependency step by a string split by "/"
+pub fn getDependencyByPath(s: *Step, path: []const u8) ?*Step {
+    const i = std.mem.indexOf(u8, path, "/") orelse path.len;
+    const name = path[0..i];
+
+    for (s.dependencies.items) |dep| {
+        if (std.mem.eql(u8, dep.name, name)) {
+            if (i < path.len) return dep.getStepByPath(path[(i + 1)..]);
+            return dep;
+        }
+    }
+    return null;
+}
+
+/// Locates a dependant step by a string split by "/"
+pub fn getDependantByPath(s: *Step, path: []const u8) ?*Step {
+    const i = std.mem.indexOf(u8, path, "/") orelse path.len;
+    const name = path[0..i];
+
+    for (s.dependants.items) |dep| {
+        if (std.mem.eql(u8, dep.name, name)) {
+            if (i < path.len) return dep.getStepByPath(path[(i + 1)..]);
+            return dep;
+        }
+    }
+    return null;
+}
+
 test {
     _ = CheckFile;
     _ = CheckObject;
