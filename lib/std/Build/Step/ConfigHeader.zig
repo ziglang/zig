@@ -633,6 +633,10 @@ fn expand_variables_cmake(
 
                 continue :loop;
             },
+            '\\' => {
+                // backslash is not considered a special character
+                continue :loop;
+            },
             else => {},
         }
 
@@ -810,4 +814,24 @@ test "expand_variables_cmake edge cases" {
     try std.testing.expectError(error.InvalidCharacter, testReplaceVariables(allocator, "${str*ing}", "", values));
     try std.testing.expectError(error.InvalidCharacter, testReplaceVariables(allocator, "${str$ing}", "", values));
     try std.testing.expectError(error.InvalidCharacter, testReplaceVariables(allocator, "${str@ing}", "", values));
+}
+
+test "expand_variables_cmake escaped characters" {
+    const allocator = std.testing.allocator;
+    var values = std.StringArrayHashMap(Value).init(allocator);
+    defer values.deinit();
+
+    try values.putNoClobber("string", Value{ .string = "text" });
+
+    // backslash is an invalid character for @ lookup
+    try testReplaceVariables(allocator, "\\@string\\@", "\\@string\\@", values);
+
+    // backslash is preserved, but doesn't affect ${} variable expansion
+    try testReplaceVariables(allocator, "\\${string}", "\\text", values);
+
+    // backslash breaks ${} opening bracket identification
+    try testReplaceVariables(allocator, "$\\{string}", "$\\{string}", values);
+
+    // backslash is skipped when checking for invalid characters, yet it mangles the key
+    try testReplaceVariables(allocator, "${string\\}", "", values);
 }

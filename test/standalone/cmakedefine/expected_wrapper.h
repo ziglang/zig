@@ -28,3 +28,8 @@
 // becomes `empty`
 #define 
 #define 
+
+#define \@STRING_VAR\@
+#define \${STRING}
+#define $\{STRING_VAR}
+#define 
