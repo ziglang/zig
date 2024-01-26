@@ -549,8 +549,8 @@ fn expand_variables_cmake(
     contents: []const u8,
     values: std.StringArrayHashMap(Value),
 ) ![]const u8 {
-    var content_buf = allocator.alloc(u8, 0) catch @panic("OOM");
-    errdefer allocator.free(content_buf);
+    var result = allocator.alloc(u8, 0) catch @panic("OOM");
+    errdefer allocator.free(result);
 
     const valid_varname_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.+-";
     const open_var = "${";
@@ -580,9 +580,9 @@ fn expand_variables_cmake(
                     const key = contents[curr + 1 .. close_pos];
                     const value = values.get(key) orelse .undef;
                     const missing = contents[source_offset..curr];
-                    const buf = try std.fmt.allocPrint(allocator, "{s}{s}{}", .{ content_buf, missing, fmtValueCMake(value) });
-                    allocator.free(content_buf);
-                    content_buf = buf;
+                    const buf = try std.fmt.allocPrint(allocator, "{s}{s}{}", .{ result, missing, fmtValueCMake(value) });
+                    allocator.free(result);
+                    result = buf;
 
                     curr = close_pos;
                     source_offset = close_pos + 1;
@@ -597,15 +597,15 @@ fn expand_variables_cmake(
                     break :blk;
                 }
                 const missing = contents[source_offset..curr];
-                const buf = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ content_buf, missing, open_var });
-                allocator.free(content_buf);
-                content_buf = buf;
+                const buf = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ result, missing, open_var });
+                allocator.free(result);
+                result = buf;
 
                 source_offset = curr + open_var.len;
                 curr = next;
                 try var_stack.append(Position{
                     .source = curr,
-                    .target = content_buf.len - open_var.len,
+                    .target = result.len - open_var.len,
                 });
 
                 continue :loop;
@@ -621,13 +621,13 @@ fn expand_variables_cmake(
                 }
                 const missing = contents[source_offset..curr];
                 const key_start = open_pos.target + open_var.len;
-                const key = try std.fmt.allocPrint(allocator, "{s}{s}", .{ content_buf[key_start..], missing });
+                const key = try std.fmt.allocPrint(allocator, "{s}{s}", .{ result[key_start..], missing });
                 defer allocator.free(key);
 
                 const value = values.get(key) orelse .undef;
-                const buf = try std.fmt.allocPrint(allocator, "{s}{}", .{ content_buf[0..open_pos.target], fmtValueCMake(value) });
-                allocator.free(content_buf);
-                content_buf = buf;
+                const buf = try std.fmt.allocPrint(allocator, "{s}{}", .{ result[0..open_pos.target], fmtValueCMake(value) });
+                allocator.free(result);
+                result = buf;
 
                 source_offset = curr + 1;
 
@@ -646,12 +646,12 @@ fn expand_variables_cmake(
     }
 
     if (source_offset != contents.len) {
-        const buf = try std.fmt.allocPrint(allocator, "{s}{s}", .{ content_buf, contents[source_offset..] });
-        allocator.free(content_buf);
-        content_buf = buf;
+        const buf = try std.fmt.allocPrint(allocator, "{s}{s}", .{ result, contents[source_offset..] });
+        allocator.free(result);
+        result = buf;
     }
 
-    return content_buf;
+    return result;
 }
 
 fn testReplaceVariables(
@@ -680,7 +680,6 @@ test "expand_variables_cmake simple cases" {
     try values.putNoClobber("string", Value{ .string = "text" });
 
     // empty strings are preserved
-    try testReplaceVariables(allocator, "", "", values);
     try testReplaceVariables(allocator, "", "", values);
 
     // line with misc content is preserved
