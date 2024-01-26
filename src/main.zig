@@ -409,10 +409,10 @@ const usage_build_generic =
     \\  --libc [file]             Provide a file which specifies libc paths
     \\  -x language               Treat subsequent input files as having type <language>
     \\  --dep [[import=]name]     Add an entry to the next module's import table
-    \\  --mod [name] [src]        Create a module based on the current per-module settings.
+    \\  -M[name][=src]            Create a module based on the current per-module settings.
     \\                            The first module is the main module.
-    \\                            "std" can be configured by leaving src blank.
-    \\                            After a --mod argument, per-module settings are reset.
+    \\                            "std" can be configured by omitting src
+    \\                            After a -M argument, per-module settings are reset.
     \\  --error-limit [num]       Set the maximum amount of distinct error values
     \\  -fllvm                    Force using LLVM as the codegen backend
     \\  -fno-llvm                 Prevent using LLVM as the codegen backend
@@ -866,7 +866,6 @@ fn buildOutputType(
     var image_base: ?u64 = null;
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
-    var each_lib_rpath: ?bool = null;
     var build_id: ?std.zig.BuildId = null;
     var runtime_args_start: ?usize = null;
     var test_filter: ?[]const u8 = null;
@@ -964,6 +963,7 @@ fn buildOutputType(
         .frameworks = .{},
         .framework_dirs = .{},
         .rpath_list = .{},
+        .each_lib_rpath = null,
         .libc_paths_file = try EnvVar.ZIG_LIBC.get(arena),
         .link_objects = .{},
         .native_system_include_paths = &.{},
@@ -1040,56 +1040,39 @@ fn buildOutputType(
                             .value = value,
                         });
                     } else if (mem.eql(u8, arg, "--mod")) {
-                        const mod_name = args_iter.nextOrFatal();
-                        const root_src_orig = args_iter.nextOrFatal();
-
-                        const gop = try create_module.modules.getOrPut(arena, mod_name);
-
-                        if (gop.found_existing) {
-                            fatal("unable to add module '{s}': already exists as '{s}'", .{
-                                mod_name, gop.value_ptr.paths.root_src_path,
-                            });
-                        }
-
-                        // See duplicate logic: ModCreationGlobalFlags
-                        create_module.opts.have_zcu = true;
-                        if (mod_opts.single_threaded == false)
-                            create_module.opts.any_non_single_threaded = true;
-                        if (mod_opts.sanitize_thread == true)
-                            create_module.opts.any_sanitize_thread = true;
-                        if (mod_opts.unwind_tables == true)
-                            create_module.opts.any_unwind_tables = true;
-                        if (mod_opts.strip == false)
-                            create_module.opts.any_non_stripped = true;
-                        if (mod_opts.error_tracing == true)
-                            create_module.opts.any_error_tracing = true;
-
-                        const root_src = try introspect.resolvePath(arena, root_src_orig);
-                        gop.value_ptr.* = .{
-                            .paths = .{
-                                .root = .{
-                                    .root_dir = Cache.Directory.cwd(),
-                                    .sub_path = fs.path.dirname(root_src) orelse "",
-                                },
-                                .root_src_path = fs.path.basename(root_src),
-                            },
-                            .cc_argv = try cc_argv.toOwnedSlice(arena),
-                            .inherited = mod_opts,
-                            .target_arch_os_abi = target_arch_os_abi,
-                            .target_mcpu = target_mcpu,
-                            .deps = try deps.toOwnedSlice(arena),
-                            .resolved = null,
-                            .c_source_files_start = c_source_files_owner_index,
-                            .c_source_files_end = create_module.c_source_files.items.len,
-                            .rc_source_files_start = rc_source_files_owner_index,
-                            .rc_source_files_end = create_module.rc_source_files.items.len,
-                        };
-                        cssan.reset();
-                        mod_opts = .{};
-                        target_arch_os_abi = null;
-                        target_mcpu = null;
-                        c_source_files_owner_index = create_module.c_source_files.items.len;
-                        rc_source_files_owner_index = create_module.rc_source_files.items.len;
+                        // deprecated, kept around until the next zig1.wasm update
+                        try handleModArg(
+                            arena,
+                            args_iter.nextOrFatal(),
+                            args_iter.nextOrFatal(),
+                            &create_module,
+                            &mod_opts,
+                            &cc_argv,
+                            &target_arch_os_abi,
+                            &target_mcpu,
+                            &deps,
+                            &c_source_files_owner_index,
+                            &rc_source_files_owner_index,
+                            &cssan,
+                        );
+                    } else if (mem.startsWith(u8, arg, "-M")) {
+                        var it = mem.splitScalar(u8, arg["-M".len..], '=');
+                        const mod_name = it.next().?;
+                        const root_src_orig = it.next();
+                        try handleModArg(
+                            arena,
+                            mod_name,
+                            root_src_orig,
+                            &create_module,
+                            &mod_opts,
+                            &cc_argv,
+                            &target_arch_os_abi,
+                            &target_mcpu,
+                            &deps,
+                            &c_source_files_owner_index,
+                            &rc_source_files_owner_index,
+                            &cssan,
+                        );
                     } else if (mem.eql(u8, arg, "--error-limit")) {
                         const next_arg = args_iter.nextOrFatal();
                         error_limit = std.fmt.parseUnsigned(Module.ErrorInt, next_arg, 0) catch |err| {
@@ -1334,9 +1317,9 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-compiler-rt")) {
                         want_compiler_rt = false;
                     } else if (mem.eql(u8, arg, "-feach-lib-rpath")) {
-                        each_lib_rpath = true;
+                        create_module.each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
-                        each_lib_rpath = false;
+                        create_module.each_lib_rpath = false;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
                         try test_exec_args.append(null);
                     } else if (mem.eql(u8, arg, "--test-evented-io")) {
@@ -1694,7 +1677,7 @@ fn buildOutputType(
                             fatal("only one manifest file can be specified, found '{s}' after '{s}'", .{ arg, other });
                         } else manifest_file = arg;
                     },
-                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .ll, .bc, .m, .mm, .cu => {
+                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .ll, .bc, .m, .mm, .cu => {
                         try create_module.c_source_files.append(arena, .{
                             // Populated after module creation.
                             .owner = undefined,
@@ -1746,7 +1729,7 @@ fn buildOutputType(
                 assembly,
                 preprocessor,
             };
-            var c_out_mode: COutMode = .link;
+            var c_out_mode: ?COutMode = null;
             var out_path: ?[]const u8 = null;
             var is_shared_lib = false;
             var linker_args = std.ArrayList([]const u8).init(arena);
@@ -1789,7 +1772,7 @@ fn buildOutputType(
                         try cc_argv.appendSlice(arena, it.other_args);
                     },
                     .positional => switch (file_ext orelse Compilation.classifyFileExt(mem.sliceTo(it.only_arg, 0))) {
-                        .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .m, .mm, .cu => {
+                        .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .hpp, .hm, .hmm, .m, .mm, .cu => {
                             try create_module.c_source_files.append(arena, .{
                                 // Populated after module creation.
                                 .owner = undefined,
@@ -2462,7 +2445,12 @@ fn buildOutputType(
                 }
             }
 
-            switch (c_out_mode) {
+            // precompiled header syntax: "zig cc -x c-header test.h -o test.pch"
+            const emit_pch = ((file_ext == .h or file_ext == .hpp or file_ext == .hm or file_ext == .hmm) and c_out_mode == null);
+            if (emit_pch)
+                c_out_mode = .preprocessor;
+
+            switch (c_out_mode orelse .link) {
                 .link => {
                     create_module.opts.output_mode = if (is_shared_lib) .Lib else .Exe;
                     emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
@@ -2511,11 +2499,16 @@ fn buildOutputType(
                         // For example `zig cc` and no args should print the "no input files" message.
                         return process.exit(try clangMain(arena, all_args));
                     }
-                    if (out_path) |p| {
-                        emit_bin = .{ .yes = p };
-                        clang_preprocessor_mode = .yes;
+                    if (emit_pch) {
+                        emit_bin = if (out_path) |p| .{ .yes = p } else .yes_default_path;
+                        clang_preprocessor_mode = .pch;
                     } else {
-                        clang_preprocessor_mode = .stdout;
+                        if (out_path) |p| {
+                            emit_bin = .{ .yes = p };
+                            clang_preprocessor_mode = .yes;
+                        } else {
+                            clang_preprocessor_mode = .stdout;
+                        }
                     }
                 },
             }
@@ -2830,9 +2823,7 @@ fn buildOutputType(
     }
     // After this point, resolved_frameworks is used instead of frameworks.
 
-    if (create_module.resolved_options.output_mode == .Obj and
-        (target.ofmt == .coff or target.ofmt == .macho))
-    {
+    if (create_module.resolved_options.output_mode == .Obj and target.ofmt == .coff) {
         const total_obj_count = create_module.c_source_files.items.len +
             @intFromBool(root_src_file != null) +
             create_module.rc_source_files.items.len +
@@ -2882,13 +2873,16 @@ fn buildOutputType(
                     },
                 }
             },
-            .basename = try std.zig.binNameAlloc(arena, .{
-                .root_name = root_name,
-                .target = target,
-                .output_mode = create_module.resolved_options.output_mode,
-                .link_mode = create_module.resolved_options.link_mode,
-                .version = optional_version,
-            }),
+            .basename = if (clang_preprocessor_mode == .pch)
+                try std.fmt.allocPrint(arena, "{s}.pch", .{root_name})
+            else
+                try std.zig.binNameAlloc(arena, .{
+                    .root_name = root_name,
+                    .target = target,
+                    .output_mode = create_module.resolved_options.output_mode,
+                    .link_mode = create_module.resolved_options.link_mode,
+                    .version = optional_version,
+                }),
         },
         .yes => |full_path| b: {
             const basename = fs.path.basename(full_path);
@@ -3224,6 +3218,7 @@ fn buildOutputType(
         .clang_passthrough_mode = clang_passthrough_mode,
         .clang_preprocessor_mode = clang_preprocessor_mode,
         .version = optional_version,
+        .compatibility_version = compatibility_version,
         .libc_installation = if (create_module.libc_installation) |*lci| lci else null,
         .verbose_cc = verbose_cc,
         .verbose_link = verbose_link,
@@ -3236,7 +3231,6 @@ fn buildOutputType(
         .verbose_llvm_cpu_features = verbose_llvm_cpu_features,
         .time_report = time_report,
         .stack_report = stack_report,
-        .each_lib_rpath = each_lib_rpath,
         .build_id = build_id,
         .test_filter = test_filter,
         .test_name_prefix = test_name_prefix,
@@ -3450,6 +3444,7 @@ const CreateModule = struct {
     native_system_include_paths: []const []const u8,
     framework_dirs: std.ArrayListUnmanaged([]const u8),
     rpath_list: std.ArrayListUnmanaged([]const u8),
+    each_lib_rpath: ?bool,
     libc_paths_file: ?[]const u8,
     link_objects: std.ArrayListUnmanaged(Compilation.LinkObject),
 };
@@ -3642,6 +3637,10 @@ fn createModule(
             // If we want to link against frameworks, we need system headers.
             if (create_module.frameworks.count() > 0)
                 create_module.want_native_include_dirs = true;
+        }
+
+        if (create_module.each_lib_rpath orelse resolved_target.is_native_os) {
+            try create_module.rpath_list.appendSlice(arena, create_module.lib_dirs.items);
         }
 
         // Trigger native system library path detection if necessary.
@@ -7792,4 +7791,75 @@ fn parseStackSize(s: []const u8) u64 {
 fn parseImageBase(s: []const u8) u64 {
     return std.fmt.parseUnsigned(u64, s, 0) catch |err|
         fatal("unable to parse image base '{s}': {s}", .{ s, @errorName(err) });
+}
+
+fn handleModArg(
+    arena: Allocator,
+    mod_name: []const u8,
+    opt_root_src_orig: ?[]const u8,
+    create_module: *CreateModule,
+    mod_opts: *Package.Module.CreateOptions.Inherited,
+    cc_argv: *std.ArrayListUnmanaged([]const u8),
+    target_arch_os_abi: *?[]const u8,
+    target_mcpu: *?[]const u8,
+    deps: *std.ArrayListUnmanaged(CliModule.Dep),
+    c_source_files_owner_index: *usize,
+    rc_source_files_owner_index: *usize,
+    cssan: *ClangSearchSanitizer,
+) !void {
+    const gop = try create_module.modules.getOrPut(arena, mod_name);
+
+    if (gop.found_existing) {
+        fatal("unable to add module '{s}': already exists as '{s}'", .{
+            mod_name, gop.value_ptr.paths.root_src_path,
+        });
+    }
+
+    // See duplicate logic: ModCreationGlobalFlags
+    if (mod_opts.single_threaded == false)
+        create_module.opts.any_non_single_threaded = true;
+    if (mod_opts.sanitize_thread == true)
+        create_module.opts.any_sanitize_thread = true;
+    if (mod_opts.unwind_tables == true)
+        create_module.opts.any_unwind_tables = true;
+    if (mod_opts.strip == false)
+        create_module.opts.any_non_stripped = true;
+    if (mod_opts.error_tracing == true)
+        create_module.opts.any_error_tracing = true;
+
+    gop.value_ptr.* = .{
+        .paths = p: {
+            if (opt_root_src_orig) |root_src_orig| {
+                create_module.opts.have_zcu = true;
+                const root_src = try introspect.resolvePath(arena, root_src_orig);
+                break :p .{
+                    .root = .{
+                        .root_dir = Cache.Directory.cwd(),
+                        .sub_path = fs.path.dirname(root_src) orelse "",
+                    },
+                    .root_src_path = fs.path.basename(root_src),
+                };
+            }
+            break :p .{
+                .root = .{ .root_dir = Cache.Directory.cwd() },
+                .root_src_path = "",
+            };
+        },
+        .cc_argv = try cc_argv.toOwnedSlice(arena),
+        .inherited = mod_opts.*,
+        .target_arch_os_abi = target_arch_os_abi.*,
+        .target_mcpu = target_mcpu.*,
+        .deps = try deps.toOwnedSlice(arena),
+        .resolved = null,
+        .c_source_files_start = c_source_files_owner_index.*,
+        .c_source_files_end = create_module.c_source_files.items.len,
+        .rc_source_files_start = rc_source_files_owner_index.*,
+        .rc_source_files_end = create_module.rc_source_files.items.len,
+    };
+    cssan.reset();
+    mod_opts.* = .{};
+    target_arch_os_abi.* = null;
+    target_mcpu.* = null;
+    c_source_files_owner_index.* = create_module.c_source_files.items.len;
+    rc_source_files_owner_index.* = create_module.rc_source_files.items.len;
 }

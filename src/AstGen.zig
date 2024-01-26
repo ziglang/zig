@@ -841,13 +841,16 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .@"if",
         => {
             const if_full = tree.fullIf(node).?;
-            if (if_full.error_token) |error_token| {
-                const tag = node_tags[if_full.ast.else_expr];
-                if ((tag == .@"switch" or tag == .switch_comma) and
-                    std.mem.eql(u8, tree.tokenSlice(error_token), tree.tokenSlice(error_token + 4)))
-                {
-                    return switchExprErrUnion(gz, scope, ri.br(), node, .@"if");
+            no_switch_on_err: {
+                const error_token = if_full.error_token orelse break :no_switch_on_err;
+                switch (node_tags[if_full.ast.else_expr]) {
+                    .@"switch", .switch_comma => {},
+                    else => break :no_switch_on_err,
                 }
+                const switch_operand = node_datas[if_full.ast.else_expr].lhs;
+                if (node_tags[switch_operand] != .identifier) break :no_switch_on_err;
+                if (!mem.eql(u8, tree.tokenSlice(error_token), tree.tokenSlice(main_tokens[switch_operand]))) break :no_switch_on_err;
+                return switchExprErrUnion(gz, scope, ri.br(), node, .@"if");
             }
             return ifExpr(gz, scope, ri.br(), node, if_full);
         },
@@ -1026,16 +1029,21 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         },
         .@"catch" => {
             const catch_token = main_tokens[node];
-            const payload_token: ?Ast.TokenIndex = if (token_tags[catch_token + 1] == .pipe) blk: {
-                if (token_tags.len > catch_token + 6 and
-                    token_tags[catch_token + 4] == .keyword_switch)
-                {
-                    if (std.mem.eql(u8, tree.tokenSlice(catch_token + 2), tree.tokenSlice(catch_token + 6))) {
-                        return switchExprErrUnion(gz, scope, ri.br(), node, .@"catch");
-                    }
+            const payload_token: ?Ast.TokenIndex = if (token_tags[catch_token + 1] == .pipe)
+                catch_token + 2
+            else
+                null;
+            no_switch_on_err: {
+                const capture_token = payload_token orelse break :no_switch_on_err;
+                switch (node_tags[node_datas[node].rhs]) {
+                    .@"switch", .switch_comma => {},
+                    else => break :no_switch_on_err,
                 }
-                break :blk catch_token + 2;
-            } else null;
+                const switch_operand = node_datas[node_datas[node].rhs].lhs;
+                if (node_tags[switch_operand] != .identifier) break :no_switch_on_err;
+                if (!mem.eql(u8, tree.tokenSlice(capture_token), tree.tokenSlice(main_tokens[switch_operand]))) break :no_switch_on_err;
+                return switchExprErrUnion(gz, scope, ri.br(), node, .@"catch");
+            }
             switch (ri.rl) {
                 .ref, .ref_coerced_ty => return orelseCatchExpr(
                     gz,
@@ -1745,7 +1753,6 @@ fn structInitExpr(
         const sfba_allocator = sfba.get();
 
         var duplicate_names = std.AutoArrayHashMap(Zir.NullTerminatedString, ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
-        defer duplicate_names.deinit();
         try duplicate_names.ensureTotalCapacity(@intCast(struct_init.ast.fields.len));
 
         // When there aren't errors, use this to avoid a second iteration.
@@ -1775,12 +1782,14 @@ fn structInitExpr(
                     var error_notes = std.ArrayList(u32).init(astgen.arena);
 
                     for (record.items[1..]) |duplicate| {
-                        try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
+                        try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate name here", .{}));
                     }
+
+                    try error_notes.append(try astgen.errNoteNode(node, "struct declared here", .{}));
 
                     try astgen.appendErrorTokNotes(
                         record.items[0],
-                        "duplicate field",
+                        "duplicate struct field name",
                         .{},
                         error_notes.items,
                     );
@@ -1807,9 +1816,10 @@ fn structInitExpr(
     switch (ri.rl) {
         .none => return structInitExprAnon(gz, scope, node, struct_init),
         .discard => {
-            // Even if discarding we must perform an anonymous init to check for duplicate field names.
-            // TODO: should duplicate field names be caught in AstGen?
-            _ = try structInitExprAnon(gz, scope, node, struct_init);
+            // Even if discarding we must perform side-effects.
+            for (struct_init.ast.fields) |field_init| {
+                _ = try expr(gz, scope, .{ .rl = .discard }, field_init);
+            }
             return .void_value;
         },
         .ref => {
@@ -5093,15 +5103,15 @@ fn structDeclInner(
                 var error_notes = std.ArrayList(u32).init(astgen.arena);
 
                 for (record.items[1..]) |duplicate| {
-                    try error_notes.append(try astgen.errNoteTok(duplicate, "other field here", .{}));
+                    try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate field here", .{}));
                 }
 
                 try error_notes.append(try astgen.errNoteNode(node, "struct declared here", .{}));
 
                 try astgen.appendErrorTokNotes(
                     record.items[0],
-                    "duplicate struct field: '{s}'",
-                    .{try astgen.identifierTokenString(record.items[0])},
+                    "duplicate struct field name",
+                    .{},
                     error_notes.items,
                 );
             }
@@ -5109,8 +5119,6 @@ fn structDeclInner(
 
         return error.AnalysisFail;
     }
-
-    duplicate_names.deinit();
 
     try gz.setStruct(decl_inst, .{
         .src_node = node,
@@ -5203,6 +5211,15 @@ fn unionDeclInner(
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
+    var sfba = std.heap.stackFallback(256, astgen.arena);
+    const sfba_allocator = sfba.get();
+
+    var duplicate_names = std.AutoArrayHashMap(Zir.NullTerminatedString, std.ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
+    try duplicate_names.ensureTotalCapacity(field_count);
+
+    // When there aren't errors, use this to avoid a second iteration.
+    var any_duplicate = false;
+
     for (members) |member_node| {
         var member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
             .decl => continue,
@@ -5218,6 +5235,16 @@ fn unionDeclInner(
 
         const field_name = try astgen.identAsString(member.ast.main_token);
         wip_members.appendToField(@intFromEnum(field_name));
+
+        const gop = try duplicate_names.getOrPut(field_name);
+
+        if (gop.found_existing) {
+            try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
+            any_duplicate = true;
+        } else {
+            gop.value_ptr.* = .{};
+            try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
+        }
 
         const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
         wip_members.appendToField(@intFromEnum(doc_comment_index));
@@ -5271,6 +5298,32 @@ fn unionDeclInner(
             const tag_value = try expr(&block_scope, &block_scope.base, .{ .rl = .{ .ty = arg_inst } }, member.ast.value_expr);
             wip_members.appendToField(@intFromEnum(tag_value));
         }
+    }
+
+    if (any_duplicate) {
+        var it = duplicate_names.iterator();
+
+        while (it.next()) |entry| {
+            const record = entry.value_ptr.*;
+            if (record.items.len > 1) {
+                var error_notes = std.ArrayList(u32).init(astgen.arena);
+
+                for (record.items[1..]) |duplicate| {
+                    try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate field here", .{}));
+                }
+
+                try error_notes.append(try astgen.errNoteNode(node, "union declared here", .{}));
+
+                try astgen.appendErrorTokNotes(
+                    record.items[0],
+                    "duplicate union field name",
+                    .{},
+                    error_notes.items,
+                );
+            }
+        }
+
+        return error.AnalysisFail;
     }
 
     if (!block_scope.isEmpty()) {
@@ -5482,6 +5535,15 @@ fn containerDecl(
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, @intCast(counts.decls), @intCast(counts.total_fields), bits_per_field, max_field_size);
             defer wip_members.deinit();
 
+            var sfba = std.heap.stackFallback(256, astgen.arena);
+            const sfba_allocator = sfba.get();
+
+            var duplicate_names = std.AutoArrayHashMap(Zir.NullTerminatedString, std.ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
+            try duplicate_names.ensureTotalCapacity(counts.total_fields);
+
+            // When there aren't errors, use this to avoid a second iteration.
+            var any_duplicate = false;
+
             for (container_decl.ast.members) |member_node| {
                 if (member_node == counts.nonexhaustive_node)
                     continue;
@@ -5497,6 +5559,16 @@ fn containerDecl(
 
                 const field_name = try astgen.identAsString(member.ast.main_token);
                 wip_members.appendToField(@intFromEnum(field_name));
+
+                const gop = try duplicate_names.getOrPut(field_name);
+
+                if (gop.found_existing) {
+                    try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
+                    any_duplicate = true;
+                } else {
+                    gop.value_ptr.* = .{};
+                    try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
+                }
 
                 const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
                 wip_members.appendToField(@intFromEnum(doc_comment_index));
@@ -5523,6 +5595,32 @@ fn containerDecl(
                     const tag_value_inst = try expr(&block_scope, &namespace.base, .{ .rl = .{ .ty = arg_inst } }, member.ast.value_expr);
                     wip_members.appendToField(@intFromEnum(tag_value_inst));
                 }
+            }
+
+            if (any_duplicate) {
+                var it = duplicate_names.iterator();
+
+                while (it.next()) |entry| {
+                    const record = entry.value_ptr.*;
+                    if (record.items.len > 1) {
+                        var error_notes = std.ArrayList(u32).init(astgen.arena);
+
+                        for (record.items[1..]) |duplicate| {
+                            try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate field here", .{}));
+                        }
+
+                        try error_notes.append(try astgen.errNoteNode(node, "enum declared here", .{}));
+
+                        try astgen.appendErrorTokNotes(
+                            record.items[0],
+                            "duplicate enum field name",
+                            .{},
+                            error_notes.items,
+                        );
+                    }
+                }
+
+                return error.AnalysisFail;
             }
 
             if (!block_scope.isEmpty()) {
@@ -6166,7 +6264,7 @@ fn ifExpr(
                     .gen_zir = &then_scope,
                     .name = ident_name,
                     .inst = payload_inst,
-                    .token_src = payload_token,
+                    .token_src = token_name_index,
                     .id_cat = .capture,
                 };
                 try then_scope.addDbgVar(.dbg_var_val, ident_name, payload_inst);
@@ -6407,19 +6505,18 @@ fn whileExpr(
                 // will add this instruction to then_scope.instructions below
                 const payload_inst = try then_scope.makeUnNode(tag, cond.inst, while_full.ast.cond_expr);
                 opt_payload_inst = payload_inst.toOptional();
-                const ident_token = if (payload_is_ref) payload_token + 1 else payload_token;
+                const ident_token = payload_token + @intFromBool(payload_is_ref);
                 const ident_bytes = tree.tokenSlice(ident_token);
                 if (mem.eql(u8, "_", ident_bytes))
                     break :s &then_scope.base;
-                const payload_name_loc = payload_token + @intFromBool(payload_is_ref);
-                const ident_name = try astgen.identAsString(payload_name_loc);
-                try astgen.detectLocalShadowing(&then_scope.base, ident_name, payload_name_loc, ident_bytes, .capture);
+                const ident_name = try astgen.identAsString(ident_token);
+                try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes, .capture);
                 payload_val_scope = .{
                     .parent = &then_scope.base,
                     .gen_zir = &then_scope,
                     .name = ident_name,
                     .inst = payload_inst.toRef(),
-                    .token_src = payload_token,
+                    .token_src = ident_token,
                     .id_cat = .capture,
                 };
                 dbg_var_name = ident_name;
@@ -6912,6 +7009,8 @@ fn switchExprErrUnion(
     };
     assert(node_tags[switch_node] == .@"switch" or node_tags[switch_node] == .switch_comma);
 
+    const do_err_trace = astgen.fn_block != null;
+
     const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
     const case_nodes = tree.extra_data[extra.start..extra.end];
 
@@ -7099,7 +7198,7 @@ fn switchExprErrUnion(
                             .gen_zir = &case_scope,
                             .name = ident_name,
                             .inst = unwrapped_payload,
-                            .token_src = payload_token,
+                            .token_src = token_name_index,
                             .id_cat = .capture,
                         };
                         try case_scope.addDbgVar(.dbg_var_val, ident_name, unwrapped_payload);
@@ -7219,7 +7318,9 @@ fn switchExprErrUnion(
             };
 
             const capture_token = case.payload_token orelse break :blk &err_scope.base;
-            assert(token_tags[capture_token] == .identifier);
+            if (token_tags[capture_token] != .identifier) {
+                return astgen.failTok(capture_token + 1, "error set cannot be captured by reference", .{});
+            }
 
             const capture_slice = tree.tokenSlice(capture_token);
             if (mem.eql(u8, capture_slice, "_")) {
@@ -7295,10 +7396,14 @@ fn switchExprErrUnion(
             case_scope.instructions_top = parent_gz.instructions.items.len;
             defer case_scope.unstack();
 
+            if (do_err_trace and nodeMayAppendToErrorTrace(tree, operand_node))
+                _ = try case_scope.addSaveErrRetIndex(.always);
+
             try case_scope.addDbgBlockBegin();
             if (dbg_var_name != .empty) {
                 try case_scope.addDbgVar(.dbg_var_val, dbg_var_name, dbg_var_inst);
             }
+
             const target_expr_node = case.ast.target_expr;
             const case_result = try expr(&case_scope, sub_scope, block_scope.break_result_info, target_expr_node);
             // check capture_scope, not err_scope to avoid false positive unused error capture
@@ -7309,7 +7414,17 @@ fn switchExprErrUnion(
                 any_uses_err_capture = true;
             }
             try case_scope.addDbgBlockEnd();
+
             if (!parent_gz.refIsNoReturn(case_result)) {
+                if (do_err_trace)
+                    try restoreErrRetIndex(
+                        &case_scope,
+                        .{ .block = switch_block },
+                        block_scope.break_result_info,
+                        target_expr_node,
+                        case_result,
+                    );
+
                 _ = try case_scope.addBreakWithSrcNode(.@"break", switch_block, case_result, target_expr_node);
             }
 
@@ -7657,7 +7772,7 @@ fn switchExpr(
                     .gen_zir = &case_scope,
                     .name = capture_name,
                     .inst = switch_block.toRef(),
-                    .token_src = payload_token,
+                    .token_src = ident,
                     .id_cat = .capture,
                 };
                 dbg_var_name = capture_name;

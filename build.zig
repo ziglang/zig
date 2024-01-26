@@ -165,6 +165,8 @@ pub fn build(b: *std.Build) !void {
                 ".xz",
                 // exclude files from lib/std/tz/
                 ".tzif",
+                // exclude files from lib/std/tar/testdata
+                ".tar",
                 // others
                 "README.md",
             },
@@ -621,7 +623,7 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
         .root_source_file = .{ .path = "src/main.zig" },
         .target = options.target,
         .optimize = options.optimize,
-        .max_rss = 7_000_000_000,
+        .max_rss = 8_000_000_000,
         .strip = options.strip,
         .sanitize_thread = options.sanitize_thread,
         .single_threaded = options.single_threaded,

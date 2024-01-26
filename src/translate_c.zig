@@ -2380,6 +2380,14 @@ fn transCCast(
         });
     }
     if (cIsFloating(src_type) and !cIsFloating(dst_type)) {
+        // bool expression: floating val != 0
+        if (qualTypeIsBoolean(dst_type)) {
+            return Tag.not_equal.create(c.arena, .{
+                .lhs = expr,
+                .rhs = Tag.zero_literal.init(),
+            });
+        }
+
         // @as(dest_type, @intFromFloat(val))
         return Tag.as.create(c.arena, .{
             .lhs = dst_node,
@@ -3807,11 +3815,7 @@ fn transCreateCompoundAssign(
     const rhs_qt = getExprQualType(c, rhs);
     const is_signed = cIsSignedInteger(lhs_qt);
     const is_ptr_op_signed = qualTypeIsPtr(lhs_qt) and cIsSignedInteger(rhs_qt);
-    const requires_int_cast = blk: {
-        const are_integers = cIsInteger(lhs_qt) and cIsInteger(rhs_qt);
-        const are_same_sign = cIsSignedInteger(lhs_qt) == cIsSignedInteger(rhs_qt);
-        break :blk are_integers and !(are_same_sign and cIntTypeCmp(lhs_qt, rhs_qt) == .eq);
-    };
+    const requires_cast = !lhs_qt.eq(rhs_qt) and !is_ptr_op_signed;
 
     if (used == .unused) {
         // common case
@@ -3822,7 +3826,7 @@ fn transCreateCompoundAssign(
         if (is_ptr_op_signed) rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
 
         if ((is_mod or is_div) and is_signed) {
-            if (requires_int_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
+            if (requires_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
             const operands = .{ .lhs = lhs_node, .rhs = rhs_node };
             const builtin = if (is_mod)
                 try Tag.signed_remainder.create(c.arena, operands)
@@ -3834,7 +3838,7 @@ fn transCreateCompoundAssign(
 
         if (is_shift) {
             rhs_node = try Tag.int_cast.create(c.arena, rhs_node);
-        } else if (requires_int_cast) {
+        } else if (requires_cast) {
             rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
         }
         return transCreateNodeInfixOp(c, op, lhs_node, rhs_node, .used);
@@ -3861,7 +3865,7 @@ fn transCreateCompoundAssign(
     var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
     if (is_ptr_op_signed) rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
     if ((is_mod or is_div) and is_signed) {
-        if (requires_int_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
+        if (requires_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
         const operands = .{ .lhs = ref_node, .rhs = rhs_node };
         const builtin = if (is_mod)
             try Tag.signed_remainder.create(c.arena, operands)
@@ -3873,7 +3877,7 @@ fn transCreateCompoundAssign(
     } else {
         if (is_shift) {
             rhs_node = try Tag.int_cast.create(c.arena, rhs_node);
-        } else if (requires_int_cast) {
+        } else if (requires_cast) {
             rhs_node = try transCCast(c, &block_scope.base, loc, lhs_qt, rhs_qt, rhs_node);
         }
 

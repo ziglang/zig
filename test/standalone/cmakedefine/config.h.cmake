@@ -49,11 +49,23 @@
 // no substition
 // @noval@
 
+// no substition
+// @noval@@noval@
+
+// no substition
+// @noval@.@noval@
+
 // 1
 // @trueval@
 
 // 0
 // @falseval@
+
+// 10
+// @trueval@@falseval@
+
+// 0.1
+// @falseval@.@trueval@
 
 // 0
 // @zeroval@
@@ -64,20 +76,46 @@
 // 10
 // @tenval@
 
+// 01
+// @zeroval@@oneval@
+
+// 0.10
+// @zeroval@.@tenval@
+
 // test
 // @stringval@
 
+// testtest
+// @stringval@@stringval@
+
+// test.test
+// @stringval@.@stringval@
+
+// test10
+// @noval@@stringval@@trueval@@zeroval@
 
 // ${} substition
 
-// removal
+// no substition
 // ${noval}
+
+// no substition
+// ${noval}${noval}
+
+// no substition
+// ${noval}.${noval}
 
 // 1
 // ${trueval}
 
 // 0
 // ${falseval}
+
+// 10
+// ${trueval}${falseval}
+
+// 0.1
+// ${falseval}.${trueval}
 
 // 0
 // ${zeroval}
@@ -88,6 +126,20 @@
 // 10
 // ${tenval}
 
+// 01
+// ${zeroval}${oneval}
+
+// 0.10
+// ${zeroval}.${tenval}
+
 // test
 // ${stringval}
 
+// testtest
+// ${stringval}${stringval}
+
+// test.test
+// ${stringval}.${stringval}
+
+// test10
+// ${noval}${stringval}${trueval}${zeroval}

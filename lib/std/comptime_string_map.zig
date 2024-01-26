@@ -299,3 +299,22 @@ test "ComptimeStringMap redundant insensitive" {
 
     try std.testing.expectEqual(TestEnum.A, map.get("theNeedle").?);
 }
+
+test "ComptimeStringMap comptime-only value" {
+    const map = std.ComptimeStringMap(type, .{
+        .{ "a", struct {
+            pub const foo = 1;
+        } },
+        .{ "b", struct {
+            pub const foo = 2;
+        } },
+        .{ "c", struct {
+            pub const foo = 3;
+        } },
+    });
+
+    try std.testing.expect(map.get("a").?.foo == 1);
+    try std.testing.expect(map.get("b").?.foo == 2);
+    try std.testing.expect(map.get("c").?.foo == 3);
+    try std.testing.expect(map.get("d") == null);
+}

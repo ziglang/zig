@@ -5,6 +5,7 @@ const mem = std.mem;
 const Type = std.builtin.Type;
 const TypeId = std.builtin.TypeId;
 
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
@@ -484,7 +485,7 @@ test "@typeInfo does not force declarations into existence" {
             @compileError("test failed");
         }
     };
-    try comptime expect(@typeInfo(S).Struct.fields.len == 1);
+    comptime assert(@typeInfo(S).Struct.fields.len == 1);
 }
 
 fn add(a: i32, b: i32) i32 {

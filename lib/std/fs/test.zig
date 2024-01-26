@@ -10,6 +10,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const Dir = std.fs.Dir;
 const File = std.fs.File;
 const tmpDir = testing.tmpDir;
+const SymLinkFlags = std.fs.Dir.SymLinkFlags;
 
 const PathType = enum {
     relative,
@@ -119,6 +120,25 @@ fn testWithAllSupportedPathTypes(test_func: anytype) !void {
     }
 }
 
+// For use in test setup.  If the symlink creation fails on Windows with
+// AccessDenied, then make the test failure silent (it is not a Zig failure).
+fn setupSymlink(dir: Dir, target: []const u8, link: []const u8, flags: SymLinkFlags) !void {
+    return dir.symLink(target, link, flags) catch |err| switch (err) {
+        // Symlink requires admin privileges on windows, so this test can legitimately fail.
+        error.AccessDenied => if (builtin.os.tag == .windows) return error.SkipZigTest else return err,
+        else => return err,
+    };
+}
+
+// For use in test setup.  If the symlink creation fails on Windows with
+// AccessDenied, then make the test failure silent (it is not a Zig failure).
+fn setupSymlinkAbsolute(target: []const u8, link: []const u8, flags: SymLinkFlags) !void {
+    return fs.symLinkAbsolute(target, link, flags) catch |err| switch (err) {
+        error.AccessDenied => if (builtin.os.tag == .windows) return error.SkipZigTest else return err,
+        else => return err,
+    };
+}
+
 test "Dir.readLink" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -128,31 +148,33 @@ test "Dir.readLink" {
             const dir_target_path = try ctx.transformPath("subdir");
             try ctx.dir.makeDir(dir_target_path);
 
-            {
-                // Create symbolic link by path
-                ctx.dir.symLink(file_target_path, "symlink1", .{}) catch |err| switch (err) {
-                    // Symlink requires admin privileges on windows, so this test can legitimately fail.
-                    error.AccessDenied => return error.SkipZigTest,
-                    else => return err,
-                };
-                try testReadLink(ctx.dir, file_target_path, "symlink1");
-            }
-            {
-                // Create symbolic link by path
-                ctx.dir.symLink(dir_target_path, "symlink2", .{ .is_directory = true }) catch |err| switch (err) {
-                    // Symlink requires admin privileges on windows, so this test can legitimately fail.
-                    error.AccessDenied => return error.SkipZigTest,
-                    else => return err,
-                };
-                try testReadLink(ctx.dir, dir_target_path, "symlink2");
-            }
+            // test 1: symlink to a file
+            try setupSymlink(ctx.dir, file_target_path, "symlink1", .{});
+            try testReadLink(ctx.dir, file_target_path, "symlink1");
+
+            // test 2: symlink to a directory (can be different on Windows)
+            try setupSymlink(ctx.dir, dir_target_path, "symlink2", .{ .is_directory = true });
+            try testReadLink(ctx.dir, dir_target_path, "symlink2");
+
+            // test 3: relative path symlink
+            const parent_file = ".." ++ fs.path.sep_str ++ "target.txt";
+            var subdir = try ctx.dir.makeOpenPath("subdir", .{});
+            defer subdir.close();
+            try setupSymlink(subdir, parent_file, "relative-link.txt", .{});
+            try testReadLink(subdir, parent_file, "relative-link.txt");
         }
     }.impl);
 }
 
 fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !void {
     var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
-    const given = try dir.readLink(symlink_path, buffer[0..]);
+    const actual = try dir.readLink(symlink_path, buffer[0..]);
+    try testing.expectEqualStrings(target_path, actual);
+}
+
+fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void {
+    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const given = try fs.readLinkAbsolute(symlink_path, buffer[0..]);
     try testing.expectEqualStrings(target_path, given);
 }
 
@@ -169,11 +191,7 @@ test "File.stat on a File that is a symlink returns Kind.sym_link" {
             const dir_target_path = try ctx.transformPath("subdir");
             try ctx.dir.makeDir(dir_target_path);
 
-            ctx.dir.symLink(dir_target_path, "symlink", .{ .is_directory = true }) catch |err| switch (err) {
-                // Symlink requires admin privileges on windows, so this test can legitimately fail.
-                error.AccessDenied => return error.SkipZigTest,
-                else => return err,
-            };
+            try setupSymlink(ctx.dir, dir_target_path, "symlink", .{ .is_directory = true });
 
             var symlink = switch (builtin.target.os.tag) {
                 .windows => windows_symlink: {
@@ -238,23 +256,6 @@ test "File.stat on a File that is a symlink returns Kind.sym_link" {
     }.impl);
 }
 
-test "relative symlink to parent directory" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    var subdir = try tmp.dir.makeOpenPath("subdir", .{});
-    defer subdir.close();
-
-    const expected_link_name = ".." ++ std.fs.path.sep_str ++ "b.txt";
-
-    try subdir.symLink(expected_link_name, "a.txt", .{});
-
-    var buf: [1000]u8 = undefined;
-    const link_name = try subdir.readLink("a.txt", &buf);
-
-    try testing.expectEqualStrings(expected_link_name, link_name);
-}
-
 test "openDir" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -317,14 +318,14 @@ test "openDirAbsolute" {
     }
 }
 
-test "openDir cwd parent .." {
+test "openDir cwd parent '..'" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var dir = try fs.cwd().openDir("..", .{});
     defer dir.close();
 }
 
-test "openDir non-cwd parent .." {
+test "openDir non-cwd parent '..'" {
     switch (builtin.os.tag) {
         .wasi, .netbsd, .openbsd => return error.SkipZigTest,
         else => {},
@@ -373,31 +374,17 @@ test "readLinkAbsolute" {
         const symlink_path = try fs.path.join(allocator, &.{ base_path, "symlink1" });
 
         // Create symbolic link by path
-        fs.symLinkAbsolute(target_path, symlink_path, .{}) catch |err| switch (err) {
-            // Symlink requires admin privileges on windows, so this test can legitimately fail.
-            error.AccessDenied => return error.SkipZigTest,
-            else => return err,
-        };
+        try setupSymlinkAbsolute(target_path, symlink_path, .{});
         try testReadLinkAbsolute(target_path, symlink_path);
     }
     {
         const target_path = try fs.path.join(allocator, &.{ base_path, "subdir" });
         const symlink_path = try fs.path.join(allocator, &.{ base_path, "symlink2" });
 
-        // Create symbolic link by path
-        fs.symLinkAbsolute(target_path, symlink_path, .{ .is_directory = true }) catch |err| switch (err) {
-            // Symlink requires admin privileges on windows, so this test can legitimately fail.
-            error.AccessDenied => return error.SkipZigTest,
-            else => return err,
-        };
+        // Create symbolic link to a directory by path
+        try setupSymlinkAbsolute(target_path, symlink_path, .{ .is_directory = true });
         try testReadLinkAbsolute(target_path, symlink_path);
     }
-}
-
-fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void {
-    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
-    const given = try fs.readLinkAbsolute(symlink_path, buffer[0..]);
-    try testing.expectEqualStrings(target_path, given);
 }
 
 test "Dir.Iterator" {
@@ -670,6 +657,19 @@ test "Dir.statFile" {
 
             const stat = try ctx.dir.statFile(test_file_name);
             try testing.expectEqual(File.Kind.file, stat.kind);
+        }
+    }.impl);
+}
+
+test "statFile on dangling symlink" {
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            const symlink_name = try ctx.transformPath("dangling-symlink");
+            const symlink_target = "." ++ fs.path.sep_str ++ "doesnotexist";
+
+            try setupSymlink(ctx.dir, symlink_target, symlink_name, .{});
+
+            try std.testing.expectError(error.FileNotFound, ctx.dir.statFile(symlink_name));
         }
     }.impl);
 }
@@ -1005,11 +1005,7 @@ test "deleteTree does not follow symlinks" {
         var a = try tmp.dir.makeOpenPath("a", .{});
         defer a.close();
 
-        a.symLink("../b", "b", .{ .is_directory = true }) catch |err| switch (err) {
-            // Symlink requires admin privileges on windows, so this test can legitimately fail.
-            error.AccessDenied => return error.SkipZigTest,
-            else => return err,
-        };
+        try setupSymlink(a, "../b", "b", .{ .is_directory = true });
     }
 
     try tmp.dir.deleteTree("a");
@@ -1024,11 +1020,7 @@ test "deleteTree on a symlink" {
 
     // Symlink to a file
     try tmp.dir.writeFile("file", "");
-    tmp.dir.symLink("file", "filelink", .{}) catch |err| switch (err) {
-        // Symlink requires admin privileges on windows, so this test can legitimately fail.
-        error.AccessDenied => return error.SkipZigTest,
-        else => return err,
-    };
+    try setupSymlink(tmp.dir, "file", "filelink", .{});
 
     try tmp.dir.deleteTree("filelink");
     try testing.expectError(error.FileNotFound, tmp.dir.access("filelink", .{}));
@@ -1036,11 +1028,7 @@ test "deleteTree on a symlink" {
 
     // Symlink to a directory
     try tmp.dir.makePath("dir");
-    tmp.dir.symLink("dir", "dirlink", .{ .is_directory = true }) catch |err| switch (err) {
-        // Symlink requires admin privileges on windows, so this test can legitimately fail.
-        error.AccessDenied => return error.SkipZigTest,
-        else => return err,
-    };
+    try setupSymlink(tmp.dir, "dir", "dirlink", .{ .is_directory = true });
 
     try tmp.dir.deleteTree("dirlink");
     try testing.expectError(error.FileNotFound, tmp.dir.access("dirlink", .{}));
@@ -1123,7 +1111,7 @@ test "makepath through existing valid symlink" {
     defer tmp.cleanup();
 
     try tmp.dir.makeDir("realfolder");
-    try tmp.dir.symLink("." ++ fs.path.sep_str ++ "realfolder", "working-symlink", .{});
+    try setupSymlink(tmp.dir, "." ++ fs.path.sep_str ++ "realfolder", "working-symlink", .{});
 
     try tmp.dir.makePath("working-symlink" ++ fs.path.sep_str ++ "in-realfolder");
 
@@ -1584,11 +1572,11 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
     const filename = try fs.path.resolve(gpa, &.{ cwd, sub_path });
     defer gpa.free(filename);
 
+    defer fs.deleteFileAbsolute(filename) catch {}; // createFileAbsolute can leave files on failures
     const file1 = try fs.createFileAbsolute(filename, .{
         .lock = .exclusive,
         .lock_nonblocking = true,
     });
-    defer fs.deleteFileAbsolute(filename) catch {};
 
     const file2 = fs.createFileAbsolute(filename, .{
         .lock = .exclusive,
@@ -1674,7 +1662,7 @@ test "walker without fully iterating" {
     try testing.expectEqual(@as(usize, 1), num_walked);
 }
 
-test ". and .. in fs.Dir functions" {
+test "'.' and '..' in fs.Dir functions" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
 
     if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) {
@@ -1714,7 +1702,7 @@ test ". and .. in fs.Dir functions" {
     }.impl);
 }
 
-test ". and .. in absolute functions" {
+test "'.' and '..' in absolute functions" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});

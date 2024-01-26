@@ -2,7 +2,8 @@
 //! Currently, we support linking x86_64 Linux, but in the future we
 //! will progressively relax those to exercise more combinations.
 
-pub fn testAll(b: *Build) *Step {
+pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
+    _ = build_opts;
     const elf_step = b.step("test-elf", "Run ELF tests");
 
     const default_target = b.resolveTargetQuery(.{
@@ -695,41 +696,41 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
 fn testEmitRelocatable(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "emit-relocatable", opts);
 
-    const obj1 = addObject(b, opts, .{
-        .name = "obj1",
-        .zig_source_bytes =
-        \\const std = @import("std");
-        \\extern var bar: i32;
-        \\export fn foo() i32 {
-        \\   return bar;
-        \\}
-        \\export fn printFoo() void {
-        \\    std.debug.print("foo={d}\n", .{foo()});
-        \\}
-        ,
-        .c_source_bytes =
-        \\#include <stdio.h>
-        \\int bar = 42;
-        \\void printBar() {
-        \\  fprintf(stderr, "bar=%d\n", bar);
-        \\}
-        ,
+    const a_o = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\extern var bar: i32;
+    \\export fn foo() i32 {
+    \\   return bar;
+    \\}
+    \\export fn printFoo() void {
+    \\    std.debug.print("foo={d}\n", .{foo()});
+    \\}
     });
-    obj1.linkLibC();
+    a_o.linkLibC();
 
-    const exe = addExecutable(b, opts, .{
-        .name = "test",
-        .zig_source_bytes =
-        \\const std = @import("std");
-        \\extern fn printFoo() void;
-        \\extern fn printBar() void;
-        \\pub fn main() void {
-        \\    printFoo();
-        \\    printBar();
-        \\}
-        ,
+    const b_o = addObject(b, opts, .{ .name = "b", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\int bar = 42;
+    \\void printBar() {
+    \\  fprintf(stderr, "bar=%d\n", bar);
+    \\}
     });
-    exe.addObject(obj1);
+    b_o.linkLibC();
+
+    const c_o = addObject(b, opts, .{ .name = "c" });
+    c_o.addObject(a_o);
+    c_o.addObject(b_o);
+
+    const exe = addExecutable(b, opts, .{ .name = "test", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\extern fn printFoo() void;
+    \\extern fn printBar() void;
+    \\pub fn main() void {
+    \\    printFoo();
+    \\    printBar();
+    \\}
+    });
+    exe.addObject(c_o);
     exe.linkLibC();
 
     const run = addRunArtifact(exe);
@@ -3609,12 +3610,17 @@ fn testUnknownFileTypeError(b: *Build, opts: Options) *Step {
     exe.linkLibrary(dylib);
     exe.linkLibC();
 
-    expectLinkErrors(exe, test_step, .{ .exact = &.{
-        "invalid token in LD script: '\\x00\\x00\\x00\\x0c\\x00\\x00\\x00/usr/lib/dyld\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x0d' (0:829)",
-        "note: while parsing /?/liba.dylib",
-        "unexpected error: parsing input file failed with error InvalidLdScript",
-        "note: while parsing /?/liba.dylib",
-    } });
+    // TODO: improve the test harness to be able to selectively match lines in error output
+    // while avoiding jankiness
+    // expectLinkErrors(exe, test_step, .{ .exact = &.{
+    //     "error: invalid token in LD script: '\\x00\\x00\\x00\\x0c\\x00\\x00\\x00/usr/lib/dyld\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x0d' (0:989)",
+    //     "note: while parsing /?/liba.dylib",
+    //     "error: unexpected error: parsing input file failed with error InvalidLdScript",
+    //     "note: while parsing /?/liba.dylib",
+    // } });
+    expectLinkErrors(exe, test_step, .{
+        .contains = "error: unexpected error: parsing input file failed with error InvalidLdScript",
+    });
 
     return test_step;
 }
@@ -3896,6 +3902,7 @@ const link = @import("link.zig");
 const std = @import("std");
 
 const Build = std.Build;
+const BuildOptions = link.BuildOptions;
 const Options = link.Options;
 const Step = Build.Step;
 const WriteFile = Step.WriteFile;

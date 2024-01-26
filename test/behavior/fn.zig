@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
+const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
@@ -207,7 +208,7 @@ test "pass by non-copying value through var arg" {
 }
 
 fn addPointCoordsVar(pt: anytype) !i32 {
-    try comptime expect(@TypeOf(pt) == Point);
+    comptime assert(@TypeOf(pt) == Point);
     return pt.x + pt.y;
 }
 
@@ -594,4 +595,13 @@ test "pointer to alias behaves same as pointer to function" {
     var a = &S.bar;
     _ = &a;
     try std.testing.expect(S.foo() == a());
+}
+
+test "comptime parameters don't have to be marked comptime if only called at comptime" {
+    const S = struct {
+        fn foo(x: comptime_int, y: comptime_int) u32 {
+            return x + y;
+        }
+    };
+    comptime std.debug.assert(S.foo(5, 6) == 11);
 }

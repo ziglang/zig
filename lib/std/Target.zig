@@ -2636,13 +2636,51 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
     if (target.isMinGW()) {
         if (eqlIgnoreCase(ignore_case, name, "m"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "uuid"))
-            return true;
         if (eqlIgnoreCase(ignore_case, name, "mingw32"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "msvcrt-os"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "mingwex"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "uuid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "bits"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "dmoguids"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "dxerr8"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "dxerr9"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "mfuuid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "msxml2"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "msxml6"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "amstrmid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "wbemuuid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "wmcodecdspuuid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "dxguid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "ksguid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "locationapi"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "portabledeviceguids"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "mfuuid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "dloadhelper"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "strmiids"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "mfuuid"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "adsiid"))
             return true;
 
         return false;

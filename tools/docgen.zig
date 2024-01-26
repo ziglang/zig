@@ -947,19 +947,8 @@ fn isType(name: []const u8) bool {
     return false;
 }
 
-const start_line = "<span class=\"line\">";
-const end_line = "</span>";
-
 fn writeEscapedLines(out: anytype, text: []const u8) !void {
-    for (text) |char| {
-        if (char == '\n') {
-            try out.writeAll(end_line);
-            try out.writeAll("\n");
-            try out.writeAll(start_line);
-        } else {
-            try writeEscaped(out, &[_]u8{char});
-        }
-    }
+    return writeEscaped(out, text);
 }
 
 fn tokenizeAndPrintRaw(
@@ -969,10 +958,10 @@ fn tokenizeAndPrintRaw(
     source_token: Token,
     raw_src: []const u8,
 ) !void {
-    const src_non_terminated = mem.trim(u8, raw_src, " \n");
+    const src_non_terminated = mem.trim(u8, raw_src, " \r\n");
     const src = try allocator.dupeZ(u8, src_non_terminated);
 
-    try out.writeAll("<code>" ++ start_line);
+    try out.writeAll("<code>");
     var tokenizer = std.zig.Tokenizer.init(src);
     var index: usize = 0;
     var next_tok_is_fn = false;
@@ -1062,23 +1051,12 @@ fn tokenizeAndPrintRaw(
             },
 
             .string_literal,
+            .multiline_string_literal_line,
             .char_literal,
             => {
                 try out.writeAll("<span class=\"tok-str\">");
                 try writeEscaped(out, src[token.loc.start..token.loc.end]);
                 try out.writeAll("</span>");
-            },
-
-            .multiline_string_literal_line => {
-                if (src[token.loc.end - 1] == '\n') {
-                    try out.writeAll("<span class=\"tok-str\">");
-                    try writeEscaped(out, src[token.loc.start .. token.loc.end - 1]);
-                    try out.writeAll("</span>" ++ end_line ++ "\n" ++ start_line);
-                } else {
-                    try out.writeAll("<span class=\"tok-str\">");
-                    try writeEscaped(out, src[token.loc.start..token.loc.end]);
-                    try out.writeAll("</span>");
-                }
             },
 
             .builtin => {
@@ -1211,7 +1189,7 @@ fn tokenizeAndPrintRaw(
         }
         index = token.loc.end;
     }
-    try out.writeAll(end_line ++ "</code>");
+    try out.writeAll("</code>");
 }
 
 fn tokenizeAndPrint(
@@ -1232,23 +1210,23 @@ fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: any
         .zig => try tokenizeAndPrint(allocator, docgen_tokenizer, out, syntax_block.source_token),
         else => {
             const raw_source = docgen_tokenizer.buffer[syntax_block.source_token.start..syntax_block.source_token.end];
-            const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
+            const trimmed_raw_source = mem.trim(u8, raw_source, " \r\n");
 
-            try out.writeAll("<code>" ++ start_line);
+            try out.writeAll("<code>");
             try writeEscapedLines(out, trimmed_raw_source);
-            try out.writeAll(end_line ++ "</code>");
+            try out.writeAll("</code>");
         },
     }
     try out.writeAll("</pre></figure>");
 }
 
 fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
-    const trimmed_shell_content = mem.trim(u8, shell_content, " \n");
+    const trimmed_shell_content = mem.trim(u8, shell_content, " \r\n");
     try out.writeAll("<figure><figcaption class=\"shell-cap\">Shell</figcaption><pre><samp>");
     var cmd_cont: bool = false;
     var iter = std.mem.splitScalar(u8, trimmed_shell_content, '\n');
     while (iter.next()) |orig_line| {
-        const line = mem.trimRight(u8, orig_line, " ");
+        const line = mem.trimRight(u8, orig_line, " \r");
         if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] != '\\') {
             try out.writeAll("$ <kbd>");
             const s = std.mem.trimLeft(u8, line[1..], " ");
@@ -1380,7 +1358,7 @@ fn genHtml(
                 }
 
                 const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
-                const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
+                const trimmed_raw_source = mem.trim(u8, raw_source, " \r\n");
                 const tmp_source_file_name = try fs.path.join(
                     allocator,
                     &[_][]const u8{ tmp_dir_name, name_plus_ext },
@@ -2109,6 +2087,20 @@ test "printShell" {
             \\$ zig build test.zig
             \\build output
         ;
+        const expected =
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
+            \\build output
+            \\</samp></pre></figure>
+        ;
+
+        var buffer = std.ArrayList(u8).init(test_allocator);
+        defer buffer.deinit();
+
+        try printShell(buffer.writer(), shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.items);
+    }
+    {
+        const shell_out = "$ zig build test.zig\r\nbuild output\r\n";
         const expected =
             \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
             \\build output

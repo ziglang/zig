@@ -104,7 +104,6 @@ pub const File = struct {
         max_memory: ?u64,
         export_symbol_names: []const []const u8,
         global_base: ?u64,
-        each_lib_rpath: bool,
         build_id: std.zig.BuildId,
         disable_lld_caching: bool,
         hash_style: Elf.HashStyle,
@@ -134,6 +133,7 @@ pub const File = struct {
 
         // TODO: remove this. libraries are resolved by the frontend.
         lib_dirs: []const []const u8,
+        framework_dirs: []const []const u8,
         rpath_list: []const []const u8,
 
         /// (Zig compiler development) Enable dumping of linker's state as JSON.
@@ -555,7 +555,7 @@ pub const File = struct {
             return @fieldParentPtr(C, "base", base).flush(arena, prog_node);
         }
         const comp = base.comp;
-        if (comp.clang_preprocessor_mode == .yes) {
+        if (comp.clang_preprocessor_mode == .yes or comp.clang_preprocessor_mode == .pch) {
             const gpa = comp.gpa;
             const emit = base.emit;
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)

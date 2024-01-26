@@ -702,7 +702,7 @@ pub fn lowerToBuildSteps(
             const file_source = write_src.add("tmp.c", case.input);
 
             const translate_c = b.addTranslateC(.{
-                .source_file = file_source,
+                .root_source_file = file_source,
                 .optimize = .Debug,
                 .target = case.target,
                 .link_libc = case.link_libc,
@@ -729,7 +729,7 @@ pub fn lowerToBuildSteps(
             const file_source = write_src.add("tmp.c", case.input);
 
             const translate_c = b.addTranslateC(.{
-                .source_file = file_source,
+                .root_source_file = file_source,
                 .optimize = .Debug,
                 .target = case.target,
                 .link_libc = case.link_libc,
@@ -1797,7 +1797,7 @@ fn runOneCase(
                     try comp.makeBinFileExecutable();
 
                     while (true) {
-                        break :x std.ChildProcess.exec(.{
+                        break :x std.ChildProcess.run(.{
                             .allocator = allocator,
                             .argv = argv.items,
                             .cwd_dir = tmp.dir,

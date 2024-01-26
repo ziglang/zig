@@ -5,6 +5,9 @@
 /// TODO LLD also hashes the output filename to disambiguate between same builds with different
 /// output files. Should we also do that?
 pub fn calcUuid(comp: *const Compilation, file: fs.File, file_size: u64, out: *[Md5.digest_length]u8) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const chunk_size: usize = 1024 * 1024;
     const num_chunks: usize = std.math.cast(usize, @divTrunc(file_size, chunk_size)) orelse return error.Overflow;
     const actual_num_chunks = if (@rem(file_size, chunk_size) > 0) num_chunks + 1 else num_chunks;
@@ -35,11 +38,12 @@ inline fn conform(out: *[Md5.digest_length]u8) void {
     out[8] = (out[8] & 0x3F) | 0x80;
 }
 
-const std = @import("std");
 const fs = std.fs;
 const mem = std.mem;
+const std = @import("std");
+const trace = @import("../../tracy.zig").trace;
 
-const Allocator = mem.Allocator;
 const Compilation = @import("../../Compilation.zig");
 const Md5 = std.crypto.hash.Md5;
 const Hasher = @import("hasher.zig").ParallelHasher;
+const ThreadPool = std.Thread.Pool;

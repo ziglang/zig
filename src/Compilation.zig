@@ -270,11 +270,11 @@ pub const LangToExt = std.ComptimeStringMap(FileExt, .{
     .{ "c", .c },
     .{ "c-header", .h },
     .{ "c++", .cpp },
-    .{ "c++-header", .h },
+    .{ "c++-header", .hpp },
     .{ "objective-c", .m },
-    .{ "objective-c-header", .h },
+    .{ "objective-c-header", .hm },
     .{ "objective-c++", .mm },
-    .{ "objective-c++-header", .h },
+    .{ "objective-c++-header", .hmm },
     .{ "assembler", .assembly },
     .{ "assembler-with-cpp", .assembly_with_cpp },
     .{ "cuda", .cu },
@@ -758,10 +758,7 @@ pub const MiscTask = enum {
 
     @"mingw-w64 crt2.o",
     @"mingw-w64 dllcrt2.o",
-    @"mingw-w64 mingw32.lib",
-    @"mingw-w64 msvcrt-os.lib",
     @"mingw-w64 mingwex.lib",
-    @"mingw-w64 uuid.lib",
 };
 
 pub const MiscError = struct {
@@ -887,6 +884,8 @@ pub const ClangPreprocessorMode = enum {
     yes,
     /// This means we are doing `zig cc -E`.
     stdout,
+    /// precompiled C header
+    pch,
 };
 
 pub const Framework = link.File.MachO.Framework;
@@ -1049,7 +1048,6 @@ pub const CreateOptions = struct {
     linker_print_icf_sections: bool = false,
     linker_print_map: bool = false,
     llvm_opt_bisect_limit: i32 = -1,
-    each_lib_rpath: ?bool = null,
     build_id: ?std.zig.BuildId = null,
     disable_c_depfile: bool = false,
     linker_z_nodelete: bool = false,
@@ -1145,12 +1143,14 @@ fn addModuleTableToCacheHash(
     try seen_table.put(gpa, main_mod, {});
 
     const SortByName = struct {
+        has_builtin: bool,
         names: []const []const u8,
 
-        pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
-            const lhs_key = ctx.names[lhs_index];
-            const rhs_key = ctx.names[rhs_index];
-            return mem.lessThan(u8, lhs_key, rhs_key);
+        pub fn lessThan(ctx: @This(), lhs: usize, rhs: usize) bool {
+            return if (ctx.has_builtin and (lhs == 0 or rhs == 0))
+                lhs < rhs
+            else
+                mem.lessThan(u8, ctx.names[lhs], ctx.names[rhs]);
         }
     };
 
@@ -1171,13 +1171,17 @@ fn addModuleTableToCacheHash(
                 hash.addOptionalBytes(mod.root.root_dir.path);
                 hash.addBytes(mod.root.sub_path);
             },
-            .files => |man| {
+            .files => |man| if (mod.root_src_path.len != 0) {
                 const pkg_zig_file = try mod.root.joinString(arena, mod.root_src_path);
                 _ = try man.addFile(pkg_zig_file, null);
             },
         }
 
-        mod.deps.sortUnstable(SortByName{ .names = mod.deps.keys() });
+        mod.deps.sortUnstable(SortByName{
+            .has_builtin = mod.deps.count() >= 1 and
+                mod.deps.values()[0].isBuiltin(),
+            .names = mod.deps.keys(),
+        });
 
         hash.addListOfBytes(mod.deps.keys());
 
@@ -1340,9 +1344,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         const formatted_panics = options.formatted_panics orelse (options.root_mod.optimize_mode == .Debug);
 
         const error_limit = options.error_limit orelse (std.math.maxInt(u16) - 1);
-
-        const each_lib_rpath = options.each_lib_rpath orelse
-            options.root_mod.resolved_target.is_native_os;
 
         // We put everything into the cache hash that *cannot be modified
         // during an incremental update*. For example, one cannot change the
@@ -1547,6 +1548,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .darwin_sdk_layout = libc_dirs.darwin_sdk_layout,
             .frameworks = options.frameworks,
             .lib_dirs = options.lib_dirs,
+            .framework_dirs = options.framework_dirs,
             .rpath_list = options.rpath_list,
             .symbol_wrap_set = options.symbol_wrap_set,
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
@@ -1578,7 +1580,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_relocs = options.link_emit_relocs,
             .soname = options.soname,
             .compatibility_version = options.compatibility_version,
-            .each_lib_rpath = each_lib_rpath,
             .build_id = build_id,
             .disable_lld_caching = options.disable_lld_caching or options.cache_mode == .whole,
             .subsystem = options.subsystem,
@@ -1821,14 +1822,9 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         if (comp.wantBuildMinGWFromSource()) {
             if (!target_util.canBuildLibC(target)) return error.LibCUnavailable;
 
-            const static_lib_jobs = [_]Job{
-                .{ .mingw_crt_file = .mingw32_lib },
-                .{ .mingw_crt_file = .mingwex_lib },
-                .{ .mingw_crt_file = .uuid_lib },
-            };
             const crt_job: Job = .{ .mingw_crt_file = if (is_dyn_lib) .dllcrt2_o else .crt2_o };
-            try comp.work_queue.ensureUnusedCapacity(static_lib_jobs.len + 1);
-            comp.work_queue.writeAssumeCapacity(&static_lib_jobs);
+            try comp.work_queue.ensureUnusedCapacity(2);
+            comp.work_queue.writeItemAssumeCapacity(.{ .mingw_crt_file = .mingwex_lib });
             comp.work_queue.writeItemAssumeCapacity(crt_job);
 
             // When linking mingw-w64 there are some import libs we always need.
@@ -2376,7 +2372,7 @@ fn renameTmpIntoCache(
             // See https://github.com/ziglang/zig/issues/8362
             error.AccessDenied => switch (builtin.os.tag) {
                 .windows => {
-                    if (!seen_eaccess) return error.AccessDenied;
+                    if (seen_eaccess) return error.AccessDenied;
                     seen_eaccess = true;
                     try cache_directory.handle.deleteTree(o_sub_path);
                     continue;
@@ -2472,8 +2468,6 @@ fn addNonIncrementalStuffToCacheManifest(
     comptime assert(link_hash_implementation_version == 11);
 
     if (comp.module) |mod| {
-        const main_zig_file = try mod.main_mod.root.joinString(arena, mod.main_mod.root_src_path);
-        _ = try man.addFile(main_zig_file, null);
         try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.root_mod, mod.main_mod, .{ .files = man });
 
         // Synchronize with other matching comments: ZigOnlyHashStuff
@@ -2552,7 +2546,6 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.addListOfBytes(opts.lib_dirs);
     man.hash.addListOfBytes(opts.rpath_list);
     man.hash.addListOfBytes(opts.symbol_wrap_set.keys());
-    man.hash.add(opts.each_lib_rpath);
     if (comp.config.link_libc) {
         man.hash.add(comp.libc_installation != null);
         const target = comp.root_mod.resolved_target.result;
@@ -4399,6 +4392,10 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
                 .assembly_with_cpp => "assembler-with-cpp",
                 .c => "c",
                 .cpp => "c++",
+                .h => "c-header",
+                .hpp => "c++-header",
+                .hm => "objective-c-header",
+                .hmm => "objective-c++-header",
                 .cu => "cuda",
                 .m => "objective-c",
                 .mm => "objective-c++",
@@ -4424,10 +4421,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             else
                 "/dev/null";
 
-            try argv.ensureUnusedCapacity(5);
+            try argv.ensureUnusedCapacity(6);
             switch (comp.clang_preprocessor_mode) {
-                .no => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-c", "-o", out_obj_path }),
-                .yes => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-E", "-o", out_obj_path }),
+                .no => argv.appendSliceAssumeCapacity(&.{ "-c", "-o", out_obj_path }),
+                .yes => argv.appendSliceAssumeCapacity(&.{ "-E", "-o", out_obj_path }),
+                .pch => argv.appendSliceAssumeCapacity(&.{ "-Xclang", "-emit-pch", "-o", out_obj_path }),
                 .stdout => argv.appendAssumeCapacity("-E"),
             }
 
@@ -4462,10 +4460,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         try argv.appendSlice(c_object.src.extra_flags);
         try argv.appendSlice(c_object.src.cache_exempt_flags);
 
-        try argv.ensureUnusedCapacity(5);
+        try argv.ensureUnusedCapacity(6);
         switch (comp.clang_preprocessor_mode) {
             .no => argv.appendSliceAssumeCapacity(&.{ "-c", "-o", out_obj_path }),
             .yes => argv.appendSliceAssumeCapacity(&.{ "-E", "-o", out_obj_path }),
+            .pch => argv.appendSliceAssumeCapacity(&.{ "-Xclang", "-emit-pch", "-o", out_obj_path }),
             .stdout => argv.appendAssumeCapacity("-E"),
         }
         if (comp.clang_passthrough_mode) {
@@ -5107,7 +5106,7 @@ pub fn addCCArgs(
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
     if (target.os.tag == .windows) switch (ext) {
-        .c, .cpp, .m, .mm, .h, .cu, .rc, .assembly, .assembly_with_cpp => {
+        .c, .cpp, .m, .mm, .h, .hpp, .hm, .hmm, .cu, .rc, .assembly, .assembly_with_cpp => {
             const minver: u16 = @truncate(@intFromEnum(target.os.getVersionRange().windows.min) >> 16);
             try argv.append(
                 try std.fmt.allocPrint(arena, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}),
@@ -5117,7 +5116,7 @@ pub fn addCCArgs(
     };
 
     switch (ext) {
-        .c, .cpp, .m, .mm, .h, .cu, .rc => {
+        .c, .cpp, .m, .mm, .h, .hpp, .hm, .hmm, .cu, .rc => {
             try argv.appendSlice(&[_][]const u8{
                 "-nostdinc",
                 "-fno-spell-checking",
@@ -5685,6 +5684,9 @@ pub const FileExt = enum {
     cpp,
     cu,
     h,
+    hpp,
+    hm,
+    hmm,
     m,
     mm,
     ll,
@@ -5703,7 +5705,7 @@ pub const FileExt = enum {
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
         return switch (ext) {
-            .c, .cpp, .h, .m, .mm, .cu => true,
+            .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm, .cu => true,
 
             .ll,
             .bc,
@@ -5728,6 +5730,9 @@ pub const FileExt = enum {
             .cpp => ".cpp",
             .cu => ".cu",
             .h => ".h",
+            .hpp => ".h",
+            .hm => ".h",
+            .hmm => ".h",
             .m => ".m",
             .mm => ".mm",
             .ll => ".ll",
