@@ -502,6 +502,290 @@ test "binarySearch" {
     );
 }
 
+/// Returns the index pointing to the first element in the range [first,last)
+/// which does not compare less than val.
+/// The function optimizes the number of comparisons performed by using a binary search O(log n).
+/// An example lessThan function:
+/// fn lower_u32(_: void, key: u32, lhs: u32) bool { return lhs < key; }
+pub fn lowerBound(
+    comptime T: type,
+    key: anytype,
+    items: []const T,
+    context: anytype,
+    comptime lessThan: fn (context: @TypeOf(context), key: @TypeOf(key), lhs: T) bool,
+) usize {
+    var left: usize = 0;
+    var right: usize = items.len;
+    var mid: usize = undefined;
+
+    while (left < right) {
+        mid = left + (right - left) / 2;
+        if (lessThan(context, key, items[mid])) {
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+
+    return left;
+}
+
+test "lowerBound" {
+    const S = struct {
+        fn lower_u32(context: void, key: u32, lhs: u32) bool {
+            _ = context;
+            return lhs < key;
+        }
+        fn lower_i32(context: void, key: i32, lhs: i32) bool {
+            _ = context;
+            return lhs < key;
+        }
+        fn lower_f32(context: void, key: f32, lhs: f32) bool {
+            _ = context;
+            return lhs < key;
+        }
+    };
+
+    // u32
+    // test no data
+    try testing.expectEqual(
+        @as(?usize, 0),
+        lowerBound(u32, @as(u32, 0), &[_]u32{}, {}, S.lower_u32),
+    );
+    // test below the first element
+    try testing.expectEqual(
+        @as(?usize, 0),
+        lowerBound(u32, @as(u32, 0), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+    );
+    // test equal to the first element
+    try testing.expectEqual(
+        @as(?usize, 0),
+        lowerBound(u32, @as(u32, 2), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+    );
+    // test between two numbers
+    try testing.expectEqual(
+        @as(?usize, 2),
+        lowerBound(u32, @as(u32, 5), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+    );
+    // test equal to a number not at the ends
+    try testing.expectEqual(
+        @as(?usize, 2),
+        lowerBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+    );
+    // test equal to the last element
+    try testing.expectEqual(
+        @as(?usize, 5),
+        lowerBound(u32, @as(u32, 64), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+    );
+    // test above the last element
+    try testing.expectEqual(
+        @as(?usize, 6),
+        lowerBound(u32, @as(u32, 100), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+    );
+    // i32
+    try testing.expectEqual(
+        @as(?usize, 2),
+        lowerBound(i32, @as(i32, 5), &[_]i32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_i32),
+    );
+    // f32
+    try testing.expectEqual(
+        @as(?usize, 1),
+        lowerBound(f32, @as(f32, -33.4), &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, {}, S.lower_f32),
+    );
+}
+
+/// Returns the index pointing to the first element in the range [first,last)
+/// which compares greater than val.
+/// The function optimizes the number of comparisons performed by using a binary search O(log n).
+/// An example greaterThan function:
+/// fn upper_u32(_: void, key: u32, rhs: u32) bool { return key >= rhs; }
+pub fn upperBound(
+    comptime T: type,
+    key: anytype,
+    items: []const T,
+    context: anytype,
+    comptime greaterThan: fn (context: @TypeOf(context), key: @TypeOf(key), rhs: T) bool,
+) usize {
+    var left: usize = 0;
+    var right: usize = items.len;
+    var mid: usize = undefined;
+
+    while (left < right) {
+        mid = (right + left) / 2;
+        if (greaterThan(context, key, items[mid])) {
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+
+    return left;
+}
+
+test "upperBound" {
+    const S = struct {
+        fn upper_u32(context: void, key: u32, rhs: u32) bool {
+            _ = context;
+            return key >= rhs;
+        }
+        fn upper_i32(context: void, key: i32, rhs: i32) bool {
+            _ = context;
+            return key >= rhs;
+        }
+        fn upper_f32(context: void, key: f32, rhs: f32) bool {
+            _ = context;
+            return key >= rhs;
+        }
+    };
+
+    // u32
+    // test no data
+    try testing.expectEqual(
+        @as(?usize, 0),
+        upperBound(u32, @as(u32, 0), &[_]u32{}, {}, S.upper_u32),
+    );
+    // test below the first element
+    try testing.expectEqual(
+        @as(?usize, 0),
+        upperBound(u32, @as(u32, 0), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.upper_u32),
+    );
+    // test equal to the first element
+    try testing.expectEqual(
+        @as(?usize, 1),
+        upperBound(u32, @as(u32, 2), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.upper_u32),
+    );
+    // test between two numbers
+    try testing.expectEqual(
+        @as(?usize, 2),
+        upperBound(u32, @as(u32, 5), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.upper_u32),
+    );
+    // test equal to a number not at the ends
+    try testing.expectEqual(
+        @as(?usize, 3),
+        upperBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.upper_u32),
+    );
+    // test equal to the last element
+    try testing.expectEqual(
+        @as(?usize, 6),
+        upperBound(u32, @as(u32, 64), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.upper_u32),
+    );
+    // test above the last element
+    try testing.expectEqual(
+        @as(?usize, 6),
+        upperBound(u32, @as(u32, 100), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.upper_u32),
+    );
+    // i32
+    try testing.expectEqual(
+        @as(?usize, 2),
+        upperBound(i32, @as(i32, 5), &[_]i32{ 2, 4, 8, 16, 32, 64 }, {}, S.upper_i32),
+    );
+    // f32
+    try testing.expectEqual(
+        @as(?usize, 1),
+        upperBound(f32, @as(f32, -33.4), &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, {}, S.upper_f32),
+    );
+}
+
+/// Returns a range containing all elements equivalent to value in the range [first,last)
+/// The function optimizes the number of comparisons performed by using a binary search O(2 * log n).
+/// Example lessThan & greaterThan functions:
+/// fn lower_u32(_: void, key: u32, lhs: u32) bool { return lhs < key; }
+/// fn upper_u32(_: void, key: u32, rhs: u32) bool { return key >= rhs; }
+pub fn equalRange(
+    comptime T: type,
+    key: anytype,
+    items: []const T,
+    context: anytype,
+    comptime lessThan: fn (context: @TypeOf(context), key: @TypeOf(key), lhs: T) bool,
+    comptime greaterThan: fn (context: @TypeOf(context), key: @TypeOf(key), rhs: T) bool,
+) struct { usize, usize } {
+    return .{
+        lowerBound(T, key, items, context, lessThan),
+        upperBound(T, key, items, context, greaterThan),
+    };
+}
+
+test "equalRange" {
+    const S = struct {
+        fn lower_i32(context: void, key: i32, lhs: i32) bool {
+            _ = context;
+            return lhs < key;
+        }
+        fn upper_i32(context: void, key: i32, rhs: i32) bool {
+            _ = context;
+            return key >= rhs;
+        }
+        fn lower_u32(context: void, key: u32, lhs: u32) bool {
+            _ = context;
+            return lhs < key;
+        }
+        fn upper_u32(context: void, key: u32, rhs: u32) bool {
+            _ = context;
+            return key >= rhs;
+        }
+        fn lower_f32(context: void, key: f32, lhs: f32) bool {
+            _ = context;
+            return lhs < key;
+        }
+        fn upper_f32(context: void, key: f32, rhs: f32) bool {
+            _ = context;
+            return key >= rhs;
+        }
+    };
+
+    // i32
+    // test no data
+    try testing.expectEqual(
+        @as(struct { usize, usize }, .{ 0, 0 }),
+        equalRange(i32, @as(i32, 0), &[_]i32{}, {}, S.lower_i32, S.upper_i32),
+    );
+    // test below the first element
+    try testing.expectEqual(
+        @as(struct { usize, usize }, .{ 0, 0 }),
+        equalRange(i32, @as(i32, 0), &[_]i32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_i32, S.upper_i32),
+    );
+    // test equal to the first element
+    try testing.expectEqual(
+        @as(struct { usize, usize }, .{ 0, 1 }),
+        equalRange(i32, @as(i32, 2), &[_]i32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_i32, S.upper_i32),
+    );
+    // test between two numbers
+    try testing.expectEqual(
+        @as(struct { usize, usize }, .{ 2, 2 }),
+        equalRange(i32, @as(i32, 5), &[_]i32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_i32, S.upper_i32),
+    );
+    // test equal to a number not at the ends
+    try testing.expectEqual(
+        @as(struct { usize, usize }, .{ 2, 3 }),
+        equalRange(i32, @as(i32, 8), &[_]i32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_i32, S.upper_i32),
+    );
+    // test equal to the last element
+    try testing.expectEqual(
+        @as(struct { usize, usize }, .{ 5, 6 }),
+        equalRange(i32, @as(i32, 64), &[_]i32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_i32, S.upper_i32),
+    );
+    // test above the last element
+    try testing.expectEqual(
+        @as(struct { usize, usize }, .{ 6, 6 }),
+        equalRange(i32, @as(i32, 100), &[_]i32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_i32, S.upper_i32),
+    );
+    // test many of the same element
+    try testing.expectEqual(
+        @as(struct { usize, usize }, .{ 2, 6 }),
+        equalRange(i32, @as(i32, 8), &[_]i32{ 2, 4, 8, 8, 8, 8, 15, 22 }, {}, S.lower_i32, S.upper_i32),
+    );
+    // u32
+    try testing.expectEqual(
+        @as(struct { usize, usize }, .{ 2, 2 }),
+        equalRange(u32, @as(u32, 5), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32, S.upper_u32),
+    );
+    // f32
+    try testing.expectEqual(
+        @as(struct { usize, usize }, .{ 1, 1 }),
+        equalRange(f32, @as(f32, -33.4), &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, {}, S.lower_f32, S.upper_f32),
+    );
+}
+
 pub fn argMin(
     comptime T: type,
     items: []const T,
