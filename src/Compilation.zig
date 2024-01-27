@@ -4571,11 +4571,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             else
                 "/dev/null";
 
-            try argv.ensureUnusedCapacity(6);
+            try argv.ensureUnusedCapacity(7);
             switch (comp.clang_preprocessor_mode) {
                 .no => argv.appendSliceAssumeCapacity(&.{ "-c", "-o", out_obj_path }),
                 .yes => argv.appendSliceAssumeCapacity(&.{ "-E", "-o", out_obj_path }),
-                .pch => argv.appendSliceAssumeCapacity(&.{ "-Xclang", "-emit-pch", "-o", out_obj_path }),
+                .pch => argv.appendSliceAssumeCapacity(&.{ "-Xclang", "-emit-pch", "-fpch-validate-input-files-content", "-o", out_obj_path }),
                 .stdout => argv.appendAssumeCapacity("-E"),
             }
 
@@ -4610,11 +4610,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         try argv.appendSlice(c_object.src.extra_flags);
         try argv.appendSlice(c_object.src.cache_exempt_flags);
 
-        try argv.ensureUnusedCapacity(6);
+        try argv.ensureUnusedCapacity(7);
         switch (comp.clang_preprocessor_mode) {
             .no => argv.appendSliceAssumeCapacity(&.{ "-c", "-o", out_obj_path }),
             .yes => argv.appendSliceAssumeCapacity(&.{ "-E", "-o", out_obj_path }),
-            .pch => argv.appendSliceAssumeCapacity(&.{ "-Xclang", "-emit-pch", "-o", out_obj_path }),
+            .pch => argv.appendSliceAssumeCapacity(&.{ "-Xclang", "-emit-pch", "-fpch-validate-input-files-content", "-o", out_obj_path }),
             .stdout => argv.appendAssumeCapacity("-E"),
         }
         if (comp.clang_passthrough_mode) {
