@@ -18,12 +18,12 @@
 //! ```
 //! const std = @import("std");
 //!
-//! pub const std_options = struct {
+//! pub const std_options = .{
 //!     // Set the log level to info
-//!     pub const log_level = .info;
+//!     .log_level = .info,
 //!
 //!     // Define logFn to override the std implementation
-//!     pub const logFn = myLogFn;
+//!     .logFn = myLogFn,
 //! };
 //!
 //! pub fn myLogFn(

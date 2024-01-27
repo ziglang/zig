@@ -29,16 +29,16 @@ const AstGen = @import("AstGen.zig");
 const mingw = @import("mingw.zig");
 const Server = std.zig.Server;
 
-pub const std_options = struct {
-    pub const wasiCwd = wasi_cwd;
-    pub const logFn = log;
-    pub const enable_segfault_handler = false;
+pub const std_options = .{
+    .wasiCwd = wasi_cwd,
+    .logFn = log,
+    .enable_segfault_handler = false,
 
-    pub const log_level: std.log.Level = switch (builtin.mode) {
+    .log_level = switch (builtin.mode) {
         .Debug => .debug,
         .ReleaseSafe, .ReleaseFast => .info,
         .ReleaseSmall => .err,
-    };
+    },
 };
 
 // Crash report needs to override the panic handler

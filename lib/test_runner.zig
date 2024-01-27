@@ -3,9 +3,9 @@ const std = @import("std");
 const io = std.io;
 const builtin = @import("builtin");
 
-pub const std_options = struct {
-    pub const io_mode: io.Mode = builtin.test_io_mode;
-    pub const logFn = log;
+pub const std_options = .{
+    .io_mode = builtin.test_io_mode,
+    .logFn = log,
 };
 
 var log_err_count: usize = 0;
