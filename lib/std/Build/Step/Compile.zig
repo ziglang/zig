@@ -1272,7 +1272,7 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
                     .c_source_file => |c_source_file| l: {
                         if (!my_responsibility) break :l;
 
-                        if (c_source_file.flags.len == 0) {
+                        if (c_source_file.flags.len == 0 and c_source_file.precompiled_header == null) {
                             if (prev_has_cflags) {
                                 try zig_args.append("-cflags");
                                 try zig_args.append("--");
@@ -1282,6 +1282,11 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
                             try zig_args.append("-cflags");
                             for (c_source_file.flags) |arg| {
                                 try zig_args.append(arg);
+                            }
+                            if (c_source_file.precompiled_header) |pch| {
+                                try zig_args.append("-include-pch");
+                                try zig_args.append(pch.getPath(b));
+                                try zig_args.append("-fpch-validate-input-files-content");
                             }
                             try zig_args.append("--");
                             prev_has_cflags = true;
@@ -1304,7 +1309,7 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
                     .c_source_files => |c_source_files| l: {
                         if (!my_responsibility) break :l;
 
-                        if (c_source_files.flags.len == 0) {
+                        if (c_source_files.flags.len == 0 and c_source_files.precompiled_header == null) {
                             if (prev_has_cflags) {
                                 try zig_args.append("-cflags");
                                 try zig_args.append("--");
@@ -1315,6 +1320,13 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
                             for (c_source_files.flags) |flag| {
                                 try zig_args.append(flag);
                             }
+
+                            if (c_source_files.precompiled_header) |pch| {
+                                try zig_args.append("-include-pch");
+                                try zig_args.append(pch.getPath(b));
+                                try zig_args.append("-fpch-validate-input-files-content");
+                            }
+
                             try zig_args.append("--");
                             prev_has_cflags = true;
                         }
