@@ -892,7 +892,7 @@ pub fn getEmittedLlvmBc(compile: *Compile) LazyPath {
     return compile.getEmittedFileGeneric(&compile.generated_llvm_bc);
 }
 
-pub fn addAssemblyFile(compile: *Compile, source: LazyPath) void {
+pub fn addAssemblyFile(compile: *Compile, source: Module.AsmSourceFile) void {
     compile.root_module.addAssemblyFile(source);
 }
 
@@ -1075,6 +1075,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
         var prev_has_cflags = false;
         var prev_has_rcflags = false;
+        var prev_has_xflag = false;
         var prev_search_strategy: Module.SystemLib.SearchStrategy = .paths_first;
         var prev_preferred_link_mode: std.builtin.LinkMode = .dynamic;
         // Track the number of positional arguments so that a nice error can be
@@ -1113,6 +1114,12 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
             // Inherit dependencies on system libraries and static libraries.
             for (dep.module.link_objects.items) |link_object| {
+                if (prev_has_xflag and link_object != .c_source_file and link_object != .c_source_files and link_object != .assembly_file) {
+                    try zig_args.append("-x");
+                    try zig_args.append("none");
+                    prev_has_xflag = false;
+                }
+
                 switch (link_object) {
                     .static_path => |static_path| {
                         if (my_responsibility) {
@@ -1243,7 +1250,18 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             try zig_args.append("--");
                             prev_has_cflags = false;
                         }
-                        try zig_args.append(asm_file.getPath2(dep.module.owner, step));
+
+                        if (asm_file.lang) |lang| {
+                            try zig_args.append("-x");
+                            try zig_args.append(lang.getLangName());
+                            prev_has_xflag = true;
+                        } else if (prev_has_xflag) {
+                            try zig_args.append("-x");
+                            try zig_args.append("none");
+                            prev_has_xflag = false;
+                        }
+
+                        try zig_args.append(asm_file.file.getPath2(dep.module.owner, step));
                         total_linker_objects += 1;
                     },
 
@@ -1264,6 +1282,17 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             try zig_args.append("--");
                             prev_has_cflags = true;
                         }
+
+                        if (c_source_file.lang) |lang| {
+                            try zig_args.append("-x");
+                            try zig_args.append(lang.getLangName());
+                            prev_has_xflag = true;
+                        } else if (prev_has_xflag) {
+                            try zig_args.append("-x");
+                            try zig_args.append("none");
+                            prev_has_xflag = false;
+                        }
+
                         try zig_args.append(c_source_file.file.getPath2(dep.module.owner, step));
                         total_linker_objects += 1;
                     },
@@ -1284,6 +1313,16 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             }
                             try zig_args.append("--");
                             prev_has_cflags = true;
+                        }
+
+                        if (c_source_files.lang) |lang| {
+                            try zig_args.append("-x");
+                            try zig_args.append(lang.getLangName());
+                            prev_has_xflag = true;
+                        } else if (prev_has_xflag) {
+                            try zig_args.append("-x");
+                            try zig_args.append("none");
+                            prev_has_xflag = false;
                         }
 
                         const root_path = c_source_files.root.getPath2(dep.module.owner, step);

@@ -101,7 +101,7 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
                 .target = b.graph.host,
                 .optimize = .Debug,
             });
-            exe.addAssemblyFile(first_file);
+            exe.addAssemblyFile(.{ .file = first_file });
 
             const run = b.addRunArtifact(exe);
             run.setName(annotated_case_name);

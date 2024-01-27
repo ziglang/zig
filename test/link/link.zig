@@ -119,7 +119,7 @@ fn addCompileStep(
         });
     }
     if (overlay.asm_source_bytes) |bytes| {
-        compile_step.addAssemblyFile(b.addWriteFiles().add("a.s", bytes));
+        compile_step.addAssemblyFile(.{ .file = b.addWriteFiles().add("a.s", bytes) });
     }
     return compile_step;
 }
@@ -147,7 +147,7 @@ pub fn addAsmSourceBytes(comp: *Compile, bytes: []const u8) void {
     const b = comp.step.owner;
     const actual_bytes = std.fmt.allocPrint(b.allocator, "{s}\n", .{bytes}) catch @panic("OOM");
     const file = WriteFile.create(b).add("a.s", actual_bytes);
-    comp.addAssemblyFile(file);
+    comp.addAssemblyFile(.{ .file = file });
 }
 
 pub fn expectLinkErrors(comp: *Compile, test_step: *Step, expected_errors: Compile.ExpectedCompileErrors) void {
