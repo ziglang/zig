@@ -43,7 +43,11 @@ prev_index: Index = 0,
 next_index: Index = 0,
 
 pub fn getName(self: Atom, macho_file: *MachO) [:0]const u8 {
-    return macho_file.strings.getAssumeExists(self.name);
+    return switch (self.getFile(macho_file)) {
+        .dylib => unreachable,
+        .zig_object => |x| x.strtab.getAssumeExists(self.name),
+        inline else => |x| x.getString(self.name),
+    };
 }
 
 pub fn getFile(self: Atom, macho_file: *MachO) File {
@@ -52,17 +56,17 @@ pub fn getFile(self: Atom, macho_file: *MachO) File {
 
 pub fn getRelocs(self: Atom, macho_file: *MachO) []const Relocation {
     return switch (self.getFile(macho_file)) {
-        .zig_object => |x| x.getAtomRelocs(self),
-        .object => |x| x.getAtomRelocs(self),
-        else => unreachable,
+        .dylib => unreachable,
+        inline else => |x| x.getAtomRelocs(self),
     };
 }
 
 pub fn getInputSection(self: Atom, macho_file: *MachO) macho.section_64 {
     return switch (self.getFile(macho_file)) {
+        .dylib => unreachable,
         .zig_object => |x| x.getInputSection(self, macho_file),
         .object => |x| x.sections.items(.header)[self.n_sect],
-        else => unreachable,
+        .internal => |x| x.sections.items(.header)[self.n_sect],
     };
 }
 
