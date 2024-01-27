@@ -20,8 +20,7 @@ pub const Mode = enum {
     evented,
 };
 
-const mode = std.options.io_mode;
-pub const is_async = mode != .blocking;
+pub const is_async = false;
 
 /// This is an enum value to use for I/O mode at runtime, since it takes up zero bytes at runtime,
 /// and makes expressions comptime-known when `is_async` is `false`.
