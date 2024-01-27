@@ -57,6 +57,7 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
         .disabled => null,
         .default => switch (artifact.kind) {
             .obj => @panic("object files have no standard installation procedure"),
+            .pch => @panic("precompiled headers have no standard installation procedure"),
             .exe, .@"test" => .bin,
             .lib => if (artifact.isDll()) .bin else .lib,
         },
