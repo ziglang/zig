@@ -126,6 +126,9 @@
         .c_compiler = .{
             .path = "c_compiler",
         },
+        .c_header = .{
+            .path = "c_header",
+        },
         .pie = .{
             .path = "pie",
         },

@@ -2918,7 +2918,7 @@ fn testSharedAbsSymbol(b: *Build, opts: Options) *Step {
     addAsmSourceBytes(dso,
         \\.globl foo
         \\foo = 3;
-    );
+    , &.{});
 
     const obj = addObject(b, opts, .{
         .name = "obj",
@@ -3533,7 +3533,7 @@ fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
         \\.section .tcommon,"awT",@nobits
         \\y:
         \\.zero 1024
-    );
+    , &.{});
     addCSourceBytes(exe,
         \\#include <stdio.h>
         \\extern _Thread_local char x[1024000];

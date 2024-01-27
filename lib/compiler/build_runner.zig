@@ -1504,9 +1504,8 @@ fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
             .special => {},
         };
         for (mod.link_objects.items) |link_object| switch (link_object) {
-            .static_path,
-            .assembly_file,
-            => |lp| lp.addStepDependencies(step),
+            .static_path => |lp| lp.addStepDependencies(step),
+            .assembly_file => |source| source.file.addStepDependencies(step),
             .other_step => |other| step.dependOn(&other.step),
             .system_lib => {},
             .c_source_file => |source| source.file.addStepDependencies(step),

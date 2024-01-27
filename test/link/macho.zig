@@ -630,13 +630,13 @@ fn testHeaderWeakFlags(b: *Build, opts: Options) *Step {
                 \\_main:
                 \\  bl _x
                 \\  ret
-            ),
+            , &.{}),
             .x86_64 => addAsmSourceBytes(obj,
                 \\.globl _main
                 \\_main:
                 \\  callq _x
                 \\  ret
-            ),
+            , &.{}),
             else => unreachable,
         }
 

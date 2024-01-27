@@ -33,6 +33,7 @@ pub fn addTestStep(b: *Build, prefix: []const u8, opts: Options) *Step {
 const OverlayOptions = struct {
     name: []const u8,
     asm_source_bytes: ?[]const u8 = null,
+    asm_source_flags: []const []const u8 = &.{},
     c_source_bytes: ?[]const u8 = null,
     c_source_flags: []const []const u8 = &.{},
     cpp_source_bytes: ?[]const u8 = null,
@@ -122,7 +123,10 @@ fn createModule(b: *Build, base: Options, overlay: OverlayOptions) *Build.Module
         });
     }
     if (overlay.asm_source_bytes) |bytes| {
-        mod.addAssemblyFile(write_files.add("a.s", bytes));
+        mod.addAssemblyFile(.{
+            .file = write_files.add("a.s", bytes),
+            .flags = overlay.asm_source_flags,
+        });
     }
 
     return mod;
@@ -147,11 +151,10 @@ pub fn addCppSourceBytes(comp: *Compile, bytes: []const u8, flags: []const []con
     comp.addCSourceFile(.{ .file = file, .flags = flags });
 }
 
-pub fn addAsmSourceBytes(comp: *Compile, bytes: []const u8) void {
+pub fn addAsmSourceBytes(comp: *Compile, bytes: []const u8, flags: []const []const u8) void {
     const b = comp.step.owner;
-    const actual_bytes = std.fmt.allocPrint(b.allocator, "{s}\n", .{bytes}) catch @panic("OOM");
-    const file = WriteFile.create(b).add("a.s", actual_bytes);
-    comp.addAssemblyFile(file);
+    const file = WriteFile.create(b).add("a.s", bytes);
+    comp.addAssemblyFile(.{ .file = file, .flags = flags });
 }
 
 pub fn expectLinkErrors(comp: *Compile, test_step: *Step, expected_errors: Compile.ExpectedCompileErrors) void {

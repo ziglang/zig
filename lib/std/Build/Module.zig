@@ -46,11 +46,39 @@ pub const RPath = union(enum) {
     special: []const u8,
 };
 
+// subset of Compilation.FileExt
+pub const AsmSourceLang = enum {
+    assembly,
+    assembly_with_cpp,
+
+    pub fn getName(lang: @This()) []const u8 {
+        return switch (lang) {
+            .assembly => "assembler",
+            .assembly_with_cpp => "assembler-with-cpp",
+        };
+    }
+};
+
+pub const AsmSourceFile = struct {
+    file: LazyPath,
+    /// if null, deduce the language from the file extension
+    lang: ?AsmSourceLang = null,
+    flags: []const []const u8 = &.{},
+
+    pub fn dupe(file: AsmSourceFile, b: *std.Build) AsmSourceFile {
+        return .{
+            .file = file.file.dupe(b),
+            .flags = b.dupeStrings(file.flags),
+            .lang = file.lang,
+        };
+    }
+};
+
 pub const LinkObject = union(enum) {
     static_path: LazyPath,
     other_step: *Step.Compile,
     system_lib: SystemLib,
-    assembly_file: LazyPath,
+    assembly_file: *AsmSourceFile,
     c_source_file: *CSourceFile,
     c_source_files: *CSourceFiles,
     win32_resource_file: *RcSourceFile,
@@ -78,21 +106,68 @@ pub const SystemLib = struct {
     pub const SearchStrategy = enum { paths_first, mode_first, no_fallback };
 };
 
+/// Supported languages for "zig clang -x <lang>".
+// subset of Compilation.FileExt
+pub const CSourceLang = enum {
+    /// "c"
+    c,
+    /// "c-header"
+    h,
+    /// "c++"
+    cpp,
+    /// "c++-header"
+    hpp,
+    /// "objective-c"
+    m,
+    /// "objective-c-header"
+    hm,
+    /// "objective-c++"
+    mm,
+    /// "objective-c++-header"
+    hmm,
+    /// "assembler"
+    assembly,
+    /// "assembler-with-cpp"
+    assembly_with_cpp,
+    /// "cuda"
+    cu,
+
+    pub fn getName(lang: @This()) []const u8 {
+        return switch (lang) {
+            .assembly => "assembler",
+            .assembly_with_cpp => "assembler-with-cpp",
+            .c => "c",
+            .cpp => "c++",
+            .h => "c-header",
+            .hpp => "c++-header",
+            .hm => "objective-c-header",
+            .hmm => "objective-c++-header",
+            .cu => "cuda",
+            .m => "objective-c",
+            .mm => "objective-c++",
+        };
+    }
+};
+
 pub const CSourceFiles = struct {
     root: LazyPath,
     /// `files` is relative to `root`, which is
     /// the build root by default
     files: []const []const u8,
+    /// if null, deduce the language from the file extension
+    lang: ?CSourceLang = null,
     flags: []const []const u8,
 };
 
 pub const CSourceFile = struct {
     file: LazyPath,
+    lang: ?CSourceLang = null,
     flags: []const []const u8 = &.{},
 
     pub fn dupe(file: CSourceFile, b: *std.Build) CSourceFile {
         return .{
             .file = file.file.dupe(b),
+            .lang = file.lang,
             .flags = b.dupeStrings(file.flags),
         };
     }
@@ -377,6 +452,7 @@ pub const AddCSourceFilesOptions = struct {
     /// package that owns the `Compile` step.
     root: ?LazyPath = null,
     files: []const []const u8,
+    lang: ?CSourceLang = null,
     flags: []const []const u8 = &.{},
 };
 
@@ -398,6 +474,7 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
     c_source_files.* = .{
         .root = options.root orelse b.path(""),
         .files = b.dupeStrings(options.files),
+        .lang = options.lang,
         .flags = b.dupeStrings(options.flags),
     };
     m.link_objects.append(allocator, .{ .c_source_files = c_source_files }) catch @panic("OOM");
@@ -427,9 +504,11 @@ pub fn addWin32ResourceFile(m: *Module, source: RcSourceFile) void {
     m.link_objects.append(allocator, .{ .win32_resource_file = rc_source_file }) catch @panic("OOM");
 }
 
-pub fn addAssemblyFile(m: *Module, source: LazyPath) void {
+pub fn addAssemblyFile(m: *Module, source: AsmSourceFile) void {
     const b = m.owner;
-    m.link_objects.append(b.allocator, .{ .assembly_file = source.dupe(b) }) catch @panic("OOM");
+    const source_file = b.allocator.create(AsmSourceFile) catch @panic("OOM");
+    source_file.* = source.dupe(b);
+    m.link_objects.append(b.allocator, .{ .assembly_file = source_file }) catch @panic("OOM");
 }
 
 pub fn addObjectFile(m: *Module, object: LazyPath) void {
