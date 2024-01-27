@@ -1093,12 +1093,17 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
             di.dwarf = dwarf;
         }
 
-        var path_buf: [windows.MAX_PATH]u8 = undefined;
-        const len = try coff_obj.getPdbPath(path_buf[0..]) orelse return di;
-        const raw_path = path_buf[0..len];
-
-        const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
-        defer allocator.free(path);
+        const raw_path = try coff_obj.getPdbPath() orelse return di;
+        const path = blk: {
+            if (fs.path.isAbsolute(raw_path)) {
+                break :blk raw_path;
+            } else {
+                const self_dir = try fs.selfExeDirPathAlloc(allocator);
+                defer allocator.free(self_dir);
+                break :blk try fs.path.join(allocator, &.{ self_dir, raw_path });
+            }
+        };
+        defer if (path.ptr != raw_path.ptr) allocator.free(path);
 
         di.pdb = pdb.Pdb.init(allocator, path) catch |err| switch (err) {
             error.FileNotFound, error.IsDir => {
