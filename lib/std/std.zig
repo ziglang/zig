@@ -92,9 +92,6 @@ pub const elf = @import("elf.zig");
 /// Enum-related metaprogramming helpers.
 pub const enums = @import("enums.zig");
 
-/// Evented I/O data structures.
-pub const event = @import("event.zig");
-
 /// First in, first out data structures.
 pub const fifo = @import("fifo.zig");
 

@@ -31,8 +31,6 @@ pub const realpathW = os.realpathW;
 pub const getAppDataDir = @import("fs/get_app_data_dir.zig").getAppDataDir;
 pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirError;
 
-pub const Watch = @import("fs/watch.zig").Watch;
-
 /// This represents the maximum size of a UTF-8 encoded file path that the
 /// operating system will accept. Paths, including those returned from file
 /// system operations, may be longer than this length, but such paths cannot
@@ -641,5 +639,4 @@ test {
     _ = &path;
     _ = @import("fs/test.zig");
     _ = @import("fs/get_app_data_dir.zig");
-    _ = @import("fs/watch.zig");
 }
