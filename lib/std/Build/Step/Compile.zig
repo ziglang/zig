@@ -1281,7 +1281,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     .c_source_file => |c_source_file| l: {
                         if (!my_responsibility) break :l;
 
-                        if (c_source_file.flags.len == 0) {
+                        if (c_source_file.flags.len == 0 and c_source_file.precompiled_header == null) {
                             if (prev_has_cflags) {
                                 try zig_args.append("-cflags");
                                 try zig_args.append("--");
@@ -1291,6 +1291,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("-cflags");
                             for (c_source_file.flags) |arg| {
                                 try zig_args.append(arg);
+                            }
+                            if (c_source_file.precompiled_header) |pch| {
+                                try zig_args.append("-include-pch");
+                                try zig_args.append(pch.getPath(b));
+                                try zig_args.append("-fpch-validate-input-files-content");
                             }
                             try zig_args.append("--");
                             prev_has_cflags = true;
@@ -1308,7 +1313,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     .c_source_files => |c_source_files| l: {
                         if (!my_responsibility) break :l;
 
-                        if (c_source_files.flags.len == 0) {
+                        if (c_source_files.flags.len == 0 and c_source_files.precompiled_header == null) {
                             if (prev_has_cflags) {
                                 try zig_args.append("-cflags");
                                 try zig_args.append("--");
@@ -1319,6 +1324,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             for (c_source_files.flags) |flag| {
                                 try zig_args.append(flag);
                             }
+
+                            if (c_source_files.precompiled_header) |pch| {
+                                try zig_args.append("-include-pch");
+                                try zig_args.append(pch.getPath(b));
+                                try zig_args.append("-fpch-validate-input-files-content");
+                            }
+
                             try zig_args.append("--");
                             prev_has_cflags = true;
                         }

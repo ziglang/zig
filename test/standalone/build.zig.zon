@@ -155,6 +155,9 @@
         .install_headers = .{
             .path = "install_headers",
         },
+        .precompiled_c_headers = .{
+            .path = "pch",
+        },
     },
     .paths = .{
         "build.zig",

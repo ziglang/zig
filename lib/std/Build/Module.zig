@@ -126,18 +126,21 @@ pub const CSourceFiles = struct {
     files: []const []const u8,
     lang: ?CSourceLang = null,
     flags: []const []const u8,
+    precompiled_header: ?LazyPath = null,
 };
 
 pub const CSourceFile = struct {
     file: LazyPath,
     lang: ?CSourceLang = null,
     flags: []const []const u8 = &.{},
+    precompiled_header: ?LazyPath = null,
 
     pub fn dupe(self: CSourceFile, b: *std.Build) CSourceFile {
         return .{
             .file = self.file.dupe(b),
             .lang = self.lang,
             .flags = b.dupeStrings(self.flags),
+            .precompiled_header = self.precompiled_header,
         };
     }
 };
@@ -500,6 +503,7 @@ pub const AddCSourceFilesOptions = struct {
     files: []const []const u8,
     lang: ?CSourceLang = null,
     flags: []const []const u8 = &.{},
+    precompiled_header: ?LazyPath = null,
 };
 
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
@@ -522,8 +526,13 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
         .files = b.dupeStrings(options.files),
         .lang = options.lang,
         .flags = b.dupeStrings(options.flags),
+        .precompiled_header = options.precompiled_header,
     };
     m.link_objects.append(allocator, .{ .c_source_files = c_source_files }) catch @panic("OOM");
+
+    if (options.precompiled_header) |pch| {
+        addLazyPathDependenciesOnly(m, pch);
+    }
 }
 
 pub fn addCSourceFile(m: *Module, source: CSourceFile) void {
@@ -533,6 +542,10 @@ pub fn addCSourceFile(m: *Module, source: CSourceFile) void {
     c_source_file.* = source.dupe(b);
     m.link_objects.append(allocator, .{ .c_source_file = c_source_file }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, source.file);
+
+    if (source.precompiled_header) |pch| {
+        addLazyPathDependenciesOnly(m, pch);
+    }
 }
 
 /// Resource files must have the extension `.rc`.
