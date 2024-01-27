@@ -691,7 +691,7 @@ pub const StackIterator = struct {
         } else if (@hasDecl(os.system, "msync") and native_os != .wasi) {
             os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
                 switch (err) {
-                    os.MSyncError.UnmappedMemory => {
+                    os.MSyncError.HitRegionImmutable,os.MSyncError.UnmappedMemory => {
                         return false;
                     },
                     else => unreachable,
