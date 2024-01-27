@@ -157,18 +157,21 @@ pub const CSourceFiles = struct {
     /// if null, deduce the language from the file extension
     lang: ?CSourceLang = null,
     flags: []const []const u8,
+    precompiled_header: ?LazyPath = null,
 };
 
 pub const CSourceFile = struct {
     file: LazyPath,
     lang: ?CSourceLang = null,
     flags: []const []const u8 = &.{},
+    precompiled_header: ?LazyPath = null,
 
     pub fn dupe(file: CSourceFile, b: *std.Build) CSourceFile {
         return .{
             .file = file.file.dupe(b),
             .lang = file.lang,
             .flags = b.dupeStrings(file.flags),
+            .precompiled_header = file.precompiled_header,
         };
     }
 };
@@ -454,6 +457,7 @@ pub const AddCSourceFilesOptions = struct {
     files: []const []const u8,
     lang: ?CSourceLang = null,
     flags: []const []const u8 = &.{},
+    precompiled_header: ?LazyPath = null,
 };
 
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
@@ -476,6 +480,7 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
         .files = b.dupeStrings(options.files),
         .lang = options.lang,
         .flags = b.dupeStrings(options.flags),
+        .precompiled_header = options.precompiled_header,
     };
     m.link_objects.append(allocator, .{ .c_source_files = c_source_files }) catch @panic("OOM");
 }

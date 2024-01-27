@@ -1262,15 +1262,15 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                         .assembly_file, .c_source_file, .c_source_files => l: {
                             if (!my_responsibility) break :l;
 
-                            const path, const files, const language, const flags =
+                            const path, const files, const language, const flags, const precompiled_header =
                                 switch (link_object) {
-                                .assembly_file => |asm_file| .{ asm_file.file, null, if (asm_file.lang) |lang| lang.getName() else null, asm_file.flags },
-                                .c_source_file => |c_source_file| .{ c_source_file.file, null, if (c_source_file.lang) |lang| lang.getName() else null, c_source_file.flags },
-                                .c_source_files => |c_source_files| .{ c_source_files.root, c_source_files.files, if (c_source_files.lang) |lang| lang.getName() else null, c_source_files.flags },
+                                .assembly_file => |asm_file| .{ asm_file.file, null, if (asm_file.lang) |lang| lang.getName() else null, asm_file.flags, null },
+                                .c_source_file => |c_source_file| .{ c_source_file.file, null, if (c_source_file.lang) |lang| lang.getName() else null, c_source_file.flags, c_source_file.precompiled_header },
+                                .c_source_files => |c_source_files| .{ c_source_files.root, c_source_files.files, if (c_source_files.lang) |lang| lang.getName() else null, c_source_files.flags, c_source_files.precompiled_header },
                                 else => unreachable,
                             };
 
-                            if (flags.len == 0) {
+                            if (flags.len == 0 and precompiled_header == null) {
                                 if (prev_has_cflags) {
                                     try zig_args.append("-cflags");
                                     try zig_args.append("--");
@@ -1280,6 +1280,12 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                 try zig_args.append("-cflags");
                                 for (flags) |flag| {
                                     try zig_args.append(flag);
+                                }
+
+                                if (precompiled_header) |pch| {
+                                    try zig_args.append("-include-pch");
+                                    try zig_args.append(pch.getPath(b));
+                                    try zig_args.append("-fpch-validate-input-files-content");
                                 }
 
                                 try zig_args.append("--");
