@@ -748,6 +748,31 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
     });
 }
 
+pub const PchOptions = struct {
+    name: []const u8,
+    target: ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    max_rss: usize = 0,
+    link_libc: ?bool = null,
+    link_libcpp: ?bool = null,
+};
+
+pub fn addPrecompiledCHeader(b: *Build, options: PchOptions, source: Module.CSourceFile) *Step.Compile {
+    const pch = Step.Compile.create(b, .{
+        .name = options.name,
+        .root_module = .{
+            .target = options.target,
+            .optimize = options.optimize,
+            .link_libc = options.link_libc,
+            .link_libcpp = options.link_libcpp,
+        },
+        .kind = .pch,
+        .max_rss = options.max_rss,
+    });
+    pch.addCSourceFile(source);
+    return pch;
+}
+
 pub const SharedLibraryOptions = struct {
     name: []const u8,
     /// To choose the same computer as the one building the package, pass the
