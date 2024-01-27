@@ -20,7 +20,7 @@ const Target = std.Target;
 
 comptime {
     const linkage: std.builtin.GlobalLinkage = common.linkage;
-    const visibility: std.builtin.SymbolVisibility = if (linkage != .Internal) .hidden else .default;
+    const visibility: std.builtin.SymbolVisibility = if (linkage != .internal) .hidden else .default;
 
     @export(cpu, .{ .name = "__cpu_model", .linkage = linkage, .visibility = visibility });
     @export(cpu_extra_features, .{ .name = "__cpu_features2", .linkage = linkage, .visibility = visibility });
@@ -82,7 +82,7 @@ const Model = extern struct {
 
 const FeatureSet = [feature_set_size]u32;
 comptime {
-    inline for (@typeInfo(Feature).Enum.fields) |f| {
+    for (@typeInfo(Feature).Enum.fields) |f| {
         if (f.value >= @bitSizeOf(FeatureSet))
             @compileError(@import("std").fmt.comptimePrint("Feature.{s} ({}) bitindex too large", .{ f.name, f.value }));
     }
@@ -105,7 +105,7 @@ const Feature = @import("cpu_model/x86.zig").Feature;
 
 const feature_set_size = blk: {
     var max_index: comptime_int = 0;
-    inline for (@typeInfo(Feature).Enum.fields) |f| {
+    for (@typeInfo(Feature).Enum.fields) |f| {
         if (f.value > max_index) max_index = f.value;
     }
     break :blk (max_index + 32) / 32;
@@ -122,7 +122,7 @@ comptime {
     });
 
     var missing = false;
-    inline for (@typeInfo(Feature).Enum.fields) |field| {
+    for (@typeInfo(Feature).Enum.fields) |field| {
         if (ignored.has(field.name)) {
             continue;
         } else if (!@hasField(Target.x86.Feature, field.name)) {

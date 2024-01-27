@@ -7,11 +7,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const arch = target.getCpuArch();
+    const arch = target.result.cpu.arch;
     if (!arch.isX86()) return;
 
-    const abi = target.getAbi();
-    if (target.getObjectFormat() != .elf or !(abi.isMusl() or abi.isGnu())) return;
+    const abi = target.result.abi;
+    if (target.result.ofmt != .elf or !(abi.isMusl() or abi.isGnu())) return;
 
     const exe = b.addExecutable(.{
         .name = "main",
