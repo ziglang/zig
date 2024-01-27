@@ -1163,6 +1163,12 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("--");
                             prev_has_cflags = true;
                         }
+
+                        if (c_source_file.lang) |lang| {
+                            try zig_args.append("-x");
+                            try zig_args.append(lang.getLangName());
+                        }
+
                         try zig_args.append(c_source_file.file.getPath2(module.owner, step));
                         total_linker_objects += 1;
                     },
@@ -1183,6 +1189,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             }
                             try zig_args.append("--");
                             prev_has_cflags = true;
+                        }
+
+                        if (c_source_files.lang) |lang| {
+                            try zig_args.append("-x");
+                            try zig_args.append(lang.getLangName());
                         }
 
                         if (c_source_files.dependency) |dep| {
