@@ -703,7 +703,7 @@ const PosixThreadImpl = struct {
             &handle,
             &attr,
             Instance.entryFn,
-            if (@sizeOf(Args) > 1) @as(*anyopaque, @ptrCast(args_ptr)) else undefined,
+            if (@sizeOf(Args) > 0) @as(*anyopaque, @ptrCast(args_ptr)) else undefined,
         )) {
             .SUCCESS => return Impl{ .handle = handle },
             .AGAIN => return error.SystemResources,
