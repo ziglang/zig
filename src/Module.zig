@@ -5237,10 +5237,6 @@ pub fn populateTestFunctions(
     }
     const decl = mod.declPtr(decl_index);
     const test_fn_ty = decl.ty.slicePtrFieldType(mod).childType(mod);
-    const null_usize = try mod.intern(.{ .opt = .{
-        .ty = try mod.intern(.{ .opt_type = .usize_type }),
-        .val = .none,
-    } });
 
     const array_decl_index = d: {
         // Add mod.test_functions to an array decl then make the test_functions
@@ -5289,8 +5285,6 @@ pub fn populateTestFunctions(
                     } }),
                     .addr = .{ .decl = test_decl_index },
                 } }),
-                // async_frame_size
-                null_usize,
             };
             test_fn_val.* = try mod.intern(.{ .aggregate = .{
                 .ty = test_fn_ty.toIntern(),

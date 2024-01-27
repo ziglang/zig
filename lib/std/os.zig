@@ -683,11 +683,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
         return error.NoDevice;
     }
 
-    const file = std.fs.File{
-        .handle = fd,
-        .capable_io_mode = .blocking,
-        .intended_io_mode = .blocking,
-    };
+    const file = std.fs.File{ .handle = fd };
     const stream = file.reader();
     stream.readNoEof(buf) catch return error.Unexpected;
 }
@@ -856,7 +852,7 @@ pub const ReadError = error{
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (buf.len == 0) return 0;
     if (builtin.os.tag == .windows) {
-        return windows.ReadFile(fd, buf, null, std.io.default_mode);
+        return windows.ReadFile(fd, buf, null);
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         const iovs = [1]iovec{iovec{
@@ -995,7 +991,7 @@ pub const PReadError = ReadError || error{Unseekable};
 pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     if (buf.len == 0) return 0;
     if (builtin.os.tag == .windows) {
-        return windows.ReadFile(fd, buf, offset, std.io.default_mode);
+        return windows.ReadFile(fd, buf, offset);
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         const iovs = [1]iovec{iovec{
@@ -1257,7 +1253,7 @@ pub const WriteError = error{
 pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
     if (bytes.len == 0) return 0;
     if (builtin.os.tag == .windows) {
-        return windows.WriteFile(fd, bytes, null, std.io.default_mode);
+        return windows.WriteFile(fd, bytes, null);
     }
 
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -1415,7 +1411,7 @@ pub const PWriteError = WriteError || error{Unseekable};
 pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     if (bytes.len == 0) return 0;
     if (builtin.os.tag == .windows) {
-        return windows.WriteFile(fd, bytes, offset, std.io.default_mode);
+        return windows.WriteFile(fd, bytes, offset);
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         const ciovs = [1]iovec_const{iovec_const{
@@ -1711,7 +1707,6 @@ fn openOptionsFromFlagsWindows(flags: u32) windows.OpenFileOptions {
 
     return .{
         .access_mask = access_mask,
-        .io_mode = .blocking,
         .creation = creation,
         .filter = filter,
         .follow_symlinks = follow_symlinks,
@@ -2797,7 +2792,6 @@ pub fn renameatW(
         .dir = old_dir_fd,
         .access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE,
         .creation = windows.FILE_OPEN,
-        .io_mode = .blocking,
         .filter = .any, // This function is supposed to rename both files and directories.
         .follow_symlinks = false,
     }) catch |err| switch (err) {
@@ -2962,7 +2956,6 @@ pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: u32) MakeDirError!v
         .dir = dir_fd,
         .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
         .creation = windows.FILE_CREATE,
-        .io_mode = .blocking,
         .filter = .dir_only,
     }) catch |err| switch (err) {
         error.IsDir => unreachable,
@@ -3042,7 +3035,6 @@ pub fn mkdirW(dir_path_w: []const u16, mode: u32) MakeDirError!void {
         .dir = std.fs.cwd().fd,
         .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
         .creation = windows.FILE_CREATE,
-        .io_mode = .blocking,
         .filter = .dir_only,
     }) catch |err| switch (err) {
         error.IsDir => unreachable,
@@ -5440,7 +5432,6 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
             .access_mask = access_mask,
             .share_access = share_access,
             .creation = creation,
-            .io_mode = .blocking,
             .filter = .any,
         }) catch |err| switch (err) {
             error.WouldBlock => unreachable,
@@ -6404,12 +6395,7 @@ pub fn sendfile(
                         // manually, the same as ENOSYS.
                         break :sf;
                     },
-                    .AGAIN => if (std.event.Loop.instance) |loop| {
-                        loop.waitUntilFdWritable(out_fd);
-                        continue;
-                    } else {
-                        return error.WouldBlock;
-                    },
+                    .AGAIN => return error.WouldBlock,
                     .IO => return error.InputOutput,
                     .PIPE => return error.BrokenPipe,
                     .NOMEM => return error.SystemResources,
@@ -6476,18 +6462,12 @@ pub fn sendfile(
 
                     .AGAIN => if (amt != 0) {
                         return amt;
-                    } else if (std.event.Loop.instance) |loop| {
-                        loop.waitUntilFdWritable(out_fd);
-                        continue;
                     } else {
                         return error.WouldBlock;
                     },
 
                     .BUSY => if (amt != 0) {
                         return amt;
-                    } else if (std.event.Loop.instance) |loop| {
-                        loop.waitUntilFdReadable(in_fd);
-                        continue;
                     } else {
                         return error.WouldBlock;
                     },
@@ -6550,9 +6530,6 @@ pub fn sendfile(
 
                     .AGAIN => if (amt != 0) {
                         return amt;
-                    } else if (std.event.Loop.instance) |loop| {
-                        loop.waitUntilFdWritable(out_fd);
-                        continue;
                     } else {
                         return error.WouldBlock;
                     },

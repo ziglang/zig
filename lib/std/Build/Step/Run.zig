@@ -1147,18 +1147,13 @@ fn evalZigTest(
                 test_count = tm_hdr.tests_len;
 
                 const names_bytes = body[@sizeOf(TmHdr)..][0 .. test_count * @sizeOf(u32)];
-                const async_frame_lens_bytes = body[@sizeOf(TmHdr) + names_bytes.len ..][0 .. test_count * @sizeOf(u32)];
-                const expected_panic_msgs_bytes = body[@sizeOf(TmHdr) + names_bytes.len + async_frame_lens_bytes.len ..][0 .. test_count * @sizeOf(u32)];
-                const string_bytes = body[@sizeOf(TmHdr) + names_bytes.len + async_frame_lens_bytes.len + expected_panic_msgs_bytes.len ..][0..tm_hdr.string_bytes_len];
+                const expected_panic_msgs_bytes = body[@sizeOf(TmHdr) + names_bytes.len ..][0 .. test_count * @sizeOf(u32)];
+                const string_bytes = body[@sizeOf(TmHdr) + names_bytes.len + expected_panic_msgs_bytes.len ..][0..tm_hdr.string_bytes_len];
 
                 const names = std.mem.bytesAsSlice(u32, names_bytes);
-                const async_frame_lens = std.mem.bytesAsSlice(u32, async_frame_lens_bytes);
                 const expected_panic_msgs = std.mem.bytesAsSlice(u32, expected_panic_msgs_bytes);
                 const names_aligned = try arena.alloc(u32, names.len);
                 for (names_aligned, names) |*dest, src| dest.* = src;
-
-                const async_frame_lens_aligned = try arena.alloc(u32, async_frame_lens.len);
-                for (async_frame_lens_aligned, async_frame_lens) |*dest, src| dest.* = src;
 
                 const expected_panic_msgs_aligned = try arena.alloc(u32, expected_panic_msgs.len);
                 for (expected_panic_msgs_aligned, expected_panic_msgs) |*dest, src| dest.* = src;
@@ -1167,7 +1162,6 @@ fn evalZigTest(
                 metadata = .{
                     .string_bytes = try arena.dupe(u8, string_bytes),
                     .names = names_aligned,
-                    .async_frame_lens = async_frame_lens_aligned,
                     .expected_panic_msgs = expected_panic_msgs_aligned,
                     .next_index = 0,
                     .prog_node = prog_node,
@@ -1237,7 +1231,6 @@ fn evalZigTest(
 
 const TestMetadata = struct {
     names: []const u32,
-    async_frame_lens: []const u32,
     expected_panic_msgs: []const u32,
     string_bytes: []const u8,
     next_index: u32,
@@ -1253,7 +1246,6 @@ fn requestNextTest(in: fs.File, metadata: *TestMetadata, sub_prog_node: *?std.Pr
         const i = metadata.next_index;
         metadata.next_index += 1;
 
-        if (metadata.async_frame_lens[i] != 0) continue;
         if (metadata.expected_panic_msgs[i] != 0) continue;
 
         const name = metadata.testName(i);

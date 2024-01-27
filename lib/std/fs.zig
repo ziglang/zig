@@ -84,13 +84,6 @@ pub const base64_encoder = base64.Base64Encoder.init(base64_alphabet, null);
 /// Base64 decoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
 pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, null);
 
-/// Whether or not async file system syscalls need a dedicated thread because the operating
-/// system does not support non-blocking I/O on the file system.
-pub const need_async_thread = std.io.is_async and switch (builtin.os.tag) {
-    .windows, .other => false,
-    else => true,
-};
-
 /// TODO remove the allocator requirement from this API
 /// TODO move to Dir
 pub fn atomicSymLink(allocator: Allocator, existing_path: []const u8, new_path: []const u8) !void {
