@@ -181,7 +181,7 @@ pub fn main() !void {
                 };
             } else if (mem.eql(u8, arg, "--summary")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
-                    fatalWithHint("expected [all|failures|none] after '{s}'", .{arg});
+                    fatalWithHint("expected [all|new|failures|none] after '{s}'", .{arg});
                 summary = std.meta.stringToEnum(Summary, next_arg) orelse {
                     fatalWithHint("expected [all|failures|none] after '{s}', found '{s}'", .{
                         arg, next_arg,
@@ -534,7 +534,8 @@ fn runStepNames(
 
     // A proper command line application defaults to silently succeeding.
     // The user may request verbose mode if they have a different preference.
-    if (failure_count == 0 and run.summary != Summary.all) return cleanExit();
+    const failures_only = run.summary != .all and run.summary != .new;
+    if (failure_count == 0 and failures_only) return cleanExit();
 
     const ttyconf = run.ttyconf;
     const stderr = run.stderr;
@@ -559,26 +560,31 @@ fn runStepNames(
             ttyconf.setColor(stderr, .reset) catch {};
         }
         stderr.writeAll("\n") catch {};
-        const failures_only = run.summary != Summary.all;
 
         // Print a fancy tree with build results.
         var print_node: PrintNode = .{ .parent = null };
         if (step_names.len == 0) {
             print_node.last = true;
-            printTreeStep(b, b.default_step, run, stderr, ttyconf, &print_node, &step_stack, failures_only) catch {};
+            printTreeStep(b, b.default_step, run, stderr, ttyconf, &print_node, &step_stack) catch {};
         } else {
-            const last_index = if (!failures_only) b.top_level_steps.count() else blk: {
+            const last_index = if (run.summary == .all) b.top_level_steps.count() else blk: {
                 var i: usize = step_names.len;
                 while (i > 0) {
                     i -= 1;
-                    if (b.top_level_steps.get(step_names[i]).?.step.state != .success) break :blk i;
+                    const step = b.top_level_steps.get(step_names[i]).?.step;
+                    const found = switch (run.summary orelse .failures) {
+                        .all, .none => unreachable,
+                        .failures => step.state != .success,
+                        .new => !step.result_cached,
+                    };
+                    if (found) break :blk i;
                 }
                 break :blk b.top_level_steps.count();
             };
             for (step_names, 0..) |step_name, i| {
                 const tls = b.top_level_steps.get(step_name).?;
                 print_node.last = i + 1 == last_index;
-                printTreeStep(b, &tls.step, run, stderr, ttyconf, &print_node, &step_stack, failures_only) catch {};
+                printTreeStep(b, &tls.step, run, stderr, ttyconf, &print_node, &step_stack) catch {};
             }
         }
     }
@@ -770,10 +776,16 @@ fn printTreeStep(
     ttyconf: std.io.tty.Config,
     parent_node: *PrintNode,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
-    failures_only: bool,
 ) !void {
     const first = step_stack.swapRemove(s);
-    if (failures_only and s.state == .success) return;
+    const summary = run.summary orelse .failures;
+    const skip = switch (summary) {
+        .none => unreachable,
+        .all => false,
+        .new => s.result_cached,
+        .failures => s.state == .success,
+    };
+    if (skip) return;
     try printPrefix(parent_node, stderr, ttyconf);
 
     if (!first) try ttyconf.setColor(stderr, .dim);
@@ -794,11 +806,18 @@ fn printTreeStep(
     if (first) {
         try printStepStatus(s, stderr, ttyconf, run);
 
-        const last_index = if (!failures_only) s.dependencies.items.len -| 1 else blk: {
+        const last_index = if (summary == .all) s.dependencies.items.len -| 1 else blk: {
             var i: usize = s.dependencies.items.len;
             while (i > 0) {
                 i -= 1;
-                if (s.dependencies.items[i].state != .success) break :blk i;
+
+                const step = s.dependencies.items[i];
+                const found = switch (summary) {
+                    .all, .none => unreachable,
+                    .failures => step.state != .success,
+                    .new => !step.result_cached,
+                };
+                if (found) break :blk i;
             }
             break :blk s.dependencies.items.len -| 1;
         };
@@ -807,7 +826,7 @@ fn printTreeStep(
                 .parent = parent_node,
                 .last = i == last_index,
             };
-            try printTreeStep(b, dep, run, stderr, ttyconf, &print_node, step_stack, failures_only);
+            try printTreeStep(b, dep, run, stderr, ttyconf, &print_node, step_stack);
         }
     } else {
         if (s.dependencies.items.len == 0) {
@@ -1113,6 +1132,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --prominent-compile-errors   Buffer compile errors and display at end
         \\  --summary [mode]             Control the printing of the build summary
         \\    all                        Print the build summary in its entirety
+        \\    new                        Omit cached steps
         \\    failures                   (Default) Only print failed steps
         \\    none                       Do not print the build summary
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
@@ -1225,7 +1245,7 @@ fn cleanExit() void {
 }
 
 const Color = enum { auto, off, on };
-const Summary = enum { all, failures, none };
+const Summary = enum { all, new, failures, none };
 
 fn get_tty_conf(color: Color, stderr: File) std.io.tty.Config {
     return switch (color) {
