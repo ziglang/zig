@@ -613,7 +613,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
             const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
             const code = try gpa.alloc(u8, atom_size);
             defer gpa.free(code);
-            zo.getAtomData(self, atom.*, code) catch |err| switch (err) {
+            atom.getData(self, code) catch |err| switch (err) {
                 error.InputOutput => {
                     try self.reportUnexpectedError("fetching code for '{s}' failed", .{
                         atom.getName(self),
@@ -2591,12 +2591,7 @@ fn writeAtoms(self: *MachO) !void {
             assert(atom.flags.alive);
             const off = math.cast(usize, atom.value - header.addr) orelse return error.Overflow;
             const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
-            switch (atom.getFile(self)) {
-                .internal => |x| try x.getAtomData(atom.*, buffer[off..][0..atom_size]),
-                .object => |x| try x.getAtomData(atom.*, buffer[off..][0..atom_size]),
-                .zig_object => |x| try x.getAtomData(self, atom.*, buffer[off..][0..atom_size]),
-                else => unreachable,
-            }
+            try atom.getData(self, buffer[off..][0..atom_size]);
             atom.resolveRelocs(self, buffer[off..][0..atom_size]) catch |err| switch (err) {
                 error.ResolveFailed => has_resolve_error = true,
                 else => |e| return e,
