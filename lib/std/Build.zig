@@ -1472,8 +1472,8 @@ pub fn addInstallArtifact(
 }
 
 ///`dest_rel_path` is relative to prefix path
-pub fn installFile(self: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
-    self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .prefix, dest_rel_path).step);
+pub fn installFile(self: *Build, source: LazyPath, dest_rel_path: []const u8) void {
+    self.getInstallStep().dependOn(&self.addInstallFileWithDir(source.dupe(self), .prefix, dest_rel_path).step);
 }
 
 pub fn installDirectory(self: *Build, options: Step.InstallDir.Options) void {
@@ -1481,13 +1481,13 @@ pub fn installDirectory(self: *Build, options: Step.InstallDir.Options) void {
 }
 
 ///`dest_rel_path` is relative to bin path
-pub fn installBinFile(self: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
-    self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .bin, dest_rel_path).step);
+pub fn installBinFile(self: *Build, source: LazyPath, dest_rel_path: []const u8) void {
+    self.getInstallStep().dependOn(&self.addInstallFileWithDir(source.dupe(self), .bin, dest_rel_path).step);
 }
 
 ///`dest_rel_path` is relative to lib path
-pub fn installLibFile(self: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
-    self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .lib, dest_rel_path).step);
+pub fn installLibFile(self: *Build, source: LazyPath, dest_rel_path: []const u8) void {
+    self.getInstallStep().dependOn(&self.addInstallFileWithDir(source.dupe(self), .lib, dest_rel_path).step);
 }
 
 pub fn addObjCopy(b: *Build, source: LazyPath, options: Step.ObjCopy.Options) *Step.ObjCopy {
@@ -1509,8 +1509,8 @@ pub fn addInstallLibFile(self: *Build, source: LazyPath, dest_rel_path: []const 
     return self.addInstallFileWithDir(source.dupe(self), .lib, dest_rel_path);
 }
 
-pub fn addInstallHeaderFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) *Step.InstallFile {
-    return b.addInstallFileWithDir(.{ .path = src_path }, .header, dest_rel_path);
+pub fn addInstallHeaderFile(b: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
+    return b.addInstallFileWithDir(source.dupe(b), .header, dest_rel_path);
 }
 
 pub fn addInstallFileWithDir(
