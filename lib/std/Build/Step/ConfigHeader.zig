@@ -7,7 +7,7 @@ pub const Style = union(enum) {
     /// The configure format supported by autotools. It uses `#undef foo` to
     /// mark lines that can be substituted with different values.
     autoconf: std.Build.LazyPath,
-    /// The configure format supported by CMake. It uses `@@FOO@@` and
+    /// The configure format supported by CMake. It uses `@FOO@`, `${}` and
     /// `#cmakedefine` for template substitution.
     cmake: std.Build.LazyPath,
     /// Instead of starting with an input file, start with nothing.
@@ -313,10 +313,22 @@ fn render_cmake(
     while (line_it.next()) |raw_line| : (line_index += 1) {
         const last_line = line_it.index == line_it.buffer.len;
 
-        const first_pass = replace_variables(allocator, raw_line, values, "@", "@") catch @panic("Failed to substitute");
-        const line = replace_variables(allocator, first_pass, values, "${", "}") catch @panic("Failed to substitute");
-
-        allocator.free(first_pass);
+        const line = expand_variables_cmake(allocator, raw_line, values) catch |err| switch (err) {
+            error.InvalidCharacter => {
+                try step.addError("{s}:{d}: error: invalid character in a variable name", .{
+                    src_path, line_index + 1,
+                });
+                any_errors = true;
+                continue;
+            },
+            else => {
+                try step.addError("{s}:{d}: unable to substitute variable: error: {s}", .{
+                    src_path, line_index + 1, @errorName(err),
+                });
+                any_errors = true;
+                continue;
+            },
+        };
         defer allocator.free(line);
 
         if (!std.mem.startsWith(u8, line, "#")) {
@@ -514,64 +526,311 @@ fn renderValueNasm(output: *std.ArrayList(u8), name: []const u8, value: Value) !
     }
 }
 
-fn replace_variables(
+fn expand_variables_cmake(
     allocator: Allocator,
     contents: []const u8,
     values: std.StringArrayHashMap(Value),
-    prefix: []const u8,
-    suffix: []const u8,
 ) ![]const u8 {
-    var content_buf = allocator.dupe(u8, contents) catch @panic("OOM");
+    var result = std.ArrayList(u8).init(allocator);
+    errdefer result.deinit();
 
-    var last_index: usize = 0;
-    while (std.mem.indexOfPos(u8, content_buf, last_index, prefix)) |prefix_index| {
-        const start_index = prefix_index + prefix.len;
-        if (std.mem.indexOfPos(u8, content_buf, start_index, suffix)) |suffix_index| {
-            const end_index = suffix_index + suffix.len;
+    const valid_varname_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.+-";
+    const open_var = "${";
 
-            const beginline = content_buf[0..prefix_index];
-            const endline = content_buf[end_index..];
-            const key = content_buf[start_index..suffix_index];
-            const value = values.get(key) orelse .undef;
+    var curr: usize = 0;
+    var source_offset: usize = 0;
+    const Position = struct {
+        source: usize,
+        target: usize,
+    };
+    var var_stack = std.ArrayList(Position).init(allocator);
+    defer var_stack.deinit();
+    loop: while (curr < contents.len) : (curr += 1) {
+        switch (contents[curr]) {
+            '@' => blk: {
+                if (std.mem.indexOfScalarPos(u8, contents, curr + 1, '@')) |close_pos| {
+                    if (close_pos == curr + 1) {
+                        // closed immediately, preserve as a literal
+                        break :blk;
+                    }
+                    const valid_varname_end = std.mem.indexOfNonePos(u8, contents, curr + 1, valid_varname_chars) orelse 0;
+                    if (valid_varname_end != close_pos) {
+                        // contains invalid characters, preserve as a literal
+                        break :blk;
+                    }
 
-            switch (value) {
-                .boolean => |b| {
-                    const buf = try std.fmt.allocPrint(allocator, "{s}{}{s}", .{ beginline, @intFromBool(b), endline });
-                    last_index = prefix_index + 1;
+                    const key = contents[curr + 1 .. close_pos];
+                    const value = values.get(key) orelse .undef;
+                    const missing = contents[source_offset..curr];
+                    try result.appendSlice(missing);
+                    switch (value) {
+                        .undef, .defined => {},
+                        .boolean => |b| {
+                            try result.append(if (b) '1' else '0');
+                        },
+                        .int => |i| {
+                            try result.writer().print("{d}", .{i});
+                        },
+                        .ident, .string => |s| {
+                            try result.appendSlice(s);
+                        },
+                    }
 
-                    allocator.free(content_buf);
-                    content_buf = buf;
-                },
-                .int => |i| {
-                    const buf = try std.fmt.allocPrint(allocator, "{s}{}{s}", .{ beginline, i, endline });
-                    const isNegative = i < 0;
-                    const digits = (if (0 < i) std.math.log10(@abs(i)) else 0) + 1;
-                    last_index = prefix_index + @intFromBool(isNegative) + digits;
+                    curr = close_pos;
+                    source_offset = close_pos + 1;
 
-                    allocator.free(content_buf);
-                    content_buf = buf;
-                },
-                .string, .ident => |x| {
-                    const buf = try std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ beginline, x, endline });
-                    last_index = prefix_index + x.len;
+                    continue :loop;
+                }
+            },
+            '$' => blk: {
+                const next = curr + 1;
+                if (next == contents.len or contents[next] != '{') {
+                    // no open bracket detected, preserve as a literal
+                    break :blk;
+                }
+                const missing = contents[source_offset..curr];
+                try result.appendSlice(missing);
+                try result.appendSlice(open_var);
 
-                    allocator.free(content_buf);
-                    content_buf = buf;
-                },
+                source_offset = curr + open_var.len;
+                curr = next;
+                try var_stack.append(Position{
+                    .source = curr,
+                    .target = result.items.len - open_var.len,
+                });
 
-                else => {
-                    const buf = try std.fmt.allocPrint(allocator, "{s}{s}", .{ beginline, endline });
-                    last_index = prefix_index;
+                continue :loop;
+            },
+            '}' => blk: {
+                if (var_stack.items.len == 0) {
+                    // no open bracket, preserve as a literal
+                    break :blk;
+                }
+                const open_pos = var_stack.pop();
+                if (source_offset == open_pos.source) {
+                    source_offset += open_var.len;
+                }
+                const missing = contents[source_offset..curr];
+                try result.appendSlice(missing);
 
-                    allocator.free(content_buf);
-                    content_buf = buf;
-                },
-            }
-            continue;
+                const key_start = open_pos.target + open_var.len;
+                const key = result.items[key_start..];
+                const value = values.get(key) orelse .undef;
+                result.shrinkRetainingCapacity(result.items.len - key.len - open_var.len);
+                switch (value) {
+                    .undef, .defined => {},
+                    .boolean => |b| {
+                        try result.append(if (b) '1' else '0');
+                    },
+                    .int => |i| {
+                        try result.writer().print("{d}", .{i});
+                    },
+                    .ident, .string => |s| {
+                        try result.appendSlice(s);
+                    },
+                }
+
+                source_offset = curr + 1;
+
+                continue :loop;
+            },
+            '\\' => {
+                // backslash is not considered a special character
+                continue :loop;
+            },
+            else => {},
         }
 
-        last_index = start_index + 1;
+        if (var_stack.items.len > 0 and std.mem.indexOfScalar(u8, valid_varname_chars, contents[curr]) == null) {
+            return error.InvalidCharacter;
+        }
     }
 
-    return content_buf;
+    if (source_offset != contents.len) {
+        const missing = contents[source_offset..];
+        try result.appendSlice(missing);
+    }
+
+    return result.toOwnedSlice();
+}
+
+fn testReplaceVariables(
+    allocator: Allocator,
+    contents: []const u8,
+    expected: []const u8,
+    values: std.StringArrayHashMap(Value),
+) !void {
+    const actual = try expand_variables_cmake(allocator, contents, values);
+    defer allocator.free(actual);
+
+    try std.testing.expectEqualStrings(expected, actual);
+}
+
+test "expand_variables_cmake simple cases" {
+    const allocator = std.testing.allocator;
+    var values = std.StringArrayHashMap(Value).init(allocator);
+    defer values.deinit();
+
+    try values.putNoClobber("undef", .undef);
+    try values.putNoClobber("defined", .defined);
+    try values.putNoClobber("true", Value{ .boolean = true });
+    try values.putNoClobber("false", Value{ .boolean = false });
+    try values.putNoClobber("int", Value{ .int = 42 });
+    try values.putNoClobber("ident", Value{ .string = "value" });
+    try values.putNoClobber("string", Value{ .string = "text" });
+
+    // empty strings are preserved
+    try testReplaceVariables(allocator, "", "", values);
+
+    // line with misc content is preserved
+    try testReplaceVariables(allocator, "no substitution", "no substitution", values);
+
+    // empty ${} wrapper is removed
+    try testReplaceVariables(allocator, "${}", "", values);
+
+    // empty @ sigils are preserved
+    try testReplaceVariables(allocator, "@", "@", values);
+    try testReplaceVariables(allocator, "@@", "@@", values);
+    try testReplaceVariables(allocator, "@@@", "@@@", values);
+    try testReplaceVariables(allocator, "@@@@", "@@@@", values);
+
+    // simple substitution
+    try testReplaceVariables(allocator, "@undef@", "", values);
+    try testReplaceVariables(allocator, "${undef}", "", values);
+    try testReplaceVariables(allocator, "@defined@", "", values);
+    try testReplaceVariables(allocator, "${defined}", "", values);
+    try testReplaceVariables(allocator, "@true@", "1", values);
+    try testReplaceVariables(allocator, "${true}", "1", values);
+    try testReplaceVariables(allocator, "@false@", "0", values);
+    try testReplaceVariables(allocator, "${false}", "0", values);
+    try testReplaceVariables(allocator, "@int@", "42", values);
+    try testReplaceVariables(allocator, "${int}", "42", values);
+    try testReplaceVariables(allocator, "@ident@", "value", values);
+    try testReplaceVariables(allocator, "${ident}", "value", values);
+    try testReplaceVariables(allocator, "@string@", "text", values);
+    try testReplaceVariables(allocator, "${string}", "text", values);
+
+    // double packed substitution
+    try testReplaceVariables(allocator, "@string@@string@", "texttext", values);
+    try testReplaceVariables(allocator, "${string}${string}", "texttext", values);
+
+    // triple packed substitution
+    try testReplaceVariables(allocator, "@string@@int@@string@", "text42text", values);
+    try testReplaceVariables(allocator, "@string@${int}@string@", "text42text", values);
+    try testReplaceVariables(allocator, "${string}@int@${string}", "text42text", values);
+    try testReplaceVariables(allocator, "${string}${int}${string}", "text42text", values);
+
+    // double separated substitution
+    try testReplaceVariables(allocator, "@int@.@int@", "42.42", values);
+    try testReplaceVariables(allocator, "${int}.${int}", "42.42", values);
+
+    // triple separated substitution
+    try testReplaceVariables(allocator, "@int@.@true@.@int@", "42.1.42", values);
+    try testReplaceVariables(allocator, "@int@.${true}.@int@", "42.1.42", values);
+    try testReplaceVariables(allocator, "${int}.@true@.${int}", "42.1.42", values);
+    try testReplaceVariables(allocator, "${int}.${true}.${int}", "42.1.42", values);
+
+    // misc prefix is preserved
+    try testReplaceVariables(allocator, "false is @false@", "false is 0", values);
+    try testReplaceVariables(allocator, "false is ${false}", "false is 0", values);
+
+    // misc suffix is preserved
+    try testReplaceVariables(allocator, "@true@ is true", "1 is true", values);
+    try testReplaceVariables(allocator, "${true} is true", "1 is true", values);
+
+    // surrounding content is preserved
+    try testReplaceVariables(allocator, "what is 6*7? @int@!", "what is 6*7? 42!", values);
+    try testReplaceVariables(allocator, "what is 6*7? ${int}!", "what is 6*7? 42!", values);
+
+    // incomplete key is preserved
+    try testReplaceVariables(allocator, "@undef", "@undef", values);
+    try testReplaceVariables(allocator, "${undef", "${undef", values);
+    try testReplaceVariables(allocator, "{undef}", "{undef}", values);
+    try testReplaceVariables(allocator, "undef@", "undef@", values);
+    try testReplaceVariables(allocator, "undef}", "undef}", values);
+
+    // unknown key is removed
+    try testReplaceVariables(allocator, "@bad@", "", values);
+    try testReplaceVariables(allocator, "${bad}", "", values);
+}
+
+test "expand_variables_cmake edge cases" {
+    const allocator = std.testing.allocator;
+    var values = std.StringArrayHashMap(Value).init(allocator);
+    defer values.deinit();
+
+    // special symbols
+    try values.putNoClobber("at", Value{ .string = "@" });
+    try values.putNoClobber("dollar", Value{ .string = "$" });
+    try values.putNoClobber("underscore", Value{ .string = "_" });
+
+    // basic value
+    try values.putNoClobber("string", Value{ .string = "text" });
+
+    // proxy case values
+    try values.putNoClobber("string_proxy", Value{ .string = "string" });
+    try values.putNoClobber("string_at", Value{ .string = "@string@" });
+    try values.putNoClobber("string_curly", Value{ .string = "{string}" });
+    try values.putNoClobber("string_var", Value{ .string = "${string}" });
+
+    // stack case values
+    try values.putNoClobber("nest_underscore_proxy", Value{ .string = "underscore" });
+    try values.putNoClobber("nest_proxy", Value{ .string = "nest_underscore_proxy" });
+
+    // @-vars resolved only when they wrap valid characters, otherwise considered literals
+    try testReplaceVariables(allocator, "@@string@@", "@text@", values);
+    try testReplaceVariables(allocator, "@${string}@", "@text@", values);
+
+    // @-vars are resolved inside ${}-vars
+    try testReplaceVariables(allocator, "${@string_proxy@}", "text", values);
+
+    // expanded variables are considered strings after expansion
+    try testReplaceVariables(allocator, "@string_at@", "@string@", values);
+    try testReplaceVariables(allocator, "${string_at}", "@string@", values);
+    try testReplaceVariables(allocator, "$@string_curly@", "${string}", values);
+    try testReplaceVariables(allocator, "$${string_curly}", "${string}", values);
+    try testReplaceVariables(allocator, "${string_var}", "${string}", values);
+    try testReplaceVariables(allocator, "@string_var@", "${string}", values);
+    try testReplaceVariables(allocator, "${dollar}{${string}}", "${text}", values);
+    try testReplaceVariables(allocator, "@dollar@{${string}}", "${text}", values);
+    try testReplaceVariables(allocator, "@dollar@{@string@}", "${text}", values);
+
+    // when expanded variables contain invalid characters, they prevent further expansion
+    try testReplaceVariables(allocator, "${${string_var}}", "", values);
+    try testReplaceVariables(allocator, "${@string_var@}", "", values);
+
+    // nested expanded variables are expanded from the inside out
+    try testReplaceVariables(allocator, "${string${underscore}proxy}", "string", values);
+    try testReplaceVariables(allocator, "${string@underscore@proxy}", "string", values);
+
+    // nested vars are only expanded when ${} is closed
+    try testReplaceVariables(allocator, "@nest@underscore@proxy@", "underscore", values);
+    try testReplaceVariables(allocator, "${nest${underscore}proxy}", "nest_underscore_proxy", values);
+    try testReplaceVariables(allocator, "@nest@@nest_underscore@underscore@proxy@@proxy@", "underscore", values);
+    try testReplaceVariables(allocator, "${nest${${nest_underscore${underscore}proxy}}proxy}", "nest_underscore_proxy", values);
+
+    // invalid characters lead to an error
+    try std.testing.expectError(error.InvalidCharacter, testReplaceVariables(allocator, "${str*ing}", "", values));
+    try std.testing.expectError(error.InvalidCharacter, testReplaceVariables(allocator, "${str$ing}", "", values));
+    try std.testing.expectError(error.InvalidCharacter, testReplaceVariables(allocator, "${str@ing}", "", values));
+}
+
+test "expand_variables_cmake escaped characters" {
+    const allocator = std.testing.allocator;
+    var values = std.StringArrayHashMap(Value).init(allocator);
+    defer values.deinit();
+
+    try values.putNoClobber("string", Value{ .string = "text" });
+
+    // backslash is an invalid character for @ lookup
+    try testReplaceVariables(allocator, "\\@string\\@", "\\@string\\@", values);
+
+    // backslash is preserved, but doesn't affect ${} variable expansion
+    try testReplaceVariables(allocator, "\\${string}", "\\text", values);
+
+    // backslash breaks ${} opening bracket identification
+    try testReplaceVariables(allocator, "$\\{string}", "$\\{string}", values);
+
+    // backslash is skipped when checking for invalid characters, yet it mangles the key
+    try testReplaceVariables(allocator, "${string\\}", "", values);
 }
