@@ -256,32 +256,36 @@ pub fn createEmpty(
                 .program_code_size_hint = options.program_code_size_hint,
             });
 
-            // TODO init dwarf
+            switch (comp.config.debug_format) {
+                .strip => {},
+                .dwarf => {
+                    // Create dSYM bundle.
+                    log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
 
-            // if (comp.config.debug_format != .strip) {
-            //     // Create dSYM bundle.
-            //     log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
+                    const sep = fs.path.sep_str;
+                    const d_sym_path = try std.fmt.allocPrint(
+                        arena,
+                        "{s}.dSYM" ++ sep ++ "Contents" ++ sep ++ "Resources" ++ sep ++ "DWARF",
+                        .{emit.sub_path},
+                    );
 
-            //     const d_sym_path = try std.fmt.allocPrint(
-            //         arena,
-            //         "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
-            //         .{emit.sub_path},
-            //     );
+                    var d_sym_bundle = try emit.directory.handle.makeOpenPath(d_sym_path, .{});
+                    defer d_sym_bundle.close();
 
-            //     var d_sym_bundle = try emit.directory.handle.makeOpenPath(d_sym_path, .{});
-            //     defer d_sym_bundle.close();
+                    const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
+                        .truncate = false,
+                        .read = true,
+                    });
 
-            //     const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
-            //         .truncate = false,
-            //         .read = true,
-            //     });
-
-            //     self.d_sym = .{
-            //         .allocator = gpa,
-            //         .dwarf = link.File.Dwarf.init(&self.base, .dwarf32),
-            //         .file = d_sym_file,
-            //     };
-            // }
+                    self.d_sym = .{
+                        .allocator = gpa,
+                        .dwarf = link.File.Dwarf.init(&self.base, .dwarf32),
+                        .file = d_sym_file,
+                    };
+                    try self.d_sym.?.initMetadata(self);
+                },
+                .code_view => unreachable,
+            }
         }
     }
 
@@ -3906,9 +3910,8 @@ fn reportDuplicates(self: *MachO, dupes: anytype) error{ HasDuplicates, OutOfMem
 }
 
 pub fn getDebugSymbols(self: *MachO) ?*DebugSymbols {
-    if (self.d_sym) |*ds| {
-        return ds;
-    } else return null;
+    if (self.d_sym) |*ds| return ds;
+    return null;
 }
 
 pub fn ptraceAttach(self: *MachO, pid: std.os.pid_t) !void {

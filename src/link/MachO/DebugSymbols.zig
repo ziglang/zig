@@ -36,15 +36,13 @@ pub const Reloc = struct {
     prev_vaddr: u64,
 };
 
-/// You must call this function *after* `MachO.populateMissingMetadata()`
+/// You must call this function *after* `ZigObject.initMetadata()`
 /// has been called to get a viable debug symbols output.
-pub fn populateMissingMetadata(self: *DebugSymbols, macho_file: *MachO) !void {
-    const target = macho_file.base.comp.root_mod.resolved_target.result;
-
+pub fn initMetadata(self: *DebugSymbols, macho_file: *MachO) !void {
     if (self.dwarf_segment_cmd_index == null) {
         self.dwarf_segment_cmd_index = @as(u8, @intCast(self.segments.items.len));
 
-        const page_size = MachO.getPageSize(target.cpu.arch);
+        const page_size = macho_file.getPageSize();
         const off = @as(u64, @intCast(page_size));
         const ideal_size: u16 = 200 + 128 + 160 + 250;
         const needed_size = mem.alignForward(u64, padToIdeal(ideal_size), page_size);
