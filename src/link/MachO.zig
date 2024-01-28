@@ -731,9 +731,6 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
         try argv.append("-r");
     }
 
-    try argv.append("-o");
-    try argv.append(full_out_path);
-
     if (self.base.isRelocatable()) {
         for (comp.objects) |obj| {
             try argv.append(obj.path);
