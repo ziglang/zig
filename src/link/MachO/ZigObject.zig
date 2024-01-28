@@ -1268,7 +1268,8 @@ pub fn getGlobalSymbol(self: *ZigObject, macho_file: *MachO, name: []const u8, l
         nlist.n_strx = off;
         nlist.n_type = macho.N_EXT;
         lookup_gop.value_ptr.* = nlist_index;
-        const gop = try macho_file.getOrCreateGlobal(off);
+        const global_name_off = try macho_file.strings.insert(gpa, sym_name);
+        const gop = try macho_file.getOrCreateGlobal(global_name_off);
         try self.symbols.append(gpa, gop.index);
     }
     return lookup_gop.value_ptr.*;
