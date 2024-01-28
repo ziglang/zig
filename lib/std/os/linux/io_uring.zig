@@ -1260,6 +1260,36 @@ pub const IO_Uring = struct {
         }
     }
 
+    pub const IO_WQ_WorkerLimit = struct {
+        max_bounded_workers: u32,
+        max_unbounded_workers: u32,
+    };
+
+    // Sets an upper bound for workers used to perform work required for bounded work (e.g. regular file or block device
+    // operations) and unbounded work (i.e. requests that may never complete e.g. network requests)
+    // Passing 0 for one of the limits will leave the current limit unchanged.
+    // On success, returns the previously set limits
+    // Available since 5.15
+    // Note: These pools of workers are shared only among io_uring instances that have been created by the same thread,
+    //       in the same process and consequently the limits set with this function only affect io_uring instances at
+    //       this scope.
+    pub fn set_io_wq_worker_limits(self: *IO_Uring, new_limits: IO_WQ_WorkerLimit) !IO_WQ_WorkerLimit {
+        const data: [2]u32 = .{ new_limits.max_bounded_workers, new_limits.max_unbounded_workers };
+
+        const res = linux.io_uring_register(self.fd, .REGISTER_IOWQ_MAX_WORKERS, @as(*const anyopaque, @ptrCast(&data[0])), 2);
+        switch (linux.getErrno(res)) {
+            .SUCCESS => {},
+            .NXIO => return error.RingShuttingDown,
+            else => |errno| return os.unexpectedErrno(errno),
+        }
+
+        return .{ .max_bounded_workers = data[0], .max_unbounded_workers = data[1] };
+    }
+
+    pub fn query_io_wq_limits(self: *IO_Uring) !IO_WQ_WorkerLimit {
+        return self.set_io_wq_worker_limits(.{ .max_bounded_workers = 0, .max_unbounded_workers = 0 });
+    }
+
     /// Prepares a socket creation request.
     /// New socket fd will be returned in completion result.
     /// Available since 5.19
@@ -4143,6 +4173,22 @@ test "openat_direct/close_direct" {
         try testing.expectEqual(os.E.SUCCESS, cqe_close.err());
     }
     try ring.unregister_files();
+}
+
+test "io_wq/set_worker_limit" {
+    try skipKernelLessThan(.{ .major = 5, .minor = 15, .patch = 0 });
+
+    var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const desired_io_wq_limit = IO_Uring.IO_WQ_WorkerLimit{ .max_bounded_workers = 1, .max_unbounded_workers = 1 };
+    _ = try ring.set_io_wq_worker_limits(desired_io_wq_limit);
+    const new_io_wq_limit = try ring.query_io_wq_limits();
+    try testing.expectEqual(new_io_wq_limit, desired_io_wq_limit);
 }
 
 /// For use in tests. Returns SkipZigTest is kernel version is less than required.
