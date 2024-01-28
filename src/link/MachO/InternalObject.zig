@@ -169,13 +169,16 @@ pub fn getAtomData(self: *const InternalObject, atom: Atom, buffer: []u8) !void 
     const slice = self.sections.slice();
     const sect = slice.items(.header)[atom.n_sect];
     const extra = slice.items(.extra)[atom.n_sect];
-    const data = if (extra.is_objc_methname)
-        self.objc_methnames.items[sect.offset..][0..sect.size]
-    else if (extra.is_objc_selref)
+    const data = if (extra.is_objc_methname) blk: {
+        const size = std.math.cast(usize, sect.size) orelse return error.Overflow;
+        break :blk self.objc_methnames.items[sect.offset..][0..size];
+    } else if (extra.is_objc_selref)
         &self.objc_selrefs
     else
         @panic("ref to non-existent section");
-    @memcpy(buffer, data[atom.off..][0..atom.size]);
+    const off = std.math.cast(usize, atom.off) orelse return error.Overflow;
+    const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+    @memcpy(buffer, data[off..][0..size]);
 }
 
 pub fn getAtomRelocs(self: *const InternalObject, atom: Atom) []const Relocation {

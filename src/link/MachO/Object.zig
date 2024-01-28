@@ -1589,7 +1589,8 @@ fn getSectionData(self: *const Object, allocator: Allocator, index: u32) ![]u8 {
     assert(index < slice.items(.header).len);
     const sect = slice.items(.header)[index];
     const offset = if (self.archive) |ar| ar.offset else 0;
-    const buffer = try allocator.alloc(u8, sect.size);
+    const size = math.cast(usize, sect.size) orelse return error.Overflow;
+    const buffer = try allocator.alloc(u8, size);
     errdefer allocator.free(buffer);
     const amt = try self.file.preadAll(buffer, sect.offset + offset);
     if (amt != buffer.len) return error.InputOutput;
