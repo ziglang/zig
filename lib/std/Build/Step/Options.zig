@@ -280,6 +280,12 @@ fn printEnum(self: *Options, out: anytype, comptime T: type, comptime val: std.b
             try out.writeByteNTimes(' ', indent);
             try out.print("    {} = {d},\n", .{ std.zig.fmtId(field.name), field.value });
         }
+
+        if (!val.is_exhaustive) {
+            try out.writeByteNTimes(' ', indent);
+            try out.writeAll("    _,\n");
+        }
+
         try out.writeByteNTimes(' ', indent);
         try out.writeAll("};\n");
     }
@@ -289,7 +295,15 @@ fn printStruct(self: *Options, out: anytype, comptime T: type, comptime val: std
     const gop = try self.encountered_types.getOrPut(@typeName(T));
     if (!gop.found_existing) {
         try out.writeByteNTimes(' ', indent);
-        try out.print("pub const {} = struct {{\n", .{std.zig.fmtId(@typeName(T))});
+        try out.print("pub const {} = ", .{std.zig.fmtId(@typeName(T))});
+
+        switch (val.layout) {
+            .Extern => try out.writeAll("extern struct"),
+            .Packed => try out.writeAll("packed struct"),
+            else => try out.writeAll("struct"),
+        }
+
+        try out.writeAll(" {\n");
 
         inline for (val.fields) |field| {
             try out.writeByteNTimes(' ', indent);
