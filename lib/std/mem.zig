@@ -194,6 +194,7 @@ test "Allocator.resize" {
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
 pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
+    assert(@intFromPtr(dest.ptr) <= @intFromPtr(source.ptr));
     for (dest[0..source.len], source) |*d, s| d.* = s;
 }
 
@@ -205,6 +206,7 @@ pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
     // and turning off runtime safety, the compiler should detect loops like
     // this and automatically omit safety checks for loops
     @setRuntimeSafety(false);
+    assert(@intFromPtr(dest.ptr) >= @intFromPtr(source.ptr));
     assert(dest.len >= source.len);
     var i = source.len;
     while (i > 0) {
