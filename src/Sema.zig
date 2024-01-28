@@ -8657,6 +8657,12 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         return Air.internedToRef((try mod.getCoerced(int_val, dest_ty)).toIntern());
     }
 
+    if (dest_ty.intTagType(mod).zigTypeTag(mod) == .ComptimeInt) {
+        return sema.failWithNeededComptime(block, operand_src, .{
+            .needed_comptime_reason = "value being casted to enum with 'comptime_int' tag type must be comptime-known",
+        });
+    }
+
     if (try sema.typeHasOnePossibleValue(dest_ty)) |opv| {
         const result = Air.internedToRef(opv.toIntern());
         // The operand is runtime-known but the result is comptime-known. In
