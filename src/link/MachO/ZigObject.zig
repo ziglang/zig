@@ -531,7 +531,7 @@ pub fn updateFunc(
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    var decl_state: ?Dwarf.DeclState = null; // TODO: Dwarf
+    var decl_state: ?Dwarf.DeclState = if (macho_file.getDebugSymbols()) |d_sym| try d_sym.dwarf.initDeclState(mod, decl_index) else null;
     defer if (decl_state) |*ds| ds.deinit();
 
     const dio: codegen.DebugInfoOutput = if (decl_state) |*ds| .{ .dwarf = ds } else .none;
@@ -557,16 +557,16 @@ pub fn updateFunc(
     const sect_index = try self.getDeclOutputSection(macho_file, decl, code);
     try self.updateDeclCode(macho_file, decl_index, sym_index, sect_index, code);
 
-    // if (decl_state) |*ds| {
-    //     const sym = elf_file.symbol(sym_index);
-    //     try self.dwarf.?.commitDeclState(
-    //         mod,
-    //         decl_index,
-    //         sym.value,
-    //         sym.atom(elf_file).?.size,
-    //         ds,
-    //     );
-    // }
+    if (decl_state) |*ds| {
+        const sym = macho_file.getSymbol(sym_index);
+        try macho_file.getDebugSymbols().?.dwarf.commitDeclState(
+            mod,
+            decl_index,
+            sym.getAddress(.{}, macho_file),
+            sym.getAtom(macho_file).?.size,
+            ds,
+        );
+    }
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
@@ -606,7 +606,7 @@ pub fn updateDecl(
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    var decl_state: ?Dwarf.DeclState = null; // TODO: Dwarf
+    var decl_state: ?Dwarf.DeclState = if (macho_file.getDebugSymbols()) |d_sym| try d_sym.dwarf.initDeclState(mod, decl_index) else null;
     defer if (decl_state) |*ds| ds.deinit();
 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
@@ -638,15 +638,16 @@ pub fn updateDecl(
         try self.updateDeclCode(macho_file, decl_index, sym_index, sect_index, code);
     }
 
-    // if (decl_state) |*ds| {
-    //     try self.d_sym.?.dwarf.commitDeclState(
-    //         mod,
-    //         decl_index,
-    //         addr,
-    //         self.getAtom(atom_index).size,
-    //         ds,
-    //     );
-    // }
+    if (decl_state) |*ds| {
+        const sym = macho_file.getSymbol(sym_index);
+        try macho_file.getDebugSymbols().?.dwarf.commitDeclState(
+            mod,
+            decl_index,
+            sym.getAddress(.{}, macho_file),
+            sym.getAtom(macho_file).?.size,
+            ds,
+        );
+    }
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
     // needs to be updated.
@@ -1220,13 +1221,14 @@ fn updateLazySymbol(
 /// Must be called only after a successful call to `updateDecl`.
 pub fn updateDeclLineNumber(
     self: *ZigObject,
+    macho_file: *MachO,
     mod: *Module,
     decl_index: InternPool.DeclIndex,
 ) !void {
     _ = self;
-    _ = mod;
-    _ = decl_index;
-    // TODO: Dwarf
+    if (macho_file.getDebugSymbols()) |d_sym| {
+        try d_sym.dwarf.updateDeclLineNumber(mod, decl_index);
+    }
 }
 
 pub fn deleteDeclExport(

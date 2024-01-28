@@ -3181,7 +3181,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) 
 
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: InternPool.DeclIndex) !void {
     if (self.llvm_object) |_| return;
-    return self.getZigObject().?.updateDeclLineNumber(module, decl_index);
+    return self.getZigObject().?.updateDeclLineNumber(self, module, decl_index);
 }
 
 pub fn updateExports(
