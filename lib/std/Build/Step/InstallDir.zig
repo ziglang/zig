@@ -104,7 +104,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             .file => {
                 for (self.options.blank_extensions) |ext| {
                     if (mem.endsWith(u8, entry.path, ext)) {
-                        try dest_builder.truncateFile(dest_path);
+                        if (dest_builder.verbose_install) {
+                            // log implementation responsible for acquiring stdErr mutex
+                            std.log.info("truncate {s}", .{dest_path});
+                        }
+                        try std.Build.truncateFile(dest_path);
                         continue :next_entry;
                     }
                 }
@@ -120,6 +124,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         src_builder.build_root, src_sub_path, dest_path, @errorName(err),
                     });
                 };
+                Step.handleVerboseInstallUpdateFile(dest_builder, prev_status, dest_path);
                 all_cached = all_cached and prev_status == .fresh;
             },
             else => continue,

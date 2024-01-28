@@ -135,6 +135,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 full_src_path, full_dest_path, @errorName(err),
             });
         };
+        Step.handleVerboseInstallUpdateFile(dest_builder, p, full_dest_path);
         all_cached = all_cached and p == .fresh;
 
         if (self.dylib_symlinks) |dls| {
@@ -152,6 +153,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 full_src_path, full_implib_path, @errorName(err),
             });
         };
+        Step.handleVerboseInstallUpdateFile(dest_builder, p, full_implib_path);
         all_cached = all_cached and p == .fresh;
     }
 
@@ -163,6 +165,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 full_src_path, full_pdb_path, @errorName(err),
             });
         };
+        Step.handleVerboseInstallUpdateFile(dest_builder, p, full_pdb_path);
         all_cached = all_cached and p == .fresh;
     }
 
@@ -174,6 +177,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 full_src_path, full_h_path, @errorName(err),
             });
         };
+        Step.handleVerboseInstallUpdateFile(dest_builder, p, full_h_path);
         all_cached = all_cached and p == .fresh;
     }
 
