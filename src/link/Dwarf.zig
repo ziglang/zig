@@ -1468,7 +1468,6 @@ pub fn commitDeclState(
                     .target = reloc.target,
                     .offset = reloc.offset + self.getAtom(.di_atom, di_atom_index).off,
                     .addend = 0,
-                    .prev_vaddr = 0,
                 });
             },
             .elf => {}, // TODO

@@ -5,6 +5,7 @@ const macho = std.macho;
 const mem = std.mem;
 
 const Allocator = mem.Allocator;
+const DebugSymbols = @import("DebugSymbols.zig");
 const Dylib = @import("Dylib.zig");
 const MachO = @import("../MachO.zig");
 
@@ -93,6 +94,27 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) u32 {
     if (macho_file.requiresCodeSig()) {
         sizeofcmds += @sizeOf(macho.linkedit_data_command);
     }
+
+    return @as(u32, @intCast(sizeofcmds));
+}
+
+pub fn calcLoadCommandsSizeDsym(macho_file: *MachO, dsym: *const DebugSymbols) u32 {
+    var sizeofcmds: u64 = 0;
+
+    // LC_SEGMENT_64
+    sizeofcmds += @sizeOf(macho.segment_command_64) * (macho_file.segments.items.len - 1);
+    for (macho_file.segments.items) |seg| {
+        sizeofcmds += seg.nsects * @sizeOf(macho.section_64);
+    }
+    sizeofcmds += @sizeOf(macho.segment_command_64) * dsym.segments.items.len;
+    for (dsym.segments.items) |seg| {
+        sizeofcmds += seg.nsects * @sizeOf(macho.section_64);
+    }
+
+    // LC_SYMTAB
+    sizeofcmds += @sizeOf(macho.symtab_command);
+    // LC_UUID
+    sizeofcmds += @sizeOf(macho.uuid_command);
 
     return @as(u32, @intCast(sizeofcmds));
 }

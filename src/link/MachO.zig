@@ -258,7 +258,7 @@ pub fn createEmpty(
 
             switch (comp.config.debug_format) {
                 .strip => {},
-                .dwarf => {
+                .dwarf => if (!self.base.isRelocatable()) {
                     // Create dSYM bundle.
                     log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
 
@@ -283,6 +283,9 @@ pub fn createEmpty(
                         .file = d_sym_file,
                     };
                     try self.d_sym.?.initMetadata(self);
+                } else {
+                    try self.reportUnexpectedError("TODO: implement generating and emitting __DWARF in .o file", .{});
+                    return error.Unexpected;
                 },
                 .code_view => unreachable,
             }
@@ -696,6 +699,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     const ncmds, const sizeofcmds, const uuid_cmd_offset = try self.writeLoadCommands();
     try self.writeHeader(ncmds, sizeofcmds);
     try self.writeUuid(uuid_cmd_offset, self.requiresCodeSig());
+    if (self.getDebugSymbols()) |dsym| try dsym.flushModule(self);
 
     if (codesig) |*csig| {
         try self.writeCodeSignature(csig); // code signing always comes last
@@ -2902,16 +2906,16 @@ pub fn writeSymtab(self: *MachO, off: u32) !u32 {
     try self.strtab.ensureUnusedCapacity(gpa, cmd.strsize - 1);
 
     if (self.getZigObject()) |zo| {
-        zo.writeSymtab(self);
+        zo.writeSymtab(self, self);
     }
     for (self.objects.items) |index| {
-        try self.getFile(index).?.writeSymtab(self);
+        try self.getFile(index).?.writeSymtab(self, self);
     }
     for (self.dylibs.items) |index| {
-        try self.getFile(index).?.writeSymtab(self);
+        try self.getFile(index).?.writeSymtab(self, self);
     }
     if (self.getInternalObject()) |internal| {
-        internal.writeSymtab(self);
+        internal.writeSymtab(self, self);
     }
 
     assert(self.strtab.items.len == cmd.strsize);

@@ -90,9 +90,9 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn writeSymtab(file: File, macho_file: *MachO) !void {
+    pub fn writeSymtab(file: File, macho_file: *MachO, ctx: anytype) !void {
         return switch (file) {
-            inline else => |x| x.writeSymtab(macho_file),
+            inline else => |x| x.writeSymtab(macho_file, ctx),
         };
     }
 
