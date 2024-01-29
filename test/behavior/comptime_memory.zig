@@ -459,3 +459,77 @@ test "write empty array to end" {
     array[5..5].* = [_]u8{};
     try testing.expectEqualStrings("hello", &array);
 }
+
+fn doublePtrTest() !void {
+    var a: u32 = 0;
+    const ptr = &a;
+    const double_ptr = &ptr;
+    setDoublePtr(double_ptr, 1);
+    setDoublePtr(double_ptr, 2);
+    setDoublePtr(double_ptr, 1);
+    try std.testing.expect(a == 1);
+}
+fn setDoublePtr(ptr: *const *const u32, value: u32) void {
+    setPtr(ptr.*, value);
+}
+fn setPtr(ptr: *const u32, value: u32) void {
+    const mut_ptr: *u32 = @constCast(ptr);
+    mut_ptr.* = value;
+}
+test "double pointer can mutate comptime state" {
+    try comptime doublePtrTest();
+}
+
+fn GenericIntApplier(
+    comptime Context: type,
+    comptime applyFn: fn (context: Context, arg: u32) void,
+) type {
+    return struct {
+        context: Context,
+
+        const Self = @This();
+
+        inline fn any(self: *const Self) IntApplier {
+            return .{
+                .context = @ptrCast(&self.context),
+                .applyFn = typeErasedApplyFn,
+            };
+        }
+
+        fn typeErasedApplyFn(context: *const anyopaque, arg: u32) void {
+            const ptr: *const Context = @alignCast(@ptrCast(context));
+            applyFn(ptr.*, arg);
+        }
+    };
+}
+const IntApplier = struct {
+    context: *const anyopaque,
+    applyFn: *const fn (context: *const anyopaque, arg: u32) void,
+
+    fn apply(ia: IntApplier, arg: u32) void {
+        ia.applyFn(ia.context, arg);
+    }
+};
+const Accumulator = struct {
+    value: u32,
+
+    const Applier = GenericIntApplier(*u32, add);
+
+    fn applier(a: *Accumulator) Applier {
+        return .{ .context = &a.value };
+    }
+
+    fn add(context: *u32, arg: u32) void {
+        context.* += arg;
+    }
+};
+fn fieldPtrTest() u32 {
+    var a: Accumulator = .{ .value = 0 };
+    const applier = a.applier();
+    applier.any().apply(1);
+    applier.any().apply(1);
+    return a.value;
+}
+test "pointer in aggregate field can mutate comptime state" {
+    try comptime std.testing.expect(fieldPtrTest() == 2);
+}
