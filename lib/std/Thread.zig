@@ -674,11 +674,6 @@ const PosixThreadImpl = struct {
 
         const Instance = struct {
             fn entryFn(raw_arg: ?*anyopaque) callconv(.C) ?*anyopaque {
-                // @alignCast() below doesn't support zero-sized-types (ZST)
-                if (@sizeOf(Args) < 1) {
-                    return callFn(f, @as(Args, undefined));
-                }
-
                 const args_ptr: *Args = @ptrCast(@alignCast(raw_arg));
                 defer allocator.destroy(args_ptr);
                 return callFn(f, args_ptr.*);
@@ -703,7 +698,7 @@ const PosixThreadImpl = struct {
             &handle,
             &attr,
             Instance.entryFn,
-            if (@sizeOf(Args) > 1) @as(*anyopaque, @ptrCast(args_ptr)) else undefined,
+            @ptrCast(args_ptr),
         )) {
             .SUCCESS => return Impl{ .handle = handle },
             .AGAIN => return error.SystemResources,
