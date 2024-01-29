@@ -1957,6 +1957,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .ptr_elem_val => func.airPtrElemVal(inst),
         .int_from_ptr => func.airIntFromPtr(inst),
         .ret => func.airRet(inst),
+        .ret_safe => func.airRet(inst), // TODO
         .ret_ptr => func.airRetPtr(inst),
         .ret_load => func.airRetLoad(inst),
         .splat => func.airSplat(inst),

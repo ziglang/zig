@@ -435,6 +435,7 @@ pub fn categorizeOperand(
         },
 
         .ret,
+        .ret_safe,
         .ret_load,
         => {
             const o = air_datas[@intFromEnum(inst)].un_op;
@@ -1070,6 +1071,7 @@ fn analyzeInst(
         },
 
         .ret,
+        .ret_safe,
         .ret_load,
         => {
             const operand = inst_datas[@intFromEnum(inst)].un_op;

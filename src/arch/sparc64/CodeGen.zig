@@ -598,6 +598,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .not             => try self.airNot(inst),
             .int_from_ptr        => try self.airIntFromPtr(inst),
             .ret             => try self.airRet(inst),
+            .ret_safe        => try self.airRet(inst), // TODO
             .ret_load        => try self.airRetLoad(inst),
             .store           => try self.airStore(inst, false),
             .store_safe      => try self.airStore(inst, true),
