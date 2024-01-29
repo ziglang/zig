@@ -1400,3 +1400,16 @@ test "allocation and looping over 3-byte integer" {
     try expect(x[0] == 0x00);
     try expect(x[1] == 0x00);
 }
+
+test "loading array from struct is not optimized away" {
+    const S = struct {
+        arr: [1]u32 = .{0},
+        fn doTheTest(self: *@This()) !void {
+            const o = self.arr;
+            self.arr[0] = 1;
+            try expect(o[0] == 0);
+        }
+    };
+    var s = S{};
+    try s.doTheTest();
+}

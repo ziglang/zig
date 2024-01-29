@@ -6382,34 +6382,6 @@ pub const FuncGen = struct {
                 const elem_alignment = elem_ty.abiAlignment(mod).toLlvm();
                 return self.loadByRef(elem_ptr, elem_ty, elem_alignment, .normal);
             } else {
-                if (bin_op.lhs.toIndex()) |lhs_index| {
-                    if (self.air.instructions.items(.tag)[@intFromEnum(lhs_index)] == .load) {
-                        const load_data = self.air.instructions.items(.data)[@intFromEnum(lhs_index)];
-                        const load_ptr = load_data.ty_op.operand;
-                        if (load_ptr.toIndex()) |load_ptr_index| {
-                            const load_ptr_tag = self.air.instructions.items(.tag)[@intFromEnum(load_ptr_index)];
-                            switch (load_ptr_tag) {
-                                .struct_field_ptr,
-                                .struct_field_ptr_index_0,
-                                .struct_field_ptr_index_1,
-                                .struct_field_ptr_index_2,
-                                .struct_field_ptr_index_3,
-                                => {
-                                    const load_ptr_inst = try self.resolveInst(load_ptr);
-                                    const gep = try self.wip.gep(
-                                        .inbounds,
-                                        array_llvm_ty,
-                                        load_ptr_inst,
-                                        &indices,
-                                        "",
-                                    );
-                                    return self.loadTruncate(.normal, elem_ty, gep, .default);
-                                },
-                                else => {},
-                            }
-                        }
-                    }
-                }
                 const elem_ptr =
                     try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &indices, "");
                 return self.loadTruncate(.normal, elem_ty, elem_ptr, .default);
