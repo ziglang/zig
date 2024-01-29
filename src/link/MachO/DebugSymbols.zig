@@ -206,6 +206,8 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
     // and it corresponds to the Zig source code.
     const zcu = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
+    try self.dwarf.flushModule(zcu);
+
     for (self.relocs.items) |*reloc| {
         const sym = macho_file.getSymbol(reloc.target);
         const sym_name = sym.getName(macho_file);
