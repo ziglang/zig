@@ -1,6 +1,3 @@
-path: []const u8,
-data: []const u8,
-
 objects: std.ArrayListUnmanaged(Object) = .{},
 
 // Archive files start with the ARMAG identifying string.  Then follows a
@@ -73,62 +70,73 @@ pub fn isArchive(path: []const u8, fat_arch: ?fat.Arch) !bool {
 }
 
 pub fn deinit(self: *Archive, allocator: Allocator) void {
-    allocator.free(self.data);
-    allocator.free(self.path);
     self.objects.deinit(allocator);
 }
 
-pub fn parse(self: *Archive, macho_file: *MachO) !void {
+pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, file: std.fs.File, fat_arch: ?fat.Arch) !void {
     const gpa = macho_file.base.comp.gpa;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
-    var stream = std.io.fixedBufferStream(self.data);
-    const reader = stream.reader();
-    _ = try reader.readBytesNoEof(SARMAG);
+    const offset = if (fat_arch) |ar| ar.offset else 0;
+    const size = if (fat_arch) |ar| ar.size else (try file.stat()).size;
+    try file.seekTo(offset);
 
+    const reader = file.reader();
+    _ = try reader.readBytesNoEof(Archive.SARMAG);
+
+    var pos: usize = Archive.SARMAG;
     while (true) {
-        if (stream.pos >= self.data.len) break;
-        if (!mem.isAligned(stream.pos, 2)) stream.pos += 1;
+        if (pos >= size) break;
+        if (!mem.isAligned(pos, 2)) {
+            try file.seekBy(1);
+            pos += 1;
+        }
 
         const hdr = try reader.readStruct(ar_hdr);
+        pos += @sizeOf(ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
-            try macho_file.reportParseError(self.path, "invalid header delimiter: expected '{s}', found '{s}'", .{
+            try macho_file.reportParseError(path, "invalid header delimiter: expected '{s}', found '{s}'", .{
                 std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
             });
             return error.MalformedArchive;
         }
 
-        var size = try hdr.size();
+        var hdr_size = try hdr.size();
         const name = name: {
             if (hdr.name()) |n| break :name n;
             if (try hdr.nameLength()) |len| {
-                size -= len;
+                hdr_size -= len;
                 const buf = try arena.allocator().alloc(u8, len);
                 try reader.readNoEof(buf);
+                pos += len;
                 const actual_len = mem.indexOfScalar(u8, buf, @as(u8, 0)) orelse len;
                 break :name buf[0..actual_len];
             }
             unreachable;
         };
         defer {
-            _ = stream.seekBy(size) catch {};
+            _ = file.seekBy(hdr_size) catch {};
+            pos += hdr_size;
         }
 
         if (mem.eql(u8, name, "__.SYMDEF") or mem.eql(u8, name, "__.SYMDEF SORTED")) continue;
 
         const object = Object{
-            .archive = try gpa.dupe(u8, self.path),
+            .archive = .{
+                .path = try gpa.dupe(u8, path),
+                .offset = offset + pos,
+            },
             .path = try gpa.dupe(u8, name),
-            .data = try gpa.dupe(u8, self.data[stream.pos..][0..size]),
+            .file = try std.fs.cwd().openFile(path, .{}),
             .index = undefined,
             .alive = false,
             .mtime = hdr.date() catch 0,
         };
 
-        log.debug("extracting object '{s}' from archive '{s}'", .{ object.path, self.path });
+        log.debug("extracting object '{s}' from archive '{s}'", .{ object.path, path });
 
         try self.objects.append(gpa, object);
     }

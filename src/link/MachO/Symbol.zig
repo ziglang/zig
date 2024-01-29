@@ -55,7 +55,12 @@ pub fn weakRef(symbol: Symbol, macho_file: *MachO) bool {
 }
 
 pub fn getName(symbol: Symbol, macho_file: *MachO) [:0]const u8 {
-    return macho_file.strings.getAssumeExists(symbol.name);
+    if (symbol.flags.global) return macho_file.strings.getAssumeExists(symbol.name);
+    return switch (symbol.getFile(macho_file).?) {
+        .dylib => unreachable, // There are no local symbols for dylibs
+        .zig_object => |x| x.strtab.getAssumeExists(symbol.name),
+        inline else => |x| x.getString(symbol.name),
+    };
 }
 
 pub fn getAtom(symbol: Symbol, macho_file: *MachO) ?*Atom {
@@ -340,6 +345,11 @@ pub const Flags = packed struct {
 
     /// Whether the symbol is exported at runtime.
     @"export": bool = false,
+
+    /// Whether the symbol is effectively an extern and takes part in global
+    /// symbol resolution. Then, its name will be saved in global string interning
+    /// table.
+    global: bool = false,
 
     /// Whether this symbol is weak.
     weak: bool = false,
