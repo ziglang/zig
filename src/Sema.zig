@@ -4640,7 +4640,6 @@ fn validateUnionInit(
             first_block_index = block_index;
             break;
         }
-        if (store_inst.toRef() == field_ptr_ref) break;
         switch (air_tags[@intFromEnum(store_inst)]) {
             .store, .store_safe => {},
             else => continue,
