@@ -43,6 +43,11 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testUnwindInfoNoSubsectionsX64(b, .{ .target = x86_64_target }));
     macho_step.dependOn(testUnwindInfoNoSubsectionsArm64(b, .{ .target = aarch64_target }));
     macho_step.dependOn(testWeakBind(b, .{ .target = x86_64_target }));
+    macho_step.dependOn(testWeakRef(b, .{ .target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag = .macos,
+        .os_version_min = .{ .semver = .{ .major = 10, .minor = 13, .patch = 0 } },
+    }) }));
 
     // Tests requiring symlinks when tested on Windows
     if (build_opts.has_symlinks_windows) {
@@ -2219,6 +2224,25 @@ fn testWeakLibrary(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("42 42");
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testWeakRef(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-weak-ref", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\#include <sys/_types/_fd_def.h>
+    \\int main(int argc, char** argv) {
+    \\    printf("__darwin_check_fd_set_overflow: %p\n", __darwin_check_fd_set_overflow);
+    \\}
+    });
+
+    const check = exe.checkObject();
+    check.checkInSymtab();
+    check.checkExact("(undefined) weakref external ___darwin_check_fd_set_overflow (from libSystem.B)");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }

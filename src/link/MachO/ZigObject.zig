@@ -233,9 +233,11 @@ pub fn resetGlobals(self: *ZigObject, macho_file: *MachO) void {
         const sym = macho_file.getSymbol(sym_index);
         const name = sym.name;
         const global = sym.flags.global;
+        const weak_ref = sym.flags.weak_ref;
         sym.* = .{};
         sym.name = name;
         sym.flags.global = global;
+        sym.flags.weak_ref = weak_ref;
     }
 }
 
