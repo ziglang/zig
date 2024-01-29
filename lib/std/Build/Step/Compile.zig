@@ -567,9 +567,14 @@ pub fn defineCMacro(c: *Compile, name: []const u8, value: ?[]const u8) void {
     c.root_module.addCMacro(name, value orelse "1");
 }
 
+const PkgConfigResult = struct {
+    cflags: []const []const u8,
+    libs: []const []const u8,
+};
+
 /// Run pkg-config for the given library name and parse the output, returning the arguments
 /// that should be passed to zig to link the given library.
-fn runPkgConfig(self: *Compile, lib_name: []const u8) ![]const []const u8 {
+fn runPkgConfig(self: *Compile, lib_name: []const u8) !PkgConfigResult {
     const b = self.step.owner;
     const pkg_name = match: {
         // First we have to map the library name to pkg config name. Unfortunately,
@@ -630,37 +635,42 @@ fn runPkgConfig(self: *Compile, lib_name: []const u8) ![]const []const u8 {
         else => return err,
     };
 
-    var zig_args = ArrayList([]const u8).init(b.allocator);
-    defer zig_args.deinit();
+    var zig_cflags = ArrayList([]const u8).init(b.allocator);
+    defer zig_cflags.deinit();
+    var zig_libs = ArrayList([]const u8).init(b.allocator);
+    defer zig_libs.deinit();
 
     var it = mem.tokenizeAny(u8, stdout, " \r\n\t");
     while (it.next()) |tok| {
         if (mem.eql(u8, tok, "-I")) {
             const dir = it.next() orelse return error.PkgConfigInvalidOutput;
-            try zig_args.appendSlice(&[_][]const u8{ "-I", dir });
+            try zig_cflags.appendSlice(&[_][]const u8{ "-I", dir });
         } else if (mem.startsWith(u8, tok, "-I")) {
-            try zig_args.append(tok);
+            try zig_cflags.append(tok);
         } else if (mem.eql(u8, tok, "-L")) {
             const dir = it.next() orelse return error.PkgConfigInvalidOutput;
-            try zig_args.appendSlice(&[_][]const u8{ "-L", dir });
+            try zig_libs.appendSlice(&[_][]const u8{ "-L", dir });
         } else if (mem.startsWith(u8, tok, "-L")) {
-            try zig_args.append(tok);
+            try zig_libs.append(tok);
         } else if (mem.eql(u8, tok, "-l")) {
             const lib = it.next() orelse return error.PkgConfigInvalidOutput;
-            try zig_args.appendSlice(&[_][]const u8{ "-l", lib });
+            try zig_libs.appendSlice(&[_][]const u8{ "-l", lib });
         } else if (mem.startsWith(u8, tok, "-l")) {
-            try zig_args.append(tok);
+            try zig_libs.append(tok);
         } else if (mem.eql(u8, tok, "-D")) {
             const macro = it.next() orelse return error.PkgConfigInvalidOutput;
-            try zig_args.appendSlice(&[_][]const u8{ "-D", macro });
+            try zig_cflags.appendSlice(&[_][]const u8{ "-D", macro });
         } else if (mem.startsWith(u8, tok, "-D")) {
-            try zig_args.append(tok);
+            try zig_cflags.append(tok);
         } else if (b.debug_pkg_config) {
             return self.step.fail("unknown pkg-config flag '{s}'", .{tok});
         }
     }
 
-    return zig_args.toOwnedSlice();
+    return .{
+        .cflags = try zig_cflags.toOwnedSlice(),
+        .libs = try zig_libs.toOwnedSlice(),
+    };
 }
 
 pub fn linkSystemLibrary(self: *Compile, name: []const u8) void {
@@ -954,7 +964,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     {
-        var seen_system_libs: std.StringHashMapUnmanaged(void) = .{};
+        // Stores system libraries that have already been seen for at least one
+        // module, along with any arguments that need to be passed to the
+        // compiler for each module individually.
+        var seen_system_libs: std.StringHashMapUnmanaged([]const []const u8) = .{};
         var frameworks: std.StringArrayHashMapUnmanaged(Module.LinkFrameworkOptions) = .{};
 
         var prev_has_cflags = false;
@@ -1008,8 +1021,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         }
                     },
                     .system_lib => |system_lib| {
-                        if ((try seen_system_libs.fetchPut(arena, system_lib.name, {})) != null)
+                        const system_lib_gop = try seen_system_libs.getOrPut(arena, system_lib.name);
+                        if (system_lib_gop.found_existing) {
+                            try zig_args.appendSlice(system_lib_gop.value_ptr.*);
                             continue;
+                        } else {
+                            system_lib_gop.value_ptr.* = &.{};
+                        }
 
                         if (already_linked)
                             continue;
@@ -1044,8 +1062,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         switch (system_lib.use_pkg_config) {
                             .no => try zig_args.append(b.fmt("{s}{s}", .{ prefix, system_lib.name })),
                             .yes, .force => {
-                                if (self.runPkgConfig(system_lib.name)) |args| {
-                                    try zig_args.appendSlice(args);
+                                if (self.runPkgConfig(system_lib.name)) |result| {
+                                    try zig_args.appendSlice(result.cflags);
+                                    try zig_args.appendSlice(result.libs);
+                                    try seen_system_libs.put(arena, system_lib.name, result.cflags);
                                 } else |err| switch (err) {
                                     error.PkgConfigInvalidOutput,
                                     error.PkgConfigCrashed,
