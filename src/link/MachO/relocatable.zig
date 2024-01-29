@@ -290,8 +290,7 @@ fn writeAtoms(macho_file: *MachO) !void {
             assert(atom.flags.alive);
             const off = math.cast(usize, atom.value - header.addr) orelse return error.Overflow;
             const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
-            const atom_data = try atom.getFile(macho_file).object.getAtomData(atom.*);
-            @memcpy(code[off..][0..atom_size], atom_data);
+            try atom.getFile(macho_file).object.getAtomData(atom.*, code[off..][0..atom_size]);
             try atom.writeRelocs(macho_file, code[off..][0..atom_size], &relocs);
         }
 
