@@ -5078,7 +5078,8 @@ pub const FuncGen = struct {
                 .load           => try self.airLoad(body[i..]),
                 .loop           => try self.airLoop(inst),
                 .not            => try self.airNot(inst),
-                .ret            => try self.airRet(inst),
+                .ret            => try self.airRet(inst, false),
+                .ret_safe       => try self.airRet(inst, true),
                 .ret_load       => try self.airRetLoad(inst),
                 .store          => try self.airStore(inst, false),
                 .store_safe     => try self.airStore(inst, true),
@@ -5551,14 +5552,41 @@ pub const FuncGen = struct {
         _ = try fg.wip.@"unreachable"();
     }
 
-    fn airRet(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airRet(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !Builder.Value {
         const o = self.dg.object;
         const mod = o.module;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const ret_ty = self.typeOf(un_op);
+
         if (self.ret_ptr != .none) {
-            const operand = try self.resolveInst(un_op);
             const ptr_ty = try mod.singleMutPtrType(ret_ty);
+
+            const operand = try self.resolveInst(un_op);
+            const val_is_undef = if (try self.air.value(un_op, mod)) |val| val.isUndefDeep(mod) else false;
+            if (val_is_undef and safety) undef: {
+                const ptr_info = ptr_ty.ptrInfo(mod);
+                const needs_bitmask = (ptr_info.packed_offset.host_size != 0);
+                if (needs_bitmask) {
+                    // TODO: only some bits are to be undef, we cannot write with a simple memset.
+                    // meanwhile, ignore the write rather than stomping over valid bits.
+                    // https://github.com/ziglang/zig/issues/15337
+                    break :undef;
+                }
+                const len = try o.builder.intValue(try o.lowerType(Type.usize), ret_ty.abiSize(mod));
+                _ = try self.wip.callMemSet(
+                    self.ret_ptr,
+                    ptr_ty.ptrAlignment(mod).toLlvm(),
+                    try o.builder.intValue(.i8, 0xaa),
+                    len,
+                    if (ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal,
+                );
+                const owner_mod = self.dg.ownerModule();
+                if (owner_mod.valgrind) {
+                    try self.valgrindMarkUndef(self.ret_ptr, len);
+                }
+                _ = try self.wip.retVoid();
+                return .none;
+            }
 
             const unwrapped_operand = operand.unwrap();
             const unwrapped_ret = self.ret_ptr.unwrap();
@@ -5588,7 +5616,27 @@ pub const FuncGen = struct {
 
         const abi_ret_ty = try lowerFnRetTy(o, fn_info);
         const operand = try self.resolveInst(un_op);
+        const val_is_undef = if (try self.air.value(un_op, mod)) |val| val.isUndefDeep(mod) else false;
         const alignment = ret_ty.abiAlignment(mod).toLlvm();
+
+        if (val_is_undef and safety) {
+            const llvm_ret_ty = operand.typeOfWip(&self.wip);
+            const rp = try self.buildAlloca(llvm_ret_ty, alignment);
+            const len = try o.builder.intValue(try o.lowerType(Type.usize), ret_ty.abiSize(mod));
+            _ = try self.wip.callMemSet(
+                rp,
+                alignment,
+                try o.builder.intValue(.i8, 0xaa),
+                len,
+                .normal,
+            );
+            const owner_mod = self.dg.ownerModule();
+            if (owner_mod.valgrind) {
+                try self.valgrindMarkUndef(rp, len);
+            }
+            _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, rp, alignment, ""));
+            return .none;
+        }
 
         if (isByRef(ret_ty, mod)) {
             // operand is a pointer however self.ret_ptr is null so that means

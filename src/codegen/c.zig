@@ -3225,6 +3225,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .int_from_bool      => try airIntFromBool(f, inst),
             .load             => try airLoad(f, inst),
             .ret              => try airRet(f, inst, false),
+            .ret_safe         => try airRet(f, inst, false), // TODO
             .ret_load         => try airRet(f, inst, true),
             .store            => try airStore(f, inst, false),
             .store_safe       => try airStore(f, inst, true),

@@ -19437,14 +19437,15 @@ fn analyzeRet(
 
     try sema.resolveTypeLayout(sema.fn_ret_ty);
 
+    const air_tag: Air.Inst.Tag = if (block.wantSafety()) .ret_safe else .ret;
     if (sema.wantErrorReturnTracing(sema.fn_ret_ty)) {
         // Avoid adding a frame to the error return trace in case the value is comptime-known
         // to be not an error.
         const is_non_err = try sema.analyzeIsNonErr(block, src, operand);
-        return sema.retWithErrTracing(block, src, is_non_err, .ret, operand);
+        return sema.retWithErrTracing(block, src, is_non_err, air_tag, operand);
     }
 
-    _ = try block.addUnOp(.ret, operand);
+    _ = try block.addUnOp(air_tag, operand);
 
     return always_noreturn;
 }

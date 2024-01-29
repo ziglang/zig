@@ -2177,6 +2177,7 @@ const DeclGen = struct {
             .cond_br        => return self.airCondBr(inst),
             .loop           => return self.airLoop(inst),
             .ret            => return self.airRet(inst),
+            .ret_safe       => return self.airRet(inst), // TODO
             .ret_load       => return self.airRetLoad(inst),
             .@"try"         => try self.airTry(inst),
             .switch_br      => return self.airSwitchBr(inst),
