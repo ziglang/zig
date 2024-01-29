@@ -155,7 +155,7 @@ test "Macro that uses division operator. Issue #13162" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     try expectEqual(@as(c_int, 42), h.DIVIDE_CONSTANT(@as(c_int, 42_000)));
     try expectEqual(@as(c_uint, 42), h.DIVIDE_CONSTANT(@as(c_uint, 42_000)));
