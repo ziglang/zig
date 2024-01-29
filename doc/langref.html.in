@@ -10139,7 +10139,7 @@ pub fn main() void {
 
       {#header_open|Invalid Error Set Cast#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|test_comptime_invalid_error_set_cast|'error.B' not a member of error set 'error{C,A}'#}
+      {#code_begin|test_err|test_comptime_invalid_error_set_cast|'error.B' not a member of error set 'error{A,C}'#}
 const Set1 = error{
     A,
     B,
