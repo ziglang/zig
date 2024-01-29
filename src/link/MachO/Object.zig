@@ -1320,7 +1320,7 @@ pub fn calcStabsSize(self: *Object, macho_file: *MachO) error{Overflow}!void {
     }
 }
 
-pub fn writeSymtab(self: Object, macho_file: *MachO) error{Overflow}!void {
+pub fn writeSymtab(self: Object, macho_file: *MachO, ctx: anytype) error{Overflow}!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1329,19 +1329,19 @@ pub fn writeSymtab(self: Object, macho_file: *MachO) error{Overflow}!void {
         const file = sym.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
         const idx = sym.getOutputSymtabIndex(macho_file) orelse continue;
-        const n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-        macho_file.strtab.appendSliceAssumeCapacity(sym.getName(macho_file));
-        macho_file.strtab.appendAssumeCapacity(0);
-        const out_sym = &macho_file.symtab.items[idx];
+        const n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+        ctx.strtab.appendSliceAssumeCapacity(sym.getName(macho_file));
+        ctx.strtab.appendAssumeCapacity(0);
+        const out_sym = &ctx.symtab.items[idx];
         out_sym.n_strx = n_strx;
         sym.setOutputSym(macho_file, out_sym);
     }
 
     if (macho_file.base.comp.config.debug_format != .strip and self.hasDebugInfo())
-        try self.writeStabs(macho_file);
+        try self.writeStabs(macho_file, ctx);
 }
 
-pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void {
+pub fn writeStabs(self: *const Object, macho_file: *MachO, ctx: anytype) error{Overflow}!void {
     const writeFuncStab = struct {
         inline fn writeFuncStab(
             n_strx: u32,
@@ -1349,30 +1349,30 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
             n_value: u64,
             size: u64,
             index: u32,
-            ctx: *MachO,
+            context: anytype,
         ) void {
-            ctx.symtab.items[index] = .{
+            context.symtab.items[index] = .{
                 .n_strx = 0,
                 .n_type = macho.N_BNSYM,
                 .n_sect = n_sect,
                 .n_desc = 0,
                 .n_value = n_value,
             };
-            ctx.symtab.items[index + 1] = .{
+            context.symtab.items[index + 1] = .{
                 .n_strx = n_strx,
                 .n_type = macho.N_FUN,
                 .n_sect = n_sect,
                 .n_desc = 0,
                 .n_value = n_value,
             };
-            ctx.symtab.items[index + 2] = .{
+            context.symtab.items[index + 2] = .{
                 .n_strx = 0,
                 .n_type = macho.N_FUN,
                 .n_sect = 0,
                 .n_desc = 0,
                 .n_value = size,
             };
-            ctx.symtab.items[index + 3] = .{
+            context.symtab.items[index + 3] = .{
                 .n_strx = 0,
                 .n_type = macho.N_ENSYM,
                 .n_sect = n_sect,
@@ -1392,10 +1392,10 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
 
         // Open scope
         // N_SO comp_dir
-        var n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-        macho_file.strtab.appendSliceAssumeCapacity(comp_dir);
-        macho_file.strtab.appendAssumeCapacity(0);
-        macho_file.symtab.items[index] = .{
+        var n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+        ctx.strtab.appendSliceAssumeCapacity(comp_dir);
+        ctx.strtab.appendAssumeCapacity(0);
+        ctx.symtab.items[index] = .{
             .n_strx = n_strx,
             .n_type = macho.N_SO,
             .n_sect = 0,
@@ -1404,10 +1404,10 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
         };
         index += 1;
         // N_SO tu_name
-        n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-        macho_file.strtab.appendSliceAssumeCapacity(tu_name);
-        macho_file.strtab.appendAssumeCapacity(0);
-        macho_file.symtab.items[index] = .{
+        n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+        ctx.strtab.appendSliceAssumeCapacity(tu_name);
+        ctx.strtab.appendAssumeCapacity(0);
+        ctx.symtab.items[index] = .{
             .n_strx = n_strx,
             .n_type = macho.N_SO,
             .n_sect = 0,
@@ -1416,18 +1416,18 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
         };
         index += 1;
         // N_OSO path
-        n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
+        n_strx = @as(u32, @intCast(ctx.strtab.items.len));
         if (self.archive) |ar| {
-            macho_file.strtab.appendSliceAssumeCapacity(ar.path);
-            macho_file.strtab.appendAssumeCapacity('(');
-            macho_file.strtab.appendSliceAssumeCapacity(self.path);
-            macho_file.strtab.appendAssumeCapacity(')');
-            macho_file.strtab.appendAssumeCapacity(0);
+            ctx.strtab.appendSliceAssumeCapacity(ar.path);
+            ctx.strtab.appendAssumeCapacity('(');
+            ctx.strtab.appendSliceAssumeCapacity(self.path);
+            ctx.strtab.appendAssumeCapacity(')');
+            ctx.strtab.appendAssumeCapacity(0);
         } else {
-            macho_file.strtab.appendSliceAssumeCapacity(self.path);
-            macho_file.strtab.appendAssumeCapacity(0);
+            ctx.strtab.appendSliceAssumeCapacity(self.path);
+            ctx.strtab.appendAssumeCapacity(0);
         }
-        macho_file.symtab.items[index] = .{
+        ctx.symtab.items[index] = .{
             .n_strx = n_strx,
             .n_type = macho.N_OSO,
             .n_sect = 0,
@@ -1448,17 +1448,17 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
             const sect = macho_file.sections.items(.header)[sym.out_n_sect];
             const sym_n_strx = n_strx: {
                 const symtab_index = sym.getOutputSymtabIndex(macho_file).?;
-                const osym = macho_file.symtab.items[symtab_index];
+                const osym = ctx.symtab.items[symtab_index];
                 break :n_strx osym.n_strx;
             };
             const sym_n_sect: u8 = if (!sym.flags.abs) @intCast(sym.out_n_sect + 1) else 0;
             const sym_n_value = sym.getAddress(.{}, macho_file);
             const sym_size = sym.getSize(macho_file);
             if (sect.isCode()) {
-                writeFuncStab(sym_n_strx, sym_n_sect, sym_n_value, sym_size, index, macho_file);
+                writeFuncStab(sym_n_strx, sym_n_sect, sym_n_value, sym_size, index, ctx);
                 index += 4;
             } else if (sym.visibility == .global) {
-                macho_file.symtab.items[index] = .{
+                ctx.symtab.items[index] = .{
                     .n_strx = sym_n_strx,
                     .n_type = macho.N_GSYM,
                     .n_sect = sym_n_sect,
@@ -1467,7 +1467,7 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
                 };
                 index += 1;
             } else {
-                macho_file.symtab.items[index] = .{
+                ctx.symtab.items[index] = .{
                     .n_strx = sym_n_strx,
                     .n_type = macho.N_STSYM,
                     .n_sect = sym_n_sect,
@@ -1480,7 +1480,7 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
 
         // Close scope
         // N_SO
-        macho_file.symtab.items[index] = .{
+        ctx.symtab.items[index] = .{
             .n_strx = 0,
             .n_type = macho.N_SO,
             .n_sect = 0,
@@ -1493,10 +1493,10 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
         for (self.stab_files.items) |sf| {
             // Open scope
             // N_SO comp_dir
-            var n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-            macho_file.strtab.appendSliceAssumeCapacity(sf.getCompDir(self));
-            macho_file.strtab.appendAssumeCapacity(0);
-            macho_file.symtab.items[index] = .{
+            var n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+            ctx.strtab.appendSliceAssumeCapacity(sf.getCompDir(self));
+            ctx.strtab.appendAssumeCapacity(0);
+            ctx.symtab.items[index] = .{
                 .n_strx = n_strx,
                 .n_type = macho.N_SO,
                 .n_sect = 0,
@@ -1505,10 +1505,10 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
             };
             index += 1;
             // N_SO tu_name
-            n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-            macho_file.strtab.appendSliceAssumeCapacity(sf.getTuName(self));
-            macho_file.strtab.appendAssumeCapacity(0);
-            macho_file.symtab.items[index] = .{
+            n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+            ctx.strtab.appendSliceAssumeCapacity(sf.getTuName(self));
+            ctx.strtab.appendAssumeCapacity(0);
+            ctx.symtab.items[index] = .{
                 .n_strx = n_strx,
                 .n_type = macho.N_SO,
                 .n_sect = 0,
@@ -1517,10 +1517,10 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
             };
             index += 1;
             // N_OSO path
-            n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-            macho_file.strtab.appendSliceAssumeCapacity(sf.getOsoPath(self));
-            macho_file.strtab.appendAssumeCapacity(0);
-            macho_file.symtab.items[index] = .{
+            n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+            ctx.strtab.appendSliceAssumeCapacity(sf.getOsoPath(self));
+            ctx.strtab.appendAssumeCapacity(0);
+            ctx.symtab.items[index] = .{
                 .n_strx = n_strx,
                 .n_type = macho.N_OSO,
                 .n_sect = 0,
@@ -1536,7 +1536,7 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
                 if (!sym.flags.output_symtab) continue;
                 const sym_n_strx = n_strx: {
                     const symtab_index = sym.getOutputSymtabIndex(macho_file).?;
-                    const osym = macho_file.symtab.items[symtab_index];
+                    const osym = ctx.symtab.items[symtab_index];
                     break :n_strx osym.n_strx;
                 };
                 const sym_n_sect: u8 = if (!sym.flags.abs) @intCast(sym.out_n_sect + 1) else 0;
@@ -1544,11 +1544,11 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
                 const sym_size = sym.getSize(macho_file);
                 switch (stab.tag) {
                     .func => {
-                        writeFuncStab(sym_n_strx, sym_n_sect, sym_n_value, sym_size, index, macho_file);
+                        writeFuncStab(sym_n_strx, sym_n_sect, sym_n_value, sym_size, index, ctx);
                         index += 4;
                     },
                     .global => {
-                        macho_file.symtab.items[index] = .{
+                        ctx.symtab.items[index] = .{
                             .n_strx = sym_n_strx,
                             .n_type = macho.N_GSYM,
                             .n_sect = sym_n_sect,
@@ -1558,7 +1558,7 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
                         index += 1;
                     },
                     .static => {
-                        macho_file.symtab.items[index] = .{
+                        ctx.symtab.items[index] = .{
                             .n_strx = sym_n_strx,
                             .n_type = macho.N_STSYM,
                             .n_sect = sym_n_sect,
@@ -1572,7 +1572,7 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
 
             // Close scope
             // N_SO
-            macho_file.symtab.items[index] = .{
+            ctx.symtab.items[index] = .{
                 .n_strx = 0,
                 .n_type = macho.N_SO,
                 .n_sect = 0,

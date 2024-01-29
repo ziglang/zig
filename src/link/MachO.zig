@@ -256,32 +256,39 @@ pub fn createEmpty(
                 .program_code_size_hint = options.program_code_size_hint,
             });
 
-            // TODO init dwarf
+            switch (comp.config.debug_format) {
+                .strip => {},
+                .dwarf => if (!self.base.isRelocatable()) {
+                    // Create dSYM bundle.
+                    log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
 
-            // if (comp.config.debug_format != .strip) {
-            //     // Create dSYM bundle.
-            //     log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
+                    const sep = fs.path.sep_str;
+                    const d_sym_path = try std.fmt.allocPrint(
+                        arena,
+                        "{s}.dSYM" ++ sep ++ "Contents" ++ sep ++ "Resources" ++ sep ++ "DWARF",
+                        .{emit.sub_path},
+                    );
 
-            //     const d_sym_path = try std.fmt.allocPrint(
-            //         arena,
-            //         "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
-            //         .{emit.sub_path},
-            //     );
+                    var d_sym_bundle = try emit.directory.handle.makeOpenPath(d_sym_path, .{});
+                    defer d_sym_bundle.close();
 
-            //     var d_sym_bundle = try emit.directory.handle.makeOpenPath(d_sym_path, .{});
-            //     defer d_sym_bundle.close();
+                    const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
+                        .truncate = false,
+                        .read = true,
+                    });
 
-            //     const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
-            //         .truncate = false,
-            //         .read = true,
-            //     });
-
-            //     self.d_sym = .{
-            //         .allocator = gpa,
-            //         .dwarf = link.File.Dwarf.init(&self.base, .dwarf32),
-            //         .file = d_sym_file,
-            //     };
-            // }
+                    self.d_sym = .{
+                        .allocator = gpa,
+                        .dwarf = link.File.Dwarf.init(&self.base, .dwarf32),
+                        .file = d_sym_file,
+                    };
+                    try self.d_sym.?.initMetadata(self);
+                } else {
+                    try self.reportUnexpectedError("TODO: implement generating and emitting __DWARF in .o file", .{});
+                    return error.Unexpected;
+                },
+                .code_view => unreachable,
+            }
         }
     }
 
@@ -692,6 +699,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     const ncmds, const sizeofcmds, const uuid_cmd_offset = try self.writeLoadCommands();
     try self.writeHeader(ncmds, sizeofcmds);
     try self.writeUuid(uuid_cmd_offset, self.requiresCodeSig());
+    if (self.getDebugSymbols()) |dsym| try dsym.flushModule(self);
 
     if (codesig) |*csig| {
         try self.writeCodeSignature(csig); // code signing always comes last
@@ -730,9 +738,6 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
     if (self.base.isObject()) {
         try argv.append("-r");
     }
-
-    try argv.append("-o");
-    try argv.append(full_out_path);
 
     if (self.base.isRelocatable()) {
         for (comp.objects) |obj| {
@@ -2047,7 +2052,11 @@ pub fn sortSections(self: *MachO) !void {
     for (&[_]*?u8{
         &self.data_sect_index,
         &self.got_sect_index,
+        &self.zig_text_sect_index,
         &self.zig_got_sect_index,
+        &self.zig_const_sect_index,
+        &self.zig_data_sect_index,
+        &self.zig_bss_sect_index,
         &self.stubs_sect_index,
         &self.stubs_helper_sect_index,
         &self.la_symbol_ptr_sect_index,
@@ -2901,16 +2910,16 @@ pub fn writeSymtab(self: *MachO, off: u32) !u32 {
     try self.strtab.ensureUnusedCapacity(gpa, cmd.strsize - 1);
 
     if (self.getZigObject()) |zo| {
-        zo.writeSymtab(self);
+        zo.writeSymtab(self, self);
     }
     for (self.objects.items) |index| {
-        try self.getFile(index).?.writeSymtab(self);
+        try self.getFile(index).?.writeSymtab(self, self);
     }
     for (self.dylibs.items) |index| {
-        try self.getFile(index).?.writeSymtab(self);
+        try self.getFile(index).?.writeSymtab(self, self);
     }
     if (self.getInternalObject()) |internal| {
-        internal.writeSymtab(self);
+        internal.writeSymtab(self, self);
     }
 
     assert(self.strtab.items.len == cmd.strsize);
@@ -3176,7 +3185,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) 
 
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: InternPool.DeclIndex) !void {
     if (self.llvm_object) |_| return;
-    return self.getZigObject().?.updateDeclLineNumber(module, decl_index);
+    return self.getZigObject().?.updateDeclLineNumber(self, module, decl_index);
 }
 
 pub fn updateExports(
@@ -3909,9 +3918,8 @@ fn reportDuplicates(self: *MachO, dupes: anytype) error{ HasDuplicates, OutOfMem
 }
 
 pub fn getDebugSymbols(self: *MachO) ?*DebugSymbols {
-    if (self.d_sym) |*ds| {
-        return ds;
-    } else return null;
+    if (self.d_sym) |*ds| return ds;
+    return null;
 }
 
 pub fn ptraceAttach(self: *MachO, pid: std.os.pid_t) !void {
