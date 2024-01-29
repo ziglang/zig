@@ -91,7 +91,10 @@ pub const File = union(enum) {
 
     pub fn function(file: File, sym_index: u32) std.wasm.Func {
         switch (file) {
-            .zig_object => |obj| return obj.functions.get(sym_index).?,
+            .zig_object => |obj| {
+                const sym = obj.symbols.items[sym_index];
+                return obj.functions.items[sym.index];
+            },
             .object => |obj| {
                 const sym = obj.symtable[sym_index];
                 return obj.functions[sym.index - obj.imported_functions_count];

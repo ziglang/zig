@@ -819,7 +819,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, file_index: File.Index) !void {
         }
 
         if (symbol.tag != existing_sym.tag) {
-            log.err("symbol '{s}' mismatching type '{s}", .{ sym_name, @tagName(symbol.tag) });
+            log.err("symbol '{s}' mismatching types '{s}' and '{s}'", .{ sym_name, @tagName(symbol.tag), @tagName(existing_sym.tag) });
             log.err("  first definition in '{s}'", .{existing_file_path});
             log.err("  next definition in '{s}'", .{obj_file.path()});
             return error.SymbolMismatchingType;

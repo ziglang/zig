@@ -13,7 +13,9 @@ decls_map: std.AutoHashMapUnmanaged(InternPool.DeclIndex, DeclInfo) = .{},
 func_types: std.ArrayListUnmanaged(std.wasm.Type) = .{},
 /// List of `std.wasm.Func`. Each entry contains the function signature,
 /// rather than the actual body.
-functions: std.AutoHashMapUnmanaged(u32, std.wasm.Func) = .{},
+functions: std.ArrayListUnmanaged(std.wasm.Func) = .{},
+/// List of indexes pointing to an entry within the `functions` list which has been removed.
+functions_free_list: std.ArrayListUnmanaged(u32) = .{},
 /// Map of symbol locations, represented by its `types.Import`.
 imports: std.AutoHashMapUnmanaged(u32, types.Import) = .{},
 /// List of WebAssembly globals.
@@ -320,11 +322,7 @@ fn finishUpdateDecl(
 
     switch (decl.ty.zigTypeTag(mod)) {
         .Fn => {
-            try zig_object.functions.put(
-                gpa,
-                atom.sym_index,
-                .{ .type_index = zig_object.atom_types.get(atom_index).? },
-            );
+            sym.index = try zig_object.appendFunction(gpa, .{ .type_index = zig_object.atom_types.get(atom_index).? });
             sym.tag = .function;
         },
         else => {
@@ -689,6 +687,9 @@ pub fn addOrUpdateImport(
             };
             zig_object.imported_functions_count += 1;
         }
+        sym.tag = .function;
+    } else {
+        sym.tag = .data;
     }
 }
 
@@ -821,10 +822,6 @@ pub fn deleteDeclExport(
         std.debug.assert(zig_object.global_syms.remove(sym.name));
         std.debug.assert(wasm_file.symbol_atom.remove(.{ .file = zig_object.index, .index = sym_index }));
         zig_object.symbols_free_list.append(wasm_file.base.comp.gpa, sym_index) catch {};
-
-        if (sym.tag == .function) {
-            std.debug.assert(zig_object.functions.remove(sym_index));
-        }
         sym.tag = .dead;
     }
 }
@@ -867,17 +864,6 @@ pub fn updateExports(
         else index: {
             const sym_index = try zig_object.allocateSymbol(gpa);
             try decl_info.appendExport(gpa, sym_index);
-
-            // For functions, we also need to put the alias in the function section.
-            // We simply copy the aliased function.
-            // The final linakge will deduplicate these functions.
-            if (decl.ty.zigTypeTag(mod) == .Fn) {
-                try zig_object.functions.putNoClobber(
-                    gpa,
-                    sym_index,
-                    zig_object.functions.get(atom.sym_index).?,
-                );
-            }
             break :index sym_index;
         };
 
@@ -969,7 +955,7 @@ pub fn freeDecl(zig_object: *ZigObject, wasm_file: *Wasm, decl_index: InternPool
     }
     switch (decl.ty.zigTypeTag(mod)) {
         .Fn => {
-            std.debug.assert(zig_object.functions.remove(atom.sym_index));
+            zig_object.functions_free_list.append(gpa, sym.index) catch {};
             std.debug.assert(zig_object.atom_types.remove(atom_index));
         },
         else => {
@@ -1221,7 +1207,7 @@ pub fn createFunction(
     sym.tag = .function;
     sym.name = try zig_object.string_table.insert(gpa, symbol_name);
     const type_index = try zig_object.putOrGetFuncType(gpa, func_ty);
-    try zig_object.functions.putNoClobber(gpa, sym_index, .{ .type_index = type_index });
+    sym.index = try zig_object.appendFunction(gpa, .{ .type_index = type_index });
 
     const atom_index = try wasm_file.createAtom(sym_index, zig_object.index);
     const atom = wasm_file.getAtomPtr(atom_index);
@@ -1230,6 +1216,20 @@ pub fn createFunction(
     atom.relocs = relocations.moveToUnmanaged();
 
     return sym_index;
+}
+
+/// Appends a new `std.wasm.Func` to the list of functions and returns its index.
+fn appendFunction(zig_object: *ZigObject, gpa: std.mem.Allocator, func: std.wasm.Func) !u32 {
+    const index: u32 = if (zig_object.functions_free_list.popOrNull()) |idx|
+        idx
+    else idx: {
+        const len: u32 = @intCast(zig_object.functions.items.len);
+        _ = try zig_object.functions.addOne(gpa);
+        break :idx len;
+    };
+    zig_object.functions.items[index] = func;
+
+    return index;
 }
 
 const build_options = @import("build_options");
