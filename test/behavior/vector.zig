@@ -1566,3 +1566,22 @@ test "@reduce on bool vector" {
     try std.testing.expect(@reduce(.And, a));
     try std.testing.expect(@reduce(.And, b));
 }
+
+test "bitcast vector to array of smaller vectors" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const u8x32 = @Vector(32, u8);
+    const u8x64 = @Vector(64, u8);
+    const S = struct {
+        fn doTheTest(input_vec: u8x64) !void {
+            try compare(@bitCast(input_vec));
+        }
+        fn compare(chunks: [2]u8x32) !void {
+            try expectEqual(@as(u8x32, @splat(1)), chunks[0]);
+            try expectEqual(@as(u8x32, @splat(2)), chunks[1]);
+        }
+    };
+    const input: u8x64 = @bitCast([2]u8x32{ @splat(1), @splat(2) });
+    try S.doTheTest(input);
+}
