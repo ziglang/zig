@@ -733,7 +733,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
         }
 
         /// Writes the compressed form of `input` to the underlying writer.
-        pub fn write(self: *Self, input: []const u8) !usize {
+        pub fn write(self: *Self, input: []const u8) Error!usize {
             var buf = input;
 
             // writes data to hm_bw, which will eventually write the
@@ -756,7 +756,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
         /// If the underlying writer returns an error, `flush()` returns that error.
         ///
         /// In the terminology of the zlib library, Flush is equivalent to Z_SYNC_FLUSH.
-        pub fn flush(self: *Self) !void {
+        pub fn flush(self: *Self) Error!void {
             self.sync = true;
             try self.step();
             try self.hm_bw.writeStoredHeader(0, false);
@@ -956,7 +956,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
         }
 
         /// Writes any pending data to the underlying writer.
-        pub fn close(self: *Self) !void {
+        pub fn close(self: *Self) Error!void {
             self.sync = true;
             try self.step();
             try self.hm_bw.writeStoredHeader(0, true);

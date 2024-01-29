@@ -124,7 +124,8 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             if (self.err) {
                 return;
             }
-            self.bytes_written += try self.inner_writer.write(b);
+            try self.inner_writer.writeAll(b);
+            self.bytes_written += b.len;
         }
 
         fn writeBits(self: *Self, b: u32, nb: u32) Error!void {

@@ -83,7 +83,7 @@ test "best speed" {
                 defer decomp.deinit();
 
                 const read = try decomp.reader().readAll(decompressed);
-                _ = decomp.close();
+                try decomp.close();
 
                 try testing.expectEqual(want.items.len, read);
                 try testing.expectEqualSlices(u8, want.items, decompressed);
@@ -150,7 +150,7 @@ test "best speed max match offset" {
                 var decomp = try inflate.decompressor(testing.allocator, fib.reader(), null);
                 defer decomp.deinit();
                 const read = try decomp.reader().readAll(decompressed);
-                _ = decomp.close();
+                try decomp.close();
 
                 try testing.expectEqual(src.len, read);
                 try testing.expectEqualSlices(u8, src, decompressed);
