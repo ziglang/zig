@@ -1550,6 +1550,8 @@ pub const Value = struct {
                 },
                 .ptr => |ptr| switch (ptr.addr) {
                     .eu_payload, .opt_payload => |base| Value.fromInterned(base).canMutateComptimeVarState(mod),
+                    .anon_decl => |anon_decl| Value.fromInterned(anon_decl.val).canMutateComptimeVarState(mod),
+                    .elem, .field => |base_index| Value.fromInterned(base_index.base).canMutateComptimeVarState(mod),
                     else => false,
                 },
                 .opt => |opt| switch (opt.val) {
