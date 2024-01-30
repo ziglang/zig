@@ -231,17 +231,17 @@ pub fn renameW(old_dir: Dir, old_sub_path_w: []const u16, new_dir: Dir, new_sub_
 /// On POSIX targets, this function is comptime-callable.
 pub fn cwd() Dir {
     if (builtin.os.tag == .windows) {
-        return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
+        return .{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
     } else if (builtin.os.tag == .wasi) {
-        return std.options.wasiCwd();
+        return .{ .fd = std.options.wasiCwd() };
     } else {
-        return Dir{ .fd = os.AT.FDCWD };
+        return .{ .fd = os.AT.FDCWD };
     }
 }
 
-pub fn defaultWasiCwd() Dir {
+pub fn defaultWasiCwd() std.os.wasi.fd_t {
     // Expect the first preopen to be current working directory.
-    return .{ .fd = 3 };
+    return 3;
 }
 
 /// Opens a directory at the given path. The directory is a system resource that remains
