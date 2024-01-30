@@ -12,5 +12,5 @@ export fn entry(foo: Foo) void {
 // target=native
 //
 // :6:17: error: parameter of type 'tmp.Foo' not allowed in function with calling convention 'C'
-// :6:17: note: only extern unions and ABI sized packed unions are extern compatible
+// :6:17: note: only empty union without comptime dependency are extern compatible
 // :1:13: note: union declared here

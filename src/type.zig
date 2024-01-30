@@ -2700,6 +2700,12 @@ pub const Type = struct {
                         try sema.resolveTypeFieldsUnion(ty, union_type);
 
                         const union_obj = ip.loadUnionType(union_type);
+
+                        if (try Type.fromInterned(union_obj.enum_tag_ty).comptimeOnlyAdvanced(mod, opt_sema)) {
+                            union_obj.flagsPtr(ip).requires_comptime = .yes;
+                            return true;
+                        }
+
                         for (0..union_obj.field_types.len) |field_idx| {
                             const field_ty = union_obj.field_types.get(ip)[field_idx];
                             if (try Type.fromInterned(field_ty).comptimeOnlyAdvanced(mod, opt_sema)) {

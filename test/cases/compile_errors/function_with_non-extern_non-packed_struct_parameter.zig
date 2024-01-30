@@ -12,5 +12,5 @@ export fn entry(foo: Foo) void {
 // target=native
 //
 // :6:17: error: parameter of type 'tmp.Foo' not allowed in function with calling convention 'C'
-// :6:17: note: only extern structs and ABI sized packed structs are extern compatible
+// :6:17: note: only empty struct without comptime dependency are extern compatible
 // :1:13: note: struct declared here

@@ -26188,7 +26188,7 @@ fn validateExternType(
                     else => return false,
                 }
             },
-            .Auto => return !(try sema.typeHasRuntimeBits(ty)),
+            .Auto => return !(try sema.typeHasRuntimeBits(ty) or try sema.typeRequiresComptime(ty)),
         },
         .Array => {
             if (position == .ret_ty or position == .param_ty) return false;
@@ -26264,8 +26264,16 @@ fn explainWhyTypeIsNotExtern(
             try mod.errNoteNonLazy(src_loc, msg, "enum tag type '{}' is not extern compatible", .{tag_ty.fmt(sema.mod)});
             try sema.explainWhyTypeIsNotExtern(msg, src_loc, tag_ty, position);
         },
-        .Struct => try mod.errNoteNonLazy(src_loc, msg, "only extern structs and ABI sized packed structs are extern compatible", .{}),
-        .Union => try mod.errNoteNonLazy(src_loc, msg, "only extern unions and ABI sized packed unions are extern compatible", .{}),
+        .Struct => switch (ty.containerLayout(mod)) {
+            .Extern => return,
+            .Packed => try mod.errNoteNonLazy(src_loc, msg, "only 0, 8, 16, 32, 64 and 128 bits sized packed structs are extern compatible", .{}),
+            .Auto => try mod.errNoteNonLazy(src_loc, msg, "only empty struct without comptime dependency are extern compatible", .{}),
+        },
+        .Union => switch (ty.containerLayout(mod)) {
+            .Extern => return,
+            .Packed => try mod.errNoteNonLazy(src_loc, msg, "only 0, 8, 16, 32, 64 and 128 bits sized packed unions are extern compatible", .{}),
+            .Auto => try mod.errNoteNonLazy(src_loc, msg, "only empty union without comptime dependency are extern compatible", .{}),
+        },
         .Array => {
             if (position == .ret_ty) {
                 return mod.errNoteNonLazy(src_loc, msg, "arrays are not allowed as a return type", .{});
