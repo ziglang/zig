@@ -3155,11 +3155,11 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
 pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
     if (builtin.os.tag == .windows) {
         var utf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
-        const len = try std.unicode.utf8ToUtf16Le(utf16_dir_path[0..], dir_path);
+        const len = try std.unicode.utf8ToUtf16Le(utf16_dir_path[0..], mem.span(dir_path));
         if (len > utf16_dir_path.len) return error.NameTooLong;
         return chdirW(utf16_dir_path[0..len]);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        return chdir(mem.sliceTo(dir_path, 0));
+        return chdir(mem.span(dir_path));
     }
     switch (errno(system.chdir(dir_path))) {
         .SUCCESS => return,
