@@ -268,29 +268,34 @@ pub const IO_Uring = struct {
     /// See https://github.com/axboe/liburing/issues/103#issuecomment-686665007.
     /// Matches the implementation of io_uring_peek_batch_cqe() in liburing, but supports waiting.
     pub fn copy_cqes(self: *IO_Uring, cqes: []linux.io_uring_cqe, wait_nr: u32) !u32 {
-        const count = self.copy_cqes_ready(cqes, wait_nr);
+        const count = self.copy_cqes_ready(cqes);
         if (count > 0) return count;
         if (self.cq_ring_needs_flush() or wait_nr > 0) {
             _ = try self.enter(0, wait_nr, linux.IORING_ENTER_GETEVENTS);
-            return self.copy_cqes_ready(cqes, wait_nr);
+            return self.copy_cqes_ready(cqes);
         }
         return 0;
     }
 
-    fn copy_cqes_ready(self: *IO_Uring, cqes: []linux.io_uring_cqe, wait_nr: u32) u32 {
-        _ = wait_nr;
+    fn copy_cqes_ready(self: *IO_Uring, cqes: []linux.io_uring_cqe) u32 {
         const ready = self.cq_ready();
         const count = @min(cqes.len, ready);
-        var head = self.cq.head.*;
-        const tail = head +% count;
-        // TODO Optimize this by using 1 or 2 memcpy's (if the tail wraps) rather than a loop.
-        var i: usize = 0;
-        // Do not use "less-than" operator since head and tail may wrap:
-        while (head != tail) {
-            cqes[i] = self.cq.cqes[head & self.cq.mask]; // Copy struct by value.
-            head +%= 1;
-            i += 1;
+        const head = self.cq.head.* & self.cq.mask;
+        const tail = (self.cq.head.* +% count) & self.cq.mask;
+
+        if (head <= tail) {
+            // head behind tail -> no wrapping
+            @memcpy(cqes[0..count], self.cq.cqes[head..tail]);
+        } else {
+            // head in front of tail -> buffer wraps
+            const two_copies_required: bool = self.cq.cqes.len - head < count;
+            const amount_to_copy_in_first = if (two_copies_required) self.cq.cqes.len - head else count;
+            @memcpy(cqes[0..amount_to_copy_in_first], self.cq.cqes[head .. head + amount_to_copy_in_first]);
+            if (two_copies_required) {
+                @memcpy(cqes[amount_to_copy_in_first..count], self.cq.cqes[0..tail]);
+            }
         }
+
         self.cq_advance(count);
         return count;
     }
