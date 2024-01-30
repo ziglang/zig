@@ -87,15 +87,9 @@ pub fn addModule(self: *TranslateC, name: []const u8) *std.Build.Module {
 /// current package, but not exposed to other packages depending on this one.
 /// `addModule` can be used instead to create a public module.
 pub fn createModule(self: *TranslateC) *std.Build.Module {
-    const b = self.step.owner;
-    const module = b.allocator.create(std.Build.Module) catch @panic("OOM");
-
-    module.* = .{
-        .builder = b,
+    return self.step.owner.createModule(.{
         .root_source_file = self.getOutput(),
-        .dependencies = std.StringArrayHashMap(*std.Build.Module).init(b.allocator),
-    };
-    return module;
+    });
 }
 
 pub fn addIncludeDir(self: *TranslateC, include_dir: []const u8) void {
