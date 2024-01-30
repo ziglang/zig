@@ -930,7 +930,25 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn bar() void {
         \\    var func_ptr: ?*anyopaque = @as(?*anyopaque, @ptrCast(&foo));
         \\    _ = &func_ptr;
-        \\    var typed_func_ptr: ?*const fn () callconv(.C) void = @as(?*const fn () callconv(.C) void, @ptrFromInt(@as(c_ulong, @intCast(@intFromPtr(func_ptr)))));
+        \\    var typed_func_ptr: ?*const fn () callconv(.C) void = blk: {
+        \\        if (@sizeOf(c_ulong) > @sizeOf(?*const fn () callconv(.C) void)) {
+        \\            break :blk @as(?*const fn () callconv(.C) void, @ptrFromInt(@as(usize, @truncate(blk: {
+        \\                if (@sizeOf(?*anyopaque) > @sizeOf(c_ulong)) {
+        \\                    break :blk @as(c_ulong, @truncate(@intFromPtr(func_ptr)));
+        \\                } else {
+        \\                    break :blk @as(c_ulong, @intFromPtr(func_ptr));
+        \\                }
+        \\            }))));
+        \\        } else {
+        \\            break :blk @as(?*const fn () callconv(.C) void, @ptrFromInt(@as(usize, blk: {
+        \\                if (@sizeOf(?*anyopaque) > @sizeOf(c_ulong)) {
+        \\                    break :blk @as(c_ulong, @truncate(@intFromPtr(func_ptr)));
+        \\                } else {
+        \\                    break :blk @as(c_ulong, @intFromPtr(func_ptr));
+        \\                }
+        \\            })));
+        \\        }
+        \\    };
         \\    _ = &typed_func_ptr;
         \\}
     });
@@ -3423,8 +3441,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    fn_bool(@as(c_int, 123) != 0);
         \\    fn_bool(@as(c_int, 0) != 0);
         \\    fn_bool(@intFromPtr(&fn_int) != 0);
-        \\    fn_int(@as(c_int, @intCast(@intFromPtr(&fn_int))));
-        \\    fn_ptr(@as(?*anyopaque, @ptrFromInt(@as(c_int, 42))));
+        \\    fn_int(blk: {
+        \\        if (@sizeOf(?*const fn (c_int) callconv(.C) void) > @sizeOf(c_int)) {
+        \\            break :blk @as(c_int, @bitCast(@as(c_uint, @truncate(@intFromPtr(&fn_int)))));
+        \\        } else {
+        \\            break :blk @as(c_int, @bitCast(@as(c_uint, @intFromPtr(&fn_int))));
+        \\        }
+        \\    });
+        \\    fn_ptr(blk: {
+        \\        if (@sizeOf(c_int) > @sizeOf(?*anyopaque)) {
+        \\            break :blk @as(?*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, @truncate(@as(c_int, 42)))))));
+        \\        } else {
+        \\            break :blk @as(?*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, @as(c_int, 42))))));
+        \\        }
+        \\    });
         \\}
     });
 

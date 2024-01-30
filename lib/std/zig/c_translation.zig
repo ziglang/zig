@@ -121,6 +121,10 @@ test "cast" {
     try testing.expectEqual(@as(u32, 4), cast(u32, @as(?*u32, @ptrFromInt(4))));
     try testing.expectEqual(@as(u32, 10), cast(u32, @as(u64, 10)));
 
+    try testing.expectEqual(@as(i32, 4), cast(i32, @as(*u32, @ptrFromInt(4))));
+    try testing.expectEqual(@as(i32, 4), cast(i32, @as(?*u32, @ptrFromInt(4))));
+    try testing.expectEqual(@as(i32, 10), cast(i32, @as(u64, 10)));
+
     try testing.expectEqual(@as(i32, @bitCast(@as(u32, 0x8000_0000))), cast(i32, @as(u32, 0x8000_0000)));
 
     try testing.expectEqual(@as(*u8, @ptrFromInt(2)), cast(*u8, @as(*const u8, @ptrFromInt(2))));
@@ -128,8 +132,7 @@ test "cast" {
 
     try testing.expectEqual(@as(?*anyopaque, @ptrFromInt(2)), cast(?*anyopaque, @as(*u8, @ptrFromInt(2))));
 
-    var foo: c_int = -1;
-    _ = &foo;
+    const foo: c_int = -1;
     try testing.expect(cast(*anyopaque, -1) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
     try testing.expect(cast(*anyopaque, foo) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
     try testing.expect(cast(?*anyopaque, -1) == @as(?*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));

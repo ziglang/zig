@@ -2357,20 +2357,176 @@ fn transCCast(
             .rhs = try Tag.bit_cast.create(c.arena, expr),
         });
     }
-    if (cIsInteger(dst_type) and qualTypeIsPtr(src_type)) {
-        // @intCast(dest_type, @intFromPtr(val))
-        const int_from_ptr = try Tag.int_from_ptr.create(c.arena, expr);
-        return Tag.as.create(c.arena, .{
-            .lhs = dst_node,
-            .rhs = try Tag.int_cast.create(c.arena, int_from_ptr),
+    if (qualTypeIsPtr(src_type) and cIsInteger(dst_type)) {
+        // Steps:
+        // 1. @intFromPtr(src_ptr)
+        // 2. Truncate if pointer width is wider than dst int
+        // 3. Cast to unsigned int of destination size
+        // 4. If dest int is signed, bitcast.
+        //
+        // We don't know if the dest int type has a shorter width than the pointer,
+        // until compile-time, so we need to add a check in the generated code
+        // in case a @truncate() cast is needed.
+        //
+        // Example:
+        //  (blk: {
+        //      if(@sizeOf(src_ptr_type) > @sizeOf(dst_int_type)) {
+        //          break :blk @as(c_ulong, @truncate(@intFromPtr(expr)));
+        //      }
+        //      else {
+        //          break :blk @as(c_ulong, @intFromPtr(expr));
+        //      }
+        //      break blk: _tmp
+        //  })
+
+        var block_scope = try Scope.Block.init(c, scope, true);
+        defer block_scope.deinit();
+
+        var src_ptr_expr = try Tag.int_from_ptr.create(c.arena, expr);
+        var src_ptr_expr_with_truncate = try Tag.truncate.create(c.arena, src_ptr_expr);
+
+        const ty_node = try transQualTypeIntWidthOf(c, dst_type, false);
+        src_ptr_expr = try Tag.as.create(c.arena, .{
+            .lhs = ty_node,
+            .rhs = src_ptr_expr,
         });
+        src_ptr_expr_with_truncate = try Tag.as.create(c.arena, .{
+            .lhs = ty_node,
+            .rhs = src_ptr_expr_with_truncate,
+        });
+
+        const src_node = try transQualType(c, scope, src_type, loc);
+        const type_size_cond_stmt = try Tag.greater_than.create(c.arena, .{
+            .lhs = try Tag.sizeof.create(c.arena, src_node),
+            .rhs = try Tag.sizeof.create(c.arena, dst_node),
+        });
+
+        if (cIsSignedInteger(dst_type)) {
+            src_ptr_expr = try Tag.as.create(c.arena, .{
+                .lhs = dst_node,
+                .rhs = try Tag.bit_cast.create(c.arena, src_ptr_expr),
+            });
+            src_ptr_expr_with_truncate = try Tag.as.create(c.arena, .{
+                .lhs = dst_node,
+                .rhs = try Tag.bit_cast.create(c.arena, src_ptr_expr_with_truncate),
+            });
+        }
+
+        const if_break_node = try Tag.break_val.create(c.arena, .{
+            .label = block_scope.label,
+            .val = src_ptr_expr_with_truncate,
+        });
+        var if_block_scope = try Scope.Block.init(c, scope, false);
+        defer if_block_scope.deinit();
+        try if_block_scope.statements.append(if_break_node);
+
+        const else_break_node = try Tag.break_val.create(c.arena, .{
+            .label = block_scope.label,
+            .val = src_ptr_expr,
+        });
+        var else_block_scope = try Scope.Block.init(c, scope, false);
+        defer else_block_scope.deinit();
+        try else_block_scope.statements.append(else_break_node);
+
+        const if_node = try Tag.@"if".create(c.arena, .{
+            .cond = type_size_cond_stmt,
+            .then = try if_block_scope.complete(c),
+            .@"else" = try else_block_scope.complete(c),
+        });
+        try block_scope.statements.append(if_node);
+        return block_scope.complete(c);
     }
     if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
-        // @as(dest_type, @ptrFromInt(val))
-        return Tag.as.create(c.arena, .{
-            .lhs = dst_node,
-            .rhs = try Tag.ptr_from_int.create(c.arena, expr),
+        // Steps:
+        // 1. If src int is wider than ptr width, truncate
+        // 2. If src int is signed, cast to isize and then bitCast
+        // 3. Cast to usize
+        // 4. @as(dst_type, @ptrFromInt(usizeFromInt))
+        //
+        // We don't know if the dst pointer type has a shorter width than the src
+        // int, until compile-time, so we need to add a check in the generated
+        // code in case a @truncate() cast is needed.
+        //
+        // Example:
+        //  blk: {
+        //      if(@sizeOf(src_int_type) > @sizeOf(dst_ptr_type)) {
+        //          break :blk @truncate(expr)
+        //      }
+        //      else {
+        //          break :blk expr
+        //      }
+        //  }
+
+        var block_scope = try Scope.Block.init(c, scope, true);
+        defer block_scope.deinit();
+
+        var src_int_expr = expr;
+        var src_int_expr_with_truncate = try Tag.truncate.create(c.arena, src_int_expr);
+
+        // @bitCast(@as(isize, signedInt))
+        if (cIsSignedInteger(src_type)) {
+            src_int_expr = try Tag.as.create(c.arena, .{
+                .lhs = try Tag.type.create(c.arena, "isize"),
+                .rhs = src_int_expr,
+            });
+            src_int_expr = try Tag.bit_cast.create(c.arena, src_int_expr);
+
+            src_int_expr_with_truncate = try Tag.as.create(c.arena, .{
+                .lhs = try Tag.type.create(c.arena, "isize"),
+                .rhs = src_int_expr_with_truncate,
+            });
+            src_int_expr_with_truncate = try Tag.bit_cast.create(c.arena, src_int_expr_with_truncate);
+        }
+
+        // @as(usize, src_int_expr)
+        src_int_expr = try Tag.as.create(c.arena, .{
+            .lhs = try Tag.type.create(c.arena, "usize"),
+            .rhs = src_int_expr,
         });
+        src_int_expr_with_truncate = try Tag.as.create(c.arena, .{
+            .lhs = try Tag.type.create(c.arena, "usize"),
+            .rhs = src_int_expr_with_truncate,
+        });
+
+        const src_node = try transQualType(c, scope, src_type, loc);
+        const type_size_cond_stmt = try Tag.greater_than.create(c.arena, .{
+            .lhs = try Tag.sizeof.create(c.arena, src_node),
+            .rhs = try Tag.sizeof.create(c.arena, dst_node),
+        });
+
+        // @as(destPtrType, @ptrFromInt(usizeFromInt)))
+        src_int_expr = try Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.ptr_from_int.create(c.arena, src_int_expr),
+        });
+        src_int_expr_with_truncate = try Tag.as.create(c.arena, .{
+            .lhs = dst_node,
+            .rhs = try Tag.ptr_from_int.create(c.arena, src_int_expr_with_truncate),
+        });
+
+        const if_break_node = try Tag.break_val.create(c.arena, .{
+            .label = block_scope.label,
+            .val = src_int_expr_with_truncate,
+        });
+        var if_block_scope = try Scope.Block.init(c, scope, false);
+        defer if_block_scope.deinit();
+        try if_block_scope.statements.append(if_break_node);
+
+        const else_break_node = try Tag.break_val.create(c.arena, .{
+            .label = block_scope.label,
+            .val = src_int_expr,
+        });
+        var else_block_scope = try Scope.Block.init(c, scope, false);
+        defer else_block_scope.deinit();
+        try else_block_scope.statements.append(else_break_node);
+
+        const if_node = try Tag.@"if".create(c.arena, .{
+            .cond = type_size_cond_stmt,
+            .then = try if_block_scope.complete(c),
+            .@"else" = try else_block_scope.complete(c),
+        });
+        try block_scope.statements.append(if_node);
+        return block_scope.complete(c);
     }
     if (cIsFloating(src_type) and cIsFloating(dst_type)) {
         // @as(dest_type, @floatCast(val))
