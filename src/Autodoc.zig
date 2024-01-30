@@ -934,6 +934,8 @@ const AutodocErrors = error{
     OutOfMemory,
     CurrentWorkingDirectoryUnlinked,
     UnexpectedEndOfFile,
+    ModuleNotFound,
+    ImportOutsideModulePath,
 } || std.fs.File.OpenError || std.fs.File.ReadError;
 
 /// `call` instructions will have loopy references to themselves
@@ -1058,7 +1060,7 @@ fn walkInstruction(
                 );
             }
 
-            const new_file = self.zcu.importFile(file, path) catch unreachable;
+            const new_file = try self.zcu.importFile(file, path);
             const result = try self.files.getOrPut(self.arena, new_file.file);
             if (result.found_existing) {
                 return DocData.WalkResult{
