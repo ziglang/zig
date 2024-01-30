@@ -381,6 +381,26 @@ test "union with only 1 field which is void should be zero bits" {
     comptime assert(@sizeOf(ZeroBits) == 0);
 }
 
+test "assigning to union with zero size field" {
+    const U = union {
+        a: u32,
+        b: void,
+        c: f32,
+    };
+
+    const u: U = .{ .b = {} };
+    _ = u;
+
+    const UE = union(enum) {
+        a: f32,
+        b: u32,
+        c: u0,
+    };
+
+    const ue: UE = .{ .c = 0 };
+    _ = ue;
+}
+
 test "tagged union initialization with runtime void" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;

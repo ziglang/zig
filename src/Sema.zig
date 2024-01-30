@@ -4624,6 +4624,8 @@ fn validateUnionInit(
     // If the union is comptime, we want `first_block_index`
     // to point at %c so that the bitcast becomes the last instruction in the block.
     //
+    // Store instruction may be missing; if field type has only one possible value, this case is handled below.
+    //
     // In the case of a comptime-known pointer to a union, the
     // the field_ptr instruction is missing, so we have to pattern-match
     // based only on the store instructions.
@@ -4634,7 +4636,10 @@ fn validateUnionInit(
     var init_val: ?Value = null;
     while (block_index > 0) : (block_index -= 1) {
         const store_inst = block.instructions.items[block_index];
-        if (store_inst.toRef() == field_ptr_ref) break;
+        if (store_inst.toRef() == field_ptr_ref) {
+            first_block_index = block_index;
+            break;
+        }
         switch (air_tags[@intFromEnum(store_inst)]) {
             .store, .store_safe => {},
             else => continue,
@@ -4659,6 +4664,11 @@ fn validateUnionInit(
 
     const tag_ty = union_ty.unionTagTypeHypothetical(mod);
     const tag_val = try mod.enumValueFieldIndex(tag_ty, field_index);
+    const field_type = union_ty.unionFieldType(tag_val, mod).?;
+
+    if (try sema.typeHasOnePossibleValue(field_type)) |field_only_value| {
+        init_val = field_only_value;
+    }
 
     if (init_val) |val| {
         // Our task is to delete all the `field_ptr` and `store` instructions, and insert
