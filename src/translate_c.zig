@@ -2505,6 +2505,11 @@ fn transInitListExprRecord(
     var field_inits = std.ArrayList(ast.Payload.ContainerInit.Initializer).init(c.gpa);
     defer field_inits.deinit();
 
+    if (init_count == 0) {
+        const source_loc = @as(*const clang.Expr, @ptrCast(expr)).getBeginLoc();
+        return transZeroInitExpr(c, scope, source_loc, ty);
+    }
+
     var init_i: c_uint = 0;
     var it = record_def.field_begin();
     const end_it = record_def.field_end();
