@@ -144,7 +144,10 @@ pub const IO_Uring = struct {
 
     /// Submits the SQEs acquired via get_sqe() to the kernel. You can call this once after you have
     /// called get_sqe() multiple times to setup multiple I/O requests.
-    /// Returns the number of SQEs submitted.
+    /// Returns the number of SQEs submitted, if not used alongside IORING_SETUP_SQPOLL.
+    /// If the io_uring instance is uses IORING_SETUP_SQPOLL, the value returned on success is not
+    /// guaranteed to match the amount of actually submitted sqes during this call. A value higher
+    /// or lower, including 0, may be returned.
     /// Matches the implementation of io_uring_submit() in liburing.
     pub fn submit(self: *IO_Uring) !u32 {
         return self.submit_and_wait(0);
