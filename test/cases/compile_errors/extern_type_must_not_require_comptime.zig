@@ -19,10 +19,10 @@ export fn entry3(v: S) void {
 //
 // :2:18: error: parameter of type 'tmp.UE' not allowed in function with calling convention 'C'
 // :2:18: note: only empty union without comptime dependency are extern compatible
-// :1:14: note: union declared here
+// :1:12: note: union declared here
 // :7:18: error: parameter of type 'tmp.U' not allowed in function with calling convention 'C'
 // :7:18: note: only empty union without comptime dependency are extern compatible
-// :6:14: note: union declared here
+// :6:11: note: union declared here
 // :12:18: error: parameter of type 'tmp.S' not allowed in function with calling convention 'C'
 // :12:18: note: only empty struct without comptime dependency are extern compatible
-// :11:14: note: struct declared here
+// :11:11: note: struct declared here
