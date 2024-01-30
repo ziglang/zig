@@ -5248,11 +5248,6 @@ pub fn populateTestFunctions(
         const test_fn_vals = try gpa.alloc(InternPool.Index, mod.test_functions.count());
         defer gpa.free(test_fn_vals);
 
-        // Add a dependency on each test name and function pointer.
-        var array_decl_dependencies = std.ArrayListUnmanaged(Decl.Index){};
-        defer array_decl_dependencies.deinit(gpa);
-        try array_decl_dependencies.ensureUnusedCapacity(gpa, test_fn_vals.len * 2);
-
         for (test_fn_vals, mod.test_functions.keys()) |*test_fn_val, test_decl_index| {
             const test_decl = mod.declPtr(test_decl_index);
             // TODO: write something like getCoercedInts to avoid needing to dupe
@@ -5272,8 +5267,6 @@ pub fn populateTestFunctions(
                 });
                 break :n test_name_decl_index;
             };
-            array_decl_dependencies.appendAssumeCapacity(test_decl_index);
-            array_decl_dependencies.appendAssumeCapacity(test_name_decl_index);
             try mod.linkerUpdateDecl(test_name_decl_index);
 
             const test_fn_fields = .{
