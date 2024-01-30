@@ -65,8 +65,7 @@ stage3/bin/zig build \
   -Duse-zig-libcxx \
   -Dversion-string="$(stage3/bin/zig version)"
 
-# Disabled due to https://github.com/ziglang/zig/issues/15197
-## diff returns an error code if the files differ.
-#echo "If the following command fails, it means nondeterminism has been"
-#echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
-#diff stage3/bin/zig stage4/bin/zig
+# diff returns an error code if the files differ.
+echo "If the following command fails, it means nondeterminism has been"
+echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
+diff stage3/bin/zig stage4/bin/zig

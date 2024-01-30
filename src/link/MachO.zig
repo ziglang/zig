@@ -610,7 +610,10 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
             if (mem.indexOf(u8, sect.segName(), "ZIG") == null) continue; // Non-Zig sections are handled separately
             // TODO: we will resolve and write ZigObject's TLS data twice:
             // once here, and once in writeAtoms
-            const code = zo.getAtomDataAlloc(self, gpa, atom.*) catch |err| switch (err) {
+            const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
+            const code = try gpa.alloc(u8, atom_size);
+            defer gpa.free(code);
+            atom.getData(self, code) catch |err| switch (err) {
                 error.InputOutput => {
                     try self.reportUnexpectedError("fetching code for '{s}' failed", .{
                         atom.getName(self),
@@ -625,7 +628,6 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
                     return error.FlushFailure;
                 },
             };
-            defer gpa.free(code);
             const file_offset = sect.offset + atom.value - sect.addr;
             atom.resolveRelocs(self, code) catch |err| switch (err) {
                 error.ResolveFailed => has_resolve_error = true,
@@ -974,17 +976,15 @@ fn parseObject(self: *MachO, path: []const u8) ParseError!void {
 
     const gpa = self.base.comp.gpa;
     const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
     const mtime: u64 = mtime: {
         const stat = file.stat() catch break :mtime 0;
         break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
     };
-    const data = try file.readToEndAlloc(gpa, std.math.maxInt(u32));
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .object = .{
         .path = try gpa.dupe(u8, path),
+        .file = file,
         .mtime = mtime,
-        .data = data,
         .index = index,
     } });
     try self.objects.append(gpa, index);
@@ -1013,17 +1013,9 @@ fn parseArchive(self: *MachO, lib: SystemLib, must_link: bool, fat_arch: ?fat.Ar
     const file = try std.fs.cwd().openFile(lib.path, .{});
     defer file.close();
 
-    const data = if (fat_arch) |arch| blk: {
-        try file.seekTo(arch.offset);
-        const data = try gpa.alloc(u8, arch.size);
-        const nread = try file.readAll(data);
-        if (nread != arch.size) return error.InputOutput;
-        break :blk data;
-    } else try file.readToEndAlloc(gpa, std.math.maxInt(u32));
-
-    var archive = Archive{ .path = try gpa.dupe(u8, lib.path), .data = data };
+    var archive = Archive{};
     defer archive.deinit(gpa);
-    try archive.parse(self);
+    try archive.parse(self, lib.path, file, fat_arch);
 
     var has_parse_error = false;
     for (archive.objects.items) |extracted| {
@@ -1058,18 +1050,9 @@ fn parseDylib(self: *MachO, lib: SystemLib, explicit: bool, fat_arch: ?fat.Arch)
     const file = try std.fs.cwd().openFile(lib.path, .{});
     defer file.close();
 
-    const data = if (fat_arch) |arch| blk: {
-        try file.seekTo(arch.offset);
-        const data = try gpa.alloc(u8, arch.size);
-        const nread = try file.readAll(data);
-        if (nread != arch.size) return error.InputOutput;
-        break :blk data;
-    } else try file.readToEndAlloc(gpa, std.math.maxInt(u32));
-
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .dylib = .{
         .path = try gpa.dupe(u8, lib.path),
-        .data = data,
         .index = index,
         .needed = lib.needed,
         .weak = lib.weak,
@@ -1077,7 +1060,7 @@ fn parseDylib(self: *MachO, lib: SystemLib, explicit: bool, fat_arch: ?fat.Arch)
         .explicit = explicit,
     } });
     const dylib = &self.files.items(.data)[index].dylib;
-    try dylib.parse(self);
+    try dylib.parse(self, file, fat_arch);
 
     try self.dylibs.append(gpa, index);
 
@@ -1098,7 +1081,6 @@ fn parseTbd(self: *MachO, lib: SystemLib, explicit: bool) ParseError!File.Index 
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .dylib = .{
         .path = try gpa.dupe(u8, lib.path),
-        .data = &[0]u8{},
         .index = index,
         .needed = lib.needed,
         .weak = lib.weak,
@@ -1404,6 +1386,8 @@ pub fn resolveSymbols(self: *MachO) !void {
         const index = self.objects.items[i];
         if (!self.getFile(index).?.object.alive) {
             _ = self.objects.orderedRemove(i);
+            self.files.items(.data)[index].object.deinit(self.base.comp.gpa);
+            self.files.set(index, .null);
         } else i += 1;
     }
 
@@ -1511,18 +1495,13 @@ fn createObjcSections(self: *MachO) !void {
     }
 
     for (objc_msgsend_syms.keys()) |sym_index| {
+        const internal = self.getInternalObject().?;
         const sym = self.getSymbol(sym_index);
-        sym.value = 0;
-        sym.atom = 0;
-        sym.nlist_idx = 0;
-        sym.file = self.internal_object.?;
-        sym.flags = .{};
+        _ = try internal.addSymbol(sym.getName(self), self);
         sym.visibility = .hidden;
-        const object = self.getInternalObject().?;
         const name = eatPrefix(sym.getName(self), "_objc_msgSend$").?;
-        const selrefs_index = try object.addObjcMsgsendSections(name, self);
+        const selrefs_index = try internal.addObjcMsgsendSections(name, self);
         try sym.addExtra(.{ .objc_selrefs = selrefs_index }, self);
-        try object.symbols.append(gpa, sym_index);
     }
 }
 
@@ -1659,6 +1638,8 @@ fn deadStripDylibs(self: *MachO) void {
         const index = self.dylibs.items[i];
         if (!self.getFile(index).?.dylib.isAlive(self)) {
             _ = self.dylibs.orderedRemove(i);
+            self.files.items(.data)[index].dylib.deinit(self.base.comp.gpa);
+            self.files.set(index, .null);
         } else i += 1;
     }
 }
@@ -2609,13 +2590,8 @@ fn writeAtoms(self: *MachO) !void {
             const atom = self.getAtom(atom_index).?;
             assert(atom.flags.alive);
             const off = math.cast(usize, atom.value - header.addr) orelse return error.Overflow;
-            const data = switch (atom.getFile(self)) {
-                .object => |x| try x.getAtomData(atom.*),
-                .zig_object => |x| try x.getAtomDataAlloc(self, arena.allocator(), atom.*),
-                else => unreachable,
-            };
             const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
-            @memcpy(buffer[off..][0..atom_size], data);
+            try atom.getData(self, buffer[off..][0..atom_size]);
             atom.resolveRelocs(self, buffer[off..][0..atom_size]) catch |err| switch (err) {
                 error.ResolveFailed => has_resolve_error = true,
                 else => |e| return e,
@@ -3734,6 +3710,7 @@ pub fn getOrCreateGlobal(self: *MachO, off: u32) !GetOrCreateGlobalResult {
         const index = try self.addSymbol();
         const global = self.getSymbol(index);
         global.name = off;
+        global.flags.global = true;
         gop.value_ptr.* = index;
     }
     return .{
