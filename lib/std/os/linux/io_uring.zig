@@ -153,6 +153,13 @@ pub const IO_Uring = struct {
         return self.submit_and_wait(0);
     }
 
+    /// Like submit(), but recommended to be used when the IO_URing instance is setup with
+    /// IORING_SETUP_SQPOLL, as it does not return the, in this case, meaningless value.
+    pub fn submit_sq_poll(self: *IO_Uring) void {
+        assert((self.flags & linux.IORING_SETUP_SQPOLL) != 0);
+        _ = self.flush_sq();
+    }
+
     /// Like submit(), but allows waiting for events as well.
     /// Returns the number of SQEs submitted.
     /// Matches the implementation of io_uring_submit_and_wait() in liburing.
