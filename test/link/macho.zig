@@ -54,6 +54,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         macho_step.dependOn(testEntryPointArchive(b, .{ .target = default_target }));
         macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
         macho_step.dependOn(testDylib(b, .{ .target = default_target }));
+        macho_step.dependOn(testDylibVersionTbd(b, .{ .target = default_target }));
         macho_step.dependOn(testNeededLibrary(b, .{ .target = default_target }));
         macho_step.dependOn(testSearchStrategy(b, .{ .target = default_target }));
         macho_step.dependOn(testTbdv3(b, .{ .target = default_target }));
@@ -239,6 +240,42 @@ fn testDylib(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world");
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testDylibVersionTbd(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-dylib-version-tbd", opts);
+
+    const tbd = tbd: {
+        const wf = WriteFile.create(b);
+        break :tbd wf.add("liba.tbd",
+            \\--- !tapi-tbd
+            \\tbd-version:     4
+            \\targets:         [ x86_64-macos, arm64-macos ]
+            \\uuids:
+            \\  - target:          x86_64-macos
+            \\    value:           DEADBEEF
+            \\  - target:          arm64-macos
+            \\    value:           BEEFDEAD
+            \\install-name:    '@rpath/liba.dylib'
+            \\current-version: 1.2
+            \\exports:
+            \\  - targets:     [ x86_64-macos, arm64-macos ]
+            \\    symbols:     [ _foo ]
+        );
+    };
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() {}" });
+    exe.root_module.linkSystemLibrary("a", .{});
+    exe.root_module.addLibraryPath(tbd.dirname());
+
+    const check = exe.checkObject();
+    check.checkInHeaders();
+    check.checkExact("cmd LOAD_DYLIB");
+    check.checkExact("name @rpath/liba.dylib");
+    check.checkExact("current version 10200");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }

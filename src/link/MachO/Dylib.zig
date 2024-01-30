@@ -803,7 +803,7 @@ pub const Id = struct {
                 },
                 .float => |float| {
                     var buf: [256]u8 = undefined;
-                    break :blk try fmt.bufPrint(&buf, "{d:.2}", .{float});
+                    break :blk try fmt.bufPrint(&buf, "{d}", .{float});
                 },
                 .string => |string| {
                     break :blk string;
