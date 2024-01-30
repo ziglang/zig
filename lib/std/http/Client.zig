@@ -657,7 +657,7 @@ pub const Request = struct {
         };
     }
 
-    pub const SendError = Connection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
+    pub const SendError = Allocator.Error || Connection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
 
     pub const SendOptions = struct {
         /// Specifies that the uri should be used as is. You guarantee that the uri is already escaped.
@@ -692,6 +692,14 @@ pub const Request = struct {
         if (!req.headers.contains("host")) {
             try w.writeAll("Host: ");
             try req.uri.writeToStream(.{ .authority = true }, w);
+            try w.writeAll("\r\n");
+        }
+
+        if ((req.uri.user != null or req.uri.password != null) and
+            !req.headers.contains("authorization"))
+        {
+            try w.writeAll("Authorization: ");
+            try w.writeAll(try basicAuthorizationValue(req.arena.allocator(), req.uri));
             try w.writeAll("\r\n");
         }
 
@@ -1122,19 +1130,11 @@ pub fn loadDefaultProxies(client: *Client) !void {
             },
         };
 
-        if (uri.user != null and uri.password != null) {
-            const prefix = "Basic ";
+        if (uri.user != null or uri.password != null) {
+            const authorization = try basicAuthorizationValue(client.allocator, uri);
+            defer client.allocator.free(authorization);
 
-            const unencoded = try std.fmt.allocPrint(client.allocator, "{s}:{s}", .{ uri.user.?, uri.password.? });
-            defer client.allocator.free(unencoded);
-
-            const buffer = try client.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(unencoded.len) + prefix.len);
-            defer client.allocator.free(buffer);
-
-            const result = std.base64.standard.Encoder.encode(buffer[prefix.len..], unencoded);
-            @memcpy(buffer[0..prefix.len], prefix);
-
-            try client.http_proxy.?.headers.append("proxy-authorization", result);
+            try client.http_proxy.?.headers.append("proxy-authorization", authorization);
         }
     }
 
@@ -1173,21 +1173,31 @@ pub fn loadDefaultProxies(client: *Client) !void {
             },
         };
 
-        if (uri.user != null and uri.password != null) {
-            const prefix = "Basic ";
+        if (uri.user != null or uri.password != null) {
+            const authorization = try basicAuthorizationValue(client.allocator, uri);
+            defer client.allocator.free(authorization);
 
-            const unencoded = try std.fmt.allocPrint(client.allocator, "{s}:{s}", .{ uri.user.?, uri.password.? });
-            defer client.allocator.free(unencoded);
-
-            const buffer = try client.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(unencoded.len) + prefix.len);
-            defer client.allocator.free(buffer);
-
-            const result = std.base64.standard.Encoder.encode(buffer[prefix.len..], unencoded);
-            @memcpy(buffer[0..prefix.len], prefix);
-
-            try client.https_proxy.?.headers.append("proxy-authorization", result);
+            try client.https_proxy.?.headers.append("proxy-authorization", authorization);
         }
     }
+}
+
+pub fn basicAuthorizationValue(
+    allocator: Allocator,
+    uri: Uri,
+) Allocator.Error![]const u8 {
+    const prefix = "Basic ";
+
+    const unencoded = try std.fmt.allocPrint(allocator, "{s}:{s}", .{ uri.user orelse "", uri.password orelse "" });
+    defer allocator.free(unencoded);
+
+    const buffer = try allocator.alloc(u8, prefix.len + std.base64.standard.Encoder.calcSize(unencoded.len));
+    errdefer allocator.free(buffer);
+
+    @memcpy(buffer[0..prefix.len], prefix);
+    _ = std.base64.standard.Encoder.encode(buffer[prefix.len..], unencoded);
+
+    return buffer;
 }
 
 pub const ConnectTcpError = Allocator.Error || error{ ConnectionRefused, NetworkUnreachable, ConnectionTimedOut, ConnectionResetByPeer, TemporaryNameServerFailure, NameServerFailure, UnknownHostName, HostLacksNetworkAddresses, UnexpectedConnectFailure, TlsInitializationFailed };
