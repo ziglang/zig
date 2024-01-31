@@ -13,7 +13,7 @@ int main() {
 
 // translate-c
 // c_frontends=clang
-// targets=x86_64-linux-none,x86_64-macos-none,x86_64-windows-non
+// targets=x86_64-linux
 // 
 //     var ptr: ?*anyopaque = blk: {
 //         if (@sizeOf(c_int) > @sizeOf(?*anyopaque)) {

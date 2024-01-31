@@ -2376,7 +2376,6 @@ fn transCCast(
         //      else {
         //          break :blk @as(c_ulong, @intFromPtr(expr));
         //      }
-        //      break blk: _tmp
         //  })
 
         var block_scope = try Scope.Block.init(c, scope, true);
@@ -2450,10 +2449,10 @@ fn transCCast(
         // Example:
         //  blk: {
         //      if(@sizeOf(src_int_type) > @sizeOf(dst_ptr_type)) {
-        //          break :blk @truncate(expr)
+        //          break :blk @as([*c]c_long, @ptrFromInt(@as(usize, @truncate(expr))));
         //      }
         //      else {
-        //          break :blk expr
+        //          break :blk @as([*c]c_long, @ptrFromInt(@as(usize, expr)));
         //      }
         //  }
 
