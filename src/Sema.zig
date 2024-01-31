@@ -26103,6 +26103,11 @@ fn explainWhyTypeIsComptimeInner(
             if ((try type_set.getOrPut(sema.gpa, ty.toIntern())).found_existing) return;
 
             if (mod.typeToUnion(ty)) |union_obj| {
+                const enum_tag_ty = Type.fromInterned(union_obj.enum_tag_ty);
+                if (try sema.typeRequiresComptime(enum_tag_ty)) {
+                    const union_src_loc = mod.declPtr(union_obj.decl).srcLoc(mod);
+                    try mod.errNoteNonLazy(union_src_loc, msg, "union requires comptime because of its tag", .{});
+                }
                 for (0..union_obj.field_types.len) |i| {
                     const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[i]);
                     const field_src_loc = mod.fieldSrcLoc(union_obj.decl, .{
@@ -26264,15 +26269,19 @@ fn explainWhyTypeIsNotExtern(
             try mod.errNoteNonLazy(src_loc, msg, "enum tag type '{}' is not extern compatible", .{tag_ty.fmt(sema.mod)});
             try sema.explainWhyTypeIsNotExtern(msg, src_loc, tag_ty, position);
         },
-        .Struct => switch (ty.containerLayout(mod)) {
-            .Extern => return,
-            .Packed => try mod.errNoteNonLazy(src_loc, msg, "only 0, 8, 16, 32, 64 and 128 bits sized packed structs are extern compatible", .{}),
-            .Auto => try mod.errNoteNonLazy(src_loc, msg, "only empty struct without comptime dependency are extern compatible", .{}),
+        .Struct => {
+            try mod.errNoteNonLazy(src_loc, msg, "only extern structs, ABI sized packed structs and empty structs are extern compatible", .{});
+            if (try sema.typeRequiresComptime(ty)) {
+                try mod.errNoteNonLazy(src_loc, msg, "extern compatible structs cannot have comptime dependency", .{});
+                try sema.explainWhyTypeIsComptime(msg, src_loc, ty);
+            }
         },
-        .Union => switch (ty.containerLayout(mod)) {
-            .Extern => return,
-            .Packed => try mod.errNoteNonLazy(src_loc, msg, "only 0, 8, 16, 32, 64 and 128 bits sized packed unions are extern compatible", .{}),
-            .Auto => try mod.errNoteNonLazy(src_loc, msg, "only empty union without comptime dependency are extern compatible", .{}),
+        .Union => {
+            try mod.errNoteNonLazy(src_loc, msg, "only extern unions, ABI sized packed unions and empty unions are extern compatible", .{});
+            if (try sema.typeRequiresComptime(ty)) {
+                try mod.errNoteNonLazy(src_loc, msg, "extern compatible unions cannot have comptime dependency", .{});
+                try sema.explainWhyTypeIsComptime(msg, src_loc, ty);
+            }
         },
         .Array => {
             if (position == .ret_ty) {
