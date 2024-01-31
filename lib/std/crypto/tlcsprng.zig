@@ -35,7 +35,7 @@ const os_has_fork = switch (builtin.os.tag) {
 };
 const os_has_arc4random = builtin.link_libc and @hasDecl(std.c, "arc4random_buf");
 const want_fork_safety = os_has_fork and !os_has_arc4random and
-    (std.meta.globalOption("crypto_fork_safety", bool) orelse true);
+    std.options.crypto_fork_safety;
 const maybe_have_wipe_on_fork = builtin.os.isAtLeast(.linux, .{
     .major = 4,
     .minor = 14,
