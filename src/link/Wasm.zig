@@ -1333,13 +1333,6 @@ fn resolveLazySymbols(wasm: *Wasm) !void {
             }
         }
     }
-    if (wasm.string_table.getOffset("__zig_errors_len")) |name_offset| {
-        if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
-            const loc = try wasm.createSyntheticSymbolOffset(name_offset, .data);
-            try wasm.discarded.putNoClobber(gpa, kv.value, loc);
-            _ = wasm.resolved_symbols.swapRemove(kv.value);
-        }
-    }
 }
 
 // Tries to find a global symbol by its name. Returns null when not found,
@@ -2009,8 +2002,7 @@ fn mergeSections(wasm: *Wasm) !void {
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const obj_file = wasm.file(sym_loc.file) orelse {
-            // Zig code-generated symbols are already within the sections and do not
-            // require to be merged
+            // Synthetic symbols already live in the corresponding sections.
             continue;
         };
 
@@ -2056,6 +2048,7 @@ fn mergeSections(wasm: *Wasm) !void {
                 symbol.index = @as(u32, @intCast(wasm.tables.items.len)) + wasm.imported_tables_count;
                 try wasm.tables.append(gpa, original_table);
             },
+            .dead, .undefined => unreachable,
             else => {},
         }
     }
@@ -2718,6 +2711,10 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node)
     var sub_prog_node = prog_node.start("Wasm Flush", 0);
     sub_prog_node.activate();
     defer sub_prog_node.end();
+
+    if (wasm.zigObjectPtr()) |zig_object| {
+        try zig_object.flushModule(wasm);
+    }
 
     // ensure the error names table is populated when an error name is referenced
     // try wasm.populateErrorNameTable();

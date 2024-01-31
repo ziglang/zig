@@ -551,16 +551,15 @@ pub fn getErrorTableSymbol(zig_object: *ZigObject, wasm_file: *Wasm) !u32 {
     atom.alignment = slice_ty.abiAlignment(mod);
 
     const sym_name = try zig_object.string_table.insert(gpa, "__zig_err_name_table");
+    const segment_name = try gpa.dupe(u8, ".rodata.__zig_err_name_table");
     const sym = zig_object.symbol(sym_index);
     sym.* = .{
         .name = sym_name,
         .tag = .data,
         .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
-        .index = 0,
+        .index = try zig_object.createDataSegment(gpa, segment_name, atom.alignment),
         .virtual_address = undefined,
     };
-    // TODO: can we remove this?
-    // sym.mark();
 
     log.debug("Error name table was created with symbol index: ({d})", .{sym_index});
     zig_object.error_table_symbol = sym_index;
@@ -584,15 +583,15 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm) !void {
     const names_atom = wasm_file.getAtomPtr(names_atom_index);
     names_atom.alignment = .@"1";
     const sym_name = try zig_object.string_table.insert(gpa, "__zig_err_names");
+    const segment_name = try gpa.dupe(u8, ".rodata.__zig_err_names");
     const names_symbol = &zig_object.symbols.items[names_sym_index];
     names_symbol.* = .{
         .name = sym_name,
         .tag = .data,
         .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
-        .index = 0,
+        .index = try zig_object.createDataSegment(gpa, segment_name, names_atom.alignment),
         .virtual_address = undefined,
     };
-    names_symbol.mark();
 
     log.debug("Populating error names", .{});
 
@@ -628,11 +627,6 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm) !void {
         log.debug("Populated error name: '{s}'", .{error_name});
     }
     names_atom.size = addend;
-
-    // link the atoms with the rest of the binary so they can be allocated
-    // and relocations will be performed.
-    try wasm_file.parseAtom(atom_index, .{ .data = .read_only });
-    try wasm_file.parseAtom(names_atom_index, .{ .data = .read_only });
 }
 
 /// Either creates a new import, or updates one if existing.
@@ -995,76 +989,44 @@ pub fn putOrGetFuncType(zig_object: *ZigObject, gpa: std.mem.Allocator, func_typ
     return index;
 }
 
-/// Kind represents the type of an Atom, which is only
-/// used to parse a decl into an Atom to define in which section
-/// or segment it should be placed.
-const Kind = union(enum) {
-    /// Represents the segment the data symbol should
-    /// be inserted into.
-    /// TODO: Add TLS segments
-    data: enum {
-        read_only,
-        uninitialized,
-        initialized,
-    },
-    function: void,
-
-    /// Returns the segment name the data kind represents.
-    /// Asserts `kind` has its active tag set to `data`.
-    fn segmentName(kind: Kind) []const u8 {
-        switch (kind.data) {
-            .read_only => return ".rodata.",
-            .uninitialized => return ".bss.",
-            .initialized => return ".data.",
-        }
-    }
-};
-
-/// Parses an Atom and inserts its metadata into the corresponding sections.
-pub fn parseAtom(zig_object: *ZigObject, wasm_file: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
-    // TODO: Revisit
-    _ = zig_object;
-    _ = wasm_file;
-    _ = atom_index;
-    _ = kind;
-}
-
 /// Generates an atom containing the global error set' size.
 /// This will only be generated if the symbol exists.
 fn setupErrorsLen(zig_object: *ZigObject, wasm_file: *Wasm) !void {
     const gpa = wasm_file.base.comp.gpa;
-    const loc = zig_object.findGlobalSymbol("__zig_errors_len") orelse return;
+    const sym_index = zig_object.findGlobalSymbol("__zig_errors_len") orelse return;
 
     const errors_len = wasm_file.base.comp.module.?.global_error_set.count();
     // overwrite existing atom if it already exists (maybe the error set has increased)
     // if not, allcoate a new atom.
-    const atom_index = if (wasm_file.symbol_atom.get(loc)) |index| blk: {
+    const atom_index = if (wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = sym_index })) |index| blk: {
         const atom = wasm_file.getAtomPtr(index);
-        if (atom.next) |next_atom_index| {
-            const next_atom = wasm_file.getAtomPtr(next_atom_index);
-            next_atom.prev = atom.prev;
-            atom.next = null;
-        }
-        if (atom.prev) |prev_index| {
-            const prev_atom = wasm_file.getAtomPtr(prev_index);
-            prev_atom.next = atom.next;
-            atom.prev = null;
-        }
+        atom.prev = null;
         atom.deinit(gpa);
         break :blk index;
-    } else new_atom: {
-        const atom_index: Atom.Index = @intCast(wasm_file.managed_atoms.items.len);
-        try wasm_file.symbol_atom.put(gpa, loc, atom_index);
-        try wasm_file.managed_atoms.append(gpa, undefined);
-        break :new_atom atom_index;
+    } else idx: {
+        // We found a call to __zig_errors_len so make the symbol a local symbol
+        // and define it, so the final binary or resulting object file will not attempt
+        // to resolve it.
+        const sym = zig_object.symbol(sym_index);
+        sym.setGlobal(false);
+        sym.setUndefined(false);
+        sym.tag = .data;
+        const segment_name = try gpa.dupe(u8, ".rodata.__zig_errors_len");
+        sym.index = try zig_object.createDataSegment(gpa, segment_name, .@"2");
+        break :idx try wasm_file.createAtom(sym_index, zig_object.index);
     };
-    const atom = wasm_file.getAtomPtr(atom_index);
-    atom.* = Atom.empty;
-    atom.sym_index = loc.index;
-    atom.size = 2;
-    try atom.code.writer(gpa).writeInt(u16, @intCast(errors_len), .little);
 
-    // try wasm.parseAtom(atom_index, .{ .data = .read_only });
+    const atom = wasm_file.getAtomPtr(atom_index);
+    atom.code.clearRetainingCapacity();
+    atom.sym_index = sym_index;
+    atom.size = 2;
+    atom.alignment = .@"2";
+    try atom.code.writer(gpa).writeInt(u16, @intCast(errors_len), .little);
+}
+
+fn findGlobalSymbol(zig_object: *ZigObject, name: []const u8) ?u32 {
+    const offset = zig_object.string_table.getOffset(name) orelse return null;
+    return zig_object.global_syms.get(offset);
 }
 
 /// Initializes symbols and atoms for the debug sections
@@ -1230,6 +1192,11 @@ fn appendFunction(zig_object: *ZigObject, gpa: std.mem.Allocator, func: std.wasm
     zig_object.functions.items[index] = func;
 
     return index;
+}
+
+pub fn flushModule(zig_object: *ZigObject, wasm_file: *Wasm) !void {
+    try zig_object.populateErrorNameTable(wasm_file);
+    try zig_object.setupErrorsLen(wasm_file);
 }
 
 const build_options = @import("build_options");
