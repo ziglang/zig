@@ -339,7 +339,7 @@ pub const Connection = struct {
 
     /// Writes the given buffer to the connection.
     pub fn write(conn: *Connection, buffer: []const u8) WriteError!usize {
-        if (conn.write_end + buffer.len > conn.write_buf.len) {
+        if (conn.write_buf.len - conn.write_end < buffer.len) {
             try conn.flush();
 
             if (buffer.len > conn.write_buf.len) {
@@ -352,6 +352,13 @@ pub const Connection = struct {
         conn.write_end += @intCast(buffer.len);
 
         return buffer.len;
+    }
+
+    /// Returns a buffer to be filled with exactly len bytes to write to the connection.
+    pub fn allocWriteBuffer(conn: *Connection, len: BufferSize) WriteError![]u8 {
+        if (conn.write_buf.len - conn.write_end < len) try conn.flush();
+        defer conn.write_end += len;
+        return conn.write_buf[conn.write_end..][0..len];
     }
 
     /// Flushes the write buffer to the connection.
@@ -657,7 +664,7 @@ pub const Request = struct {
         };
     }
 
-    pub const SendError = Allocator.Error || Connection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
+    pub const SendError = Connection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
 
     pub const SendOptions = struct {
         /// Specifies that the uri should be used as is. You guarantee that the uri is already escaped.
@@ -699,7 +706,10 @@ pub const Request = struct {
             !req.headers.contains("authorization"))
         {
             try w.writeAll("Authorization: ");
-            try w.writeAll(try basicAuthorizationValue(req.arena.allocator(), req.uri));
+            const authorization = try req.connection.?.allocWriteBuffer(
+                @intCast(basic_authorization.valueLengthFromUri(req.uri)),
+            );
+            std.debug.assert(basic_authorization.value(req.uri, authorization).len == authorization.len);
             try w.writeAll("\r\n");
         }
 
@@ -1131,10 +1141,8 @@ pub fn loadDefaultProxies(client: *Client) !void {
         };
 
         if (uri.user != null or uri.password != null) {
-            const authorization = try basicAuthorizationValue(client.allocator, uri);
-            defer client.allocator.free(authorization);
-
-            try client.http_proxy.?.headers.append("proxy-authorization", authorization);
+            var authorization: [basic_authorization.max_value_len]u8 = undefined;
+            try client.http_proxy.?.headers.append("proxy-authorization", basic_authorization.value(uri, &authorization));
         }
     }
 
@@ -1174,31 +1182,45 @@ pub fn loadDefaultProxies(client: *Client) !void {
         };
 
         if (uri.user != null or uri.password != null) {
-            const authorization = try basicAuthorizationValue(client.allocator, uri);
-            defer client.allocator.free(authorization);
-
-            try client.https_proxy.?.headers.append("proxy-authorization", authorization);
+            var authorization: [basic_authorization.max_value_len]u8 = undefined;
+            try client.https_proxy.?.headers.append("proxy-authorization", basic_authorization.value(uri, &authorization));
         }
     }
 }
 
-pub fn basicAuthorizationValue(
-    allocator: Allocator,
-    uri: Uri,
-) Allocator.Error![]const u8 {
+pub const basic_authorization = struct {
+    pub const max_user_len = 255;
+    pub const max_password_len = 255;
+    pub const max_value_len = valueLength(max_user_len, max_password_len);
+
     const prefix = "Basic ";
 
-    const unencoded = try std.fmt.allocPrint(allocator, "{s}:{s}", .{ uri.user orelse "", uri.password orelse "" });
-    defer allocator.free(unencoded);
+    pub fn valueLength(user_len: usize, password_len: usize) usize {
+        return prefix.len + std.base64.standard.Encoder.calcSize(user_len + 1 + password_len);
+    }
 
-    const buffer = try allocator.alloc(u8, prefix.len + std.base64.standard.Encoder.calcSize(unencoded.len));
-    errdefer allocator.free(buffer);
+    pub fn valueLengthFromUri(uri: Uri) usize {
+        return valueLength(
+            if (uri.user) |user| user.len else 0,
+            if (uri.password) |password| password.len else 0,
+        );
+    }
 
-    @memcpy(buffer[0..prefix.len], prefix);
-    _ = std.base64.standard.Encoder.encode(buffer[prefix.len..], unencoded);
+    pub fn value(uri: Uri, out: []u8) []u8 {
+        std.debug.assert(uri.user == null or uri.user.?.len <= max_user_len);
+        std.debug.assert(uri.password == null or uri.password.?.len <= max_password_len);
 
-    return buffer;
-}
+        @memcpy(out[0..prefix.len], prefix);
+
+        var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
+        const unencoded = std.fmt.bufPrint(&buf, "{s}:{s}", .{
+            uri.user orelse "", uri.password orelse "",
+        }) catch unreachable;
+        const base64 = std.base64.standard.Encoder.encode(out[prefix.len..], unencoded);
+
+        return out[0 .. prefix.len + base64.len];
+    }
+};
 
 pub const ConnectTcpError = Allocator.Error || error{ ConnectionRefused, NetworkUnreachable, ConnectionTimedOut, ConnectionResetByPeer, TemporaryNameServerFailure, NameServerFailure, UnknownHostName, HostLacksNetworkAddresses, UnexpectedConnectFailure, TlsInitializationFailed };
 
