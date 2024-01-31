@@ -285,6 +285,16 @@ pub const options = struct {
     else
         false;
 
+    pub const stack_size_strategy: start.StackSizeStrategy = if (@hasDecl(options_override, "stack_size_strategy"))
+        options_override.stack_size_strategy
+    else
+        start.StackSizeStrategy.program_header;
+
+    pub const stack_size: usize = if (@hasDecl(options_override, "stack_size"))
+        options_override.stack_size
+    else
+        8 * 1024 * 1024;
+
     /// By default, std.http.Client will support HTTPS connections.  Set this option to `true` to
     /// disable TLS support.
     ///
