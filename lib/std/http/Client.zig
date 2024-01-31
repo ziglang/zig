@@ -1141,8 +1141,10 @@ pub fn loadDefaultProxies(client: *Client) !void {
         };
 
         if (uri.user != null or uri.password != null) {
-            var authorization: [basic_authorization.max_value_len]u8 = undefined;
-            try client.http_proxy.?.headers.append("proxy-authorization", basic_authorization.value(uri, &authorization));
+            const authorization = try client.allocator.alloc(u8, basic_authorization.valueLengthFromUri(uri));
+            errdefer client.allocator.free(authorization);
+            std.debug.assert(basic_authorization.value(uri, authorization).len == authorization.len);
+            try client.http_proxy.?.headers.appendOwned(.{ .unowned = "proxy-authorization" }, .{ .owned = authorization });
         }
     }
 
@@ -1182,8 +1184,10 @@ pub fn loadDefaultProxies(client: *Client) !void {
         };
 
         if (uri.user != null or uri.password != null) {
-            var authorization: [basic_authorization.max_value_len]u8 = undefined;
-            try client.https_proxy.?.headers.append("proxy-authorization", basic_authorization.value(uri, &authorization));
+            const authorization = try client.allocator.alloc(u8, basic_authorization.valueLengthFromUri(uri));
+            errdefer client.allocator.free(authorization);
+            std.debug.assert(basic_authorization.value(uri, authorization).len == authorization.len);
+            try client.https_proxy.?.headers.appendOwned(.{ .unowned = "proxy-authorization" }, .{ .owned = authorization });
         }
     }
 }
