@@ -17375,16 +17375,19 @@ fn zirBuiltinSrc(
             .sentinel = .zero_u8,
             .child = .u8_type,
         } });
-        break :v try ip.get(gpa, .{ .ptr = .{
+        break :v try ip.get(gpa, .{ .slice = .{
             .ty = .slice_const_u8_sentinel_0_type,
+            .ptr = try ip.get(gpa, .{ .ptr = .{
+                .ty = .manyptr_const_u8_sentinel_0_type,
+                .addr = .{ .anon_decl = .{
+                    .orig_ty = .slice_const_u8_sentinel_0_type,
+                    .val = try ip.get(gpa, .{ .aggregate = .{
+                        .ty = array_ty,
+                        .storage = .{ .bytes = bytes },
+                    } }),
+                } },
+            } }),
             .len = (try mod.intValue(Type.usize, bytes.len)).toIntern(),
-            .addr = .{ .anon_decl = .{
-                .orig_ty = .slice_const_u8_sentinel_0_type,
-                .val = try ip.get(gpa, .{ .aggregate = .{
-                    .ty = array_ty,
-                    .storage = .{ .bytes = bytes },
-                } }),
-            } },
         } });
     };
 
@@ -17396,16 +17399,19 @@ fn zirBuiltinSrc(
             .sentinel = .zero_u8,
             .child = .u8_type,
         } });
-        break :v try ip.get(gpa, .{ .ptr = .{
+        break :v try ip.get(gpa, .{ .slice = .{
             .ty = .slice_const_u8_sentinel_0_type,
+            .ptr = try ip.get(gpa, .{ .ptr = .{
+                .ty = .manyptr_const_u8_sentinel_0_type,
+                .addr = .{ .anon_decl = .{
+                    .orig_ty = .slice_const_u8_sentinel_0_type,
+                    .val = try ip.get(gpa, .{ .aggregate = .{
+                        .ty = array_ty,
+                        .storage = .{ .bytes = bytes },
+                    } }),
+                } },
+            } }),
             .len = (try mod.intValue(Type.usize, bytes.len)).toIntern(),
-            .addr = .{ .anon_decl = .{
-                .orig_ty = .slice_const_u8_sentinel_0_type,
-                .val = try ip.get(gpa, .{ .aggregate = .{
-                    .ty = array_ty,
-                    .storage = .{ .bytes = bytes },
-                } }),
-            } },
         } });
     };
 
@@ -17517,12 +17523,15 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         .is_const = true,
                     },
                 })).toIntern();
-                break :v try mod.intern(.{ .ptr = .{
+                break :v try mod.intern(.{ .slice = .{
                     .ty = ptr_ty,
-                    .addr = .{ .anon_decl = .{
-                        .orig_ty = ptr_ty,
-                        .val = new_decl_val,
-                    } },
+                    .ptr = try mod.intern(.{ .ptr = .{
+                        .ty = Type.fromInterned(ptr_ty).slicePtrFieldType(mod).toIntern(),
+                        .addr = .{ .anon_decl = .{
+                            .orig_ty = ptr_ty,
+                            .val = new_decl_val,
+                        } },
+                    } }),
                     .len = (try mod.intValue(Type.usize, param_vals.len)).toIntern(),
                 } });
             };
@@ -17796,12 +17805,15 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                 .ty = new_decl_ty.toIntern(),
                                 .storage = .{ .bytes = name },
                             } });
-                            break :v try mod.intern(.{ .ptr = .{
+                            break :v try mod.intern(.{ .slice = .{
                                 .ty = .slice_const_u8_sentinel_0_type,
-                                .addr = .{ .anon_decl = .{
-                                    .val = new_decl_val,
-                                    .orig_ty = .slice_const_u8_sentinel_0_type,
-                                } },
+                                .ptr = try mod.intern(.{ .ptr = .{
+                                    .ty = .manyptr_const_u8_sentinel_0_type,
+                                    .addr = .{ .anon_decl = .{
+                                        .val = new_decl_val,
+                                        .orig_ty = .slice_const_u8_sentinel_0_type,
+                                    } },
+                                } }),
                                 .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                             } });
                         };
@@ -17838,12 +17850,15 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .ty = array_errors_ty.toIntern(),
                     .storage = .{ .elems = vals },
                 } });
-                break :v try mod.intern(.{ .ptr = .{
+                break :v try mod.intern(.{ .slice = .{
                     .ty = slice_errors_ty.toIntern(),
-                    .addr = .{ .anon_decl = .{
-                        .orig_ty = slice_errors_ty.toIntern(),
-                        .val = new_decl_val,
-                    } },
+                    .ptr = try mod.intern(.{ .ptr = .{
+                        .ty = slice_errors_ty.slicePtrFieldType(mod).toIntern(),
+                        .addr = .{ .anon_decl = .{
+                            .orig_ty = slice_errors_ty.toIntern(),
+                            .val = new_decl_val,
+                        } },
+                    } }),
                     .len = (try mod.intValue(Type.usize, vals.len)).toIntern(),
                 } });
             } else .none;
@@ -17925,12 +17940,15 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         .ty = new_decl_ty.toIntern(),
                         .storage = .{ .bytes = name },
                     } });
-                    break :v try mod.intern(.{ .ptr = .{
+                    break :v try mod.intern(.{ .slice = .{
                         .ty = .slice_const_u8_sentinel_0_type,
-                        .addr = .{ .anon_decl = .{
-                            .val = new_decl_val,
-                            .orig_ty = .slice_const_u8_sentinel_0_type,
-                        } },
+                        .ptr = try mod.intern(.{ .ptr = .{
+                            .ty = .manyptr_const_u8_sentinel_0_type,
+                            .addr = .{ .anon_decl = .{
+                                .val = new_decl_val,
+                                .orig_ty = .slice_const_u8_sentinel_0_type,
+                            } },
+                        } }),
                         .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                     } });
                 };
@@ -17963,12 +17981,15 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         .is_const = true,
                     },
                 })).toIntern();
-                break :v try mod.intern(.{ .ptr = .{
+                break :v try mod.intern(.{ .slice = .{
                     .ty = ptr_ty,
-                    .addr = .{ .anon_decl = .{
-                        .val = new_decl_val,
-                        .orig_ty = ptr_ty,
-                    } },
+                    .ptr = try mod.intern(.{ .ptr = .{
+                        .ty = Type.fromInterned(ptr_ty).slicePtrFieldType(mod).toIntern(),
+                        .addr = .{ .anon_decl = .{
+                            .val = new_decl_val,
+                            .orig_ty = ptr_ty,
+                        } },
+                    } }),
                     .len = (try mod.intValue(Type.usize, enum_field_vals.len)).toIntern(),
                 } });
             };
@@ -18051,12 +18072,15 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         .ty = new_decl_ty.toIntern(),
                         .storage = .{ .bytes = name },
                     } });
-                    break :v try mod.intern(.{ .ptr = .{
+                    break :v try mod.intern(.{ .slice = .{
                         .ty = .slice_const_u8_sentinel_0_type,
-                        .addr = .{ .anon_decl = .{
-                            .val = new_decl_val,
-                            .orig_ty = .slice_const_u8_sentinel_0_type,
-                        } },
+                        .ptr = try mod.intern(.{ .ptr = .{
+                            .ty = .manyptr_const_u8_sentinel_0_type,
+                            .addr = .{ .anon_decl = .{
+                                .val = new_decl_val,
+                                .orig_ty = .slice_const_u8_sentinel_0_type,
+                            } },
+                        } }),
                         .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                     } });
                 };
@@ -18097,12 +18121,15 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         .is_const = true,
                     },
                 })).toIntern();
-                break :v try mod.intern(.{ .ptr = .{
+                break :v try mod.intern(.{ .slice = .{
                     .ty = ptr_ty,
-                    .addr = .{ .anon_decl = .{
-                        .orig_ty = ptr_ty,
-                        .val = new_decl_val,
-                    } },
+                    .ptr = try mod.intern(.{ .ptr = .{
+                        .ty = Type.fromInterned(ptr_ty).slicePtrFieldType(mod).toIntern(),
+                        .addr = .{ .anon_decl = .{
+                            .orig_ty = ptr_ty,
+                            .val = new_decl_val,
+                        } },
+                    } }),
                     .len = (try mod.intValue(Type.usize, union_field_vals.len)).toIntern(),
                 } });
             };
@@ -18199,12 +18226,15 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                     .ty = new_decl_ty.toIntern(),
                                     .storage = .{ .bytes = bytes },
                                 } });
-                                break :v try mod.intern(.{ .ptr = .{
+                                break :v try mod.intern(.{ .slice = .{
                                     .ty = .slice_const_u8_sentinel_0_type,
-                                    .addr = .{ .anon_decl = .{
-                                        .val = new_decl_val,
-                                        .orig_ty = .slice_const_u8_sentinel_0_type,
-                                    } },
+                                    .ptr = try mod.intern(.{ .ptr = .{
+                                        .ty = .manyptr_const_u8_sentinel_0_type,
+                                        .addr = .{ .anon_decl = .{
+                                            .val = new_decl_val,
+                                            .orig_ty = .slice_const_u8_sentinel_0_type,
+                                        } },
+                                    } }),
                                     .len = (try mod.intValue(Type.usize, bytes.len)).toIntern(),
                                 } });
                             };
@@ -18259,12 +18289,15 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             .ty = new_decl_ty.toIntern(),
                             .storage = .{ .bytes = name },
                         } });
-                        break :v try mod.intern(.{ .ptr = .{
+                        break :v try mod.intern(.{ .slice = .{
                             .ty = .slice_const_u8_sentinel_0_type,
-                            .addr = .{ .anon_decl = .{
-                                .val = new_decl_val,
-                                .orig_ty = .slice_const_u8_sentinel_0_type,
-                            } },
+                            .ptr = try mod.intern(.{ .ptr = .{
+                                .ty = .manyptr_const_u8_sentinel_0_type,
+                                .addr = .{ .anon_decl = .{
+                                    .val = new_decl_val,
+                                    .orig_ty = .slice_const_u8_sentinel_0_type,
+                                } },
+                            } }),
                             .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                         } });
                     };
@@ -18315,12 +18348,15 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         .is_const = true,
                     },
                 })).toIntern();
-                break :v try mod.intern(.{ .ptr = .{
+                break :v try mod.intern(.{ .slice = .{
                     .ty = ptr_ty,
-                    .addr = .{ .anon_decl = .{
-                        .orig_ty = ptr_ty,
-                        .val = new_decl_val,
-                    } },
+                    .ptr = try mod.intern(.{ .ptr = .{
+                        .ty = Type.fromInterned(ptr_ty).slicePtrFieldType(mod).toIntern(),
+                        .addr = .{ .anon_decl = .{
+                            .orig_ty = ptr_ty,
+                            .val = new_decl_val,
+                        } },
+                    } }),
                     .len = (try mod.intValue(Type.usize, struct_field_vals.len)).toIntern(),
                 } });
             };
@@ -18453,12 +18489,15 @@ fn typeInfoDecls(
             .is_const = true,
         },
     })).toIntern();
-    return try mod.intern(.{ .ptr = .{
+    return try mod.intern(.{ .slice = .{
         .ty = ptr_ty,
-        .addr = .{ .anon_decl = .{
-            .orig_ty = ptr_ty,
-            .val = new_decl_val,
-        } },
+        .ptr = try mod.intern(.{ .ptr = .{
+            .ty = Type.fromInterned(ptr_ty).slicePtrFieldType(mod).toIntern(),
+            .addr = .{ .anon_decl = .{
+                .orig_ty = ptr_ty,
+                .val = new_decl_val,
+            } },
+        } }),
         .len = (try mod.intValue(Type.usize, decl_vals.items.len)).toIntern(),
     } });
 }
@@ -18498,12 +18537,15 @@ fn typeInfoNamespaceDecls(
                 .ty = new_decl_ty.toIntern(),
                 .storage = .{ .bytes = name },
             } });
-            break :v try mod.intern(.{ .ptr = .{
+            break :v try mod.intern(.{ .slice = .{
                 .ty = .slice_const_u8_sentinel_0_type,
-                .addr = .{ .anon_decl = .{
-                    .orig_ty = .slice_const_u8_sentinel_0_type,
-                    .val = new_decl_val,
-                } },
+                .ptr = try mod.intern(.{ .ptr = .{
+                    .ty = .manyptr_const_u8_sentinel_0_type,
+                    .addr = .{ .anon_decl = .{
+                        .orig_ty = .slice_const_u8_sentinel_0_type,
+                        .val = new_decl_val,
+                    } },
+                } }),
                 .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
             } });
         };
@@ -22738,9 +22780,12 @@ fn ptrCastFull(
             if (dest_info.flags.size == .Slice and src_info.flags.size != .Slice) {
                 if (ptr_val.isUndef(mod)) return mod.undefRef(dest_ty);
                 const arr_len = try mod.intValue(Type.usize, Type.fromInterned(src_info.child).arrayLen(mod));
-                return Air.internedToRef((try mod.intern(.{ .ptr = .{
+                return Air.internedToRef((try mod.intern(.{ .slice = .{
                     .ty = dest_ty.toIntern(),
-                    .addr = mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr,
+                    .ptr = try mod.intern(.{ .ptr = .{
+                        .ty = dest_ty.slicePtrFieldType(mod).toIntern(),
+                        .addr = mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr,
+                    } }),
                     .len = arr_len.toIntern(),
                 } })));
             } else {
@@ -28765,21 +28810,24 @@ fn coerceExtra(
                     if (inst_child_ty.structFieldCount(mod) == 0) {
                         // Optional slice is represented with a null pointer so
                         // we use a dummy pointer value with the required alignment.
-                        return Air.internedToRef((try mod.intern(.{ .ptr = .{
+                        return Air.internedToRef((try mod.intern(.{ .slice = .{
                             .ty = dest_ty.toIntern(),
-                            .addr = .{ .int = if (dest_info.flags.alignment != .none)
-                                (try mod.intValue(
-                                    Type.usize,
-                                    dest_info.flags.alignment.toByteUnitsOptional().?,
-                                )).toIntern()
-                            else
-                                try mod.intern_pool.getCoercedInts(
-                                    mod.gpa,
-                                    mod.intern_pool.indexToKey(
-                                        (try Type.fromInterned(dest_info.child).lazyAbiAlignment(mod)).toIntern(),
-                                    ).int,
-                                    .usize_type,
-                                ) },
+                            .ptr = try mod.intern(.{ .ptr = .{
+                                .ty = dest_ty.slicePtrFieldType(mod).toIntern(),
+                                .addr = .{ .int = if (dest_info.flags.alignment != .none)
+                                    (try mod.intValue(
+                                        Type.usize,
+                                        dest_info.flags.alignment.toByteUnitsOptional().?,
+                                    )).toIntern()
+                                else
+                                    try mod.intern_pool.getCoercedInts(
+                                        mod.gpa,
+                                        mod.intern_pool.indexToKey(
+                                            (try Type.fromInterned(dest_info.child).lazyAbiAlignment(mod)).toIntern(),
+                                        ).int,
+                                        .usize_type,
+                                    ) },
+                            } }),
                             .len = (try mod.intValue(Type.usize, 0)).toIntern(),
                         } })));
                     }
@@ -31276,7 +31324,7 @@ fn beginComptimePtrLoad(
                         },
                         Value.slice_len_index => TypedValue{
                             .ty = Type.usize,
-                            .val = Value.fromInterned(ip.indexToKey(try tv.val.intern(tv.ty, mod)).ptr.len),
+                            .val = Value.fromInterned(ip.indexToKey(try tv.val.intern(tv.ty, mod)).slice.len),
                         },
                         else => unreachable,
                     };
@@ -31445,13 +31493,16 @@ fn coerceArrayPtrToSlice(
     if (try sema.resolveValue(inst)) |val| {
         const ptr_array_ty = sema.typeOf(inst);
         const array_ty = ptr_array_ty.childType(mod);
-        const slice_val = try mod.intern(.{ .ptr = .{
+        const slice_val = try mod.intern(.{ .slice = .{
             .ty = dest_ty.toIntern(),
-            .addr = switch (mod.intern_pool.indexToKey(val.toIntern())) {
-                .undef => .{ .int = try mod.intern(.{ .undef = .usize_type }) },
-                .ptr => |ptr| ptr.addr,
-                else => unreachable,
-            },
+            .ptr = try mod.intern(.{ .ptr = .{
+                .ty = dest_ty.slicePtrFieldType(mod).toIntern(),
+                .addr = switch (mod.intern_pool.indexToKey(val.toIntern())) {
+                    .undef => .{ .int = try mod.intern(.{ .undef = .usize_type }) },
+                    .ptr => |ptr| ptr.addr,
+                    else => unreachable,
+                },
+            } }),
             .len = (try mod.intValue(Type.usize, array_ty.arrayLen(mod))).toIntern(),
         } });
         return Air.internedToRef(slice_val);
@@ -35211,51 +35262,43 @@ fn resolveLazyValue(sema: *Sema, val: Value) CompileError!Value {
                 (try val.getUnsignedIntAdvanced(mod, sema)).?,
             ),
         },
+        .slice => |slice| {
+            const ptr = try sema.resolveLazyValue(Value.fromInterned(slice.ptr));
+            const len = try sema.resolveLazyValue(Value.fromInterned(slice.len));
+            if (ptr.toIntern() == slice.ptr and len.toIntern() == slice.len) return val;
+            return Value.fromInterned(try mod.intern(.{ .slice = .{
+                .ty = slice.ty,
+                .ptr = ptr.toIntern(),
+                .len = len.toIntern(),
+            } }));
+        },
         .ptr => |ptr| {
-            const resolved_len = switch (ptr.len) {
-                .none => .none,
-                else => (try sema.resolveLazyValue(Value.fromInterned(ptr.len))).toIntern(),
-            };
             switch (ptr.addr) {
-                .decl, .mut_decl, .anon_decl => return if (resolved_len == ptr.len)
-                    val
-                else
-                    Value.fromInterned((try mod.intern(.{ .ptr = .{
-                        .ty = ptr.ty,
-                        .addr = switch (ptr.addr) {
-                            .decl => |decl| .{ .decl = decl },
-                            .mut_decl => |mut_decl| .{ .mut_decl = mut_decl },
-                            .anon_decl => |anon_decl| .{ .anon_decl = anon_decl },
-                            else => unreachable,
-                        },
-                        .len = resolved_len,
-                    } }))),
+                .decl, .mut_decl, .anon_decl => return val,
                 .comptime_field => |field_val| {
                     const resolved_field_val =
                         (try sema.resolveLazyValue(Value.fromInterned(field_val))).toIntern();
-                    return if (resolved_field_val == field_val and resolved_len == ptr.len)
+                    return if (resolved_field_val == field_val)
                         val
                     else
                         Value.fromInterned((try mod.intern(.{ .ptr = .{
                             .ty = ptr.ty,
                             .addr = .{ .comptime_field = resolved_field_val },
-                            .len = resolved_len,
                         } })));
                 },
                 .int => |int| {
                     const resolved_int = (try sema.resolveLazyValue(Value.fromInterned(int))).toIntern();
-                    return if (resolved_int == int and resolved_len == ptr.len)
+                    return if (resolved_int == int)
                         val
                     else
                         Value.fromInterned((try mod.intern(.{ .ptr = .{
                             .ty = ptr.ty,
                             .addr = .{ .int = resolved_int },
-                            .len = resolved_len,
                         } })));
                 },
                 .eu_payload, .opt_payload => |base| {
                     const resolved_base = (try sema.resolveLazyValue(Value.fromInterned(base))).toIntern();
-                    return if (resolved_base == base and resolved_len == ptr.len)
+                    return if (resolved_base == base)
                         val
                     else
                         Value.fromInterned((try mod.intern(.{ .ptr = .{
@@ -35265,12 +35308,11 @@ fn resolveLazyValue(sema: *Sema, val: Value) CompileError!Value {
                                 .opt_payload => .{ .opt_payload = resolved_base },
                                 else => unreachable,
                             },
-                            .len = ptr.len,
                         } })));
                 },
                 .elem, .field => |base_index| {
                     const resolved_base = (try sema.resolveLazyValue(Value.fromInterned(base_index.base))).toIntern();
-                    return if (resolved_base == base_index.base and resolved_len == ptr.len)
+                    return if (resolved_base == base_index.base)
                         val
                     else
                         Value.fromInterned((try mod.intern(.{ .ptr = .{
@@ -35286,7 +35328,6 @@ fn resolveLazyValue(sema: *Sema, val: Value) CompileError!Value {
                                 } },
                                 else => unreachable,
                             },
-                            .len = ptr.len,
                         } })));
                 },
             }

@@ -1207,50 +1207,35 @@ pub const DeclGen = struct {
                 try writer.print("{x}", .{try dg.fmtIntLiteral(repr_ty, repr_val, location)});
                 if (!empty) try writer.writeByte(')');
             },
-            .ptr => |ptr| {
-                if (ptr.len != .none) {
-                    if (!location.isInitializer()) {
-                        try writer.writeByte('(');
-                        try dg.renderType(writer, ty);
-                        try writer.writeByte(')');
-                    }
-                    try writer.writeByte('{');
+            .slice => |slice| {
+                if (!location.isInitializer()) {
+                    try writer.writeByte('(');
+                    try dg.renderType(writer, ty);
+                    try writer.writeByte(')');
                 }
-                const ptr_location = switch (ptr.len) {
-                    .none => location,
-                    else => initializer_type,
-                };
-                const ptr_ty = switch (ptr.len) {
-                    .none => ty,
-                    else => ty.slicePtrFieldType(mod),
-                };
-                const ptr_val = switch (ptr.len) {
-                    .none => val,
-                    else => val.slicePtr(mod),
-                };
-                switch (ptr.addr) {
-                    .decl => |d| try dg.renderDeclValue(writer, ptr_ty, ptr_val, d, ptr_location),
-                    .mut_decl => |md| try dg.renderDeclValue(writer, ptr_ty, ptr_val, md.decl, ptr_location),
-                    .anon_decl => |decl_val| try dg.renderAnonDeclValue(writer, ptr_ty, ptr_val, decl_val, ptr_location),
-                    .int => |int| {
-                        try writer.writeAll("((");
-                        try dg.renderType(writer, ptr_ty);
-                        try writer.print("){x})", .{
-                            try dg.fmtIntLiteral(Type.usize, Value.fromInterned(int), ptr_location),
-                        });
-                    },
-                    .eu_payload,
-                    .opt_payload,
-                    .elem,
-                    .field,
-                    => try dg.renderParentPtr(writer, ptr_val.ip_index, ptr_location),
-                    .comptime_field => unreachable,
-                }
-                if (ptr.len != .none) {
-                    try writer.writeAll(", ");
-                    try dg.renderValue(writer, Type.usize, Value.fromInterned(ptr.len), initializer_type);
-                    try writer.writeByte('}');
-                }
+                try writer.writeByte('{');
+                try dg.renderValue(writer, ty.slicePtrFieldType(mod), Value.fromInterned(slice.ptr), initializer_type);
+                try writer.writeAll(", ");
+                try dg.renderValue(writer, Type.usize, Value.fromInterned(slice.len), initializer_type);
+                try writer.writeByte('}');
+            },
+            .ptr => |ptr| switch (ptr.addr) {
+                .decl => |d| try dg.renderDeclValue(writer, ty, val, d, location),
+                .mut_decl => |md| try dg.renderDeclValue(writer, ty, val, md.decl, location),
+                .anon_decl => |decl_val| try dg.renderAnonDeclValue(writer, ty, val, decl_val, location),
+                .int => |int| {
+                    try writer.writeAll("((");
+                    try dg.renderType(writer, ty);
+                    try writer.print("){x})", .{
+                        try dg.fmtIntLiteral(Type.usize, Value.fromInterned(int), location),
+                    });
+                },
+                .eu_payload,
+                .opt_payload,
+                .elem,
+                .field,
+                => try dg.renderParentPtr(writer, val.ip_index, location),
+                .comptime_field => unreachable,
             },
             .opt => |opt| {
                 const payload_ty = ty.optionalChild(mod);
