@@ -498,7 +498,7 @@ pub fn WriteStream(
                     }
                     inline for (S.fields) |Field| {
                         // don't include void fields
-                        if (Field.type == void) continue;
+                        if (!S.is_tuple and Field.type == void) continue;
 
                         var emit_field = true;
 

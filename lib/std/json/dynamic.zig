@@ -131,6 +131,138 @@ pub const Value = union(enum) {
         _ = options;
         return source;
     }
+
+    pub fn fromAnytypeLeaky(a: std.mem.Allocator, value: anytype, options: StringifyOptions) (std.json.Error || std.mem.Allocator.Error)!Value {
+        const T = @TypeOf(value);
+        switch (@typeInfo(T)) {
+            .Void => {
+                return Value{ .object = ObjectMap.init(a) };
+            },
+            .Int => |info| {
+                _ = info;
+
+                if (std.math.cast(i64, value)) |x| {
+                    return Value{ .integer = x };
+                } else {
+                    return Value{ .number_string = try std.fmt.allocPrint(a, "{}", .{value}) };
+                }
+            },
+            .ComptimeInt => {
+                if (std.math.cast(i64, value)) |x| {
+                    return Value{ .integer = x };
+                } else {
+                    return Value{ .number_string = std.fmt.allocPrint(a, "{}", .{value}) };
+                }
+            },
+            .Float, .ComptimeFloat => {
+                if (@as(f64, @floatCast(value)) == value) {
+                    return Value{ .float = @as(f64, @floatCast(value)) };
+                }
+                return Value{ .number_string = std.fmt.allocPrint(a, "{}", .{value}) };
+            },
+            .Bool => {
+                return Value{ .bool = value };
+            },
+            .Null => {
+                return Value.null;
+            },
+            .Optional => {
+                if (value) |payload| {
+                    return fromAnytypeLeaky(a, payload);
+                } else {
+                    return Value.null;
+                }
+            },
+            .Enum => {
+                return Value{ .string = @tagName(value) };
+            },
+            .Union => {
+                var map = ObjectMap.init(a);
+                const info = @typeInfo(T).Union;
+                if (info.tag_type) |UnionTagType| {
+                    inline for (info.fields) |u_field| {
+                        if (value == @field(UnionTagType, u_field.name)) {
+                            try map.put(
+                                u_field.name,
+                                try fromAnytypeLeaky(a, @field(value, u_field.name)),
+                            );
+                            break;
+                        }
+                    } else {
+                        unreachable; // No active tag?
+                    }
+                    return Value{ .object = map };
+                } else {
+                    @compileError("Unable to stringify untagged union '" ++ @typeName(T) ++ "'");
+                }
+            },
+            .Struct => |S| {
+                if (S.is_tuple) {
+                    var array = Array.init(a);
+                    inline for (S.fields) |Field| {
+                        const field_value = try fromAnytypeLeaky(a, @field(value, Field.name));
+                        try array.append(field_value);
+                    }
+                    return Value{ .array = array };
+                } else {
+                    var map = ObjectMap.init(a);
+                    inline for (S.fields) |Field| {
+                        if (options.emit_null_optional_fields == false and @field(value, Field.name) == null) {
+                            // skip field
+                        } else {
+                            const field_value = try fromAnytypeLeaky(a, @field(value, Field.name));
+                            try map.put(Field.name, field_value);
+                        }
+                    }
+                    return Value{ .object = map };
+                }
+                return;
+            },
+            .ErrorSet => return fromAnytypeLeaky(a, @errorName(value)),
+            .Pointer => |ptr_info| switch (ptr_info.size) {
+                .One => switch (@typeInfo(ptr_info.child)) {
+                    .Array => {
+                        // Coerce `*[N]T` to `[]const T`.
+                        const Slice = []const std.meta.Elem(ptr_info.child);
+                        return fromAnytypeLeaky(a, @as(Slice, value));
+                    },
+                    else => {
+                        return fromAnytypeLeaky(a, value.*);
+                    },
+                },
+                .Many, .Slice => {
+                    if (ptr_info.size == .Many and ptr_info.sentinel == null)
+                        @compileError("unable to stringify type '" ++ @typeName(T) ++ "' without sentinel");
+                    const slice = if (ptr_info.size == .Many) std.mem.span(value) else value;
+
+                    if (ptr_info.child == u8) {
+                        // This is a []const u8, or some similar Zig string.
+                        if (!options.emit_strings_as_arrays and std.unicode.utf8ValidateSlice(slice)) {
+                            return Value{ .string = slice };
+                        }
+                    }
+
+                    var array = Array.init(a);
+                    for (slice) |x| {
+                        const x_value = try fromAnytypeLeaky(a, x);
+                        try array.append(x_value);
+                    }
+                    return Value{ .array = array };
+                },
+                else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
+            },
+            .Array => {
+                // Coerce `[N]T` to `*const [N]T` (and then to `[]const T`).
+                return fromAnytypeLeaky(a, &value);
+            },
+            .Vector => |info| {
+                const array: [info.len]info.child = value;
+                return fromAnytypeLeaky(a, &array);
+            },
+            else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
+        }
+        unreachable;
+    }
 };
 
 fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, value_: Value, options: ParseOptions) !?Value {
