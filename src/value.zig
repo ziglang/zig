@@ -194,10 +194,7 @@ pub const Value = struct {
         const ip = &mod.intern_pool;
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .enum_literal => |enum_literal| enum_literal,
-            .ptr => |ptr| switch (ptr.len) {
-                .none => unreachable,
-                else => try arrayToIpString(val, Value.fromInterned(ptr.len).toUnsignedInt(mod), mod),
-            },
+            .slice => |slice| try arrayToIpString(val, Value.fromInterned(slice.len).toUnsignedInt(mod), mod),
             .aggregate => |aggregate| switch (aggregate.storage) {
                 .bytes => |bytes| try ip.getOrPutString(mod.gpa, bytes),
                 .elems => try arrayToIpString(val, ty.arrayLen(mod), mod),
@@ -217,10 +214,7 @@ pub const Value = struct {
     pub fn toAllocatedBytes(val: Value, ty: Type, allocator: Allocator, mod: *Module) ![]u8 {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .enum_literal => |enum_literal| allocator.dupe(u8, mod.intern_pool.stringToSlice(enum_literal)),
-            .ptr => |ptr| switch (ptr.len) {
-                .none => unreachable,
-                else => try arrayToAllocatedBytes(val, Value.fromInterned(ptr.len).toUnsignedInt(mod), allocator, mod),
-            },
+            .slice => |slice| try arrayToAllocatedBytes(val, Value.fromInterned(slice.len).toUnsignedInt(mod), allocator, mod),
             .aggregate => |aggregate| switch (aggregate.storage) {
                 .bytes => |bytes| try allocator.dupe(u8, bytes),
                 .elems => try arrayToAllocatedBytes(val, ty.arrayLen(mod), allocator, mod),
@@ -286,12 +280,11 @@ pub const Value = struct {
             },
             .slice => {
                 const pl = val.castTag(.slice).?.data;
-                const ptr = try pl.ptr.intern(ty.slicePtrFieldType(mod), mod);
-                var ptr_key = ip.indexToKey(ptr).ptr;
-                assert(ptr_key.len == .none);
-                ptr_key.ty = ty.toIntern();
-                ptr_key.len = try pl.len.intern(Type.usize, mod);
-                return mod.intern(.{ .ptr = ptr_key });
+                return mod.intern(.{ .slice = .{
+                    .ty = ty.toIntern(),
+                    .len = try pl.len.intern(Type.usize, mod),
+                    .ptr = try pl.ptr.intern(ty.slicePtrFieldType(mod), mod),
+                } });
             },
             .bytes => {
                 const pl = val.castTag(.bytes).?.data;
@@ -374,6 +367,7 @@ pub const Value = struct {
             .enum_tag,
             .empty_enum_value,
             .float,
+            .ptr,
             => val,
 
             .error_union => |error_union| switch (error_union.val) {
@@ -381,13 +375,10 @@ pub const Value = struct {
                 .payload => |payload| Tag.eu_payload.create(arena, Value.fromInterned(payload)),
             },
 
-            .ptr => |ptr| switch (ptr.len) {
-                .none => val,
-                else => |len| Tag.slice.create(arena, .{
-                    .ptr = val.slicePtr(mod),
-                    .len = Value.fromInterned(len),
-                }),
-            },
+            .slice => |slice| Tag.slice.create(arena, .{
+                .ptr = Value.fromInterned(slice.ptr),
+                .len = Value.fromInterned(slice.len),
+            }),
 
             .opt => |opt| switch (opt.val) {
                 .none => val,
@@ -1538,6 +1529,7 @@ pub const Value = struct {
 
     pub fn isComptimeMutablePtr(val: Value, mod: *Module) bool {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .slice => |slice| return Value.fromInterned(slice.ptr).isComptimeMutablePtr(mod),
             .ptr => |ptr| switch (ptr.addr) {
                 .mut_decl, .comptime_field => true,
                 .eu_payload, .opt_payload => |base_ptr| Value.fromInterned(base_ptr).isComptimeMutablePtr(mod),
@@ -1600,9 +1592,8 @@ pub const Value = struct {
 
     pub fn sliceLen(val: Value, mod: *Module) u64 {
         const ip = &mod.intern_pool;
-        const ptr = ip.indexToKey(val.toIntern()).ptr;
-        return switch (ptr.len) {
-            .none => switch (ip.indexToKey(switch (ptr.addr) {
+        return switch (ip.indexToKey(val.toIntern())) {
+            .ptr => |ptr| switch (ip.indexToKey(switch (ptr.addr) {
                 .decl => |decl| mod.declPtr(decl).ty.toIntern(),
                 .mut_decl => |mut_decl| mod.declPtr(mut_decl.decl).ty.toIntern(),
                 .anon_decl => |anon_decl| ip.typeOf(anon_decl.val),
@@ -1612,7 +1603,8 @@ pub const Value = struct {
                 .array_type => |array_type| array_type.len,
                 else => 1,
             },
-            else => Value.fromInterned(ptr.len).toUnsignedInt(mod),
+            .slice => |slice| Value.fromInterned(slice.len).toUnsignedInt(mod),
+            else => unreachable,
         };
     }
 
@@ -1636,6 +1628,7 @@ pub const Value = struct {
                 .undef => |ty| Value.fromInterned((try mod.intern(.{
                     .undef = Type.fromInterned(ty).elemType2(mod).toIntern(),
                 }))),
+                .slice => |slice| return Value.fromInterned(slice.ptr).maybeElemValue(mod, index),
                 .ptr => |ptr| switch (ptr.addr) {
                     .decl => |decl| mod.declPtr(decl).val.maybeElemValue(mod, index),
                     .anon_decl => |anon_decl| Value.fromInterned(anon_decl.val).maybeElemValue(mod, index),
@@ -1800,25 +1793,23 @@ pub const Value = struct {
     ) Allocator.Error!Value {
         const elem_ty = elem_ptr_ty.childType(mod);
         const ptr_val = switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .ptr => |ptr| ptr: {
-                switch (ptr.addr) {
-                    .elem => |elem| if (Type.fromInterned(mod.intern_pool.typeOf(elem.base)).elemType2(mod).eql(elem_ty, mod))
-                        return Value.fromInterned((try mod.intern(.{ .ptr = .{
-                            .ty = elem_ptr_ty.toIntern(),
-                            .addr = .{ .elem = .{
-                                .base = elem.base,
-                                .index = elem.index + index,
-                            } },
-                        } }))),
-                    else => {},
-                }
-                break :ptr switch (ptr.len) {
-                    .none => val,
-                    else => val.slicePtr(mod),
-                };
-            },
+            .slice => |slice| Value.fromInterned(slice.ptr),
             else => val,
         };
+        switch (mod.intern_pool.indexToKey(ptr_val.toIntern())) {
+            .ptr => |ptr| switch (ptr.addr) {
+                .elem => |elem| if (Type.fromInterned(mod.intern_pool.typeOf(elem.base)).elemType2(mod).eql(elem_ty, mod))
+                    return Value.fromInterned((try mod.intern(.{ .ptr = .{
+                        .ty = elem_ptr_ty.toIntern(),
+                        .addr = .{ .elem = .{
+                            .base = elem.base,
+                            .index = elem.index + index,
+                        } },
+                    } }))),
+                else => {},
+            },
+            else => {},
+        }
         var ptr_ty_key = mod.intern_pool.indexToKey(elem_ptr_ty.toIntern()).ptr_type;
         assert(ptr_ty_key.flags.size != .Slice);
         ptr_ty_key.flags.size = .Many;
@@ -1850,12 +1841,9 @@ pub const Value = struct {
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .undef => true,
                 .simple_value => |v| v == .undefined,
-                .ptr => |ptr| switch (ptr.len) {
-                    .none => false,
-                    else => for (0..@as(usize, @intCast(Value.fromInterned(ptr.len).toUnsignedInt(mod)))) |index| {
-                        if (try (try val.elemValue(mod, index)).anyUndef(mod)) break true;
-                    } else false,
-                },
+                .slice => |slice| for (0..@intCast(Value.fromInterned(slice.len).toUnsignedInt(mod))) |idx| {
+                    if (try (try val.elemValue(mod, idx)).anyUndef(mod)) break true;
+                } else false,
                 .aggregate => |aggregate| for (0..aggregate.storage.values().len) |i| {
                     const elem = mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.values()[i];
                     if (try anyUndef(Value.fromInterned(elem), mod)) break true;

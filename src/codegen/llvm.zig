@@ -3644,6 +3644,7 @@ pub const Object = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -3872,30 +3873,22 @@ pub const Object = struct {
                 128 => try o.builder.fp128Const(val.toFloat(f128, mod)),
                 else => unreachable,
             },
-            .ptr => |ptr| {
-                const ptr_ty = switch (ptr.len) {
-                    .none => ty,
-                    else => ty.slicePtrFieldType(mod),
-                };
-                const ptr_val = switch (ptr.addr) {
-                    .decl => |decl| try o.lowerDeclRefValue(ptr_ty, decl),
-                    .mut_decl => |mut_decl| try o.lowerDeclRefValue(ptr_ty, mut_decl.decl),
-                    .anon_decl => |anon_decl| try o.lowerAnonDeclRef(ptr_ty, anon_decl),
-                    .int => |int| try o.lowerIntAsPtr(int),
-                    .eu_payload,
-                    .opt_payload,
-                    .elem,
-                    .field,
-                    => try o.lowerParentPtr(val),
-                    .comptime_field => unreachable,
-                };
-                switch (ptr.len) {
-                    .none => return ptr_val,
-                    else => return o.builder.structConst(try o.lowerType(ty), &.{
-                        ptr_val, try o.lowerValue(ptr.len),
-                    }),
-                }
+            .ptr => |ptr| return switch (ptr.addr) {
+                .decl => |decl| try o.lowerDeclRefValue(ty, decl),
+                .mut_decl => |mut_decl| try o.lowerDeclRefValue(ty, mut_decl.decl),
+                .anon_decl => |anon_decl| try o.lowerAnonDeclRef(ty, anon_decl),
+                .int => |int| try o.lowerIntAsPtr(int),
+                .eu_payload,
+                .opt_payload,
+                .elem,
+                .field,
+                => try o.lowerParentPtr(val),
+                .comptime_field => unreachable,
             },
+            .slice => |slice| return o.builder.structConst(try o.lowerType(ty), &.{
+                try o.lowerValue(slice.ptr),
+                try o.lowerValue(slice.len),
+            }),
             .opt => |opt| {
                 comptime assert(optional_layout_version == 3);
                 const payload_ty = ty.optionalChild(mod);

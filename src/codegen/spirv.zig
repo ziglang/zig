@@ -855,18 +855,12 @@ const DeclGen = struct {
                 const int_ty = ty.intTagType(mod);
                 return try self.constant(int_ty, int_val, repr);
             },
-            .ptr => |ptr| {
-                const ptr_ty = switch (ptr.len) {
-                    .none => ty,
-                    else => ty.slicePtrFieldType(mod),
-                };
-                const ptr_id = try self.constantPtr(ptr_ty, val);
-                if (ptr.len == .none) {
-                    return ptr_id;
-                }
-
-                const len_id = try self.constant(Type.usize, Value.fromInterned(ptr.len), .indirect);
-                return try self.constructStruct(
+            .ptr => return self.constantPtr(ty, val),
+            .slice => |slice| {
+                const ptr_ty = ty.slicePtrFieldType(mod);
+                const ptr_id = try self.constantPtr(ptr_ty, Value.fromInterned(slice.ptr));
+                const len_id = try self.constant(Type.usize, Value.fromInterned(slice.len), .indirect);
+                return self.constructStruct(
                     ty,
                     &.{ ptr_ty, Type.usize },
                     &.{ ptr_id, len_id },

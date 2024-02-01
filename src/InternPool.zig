@@ -326,6 +326,7 @@ pub const Key = union(enum) {
     empty_enum_value: Index,
     float: Float,
     ptr: Ptr,
+    slice: Slice,
     opt: Opt,
     /// An instance of a struct, array, or vector.
     /// Each element/field stored as an `Index`.
@@ -493,7 +494,7 @@ pub const Key = union(enum) {
                 start: u32,
                 len: u32,
 
-                pub fn get(slice: Slice, ip: *const InternPool) []RuntimeOrder {
+                pub fn get(slice: RuntimeOrder.Slice, ip: *const InternPool) []RuntimeOrder {
                     return @ptrCast(ip.extra.items[slice.start..][0..slice.len]);
                 }
             };
@@ -1197,8 +1198,6 @@ pub const Key = union(enum) {
         ty: Index,
         /// The value of the address that the pointer points to.
         addr: Addr,
-        /// This could be `none` if size is not a slice.
-        len: Index = .none,
 
         pub const Addr = union(enum) {
             const Tag = @typeInfo(Addr).Union.tag_type.?;
@@ -1230,6 +1229,15 @@ pub const Key = union(enum) {
                 orig_ty: Index,
             };
         };
+    };
+
+    pub const Slice = struct {
+        /// This is the slice type, not the element type.
+        ty: Index,
+        /// The slice's `ptr` field. Must be a many-ptr with the same properties as `ty`.
+        ptr: Index,
+        /// The slice's `len` field. Must be a `usize`.
+        len: Index,
     };
 
     /// `null` is represented by the `val` field being `none`.
@@ -1354,12 +1362,14 @@ pub const Key = union(enum) {
                 return hasher.final();
             },
 
+            .slice => |slice| Hash.hash(seed, asBytes(&slice.ty) ++ asBytes(&slice.ptr) ++ asBytes(&slice.len)),
+
             .ptr => |ptr| {
                 // Int-to-ptr pointers are hashed separately than decl-referencing pointers.
                 // This is sound due to pointer provenance rules.
                 const addr: @typeInfo(Key.Ptr.Addr).Union.tag_type.? = ptr.addr;
                 const seed2 = seed + @intFromEnum(addr);
-                const common = asBytes(&ptr.ty) ++ asBytes(&ptr.len);
+                const common = asBytes(&ptr.ty);
                 return switch (ptr.addr) {
                     .decl => |x| Hash.hash(seed2, common ++ asBytes(&x)),
 
@@ -1624,9 +1634,17 @@ pub const Key = union(enum) {
                 return a_ty_info.eql(b_ty_info, ip);
             },
 
+            .slice => |a_info| {
+                const b_info = b.slice;
+                if (a_info.ty != b_info.ty) return false;
+                if (a_info.ptr != b_info.ptr) return false;
+                if (a_info.len != b_info.len) return false;
+                return true;
+            },
+
             .ptr => |a_info| {
                 const b_info = b.ptr;
-                if (a_info.ty != b_info.ty or a_info.len != b_info.len) return false;
+                if (a_info.ty != b_info.ty) return false;
 
                 const AddrTag = @typeInfo(Key.Ptr.Addr).Union.tag_type.?;
                 if (@as(AddrTag, a_info.addr) != @as(AddrTag, b_info.addr)) return false;
@@ -1829,6 +1847,7 @@ pub const Key = union(enum) {
             => .type_type,
 
             inline .ptr,
+            .slice,
             .int,
             .float,
             .opt,
@@ -3983,77 +4002,11 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         },
         .ptr_slice => {
             const info = ip.extraData(PtrSlice, data);
-            const ptr_item = ip.items.get(@intFromEnum(info.ptr));
-            return .{
-                .ptr = .{
-                    .ty = info.ty,
-                    .addr = switch (ptr_item.tag) {
-                        .ptr_decl => .{
-                            .decl = ip.extraData(PtrDecl, ptr_item.data).decl,
-                        },
-                        .ptr_mut_decl => b: {
-                            const sub_info = ip.extraData(PtrMutDecl, ptr_item.data);
-                            break :b .{ .mut_decl = .{
-                                .decl = sub_info.decl,
-                                .runtime_index = sub_info.runtime_index,
-                            } };
-                        },
-                        .ptr_anon_decl => .{
-                            .anon_decl = .{
-                                .val = ip.extraData(PtrAnonDecl, ptr_item.data).val,
-                                .orig_ty = info.ty,
-                            },
-                        },
-                        .ptr_anon_decl_aligned => b: {
-                            const sub_info = ip.extraData(PtrAnonDeclAligned, ptr_item.data);
-                            break :b .{ .anon_decl = .{
-                                .val = sub_info.val,
-                                .orig_ty = sub_info.orig_ty,
-                            } };
-                        },
-                        .ptr_comptime_field => .{
-                            .comptime_field = ip.extraData(PtrComptimeField, ptr_item.data).field_val,
-                        },
-                        .ptr_int => .{
-                            .int = ip.extraData(PtrBase, ptr_item.data).base,
-                        },
-                        .ptr_eu_payload => .{
-                            .eu_payload = ip.extraData(PtrBase, ptr_item.data).base,
-                        },
-                        .ptr_opt_payload => .{
-                            .opt_payload = ip.extraData(PtrBase, ptr_item.data).base,
-                        },
-                        .ptr_elem => b: {
-                            // Avoid `indexToKey` recursion by asserting the tag encoding.
-                            const sub_info = ip.extraData(PtrBaseIndex, ptr_item.data);
-                            const index_item = ip.items.get(@intFromEnum(sub_info.index));
-                            break :b switch (index_item.tag) {
-                                .int_usize => .{ .elem = .{
-                                    .base = sub_info.base,
-                                    .index = index_item.data,
-                                } },
-                                .int_positive => @panic("TODO"), // implement along with behavior test coverage
-                                else => unreachable,
-                            };
-                        },
-                        .ptr_field => b: {
-                            // Avoid `indexToKey` recursion by asserting the tag encoding.
-                            const sub_info = ip.extraData(PtrBaseIndex, ptr_item.data);
-                            const index_item = ip.items.get(@intFromEnum(sub_info.index));
-                            break :b switch (index_item.tag) {
-                                .int_usize => .{ .field = .{
-                                    .base = sub_info.base,
-                                    .index = index_item.data,
-                                } },
-                                .int_positive => @panic("TODO"), // implement along with behavior test coverage
-                                else => unreachable,
-                            };
-                        },
-                        else => unreachable,
-                    },
-                    .len = info.len,
-                },
-            };
+            return .{ .slice = .{
+                .ty = info.ty,
+                .ptr = info.ptr,
+                .len = info.len,
+            } };
         },
         .int_u8 => .{ .int = .{
             .ty = .u8_type,
@@ -4735,153 +4688,139 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             });
         },
 
+        .slice => |slice| {
+            assert(ip.indexToKey(slice.ty).ptr_type.flags.size == .Slice);
+            assert(ip.indexToKey(ip.typeOf(slice.ptr)).ptr_type.flags.size == .Many);
+            ip.items.appendAssumeCapacity(.{
+                .tag = .ptr_slice,
+                .data = try ip.addExtra(gpa, PtrSlice{
+                    .ty = slice.ty,
+                    .ptr = slice.ptr,
+                    .len = slice.len,
+                }),
+            });
+        },
+
         .ptr => |ptr| {
             const ptr_type = ip.indexToKey(ptr.ty).ptr_type;
-            switch (ptr.len) {
-                .none => {
-                    assert(ptr_type.flags.size != .Slice);
-                    switch (ptr.addr) {
-                        .decl => |decl| ip.items.appendAssumeCapacity(.{
-                            .tag = .ptr_decl,
-                            .data = try ip.addExtra(gpa, PtrDecl{
-                                .ty = ptr.ty,
-                                .decl = decl,
-                            }),
+            assert(ptr_type.flags.size != .Slice);
+            switch (ptr.addr) {
+                .decl => |decl| ip.items.appendAssumeCapacity(.{
+                    .tag = .ptr_decl,
+                    .data = try ip.addExtra(gpa, PtrDecl{
+                        .ty = ptr.ty,
+                        .decl = decl,
+                    }),
+                }),
+                .mut_decl => |mut_decl| ip.items.appendAssumeCapacity(.{
+                    .tag = .ptr_mut_decl,
+                    .data = try ip.addExtra(gpa, PtrMutDecl{
+                        .ty = ptr.ty,
+                        .decl = mut_decl.decl,
+                        .runtime_index = mut_decl.runtime_index,
+                    }),
+                }),
+                .anon_decl => |anon_decl| ip.items.appendAssumeCapacity(
+                    if (ptrsHaveSameAlignment(ip, ptr.ty, ptr_type, anon_decl.orig_ty)) .{
+                        .tag = .ptr_anon_decl,
+                        .data = try ip.addExtra(gpa, PtrAnonDecl{
+                            .ty = ptr.ty,
+                            .val = anon_decl.val,
                         }),
-                        .mut_decl => |mut_decl| ip.items.appendAssumeCapacity(.{
-                            .tag = .ptr_mut_decl,
-                            .data = try ip.addExtra(gpa, PtrMutDecl{
-                                .ty = ptr.ty,
-                                .decl = mut_decl.decl,
-                                .runtime_index = mut_decl.runtime_index,
-                            }),
+                    } else .{
+                        .tag = .ptr_anon_decl_aligned,
+                        .data = try ip.addExtra(gpa, PtrAnonDeclAligned{
+                            .ty = ptr.ty,
+                            .val = anon_decl.val,
+                            .orig_ty = anon_decl.orig_ty,
                         }),
-                        .anon_decl => |anon_decl| ip.items.appendAssumeCapacity(
-                            if (ptrsHaveSameAlignment(ip, ptr.ty, ptr_type, anon_decl.orig_ty)) .{
-                                .tag = .ptr_anon_decl,
-                                .data = try ip.addExtra(gpa, PtrAnonDecl{
-                                    .ty = ptr.ty,
-                                    .val = anon_decl.val,
-                                }),
-                            } else .{
-                                .tag = .ptr_anon_decl_aligned,
-                                .data = try ip.addExtra(gpa, PtrAnonDeclAligned{
-                                    .ty = ptr.ty,
-                                    .val = anon_decl.val,
-                                    .orig_ty = anon_decl.orig_ty,
-                                }),
-                            },
-                        ),
-                        .comptime_field => |field_val| {
-                            assert(field_val != .none);
-                            ip.items.appendAssumeCapacity(.{
-                                .tag = .ptr_comptime_field,
-                                .data = try ip.addExtra(gpa, PtrComptimeField{
-                                    .ty = ptr.ty,
-                                    .field_val = field_val,
-                                }),
-                            });
-                        },
-                        .int, .eu_payload, .opt_payload => |base| {
-                            switch (ptr.addr) {
-                                .int => assert(ip.typeOf(base) == .usize_type),
-                                .eu_payload => assert(ip.indexToKey(
-                                    ip.indexToKey(ip.typeOf(base)).ptr_type.child,
-                                ) == .error_union_type),
-                                .opt_payload => assert(ip.indexToKey(
-                                    ip.indexToKey(ip.typeOf(base)).ptr_type.child,
-                                ) == .opt_type),
-                                else => unreachable,
-                            }
-                            ip.items.appendAssumeCapacity(.{
-                                .tag = switch (ptr.addr) {
-                                    .int => .ptr_int,
-                                    .eu_payload => .ptr_eu_payload,
-                                    .opt_payload => .ptr_opt_payload,
-                                    else => unreachable,
-                                },
-                                .data = try ip.addExtra(gpa, PtrBase{
-                                    .ty = ptr.ty,
-                                    .base = base,
-                                }),
-                            });
-                        },
-                        .elem, .field => |base_index| {
-                            const base_ptr_type = ip.indexToKey(ip.typeOf(base_index.base)).ptr_type;
-                            switch (ptr.addr) {
-                                .elem => assert(base_ptr_type.flags.size == .Many),
-                                .field => {
-                                    assert(base_ptr_type.flags.size == .One);
-                                    switch (ip.indexToKey(base_ptr_type.child)) {
-                                        .anon_struct_type => |anon_struct_type| {
-                                            assert(ptr.addr == .field);
-                                            assert(base_index.index < anon_struct_type.types.len);
-                                        },
-                                        .struct_type => |struct_type| {
-                                            assert(ptr.addr == .field);
-                                            assert(base_index.index < struct_type.field_types.len);
-                                        },
-                                        .union_type => |union_key| {
-                                            const union_type = ip.loadUnionType(union_key);
-                                            assert(ptr.addr == .field);
-                                            assert(base_index.index < union_type.field_names.len);
-                                        },
-                                        .ptr_type => |slice_type| {
-                                            assert(ptr.addr == .field);
-                                            assert(slice_type.flags.size == .Slice);
-                                            assert(base_index.index < 2);
-                                        },
-                                        else => unreachable,
-                                    }
-                                },
-                                else => unreachable,
-                            }
-                            _ = ip.map.pop();
-                            const index_index = try ip.get(gpa, .{ .int = .{
-                                .ty = .usize_type,
-                                .storage = .{ .u64 = base_index.index },
-                            } });
-                            assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
-                            try ip.items.ensureUnusedCapacity(gpa, 1);
-                            ip.items.appendAssumeCapacity(.{
-                                .tag = switch (ptr.addr) {
-                                    .elem => .ptr_elem,
-                                    .field => .ptr_field,
-                                    else => unreachable,
-                                },
-                                .data = try ip.addExtra(gpa, PtrBaseIndex{
-                                    .ty = ptr.ty,
-                                    .base = base_index.base,
-                                    .index = index_index,
-                                }),
-                            });
-                        },
-                    }
+                    },
+                ),
+                .comptime_field => |field_val| {
+                    assert(field_val != .none);
+                    ip.items.appendAssumeCapacity(.{
+                        .tag = .ptr_comptime_field,
+                        .data = try ip.addExtra(gpa, PtrComptimeField{
+                            .ty = ptr.ty,
+                            .field_val = field_val,
+                        }),
+                    });
                 },
-                else => {
-                    // TODO: change Key.Ptr for slices to reference the manyptr value
-                    // rather than having an addr field directly. Then we can avoid
-                    // these problematic calls to pop(), get(), and getOrPutAdapted().
-                    assert(ptr_type.flags.size == .Slice);
+                .int, .eu_payload, .opt_payload => |base| {
+                    switch (ptr.addr) {
+                        .int => assert(ip.typeOf(base) == .usize_type),
+                        .eu_payload => assert(ip.indexToKey(
+                            ip.indexToKey(ip.typeOf(base)).ptr_type.child,
+                        ) == .error_union_type),
+                        .opt_payload => assert(ip.indexToKey(
+                            ip.indexToKey(ip.typeOf(base)).ptr_type.child,
+                        ) == .opt_type),
+                        else => unreachable,
+                    }
+                    ip.items.appendAssumeCapacity(.{
+                        .tag = switch (ptr.addr) {
+                            .int => .ptr_int,
+                            .eu_payload => .ptr_eu_payload,
+                            .opt_payload => .ptr_opt_payload,
+                            else => unreachable,
+                        },
+                        .data = try ip.addExtra(gpa, PtrBase{
+                            .ty = ptr.ty,
+                            .base = base,
+                        }),
+                    });
+                },
+                .elem, .field => |base_index| {
+                    const base_ptr_type = ip.indexToKey(ip.typeOf(base_index.base)).ptr_type;
+                    switch (ptr.addr) {
+                        .elem => assert(base_ptr_type.flags.size == .Many),
+                        .field => {
+                            assert(base_ptr_type.flags.size == .One);
+                            switch (ip.indexToKey(base_ptr_type.child)) {
+                                .anon_struct_type => |anon_struct_type| {
+                                    assert(ptr.addr == .field);
+                                    assert(base_index.index < anon_struct_type.types.len);
+                                },
+                                .struct_type => |struct_type| {
+                                    assert(ptr.addr == .field);
+                                    assert(base_index.index < struct_type.field_types.len);
+                                },
+                                .union_type => |union_key| {
+                                    const union_type = ip.loadUnionType(union_key);
+                                    assert(ptr.addr == .field);
+                                    assert(base_index.index < union_type.field_names.len);
+                                },
+                                .ptr_type => |slice_type| {
+                                    assert(ptr.addr == .field);
+                                    assert(slice_type.flags.size == .Slice);
+                                    assert(base_index.index < 2);
+                                },
+                                else => unreachable,
+                            }
+                        },
+                        else => unreachable,
+                    }
                     _ = ip.map.pop();
-                    var new_key = key;
-                    new_key.ptr.ty = ip.slicePtrType(ptr.ty);
-                    new_key.ptr.len = .none;
-                    assert(ip.indexToKey(new_key.ptr.ty).ptr_type.flags.size == .Many);
-                    const ptr_index = try ip.get(gpa, new_key);
+                    const index_index = try ip.get(gpa, .{ .int = .{
+                        .ty = .usize_type,
+                        .storage = .{ .u64 = base_index.index },
+                    } });
                     assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
                     try ip.items.ensureUnusedCapacity(gpa, 1);
                     ip.items.appendAssumeCapacity(.{
-                        .tag = .ptr_slice,
-                        .data = try ip.addExtra(gpa, PtrSlice{
+                        .tag = switch (ptr.addr) {
+                            .elem => .ptr_elem,
+                            .field => .ptr_field,
+                            else => unreachable,
+                        },
+                        .data = try ip.addExtra(gpa, PtrBaseIndex{
                             .ty = ptr.ty,
-                            .ptr = ptr_index,
-                            .len = ptr.len,
+                            .base = base_index.base,
+                            .index = index_index,
                         }),
                     });
                 },
             }
-            assert(ptr.ty == ip.indexToKey(@as(Index, @enumFromInt(ip.items.len - 1))).ptr.ty);
         },
 
         .opt => |opt| {
@@ -6844,14 +6783,20 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                 .val = .none,
             } });
 
-            if (ip.isPointerType(new_ty)) return ip.get(gpa, .{ .ptr = .{
-                .ty = new_ty,
-                .addr = .{ .int = .zero_usize },
-                .len = switch (ip.indexToKey(new_ty).ptr_type.flags.size) {
-                    .One, .Many, .C => .none,
-                    .Slice => try ip.get(gpa, .{ .undef = .usize_type }),
-                },
-            } });
+            if (ip.isPointerType(new_ty)) switch (ip.indexToKey(new_ty).ptr_type.flags.size) {
+                .One, .Many, .C => return ip.get(gpa, .{ .ptr = .{
+                    .ty = new_ty,
+                    .addr = .{ .int = .zero_usize },
+                } }),
+                .Slice => return ip.get(gpa, .{ .slice = .{
+                    .ty = new_ty,
+                    .ptr = try ip.get(gpa, .{ .ptr = .{
+                        .ty = ip.slicePtrType(new_ty),
+                        .addr = .{ .int = .zero_usize },
+                    } }),
+                    .len = try ip.get(gpa, .{ .undef = .usize_type }),
+                } }),
+            };
         },
         else => switch (tags[@intFromEnum(val)]) {
             .func_decl => return getCoercedFuncDecl(ip, gpa, val, new_ty),
@@ -6929,11 +6874,18 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
             },
             else => {},
         },
-        .ptr => |ptr| if (ip.isPointerType(new_ty))
+        .slice => |slice| if (ip.isPointerType(new_ty) and ip.indexToKey(new_ty).ptr_type.flags.size == .Slice)
+            return ip.get(gpa, .{ .slice = .{
+                .ty = new_ty,
+                .ptr = try ip.getCoerced(gpa, slice.ptr, ip.slicePtrType(new_ty)),
+                .len = slice.len,
+            } })
+        else if (ip.isIntegerType(new_ty))
+            return ip.getCoerced(gpa, slice.ptr, new_ty),
+        .ptr => |ptr| if (ip.isPointerType(new_ty) and ip.indexToKey(new_ty).ptr_type.flags.size != .Slice)
             return ip.get(gpa, .{ .ptr = .{
                 .ty = new_ty,
                 .addr = ptr.addr,
-                .len = ptr.len,
             } })
         else if (ip.isIntegerType(new_ty))
             switch (ptr.addr) {
@@ -6942,14 +6894,20 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
             },
         .opt => |opt| switch (ip.indexToKey(new_ty)) {
             .ptr_type => |ptr_type| return switch (opt.val) {
-                .none => try ip.get(gpa, .{ .ptr = .{
-                    .ty = new_ty,
-                    .addr = .{ .int = .zero_usize },
-                    .len = switch (ptr_type.flags.size) {
-                        .One, .Many, .C => .none,
-                        .Slice => try ip.get(gpa, .{ .undef = .usize_type }),
-                    },
-                } }),
+                .none => switch (ptr_type.flags.size) {
+                    .One, .Many, .C => try ip.get(gpa, .{ .ptr = .{
+                        .ty = new_ty,
+                        .addr = .{ .int = .zero_usize },
+                    } }),
+                    .Slice => try ip.get(gpa, .{ .slice = .{
+                        .ty = new_ty,
+                        .ptr = try ip.get(gpa, .{ .ptr = .{
+                            .ty = ip.slicePtrType(new_ty),
+                            .addr = .{ .int = .zero_usize },
+                        } }),
+                        .len = try ip.get(gpa, .{ .undef = .usize_type }),
+                    } }),
+                },
                 else => |payload| try ip.getCoerced(gpa, payload, new_ty),
             },
             .opt_type => |child_type| return try ip.get(gpa, .{ .opt = .{
