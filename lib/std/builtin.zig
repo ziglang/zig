@@ -205,6 +205,9 @@ pub const CallingConvention = enum(u8) {
     Win64,
     /// AMD GPU, NVPTX, or SPIR-V kernel
     Kernel,
+    // Vulkan-only
+    Fragment,
+    Vertex,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -222,6 +225,9 @@ pub const AddressSpace = enum(u5) {
     param,
     shared,
     local,
+    input,
+    output,
+    uniform,
 
     // AVR address spaces.
     flash,

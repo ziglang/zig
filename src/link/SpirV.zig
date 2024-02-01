@@ -86,8 +86,6 @@ pub fn createEmpty(
         else => unreachable, // Caught by Compilation.Config.resolve.
     }
 
-    assert(target.abi != .none); // Caught by Compilation.Config.resolve.
-
     return self;
 }
 
@@ -158,10 +156,27 @@ pub fn updateExports(
         },
     };
     const decl = mod.declPtr(decl_index);
-    if (decl.val.isFuncBody(mod) and decl.ty.fnCallingConvention(mod) == .Kernel) {
+    if (decl.val.isFuncBody(mod)) {
+        const target = mod.getTarget();
         const spv_decl_index = try self.object.resolveDecl(mod, decl_index);
-        for (exports) |exp| {
-            try self.object.spv.declareEntryPoint(spv_decl_index, mod.intern_pool.stringToSlice(exp.opts.name));
+        const execution_model = switch (decl.ty.fnCallingConvention(mod)) {
+            .Vertex => spec.ExecutionModel.Vertex,
+            .Fragment => spec.ExecutionModel.Fragment,
+            .Kernel => spec.ExecutionModel.Kernel,
+            else => unreachable,
+        };
+        const is_vulkan = target.os.tag == .vulkan;
+
+        if ((!is_vulkan and execution_model == .Kernel) or
+            (is_vulkan and (execution_model == .Fragment or execution_model == .Vertex)))
+        {
+            for (exports) |exp| {
+                try self.object.spv.declareEntryPoint(
+                    spv_decl_index,
+                    mod.intern_pool.stringToSlice(exp.opts.name),
+                    execution_model,
+                );
+            }
         }
     }
 
@@ -224,7 +239,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
         .extension = error_info.items,
     });
 
-    try spv.flush(self.base.file.?);
+    try spv.flush(self.base.file.?, target);
 }
 
 fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
@@ -233,7 +248,7 @@ fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     const caps: []const spec.Capability = switch (target.os.tag) {
         .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .GenericPointer },
         .glsl450 => &.{.Shader},
-        .vulkan => &.{.Shader},
+        .vulkan => &.{ .Shader, .VariablePointersStorageBuffer, .Int8, .Int16, .Int64, .Float64, .Float16 },
         else => unreachable, // TODO
     };
 

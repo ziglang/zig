@@ -1221,6 +1221,7 @@ pub const Cpu = struct {
                 .fs, .gs, .ss => arch == .x86_64 or arch == .x86,
                 .global, .constant, .local, .shared => is_gpu,
                 .param => is_nvptx,
+                .input, .output, .uniform => is_spirv,
                 // TODO this should also check how many flash banks the cpu has
                 .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
             };
@@ -2353,7 +2354,7 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
             .longdouble => return 128,
         },
 
-        .opencl => switch (c_type) {
+        .opencl, .vulkan => switch (c_type) {
             .char => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
@@ -2386,7 +2387,6 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
         .hermit,
         .hurd,
         .glsl450,
-        .vulkan,
         .driverkit,
         .shadermodel,
         .liteos,
