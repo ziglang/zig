@@ -546,8 +546,8 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
 
     relocs_log.debug("{x}: {s}", .{ self.value, name });
 
+    var has_error = false;
     var stream = std.io.fixedBufferStream(buffer);
-
     var i: usize = 0;
     while (i < relocs.len) : (i += 1) {
         const rel = relocs[i];
@@ -562,25 +562,34 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
         self.resolveRelocInner(rel, subtractor, buffer, macho_file, stream.writer()) catch |err| {
             switch (err) {
                 error.RelaxFail => {
+                    const target = switch (rel.tag) {
+                        .@"extern" => rel.getTargetSymbol(macho_file).getName(macho_file),
+                        .local => rel.getTargetAtom(macho_file).getName(macho_file),
+                    };
                     try macho_file.reportParseError2(
                         file.getIndex(),
-                        "{s}: 0x{x}: failed to relax relocation: in {s}",
-                        .{ name, rel.offset, @tagName(rel.type) },
+                        "{s}: 0x{x}: 0x{x}: failed to relax relocation: type {s}, target {s}",
+                        .{ name, self.value, rel.offset, @tagName(rel.type), target },
                     );
-                    return error.ResolveFailed;
+                    has_error = true;
                 },
+                error.RelaxFailUnexpectedInstruction => has_error = true,
                 else => |e| return e,
             }
         };
     }
+
+    if (has_error) return error.ResolveFailed;
 }
 
 const ResolveError = error{
     RelaxFail,
+    RelaxFailUnexpectedInstruction,
     NoSpaceLeft,
     DivisionByZero,
     UnexpectedRemainder,
     Overflow,
+    OutOfMemory,
 };
 
 fn resolveRelocInner(
@@ -704,7 +713,7 @@ fn resolveRelocInner(
             if (rel.getTargetSymbol(macho_file).flags.has_got) {
                 try writer.writeInt(i32, @intCast(G + A - P), .little);
             } else {
-                try x86_64.relaxGotLoad(code[rel_offset - 3 ..]);
+                try x86_64.relaxGotLoad(self, code[rel_offset - 3 ..], rel, macho_file);
                 try writer.writeInt(i32, @intCast(S + A - P), .little);
             }
         },
@@ -898,7 +907,7 @@ fn resolveRelocInner(
 }
 
 const x86_64 = struct {
-    fn relaxGotLoad(code: []u8) error{RelaxFail}!void {
+    fn relaxGotLoad(self: Atom, code: []u8, rel: Relocation, macho_file: *MachO) ResolveError!void {
         const old_inst = disassemble(code) orelse return error.RelaxFail;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
@@ -906,7 +915,18 @@ const x86_64 = struct {
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 encode(&.{inst}, code) catch return error.RelaxFail;
             },
-            else => return error.RelaxFail,
+            else => |x| {
+                var err = try macho_file.addErrorWithNotes(2);
+                try err.addMsg(macho_file, "{s}: 0x{x}: 0x{x}: failed to relax relocation of type {s}", .{
+                    self.getName(macho_file),
+                    self.value,
+                    rel.offset,
+                    @tagName(rel.type),
+                });
+                try err.addNote(macho_file, "expected .mov instruction but found .{s}", .{@tagName(x)});
+                try err.addNote(macho_file, "while parsing {}", .{self.getFile(macho_file).fmtPath()});
+                return error.RelaxFailUnexpectedInstruction;
+            },
         }
     }
 

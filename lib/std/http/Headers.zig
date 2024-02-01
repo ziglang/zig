@@ -91,30 +91,64 @@ pub const Headers = struct {
     ///
     /// If the `owned` field is true, both name and value will be copied.
     pub fn append(headers: *Headers, name: []const u8, value: []const u8) !void {
+        try headers.appendOwned(.{ .unowned = name }, .{ .unowned = value });
+    }
+
+    pub const OwnedString = union(enum) {
+        /// A string allocated by the `allocator` field.
+        owned: []u8,
+        /// A string to be copied by the `allocator` field.
+        unowned: []const u8,
+    };
+
+    /// Appends a header to the list.
+    ///
+    /// If the `owned` field is true, `name` and `value` will be copied if unowned.
+    pub fn appendOwned(headers: *Headers, name: OwnedString, value: OwnedString) !void {
         const n = headers.list.items.len;
+        try headers.list.ensureUnusedCapacity(headers.allocator, 1);
 
-        const value_duped = if (headers.owned) try headers.allocator.dupe(u8, value) else value;
-        errdefer if (headers.owned) headers.allocator.free(value_duped);
+        const owned_value = switch (value) {
+            .owned => |owned| owned,
+            .unowned => |unowned| if (headers.owned)
+                try headers.allocator.dupe(u8, unowned)
+            else
+                unowned,
+        };
+        errdefer if (value == .unowned and headers.owned) headers.allocator.free(owned_value);
 
-        var entry = Field{ .name = undefined, .value = value_duped };
+        var entry = Field{ .name = undefined, .value = owned_value };
 
-        if (headers.index.getEntry(name)) |kv| {
+        if (headers.index.getEntry(switch (name) {
+            inline else => |string| string,
+        })) |kv| {
+            defer switch (name) {
+                .owned => |owned| headers.allocator.free(owned),
+                .unowned => {},
+            };
+
             entry.name = kv.key_ptr.*;
             try kv.value_ptr.append(headers.allocator, n);
         } else {
-            const name_duped = if (headers.owned) try std.ascii.allocLowerString(headers.allocator, name) else name;
-            errdefer if (headers.owned) headers.allocator.free(name_duped);
+            const owned_name = switch (name) {
+                .owned => |owned| owned,
+                .unowned => |unowned| if (headers.owned)
+                    try std.ascii.allocLowerString(headers.allocator, unowned)
+                else
+                    unowned,
+            };
+            errdefer if (name == .unowned and headers.owned) headers.allocator.free(owned_name);
 
-            entry.name = name_duped;
+            entry.name = owned_name;
 
             var new_index = try HeaderIndexList.initCapacity(headers.allocator, 1);
             errdefer new_index.deinit(headers.allocator);
 
             new_index.appendAssumeCapacity(n);
-            try headers.index.put(headers.allocator, name_duped, new_index);
+            try headers.index.put(headers.allocator, owned_name, new_index);
         }
 
-        try headers.list.append(headers.allocator, entry);
+        headers.list.appendAssumeCapacity(entry);
     }
 
     /// Returns true if this list of headers contains the given name.

@@ -390,7 +390,7 @@ pub fn getDeclVAddr(
             .pcrel = false,
             .has_subtractor = false,
             .length = 3,
-            .symbolnum = 0,
+            .symbolnum = @intCast(sym.nlist_idx),
         },
     });
     return vaddr;
@@ -416,7 +416,7 @@ pub fn getAnonDeclVAddr(
             .pcrel = false,
             .has_subtractor = false,
             .length = 3,
-            .symbolnum = 0,
+            .symbolnum = @intCast(sym.nlist_idx),
         },
     });
     return vaddr;
@@ -856,21 +856,18 @@ fn createTlvDescriptor(
     atom.alignment = alignment;
     atom.size = size;
 
-    const tlv_bootstrap_index = blk: {
-        const index = try self.getGlobalSymbol(macho_file, "_tlv_bootstrap", null);
-        break :blk self.symbols.items[index];
-    };
+    const tlv_bootstrap_index = try self.getGlobalSymbol(macho_file, "_tlv_bootstrap", null);
     try atom.addReloc(macho_file, .{
         .tag = .@"extern",
         .offset = 0,
-        .target = tlv_bootstrap_index,
+        .target = self.symbols.items[tlv_bootstrap_index],
         .addend = 0,
         .type = .unsigned,
         .meta = .{
             .pcrel = false,
             .has_subtractor = false,
             .length = 3,
-            .symbolnum = 0,
+            .symbolnum = @intCast(tlv_bootstrap_index),
         },
     });
     try atom.addReloc(macho_file, .{
@@ -883,7 +880,7 @@ fn createTlvDescriptor(
             .pcrel = false,
             .has_subtractor = false,
             .length = 3,
-            .symbolnum = 0,
+            .symbolnum = @intCast(macho_file.getSymbol(init_sym_index).nlist_idx),
         },
     });
 
