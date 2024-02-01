@@ -3403,6 +3403,15 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         }
     }.appendSect;
 
+    const allocSect = struct {
+        fn allocSect(macho_file: *MachO, sect_id: u8, size: u64) !void {
+            const sect = &macho_file.sections.items(.header)[sect_id];
+            const alignment = try math.powi(u32, 2, sect.@"align");
+            sect.offset = @intCast(macho_file.findFreeSpace(size, alignment));
+            sect.size = size;
+        }
+    }.allocSect;
+
     {
         self.zig_text_sect_index = try self.addSection("__TEXT_ZIG", "__text_zig", .{
             .alignment = switch (self.getTarget().cpu.arch) {
@@ -3412,7 +3421,11 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             },
             .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         });
-        if (!self.base.isRelocatable()) appendSect(self, self.zig_text_sect_index.?, self.zig_text_seg_index.?);
+        if (self.base.isRelocatable()) {
+            try allocSect(self, self.zig_text_sect_index.?, options.program_code_size_hint);
+        } else {
+            appendSect(self, self.zig_text_sect_index.?, self.zig_text_seg_index.?);
+        }
     }
 
     if (!self.base.isRelocatable()) {
@@ -3424,19 +3437,31 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
 
     {
         self.zig_const_sect_index = try self.addSection("__CONST_ZIG", "__const_zig", .{});
-        if (!self.base.isRelocatable()) appendSect(self, self.zig_const_sect_index.?, self.zig_const_seg_index.?);
+        if (self.base.isRelocatable()) {
+            try allocSect(self, self.zig_const_sect_index.?, 1024);
+        } else {
+            appendSect(self, self.zig_const_sect_index.?, self.zig_const_seg_index.?);
+        }
     }
 
     {
         self.zig_data_sect_index = try self.addSection("__DATA_ZIG", "__data_zig", .{});
-        if (!self.base.isRelocatable()) appendSect(self, self.zig_data_sect_index.?, self.zig_data_seg_index.?);
+        if (self.base.isRelocatable()) {
+            try allocSect(self, self.zig_data_sect_index.?, 1024);
+        } else {
+            appendSect(self, self.zig_data_sect_index.?, self.zig_data_seg_index.?);
+        }
     }
 
     {
         self.zig_bss_sect_index = try self.addSection("__BSS_ZIG", "__bss_zig", .{
             .flags = macho.S_ZEROFILL,
         });
-        if (!self.base.isRelocatable()) appendSect(self, self.zig_bss_sect_index.?, self.zig_bss_seg_index.?);
+        if (self.base.isRelocatable()) {
+            self.sections.items(.header)[self.zig_bss_sect_index.?].size = 1024;
+        } else {
+            appendSect(self, self.zig_bss_sect_index.?, self.zig_bss_seg_index.?);
+        }
     }
 }
 
