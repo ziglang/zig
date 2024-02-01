@@ -94,7 +94,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
     const self = @fieldParentPtr(ObjCopy, "step", step);
 
-    var man = b.cache.obtain();
+    var man = b.graph.cache.obtain();
     defer man.deinit();
 
     // Random bytes to make ObjCopy unique. Refresh this with new random
@@ -133,7 +133,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     };
 
     var argv = std.ArrayList([]const u8).init(b.allocator);
-    try argv.appendSlice(&.{ b.zig_exe, "objcopy" });
+    try argv.appendSlice(&.{ b.graph.zig_exe, "objcopy" });
 
     if (self.only_section) |only_section| {
         try argv.appendSlice(&.{ "-j", only_section });

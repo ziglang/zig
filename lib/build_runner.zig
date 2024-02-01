@@ -46,11 +46,6 @@ pub fn main() !void {
         return error.InvalidArgs;
     };
 
-    const host: std.Build.ResolvedTarget = .{
-        .query = .{},
-        .result = try std.zig.system.resolveTargetQuery(.{}),
-    };
-
     const build_root_directory: std.Build.Cache.Directory = .{
         .path = build_root,
         .handle = try std.fs.cwd().openDir(build_root, .{}),
@@ -66,28 +61,28 @@ pub fn main() !void {
         .handle = try std.fs.cwd().makeOpenPath(global_cache_root, .{}),
     };
 
-    var cache: std.Build.Cache = .{
-        .gpa = arena,
-        .manifest_dir = try local_cache_directory.handle.makeOpenPath("h", .{}),
+    var graph: std.Build.Graph = .{
+        .arena = arena,
+        .cache = .{
+            .gpa = arena,
+            .manifest_dir = try local_cache_directory.handle.makeOpenPath("h", .{}),
+        },
+        .zig_exe = zig_exe,
+        .env_map = try process.getEnvMap(arena),
+        .global_cache_root = global_cache_directory,
     };
-    cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
-    cache.addPrefix(build_root_directory);
-    cache.addPrefix(local_cache_directory);
-    cache.addPrefix(global_cache_directory);
-    cache.hash.addBytes(builtin.zig_version_string);
 
-    var system_library_options: std.StringArrayHashMapUnmanaged(std.Build.SystemLibraryMode) = .{};
+    graph.cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
+    graph.cache.addPrefix(build_root_directory);
+    graph.cache.addPrefix(local_cache_directory);
+    graph.cache.addPrefix(global_cache_directory);
+    graph.cache.hash.addBytes(builtin.zig_version_string);
 
     const builder = try std.Build.create(
-        arena,
-        zig_exe,
+        &graph,
         build_root_directory,
         local_cache_directory,
-        global_cache_directory,
-        host,
-        &cache,
         dependencies.root_deps,
-        &system_library_options,
     );
 
     var targets = ArrayList([]const u8).init(arena);
@@ -132,10 +127,16 @@ pub fn main() !void {
                 steps_menu = true;
             } else if (mem.eql(u8, arg, "--system-lib")) {
                 const name = nextArgOrFatal(args, &arg_idx);
-                builder.system_library_options.put(arena, name, .user_enabled) catch @panic("OOM");
+                graph.system_library_options.put(arena, name, .user_enabled) catch @panic("OOM");
             } else if (mem.eql(u8, arg, "--no-system-lib")) {
                 const name = nextArgOrFatal(args, &arg_idx);
-                builder.system_library_options.put(arena, name, .user_disabled) catch @panic("OOM");
+                graph.system_library_options.put(arena, name, .user_disabled) catch @panic("OOM");
+            } else if (mem.eql(u8, arg, "--host-target")) {
+                graph.host_query_options.arch_os_abi = nextArgOrFatal(args, &arg_idx);
+            } else if (mem.eql(u8, arg, "--host-cpu")) {
+                graph.host_query_options.cpu_features = nextArgOrFatal(args, &arg_idx);
+            } else if (mem.eql(u8, arg, "--host-dynamic-linker")) {
+                graph.host_query_options.dynamic_linker = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--prefix-lib-dir")) {
                 dir_list.lib_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--prefix-exe-dir")) {
@@ -193,7 +194,7 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                 builder.debug_compile_errors = true;
             } else if (mem.eql(u8, arg, "--glibc-runtimes")) {
-                builder.glibc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
+                graph.glibc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--verbose-link")) {
                 builder.verbose_link = true;
             } else if (mem.eql(u8, arg, "--verbose-air")) {
@@ -213,25 +214,25 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "--prominent-compile-errors")) {
                 prominent_compile_errors = true;
             } else if (mem.eql(u8, arg, "-fwine")) {
-                builder.enable_wine = true;
+                graph.enable_wine = true;
             } else if (mem.eql(u8, arg, "-fno-wine")) {
-                builder.enable_wine = false;
+                graph.enable_wine = false;
             } else if (mem.eql(u8, arg, "-fqemu")) {
-                builder.enable_qemu = true;
+                graph.enable_qemu = true;
             } else if (mem.eql(u8, arg, "-fno-qemu")) {
-                builder.enable_qemu = false;
+                graph.enable_qemu = false;
             } else if (mem.eql(u8, arg, "-fwasmtime")) {
-                builder.enable_wasmtime = true;
+                graph.enable_wasmtime = true;
             } else if (mem.eql(u8, arg, "-fno-wasmtime")) {
-                builder.enable_wasmtime = false;
+                graph.enable_wasmtime = false;
             } else if (mem.eql(u8, arg, "-frosetta")) {
-                builder.enable_rosetta = true;
+                graph.enable_rosetta = true;
             } else if (mem.eql(u8, arg, "-fno-rosetta")) {
-                builder.enable_rosetta = false;
+                graph.enable_rosetta = false;
             } else if (mem.eql(u8, arg, "-fdarling")) {
-                builder.enable_darling = true;
+                graph.enable_darling = true;
             } else if (mem.eql(u8, arg, "-fno-darling")) {
-                builder.enable_darling = false;
+                graph.enable_darling = false;
             } else if (mem.eql(u8, arg, "-freference-trace")) {
                 builder.reference_trace = 256;
             } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
@@ -266,11 +267,19 @@ pub fn main() !void {
         }
     }
 
+    const host_query = std.Build.parseTargetQuery(graph.host_query_options) catch |err| switch (err) {
+        error.ParseFailed => process.exit(1),
+    };
+    builder.host = .{
+        .query = .{},
+        .result = try std.zig.system.resolveTargetQuery(host_query),
+    };
+
     const stderr = std.io.getStdErr();
     const ttyconf = get_tty_conf(color, stderr);
     switch (ttyconf) {
-        .no_color => try builder.env_map.put("NO_COLOR", "1"),
-        .escape_codes => try builder.env_map.put("YES_COLOR", "1"),
+        .no_color => try graph.env_map.put("NO_COLOR", "1"),
+        .escape_codes => try graph.env_map.put("YES_COLOR", "1"),
         .windows_api => {},
     }
 
@@ -1029,7 +1038,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\
         \\Steps:
         \\
-    , .{b.zig_exe});
+    , .{b.graph.zig_exe});
     try steps(b, out_stream);
 
     try out_stream.writeAll(
@@ -1104,22 +1113,23 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --system [dir]               System Package Mode. Disable fetching; prefer system libs
         \\  --host-target [triple]       Use the provided target as the host
         \\  --host-cpu [cpu]             Use the provided CPU as the host
+        \\  --host-dynamic-linker [path] Use the provided dynamic linker as the host
         \\  --system-lib [name]          Use the system-provided library
         \\  --no-system-lib [name]       Do not use the system-provided library
         \\
         \\  Available System Library Integrations:        Enabled:
         \\
     );
-    if (b.system_library_options.entries.len == 0) {
+    if (b.graph.system_library_options.entries.len == 0) {
         try out_stream.writeAll("  (none)                                        -\n");
     } else {
-        for (b.system_library_options.keys(), b.system_library_options.values()) |name, v| {
+        for (b.graph.system_library_options.keys(), b.graph.system_library_options.values()) |k, v| {
             const status = switch (v) {
                 .declared_enabled => "yes",
                 .declared_disabled => "no",
                 .user_enabled, .user_disabled => unreachable, // already emitted error
             };
-            try out_stream.print("    {s:<43} {s}\n", .{ name, status });
+            try out_stream.print("    {s:<43} {s}\n", .{ k, status });
         }
     }
 
@@ -1203,7 +1213,7 @@ fn fatal(comptime f: []const u8, args: anytype) noreturn {
 
 fn validateSystemLibraryOptions(b: *std.Build) void {
     var bad = false;
-    for (b.system_library_options.keys(), b.system_library_options.values()) |k, v| {
+    for (b.graph.system_library_options.keys(), b.graph.system_library_options.values()) |k, v| {
         switch (v) {
             .user_disabled, .user_enabled => {
                 // The user tried to enable or disable a system library integration, but

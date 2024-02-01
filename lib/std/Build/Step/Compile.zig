@@ -923,7 +923,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var zig_args = ArrayList([]const u8).init(arena);
     defer zig_args.deinit();
 
-    try zig_args.append(b.zig_exe);
+    try zig_args.append(b.graph.zig_exe);
 
     const cmd = switch (self.kind) {
         .lib => "build-lib",
@@ -932,6 +932,16 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         .@"test" => "test",
     };
     try zig_args.append(cmd);
+
+    if (!mem.eql(u8, b.graph.host_query_options.arch_os_abi, "native")) {
+        try zig_args.appendSlice(&.{ "--host-target", b.graph.host_query_options.arch_os_abi });
+    }
+    if (b.graph.host_query_options.cpu_features) |cpu| {
+        try zig_args.appendSlice(&.{ "--host-cpu", cpu });
+    }
+    if (b.graph.host_query_options.dynamic_linker) |dl| {
+        try zig_args.appendSlice(&.{ "--host-dynamic-linker", dl });
+    }
 
     if (b.reference_trace) |some| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-freference-trace={d}", .{some}));
@@ -1393,7 +1403,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try zig_args.append(b.cache_root.path orelse ".");
 
     try zig_args.append("--global-cache-dir");
-    try zig_args.append(b.global_cache_root.path orelse ".");
+    try zig_args.append(b.graph.global_cache_root.path orelse ".");
 
     try zig_args.append("--name");
     try zig_args.append(self.name);

@@ -53,7 +53,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const self = @fieldParentPtr(GenerateDef, "step", step);
     const arena = b.allocator;
 
-    var man = b.cache.obtain();
+    var man = b.graph.cache.obtain();
     defer man.deinit();
 
     // Random bytes to make GenerateDef unique. Refresh this with new

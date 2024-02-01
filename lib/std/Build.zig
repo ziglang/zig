@@ -22,15 +22,14 @@ pub const Cache = @import("Build/Cache.zig");
 pub const Step = @import("Build/Step.zig");
 pub const Module = @import("Build/Module.zig");
 
+/// Shared state among all Build instances.
+graph: *Graph,
 install_tls: TopLevelStep,
 uninstall_tls: TopLevelStep,
 allocator: Allocator,
 user_input_options: UserInputOptionsMap,
 available_options_map: AvailableOptionsMap,
 available_options_list: ArrayList(AvailableOption),
-/// All Build instances share this hash map.
-system_library_options: *std.StringArrayHashMapUnmanaged(SystemLibraryMode),
-system_package_mode: bool,
 verbose: bool,
 verbose_link: bool,
 verbose_cc: bool,
@@ -41,9 +40,7 @@ verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
 reference_trace: ?u32 = null,
 invalid_user_input: bool,
-zig_exe: [:0]const u8,
 default_step: *Step,
-env_map: *EnvMap,
 top_level_steps: std.StringArrayHashMapUnmanaged(*TopLevelStep),
 install_prefix: []const u8,
 dest_dir: ?[]const u8,
@@ -52,14 +49,12 @@ exe_dir: []const u8,
 h_dir: []const u8,
 install_path: []const u8,
 sysroot: ?[]const u8 = null,
-search_prefixes: ArrayList([]const u8),
+search_prefixes: std.ArrayListUnmanaged([]const u8),
 libc_file: ?[]const u8 = null,
 installed_files: ArrayList(InstalledFile),
 /// Path to the directory containing build.zig.
 build_root: Cache.Directory,
 cache_root: Cache.Directory,
-global_cache_root: Cache.Directory,
-cache: *Cache,
 zig_lib_dir: ?LazyPath,
 pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 args: ?[][]const u8 = null,
@@ -70,22 +65,6 @@ debug_pkg_config: bool = false,
 /// in particular at `Step` creation.
 /// Set to 0 to disable stack collection.
 debug_stack_frames_count: u8 = 8,
-
-/// Experimental. Use system Darling installation to run cross compiled macOS build artifacts.
-enable_darling: bool = false,
-/// Use system QEMU installation to run cross compiled foreign architecture build artifacts.
-enable_qemu: bool = false,
-/// Darwin. Use Rosetta to run x86_64 macOS build artifacts on arm64 macOS.
-enable_rosetta: bool = false,
-/// Use system Wasmtime installation to run cross compiled wasm/wasi build artifacts.
-enable_wasmtime: bool = false,
-/// Use system Wine installation to run cross compiled Windows build artifacts.
-enable_wine: bool = false,
-/// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
-/// this will be the directory $glibc-build-dir/install/glibcs
-/// Given the example of the aarch64 target, this is the directory
-/// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
-glibc_runtimes_dir: ?[]const u8 = null,
 
 /// Information about the native target. Computed before build() is invoked.
 host: ResolvedTarget,
@@ -101,9 +80,38 @@ initialized_deps: *InitializedDepMap,
 /// A mapping from dependency names to package hashes.
 available_deps: AvailableDeps,
 
+/// Shared state among all Build instances.
+/// Settings that are here rather than in Build are not configurable per-package.
+pub const Graph = struct {
+    arena: Allocator,
+    system_library_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .{},
+    system_package_mode: bool = false,
+    cache: Cache,
+    zig_exe: [:0]const u8,
+    env_map: EnvMap,
+    global_cache_root: Cache.Directory,
+    host_query_options: std.Target.Query.ParseOptions = .{},
+
+    /// Experimental. Use system Darling installation to run cross compiled macOS build artifacts.
+    enable_darling: bool = false,
+    /// Use system QEMU installation to run cross compiled foreign architecture build artifacts.
+    enable_qemu: bool = false,
+    /// Darwin. Use Rosetta to run x86_64 macOS build artifacts on arm64 macOS.
+    enable_rosetta: bool = false,
+    /// Use system Wasmtime installation to run cross compiled wasm/wasi build artifacts.
+    enable_wasmtime: bool = false,
+    /// Use system Wine installation to run cross compiled Windows build artifacts.
+    enable_wine: bool = false,
+    /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
+    /// this will be the directory $glibc-build-dir/install/glibcs
+    /// Given the example of the aarch64 target, this is the directory
+    /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
+    glibc_runtimes_dir: ?[]const u8 = null,
+};
+
 const AvailableDeps = []const struct { []const u8, []const u8 };
 
-pub const SystemLibraryMode = enum {
+const SystemLibraryMode = enum {
     /// User asked for the library to be disabled.
     /// The build runner has not confirmed whether the setting is recognized yet.
     user_disabled,
@@ -226,29 +234,20 @@ pub const DirList = struct {
 };
 
 pub fn create(
-    allocator: Allocator,
-    zig_exe: [:0]const u8,
+    graph: *Graph,
     build_root: Cache.Directory,
     cache_root: Cache.Directory,
-    global_cache_root: Cache.Directory,
-    host: ResolvedTarget,
-    cache: *Cache,
     available_deps: AvailableDeps,
-    system_library_options: *std.StringArrayHashMapUnmanaged(SystemLibraryMode),
 ) !*Build {
-    const env_map = try allocator.create(EnvMap);
-    env_map.* = try process.getEnvMap(allocator);
+    const arena = graph.arena;
+    const initialized_deps = try arena.create(InitializedDepMap);
+    initialized_deps.* = InitializedDepMap.initContext(arena, .{ .allocator = arena });
 
-    const initialized_deps = try allocator.create(InitializedDepMap);
-    initialized_deps.* = InitializedDepMap.initContext(allocator, .{ .allocator = allocator });
-
-    const self = try allocator.create(Build);
+    const self = try arena.create(Build);
     self.* = .{
-        .zig_exe = zig_exe,
+        .graph = graph,
         .build_root = build_root,
         .cache_root = cache_root,
-        .global_cache_root = global_cache_root,
-        .cache = cache,
         .verbose = false,
         .verbose_link = false,
         .verbose_cc = false,
@@ -258,20 +257,19 @@ pub fn create(
         .verbose_cimport = false,
         .verbose_llvm_cpu_features = false,
         .invalid_user_input = false,
-        .allocator = allocator,
-        .user_input_options = UserInputOptionsMap.init(allocator),
-        .available_options_map = AvailableOptionsMap.init(allocator),
-        .available_options_list = ArrayList(AvailableOption).init(allocator),
+        .allocator = arena,
+        .user_input_options = UserInputOptionsMap.init(arena),
+        .available_options_map = AvailableOptionsMap.init(arena),
+        .available_options_list = ArrayList(AvailableOption).init(arena),
         .top_level_steps = .{},
         .default_step = undefined,
-        .env_map = env_map,
-        .search_prefixes = ArrayList([]const u8).init(allocator),
+        .search_prefixes = .{},
         .install_prefix = undefined,
         .lib_dir = undefined,
         .exe_dir = undefined,
         .h_dir = undefined,
-        .dest_dir = env_map.get("DESTDIR"),
-        .installed_files = ArrayList(InstalledFile).init(allocator),
+        .dest_dir = graph.env_map.get("DESTDIR"),
+        .installed_files = ArrayList(InstalledFile).init(arena),
         .install_tls = .{
             .step = Step.init(.{
                 .id = .top_level,
@@ -292,16 +290,14 @@ pub fn create(
         .zig_lib_dir = null,
         .install_path = undefined,
         .args = null,
-        .host = host,
-        .modules = std.StringArrayHashMap(*Module).init(allocator),
-        .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(allocator),
+        .host = undefined,
+        .modules = std.StringArrayHashMap(*Module).init(arena),
+        .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(arena),
         .initialized_deps = initialized_deps,
         .available_deps = available_deps,
-        .system_library_options = system_library_options,
-        .system_package_mode = false,
     };
-    try self.top_level_steps.put(allocator, self.install_tls.step.name, &self.install_tls);
-    try self.top_level_steps.put(allocator, self.uninstall_tls.step.name, &self.uninstall_tls);
+    try self.top_level_steps.put(arena, self.install_tls.step.name, &self.install_tls);
+    try self.top_level_steps.put(arena, self.uninstall_tls.step.name, &self.uninstall_tls);
     self.default_step = &self.install_tls.step;
     return self;
 }
@@ -328,6 +324,7 @@ fn createChildOnly(
     const allocator = parent.allocator;
     const child = try allocator.create(Build);
     child.* = .{
+        .graph = parent.graph,
         .allocator = allocator,
         .install_tls = .{
             .step = Step.init(.{
@@ -359,9 +356,7 @@ fn createChildOnly(
         .verbose_llvm_cpu_features = parent.verbose_llvm_cpu_features,
         .reference_trace = parent.reference_trace,
         .invalid_user_input = false,
-        .zig_exe = parent.zig_exe,
         .default_step = undefined,
-        .env_map = parent.env_map,
         .top_level_steps = .{},
         .install_prefix = undefined,
         .dest_dir = parent.dest_dir,
@@ -375,26 +370,16 @@ fn createChildOnly(
         .installed_files = ArrayList(InstalledFile).init(allocator),
         .build_root = build_root,
         .cache_root = parent.cache_root,
-        .global_cache_root = parent.global_cache_root,
-        .cache = parent.cache,
         .zig_lib_dir = parent.zig_lib_dir,
         .debug_log_scopes = parent.debug_log_scopes,
         .debug_compile_errors = parent.debug_compile_errors,
         .debug_pkg_config = parent.debug_pkg_config,
-        .enable_darling = parent.enable_darling,
-        .enable_qemu = parent.enable_qemu,
-        .enable_rosetta = parent.enable_rosetta,
-        .enable_wasmtime = parent.enable_wasmtime,
-        .enable_wine = parent.enable_wine,
-        .glibc_runtimes_dir = parent.glibc_runtimes_dir,
         .host = parent.host,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = std.StringArrayHashMap(*Module).init(allocator),
         .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(allocator),
         .initialized_deps = parent.initialized_deps,
         .available_deps = pkg_deps,
-        .system_library_options = parent.system_library_options,
-        .system_package_mode = parent.system_package_mode,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
     try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
@@ -572,7 +557,7 @@ fn hashUserInputOptionsMap(allocator: Allocator, user_input_options: UserInputOp
 fn determineAndApplyInstallPrefix(b: *Build) !void {
     // Create an installation directory local to this package. This will be used when
     // dependant packages require a standard prefix, such as include directories for C headers.
-    var hash = b.cache.hash;
+    var hash = b.graph.cache.hash;
     // Random bytes to make unique. Refresh this with new random bytes when
     // implementation is modified in a non-backwards-compatible way.
     hash.add(@as(u32, 0xd8cb0055));
@@ -585,12 +570,6 @@ fn determineAndApplyInstallPrefix(b: *Build) !void {
     const digest = hash.final();
     const install_prefix = try b.cache_root.join(b.allocator, &.{ "i", &digest });
     b.resolveInstallPrefix(install_prefix, .{});
-}
-
-pub fn destroy(b: *Build) void {
-    b.env_map.deinit();
-    b.top_level_steps.deinit(b.allocator);
-    b.allocator.destroy(b);
 }
 
 /// This function is intended to be called by lib/build_runner.zig, not a build.zig file.
@@ -1273,6 +1252,54 @@ pub fn standardTargetOptions(b: *Build, args: StandardTargetOptionsArgs) Resolve
     return b.resolveTargetQuery(query);
 }
 
+pub fn parseTargetQuery(options: std.Target.Query.ParseOptions) error{ParseFailed}!std.Target.Query {
+    var diags: Target.Query.ParseOptions.Diagnostics = .{};
+    var opts_copy = options;
+    opts_copy.diagnostics = &diags;
+    return std.Target.Query.parse(options) catch |err| switch (err) {
+        error.UnknownCpuModel => {
+            std.debug.print("unknown CPU: '{s}'\navailable CPUs for architecture '{s}':\n", .{
+                diags.cpu_name.?, @tagName(diags.arch.?),
+            });
+            for (diags.arch.?.allCpuModels()) |cpu| {
+                std.debug.print(" {s}\n", .{cpu.name});
+            }
+            return error.ParseFailed;
+        },
+        error.UnknownCpuFeature => {
+            std.debug.print(
+                \\unknown CPU feature: '{s}'
+                \\available CPU features for architecture '{s}':
+                \\
+            , .{
+                diags.unknown_feature_name.?,
+                @tagName(diags.arch.?),
+            });
+            for (diags.arch.?.allFeaturesList()) |feature| {
+                std.debug.print(" {s}: {s}\n", .{ feature.name, feature.description });
+            }
+            return error.ParseFailed;
+        },
+        error.UnknownOperatingSystem => {
+            std.debug.print(
+                \\unknown OS: '{s}'
+                \\available operating systems:
+                \\
+            , .{diags.os_name.?});
+            inline for (std.meta.fields(Target.Os.Tag)) |field| {
+                std.debug.print(" {s}\n", .{field.name});
+            }
+            return error.ParseFailed;
+        },
+        else => |e| {
+            std.debug.print("unable to parse target '{s}': {s}\n", .{
+                options.arch_os_abi, @errorName(e),
+            });
+            return error.ParseFailed;
+        },
+    };
+}
+
 /// Exposes standard `zig build` options for choosing a target.
 pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs) Target.Query {
     const maybe_triple = b.option(
@@ -1280,60 +1307,28 @@ pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs
         "target",
         "The CPU architecture, OS, and ABI to build for",
     );
-    const mcpu = b.option([]const u8, "cpu", "Target CPU features to add or subtract");
+    const mcpu = b.option(
+        []const u8,
+        "cpu",
+        "Target CPU features to add or subtract",
+    );
+    const dynamic_linker = b.option(
+        []const u8,
+        "dynamic-linker",
+        "Path to interpreter on the target system",
+    );
 
-    if (maybe_triple == null and mcpu == null) {
+    if (maybe_triple == null and mcpu == null and dynamic_linker == null)
         return args.default_target;
-    }
 
     const triple = maybe_triple orelse "native";
 
-    var diags: Target.Query.ParseOptions.Diagnostics = .{};
-    const selected_target = Target.Query.parse(.{
+    const selected_target = parseTargetQuery(.{
         .arch_os_abi = triple,
         .cpu_features = mcpu,
-        .diagnostics = &diags,
+        .dynamic_linker = dynamic_linker,
     }) catch |err| switch (err) {
-        error.UnknownCpuModel => {
-            log.err("Unknown CPU: '{s}'\nAvailable CPUs for architecture '{s}':", .{
-                diags.cpu_name.?,
-                @tagName(diags.arch.?),
-            });
-            for (diags.arch.?.allCpuModels()) |cpu| {
-                log.err(" {s}", .{cpu.name});
-            }
-            b.markInvalidUserInput();
-            return args.default_target;
-        },
-        error.UnknownCpuFeature => {
-            log.err(
-                \\Unknown CPU feature: '{s}'
-                \\Available CPU features for architecture '{s}':
-                \\
-            , .{
-                diags.unknown_feature_name.?,
-                @tagName(diags.arch.?),
-            });
-            for (diags.arch.?.allFeaturesList()) |feature| {
-                log.err(" {s}: {s}", .{ feature.name, feature.description });
-            }
-            b.markInvalidUserInput();
-            return args.default_target;
-        },
-        error.UnknownOperatingSystem => {
-            log.err(
-                \\Unknown OS: '{s}'
-                \\Available operating systems:
-                \\
-            , .{diags.os_name.?});
-            inline for (std.meta.fields(Target.Os.Tag)) |field| {
-                log.err(" {s}", .{field.name});
-            }
-            b.markInvalidUserInput();
-            return args.default_target;
-        },
-        else => |e| {
-            log.err("Unable to parse target '{s}': {s}\n", .{ triple, @errorName(e) });
+        error.ParseFailed => {
             b.markInvalidUserInput();
             return args.default_target;
         },
@@ -1622,7 +1617,7 @@ pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []con
             return fs.realpathAlloc(self.allocator, full_path) catch continue;
         }
     }
-    if (self.env_map.get("PATH")) |PATH| {
+    if (self.graph.env_map.get("PATH")) |PATH| {
         for (names) |name| {
             if (fs.path.isAbsolute(name)) {
                 return name;
@@ -1668,7 +1663,7 @@ pub fn runAllowFail(
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = stderr_behavior;
-    child.env_map = self.env_map;
+    child.env_map = &self.graph.env_map;
 
     try child.spawn();
 
@@ -1714,8 +1709,8 @@ pub fn run(b: *Build, argv: []const []const u8) []u8 {
     };
 }
 
-pub fn addSearchPrefix(self: *Build, search_prefix: []const u8) void {
-    self.search_prefixes.append(self.dupePath(search_prefix)) catch @panic("OOM");
+pub fn addSearchPrefix(b: *Build, search_prefix: []const u8) void {
+    b.search_prefixes.append(b.allocator, b.dupePath(search_prefix)) catch @panic("OOM");
 }
 
 pub fn getInstallPath(self: *Build, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
@@ -2310,9 +2305,7 @@ pub const ResolvedTarget = struct {
 /// Converts a target query into a fully resolved target that can be passed to
 /// various parts of the API.
 pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
-    // This context will likely be required in the future when the target is
-    // resolved via a WASI API or via the build protocol.
-    _ = b;
+    if (query.isNative()) return b.host;
 
     return .{
         .query = query,
@@ -2326,7 +2319,7 @@ pub fn wantSharedLibSymLinks(target: Target) bool {
 }
 
 pub fn systemLibraryOption(b: *Build, name: []const u8) bool {
-    const gop = b.system_library_options.getOrPut(b.allocator, name) catch @panic("OOM");
+    const gop = b.graph.system_library_options.getOrPut(b.allocator, name) catch @panic("OOM");
     if (gop.found_existing) switch (gop.value_ptr.*) {
         .user_disabled => {
             gop.value_ptr.* = .declared_disabled;
@@ -2340,7 +2333,7 @@ pub fn systemLibraryOption(b: *Build, name: []const u8) bool {
         .declared_enabled => return true,
     } else {
         gop.key_ptr.* = b.dupe(name);
-        if (b.system_package_mode) {
+        if (b.graph.system_package_mode) {
             gop.value_ptr.* = .declared_enabled;
             return true;
         } else {

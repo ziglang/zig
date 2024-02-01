@@ -45,7 +45,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     const docgen_cmd = b.addRunArtifact(docgen_exe);
-    docgen_cmd.addArgs(&.{ "--zig", b.zig_exe });
+    docgen_cmd.addArgs(&.{ "--zig", b.graph.zig_exe });
     if (b.zig_lib_dir) |p| {
         docgen_cmd.addArg("--zig-lib-dir");
         docgen_cmd.addDirectoryArg(p);
@@ -410,14 +410,14 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "only_c", only_c);
     test_cases_options.addOption(bool, "only_core_functionality", true);
     test_cases_options.addOption(bool, "only_reduce", false);
-    test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
-    test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
-    test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
-    test_cases_options.addOption(bool, "enable_rosetta", b.enable_rosetta);
-    test_cases_options.addOption(bool, "enable_darling", b.enable_darling);
+    test_cases_options.addOption(bool, "enable_qemu", b.graph.enable_qemu);
+    test_cases_options.addOption(bool, "enable_wine", b.graph.enable_wine);
+    test_cases_options.addOption(bool, "enable_wasmtime", b.graph.enable_wasmtime);
+    test_cases_options.addOption(bool, "enable_rosetta", b.graph.enable_rosetta);
+    test_cases_options.addOption(bool, "enable_darling", b.graph.enable_darling);
     test_cases_options.addOption(u32, "mem_leak_frames", mem_leak_frames * 2);
     test_cases_options.addOption(bool, "value_tracing", value_tracing);
-    test_cases_options.addOption(?[]const u8, "glibc_runtimes_dir", b.glibc_runtimes_dir);
+    test_cases_options.addOption(?[]const u8, "glibc_runtimes_dir", b.graph.glibc_runtimes_dir);
     test_cases_options.addOption([:0]const u8, "version", version);
     test_cases_options.addOption(std.SemanticVersion, "semver", semver);
     test_cases_options.addOption(?[]const u8, "test_filter", test_filter);
@@ -884,7 +884,7 @@ fn findConfigH(b: *std.Build, config_h_path_option: ?[]const u8) ?[]const u8 {
         }
     }
 
-    var check_dir = fs.path.dirname(b.zig_exe).?;
+    var check_dir = fs.path.dirname(b.graph.zig_exe).?;
     while (true) {
         var dir = fs.cwd().openDir(check_dir, .{}) catch unreachable;
         defer dir.close();

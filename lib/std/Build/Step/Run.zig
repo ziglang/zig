@@ -463,7 +463,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var argv_list = ArrayList([]const u8).init(arena);
     var output_placeholders = ArrayList(IndexedOutput).init(arena);
 
-    var man = b.cache.obtain();
+    var man = b.graph.cache.obtain();
     defer man.deinit();
 
     for (self.argv.items) |arg| {
@@ -747,7 +747,7 @@ fn runCommand(
                 exe.is_linking_libc;
             const other_target = exe.root_module.resolved_target.?.result;
             switch (std.zig.system.getExternalExecutor(b.host.result, &other_target, .{
-                .qemu_fixes_dl = need_cross_glibc and b.glibc_runtimes_dir != null,
+                .qemu_fixes_dl = need_cross_glibc and b.graph.glibc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {
                 .native, .rosetta => {
@@ -755,7 +755,7 @@ fn runCommand(
                     break :interpret;
                 },
                 .wine => |bin_name| {
-                    if (b.enable_wine) {
+                    if (b.graph.enable_wine) {
                         try interp_argv.append(bin_name);
                         try interp_argv.appendSlice(argv);
                     } else {
@@ -763,9 +763,9 @@ fn runCommand(
                     }
                 },
                 .qemu => |bin_name| {
-                    if (b.enable_qemu) {
+                    if (b.graph.enable_qemu) {
                         const glibc_dir_arg = if (need_cross_glibc)
-                            b.glibc_runtimes_dir orelse
+                            b.graph.glibc_runtimes_dir orelse
                                 return failForeign(self, "--glibc-runtimes", argv[0], exe)
                         else
                             null;
@@ -798,7 +798,7 @@ fn runCommand(
                     }
                 },
                 .darling => |bin_name| {
-                    if (b.enable_darling) {
+                    if (b.graph.enable_darling) {
                         try interp_argv.append(bin_name);
                         try interp_argv.appendSlice(argv);
                     } else {
@@ -806,7 +806,7 @@ fn runCommand(
                     }
                 },
                 .wasmtime => |bin_name| {
-                    if (b.enable_wasmtime) {
+                    if (b.graph.enable_wasmtime) {
                         try interp_argv.append(bin_name);
                         try interp_argv.append("--dir=.");
                         try interp_argv.append(argv[0]);
@@ -1036,7 +1036,7 @@ fn spawnChildAndCollect(
         child.cwd = b.build_root.path;
         child.cwd_dir = b.build_root.handle;
     }
-    child.env_map = self.env_map orelse b.env_map;
+    child.env_map = self.env_map orelse &b.graph.env_map;
     child.request_resource_usage_statistics = true;
 
     child.stdin_behavior = switch (self.stdio) {
