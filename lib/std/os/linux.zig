@@ -4508,6 +4508,23 @@ pub const statx_timestamp = extern struct {
     __pad1: u32,
 };
 
+// makedev calculates a Stat's dev_t based on Statx's dev major and dev minor.
+fn makedev(major: u32, minor: u32) dev_t {
+    const majorH: dev_t = @as(dev_t, major >> 12);
+    const majorL: dev_t = @as(dev_t, major & 0xfff);
+    const minorH: dev_t = @as(dev_t, minor >> 8);
+    const minorL: dev_t = @as(dev_t, minor & 0xff);
+    return (majorH << 44) | (minorH << 20) | (majorL << 8) | minorL;
+}
+
+// timespecFrom creates a statx_timestamp to timespec.
+fn timespecFrom(ts: statx_timestamp) timespec {
+    return timespec{
+        .tv_sec = @as(isize, @bitCast(ts.tv_sec)),
+        .tv_nsec = @as(isize, ts.tv_nsec),
+    };
+}
+
 /// Renamed to `Statx` to not conflict with the `statx` function.
 pub const Statx = extern struct {
     /// Mask of bits indicating filled fields
