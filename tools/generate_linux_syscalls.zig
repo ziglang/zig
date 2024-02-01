@@ -364,6 +364,7 @@ pub fn main() !void {
     }
     {
         try writer.writeAll(
+            \\
             \\pub const LoongArch64 = enum(usize) {
             \\
         );
@@ -371,6 +372,7 @@ pub fn main() !void {
         const child_args = [_][]const u8{
             zig_exe,
             "cc",
+            "-march=loongarch64",
             "-target",
             "loongarch64-linux-gnu",
             "-E",
@@ -379,7 +381,7 @@ pub fn main() !void {
             "-nostdinc",
             "-Iinclude",
             "-Iinclude/uapi",
-            "arch/riscv/include/uapi/asm/unistd.h",
+            "arch/loongarch/include/uapi/asm/unistd.h",
         };
 
         const child_result = try std.ChildProcess.run(.{
@@ -420,7 +422,6 @@ pub fn main() !void {
         }
 
         try writer.writeAll(
-            \\
             \\};
             \\
         );
