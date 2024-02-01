@@ -28,6 +28,9 @@ allocator: Allocator,
 user_input_options: UserInputOptionsMap,
 available_options_map: AvailableOptionsMap,
 available_options_list: ArrayList(AvailableOption),
+/// All Build instances share this hash map.
+system_library_options: *std.StringArrayHashMapUnmanaged(SystemLibraryMode),
+system_package_mode: bool,
 verbose: bool,
 verbose_link: bool,
 verbose_cc: bool,
@@ -99,6 +102,21 @@ initialized_deps: *InitializedDepMap,
 available_deps: AvailableDeps,
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
+
+pub const SystemLibraryMode = enum {
+    /// User asked for the library to be disabled.
+    /// The build runner has not confirmed whether the setting is recognized yet.
+    user_disabled,
+    /// User asked for the library to be enabled.
+    /// The build runner has not confirmed whether the setting is recognized yet.
+    user_enabled,
+    /// The build runner has confirmed that this setting is recognized.
+    /// System integration with this library has been resolved to off.
+    declared_disabled,
+    /// The build runner has confirmed that this setting is recognized.
+    /// System integration with this library has been resolved to on.
+    declared_enabled,
+};
 
 const InitializedDepMap = std.HashMap(InitializedDepKey, *Dependency, InitializedDepContext, std.hash_map.default_max_load_percentage);
 const InitializedDepKey = struct {
@@ -216,6 +234,7 @@ pub fn create(
     host: ResolvedTarget,
     cache: *Cache,
     available_deps: AvailableDeps,
+    system_library_options: *std.StringArrayHashMapUnmanaged(SystemLibraryMode),
 ) !*Build {
     const env_map = try allocator.create(EnvMap);
     env_map.* = try process.getEnvMap(allocator);
@@ -278,6 +297,8 @@ pub fn create(
         .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(allocator),
         .initialized_deps = initialized_deps,
         .available_deps = available_deps,
+        .system_library_options = system_library_options,
+        .system_package_mode = false,
     };
     try self.top_level_steps.put(allocator, self.install_tls.step.name, &self.install_tls);
     try self.top_level_steps.put(allocator, self.uninstall_tls.step.name, &self.uninstall_tls);
@@ -297,7 +318,13 @@ fn createChild(
     return child;
 }
 
-fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Directory, pkg_deps: AvailableDeps, user_input_options: UserInputOptionsMap) !*Build {
+fn createChildOnly(
+    parent: *Build,
+    dep_name: []const u8,
+    build_root: Cache.Directory,
+    pkg_deps: AvailableDeps,
+    user_input_options: UserInputOptionsMap,
+) !*Build {
     const allocator = parent.allocator;
     const child = try allocator.create(Build);
     child.* = .{
@@ -366,6 +393,8 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(allocator),
         .initialized_deps = parent.initialized_deps,
         .available_deps = pkg_deps,
+        .system_library_options = parent.system_library_options,
+        .system_package_mode = parent.system_package_mode,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
     try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
@@ -1367,7 +1396,7 @@ pub fn addUserInputOption(self: *Build, name_raw: []const u8, value_raw: []const
             });
         },
         .flag => {
-            log.warn("Option '-D{s}={s}' conflicts with flag '-D{s}'.", .{ name, value, name });
+            log.warn("option '-D{s}={s}' conflicts with flag '-D{s}'.", .{ name, value, name });
             return true;
         },
         .map => |*map| {
@@ -1427,17 +1456,17 @@ fn markInvalidUserInput(self: *Build) void {
     self.invalid_user_input = true;
 }
 
-pub fn validateUserInputDidItFail(self: *Build) bool {
-    // make sure all args are used
-    var it = self.user_input_options.iterator();
+pub fn validateUserInputDidItFail(b: *Build) bool {
+    // Make sure all args are used.
+    var it = b.user_input_options.iterator();
     while (it.next()) |entry| {
         if (!entry.value_ptr.used) {
-            log.err("Invalid option: -D{s}", .{entry.key_ptr.*});
-            self.markInvalidUserInput();
+            log.err("invalid option: -D{s}", .{entry.key_ptr.*});
+            b.markInvalidUserInput();
         }
     }
 
-    return self.invalid_user_input;
+    return b.invalid_user_input;
 }
 
 fn allocPrintCmd(ally: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) ![]u8 {
@@ -2294,6 +2323,31 @@ pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
 
 pub fn wantSharedLibSymLinks(target: Target) bool {
     return target.os.tag != .windows;
+}
+
+pub fn systemLibraryOption(b: *Build, name: []const u8) bool {
+    const gop = b.system_library_options.getOrPut(b.allocator, name) catch @panic("OOM");
+    if (gop.found_existing) switch (gop.value_ptr.*) {
+        .user_disabled => {
+            gop.value_ptr.* = .declared_disabled;
+            return false;
+        },
+        .user_enabled => {
+            gop.value_ptr.* = .declared_enabled;
+            return true;
+        },
+        .declared_disabled => return false,
+        .declared_enabled => return true,
+    } else {
+        gop.key_ptr.* = b.dupe(name);
+        if (b.system_package_mode) {
+            gop.value_ptr.* = .declared_enabled;
+            return true;
+        } else {
+            gop.value_ptr.* = .declared_disabled;
+            return false;
+        }
+    }
 }
 
 test {
