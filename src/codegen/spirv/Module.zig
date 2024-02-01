@@ -508,6 +508,13 @@ pub fn intType(self: *Module, signedness: std.builtin.Signedness, bits: u16) !Ca
     } });
 }
 
+pub fn vectorType(self: *Module, len: u32, elem_ty_ref: CacheRef) !CacheRef {
+    return try self.resolve(.{ .vector_type = .{
+        .component_type = elem_ty_ref,
+        .component_count = len,
+    } });
+}
+
 pub fn arrayType(self: *Module, len: u32, elem_ty_ref: CacheRef) !CacheRef {
     const len_ty_ref = try self.resolve(.{ .int_type = .{
         .signedness = .unsigned,
