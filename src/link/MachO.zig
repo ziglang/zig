@@ -285,8 +285,7 @@ pub fn createEmpty(
                     };
                     try self.d_sym.?.initMetadata(self);
                 } else {
-                    try self.reportUnexpectedError("TODO: implement generating and emitting __DWARF in .o file", .{});
-                    return error.Unexpected;
+                    @panic("TODO: implement generating and emitting __DWARF in .o file");
                 },
                 .code_view => unreachable,
             }
@@ -2025,7 +2024,7 @@ pub fn sortSections(self: *MachO) !void {
 
         for (zo.symtab.items(.nlist)) |*sym| {
             if (sym.sect()) {
-                sym.n_sect = backlinks[sym.n_sect];
+                sym.n_sect = backlinks[sym.n_sect - 1] + 1;
             }
         }
 
@@ -3391,8 +3390,6 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
                 .prot = macho.PROT.READ | macho.PROT.WRITE,
             });
         }
-    } else {
-        @panic("TODO initMetadata when relocatable");
     }
 
     const appendSect = struct {
@@ -3415,7 +3412,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             },
             .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         });
-        appendSect(self, self.zig_text_sect_index.?, self.zig_text_seg_index.?);
+        if (!self.base.isRelocatable()) appendSect(self, self.zig_text_sect_index.?, self.zig_text_seg_index.?);
     }
 
     if (!self.base.isRelocatable()) {
@@ -3427,33 +3424,35 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
 
     {
         self.zig_const_sect_index = try self.addSection("__CONST_ZIG", "__const_zig", .{});
-        appendSect(self, self.zig_const_sect_index.?, self.zig_const_seg_index.?);
+        if (!self.base.isRelocatable()) appendSect(self, self.zig_const_sect_index.?, self.zig_const_seg_index.?);
     }
 
     {
         self.zig_data_sect_index = try self.addSection("__DATA_ZIG", "__data_zig", .{});
-        appendSect(self, self.zig_data_sect_index.?, self.zig_data_seg_index.?);
+        if (!self.base.isRelocatable()) appendSect(self, self.zig_data_sect_index.?, self.zig_data_seg_index.?);
     }
 
     {
         self.zig_bss_sect_index = try self.addSection("__BSS_ZIG", "__bss_zig", .{
             .flags = macho.S_ZEROFILL,
         });
-        appendSect(self, self.zig_bss_sect_index.?, self.zig_bss_seg_index.?);
+        if (!self.base.isRelocatable()) appendSect(self, self.zig_bss_sect_index.?, self.zig_bss_seg_index.?);
     }
 }
 
 pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
     const sect = &self.sections.items(.header)[sect_index];
-    const seg_id = self.sections.items(.segment_id)[sect_index];
-    const seg = &self.segments.items[seg_id];
 
     if (needed_size > self.allocatedSize(sect.offset) and !sect.isZerofill()) {
         const existing_size = sect.size;
         sect.size = 0;
 
         // Must move the entire section.
-        const new_offset = self.findFreeSpace(needed_size, self.getPageSize());
+        const alignment = if (self.base.isRelocatable())
+            try math.powi(u32, 2, sect.@"align")
+        else
+            self.getPageSize();
+        const new_offset = self.findFreeSpace(needed_size, alignment);
 
         log.debug("new '{s},{s}' file offset 0x{x} to 0x{x}", .{
             sect.segName(),
@@ -3465,26 +3464,32 @@ pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
         try self.copyRangeAllZeroOut(sect.offset, new_offset, existing_size);
 
         sect.offset = @intCast(new_offset);
-        seg.fileoff = new_offset;
     }
 
     sect.size = needed_size;
-    if (!sect.isZerofill()) {
-        seg.filesize = needed_size;
-    }
 
-    const mem_capacity = self.allocatedVirtualSize(seg.vmaddr);
-    if (needed_size > mem_capacity) {
-        var err = try self.addErrorWithNotes(2);
-        try err.addMsg(self, "fatal linker error: cannot expand segment seg({d})({s}) in virtual memory", .{
-            seg_id,
-            seg.segName(),
-        });
-        try err.addNote(self, "TODO: emit relocations to memory locations in self-hosted backends", .{});
-        try err.addNote(self, "as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
-    }
+    if (!self.base.isRelocatable()) {
+        const seg_id = self.sections.items(.segment_id)[sect_index];
+        const seg = &self.segments.items[seg_id];
+        seg.fileoff = sect.offset;
 
-    seg.vmsize = needed_size;
+        if (!sect.isZerofill()) {
+            seg.filesize = needed_size;
+        }
+
+        const mem_capacity = self.allocatedVirtualSize(seg.vmaddr);
+        if (needed_size > mem_capacity) {
+            var err = try self.addErrorWithNotes(2);
+            try err.addMsg(self, "fatal linker error: cannot expand segment seg({d})({s}) in virtual memory", .{
+                seg_id,
+                seg.segName(),
+            });
+            try err.addNote(self, "TODO: emit relocations to memory locations in self-hosted backends", .{});
+            try err.addNote(self, "as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
+        }
+
+        seg.vmsize = needed_size;
+    }
 }
 
 pub fn getTarget(self: MachO) std.Target {

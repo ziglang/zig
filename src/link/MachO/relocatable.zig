@@ -12,7 +12,7 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
 
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
-    if (positionals.items.len == 1) {
+    if (macho_file.getZigObject() == null and positionals.items.len == 1) {
         // Instead of invoking a full-blown `-r` mode on the input which sadly will strip all
         // debug info segments/sections (this is apparently by design by Apple), we copy
         // the *only* input file over.
@@ -24,6 +24,11 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
         const amt = try in_file.copyRangeAll(0, macho_file.base.file.?, 0, stat.size);
         if (amt != stat.size) return error.InputOutput; // TODO: report an actual user error
         return;
+    }
+
+    if (macho_file.getZigObject() != null and positionals.items.len > 0) {
+        try macho_file.reportUnexpectedError("TODO: build-obj for ZigObject and input object files", .{});
+        return error.FlushFailure;
     }
 
     for (positionals.items) |obj| {
@@ -46,8 +51,8 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
 
     try macho_file.addUndefinedGlobals();
     try macho_file.resolveSymbols();
-    markExports(macho_file);
-    claimUnresolved(macho_file);
+    try markExports(macho_file);
+    try claimUnresolved(macho_file);
     try initOutputSections(macho_file);
     try macho_file.sortSections();
     try macho_file.addAtomsToSections();
@@ -109,8 +114,13 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
     try writeHeader(macho_file, ncmds, sizeofcmds);
 }
 
-fn markExports(macho_file: *MachO) void {
-    for (macho_file.objects.items) |index| {
+fn markExports(macho_file: *MachO) error{OutOfMemory}!void {
+    var objects = try std.ArrayList(File.Index).initCapacity(macho_file.base.comp.gpa, macho_file.objects.items.len + 1);
+    defer objects.deinit();
+    if (macho_file.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
+    objects.appendSliceAssumeCapacity(macho_file.objects.items);
+
+    for (objects.items) |index| {
         for (macho_file.getFile(index).?.getSymbols()) |sym_index| {
             const sym = macho_file.getSymbol(sym_index);
             const file = sym.getFile(macho_file) orelse continue;
@@ -122,13 +132,22 @@ fn markExports(macho_file: *MachO) void {
     }
 }
 
-fn claimUnresolved(macho_file: *MachO) void {
-    for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+fn claimUnresolved(macho_file: *MachO) error{OutOfMemory}!void {
+    var objects = try std.ArrayList(File.Index).initCapacity(macho_file.base.comp.gpa, macho_file.objects.items.len + 1);
+    defer objects.deinit();
+    if (macho_file.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
+    objects.appendSliceAssumeCapacity(macho_file.objects.items);
 
-        for (object.symbols.items, 0..) |sym_index, i| {
+    for (objects.items) |index| {
+        const file = macho_file.getFile(index).?;
+
+        for (file.getSymbols(), 0..) |sym_index, i| {
             const nlist_idx = @as(Symbol.Index, @intCast(i));
-            const nlist = object.symtab.items(.nlist)[nlist_idx];
+            const nlist = switch (file) {
+                .object => |x| x.symtab.items(.nlist)[nlist_idx],
+                .zig_object => |x| x.symtab.items(.nlist)[nlist_idx],
+                else => unreachable,
+            };
             if (!nlist.ext()) continue;
             if (!nlist.undf()) continue;
 
@@ -290,7 +309,7 @@ fn writeAtoms(macho_file: *MachO) !void {
             assert(atom.flags.alive);
             const off = math.cast(usize, atom.value - header.addr) orelse return error.Overflow;
             const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
-            try atom.getFile(macho_file).object.getAtomData(atom.*, code[off..][0..atom_size]);
+            try atom.getData(macho_file, code[off..][0..atom_size]);
             try atom.writeRelocs(macho_file, code[off..][0..atom_size], &relocs);
         }
 
@@ -501,5 +520,6 @@ const trace = @import("../../tracy.zig").trace;
 
 const Atom = @import("Atom.zig");
 const Compilation = @import("../../Compilation.zig");
+const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
 const Symbol = @import("Symbol.zig");
