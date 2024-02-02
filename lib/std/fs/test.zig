@@ -113,10 +113,7 @@ fn testWithAllSupportedPathTypes(test_func: anytype) !void {
         var ctx = TestContext.init(path_type, testing.allocator, path_type.getTransformFn());
         defer ctx.deinit();
 
-        test_func(&ctx) catch |err| {
-            std.debug.print("{s}, path type: {s}\n", .{ @errorName(err), enum_field.name });
-            return err;
-        };
+        try test_func(&ctx);
     }
 }
 
