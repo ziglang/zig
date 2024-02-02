@@ -747,7 +747,7 @@ fn runCommand(
                 exe.is_linking_libc;
             const other_target = exe.root_module.resolved_target.?.result;
             switch (std.zig.system.getExternalExecutor(b.host.result, &other_target, .{
-                .qemu_fixes_dl = need_cross_glibc and b.graph.glibc_runtimes_dir != null,
+                .qemu_fixes_dl = need_cross_glibc and b.glibc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {
                 .native, .rosetta => {
@@ -755,7 +755,7 @@ fn runCommand(
                     break :interpret;
                 },
                 .wine => |bin_name| {
-                    if (b.graph.enable_wine) {
+                    if (b.enable_wine) {
                         try interp_argv.append(bin_name);
                         try interp_argv.appendSlice(argv);
                     } else {
@@ -763,9 +763,9 @@ fn runCommand(
                     }
                 },
                 .qemu => |bin_name| {
-                    if (b.graph.enable_qemu) {
+                    if (b.enable_qemu) {
                         const glibc_dir_arg = if (need_cross_glibc)
-                            b.graph.glibc_runtimes_dir orelse
+                            b.glibc_runtimes_dir orelse
                                 return failForeign(self, "--glibc-runtimes", argv[0], exe)
                         else
                             null;
@@ -798,7 +798,7 @@ fn runCommand(
                     }
                 },
                 .darling => |bin_name| {
-                    if (b.graph.enable_darling) {
+                    if (b.enable_darling) {
                         try interp_argv.append(bin_name);
                         try interp_argv.appendSlice(argv);
                     } else {
@@ -806,7 +806,7 @@ fn runCommand(
                     }
                 },
                 .wasmtime => |bin_name| {
-                    if (b.graph.enable_wasmtime) {
+                    if (b.enable_wasmtime) {
                         try interp_argv.append(bin_name);
                         try interp_argv.append("--dir=.");
                         try interp_argv.append(argv[0]);

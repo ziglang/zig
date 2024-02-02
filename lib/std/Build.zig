@@ -66,6 +66,22 @@ debug_pkg_config: bool = false,
 /// Set to 0 to disable stack collection.
 debug_stack_frames_count: u8 = 8,
 
+/// Experimental. Use system Darling installation to run cross compiled macOS build artifacts.
+enable_darling: bool = false,
+/// Use system QEMU installation to run cross compiled foreign architecture build artifacts.
+enable_qemu: bool = false,
+/// Darwin. Use Rosetta to run x86_64 macOS build artifacts on arm64 macOS.
+enable_rosetta: bool = false,
+/// Use system Wasmtime installation to run cross compiled wasm/wasi build artifacts.
+enable_wasmtime: bool = false,
+/// Use system Wine installation to run cross compiled Windows build artifacts.
+enable_wine: bool = false,
+/// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
+/// this will be the directory $glibc-build-dir/install/glibcs
+/// Given the example of the aarch64 target, this is the directory
+/// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
+glibc_runtimes_dir: ?[]const u8 = null,
+
 /// Information about the native target. Computed before build() is invoked.
 host: ResolvedTarget,
 
@@ -91,22 +107,6 @@ pub const Graph = struct {
     env_map: EnvMap,
     global_cache_root: Cache.Directory,
     host_query_options: std.Target.Query.ParseOptions = .{},
-
-    /// Experimental. Use system Darling installation to run cross compiled macOS build artifacts.
-    enable_darling: bool = false,
-    /// Use system QEMU installation to run cross compiled foreign architecture build artifacts.
-    enable_qemu: bool = false,
-    /// Darwin. Use Rosetta to run x86_64 macOS build artifacts on arm64 macOS.
-    enable_rosetta: bool = false,
-    /// Use system Wasmtime installation to run cross compiled wasm/wasi build artifacts.
-    enable_wasmtime: bool = false,
-    /// Use system Wine installation to run cross compiled Windows build artifacts.
-    enable_wine: bool = false,
-    /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
-    /// this will be the directory $glibc-build-dir/install/glibcs
-    /// Given the example of the aarch64 target, this is the directory
-    /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
-    glibc_runtimes_dir: ?[]const u8 = null,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
@@ -374,6 +374,12 @@ fn createChildOnly(
         .debug_log_scopes = parent.debug_log_scopes,
         .debug_compile_errors = parent.debug_compile_errors,
         .debug_pkg_config = parent.debug_pkg_config,
+        .enable_darling = parent.enable_darling,
+        .enable_qemu = parent.enable_qemu,
+        .enable_rosetta = parent.enable_rosetta,
+        .enable_wasmtime = parent.enable_wasmtime,
+        .enable_wine = parent.enable_wine,
+        .glibc_runtimes_dir = parent.glibc_runtimes_dir,
         .host = parent.host,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = std.StringArrayHashMap(*Module).init(allocator),

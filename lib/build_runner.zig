@@ -194,7 +194,7 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                 builder.debug_compile_errors = true;
             } else if (mem.eql(u8, arg, "--glibc-runtimes")) {
-                graph.glibc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
+                builder.glibc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--verbose-link")) {
                 builder.verbose_link = true;
             } else if (mem.eql(u8, arg, "--verbose-air")) {
@@ -214,25 +214,25 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "--prominent-compile-errors")) {
                 prominent_compile_errors = true;
             } else if (mem.eql(u8, arg, "-fwine")) {
-                graph.enable_wine = true;
+                builder.enable_wine = true;
             } else if (mem.eql(u8, arg, "-fno-wine")) {
-                graph.enable_wine = false;
+                builder.enable_wine = false;
             } else if (mem.eql(u8, arg, "-fqemu")) {
-                graph.enable_qemu = true;
+                builder.enable_qemu = true;
             } else if (mem.eql(u8, arg, "-fno-qemu")) {
-                graph.enable_qemu = false;
+                builder.enable_qemu = false;
             } else if (mem.eql(u8, arg, "-fwasmtime")) {
-                graph.enable_wasmtime = true;
+                builder.enable_wasmtime = true;
             } else if (mem.eql(u8, arg, "-fno-wasmtime")) {
-                graph.enable_wasmtime = false;
+                builder.enable_wasmtime = false;
             } else if (mem.eql(u8, arg, "-frosetta")) {
-                graph.enable_rosetta = true;
+                builder.enable_rosetta = true;
             } else if (mem.eql(u8, arg, "-fno-rosetta")) {
-                graph.enable_rosetta = false;
+                builder.enable_rosetta = false;
             } else if (mem.eql(u8, arg, "-fdarling")) {
-                graph.enable_darling = true;
+                builder.enable_darling = true;
             } else if (mem.eql(u8, arg, "-fno-darling")) {
-                graph.enable_darling = false;
+                builder.enable_darling = false;
             } else if (mem.eql(u8, arg, "-freference-trace")) {
                 builder.reference_trace = 256;
             } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
