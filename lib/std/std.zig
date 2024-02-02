@@ -104,6 +104,9 @@ pub const fmt = @import("fmt.zig");
 /// File system-related functionality.
 pub const fs = @import("fs.zig");
 
+/// GPU programming helpers.
+pub const gpu = @import("gpu.zig");
+
 /// Fast hashing functions (i.e. not cryptographically secure).
 pub const hash = @import("hash.zig");
 pub const hash_map = @import("hash_map.zig");
