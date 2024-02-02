@@ -3275,6 +3275,34 @@ fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
     return null;
 }
 
+fn detectAllocCollisionVirtual(self: *MachO, start: u64, size: u64) ?u64 {
+    // Conservatively commit one page size as reserved space for the headers as we
+    // expect it to grow and everything else be moved in flush anyhow.
+    const header_size = self.getPageSize();
+    if (start < header_size)
+        return header_size;
+
+    const end = start + padToIdeal(size);
+
+    for (self.sections.items(.header)) |header| {
+        const increased_size = padToIdeal(header.size);
+        const test_end = header.addr + increased_size;
+        if (end > header.addr and start < test_end) {
+            return test_end;
+        }
+    }
+
+    for (self.segments.items) |seg| {
+        const increased_size = padToIdeal(seg.vmsize);
+        const test_end = seg.vmaddr +| increased_size;
+        if (end > seg.vmaddr and start < test_end) {
+            return test_end;
+        }
+    }
+
+    return null;
+}
+
 fn allocatedSize(self: *MachO, start: u64) u64 {
     if (start == 0) return 0;
     var min_pos: u64 = std.math.maxInt(u64);
@@ -3302,6 +3330,14 @@ fn allocatedVirtualSize(self: *MachO, start: u64) u64 {
 pub fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u32) u64 {
     var start: u64 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
+        start = mem.alignForward(u64, item_end, min_alignment);
+    }
+    return start;
+}
+
+pub fn findFreeSpaceVirtual(self: *MachO, object_size: u64, min_alignment: u32) u64 {
+    var start: u64 = 0;
+    while (self.detectAllocCollisionVirtual(start, object_size)) |item_end| {
         start = mem.alignForward(u64, item_end, min_alignment);
     }
     return start;
@@ -3411,7 +3447,11 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         fn allocSect(macho_file: *MachO, sect_id: u8, size: u64) !void {
             const sect = &macho_file.sections.items(.header)[sect_id];
             const alignment = try math.powi(u32, 2, sect.@"align");
-            sect.offset = @intCast(macho_file.findFreeSpace(size, alignment));
+            if (!sect.isZerofill()) {
+                sect.offset = math.cast(u32, macho_file.findFreeSpace(size, alignment)) orelse
+                    return error.Overflow;
+            }
+            sect.addr = macho_file.findFreeSpaceVirtual(size, alignment);
             sect.size = size;
         }
     }.allocSect;
@@ -3462,7 +3502,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             .flags = macho.S_ZEROFILL,
         });
         if (self.base.isRelocatable()) {
-            self.sections.items(.header)[self.zig_bss_sect_index.?].size = 1024;
+            try allocSect(self, self.zig_bss_sect_index.?, 1024);
         } else {
             appendSect(self, self.zig_bss_sect_index.?, self.zig_bss_seg_index.?);
         }

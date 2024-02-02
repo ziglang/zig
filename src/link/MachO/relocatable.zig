@@ -59,8 +59,7 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
     try calcSectionSizes(macho_file);
 
     try createSegment(macho_file);
-    try allocateSectionsVM(macho_file);
-    try allocateSectionsFile(macho_file);
+    try allocateSections(macho_file);
     allocateSegment(macho_file);
     macho_file.allocateAtoms();
 
@@ -224,58 +223,20 @@ fn calcCompactUnwindSize(macho_file: *MachO, sect_index: u8) void {
     sect.@"align" = 3;
 }
 
-fn allocateSectionsVM(macho_file: *MachO) !void {
-    var vmaddr: u64 = 0;
-    const slice = macho_file.sections.slice();
-
-    for (slice.items(.header)) |*header| {
-        const alignment = try math.powi(u32, 2, header.@"align");
-        vmaddr = mem.alignForward(u64, vmaddr, alignment);
-        header.addr = vmaddr;
-        vmaddr += header.size;
-    }
-}
-
-fn allocateSectionsFile(macho_file: *MachO) !void {
-    var fileoff = load_commands.calcLoadCommandsSizeObject(macho_file) + @sizeOf(macho.mach_header_64);
+fn allocateSections(macho_file: *MachO) !void {
     const slice = macho_file.sections.slice();
 
     const last_index = for (slice.items(.header), 0..) |header, i| {
         if (mem.indexOf(u8, header.segName(), "ZIG")) |_| break i;
     } else slice.items(.header).len;
 
-    // TODO: I actually think for relocatable we can just use findFreeSpace
-    // all the way since there is a single segment involved anyhow.
     for (slice.items(.header)[0..last_index]) |*header| {
-        if (header.isZerofill()) continue;
         const alignment = try math.powi(u32, 2, header.@"align");
-        fileoff = mem.alignForward(u32, fileoff, alignment);
-        header.offset = fileoff;
-        fileoff += @intCast(header.size);
-    }
-
-    for (slice.items(.header)[last_index..]) |*header| {
-        if (header.isZerofill()) continue;
-        if (header.offset < fileoff) {
-            const existing_size = header.size;
-            header.size = 0;
-
-            // Must move the entire section.
-            const alignment = try math.powi(u32, 2, header.@"align");
-            const new_offset = macho_file.findFreeSpace(existing_size, alignment);
-
-            log.debug("new '{s},{s}' file offset 0x{x} to 0x{x}", .{
-                header.segName(),
-                header.sectName(),
-                new_offset,
-                new_offset + existing_size,
-            });
-
-            try macho_file.copyRangeAll(header.offset, new_offset, existing_size);
-
-            header.offset = @intCast(new_offset);
-            header.size = existing_size;
+        if (!header.isZerofill()) {
+            header.offset = math.cast(u32, macho_file.findFreeSpace(header.size, alignment)) orelse
+                return error.Overflow;
         }
+        header.addr = macho_file.findFreeSpaceVirtual(header.size, alignment);
     }
 }
 
@@ -308,7 +269,6 @@ fn allocateSegment(macho_file: *MachO) void {
         if (!header.isZerofill()) {
             fileoff = @max(fileoff, header.offset + header.size);
         }
-        std.debug.print("fileoff={x},vmaddr={x}\n", .{ fileoff, vmaddr });
     }
 
     seg.vmsize = vmaddr - seg.vmaddr;
