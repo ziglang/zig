@@ -202,6 +202,11 @@ pub fn main() !void {
                 builder.debug_pkg_config = true;
             } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                 builder.debug_compile_errors = true;
+            } else if (mem.eql(u8, arg, "--system")) {
+                // The usage text shows another argument after this parameter
+                // but it is handled by the parent process. The build runner
+                // only sees this flag.
+                graph.system_package_mode = true;
             } else if (mem.eql(u8, arg, "--glibc-runtimes")) {
                 builder.glibc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--verbose-link")) {
@@ -1053,17 +1058,13 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
     try out_stream.writeAll(
         \\
         \\General Options:
-        \\  -p, --prefix [path]          Where to put installed files (default: zig-out)
-        \\  --prefix-lib-dir [path]      Where to put installed libraries
-        \\  --prefix-exe-dir [path]      Where to put installed executables
-        \\  --prefix-include-dir [path]  Where to put installed C header files
+        \\  -p, --prefix [path]          Where to install files (default: zig-out)
+        \\  --prefix-lib-dir [path]      Where to install libraries
+        \\  --prefix-exe-dir [path]      Where to install executables
+        \\  --prefix-include-dir [path]  Where to install C header files
         \\
         \\  --release[=mode]             Request release mode, optionally specifying a
         \\                               preferred optimization mode: fast, safe, small
-        \\
-        \\  --sysroot [path]             Set the system root directory (usually /)
-        \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
-        \\  --libc [file]                Provide a file which specifies libc paths
         \\
         \\  -fdarling,  -fno-darling     Integration with system-installed Darling to
         \\                               execute macOS programs on Linux hosts
@@ -1122,12 +1123,17 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
     try out_stream.writeAll(
         \\
         \\System Integration Options:
-        \\  --system [dir]               System Package Mode. Disable fetching; prefer system libs
-        \\  -fsys=[name]                 Enable a system integration
-        \\  -fno-sys=[name]              Disable a system integration
+        \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
+        \\  --sysroot [path]             Set the system root directory (usually /)
+        \\  --libc [file]                Provide a file which specifies libc paths
+        \\
         \\  --host-target [triple]       Use the provided target as the host
         \\  --host-cpu [cpu]             Use the provided CPU as the host
         \\  --host-dynamic-linker [path] Use the provided dynamic linker as the host
+        \\
+        \\  --system [pkgdir]            Disable package fetching; enable all integrations
+        \\  -fsys=[name]                 Enable a system integration
+        \\  -fno-sys=[name]              Disable a system integration
         \\
         \\  Available System Integrations:                Enabled:
         \\

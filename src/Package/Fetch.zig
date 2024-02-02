@@ -80,6 +80,15 @@ pub const JobQueue = struct {
     thread_pool: *ThreadPool,
     wait_group: WaitGroup = .{},
     global_cache: Cache.Directory,
+    /// If true then, no fetching occurs, and:
+    /// * The `global_cache` directory is assumed to be the direct parent
+    ///   directory of on-disk packages rather than having the "p/" directory
+    ///   prefix inside of it.
+    /// * An error occurs if any non-lazy packages are not already present in
+    ///   the package cache directory.
+    /// * Missing hash field causes an error, and no fetching occurs so it does
+    ///   not print the correct hash like usual.
+    read_only: bool,
     recursive: bool,
     /// Dumps hash information to stdout which can be used to troubleshoot why
     /// two hashes of the same package do not match.
@@ -270,7 +279,8 @@ pub fn run(f: *Fetch) RunError!void {
                 // We want to fail unless the resolved relative path has a
                 // prefix of "p/$hash/".
                 const digest_len = @typeInfo(Manifest.MultiHashHexDigest).Array.len;
-                const expected_prefix = f.parent_package_root.sub_path[0 .. "p/".len + digest_len];
+                const prefix_len: usize = if (f.job_queue.read_only) 0 else "p/".len;
+                const expected_prefix = f.parent_package_root.sub_path[0 .. prefix_len + digest_len];
                 if (!std.mem.startsWith(u8, pkg_root.sub_path, expected_prefix)) {
                     return f.fail(
                         f.location_tok,
@@ -311,7 +321,9 @@ pub fn run(f: *Fetch) RunError!void {
 
     const s = fs.path.sep_str;
     if (remote.hash) |expected_hash| {
-        const pkg_sub_path = "p" ++ s ++ expected_hash;
+        const prefixed_pkg_sub_path = "p" ++ s ++ expected_hash;
+        const prefix_len: usize = if (f.job_queue.read_only) "p/".len else 0;
+        const pkg_sub_path = prefixed_pkg_sub_path[prefix_len..];
         if (cache_root.handle.access(pkg_sub_path, .{})) |_| {
             f.package_root = .{
                 .root_dir = cache_root,
@@ -322,7 +334,14 @@ pub fn run(f: *Fetch) RunError!void {
             if (!f.job_queue.recursive) return;
             return queueJobsForDeps(f);
         } else |err| switch (err) {
-            error.FileNotFound => {},
+            error.FileNotFound => {
+                if (f.job_queue.read_only) return f.fail(
+                    f.location_tok,
+                    try eb.printString("package not found at '{}{s}'", .{
+                        cache_root, pkg_sub_path,
+                    }),
+                );
+            },
             else => |e| {
                 try eb.addRootErrorMessage(.{
                     .msg = try eb.printString("unable to open global package cache directory '{}{s}': {s}", .{
@@ -332,6 +351,12 @@ pub fn run(f: *Fetch) RunError!void {
                 return error.FetchFailed;
             },
         }
+    } else {
+        try eb.addRootErrorMessage(.{
+            .msg = try eb.addString("dependency is missing hash field"),
+            .src_loc = try f.srcLoc(f.location_tok),
+        });
+        return error.FetchFailed;
     }
 
     // Fetch and unpack the remote into a temporary directory.

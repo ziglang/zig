@@ -5179,6 +5179,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var verbose_cimport = false;
         var verbose_llvm_cpu_features = false;
         var fetch_only = false;
+        var system_pkg_dir_path: ?[]const u8 = null;
 
         const argv_index_exe = child_argv.items.len;
         _ = try child_argv.addOne();
@@ -5235,6 +5236,12 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         reference_trace = 256;
                     } else if (mem.eql(u8, arg, "--fetch")) {
                         fetch_only = true;
+                    } else if (mem.eql(u8, arg, "--system")) {
+                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                        i += 1;
+                        system_pkg_dir_path = args[i];
+                        try child_argv.append("--system");
+                        continue;
                     } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
                         const num = arg["-freference-trace=".len..];
                         reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
@@ -5419,8 +5426,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             var http_client: std.http.Client = .{ .allocator = gpa };
             defer http_client.deinit();
 
-            try http_client.loadDefaultProxies();
-
             var progress: std.Progress = .{ .dont_print_on_dumb = true };
             const root_prog_node = progress.start("Fetch Packages", 0);
             defer root_prog_node.end();
@@ -5429,11 +5434,27 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 .http_client = &http_client,
                 .thread_pool = &thread_pool,
                 .global_cache = global_cache_directory,
+                .read_only = false,
                 .recursive = true,
                 .debug_hash = false,
                 .work_around_btrfs_bug = work_around_btrfs_bug,
             };
             defer job_queue.deinit();
+
+            if (system_pkg_dir_path) |p| {
+                job_queue.global_cache = .{
+                    .path = p,
+                    .handle = fs.cwd().openDir(p, .{}) catch |err| {
+                        fatal("unable to open system package directory '{s}': {s}", .{
+                            p, @errorName(err),
+                        });
+                    },
+                };
+                job_queue.read_only = true;
+                cleanup_build_dir = job_queue.global_cache.handle;
+            } else {
+                try http_client.loadDefaultProxies();
+            }
 
             try job_queue.all_fetches.ensureUnusedCapacity(gpa, 1);
             try job_queue.table.ensureUnusedCapacity(gpa, 1);
@@ -7363,6 +7384,7 @@ fn cmdFetch(
         .thread_pool = &thread_pool,
         .global_cache = global_cache_directory,
         .recursive = false,
+        .read_only = false,
         .debug_hash = debug_hash,
         .work_around_btrfs_bug = work_around_btrfs_bug,
     };

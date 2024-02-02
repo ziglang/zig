@@ -1254,7 +1254,7 @@ pub fn standardOptimizeOption(b: *Build, options: StandardOptimizeOptionOptions)
     if (b.option(
         std.builtin.OptimizeMode,
         "optimize",
-        "Prioritize performance, safety, or binary size (-O flag)",
+        "Prioritize performance, safety, or binary size",
     )) |mode| {
         return mode;
     }
