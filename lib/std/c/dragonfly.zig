@@ -838,6 +838,8 @@ pub const EAI = enum(c_int) {
     _,
 };
 
+pub const IFNAMESIZE = 16;
+
 pub const AI = struct {
     pub const PASSIVE = 0x00000001;
     pub const CANONNAME = 0x00000002;

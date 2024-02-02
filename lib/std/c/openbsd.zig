@@ -388,6 +388,8 @@ pub const sockaddr = extern struct {
     };
 };
 
+pub const IFNAMESIZE = 16;
+
 pub const AI = struct {
     /// get address to use bind()
     pub const PASSIVE = 1;
