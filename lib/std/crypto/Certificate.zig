@@ -17,6 +17,7 @@ pub const Algorithm = enum {
     ecdsa_with_SHA512,
     md2WithRSAEncryption,
     md5WithRSAEncryption,
+    curveEd25519,
 
     pub const map = std.ComptimeStringMap(Algorithm, .{
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x05 }, .sha1WithRSAEncryption },
@@ -30,6 +31,7 @@ pub const Algorithm = enum {
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x04 }, .ecdsa_with_SHA512 },
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x02 }, .md2WithRSAEncryption },
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x04 }, .md5WithRSAEncryption },
+        .{ &[_]u8{ 0x2B, 0x65, 0x70 }, .curveEd25519 },
     });
 
     pub fn Hash(comptime algorithm: Algorithm) type {
@@ -38,7 +40,7 @@ pub const Algorithm = enum {
             .ecdsa_with_SHA224, .sha224WithRSAEncryption => crypto.hash.sha2.Sha224,
             .ecdsa_with_SHA256, .sha256WithRSAEncryption => crypto.hash.sha2.Sha256,
             .ecdsa_with_SHA384, .sha384WithRSAEncryption => crypto.hash.sha2.Sha384,
-            .ecdsa_with_SHA512, .sha512WithRSAEncryption => crypto.hash.sha2.Sha512,
+            .ecdsa_with_SHA512, .sha512WithRSAEncryption, .curveEd25519 => crypto.hash.sha2.Sha512,
             .md2WithRSAEncryption => @compileError("unimplemented"),
             .md5WithRSAEncryption => crypto.hash.Md5,
         };
@@ -48,10 +50,12 @@ pub const Algorithm = enum {
 pub const AlgorithmCategory = enum {
     rsaEncryption,
     X9_62_id_ecPublicKey,
+    curveEd25519,
 
     pub const map = std.ComptimeStringMap(AlgorithmCategory, .{
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01 }, .rsaEncryption },
         .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01 }, .X9_62_id_ecPublicKey },
+        .{ &[_]u8{ 0x2B, 0x65, 0x70 }, .curveEd25519 },
     });
 };
 
@@ -182,6 +186,7 @@ pub const Parsed = struct {
     pub const PubKeyAlgo = union(AlgorithmCategory) {
         rsaEncryption: void,
         X9_62_id_ecPublicKey: NamedCurve,
+        curveEd25519: void,
     };
 
     pub const Validity = struct {
@@ -287,6 +292,13 @@ pub const Parsed = struct {
             .md2WithRSAEncryption, .md5WithRSAEncryption => {
                 return error.CertificateSignatureAlgorithmUnsupported;
             },
+
+            .curveEd25519 => return verifyEd25519(
+                parsed_subject.message(),
+                parsed_subject.signature(),
+                parsed_issuer.pub_key_algo,
+                parsed_issuer.pubKey(),
+            ),
         }
     }
 
@@ -414,6 +426,9 @@ pub fn parse(cert: Certificate) ParseError!Parsed {
             const params_elem = try der.Element.parse(cert_bytes, pub_key_algo_elem.slice.end);
             const named_curve = try parseNamedCurve(cert_bytes, params_elem);
             pub_key_algo = .{ .X9_62_id_ecPublicKey = named_curve };
+        },
+        .curveEd25519 => {
+            pub_key_algo = .{ .curveEd25519 = {} };
         },
     }
     const pub_key_elem = try der.Element.parse(cert_bytes, pub_key_signature_algorithm.slice.end);
@@ -816,6 +831,29 @@ fn verify_ecdsa(
             };
         },
     }
+}
+
+fn verifyEd25519(
+    message: []const u8,
+    encoded_sig: []const u8,
+    pub_key_algo: Parsed.PubKeyAlgo,
+    encoded_pub_key: []const u8,
+) !void {
+    if (pub_key_algo != .curveEd25519) return error.CertificateSignatureAlgorithmMismatch;
+    const Ed25519 = crypto.sign.Ed25519;
+    if (encoded_sig.len != Ed25519.Signature.encoded_length) return error.CertificateSignatureInvalid;
+    const sig = Ed25519.Signature.fromBytes(encoded_sig[0..Ed25519.Signature.encoded_length].*);
+    if (encoded_pub_key.len != Ed25519.PublicKey.encoded_length) return error.CertificateSignatureInvalid;
+    const pub_key = Ed25519.PublicKey.fromBytes(encoded_pub_key[0..Ed25519.PublicKey.encoded_length].*) catch |err| switch (err) {
+        error.NonCanonical => return error.CertificateSignatureInvalid,
+    };
+    sig.verify(message, pub_key) catch |err| switch (err) {
+        error.IdentityElement => return error.CertificateSignatureInvalid,
+        error.NonCanonical => return error.CertificateSignatureInvalid,
+        error.SignatureVerificationFailed => return error.CertificateSignatureInvalid,
+        error.InvalidEncoding => return error.CertificateSignatureInvalid,
+        error.WeakPublicKey => return error.CertificateSignatureInvalid,
+    };
 }
 
 const std = @import("../std.zig");

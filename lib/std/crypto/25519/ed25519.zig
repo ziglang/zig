@@ -199,8 +199,8 @@ pub const Ed25519 = struct {
         /// Return the raw signature (r, s) in little-endian format.
         pub fn toBytes(self: Signature) [encoded_length]u8 {
             var bytes: [encoded_length]u8 = undefined;
-            bytes[0 .. encoded_length / 2].* = self.r;
-            bytes[encoded_length / 2 ..].* = self.s;
+            bytes[0..Curve.encoded_length].* = self.r;
+            bytes[Curve.encoded_length..].* = self.s;
             return bytes;
         }
 
@@ -208,8 +208,8 @@ pub const Ed25519 = struct {
         /// EdDSA always assumes little-endian.
         pub fn fromBytes(bytes: [encoded_length]u8) Signature {
             return Signature{
-                .r = bytes[0 .. encoded_length / 2].*,
-                .s = bytes[encoded_length / 2 ..].*,
+                .r = bytes[0..Curve.encoded_length].*,
+                .s = bytes[Curve.encoded_length..].*,
             };
         }
 

@@ -132,6 +132,7 @@ pub fn InitError(comptime Stream: type) type {
         InvalidSignature,
         NotSquare,
         NonCanonical,
+        WeakPublicKey,
     };
 }
 
@@ -166,13 +167,9 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
     }) ++ tls.extension(.signature_algorithms, enum_array(tls.SignatureScheme, &.{
         .ecdsa_secp256r1_sha256,
         .ecdsa_secp384r1_sha384,
-        .ecdsa_secp521r1_sha512,
         .rsa_pss_rsae_sha256,
         .rsa_pss_rsae_sha384,
         .rsa_pss_rsae_sha512,
-        .rsa_pkcs1_sha256,
-        .rsa_pkcs1_sha384,
-        .rsa_pkcs1_sha512,
         .ed25519,
     })) ++ tls.extension(.supported_groups, enum_array(tls.NamedGroup, &.{
         .x25519_kyber768d00,
@@ -617,6 +614,15 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                             return error.TlsBadRsaSignatureBitCount;
                                         },
                                     }
+                                },
+                                inline .ed25519 => |comptime_scheme| {
+                                    if (main_cert_pub_key_algo != .curveEd25519) return error.TlsBadSignatureScheme;
+                                    const Eddsa = SchemeEddsa(comptime_scheme);
+                                    if (encoded_sig.len != Eddsa.Signature.encoded_length) return error.InvalidEncoding;
+                                    const sig = Eddsa.Signature.fromBytes(encoded_sig[0..Eddsa.Signature.encoded_length].*);
+                                    if (main_cert_pub_key.len != Eddsa.PublicKey.encoded_length) return error.InvalidEncoding;
+                                    const key = try Eddsa.PublicKey.fromBytes(main_cert_pub_key[0..Eddsa.PublicKey.encoded_length].*);
+                                    try sig.verify(verify_bytes, key);
                                 },
                                 else => {
                                     return error.TlsBadSignatureScheme;
@@ -1297,7 +1303,6 @@ fn SchemeEcdsa(comptime scheme: tls.SignatureScheme) type {
     return switch (scheme) {
         .ecdsa_secp256r1_sha256 => crypto.sign.ecdsa.EcdsaP256Sha256,
         .ecdsa_secp384r1_sha384 => crypto.sign.ecdsa.EcdsaP384Sha384,
-        .ecdsa_secp521r1_sha512 => crypto.sign.ecdsa.EcdsaP512Sha512,
         else => @compileError("bad scheme"),
     };
 }
@@ -1307,6 +1312,13 @@ fn SchemeHash(comptime scheme: tls.SignatureScheme) type {
         .rsa_pss_rsae_sha256 => crypto.hash.sha2.Sha256,
         .rsa_pss_rsae_sha384 => crypto.hash.sha2.Sha384,
         .rsa_pss_rsae_sha512 => crypto.hash.sha2.Sha512,
+        else => @compileError("bad scheme"),
+    };
+}
+
+fn SchemeEddsa(comptime scheme: tls.SignatureScheme) type {
+    return switch (scheme) {
+        .ed25519 => crypto.sign.Ed25519,
         else => @compileError("bad scheme"),
     };
 }
