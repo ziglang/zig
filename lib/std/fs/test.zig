@@ -106,15 +106,18 @@ const TestContext = struct {
 /// and will be passed a TestContext that can transform a relative path into the path type under test.
 /// The TestContext will also create a tmp directory for you (and will clean it up for you too).
 fn testWithAllSupportedPathTypes(test_func: anytype) !void {
-    inline for (@typeInfo(PathType).Enum.fields) |enum_field| {
-        const path_type = @field(PathType, enum_field.name);
-        if (!(comptime path_type.isSupported(builtin.os))) continue;
+    try testWithPathTypeIfSupported(.relative, test_func);
+    try testWithPathTypeIfSupported(.absolute, test_func);
+    try testWithPathTypeIfSupported(.unc, test_func);
+}
 
-        var ctx = TestContext.init(path_type, testing.allocator, path_type.getTransformFn());
-        defer ctx.deinit();
+fn testWithPathTypeIfSupported(comptime path_type: PathType, test_func: anytype) !void {
+    if (!(comptime path_type.isSupported(builtin.os))) return;
 
-        try test_func(&ctx);
-    }
+    var ctx = TestContext.init(path_type, testing.allocator, path_type.getTransformFn());
+    defer ctx.deinit();
+
+    try test_func(&ctx);
 }
 
 // For use in test setup.  If the symlink creation fails on Windows with
