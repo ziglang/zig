@@ -5464,6 +5464,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 .location = .{ .relative_path = build_mod.root },
                 .location_tok = 0,
                 .hash_tok = 0,
+                .name_tok = 0,
+                .lazy_status = .eager,
                 .parent_package_root = build_mod.root,
                 .parent_manifest_ast = null,
                 .prog_node = root_prog_node,
@@ -5618,10 +5620,14 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
     if (process.can_spawn) {
         var child = std.ChildProcess.init(child_argv, gpa);
         child.stdin_behavior = .Inherit;
-        child.stdout_behavior = .Inherit;
+        child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Inherit;
 
-        const term = try child.spawnAndWait();
+        try child.spawn();
+        // Since only one output stream is piped, we can simply do a blocking
+        // read until the stream is finished.
+        const stdout = try child.stdout.?.readToEndAlloc(arena, 50 * 1024 * 1024);
+        const term = try child.wait();
         switch (term) {
             .Exited => |code| {
                 if (code == 0) return cleanExit();
@@ -5629,6 +5635,15 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 // and this parent process does not need to report any further
                 // diagnostics.
                 if (code == 2) process.exit(2);
+
+                if (code == 3) {
+                    // Indicates the configure phase failed due to missing lazy
+                    // dependencies and stdout contains the hashes of the ones
+                    // that are missing.
+                    std.debug.print("missing lazy dependencies: '{s}'\n", .{stdout});
+                    std.debug.print("TODO: fetch them and rebuild the build script\n", .{});
+                    process.exit(1);
+                }
 
                 const cmd = try std.mem.join(arena, " ", child_argv);
                 fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
@@ -7395,6 +7410,8 @@ fn cmdFetch(
         .location = .{ .path_or_url = path_or_url },
         .location_tok = 0,
         .hash_tok = 0,
+        .name_tok = 0,
+        .lazy_status = .eager,
         .parent_package_root = undefined,
         .parent_manifest_ast = null,
         .prog_node = root_prog_node,

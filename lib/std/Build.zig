@@ -117,6 +117,7 @@ pub const Graph = struct {
     env_map: EnvMap,
     global_cache_root: Cache.Directory,
     host_query_options: std.Target.Query.ParseOptions = .{},
+    needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .{},
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
@@ -1802,21 +1803,63 @@ pub const Dependency = struct {
     }
 };
 
-pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
+fn findPkgHashOrFatal(b: *Build, name: []const u8) []const u8 {
+    for (b.available_deps) |dep| {
+        if (mem.eql(u8, dep[0], name)) return dep[1];
+    }
+
+    const full_path = b.pathFromRoot("build.zig.zon");
+    std.debug.panic("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file", .{ name, full_path });
+}
+
+fn markNeededLazyDep(b: *Build, pkg_hash: []const u8) void {
+    b.graph.needed_lazy_dependencies.put(b.graph.arena, pkg_hash, {}) catch @panic("OOM");
+}
+
+/// When this function is called, it means that the current build does, in
+/// fact, require this dependency. If the dependency is already fetched, it
+/// proceeds in the same manner as `dependency`. However if the dependency was
+/// not fetched, then when the build script is finished running, the build will
+/// not proceed to the make phase. Instead, the parent process will
+/// additionally fetch all the lazy dependencies that were actually required by
+/// running the build script, rebuild the build script, and then run it again.
+/// In other words, if this function returns `null` it means that the only
+/// purpose of completing the configure phase is to find out all the other lazy
+/// dependencies that are also required.
+/// It is allowed to use this function for non-lazy dependencies, in which case
+/// it will never return `null`. This allows toggling laziness via
+/// build.zig.zon without changing build.zig logic.
+pub fn lazyDependency(b: *Build, name: []const u8, args: anytype) ?*Dependency {
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
-
-    const pkg_hash = for (b.available_deps) |dep| {
-        if (mem.eql(u8, dep[0], name)) break dep[1];
-    } else {
-        const full_path = b.pathFromRoot("build.zig.zon");
-        std.debug.print("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file.\n", .{ name, full_path });
-        process.exit(1);
-    };
+    const pkg_hash = findPkgHashOrFatal(b, name);
 
     inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
         if (mem.eql(u8, decl.name, pkg_hash)) {
             const pkg = @field(deps.packages, decl.name);
+            const available = !@hasDecl(pkg, "available") or pkg.available;
+            if (!available) {
+                markNeededLazyDep(b, pkg_hash);
+                return null;
+            }
+            return dependencyInner(b, name, pkg.build_root, if (@hasDecl(pkg, "build_zig")) pkg.build_zig else null, pkg.deps, args);
+        }
+    }
+
+    unreachable; // Bad @dependencies source
+}
+
+pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
+    const build_runner = @import("root");
+    const deps = build_runner.dependencies;
+    const pkg_hash = findPkgHashOrFatal(b, name);
+
+    inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
+        if (mem.eql(u8, decl.name, pkg_hash)) {
+            const pkg = @field(deps.packages, decl.name);
+            if (@hasDecl(pkg, "available")) {
+                @compileError("dependency is marked as lazy in build.zig.zon which means it must use the lazyDependency function instead");
+            }
             return dependencyInner(b, name, pkg.build_root, if (@hasDecl(pkg, "build_zig")) pkg.build_zig else null, pkg.deps, args);
         }
     }

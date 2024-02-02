@@ -100,8 +100,6 @@ pub fn main() !void {
     var help_menu: bool = false;
     var steps_menu: bool = false;
 
-    const stdout_stream = io.getStdOut().writer();
-
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
@@ -308,17 +306,29 @@ pub fn main() !void {
         try builder.runBuild(root);
     }
 
+    if (graph.needed_lazy_dependencies.entries.len != 0) {
+        var buffer: std.ArrayListUnmanaged(u8) = .{};
+        for (graph.needed_lazy_dependencies.keys()) |k| {
+            try buffer.appendSlice(arena, k);
+            try buffer.append(arena, '\n');
+        }
+        try io.getStdOut().writeAll(buffer.items);
+        process.exit(3); // Indicate configure phase failed with meaningful stdout.
+    }
+
     if (builder.validateUserInputDidItFail()) {
         fatal("  access the help menu with 'zig build -h'", .{});
     }
 
     validateSystemLibraryOptions(builder);
 
+    const stdout_writer = io.getStdOut().writer();
+
     if (help_menu)
-        return usage(builder, stdout_stream);
+        return usage(builder, stdout_writer);
 
     if (steps_menu)
-        return steps(builder, stdout_stream);
+        return steps(builder, stdout_writer);
 
     var run: Run = .{
         .max_rss = max_rss,

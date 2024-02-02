@@ -31,6 +31,8 @@ arena: std.heap.ArenaAllocator,
 location: Location,
 location_tok: std.zig.Ast.TokenIndex,
 hash_tok: std.zig.Ast.TokenIndex,
+name_tok: std.zig.Ast.TokenIndex,
+lazy_status: LazyStatus,
 parent_package_root: Package.Path,
 parent_manifest_ast: ?*const std.zig.Ast,
 prog_node: *std.Progress.Node,
@@ -63,6 +65,15 @@ oom_flag: bool,
 /// The module for this `Fetch` tasks's package, which exposes `build.zig` as
 /// the root source file.
 module: ?*Package.Module,
+
+pub const LazyStatus = enum {
+    /// Not lazy.
+    eager,
+    /// Lazy, found.
+    available,
+    /// Lazy, not found.
+    unavailable,
+};
 
 /// Contains shared state among all `Fetch` tasks.
 pub const JobQueue = struct {
@@ -150,11 +161,37 @@ pub const JobQueue = struct {
                 // The first one is a dummy package for the current project.
                 continue;
             }
+
             try buf.writer().print(
                 \\    pub const {} = struct {{
+                \\
+            , .{std.zig.fmtId(&hash)});
+
+            lazy: {
+                switch (fetch.lazy_status) {
+                    .eager => break :lazy,
+                    .available => {
+                        try buf.appendSlice(
+                            \\        pub const available = true;
+                            \\
+                        );
+                        break :lazy;
+                    },
+                    .unavailable => {
+                        try buf.appendSlice(
+                            \\        pub const available = false;
+                            \\    };
+                            \\
+                        );
+                        continue;
+                    },
+                }
+            }
+
+            try buf.writer().print(
                 \\        pub const build_root = "{q}";
                 \\
-            , .{ std.zig.fmtId(&hash), fetch.package_root });
+            , .{fetch.package_root});
 
             if (fetch.has_build_zig) {
                 try buf.writer().print(
@@ -325,6 +362,7 @@ pub fn run(f: *Fetch) RunError!void {
         const prefix_len: usize = if (f.job_queue.read_only) "p/".len else 0;
         const pkg_sub_path = prefixed_pkg_sub_path[prefix_len..];
         if (cache_root.handle.access(pkg_sub_path, .{})) |_| {
+            assert(f.lazy_status != .unavailable);
             f.package_root = .{
                 .root_dir = cache_root,
                 .sub_path = try arena.dupe(u8, pkg_sub_path),
@@ -335,8 +373,16 @@ pub fn run(f: *Fetch) RunError!void {
             return queueJobsForDeps(f);
         } else |err| switch (err) {
             error.FileNotFound => {
+                switch (f.lazy_status) {
+                    .eager => {},
+                    .available => {
+                        f.lazy_status = .unavailable;
+                        return;
+                    },
+                    .unavailable => unreachable,
+                }
                 if (f.job_queue.read_only) return f.fail(
-                    f.location_tok,
+                    f.name_tok,
                     try eb.printString("package not found at '{}{s}'", .{
                         cache_root, pkg_sub_path,
                     }),
@@ -627,6 +673,8 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .location = location,
                 .location_tok = dep.location_tok,
                 .hash_tok = dep.hash_tok,
+                .name_tok = dep.name_tok,
+                .lazy_status = if (dep.lazy) .available else .eager,
                 .parent_package_root = f.package_root,
                 .parent_manifest_ast = &f.manifest_ast,
                 .prog_node = f.prog_node,
