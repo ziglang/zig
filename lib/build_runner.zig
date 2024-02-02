@@ -125,11 +125,11 @@ pub fn main() !void {
                 install_prefix = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "-l") or mem.eql(u8, arg, "--list-steps")) {
                 steps_menu = true;
-            } else if (mem.eql(u8, arg, "--system-lib")) {
-                const name = nextArgOrFatal(args, &arg_idx);
+            } else if (mem.startsWith(u8, arg, "-fsys=")) {
+                const name = arg["-fsys=".len..];
                 graph.system_library_options.put(arena, name, .user_enabled) catch @panic("OOM");
-            } else if (mem.eql(u8, arg, "--no-system-lib")) {
-                const name = nextArgOrFatal(args, &arg_idx);
+            } else if (mem.startsWith(u8, arg, "-fno-sys=")) {
+                const name = arg["-fno-sys=".len..];
                 graph.system_library_options.put(arena, name, .user_disabled) catch @panic("OOM");
             } else if (mem.eql(u8, arg, "--host-target")) {
                 graph.host_query_options.arch_os_abi = nextArgOrFatal(args, &arg_idx);
@@ -1111,13 +1111,13 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\
         \\System Integration Options:
         \\  --system [dir]               System Package Mode. Disable fetching; prefer system libs
+        \\  -fsys=[name]                 Enable a system integration
+        \\  -fno-sys=[name]              Disable a system integration
         \\  --host-target [triple]       Use the provided target as the host
         \\  --host-cpu [cpu]             Use the provided CPU as the host
         \\  --host-dynamic-linker [path] Use the provided dynamic linker as the host
-        \\  --system-lib [name]          Use the system-provided library
-        \\  --no-system-lib [name]       Do not use the system-provided library
         \\
-        \\  Available System Library Integrations:        Enabled:
+        \\  Available System Integrations:                Enabled:
         \\
     );
     if (b.graph.system_library_options.entries.len == 0) {

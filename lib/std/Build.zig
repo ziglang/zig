@@ -2324,7 +2324,7 @@ pub fn wantSharedLibSymLinks(target: Target) bool {
     return target.os.tag != .windows;
 }
 
-pub fn systemLibraryOption(b: *Build, name: []const u8) bool {
+pub fn systemIntegrationOption(b: *Build, name: []const u8) bool {
     const gop = b.graph.system_library_options.getOrPut(b.allocator, name) catch @panic("OOM");
     if (gop.found_existing) switch (gop.value_ptr.*) {
         .user_disabled => {
