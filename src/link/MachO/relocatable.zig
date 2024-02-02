@@ -63,14 +63,15 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
     allocateSegment(macho_file);
     macho_file.allocateAtoms();
 
-    state_log.debug("{}", .{macho_file.dumpState()});
-
     var off = off: {
         const seg = macho_file.segments.items[0];
         const off = math.cast(u32, seg.fileoff + seg.filesize) orelse return error.Overflow;
         break :off mem.alignForward(u32, off, @alignOf(macho.relocation_info));
     };
     off = allocateSectionsRelocs(macho_file, off);
+
+    state_log.debug("{}", .{macho_file.dumpState()});
+
     try macho_file.calcSymtabSize();
     try writeAtoms(macho_file);
     try writeCompactUnwind(macho_file);
@@ -195,6 +196,16 @@ fn calcSectionSizes(macho_file: *MachO) !void {
         sect.@"align" = 3;
         sect.nreloc = eh_frame.calcNumRelocs(macho_file);
     }
+
+    if (macho_file.getZigObject()) |zo| {
+        for (zo.atoms.items) |atom_index| {
+            const atom = macho_file.getAtom(atom_index) orelse continue;
+            if (!atom.flags.alive) continue;
+            const header = &macho_file.sections.items(.header)[atom.out_n_sect];
+            if (mem.indexOf(u8, header.segName(), "ZIG") == null) continue;
+            header.nreloc += atom.calcNumRelocs(macho_file);
+        }
+    }
 }
 
 fn calcCompactUnwindSize(macho_file: *MachO, sect_index: u8) void {
@@ -303,6 +314,7 @@ fn writeAtoms(macho_file: *MachO) !void {
     for (slice.items(.header), slice.items(.atoms)) |header, atoms| {
         if (atoms.items.len == 0) continue;
         if (header.isZerofill()) continue;
+        if (mem.indexOf(u8, header.segName(), "ZIG") != null) continue;
 
         const size = math.cast(usize, header.size) orelse return error.Overflow;
         const code = try gpa.alloc(u8, size);
@@ -329,6 +341,63 @@ fn writeAtoms(macho_file: *MachO) !void {
         // TODO scattered writes?
         try macho_file.base.file.?.pwriteAll(code, header.offset);
         try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
+    }
+
+    if (macho_file.getZigObject()) |zo| {
+        // TODO: this is ugly; perhaps we should aggregrate before?
+        var relocs = std.AutoArrayHashMap(u8, std.ArrayList(macho.relocation_info)).init(gpa);
+        defer {
+            for (relocs.values()) |*list| {
+                list.deinit();
+            }
+            relocs.deinit();
+        }
+
+        for (macho_file.sections.items(.header), 0..) |header, n_sect| {
+            if (header.isZerofill()) continue;
+            if (mem.indexOf(u8, header.segName(), "ZIG") == null) continue;
+            const gop = try relocs.getOrPut(@intCast(n_sect));
+            if (gop.found_existing) continue;
+            gop.value_ptr.* = try std.ArrayList(macho.relocation_info).initCapacity(gpa, header.nreloc);
+        }
+
+        for (zo.atoms.items) |atom_index| {
+            const atom = macho_file.getAtom(atom_index) orelse continue;
+            if (!atom.flags.alive) continue;
+            const header = macho_file.sections.items(.header)[atom.out_n_sect];
+            if (header.isZerofill()) continue;
+            if (mem.indexOf(u8, header.segName(), "ZIG") == null) continue;
+            if (atom.getRelocs(macho_file).len == 0) continue;
+            const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
+            const code = try gpa.alloc(u8, atom_size);
+            defer gpa.free(code);
+            atom.getData(macho_file, code) catch |err| switch (err) {
+                error.InputOutput => {
+                    try macho_file.reportUnexpectedError("fetching code for '{s}' failed", .{
+                        atom.getName(macho_file),
+                    });
+                    return error.FlushFailure;
+                },
+                else => |e| {
+                    try macho_file.reportUnexpectedError("unexpected error while fetching code for '{s}': {s}", .{
+                        atom.getName(macho_file),
+                        @errorName(e),
+                    });
+                    return error.FlushFailure;
+                },
+            };
+            const file_offset = header.offset + atom.value - header.addr;
+            const rels = relocs.getPtr(atom.out_n_sect).?;
+            try atom.writeRelocs(macho_file, code, rels);
+            try macho_file.base.file.?.pwriteAll(code, file_offset);
+        }
+
+        for (relocs.keys(), relocs.values()) |sect_id, rels| {
+            const header = macho_file.sections.items(.header)[sect_id];
+            assert(rels.items.len == header.nreloc);
+            mem.sort(macho.relocation_info, rels.items, {}, sortReloc);
+            try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(rels.items), header.reloff);
+        }
     }
 }
 

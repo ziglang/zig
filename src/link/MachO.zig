@@ -615,6 +615,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
             const sect = &self.sections.items(.header)[atom.out_n_sect];
             if (sect.isZerofill()) continue;
             if (mem.indexOf(u8, sect.segName(), "ZIG") == null) continue; // Non-Zig sections are handled separately
+            if (atom.getRelocs(self).len == 0) continue;
             // TODO: we will resolve and write ZigObject's TLS data twice:
             // once here, and once in writeAtoms
             const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
@@ -4107,10 +4108,13 @@ fn formatSections(
     _ = unused_fmt_string;
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.segment_id), 0..) |header, seg_id, i| {
-        try writer.print("sect({d}) : seg({d}) : {s},{s} : @{x} ({x}) : align({x}) : size({x})\n", .{
-            i,               seg_id,      header.segName(), header.sectName(), header.addr, header.offset,
-            header.@"align", header.size,
-        });
+        try writer.print(
+            "sect({d}) : seg({d}) : {s},{s} : @{x} ({x}) : align({x}) : size({x}) : relocs({x};{d})\n",
+            .{
+                i,               seg_id,      header.segName(), header.sectName(), header.addr, header.offset,
+                header.@"align", header.size, header.reloff,    header.nreloc,
+            },
+        );
     }
 }
 

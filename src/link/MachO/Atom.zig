@@ -1143,10 +1143,10 @@ fn format2(
     _ = unused_fmt_string;
     const atom = ctx.atom;
     const macho_file = ctx.macho_file;
-    try writer.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : thunk({d})", .{
-        atom.atom_index,  atom.getName(macho_file), atom.value,
-        atom.out_n_sect,  atom.alignment,           atom.size,
-        atom.thunk_index,
+    try writer.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : nreloc({d}) : thunk({d})", .{
+        atom.atom_index,                atom.getName(macho_file), atom.value,
+        atom.out_n_sect,                atom.alignment,           atom.size,
+        atom.getRelocs(macho_file).len, atom.thunk_index,
     });
     if (!atom.flags.alive) try writer.writeAll(" : [*]");
     if (atom.unwind_records.len > 0) {
