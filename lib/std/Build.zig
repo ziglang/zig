@@ -2311,7 +2311,14 @@ pub const ResolvedTarget = struct {
 /// Converts a target query into a fully resolved target that can be passed to
 /// various parts of the API.
 pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
-    if (query.isNative()) return b.host;
+    if (query.isNative()) {
+        var adjusted = b.host;
+        if (query.ofmt) |ofmt| {
+            adjusted.query.ofmt = ofmt;
+            adjusted.result.ofmt = ofmt;
+        }
+        return adjusted;
+    }
 
     return .{
         .query = query,
