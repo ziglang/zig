@@ -328,7 +328,7 @@ fn writeAtoms(macho_file: *MachO) !void {
         for (atoms.items) |atom_index| {
             const atom = macho_file.getAtom(atom_index).?;
             assert(atom.flags.alive);
-            const off = math.cast(usize, atom.value - header.addr) orelse return error.Overflow;
+            const off = math.cast(usize, atom.value) orelse return error.Overflow;
             const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
             try atom.getData(macho_file, code[off..][0..atom_size]);
             try atom.writeRelocs(macho_file, code[off..][0..atom_size], &relocs);
@@ -386,7 +386,7 @@ fn writeAtoms(macho_file: *MachO) !void {
                     return error.FlushFailure;
                 },
             };
-            const file_offset = header.offset + atom.value - header.addr;
+            const file_offset = header.offset + atom.value;
             const rels = relocs.getPtr(atom.out_n_sect).?;
             try atom.writeRelocs(macho_file, code, rels);
             try macho_file.base.file.?.pwriteAll(code, file_offset);

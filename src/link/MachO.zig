@@ -636,7 +636,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
                     return error.FlushFailure;
                 },
             };
-            const file_offset = sect.offset + atom.value - sect.addr;
+            const file_offset = sect.offset + atom.value;
             atom.resolveRelocs(self, code) catch |err| switch (err) {
                 error.ResolveFailed => has_resolve_error = true,
                 else => |e| {
@@ -2393,16 +2393,7 @@ fn allocateSegments(self: *MachO) void {
 }
 
 pub fn allocateAtoms(self: *MachO) void {
-    const slice = self.sections.slice();
-    for (slice.items(.header), slice.items(.atoms)) |header, atoms| {
-        if (atoms.items.len == 0) continue;
-        for (atoms.items) |atom_index| {
-            const atom = self.getAtom(atom_index).?;
-            assert(atom.flags.alive);
-            atom.value += header.addr;
-        }
-    }
-
+    // TODO: redo this like atoms
     for (self.thunks.items) |*thunk| {
         const header = self.sections.items(.header)[thunk.out_n_sect];
         thunk.value += header.addr;
@@ -2603,7 +2594,7 @@ fn writeAtoms(self: *MachO) !void {
         for (atoms.items) |atom_index| {
             const atom = self.getAtom(atom_index).?;
             assert(atom.flags.alive);
-            const off = math.cast(usize, atom.value - header.addr) orelse return error.Overflow;
+            const off = math.cast(usize, atom.value) orelse return error.Overflow;
             const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
             try atom.getData(self, buffer[off..][0..atom_size]);
             atom.resolveRelocs(self, buffer[off..][0..atom_size]) catch |err| switch (err) {
@@ -2825,7 +2816,7 @@ pub fn writeDataInCode(self: *MachO, base_address: u64, off: u32) !u32 {
 
             if (atom.flags.alive) for (in_dices[start_dice..next_dice]) |dice| {
                 dices.appendAssumeCapacity(.{
-                    .offset = @intCast(atom.value + dice.offset - start_off - base_address),
+                    .offset = @intCast(atom.getAddress(self) + dice.offset - start_off - base_address),
                     .length = dice.length,
                     .kind = dice.kind,
                 });
@@ -3318,7 +3309,7 @@ fn allocatedSize(self: *MachO, start: u64) u64 {
     return min_pos - start;
 }
 
-fn allocatedVirtualSize(self: *MachO, start: u64) u64 {
+fn allocatedSizeVirtual(self: *MachO, start: u64) u64 {
     if (start == 0) return 0;
     var min_pos: u64 = std.math.maxInt(u64);
     for (self.segments.items) |seg| {
@@ -3518,22 +3509,39 @@ pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
         sect.size = 0;
 
         // Must move the entire section.
-        const alignment = if (self.base.isRelocatable())
-            try math.powi(u32, 2, sect.@"align")
-        else
-            self.getPageSize();
-        const new_offset = self.findFreeSpace(needed_size, alignment);
+        if (self.base.isRelocatable()) {
+            const alignment = try math.powi(u32, 2, sect.@"align");
+            const new_offset = self.findFreeSpace(needed_size, alignment);
+            const new_addr = self.findFreeSpaceVirtual(needed_size, alignment);
 
-        log.debug("new '{s},{s}' file offset 0x{x} to 0x{x}", .{
-            sect.segName(),
-            sect.sectName(),
-            new_offset,
-            new_offset + existing_size,
-        });
+            log.debug("new '{s},{s}' file offset 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
+                sect.segName(),
+                sect.sectName(),
+                new_offset,
+                new_offset + existing_size,
+                new_addr,
+                new_addr + existing_size,
+            });
 
-        try self.copyRangeAllZeroOut(sect.offset, new_offset, existing_size);
+            try self.copyRangeAll(sect.offset, new_offset, existing_size);
 
-        sect.offset = @intCast(new_offset);
+            sect.offset = @intCast(new_offset);
+            sect.addr = new_addr;
+        } else {
+            const alignment = self.getPageSize();
+            const new_offset = self.findFreeSpace(needed_size, alignment);
+
+            log.debug("new '{s},{s}' file offset 0x{x} to 0x{x}", .{
+                sect.segName(),
+                sect.sectName(),
+                new_offset,
+                new_offset + existing_size,
+            });
+
+            try self.copyRangeAllZeroOut(sect.offset, new_offset, existing_size);
+
+            sect.offset = @intCast(new_offset);
+        }
     }
 
     sect.size = needed_size;
@@ -3547,7 +3555,7 @@ pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
             seg.filesize = needed_size;
         }
 
-        const mem_capacity = self.allocatedVirtualSize(seg.vmaddr);
+        const mem_capacity = self.allocatedSizeVirtual(seg.vmaddr);
         if (needed_size > mem_capacity) {
             var err = try self.addErrorWithNotes(2);
             try err.addMsg(self, "fatal linker error: cannot expand segment seg({d})({s}) in virtual memory", .{
