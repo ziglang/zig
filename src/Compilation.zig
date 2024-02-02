@@ -2807,6 +2807,13 @@ const Header = extern struct {
         limbs_len: u32,
         string_bytes_len: u32,
         tracked_insts_len: u32,
+        src_hash_deps_len: u32,
+        decl_val_deps_len: u32,
+        namespace_deps_len: u32,
+        namespace_name_deps_len: u32,
+        first_dependency_len: u32,
+        dep_entries_len: u32,
+        free_dep_entries_len: u32,
     },
 };
 
@@ -2814,7 +2821,7 @@ const Header = extern struct {
 /// saved, such as the target and most CLI flags. A cache hit will only occur
 /// when subsequent compiler invocations use the same set of flags.
 pub fn saveState(comp: *Compilation) !void {
-    var bufs_list: [7]std.os.iovec_const = undefined;
+    var bufs_list: [19]std.os.iovec_const = undefined;
     var bufs_len: usize = 0;
 
     const lf = comp.bin_file orelse return;
@@ -2828,6 +2835,13 @@ pub fn saveState(comp: *Compilation) !void {
                 .limbs_len = @intCast(ip.limbs.items.len),
                 .string_bytes_len = @intCast(ip.string_bytes.items.len),
                 .tracked_insts_len = @intCast(ip.tracked_insts.count()),
+                .src_hash_deps_len = @intCast(ip.src_hash_deps.count()),
+                .decl_val_deps_len = @intCast(ip.decl_val_deps.count()),
+                .namespace_deps_len = @intCast(ip.namespace_deps.count()),
+                .namespace_name_deps_len = @intCast(ip.namespace_name_deps.count()),
+                .first_dependency_len = @intCast(ip.first_dependency.count()),
+                .dep_entries_len = @intCast(ip.dep_entries.items.len),
+                .free_dep_entries_len = @intCast(ip.free_dep_entries.items.len),
             },
         };
         addBuf(&bufs_list, &bufs_len, mem.asBytes(&header));
@@ -2837,6 +2851,20 @@ pub fn saveState(comp: *Compilation) !void {
         addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.items.items(.tag)));
         addBuf(&bufs_list, &bufs_len, ip.string_bytes.items);
         addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.tracked_insts.keys()));
+
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.src_hash_deps.keys()));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.src_hash_deps.values()));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.decl_val_deps.keys()));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.decl_val_deps.values()));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.namespace_deps.keys()));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.namespace_deps.values()));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.namespace_name_deps.keys()));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.namespace_name_deps.values()));
+
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.first_dependency.keys()));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.first_dependency.values()));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.dep_entries.items));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.free_dep_entries.items));
 
         // TODO: compilation errors
         // TODO: files

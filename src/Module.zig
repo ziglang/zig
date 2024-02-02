@@ -149,6 +149,10 @@ error_limit: ErrorInt,
 /// previous analysis.
 generation: u32 = 0,
 
+/// Value is the number of PO dependencies of this Depender.
+potentially_outdated: std.AutoArrayHashMapUnmanaged(InternPool.Depender, u32) = .{},
+outdated: std.AutoArrayHashMapUnmanaged(InternPool.Depender, void) = .{},
+
 stage1_flags: packed struct {
     have_winmain: bool = false,
     have_wwinmain: bool = false,
@@ -680,14 +684,6 @@ pub const Decl = struct {
         return mod.namespacePtr(decl.src_namespace).file_scope;
     }
 
-    pub fn removeDependant(decl: *Decl, other: Decl.Index) void {
-        assert(decl.dependants.swapRemove(other));
-    }
-
-    pub fn removeDependency(decl: *Decl, other: Decl.Index) void {
-        assert(decl.dependencies.swapRemove(other));
-    }
-
     pub fn getExternDecl(decl: Decl, mod: *Module) OptionalIndex {
         assert(decl.has_tv);
         return switch (mod.intern_pool.indexToKey(decl.val.toIntern())) {
@@ -838,14 +834,6 @@ pub const File = struct {
     /// undefined until `zir_loaded == true`.
     path_digest: Cache.BinDigest = undefined,
 
-    /// Used by change detection algorithm, after astgen, contains the
-    /// set of decls that existed in the previous ZIR but not in the new one.
-    deleted_decls: ArrayListUnmanaged(Decl.Index) = .{},
-    /// Used by change detection algorithm, after astgen, contains the
-    /// set of decls that existed both in the previous ZIR and in the new one,
-    /// but their source code has been modified.
-    outdated_decls: ArrayListUnmanaged(Decl.Index) = .{},
-
     /// The most recent successful ZIR for this file, with no errors.
     /// This is only populated when a previously successful ZIR
     /// newly introduces compile errors during an update. When ZIR is
@@ -898,8 +886,6 @@ pub const File = struct {
             gpa.free(file.sub_file_path);
             file.unload(gpa);
         }
-        file.deleted_decls.deinit(gpa);
-        file.outdated_decls.deinit(gpa);
         file.references.deinit(gpa);
         if (file.root_decl.unwrap()) |root_decl| {
             mod.destroyDecl(root_decl);
@@ -2498,6 +2484,8 @@ pub fn deinit(zcu: *Zcu) void {
 
     zcu.global_error_set.deinit(gpa);
 
+    zcu.potentially_outdated.deinit(gpa);
+
     zcu.test_functions.deinit(gpa);
 
     for (zcu.global_assembly.values()) |s| {
@@ -2856,27 +2844,18 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     }
 
     if (file.prev_zir) |prev_zir| {
-        // Iterate over all Namespace objects contained within this File, looking at the
-        // previous and new ZIR together and update the references to point
-        // to the new one. For example, Decl name, Decl zir_decl_index, and Namespace
-        // decl_table keys need to get updated to point to the new memory, even if the
-        // underlying source code is unchanged.
-        // We do not need to hold any locks at this time because all the Decl and Namespace
-        // objects being touched are specific to this File, and the only other concurrent
-        // tasks are touching other File objects.
         try updateZirRefs(mod, file, prev_zir.*);
-        // At this point, `file.outdated_decls` and `file.deleted_decls` are populated,
-        // and semantic analysis will deal with them properly.
         // No need to keep previous ZIR.
         prev_zir.deinit(gpa);
         gpa.destroy(prev_zir);
         file.prev_zir = null;
-    } else if (file.root_decl.unwrap()) |root_decl| {
-        // This is an update, but it is the first time the File has succeeded
-        // ZIR. We must mark it outdated since we have already tried to
-        // semantically analyze it.
-        try file.outdated_decls.resize(gpa, 1);
-        file.outdated_decls.items[0] = root_decl;
+    }
+
+    if (file.root_decl.unwrap()) |root_decl| {
+        // The root of this file must be re-analyzed, since the file has changed.
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+        try mod.outdated.put(gpa, InternPool.Depender.wrap(.{ .decl = root_decl }), {});
     }
 }
 
@@ -2950,23 +2929,140 @@ fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File)
     return zir;
 }
 
+/// This is called from the AstGen thread pool, so must acquire
+/// the Compilation mutex when acting on shared state.
 fn updateZirRefs(zcu: *Module, file: *File, old_zir: Zir) !void {
     const gpa = zcu.gpa;
+    const new_zir = file.zir;
 
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
     defer inst_map.deinit(gpa);
 
-    try mapOldZirToNew(gpa, old_zir, file.zir, &inst_map);
+    try mapOldZirToNew(gpa, old_zir, new_zir, &inst_map);
+
+    const old_tag = old_zir.instructions.items(.tag);
+    const old_data = old_zir.instructions.items(.data);
 
     // TODO: this should be done after all AstGen workers complete, to avoid
     // iterating over this full set for every updated file.
-    for (zcu.intern_pool.tracked_insts.keys()) |*ti| {
+    for (zcu.intern_pool.tracked_insts.keys(), 0..) |*ti, idx_raw| {
+        const ti_idx: InternPool.TrackedInst.Index = @enumFromInt(idx_raw);
         if (!std.mem.eql(u8, &ti.path_digest, &file.path_digest)) continue;
+        const old_inst = ti.inst;
         ti.inst = inst_map.get(ti.inst) orelse {
-            // TODO: invalidate this `TrackedInst` via the dependency mechanism
+            // Tracking failed for this instruction. Invalidate associated `src_hash` deps.
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            try zcu.markDependeeOutdated(.{ .src_hash = ti_idx });
             continue;
         };
+
+        // If this is a `struct_decl` etc, we must invalidate any outdated namespace dependencies.
+        const has_namespace = switch (old_tag[@intFromEnum(old_inst)]) {
+            .extended => switch (old_data[@intFromEnum(old_inst)].extended.opcode) {
+                .struct_decl, .union_decl, .opaque_decl, .enum_decl => true,
+                else => false,
+            },
+            else => false,
+        };
+        if (!has_namespace) continue;
+
+        var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+        defer old_names.deinit(zcu.gpa);
+        {
+            var it = old_zir.declIterator(old_inst);
+            while (it.next()) |decl_inst| {
+                const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
+                switch (decl_name) {
+                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                    _ => if (decl_name.isNamedTest(old_zir)) continue,
+                }
+                const name_zir = decl_name.toString(old_zir).?;
+                const name_ip = try zcu.intern_pool.getOrPutString(
+                    zcu.gpa,
+                    old_zir.nullTerminatedString(name_zir),
+                );
+                try old_names.put(zcu.gpa, name_ip, {});
+            }
+        }
+        var any_change = false;
+        {
+            var it = new_zir.declIterator(ti.inst);
+            while (it.next()) |decl_inst| {
+                const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
+                switch (decl_name) {
+                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                    _ => if (decl_name.isNamedTest(old_zir)) continue,
+                }
+                const name_zir = decl_name.toString(old_zir).?;
+                const name_ip = try zcu.intern_pool.getOrPutString(
+                    zcu.gpa,
+                    old_zir.nullTerminatedString(name_zir),
+                );
+                if (!old_names.swapRemove(name_ip)) continue;
+                // Name added
+                any_change = true;
+                zcu.comp.mutex.lock();
+                defer zcu.comp.mutex.unlock();
+                try zcu.markDependeeOutdated(.{ .namespace_name = .{
+                    .namespace = ti_idx,
+                    .name = name_ip,
+                } });
+            }
+        }
+        // The only elements remaining in `old_names` now are any names which were removed.
+        for (old_names.keys()) |name_ip| {
+            any_change = true;
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            try zcu.markDependeeOutdated(.{ .namespace_name = .{
+                .namespace = ti_idx,
+                .name = name_ip,
+            } });
+        }
+
+        if (any_change) {
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            try zcu.markDependeeOutdated(.{ .namespace = ti_idx });
+        }
     }
+}
+
+pub fn markDependeeOutdated(zcu: *Zcu, dependee: InternPool.Dependee) !void {
+    var it = zcu.intern_pool.dependencyIterator(dependee);
+    while (it.next()) |depender| {
+        if (zcu.outdated.contains(depender)) continue;
+        const was_po = zcu.potentially_outdated.swapRemove(depender);
+        try zcu.outdated.putNoClobber(zcu.gpa, depender, {});
+        // If this is a Decl and was not previously PO, we must recursively
+        // mark dependencies on its tyval as PO.
+        if (was_po) switch (depender.unwrap()) {
+            .decl => |decl_index| try zcu.markDeclDependenciesPotentiallyOutdated(decl_index),
+            .func => {},
+        };
+    }
+}
+
+/// Given a Decl which is newly outdated or PO, mark all dependers which depend
+/// on its tyval as PO.
+fn markDeclDependenciesPotentiallyOutdated(zcu: *Zcu, decl_index: Decl.Index) !void {
+    var it = zcu.intern_pool.dependencyIterator(.{ .decl_val = decl_index });
+    while (it.next()) |po| {
+        if (zcu.potentially_outdated.getPtr(po)) |n| {
+            // There is now one more PO dependency.
+            n.* += 1;
+            continue;
+        }
+        try zcu.potentially_outdated.putNoClobber(zcu.gpa, po, 1);
+        // If this ia a Decl, we must recursively mark dependencies
+        // on its tyval as PO.
+        switch (po.unwrap()) {
+            .decl => |po_decl| try zcu.markDeclDependenciesPotentiallyOutdated(po_decl),
+            .func => {},
+        }
+    }
+    // TODO: repeat the above for `decl_ty` dependencies when they are introduced
 }
 
 pub fn mapOldZirToNew(
@@ -3535,6 +3631,8 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         break :blk .none;
     };
 
+    mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
+
     decl.analysis = .in_progress;
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
@@ -3563,6 +3661,9 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         .builtin_type_target_index = builtin_type_target_index,
     };
     defer sema.deinit();
+
+    // Every Decl has a dependency on its own source.
+    try sema.declareDependency(.{ .src_hash = try ip.trackZir(sema.gpa, decl.getFileScope(mod), decl.zir_decl_index.unwrap().?) });
 
     assert(!mod.declIsRoot(decl_index));
 
@@ -4361,6 +4462,8 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     const func = mod.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
+
+    mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
 
     var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
     defer comptime_mutable_decls.deinit();
