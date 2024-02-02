@@ -969,19 +969,38 @@ fn testObjc(b: *Build, opts: Options) *Step {
     \\@end
     });
 
-    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
-    exe.root_module.linkSystemLibrary("a", .{});
-    exe.root_module.linkFramework("Foundation", .{});
-    exe.root_module.addLibraryPath(lib.getEmittedBinDirectory());
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
+        exe.root_module.linkSystemLibrary("a", .{});
+        exe.root_module.linkFramework("Foundation", .{});
+        exe.root_module.addLibraryPath(lib.getEmittedBinDirectory());
 
-    const check = exe.checkObject();
-    check.checkInSymtab();
-    check.checkContains("_OBJC_");
-    test_step.dependOn(&check.step);
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkNotPresent("_OBJC_");
+        test_step.dependOn(&check.step);
 
-    const run = addRunArtifact(exe);
-    run.expectExitCode(0);
-    test_step.dependOn(&run.step);
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main2", .c_source_bytes = "int main() { return 0; }" });
+        exe.root_module.linkSystemLibrary("a", .{});
+        exe.root_module.linkFramework("Foundation", .{});
+        exe.root_module.addLibraryPath(lib.getEmittedBinDirectory());
+        exe.force_load_objc = true;
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkContains("_OBJC_");
+        test_step.dependOn(&check.step);
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+    }
 
     return test_step;
 }

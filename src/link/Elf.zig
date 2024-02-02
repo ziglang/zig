@@ -2380,7 +2380,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 11);
+        comptime assert(Compilation.link_hash_implementation_version == 12);
 
         try man.addOptionalFile(self.linker_script);
         try man.addOptionalFile(self.version_script);

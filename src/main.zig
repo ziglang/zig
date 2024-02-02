@@ -559,6 +559,7 @@ const usage_build_generic =
     \\  -headerpad_max_install_names   (Darwin) set enough space as if all paths were MAXPATHLEN
     \\  -dead_strip                    (Darwin) remove functions and data that are unreachable by the entry point or exported symbols
     \\  -dead_strip_dylibs             (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
+    \\  -ObjC                          (Darwin) force load all members of static archives that implement an Objective-C class or category
     \\  --import-memory                (WebAssembly) import memory from the environment
     \\  --export-memory                (WebAssembly) export memory to the host (Default unless --import-memory used)
     \\  --import-symbols               (WebAssembly) import missing symbols from the host environment
@@ -589,7 +590,7 @@ const usage_build_generic =
     \\  -rpath [path]                  Add directory to the runtime library search path
     \\  -framework [name]              (Darwin) link against framework
     \\  -needed_framework [name]       (Darwin) link against framework (even if unused)
-    \\  -needed_library [lib]          link against system library (even if unused)
+    \\  -needed_library [lib]          (Darwin) link against system library (even if unused)
     \\  -weak_framework [name]         (Darwin) link against framework and mark it and all referenced symbols as weak
     \\  -F[dir]                        (Darwin) add search path for frameworks
     \\  --export=[value]               (WebAssembly) Force a symbol to be exported
@@ -889,6 +890,7 @@ fn buildOutputType(
     var headerpad_size: ?u32 = null;
     var headerpad_max_install_names: bool = false;
     var dead_strip_dylibs: bool = false;
+    var force_load_objc: bool = false;
     var contains_res_file: bool = false;
     var reference_trace: ?u32 = null;
     var pdb_out_path: ?[]const u8 = null;
@@ -1182,6 +1184,8 @@ fn buildOutputType(
                         linker_gc_sections = true;
                     } else if (mem.eql(u8, arg, "-dead_strip_dylibs")) {
                         dead_strip_dylibs = true;
+                    } else if (mem.eql(u8, arg, "-ObjC")) {
+                        force_load_objc = true;
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                         linker_script = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
@@ -2061,6 +2065,7 @@ fn buildOutputType(
                     .force_undefined_symbol => {
                         try force_undefined_symbols.put(arena, it.only_arg, {});
                     },
+                    .force_load_objc => force_load_objc = true,
                     .weak_library => try create_module.system_libs.put(arena, it.only_arg, .{
                         .needed = false,
                         .weak = true,
@@ -2167,6 +2172,8 @@ fn buildOutputType(
                     linker_gc_sections = true;
                 } else if (mem.eql(u8, arg, "-dead_strip_dylibs")) {
                     dead_strip_dylibs = true;
+                } else if (mem.eql(u8, arg, "-ObjC")) {
+                    force_load_objc = true;
                 } else if (mem.eql(u8, arg, "--no-undefined")) {
                     linker_z_defs = true;
                 } else if (mem.eql(u8, arg, "--gc-sections")) {
@@ -3246,6 +3253,7 @@ fn buildOutputType(
         .headerpad_size = headerpad_size,
         .headerpad_max_install_names = headerpad_max_install_names,
         .dead_strip_dylibs = dead_strip_dylibs,
+        .force_load_objc = force_load_objc,
         .reference_trace = reference_trace,
         .pdb_out_path = pdb_out_path,
         .error_limit = error_limit,
@@ -6266,6 +6274,7 @@ pub const ClangArgIterator = struct {
         compress_debug_sections,
         install_name,
         undefined,
+        force_load_objc,
     };
 
     const Args = struct {
