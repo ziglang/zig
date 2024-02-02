@@ -149,6 +149,9 @@ headerpad_max_install_names: bool = false,
 /// (Darwin) Remove dylibs that are unreachable by the entry point or exported symbols.
 dead_strip_dylibs: bool = false,
 
+/// (Darwin) Force load all members of static archives that implement an Objective-C class or category
+force_load_objc: bool = false,
+
 /// Position Independent Executable
 pie: ?bool = null,
 
@@ -1432,6 +1435,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
     if (self.dead_strip_dylibs) {
         try zig_args.append("-dead_strip_dylibs");
+    }
+    if (self.force_load_objc) {
+        try zig_args.append("-ObjC");
     }
 
     try addFlag(&zig_args, "compiler-rt", self.bundle_compiler_rt);

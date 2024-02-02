@@ -1113,6 +1113,8 @@ pub const CreateOptions = struct {
     headerpad_max_install_names: bool = false,
     /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
     dead_strip_dylibs: bool = false,
+    /// (Darwin) Force load all members of static archives that implement an Objective-C class or category
+    force_load_objc: bool = false,
     libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
     /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
     /// paths when consolidating CodeView streams into a single PDB file.
@@ -1591,6 +1593,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .headerpad_size = options.headerpad_size,
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
+            .force_load_objc = options.force_load_objc,
             .pdb_source_path = options.pdb_source_path,
             .pdb_out_path = options.pdb_out_path,
             .entry_addr = null, // CLI does not expose this option (yet?)
@@ -2456,7 +2459,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 11;
+pub const link_hash_implementation_version = 12;
 
 fn addNonIncrementalStuffToCacheManifest(
     comp: *Compilation,
@@ -2465,7 +2468,7 @@ fn addNonIncrementalStuffToCacheManifest(
 ) !void {
     const gpa = comp.gpa;
 
-    comptime assert(link_hash_implementation_version == 11);
+    comptime assert(link_hash_implementation_version == 12);
 
     if (comp.module) |mod| {
         try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.root_mod, mod.main_mod, .{ .files = man });
@@ -2589,6 +2592,7 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.addOptional(opts.headerpad_size);
     man.hash.add(opts.headerpad_max_install_names);
     man.hash.add(opts.dead_strip_dylibs);
+    man.hash.add(opts.force_load_objc);
 
     // COFF specific stuff
     man.hash.addOptional(opts.subsystem);

@@ -217,6 +217,7 @@ pub fn createEmpty(
         .undefined_treatment = if (allow_shlib_undefined) .dynamic_lookup else .@"error",
         .lib_dirs = options.lib_dirs,
         .framework_dirs = options.framework_dirs,
+        .force_load_objc = options.force_load_objc,
     };
     if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, comp);
@@ -807,6 +808,10 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append("-dead_strip_dylibs");
         }
 
+        if (self.force_load_objc) {
+            try argv.append("-ObjC");
+        }
+
         if (self.entry_name) |entry_name| {
             try argv.appendSlice(&.{ "-e", entry_name });
         }
@@ -1247,7 +1252,7 @@ fn parseDependentDylibs(self: *MachO) !void {
                         try checked_paths.append(rel_path);
                         var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
                         const full_path = std.fs.realpath(rel_path, &buffer) catch continue;
-                        break :full_path full_path;
+                        break :full_path try arena.dupe(u8, full_path);
                     }
                 } else if (eatPrefix(id.name, "@loader_path/")) |_| {
                     try self.reportParseError2(dylib_index, "TODO handle install_name '{s}'", .{id.name});
@@ -1260,7 +1265,7 @@ fn parseDependentDylibs(self: *MachO) !void {
                 try checked_paths.append(try arena.dupe(u8, id.name));
                 var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
                 if (std.fs.realpath(id.name, &buffer)) |full_path| {
-                    break :full_path full_path;
+                    break :full_path try arena.dupe(u8, full_path);
                 } else |_| {
                     try self.reportMissingDependencyError(
                         self.getFile(dylib_index).?.dylib.getUmbrella(self).index,
