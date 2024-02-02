@@ -119,9 +119,19 @@ pub fn getThunk(self: Atom, macho_file: *MachO) *Thunk {
 
 pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
     const segname, const sectname, const flags = blk: {
+        // Sanitize names produced by Zig self-hosted backends.
+        // TODO perhaps we simply should emit different names instead?
+        const segname = if (mem.indexOf(u8, sect.segName(), "_ZIG")) |idx|
+            sect.segName()[0..idx]
+        else
+            sect.segName();
+        const sectname = if (mem.indexOf(u8, sect.sectName(), "_zig")) |idx|
+            sect.sectName()[0..idx]
+        else
+            sect.sectName();
         if (sect.isCode()) break :blk .{
             "__TEXT",
-            sect.sectName(),
+            sectname,
             macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         };
 
@@ -132,15 +142,15 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
             => break :blk .{ "__TEXT", "__const", macho.S_REGULAR },
 
             macho.S_CSTRING_LITERALS => {
-                if (mem.startsWith(u8, sect.sectName(), "__objc")) break :blk .{
-                    sect.segName(), sect.sectName(), macho.S_REGULAR,
+                if (mem.startsWith(u8, sectname, "__objc")) break :blk .{
+                    segname, sectname, macho.S_REGULAR,
                 };
                 break :blk .{ "__TEXT", "__cstring", macho.S_CSTRING_LITERALS };
             },
 
             macho.S_MOD_INIT_FUNC_POINTERS,
             macho.S_MOD_TERM_FUNC_POINTERS,
-            => break :blk .{ "__DATA_CONST", sect.sectName(), sect.flags },
+            => break :blk .{ "__DATA_CONST", sectname, sect.flags },
 
             macho.S_LITERAL_POINTERS,
             macho.S_ZEROFILL,
@@ -149,17 +159,15 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
             macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
             macho.S_THREAD_LOCAL_REGULAR,
             macho.S_THREAD_LOCAL_ZEROFILL,
-            => break :blk .{ sect.segName(), sect.sectName(), sect.flags },
+            => break :blk .{ segname, sectname, sect.flags },
 
             macho.S_COALESCED => break :blk .{
-                sect.segName(),
-                sect.sectName(),
+                segname,
+                sectname,
                 macho.S_REGULAR,
             },
 
             macho.S_REGULAR => {
-                const segname = sect.segName();
-                const sectname = sect.sectName();
                 if (mem.eql(u8, segname, "__DATA")) {
                     if (mem.eql(u8, sectname, "__const") or
                         mem.eql(u8, sectname, "__cfstring") or
@@ -173,7 +181,7 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
                 break :blk .{ segname, sectname, sect.flags };
             },
 
-            else => break :blk .{ sect.segName(), sect.sectName(), sect.flags },
+            else => break :blk .{ segname, sectname, sect.flags },
         }
     };
     const osec = macho_file.getSectionByName(segname, sectname) orelse try macho_file.addSection(

@@ -196,8 +196,10 @@ pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) void {
                 const atom = macho_file.getAtom(atom_index).?;
                 break :blk nlist.n_value - atom.getInputAddress(macho_file);
             } else nlist.n_value;
+            const out_n_sect = if (nlist.sect()) macho_file.getAtom(atom_index).?.out_n_sect else 0;
             symbol.value = value;
             symbol.atom = atom_index;
+            symbol.out_n_sect = out_n_sect;
             symbol.nlist_idx = nlist_idx;
             symbol.file = self.index;
             symbol.flags.weak = nlist.weakDef();
