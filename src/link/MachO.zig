@@ -3299,7 +3299,7 @@ fn allocatedVirtualSize(self: *MachO, start: u64) u64 {
     return min_pos - start;
 }
 
-fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u32) u64 {
+pub fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u32) u64 {
     var start: u64 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
         start = mem.alignForward(u64, item_end, min_alignment);
@@ -3307,18 +3307,22 @@ fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u32) u64 {
     return start;
 }
 
+pub fn copyRangeAll(self: *MachO, old_offset: u64, new_offset: u64, size: u64) !void {
+    const file = self.base.file.?;
+    const amt = try file.copyRangeAll(old_offset, file, new_offset, size);
+    if (amt != size) return error.InputOutput;
+}
+
 /// Like File.copyRangeAll but also ensures the source region is zeroed out after copy.
 /// This is so that we guarantee zeroed out regions for mapping of zerofill sections by the loader.
 fn copyRangeAllZeroOut(self: *MachO, old_offset: u64, new_offset: u64, size: u64) !void {
     const gpa = self.base.comp.gpa;
-    const file = self.base.file.?;
-    const amt = try file.copyRangeAll(old_offset, file, new_offset, size);
-    if (amt != size) return error.InputOutput;
+    try self.copyRangeAll(old_offset, new_offset, size);
     const size_u = math.cast(usize, size) orelse return error.Overflow;
     const zeroes = try gpa.alloc(u8, size_u);
     defer gpa.free(zeroes);
     @memset(zeroes, 0);
-    try file.pwriteAll(zeroes, old_offset);
+    try self.base.file.?.pwriteAll(zeroes, old_offset);
 }
 
 const InitMetadataOptions = struct {
@@ -4064,7 +4068,7 @@ fn formatSections(
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.segment_id), 0..) |header, seg_id, i| {
         try writer.print("sect({d}) : seg({d}) : {s},{s} : @{x} ({x}) : align({x}) : size({x})\n", .{
-            i,               seg_id,      header.segName(), header.sectName(), header.offset, header.addr,
+            i,               seg_id,      header.segName(), header.sectName(), header.addr, header.offset,
             header.@"align", header.size,
         });
     }

@@ -58,46 +58,20 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
     try macho_file.addAtomsToSections();
     try calcSectionSizes(macho_file);
 
-    {
-        // For relocatable, we only ever need a single segment so create it now.
-        const prot: macho.vm_prot_t = macho.PROT.READ | macho.PROT.WRITE | macho.PROT.EXEC;
-        try macho_file.segments.append(gpa, .{
-            .cmdsize = @sizeOf(macho.segment_command_64),
-            .segname = MachO.makeStaticString(""),
-            .maxprot = prot,
-            .initprot = prot,
-        });
-        const seg = &macho_file.segments.items[0];
-        seg.nsects = @intCast(macho_file.sections.items(.header).len);
-        seg.cmdsize += seg.nsects * @sizeOf(macho.section_64);
-    }
-
-    var off = try allocateSections(macho_file);
-
-    {
-        // Allocate the single segment.
-        assert(macho_file.segments.items.len == 1);
-        const seg = &macho_file.segments.items[0];
-        var vmaddr: u64 = 0;
-        var fileoff: u64 = load_commands.calcLoadCommandsSizeObject(macho_file) + @sizeOf(macho.mach_header_64);
-        seg.vmaddr = vmaddr;
-        seg.fileoff = fileoff;
-
-        for (macho_file.sections.items(.header)) |header| {
-            vmaddr = header.addr + header.size;
-            if (!header.isZerofill()) {
-                fileoff = header.offset + header.size;
-            }
-        }
-
-        seg.vmsize = vmaddr - seg.vmaddr;
-        seg.filesize = fileoff - seg.fileoff;
-    }
-
+    try createSegment(macho_file);
+    try allocateSectionsVM(macho_file);
+    try allocateSectionsFile(macho_file);
+    allocateSegment(macho_file);
     macho_file.allocateAtoms();
 
     state_log.debug("{}", .{macho_file.dumpState()});
 
+    var off = off: {
+        const seg = macho_file.segments.items[0];
+        const off = math.cast(u32, seg.fileoff + seg.filesize) orelse return error.Overflow;
+        break :off mem.alignForward(u32, off, @alignOf(macho.relocation_info));
+    };
+    off = allocateSectionsRelocs(macho_file, off);
     try macho_file.calcSymtabSize();
     try writeAtoms(macho_file);
     try writeCompactUnwind(macho_file);
@@ -250,8 +224,7 @@ fn calcCompactUnwindSize(macho_file: *MachO, sect_index: u8) void {
     sect.@"align" = 3;
 }
 
-fn allocateSections(macho_file: *MachO) !u32 {
-    var fileoff = load_commands.calcLoadCommandsSizeObject(macho_file) + @sizeOf(macho.mach_header_64);
+fn allocateSectionsVM(macho_file: *MachO) !void {
     var vmaddr: u64 = 0;
     const slice = macho_file.sections.slice();
 
@@ -260,20 +233,96 @@ fn allocateSections(macho_file: *MachO) !u32 {
         vmaddr = mem.alignForward(u64, vmaddr, alignment);
         header.addr = vmaddr;
         vmaddr += header.size;
+    }
+}
 
-        if (!header.isZerofill()) {
-            fileoff = mem.alignForward(u32, fileoff, alignment);
-            header.offset = fileoff;
-            fileoff += @intCast(header.size);
-        }
+fn allocateSectionsFile(macho_file: *MachO) !void {
+    var fileoff = load_commands.calcLoadCommandsSizeObject(macho_file) + @sizeOf(macho.mach_header_64);
+    const slice = macho_file.sections.slice();
+
+    const last_index = for (slice.items(.header), 0..) |header, i| {
+        if (mem.indexOf(u8, header.segName(), "ZIG")) |_| break i;
+    } else slice.items(.header).len;
+
+    // TODO: I actually think for relocatable we can just use findFreeSpace
+    // all the way since there is a single segment involved anyhow.
+    for (slice.items(.header)[0..last_index]) |*header| {
+        if (header.isZerofill()) continue;
+        const alignment = try math.powi(u32, 2, header.@"align");
+        fileoff = mem.alignForward(u32, fileoff, alignment);
+        header.offset = fileoff;
+        fileoff += @intCast(header.size);
     }
 
+    for (slice.items(.header)[last_index..]) |*header| {
+        if (header.isZerofill()) continue;
+        if (header.offset < fileoff) {
+            const existing_size = header.size;
+            header.size = 0;
+
+            // Must move the entire section.
+            const alignment = try math.powi(u32, 2, header.@"align");
+            const new_offset = macho_file.findFreeSpace(existing_size, alignment);
+
+            log.debug("new '{s},{s}' file offset 0x{x} to 0x{x}", .{
+                header.segName(),
+                header.sectName(),
+                new_offset,
+                new_offset + existing_size,
+            });
+
+            try macho_file.copyRangeAll(header.offset, new_offset, existing_size);
+
+            header.offset = @intCast(new_offset);
+            header.size = existing_size;
+        }
+    }
+}
+
+fn createSegment(macho_file: *MachO) !void {
+    const gpa = macho_file.base.comp.gpa;
+
+    // For relocatable, we only ever need a single segment so create it now.
+    const prot: macho.vm_prot_t = macho.PROT.READ | macho.PROT.WRITE | macho.PROT.EXEC;
+    try macho_file.segments.append(gpa, .{
+        .cmdsize = @sizeOf(macho.segment_command_64),
+        .segname = MachO.makeStaticString(""),
+        .maxprot = prot,
+        .initprot = prot,
+    });
+    const seg = &macho_file.segments.items[0];
+    seg.nsects = @intCast(macho_file.sections.items(.header).len);
+    seg.cmdsize += seg.nsects * @sizeOf(macho.section_64);
+}
+
+fn allocateSegment(macho_file: *MachO) void {
+    // Allocate the single segment.
+    const seg = &macho_file.segments.items[0];
+    var vmaddr: u64 = 0;
+    var fileoff: u64 = load_commands.calcLoadCommandsSizeObject(macho_file) + @sizeOf(macho.mach_header_64);
+    seg.vmaddr = vmaddr;
+    seg.fileoff = fileoff;
+
+    for (macho_file.sections.items(.header)) |header| {
+        vmaddr = @max(vmaddr, header.addr + header.size);
+        if (!header.isZerofill()) {
+            fileoff = @max(fileoff, header.offset + header.size);
+        }
+        std.debug.print("fileoff={x},vmaddr={x}\n", .{ fileoff, vmaddr });
+    }
+
+    seg.vmsize = vmaddr - seg.vmaddr;
+    seg.filesize = fileoff - seg.fileoff;
+}
+
+fn allocateSectionsRelocs(macho_file: *MachO, off: u32) u32 {
+    var fileoff = off;
+    const slice = macho_file.sections.slice();
     for (slice.items(.header)) |*header| {
         if (header.nreloc == 0) continue;
         header.reloff = mem.alignForward(u32, fileoff, @alignOf(macho.relocation_info));
         fileoff = header.reloff + header.nreloc * @sizeOf(macho.relocation_info);
     }
-
     return fileoff;
 }
 
@@ -511,6 +560,7 @@ const assert = std.debug.assert;
 const eh_frame = @import("eh_frame.zig");
 const link = @import("../../link.zig");
 const load_commands = @import("load_commands.zig");
+const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
