@@ -4221,6 +4221,11 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                     const msg = try sema.errMsg(block, arg_src, "type '{}' is not indexable and not a range", .{object_ty.fmt(sema.mod)});
                     errdefer msg.destroy(sema.gpa);
                     try sema.errNote(block, arg_src, msg, "for loop operand must be a range, array, slice, tuple, or vector", .{});
+
+                    if (object_ty.zigTypeTag(mod) == .ErrorUnion) {
+                        try sema.errNote(block, arg_src, msg, "consider using 'try', 'catch', or 'if'", .{});
+                    }
+
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(block, msg);
