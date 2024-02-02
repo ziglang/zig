@@ -96,6 +96,16 @@ initialized_deps: *InitializedDepMap,
 /// A mapping from dependency names to package hashes.
 available_deps: AvailableDeps,
 
+release_mode: ReleaseMode,
+
+pub const ReleaseMode = enum {
+    off,
+    any,
+    fast,
+    safe,
+    small,
+};
+
 /// Shared state among all Build instances.
 /// Settings that are here rather than in Build are not configurable per-package.
 pub const Graph = struct {
@@ -295,6 +305,7 @@ pub fn create(
         .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(arena),
         .initialized_deps = initialized_deps,
         .available_deps = available_deps,
+        .release_mode = .off,
     };
     try self.top_level_steps.put(arena, self.install_tls.step.name, &self.install_tls);
     try self.top_level_steps.put(arena, self.uninstall_tls.step.name, &self.uninstall_tls);
@@ -386,6 +397,7 @@ fn createChildOnly(
         .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(allocator),
         .initialized_deps = parent.initialized_deps,
         .available_deps = pkg_deps,
+        .release_mode = parent.release_mode,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
     try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
@@ -1230,20 +1242,33 @@ pub const StandardOptimizeOptionOptions = struct {
     preferred_optimize_mode: ?std.builtin.OptimizeMode = null,
 };
 
-pub fn standardOptimizeOption(self: *Build, options: StandardOptimizeOptionOptions) std.builtin.OptimizeMode {
+pub fn standardOptimizeOption(b: *Build, options: StandardOptimizeOptionOptions) std.builtin.OptimizeMode {
     if (options.preferred_optimize_mode) |mode| {
-        if (self.option(bool, "release", "optimize for end users") orelse false) {
+        if (b.option(bool, "release", "optimize for end users") orelse (b.release_mode != .off)) {
             return mode;
         } else {
             return .Debug;
         }
-    } else {
-        return self.option(
-            std.builtin.OptimizeMode,
-            "optimize",
-            "Prioritize performance, safety, or binary size (-O flag)",
-        ) orelse .Debug;
     }
+
+    if (b.option(
+        std.builtin.OptimizeMode,
+        "optimize",
+        "Prioritize performance, safety, or binary size (-O flag)",
+    )) |mode| {
+        return mode;
+    }
+
+    return switch (b.release_mode) {
+        .off => .Debug,
+        .any => {
+            std.debug.print("the project does not declare a preferred optimization mode. choose: --release=fast, --release=safe, or --release=small\n", .{});
+            process.exit(1);
+        },
+        .fast => .ReleaseFast,
+        .safe => .ReleaseSafe,
+        .small => .ReleaseSmall,
+    };
 }
 
 pub const StandardTargetOptionsArgs = struct {

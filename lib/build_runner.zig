@@ -131,6 +131,15 @@ pub fn main() !void {
             } else if (mem.startsWith(u8, arg, "-fno-sys=")) {
                 const name = arg["-fno-sys=".len..];
                 graph.system_library_options.put(arena, name, .user_disabled) catch @panic("OOM");
+            } else if (mem.eql(u8, arg, "--release")) {
+                builder.release_mode = .any;
+            } else if (mem.startsWith(u8, arg, "--release=")) {
+                const text = arg["--release=".len..];
+                builder.release_mode = std.meta.stringToEnum(std.Build.ReleaseMode, text) orelse {
+                    fatalWithHint("expected [off|any|fast|safe|small] in '{s}', found '{s}'", .{
+                        arg, text,
+                    });
+                };
             } else if (mem.eql(u8, arg, "--host-target")) {
                 graph.host_query_options.arch_os_abi = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--host-cpu")) {
@@ -1048,6 +1057,9 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --prefix-lib-dir [path]      Where to put installed libraries
         \\  --prefix-exe-dir [path]      Where to put installed executables
         \\  --prefix-include-dir [path]  Where to put installed C header files
+        \\
+        \\  --release[=mode]             Request release mode, optionally specifying a
+        \\                               preferred optimization mode: fast, safe, small
         \\
         \\  --sysroot [path]             Set the system root directory (usually /)
         \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
