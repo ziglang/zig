@@ -2356,7 +2356,16 @@ pub fn wantSharedLibSymLinks(target: Target) bool {
     return target.os.tag != .windows;
 }
 
-pub fn systemIntegrationOption(b: *Build, name: []const u8) bool {
+pub const SystemIntegrationOptionConfig = struct {
+    /// If left as null, then the default will depend on system_package_mode.
+    default: ?bool = null,
+};
+
+pub fn systemIntegrationOption(
+    b: *Build,
+    name: []const u8,
+    config: SystemIntegrationOptionConfig,
+) bool {
     const gop = b.graph.system_library_options.getOrPut(b.allocator, name) catch @panic("OOM");
     if (gop.found_existing) switch (gop.value_ptr.*) {
         .user_disabled => {
@@ -2371,7 +2380,7 @@ pub fn systemIntegrationOption(b: *Build, name: []const u8) bool {
         .declared_enabled => return true,
     } else {
         gop.key_ptr.* = b.dupe(name);
-        if (b.graph.system_package_mode) {
+        if (config.default orelse b.graph.system_package_mode) {
             gop.value_ptr.* = .declared_enabled;
             return true;
         } else {
