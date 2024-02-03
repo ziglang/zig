@@ -66,7 +66,7 @@ fn isReachable(atom: *const Atom, rel: Relocation, macho_file: *MachO) bool {
     if (atom.out_n_sect != target.out_n_sect) return false;
     const target_atom = target.getAtom(macho_file).?;
     if (target_atom.value == @as(u64, @bitCast(@as(i64, -1)))) return false;
-    const saddr = @as(i64, @intCast(atom.value)) + @as(i64, @intCast(rel.offset - atom.off));
+    const saddr = @as(i64, @intCast(atom.getAddress(macho_file))) + @as(i64, @intCast(rel.offset - atom.off));
     const taddr: i64 = @intCast(rel.getTargetAddress(macho_file));
     _ = math.cast(i28, taddr + rel.addend - saddr) orelse return false;
     return true;
@@ -85,14 +85,19 @@ pub const Thunk = struct {
         return thunk.symbols.keys().len * trampoline_size;
     }
 
-    pub fn getAddress(thunk: Thunk, sym_index: Symbol.Index) u64 {
-        return thunk.value + thunk.symbols.getIndex(sym_index).? * trampoline_size;
+    pub fn getAddress(thunk: Thunk, macho_file: *MachO) u64 {
+        const header = macho_file.sections.items(.header)[thunk.out_n_sect];
+        return header.addr + thunk.value;
+    }
+
+    pub fn getTargetAddress(thunk: Thunk, sym_index: Symbol.Index, macho_file: *MachO) u64 {
+        return thunk.getAddress(macho_file) + thunk.symbols.getIndex(sym_index).? * trampoline_size;
     }
 
     pub fn write(thunk: Thunk, macho_file: *MachO, writer: anytype) !void {
         for (thunk.symbols.keys(), 0..) |sym_index, i| {
             const sym = macho_file.getSymbol(sym_index);
-            const saddr = thunk.value + i * trampoline_size;
+            const saddr = thunk.getAddress(macho_file) + i * trampoline_size;
             const taddr = sym.getAddress(.{}, macho_file);
             const pages = try Relocation.calcNumberOfPages(saddr, taddr);
             try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);

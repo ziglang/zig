@@ -596,7 +596,6 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
 
     try self.allocateSections();
     self.allocateSegments();
-    self.allocateAtoms();
     self.allocateSyntheticSymbols();
     try self.allocateLinkeditSegment();
 
@@ -2392,14 +2391,6 @@ fn allocateSegments(self: *MachO) void {
     }
 }
 
-pub fn allocateAtoms(self: *MachO) void {
-    // TODO: redo this like atoms
-    for (self.thunks.items) |*thunk| {
-        const header = self.sections.items(.header)[thunk.out_n_sect];
-        thunk.value += header.addr;
-    }
-}
-
 fn allocateSyntheticSymbols(self: *MachO) void {
     const text_seg = self.getTextSegment();
 
@@ -2608,7 +2599,7 @@ fn writeAtoms(self: *MachO) !void {
 
     for (self.thunks.items) |thunk| {
         const header = slice.items(.header)[thunk.out_n_sect];
-        const offset = thunk.value - header.addr + header.offset;
+        const offset = thunk.value + header.offset;
         const buffer = try gpa.alloc(u8, thunk.size());
         defer gpa.free(buffer);
         var stream = std.io.fixedBufferStream(buffer);

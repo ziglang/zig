@@ -61,7 +61,6 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
     try createSegment(macho_file);
     try allocateSections(macho_file);
     allocateSegment(macho_file);
-    macho_file.allocateAtoms();
 
     var off = off: {
         const seg = macho_file.segments.items[0];
