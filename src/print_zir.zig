@@ -1401,7 +1401,17 @@ const Writer = struct {
     fn writeStructDecl(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const small = @as(Zir.Inst.StructDecl.Small, @bitCast(extended.small));
 
-        var extra_index: usize = extended.operand;
+        const extra = self.code.extraData(Zir.Inst.StructDecl, extended.operand);
+        const fields_hash: std.zig.SrcHash = @bitCast([4]u32{
+            extra.data.fields_hash_0,
+            extra.data.fields_hash_1,
+            extra.data.fields_hash_2,
+            extra.data.fields_hash_3,
+        });
+
+        try stream.print("hash({}) ", .{std.fmt.fmtSliceHexLower(&fields_hash)});
+
+        var extra_index: usize = extra.end;
 
         const src_node: ?i32 = if (small.has_src_node) blk: {
             const src_node = @as(i32, @bitCast(self.code.extra[extra_index]));
@@ -1591,7 +1601,17 @@ const Writer = struct {
     fn writeUnionDecl(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const small = @as(Zir.Inst.UnionDecl.Small, @bitCast(extended.small));
 
-        var extra_index: usize = extended.operand;
+        const extra = self.code.extraData(Zir.Inst.UnionDecl, extended.operand);
+        const fields_hash: std.zig.SrcHash = @bitCast([4]u32{
+            extra.data.fields_hash_0,
+            extra.data.fields_hash_1,
+            extra.data.fields_hash_2,
+            extra.data.fields_hash_3,
+        });
+
+        try stream.print("hash({}) ", .{std.fmt.fmtSliceHexLower(&fields_hash)});
+
+        var extra_index: usize = extra.end;
 
         const src_node: ?i32 = if (small.has_src_node) blk: {
             const src_node = @as(i32, @bitCast(self.code.extra[extra_index]));
@@ -1733,7 +1753,18 @@ const Writer = struct {
 
     fn writeEnumDecl(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const small = @as(Zir.Inst.EnumDecl.Small, @bitCast(extended.small));
-        var extra_index: usize = extended.operand;
+
+        const extra = self.code.extraData(Zir.Inst.EnumDecl, extended.operand);
+        const fields_hash: std.zig.SrcHash = @bitCast([4]u32{
+            extra.data.fields_hash_0,
+            extra.data.fields_hash_1,
+            extra.data.fields_hash_2,
+            extra.data.fields_hash_3,
+        });
+
+        try stream.print("hash({}) ", .{std.fmt.fmtSliceHexLower(&fields_hash)});
+
+        var extra_index: usize = extra.end;
 
         const src_node: ?i32 = if (small.has_src_node) blk: {
             const src_node = @as(i32, @bitCast(self.code.extra[extra_index]));

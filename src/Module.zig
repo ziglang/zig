@@ -2957,6 +2957,18 @@ fn updateZirRefs(zcu: *Module, file: *File, old_zir: Zir) !void {
             continue;
         };
 
+        if (old_zir.getAssociatedSrcHash(old_inst)) |old_hash| hash_changed: {
+            if (new_zir.getAssociatedSrcHash(ti.inst)) |new_hash| {
+                if (std.zig.srcHashEql(old_hash, new_hash)) {
+                    break :hash_changed;
+                }
+            }
+            // The source hash associated with this instruction changed - invalidate relevant dependencies.
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            try zcu.markDependeeOutdated(.{ .src_hash = ti_idx });
+        }
+
         // If this is a `struct_decl` etc, we must invalidate any outdated namespace dependencies.
         const has_namespace = switch (old_tag[@intFromEnum(old_inst)]) {
             .extended => switch (old_data[@intFromEnum(old_inst)].extended.opcode) {

@@ -2497,6 +2497,7 @@ pub const Inst = struct {
     /// }
     /// 2. body: Index // for each body_len
     /// 3. src_locs: SrcLocs // if body_len != 0
+    /// 4. proto_hash: std.zig.SrcHash // if body_len != 0; hash of function prototype
     pub const Func = struct {
         /// If this is 0 it means a void return type.
         /// If this is 1 it means return_type is a simple Ref
@@ -2558,6 +2559,7 @@ pub const Inst = struct {
     ///     - each bit starting with LSB corresponds to parameter indexes
     /// 17. body: Index // for each body_len
     /// 18. src_locs: Func.SrcLocs // if body_len != 0
+    /// 19. proto_hash: std.zig.SrcHash // if body_len != 0; hash of function prototype
     pub const FuncFancy = struct {
         /// Points to the block that contains the param instructions for this function.
         /// If this is a `declaration`, it refers to the declaration's value body.
@@ -3040,6 +3042,12 @@ pub const Inst = struct {
     ///        init_body_inst: Inst, // for each init_body_len
     ///    }
     pub const StructDecl = struct {
+        // These fields should be concatenated and reinterpreted as a `std.zig.SrcHash`.
+        // This hash contains the source of all fields, and any specified attributes (`extern`, backing type, etc).
+        fields_hash_0: u32,
+        fields_hash_1: u32,
+        fields_hash_2: u32,
+        fields_hash_3: u32,
         pub const Small = packed struct {
             has_src_node: bool,
             has_fields_len: bool,
@@ -3102,6 +3110,12 @@ pub const Inst = struct {
     ///        value: Ref, // if corresponding bit is set
     ///    }
     pub const EnumDecl = struct {
+        // These fields should be concatenated and reinterpreted as a `std.zig.SrcHash`.
+        // This hash contains the source of all fields, and the backing type if specified.
+        fields_hash_0: u32,
+        fields_hash_1: u32,
+        fields_hash_2: u32,
+        fields_hash_3: u32,
         pub const Small = packed struct {
             has_src_node: bool,
             has_tag_type: bool,
@@ -3137,6 +3151,12 @@ pub const Inst = struct {
     ///        tag_value: Ref, // if corresponding bit is set
     ///    }
     pub const UnionDecl = struct {
+        // These fields should be concatenated and reinterpreted as a `std.zig.SrcHash`.
+        // This hash contains the source of all fields, and any specified attributes (`extern` etc).
+        fields_hash_0: u32,
+        fields_hash_1: u32,
+        fields_hash_2: u32,
+        fields_hash_3: u32,
         pub const Small = packed struct {
             has_src_node: bool,
             has_tag_type: bool,
@@ -3455,7 +3475,7 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
             switch (extended.opcode) {
                 .struct_decl => {
                     const small: Inst.StructDecl.Small = @bitCast(extended.small);
-                    var extra_index: u32 = extended.operand;
+                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.StructDecl).Struct.fields.len);
                     extra_index += @intFromBool(small.has_src_node);
                     extra_index += @intFromBool(small.has_fields_len);
                     const decls_len = if (small.has_decls_len) decls_len: {
@@ -3482,7 +3502,7 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 },
                 .enum_decl => {
                     const small: Inst.EnumDecl.Small = @bitCast(extended.small);
-                    var extra_index: u32 = extended.operand;
+                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.EnumDecl).Struct.fields.len);
                     extra_index += @intFromBool(small.has_src_node);
                     extra_index += @intFromBool(small.has_tag_type);
                     extra_index += @intFromBool(small.has_body_len);
@@ -3501,7 +3521,7 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 },
                 .union_decl => {
                     const small: Inst.UnionDecl.Small = @bitCast(extended.small);
-                    var extra_index: u32 = extended.operand;
+                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.UnionDecl).Struct.fields.len);
                     extra_index += @intFromBool(small.has_src_node);
                     extra_index += @intFromBool(small.has_tag_type);
                     extra_index += @intFromBool(small.has_body_len);
@@ -3937,4 +3957,112 @@ pub fn getDeclaration(zir: Zir, inst: Zir.Inst.Index) struct { Inst.Declaration,
         extra.data,
         @intCast(extra.end),
     };
+}
+
+pub fn getAssociatedSrcHash(zir: Zir, inst: Zir.Inst.Index) ?std.zig.SrcHash {
+    const tag = zir.instructions.items(.tag);
+    const data = zir.instructions.items(.data);
+    switch (tag[@intFromEnum(inst)]) {
+        .declaration => {
+            const pl_node = data[@intFromEnum(inst)].pl_node;
+            const extra = zir.extraData(Inst.Declaration, pl_node.payload_index);
+            return @bitCast([4]u32{
+                extra.data.src_hash_0,
+                extra.data.src_hash_1,
+                extra.data.src_hash_2,
+                extra.data.src_hash_3,
+            });
+        },
+        .func, .func_inferred => {
+            const pl_node = data[@intFromEnum(inst)].pl_node;
+            const extra = zir.extraData(Inst.Func, pl_node.payload_index);
+            if (extra.data.body_len == 0) {
+                // Function type or extern fn - no associated hash
+                return null;
+            }
+            const extra_index = extra.end +
+                1 +
+                extra.data.body_len +
+                @typeInfo(Inst.Func.SrcLocs).Struct.fields.len;
+            return @bitCast([4]u32{
+                zir.extra[extra_index + 0],
+                zir.extra[extra_index + 1],
+                zir.extra[extra_index + 2],
+                zir.extra[extra_index + 3],
+            });
+        },
+        .func_fancy => {
+            const pl_node = data[@intFromEnum(inst)].pl_node;
+            const extra = zir.extraData(Inst.FuncFancy, pl_node.payload_index);
+            if (extra.data.body_len == 0) {
+                // Function type or extern fn - no associated hash
+                return null;
+            }
+            const bits = extra.data.bits;
+            var extra_index = extra.end;
+            extra_index += @intFromBool(bits.has_lib_name);
+            if (bits.has_align_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1 + body_len;
+            } else extra_index += @intFromBool(bits.has_align_ref);
+            if (bits.has_addrspace_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1 + body_len;
+            } else extra_index += @intFromBool(bits.has_addrspace_ref);
+            if (bits.has_section_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1 + body_len;
+            } else extra_index += @intFromBool(bits.has_section_ref);
+            if (bits.has_cc_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1 + body_len;
+            } else extra_index += @intFromBool(bits.has_cc_ref);
+            if (bits.has_ret_ty_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1 + body_len;
+            } else extra_index += @intFromBool(bits.has_ret_ty_ref);
+            extra_index += @intFromBool(bits.has_any_noalias);
+            extra_index += extra.data.body_len;
+            extra_index += @typeInfo(Zir.Inst.Func.SrcLocs).Struct.fields.len;
+            return @bitCast([4]u32{
+                zir.extra[extra_index + 0],
+                zir.extra[extra_index + 1],
+                zir.extra[extra_index + 2],
+                zir.extra[extra_index + 3],
+            });
+        },
+        .extended => {},
+        else => return null,
+    }
+    const extended = data[@intFromEnum(inst)].extended;
+    switch (extended.opcode) {
+        .struct_decl => {
+            const extra = zir.extraData(Inst.StructDecl, extended.operand).data;
+            return @bitCast([4]u32{
+                extra.fields_hash_0,
+                extra.fields_hash_1,
+                extra.fields_hash_2,
+                extra.fields_hash_3,
+            });
+        },
+        .union_decl => {
+            const extra = zir.extraData(Inst.UnionDecl, extended.operand).data;
+            return @bitCast([4]u32{
+                extra.fields_hash_0,
+                extra.fields_hash_1,
+                extra.fields_hash_2,
+                extra.fields_hash_3,
+            });
+        },
+        .enum_decl => {
+            const extra = zir.extraData(Inst.EnumDecl, extended.operand).data;
+            return @bitCast([4]u32{
+                extra.fields_hash_0,
+                extra.fields_hash_1,
+                extra.fields_hash_2,
+                extra.fields_hash_3,
+            });
+        },
+        else => return null,
+    }
 }
