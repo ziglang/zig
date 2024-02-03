@@ -54,6 +54,8 @@ static void print_and_run(const char **argv) {
 }
 
 static const char *get_host_os(void) {
+    const char *host_os = getenv("ZIG_HOST_TARGET_OS");
+    if (host_os != NULL) return host_os;
 #if defined(__WIN32__)
     return "windows";
 #elif defined(__APPLE__)
@@ -63,23 +65,32 @@ static const char *get_host_os(void) {
 #elif defined(__FreeBSD__)
     return "freebsd";
 #else
-#error TODO implement get_host_os in this build script for this target
+    panic("unknown host os, specify with ZIG_HOST_TARGET_OS");
 #endif
 }
 
 static const char *get_host_arch(void) {
+    const char *host_arch = getenv("ZIG_HOST_TARGET_ARCH");
+    if (host_arch != NULL) return host_arch;
 #if defined(__x86_64__ )
     return "x86_64";
 #elif defined(__aarch64__)
     return "aarch64";
 #else
-#error TODO implement get_host_arch in this build script for this target
+    panic("unknown host arch, specify with ZIG_HOST_TARGET_ARCH");
 #endif
 }
 
+static const char *get_host_abi(void) {
+    const char *host_abi = getenv("ZIG_HOST_TARGET_ABI");
+    return (host_abi == NULL) ? "" : host_abi;
+}
+
 static const char *get_host_triple(void) {
+    const char *host_triple = getenv("ZIG_HOST_TARGET_TRIPLE");
+    if (host_triple != NULL) return host_triple;
     static char global_buffer[100];
-    sprintf(global_buffer, "%s-%s", get_host_arch(), get_host_os());
+    sprintf(global_buffer, "%s-%s%s", get_host_arch(), get_host_os(), get_host_abi());
     return global_buffer;
 }
 
