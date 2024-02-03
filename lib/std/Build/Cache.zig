@@ -482,11 +482,11 @@ pub const Manifest = struct {
 
         self.want_refresh_timestamp = true;
 
-        while (true) {
+        const input_file_count = self.files.items.len;
+        while (true) : (self.unhit(bin_digest, input_file_count)) {
             const file_contents = try self.manifest_file.?.reader().readAllAlloc(gpa, manifest_file_size_max);
             defer gpa.free(file_contents);
 
-            const input_file_count = self.files.items.len;
             var any_file_changed = false;
             var line_iter = mem.tokenizeScalar(u8, file_contents, '\n');
             var idx: usize = 0;
@@ -914,7 +914,7 @@ pub const Manifest = struct {
         self.have_exclusive_lock = false;
     }
 
-    fn upgradeToExclusiveLock(self: *Manifest) !bool {
+    pub fn upgradeToExclusiveLock(self: *Manifest) !bool {
         if (self.have_exclusive_lock) return false;
         assert(self.manifest_file != null);
 

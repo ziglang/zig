@@ -2053,6 +2053,8 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             whole.cache_manifest = &man;
             try addNonIncrementalStuffToCacheManifest(comp, arena, &man);
 
+            const bin_digest = man.hash.peekBin();
+            const input_file_count = man.files.items.len;
             const is_hit = man.hit() catch |err| {
                 const i = man.failed_file_index orelse return err;
                 const pp = man.files.items[i].prefixed_path orelse return err;
@@ -2063,12 +2065,28 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                     .{ prefix, pp.sub_path, @errorName(err) },
                 );
             };
-            if (is_hit) {
-                comp.last_update_was_cache_hit = true;
-                log.debug("CacheMode.whole cache hit for {s}", .{comp.root_name});
+            if (is_hit) unhit: {
                 const digest = man.final();
 
                 comp.wholeCacheModeSetBinFilePath(whole, &digest);
+                for ([_]?[]u8{
+                    whole.bin_sub_path,
+                    whole.implib_sub_path,
+                    whole.docs_sub_path,
+                }) |maybe_sub_path| if (maybe_sub_path) |sub_path| {
+                    comp.local_cache_directory.handle.access(sub_path, .{}) catch |err| {
+                        log.debug("CacheMode.whole missing artifact for {s}: {s}", .{
+                            comp.root_name,
+                            @errorName(err),
+                        });
+                        man.unhit(bin_digest, input_file_count);
+                        assert(try man.upgradeToExclusiveLock());
+                        break :unhit;
+                    };
+                };
+
+                comp.last_update_was_cache_hit = true;
+                log.debug("CacheMode.whole cache hit for {s}", .{comp.root_name});
 
                 assert(whole.lock == null);
                 whole.lock = man.toOwnedLock();
