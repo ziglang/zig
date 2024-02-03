@@ -8606,7 +8606,7 @@ fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     };
     const enum_tag_ty = sema.typeOf(enum_tag);
 
-    if (enum_tag_ty.enumFieldCount(mod) == 0) {
+    if (enum_tag_ty.enumFieldCount(mod) == 0 and !enum_tag_ty.isNonexhaustiveEnum(mod)) {
         return sema.fail(block, operand_src, "cannot use @intFromEnum on empty enum '{}'", .{
             enum_tag_ty.fmt(mod),
         });
