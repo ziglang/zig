@@ -27,14 +27,23 @@ pub const Options = struct {
     optimize: std.builtin.OptimizeMode = .Debug,
     use_llvm: bool = true,
     use_lld: bool = false,
+    strip: ?bool = null,
 };
 
 pub fn addTestStep(b: *Build, prefix: []const u8, opts: Options) *Step {
     const target = opts.target.result.zigTriple(b.allocator) catch @panic("OOM");
     const optimize = @tagName(opts.optimize);
     const use_llvm = if (opts.use_llvm) "llvm" else "no-llvm";
-    const name = std.fmt.allocPrint(b.allocator, "test-{s}-{s}-{s}-{s}", .{
-        prefix, target, optimize, use_llvm,
+    const use_lld = if (opts.use_lld) "lld" else "no-lld";
+    if (opts.strip) |strip| {
+        const s = if (strip) "strip" else "no-strip";
+        const name = std.fmt.allocPrint(b.allocator, "test-{s}-{s}-{s}-{s}-{s}-{s}", .{
+            prefix, target, optimize, use_llvm, use_lld, s,
+        }) catch @panic("OOM");
+        return b.step(name, "");
+    }
+    const name = std.fmt.allocPrint(b.allocator, "test-{s}-{s}-{s}-{s}-{s}", .{
+        prefix, target, optimize, use_llvm, use_lld,
     }) catch @panic("OOM");
     return b.step(name, "");
 }
@@ -87,7 +96,7 @@ fn addCompileStep(
                 break :rsf b.addWriteFiles().add("a.zig", bytes);
             },
             .pic = overlay.pic,
-            .strip = overlay.strip,
+            .strip = if (base.strip) |s| s else overlay.strip,
         },
         .use_llvm = base.use_llvm,
         .use_lld = base.use_lld,
