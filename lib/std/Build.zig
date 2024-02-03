@@ -1858,7 +1858,7 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
         if (mem.eql(u8, decl.name, pkg_hash)) {
             const pkg = @field(deps.packages, decl.name);
             if (@hasDecl(pkg, "available")) {
-                @compileError("dependency is marked as lazy in build.zig.zon which means it must use the lazyDependency function instead");
+                std.debug.panic("dependency '{s}{s}' is marked as lazy in build.zig.zon which means it must use the lazyDependency function instead", .{ b.dep_prefix, name });
             }
             return dependencyInner(b, name, pkg.build_root, if (@hasDecl(pkg, "build_zig")) pkg.build_zig else null, pkg.deps, args);
         }
