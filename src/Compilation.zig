@@ -3514,6 +3514,17 @@ pub fn performAllTheWork(
             try processOneJob(comp, work_item, main_progress_node);
             continue;
         }
+        if (comp.module) |zcu| {
+            // If there's no work queued, check if there's anything outdated
+            // which we need to work on, and queue it if so.
+            if (try zcu.findOutdatedToAnalyze()) |outdated| {
+                switch (outdated.unwrap()) {
+                    .decl => |decl| try comp.work_queue.writeItem(.{ .analyze_decl = decl }),
+                    .func => |func| try comp.work_queue.writeItem(.{ .codegen_func = func }),
+                }
+                continue;
+            }
+        }
         break;
     }
 
