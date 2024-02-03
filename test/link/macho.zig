@@ -1242,9 +1242,10 @@ fn testRelocatableZig(b: *Build, opts: Options) *Step {
     if (opts.use_llvm) {
         // TODO: enable this once self-hosted can print panics and stack traces
         run.addCheck(.{ .expect_stderr_match = b.dupe("panic: Oh no!") });
-        run.addCheck(.{ .expect_term = .{ .Signal = std.os.darwin.SIG.ABRT } });
-    } else {
-        run.addCheck(.{ .expect_term = .{ .Signal = std.os.darwin.SIG.TRAP } });
+    }
+    if (builtin.os.tag == .macos) {
+        const signal: u32 = if (opts.use_llvm) std.os.darwin.SIG.ABRT else std.os.darwin.SIG.TRAP;
+        run.addCheck(.{ .expect_term = .{ .Signal = signal } });
     }
     test_step.dependOn(&run.step);
 
@@ -2318,6 +2319,7 @@ fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
     return link.addTestStep(b, "macho-" ++ prefix, opts);
 }
 
+const builtin = @import("builtin");
 const addAsmSourceBytes = link.addAsmSourceBytes;
 const addCSourceBytes = link.addCSourceBytes;
 const addRunArtifact = link.addRunArtifact;
