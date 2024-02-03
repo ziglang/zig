@@ -106,8 +106,12 @@ pub const JobQueue = struct {
     /// If this is true, `recursive` must be false.
     debug_hash: bool,
     work_around_btrfs_bug: bool,
+    /// Set of hashes that will be additionally fetched even if they are marked
+    /// as lazy.
+    unlazy_set: UnlazySet = .{},
 
     pub const Table = std.AutoArrayHashMapUnmanaged(Manifest.MultiHashHexDigest, *Fetch);
+    pub const UnlazySet = std.AutoArrayHashMapUnmanaged(Manifest.MultiHashHexDigest, void);
 
     pub fn deinit(jq: *JobQueue) void {
         if (jq.all_fetches.items.len == 0) return;
@@ -375,7 +379,7 @@ pub fn run(f: *Fetch) RunError!void {
             error.FileNotFound => {
                 switch (f.lazy_status) {
                     .eager => {},
-                    .available => {
+                    .available => if (!f.job_queue.unlazy_set.contains(expected_hash)) {
                         f.lazy_status = .unavailable;
                         return;
                     },
