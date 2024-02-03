@@ -5379,7 +5379,16 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
     try thread_pool.init(.{ .allocator = gpa });
     defer thread_pool.deinit();
 
-    var http_client: std.http.Client = .{ .allocator = gpa };
+    // Dummy http client that is not actually used when only_core_functionality is enabled.
+    // Prevents bootstrap from depending on a bunch of unnecessary stuff.
+    const HttpClient = if (build_options.only_core_functionality) struct {
+        allocator: Allocator,
+        fn deinit(self: *@This()) void {
+            _ = self;
+        }
+    } else std.http.Client;
+
+    var http_client: HttpClient = .{ .allocator = gpa };
     defer http_client.deinit();
 
     var unlazy_set: Package.Fetch.JobQueue.UnlazySet = .{};
@@ -5656,6 +5665,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                     if (code == 2) process.exit(2);
 
                     if (code == 3) {
+                        if (build_options.only_core_functionality) process.exit(3);
                         // Indicates the configure phase failed due to missing lazy
                         // dependencies and stdout contains the hashes of the ones
                         // that are missing.
