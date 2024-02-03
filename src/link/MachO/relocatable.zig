@@ -26,11 +26,6 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
         return;
     }
 
-    if (macho_file.getZigObject() != null and positionals.items.len > 0) {
-        try macho_file.reportUnexpectedError("TODO: build-obj for ZigObject and input object files", .{});
-        return error.FlushFailure;
-    }
-
     for (positionals.items) |obj| {
         macho_file.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
             error.MalformedObject,

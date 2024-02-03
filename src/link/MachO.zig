@@ -3493,6 +3493,14 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
 }
 
 pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
+    if (self.base.isRelocatable()) {
+        try self.growSectionRelocatable(sect_index, needed_size);
+    } else {
+        try self.growSectionNonRelocatable(sect_index, needed_size);
+    }
+}
+
+fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void {
     const sect = &self.sections.items(.header)[sect_index];
 
     if (needed_size > self.allocatedSize(sect.offset) and !sect.isZerofill()) {
@@ -3500,65 +3508,73 @@ pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
         sect.size = 0;
 
         // Must move the entire section.
-        if (self.base.isRelocatable()) {
-            const alignment = try math.powi(u32, 2, sect.@"align");
-            const new_offset = self.findFreeSpace(needed_size, alignment);
-            const new_addr = self.findFreeSpaceVirtual(needed_size, alignment);
+        const alignment = self.getPageSize();
+        const new_offset = self.findFreeSpace(needed_size, alignment);
 
-            log.debug("new '{s},{s}' file offset 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
-                sect.segName(),
-                sect.sectName(),
-                new_offset,
-                new_offset + existing_size,
-                new_addr,
-                new_addr + existing_size,
-            });
+        log.debug("new '{s},{s}' file offset 0x{x} to 0x{x}", .{
+            sect.segName(),
+            sect.sectName(),
+            new_offset,
+            new_offset + existing_size,
+        });
 
-            try self.copyRangeAll(sect.offset, new_offset, existing_size);
+        try self.copyRangeAllZeroOut(sect.offset, new_offset, existing_size);
 
-            sect.offset = @intCast(new_offset);
-            sect.addr = new_addr;
-        } else {
-            const alignment = self.getPageSize();
-            const new_offset = self.findFreeSpace(needed_size, alignment);
-
-            log.debug("new '{s},{s}' file offset 0x{x} to 0x{x}", .{
-                sect.segName(),
-                sect.sectName(),
-                new_offset,
-                new_offset + existing_size,
-            });
-
-            try self.copyRangeAllZeroOut(sect.offset, new_offset, existing_size);
-
-            sect.offset = @intCast(new_offset);
-        }
+        sect.offset = @intCast(new_offset);
     }
 
     sect.size = needed_size;
 
-    if (!self.base.isRelocatable()) {
-        const seg_id = self.sections.items(.segment_id)[sect_index];
-        const seg = &self.segments.items[seg_id];
-        seg.fileoff = sect.offset;
+    const seg_id = self.sections.items(.segment_id)[sect_index];
+    const seg = &self.segments.items[seg_id];
+    seg.fileoff = sect.offset;
 
-        if (!sect.isZerofill()) {
-            seg.filesize = needed_size;
-        }
-
-        const mem_capacity = self.allocatedSizeVirtual(seg.vmaddr);
-        if (needed_size > mem_capacity) {
-            var err = try self.addErrorWithNotes(2);
-            try err.addMsg(self, "fatal linker error: cannot expand segment seg({d})({s}) in virtual memory", .{
-                seg_id,
-                seg.segName(),
-            });
-            try err.addNote(self, "TODO: emit relocations to memory locations in self-hosted backends", .{});
-            try err.addNote(self, "as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
-        }
-
-        seg.vmsize = needed_size;
+    if (!sect.isZerofill()) {
+        seg.filesize = needed_size;
     }
+
+    const mem_capacity = self.allocatedSizeVirtual(seg.vmaddr);
+    if (needed_size > mem_capacity) {
+        var err = try self.addErrorWithNotes(2);
+        try err.addMsg(self, "fatal linker error: cannot expand segment seg({d})({s}) in virtual memory", .{
+            seg_id,
+            seg.segName(),
+        });
+        try err.addNote(self, "TODO: emit relocations to memory locations in self-hosted backends", .{});
+        try err.addNote(self, "as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
+    }
+
+    seg.vmsize = needed_size;
+}
+
+fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void {
+    const sect = &self.sections.items(.header)[sect_index];
+
+    if (needed_size > self.allocatedSize(sect.offset) and !sect.isZerofill()) {
+        const existing_size = sect.size;
+        sect.size = 0;
+
+        // Must move the entire section.
+        const alignment = try math.powi(u32, 2, sect.@"align");
+        const new_offset = self.findFreeSpace(needed_size, alignment);
+        const new_addr = self.findFreeSpaceVirtual(needed_size, alignment);
+
+        log.debug("new '{s},{s}' file offset 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
+            sect.segName(),
+            sect.sectName(),
+            new_offset,
+            new_offset + existing_size,
+            new_addr,
+            new_addr + existing_size,
+        });
+
+        try self.copyRangeAll(sect.offset, new_offset, existing_size);
+
+        sect.offset = @intCast(new_offset);
+        sect.addr = new_addr;
+    }
+
+    sect.size = needed_size;
 }
 
 pub fn getTarget(self: MachO) std.Target {
