@@ -269,7 +269,7 @@ pub fn getEnvMap(allocator: Allocator) !EnvMap {
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
             const key_w = ptr[key_start..i];
-            const key = try std.unicode.utf16leToUtf8Alloc(allocator, key_w);
+            const key = try std.unicode.utf16LeToUtf8Alloc(allocator, key_w);
             errdefer allocator.free(key);
 
             if (ptr[i] == '=') i += 1;
@@ -277,7 +277,7 @@ pub fn getEnvMap(allocator: Allocator) !EnvMap {
             const value_start = i;
             while (ptr[i] != 0) : (i += 1) {}
             const value_w = ptr[value_start..i];
-            const value = try std.unicode.utf16leToUtf8Alloc(allocator, value_w);
+            const value = try std.unicode.utf16LeToUtf8Alloc(allocator, value_w);
             errdefer allocator.free(value);
 
             i += 1; // skip over null byte
@@ -363,12 +363,12 @@ pub const GetEnvVarOwnedError = error{
 pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (builtin.os.tag == .windows) {
         const result_w = blk: {
-            const key_w = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
+            const key_w = try std.unicode.utf8ToUtf16LeAllocZ(allocator, key);
             defer allocator.free(key_w);
 
             break :blk std.os.getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
         };
-        return std.unicode.utf16leToUtf8Alloc(allocator, result_w) catch |err| switch (err) {
+        return std.unicode.utf16LeToUtf8Alloc(allocator, result_w) catch |err| switch (err) {
             error.DanglingSurrogateHalf => return error.InvalidUtf8,
             error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
             error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
@@ -399,7 +399,7 @@ pub fn hasEnvVarConstant(comptime key: []const u8) bool {
 pub fn hasEnvVar(allocator: Allocator, key: []const u8) error{OutOfMemory}!bool {
     if (builtin.os.tag == .windows) {
         var stack_alloc = std.heap.stackFallback(256 * @sizeOf(u16), allocator);
-        const key_w = try std.unicode.utf8ToUtf16LeWithNull(stack_alloc.get(), key);
+        const key_w = try std.unicode.utf8ToUtf16LeAllocZ(stack_alloc.get(), key);
         defer stack_alloc.allocator.free(key_w);
         return std.os.getenvW(key_w) != null;
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -545,7 +545,7 @@ pub const ArgIteratorWindows = struct {
     /// The iterator makes a copy of `cmd_line_w` converted UTF-8 and keeps it; it does *not* take
     /// ownership of `cmd_line_w`.
     pub fn init(allocator: Allocator, cmd_line_w: [*:0]const u16) InitError!ArgIteratorWindows {
-        const cmd_line = std.unicode.utf16leToUtf8Alloc(allocator, mem.sliceTo(cmd_line_w, 0)) catch |err| switch (err) {
+        const cmd_line = std.unicode.utf16LeToUtf8Alloc(allocator, mem.sliceTo(cmd_line_w, 0)) catch |err| switch (err) {
             error.DanglingSurrogateHalf,
             error.ExpectedSecondSurrogateHalf,
             error.UnexpectedSecondSurrogateHalf,
@@ -808,7 +808,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
         /// cmd_line_utf16le MUST be encoded UTF16-LE, and is converted to UTF-8 in an internal buffer
         pub fn initUtf16le(allocator: Allocator, cmd_line_utf16le: [*:0]const u16) InitUtf16leError!Self {
             const utf16le_slice = mem.sliceTo(cmd_line_utf16le, 0);
-            const cmd_line = std.unicode.utf16leToUtf8Alloc(allocator, utf16le_slice) catch |err| switch (err) {
+            const cmd_line = std.unicode.utf16LeToUtf8Alloc(allocator, utf16le_slice) catch |err| switch (err) {
                 error.ExpectedSecondSurrogateHalf,
                 error.DanglingSurrogateHalf,
                 error.UnexpectedSecondSurrogateHalf,
@@ -1201,7 +1201,7 @@ test "ArgIteratorWindows" {
 }
 
 fn testArgIteratorWindows(cmd_line: []const u8, expected_args: []const []const u8) !void {
-    const cmd_line_w = try std.unicode.utf8ToUtf16LeWithNull(testing.allocator, cmd_line);
+    const cmd_line_w = try std.unicode.utf8ToUtf16LeAllocZ(testing.allocator, cmd_line);
     defer testing.allocator.free(cmd_line_w);
 
     // next

@@ -450,7 +450,7 @@ pub const Iterator = switch (builtin.os.tag) {
                 if (mem.eql(u16, name_utf16le, &[_]u16{'.'}) or mem.eql(u16, name_utf16le, &[_]u16{ '.', '.' }))
                     continue;
                 // Trust that Windows gives us valid UTF-16LE
-                const name_utf8_len = std.unicode.utf16leToUtf8(self.name_data[0..], name_utf16le) catch unreachable;
+                const name_utf8_len = std.unicode.utf16LeToUtf8(self.name_data[0..], name_utf16le) catch unreachable;
                 const name_utf8 = self.name_data[0..name_utf8_len];
                 const kind: Entry.Kind = blk: {
                     const attrs = dir_info.FileAttributes;

@@ -133,7 +133,7 @@ const RegistryUtf8 = struct {
         const value_utf16le = try registry_utf16le.getString(allocator, subkey_utf16le, value_name_utf16le);
         defer allocator.free(value_utf16le);
 
-        const value_utf8: []u8 = std.unicode.utf16leToUtf8Alloc(allocator, value_utf16le) catch |err| switch (err) {
+        const value_utf8: []u8 = std.unicode.utf16LeToUtf8Alloc(allocator, value_utf16le) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => return error.StringNotFound,
         };

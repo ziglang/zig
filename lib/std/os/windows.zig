@@ -821,7 +821,7 @@ fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u
         };
         break :path win32_path.span();
     };
-    const out_len = std.unicode.utf16leToUtf8(out_buffer, win32_namespace_path) catch unreachable;
+    const out_len = std.unicode.utf16LeToUtf8(out_buffer, win32_namespace_path) catch unreachable;
     return out_buffer[0..out_len];
 }
 
@@ -2540,7 +2540,7 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
             buf_wstr.len,
             null,
         );
-        _ = std.unicode.utf16leToUtf8(&buf_utf8, buf_wstr[0..len]) catch unreachable;
+        _ = std.unicode.utf16LeToUtf8(&buf_utf8, buf_wstr[0..len]) catch unreachable;
         std.debug.print("error.Unexpected: GetLastError({}): {s}\n", .{ @intFromEnum(err), buf_utf8[0..len] });
         std.debug.dumpCurrentStackTrace(@returnAddress());
     }

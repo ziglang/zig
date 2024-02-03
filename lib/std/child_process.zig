@@ -767,7 +767,7 @@ pub const ChildProcess = struct {
         };
         var piProcInfo: windows.PROCESS_INFORMATION = undefined;
 
-        const cwd_w = if (self.cwd) |cwd| try unicode.utf8ToUtf16LeWithNull(self.allocator, cwd) else null;
+        const cwd_w = if (self.cwd) |cwd| try unicode.utf8ToUtf16LeAllocZ(self.allocator, cwd) else null;
         defer if (cwd_w) |cwd| self.allocator.free(cwd);
         const cwd_w_ptr = if (cwd_w) |cwd| cwd.ptr else null;
 
@@ -786,10 +786,10 @@ pub const ChildProcess = struct {
             if (app_name_is_absolute) {
                 cwd_path_w_needs_free = true;
                 const dir = fs.path.dirname(app_name_utf8).?;
-                break :x try unicode.utf8ToUtf16LeWithNull(self.allocator, dir);
+                break :x try unicode.utf8ToUtf16LeAllocZ(self.allocator, dir);
             } else if (self.cwd) |cwd| {
                 cwd_path_w_needs_free = true;
-                break :x try unicode.utf8ToUtf16LeWithNull(self.allocator, cwd);
+                break :x try unicode.utf8ToUtf16LeAllocZ(self.allocator, cwd);
             } else {
                 break :x &[_:0]u16{}; // empty for cwd
             }
@@ -806,13 +806,13 @@ pub const ChildProcess = struct {
         const maybe_app_dirname_utf8 = if (!app_name_is_absolute) fs.path.dirname(app_name_utf8) else null;
         const app_dirname_w: ?[:0]u16 = x: {
             if (maybe_app_dirname_utf8) |app_dirname_utf8| {
-                break :x try unicode.utf8ToUtf16LeWithNull(self.allocator, app_dirname_utf8);
+                break :x try unicode.utf8ToUtf16LeAllocZ(self.allocator, app_dirname_utf8);
             }
             break :x null;
         };
         defer if (app_dirname_w != null) self.allocator.free(app_dirname_w.?);
 
-        const app_name_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, app_basename_utf8);
+        const app_name_w = try unicode.utf8ToUtf16LeAllocZ(self.allocator, app_basename_utf8);
         defer self.allocator.free(app_name_w);
 
         const cmd_line_w = argvToCommandLineWindows(self.allocator, self.argv) catch |err| switch (err) {
@@ -1320,7 +1320,7 @@ pub fn argvToCommandLineWindows(
         }
     }
 
-    return try unicode.utf8ToUtf16LeWithNull(allocator, buf.items);
+    return try unicode.utf8ToUtf16LeAllocZ(allocator, buf.items);
 }
 
 test "argvToCommandLineWindows" {
@@ -1386,7 +1386,7 @@ fn testArgvToCommandLineWindows(argv: []const []const u8, expected_cmd_line: []c
     const cmd_line_w = try argvToCommandLineWindows(std.testing.allocator, argv);
     defer std.testing.allocator.free(cmd_line_w);
 
-    const cmd_line = try unicode.utf16leToUtf8Alloc(std.testing.allocator, cmd_line_w);
+    const cmd_line = try unicode.utf16LeToUtf8Alloc(std.testing.allocator, cmd_line_w);
     defer std.testing.allocator.free(cmd_line);
 
     try std.testing.expectEqualStrings(expected_cmd_line, cmd_line);
