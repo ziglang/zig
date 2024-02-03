@@ -8577,6 +8577,12 @@ fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
 
+    if (try sema.resolveValue(operand)) |resolved_op| {
+        if (resolved_op.isUndef(mod)) {
+            return sema.failWithUseOfUndef(block, operand_src);
+        }
+    }
+
     const enum_tag: Air.Inst.Ref = switch (operand_ty.zigTypeTag(mod)) {
         .Enum => operand,
         .Union => blk: {
@@ -8589,6 +8595,7 @@ fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     .{src},
                 );
             };
+
             break :blk try sema.unionToTag(block, tag_ty, operand, operand_src);
         },
         else => {
@@ -8598,6 +8605,12 @@ fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         },
     };
     const enum_tag_ty = sema.typeOf(enum_tag);
+
+    if (enum_tag_ty.enumFieldCount(mod) == 0) {
+        return sema.fail(block, operand_src, "cannot use @intFromEnum on empty enum '{}'", .{
+            enum_tag_ty.fmt(mod),
+        });
+    }
 
     const int_tag_ty = enum_tag_ty.intTagType(mod);
 
