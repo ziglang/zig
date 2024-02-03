@@ -5195,6 +5195,23 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
     });
     const argv_index_seed = child_argv.items.len - 1;
 
+    // This parent process needs a way to obtain results from the configuration
+    // phase of the child process. In the future, the make phase will be
+    // executed in a separate process than the configure phase, and we can then
+    // use stdout from the configuration phase for this purpose.
+    //
+    // However, currently, both phases are in the same process, and Run Step
+    // provides API for making the runned subprocesses inherit stdout and stderr
+    // which means these streams are not available for passing metadata back
+    // to the parent.
+    //
+    // Until make and configure phases are separated into different processes,
+    // the strategy is to choose a temporary file name ahead of time, and then
+    // read this file in the parent to obtain the results, in the case the child
+    // exits with code 3.
+    const results_tmp_file_nonce = Package.Manifest.hex64(std.crypto.random.int(u64));
+    try child_argv.append("-Z" ++ results_tmp_file_nonce);
+
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
@@ -5311,14 +5328,59 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         .basename = exe_basename,
     };
 
+    gimmeMoreOfThoseSweetSweetFileDescriptors();
+
+    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
+        .path = lib_dir,
+        .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+            fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
+        },
+    } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+        fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
+    };
+    defer zig_lib_directory.handle.close();
+
+    const cwd_path = try process.getCwdAlloc(arena);
+    const build_root = try findBuildRoot(arena, .{
+        .cwd_path = cwd_path,
+        .build_file = build_file,
+    });
+    child_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
+
+    var global_cache_directory: Compilation.Directory = l: {
+        const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        break :l .{
+            .handle = try fs.cwd().makeOpenPath(p, .{}),
+            .path = p,
+        };
+    };
+    defer global_cache_directory.handle.close();
+
+    child_argv.items[argv_index_global_cache_dir] = global_cache_directory.path orelse cwd_path;
+
+    var local_cache_directory: Compilation.Directory = l: {
+        if (override_local_cache_dir) |local_cache_dir_path| {
+            break :l .{
+                .handle = try fs.cwd().makeOpenPath(local_cache_dir_path, .{}),
+                .path = local_cache_dir_path,
+            };
+        }
+        const cache_dir_path = try build_root.directory.join(arena, &[_][]const u8{"zig-cache"});
+        break :l .{
+            .handle = try build_root.directory.handle.makeOpenPath("zig-cache", .{}),
+            .path = cache_dir_path,
+        };
+    };
+    defer local_cache_directory.handle.close();
+
+    child_argv.items[argv_index_cache_dir] = local_cache_directory.path orelse cwd_path;
+
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{ .allocator = gpa });
     defer thread_pool.deinit();
 
     var http_client: std.http.Client = .{ .allocator = gpa };
     defer http_client.deinit();
-
-    gimmeMoreOfThoseSweetSweetFileDescriptors();
 
     var unlazy_set: Package.Fetch.JobQueue.UnlazySet = .{};
 
@@ -5328,51 +5390,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         // We want to release all the locks before executing the child process, so we make a nice
         // big block here to ensure the cleanup gets run when we extract out our argv.
         {
-            var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
-                .path = lib_dir,
-                .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-                    fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
-                },
-            } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-                fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
-            };
-            defer zig_lib_directory.handle.close();
-
-            const cwd_path = try process.getCwdAlloc(arena);
-            const build_root = try findBuildRoot(arena, .{
-                .cwd_path = cwd_path,
-                .build_file = build_file,
-            });
-            child_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
-
-            var global_cache_directory: Compilation.Directory = l: {
-                const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
-                break :l .{
-                    .handle = try fs.cwd().makeOpenPath(p, .{}),
-                    .path = p,
-                };
-            };
-            defer global_cache_directory.handle.close();
-
-            child_argv.items[argv_index_global_cache_dir] = global_cache_directory.path orelse cwd_path;
-
-            var local_cache_directory: Compilation.Directory = l: {
-                if (override_local_cache_dir) |local_cache_dir_path| {
-                    break :l .{
-                        .handle = try fs.cwd().makeOpenPath(local_cache_dir_path, .{}),
-                        .path = local_cache_dir_path,
-                    };
-                }
-                const cache_dir_path = try build_root.directory.join(arena, &[_][]const u8{"zig-cache"});
-                break :l .{
-                    .handle = try build_root.directory.handle.makeOpenPath("zig-cache", .{}),
-                    .path = cache_dir_path,
-                };
-            };
-            defer local_cache_directory.handle.close();
-
-            child_argv.items[argv_index_cache_dir] = local_cache_directory.path orelse cwd_path;
-
             const main_mod_paths: Package.Module.CreateOptions.Paths = if (override_build_runner) |runner| .{
                 .root = .{
                     .root_dir = Cache.Directory.cwd(),
@@ -5626,14 +5643,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         if (process.can_spawn) {
             var child = std.ChildProcess.init(child_argv.items, gpa);
             child.stdin_behavior = .Inherit;
-            child.stdout_behavior = .Pipe;
+            child.stdout_behavior = .Inherit;
             child.stderr_behavior = .Inherit;
 
-            try child.spawn();
-            // Since only one output stream is piped, we can simply do a blocking
-            // read until the stream is finished.
-            const stdout = try child.stdout.?.readToEndAlloc(arena, 50 * 1024 * 1024);
-            const term = try child.wait();
+            const term = try child.spawnAndWait();
             switch (term) {
                 .Exited => |code| {
                     if (code == 0) return cleanExit();
@@ -5646,6 +5659,15 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         // Indicates the configure phase failed due to missing lazy
                         // dependencies and stdout contains the hashes of the ones
                         // that are missing.
+                        const s = fs.path.sep_str;
+                        const tmp_sub_path = "tmp" ++ s ++ results_tmp_file_nonce;
+                        const stdout = local_cache_directory.handle.readFileAlloc(arena, tmp_sub_path, 50 * 1024 * 1024) catch |err| {
+                            fatal("unable to read results of configure phase from '{}{s}': {s}", .{
+                                local_cache_directory, tmp_sub_path, @errorName(err),
+                            });
+                        };
+                        local_cache_directory.handle.deleteFile(tmp_sub_path) catch {};
+
                         var it = mem.splitScalar(u8, stdout, '\n');
                         var any_errors = false;
                         while (it.next()) |hash| {
@@ -5665,8 +5687,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                             // In this mode, the system needs to provide these packages; they
                             // cannot be fetched by Zig.
                             for (unlazy_set.keys()) |hash| {
-                                std.log.err("lazy dependency package not found: {s}{c}{s}", .{
-                                    p, fs.path.sep, hash,
+                                std.log.err("lazy dependency package not found: {s}" ++ s ++ "{s}", .{
+                                    p, hash,
                                 });
                             }
                             std.log.info("remote package fetching disabled due to --system mode", .{});

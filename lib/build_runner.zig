@@ -99,9 +99,13 @@ pub fn main() !void {
     var prominent_compile_errors: bool = false;
     var help_menu: bool = false;
     var steps_menu: bool = false;
+    var output_tmp_nonce: ?[16]u8 = null;
 
     while (nextArg(args, &arg_idx)) |arg| {
-        if (mem.startsWith(u8, arg, "-D")) {
+        if (mem.startsWith(u8, arg, "-Z")) {
+            if (arg.len != 18) fatalWithHint("bad argument: '{s}'", .{arg});
+            output_tmp_nonce = arg[2..18].*;
+        } else if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
             if (option_contents.len == 0)
                 fatalWithHint("expected option name after '-D'", .{});
@@ -312,7 +316,17 @@ pub fn main() !void {
             try buffer.appendSlice(arena, k);
             try buffer.append(arena, '\n');
         }
-        try io.getStdOut().writeAll(buffer.items);
+        const s = std.fs.path.sep_str;
+        const tmp_sub_path = "tmp" ++ s ++ (output_tmp_nonce orelse fatal("missing -Z arg", .{}));
+        local_cache_directory.handle.writeFile2(.{
+            .sub_path = tmp_sub_path,
+            .data = buffer.items,
+            .flags = .{ .exclusive = true },
+        }) catch |err| {
+            fatal("unable to write configuration results to '{}{s}': {s}", .{
+                local_cache_directory, tmp_sub_path, @errorName(err),
+            });
+        };
         process.exit(3); // Indicate configure phase failed with meaningful stdout.
     }
 
