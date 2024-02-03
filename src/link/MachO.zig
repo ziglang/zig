@@ -613,7 +613,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
             if (!atom.flags.alive) continue;
             const sect = &self.sections.items(.header)[atom.out_n_sect];
             if (sect.isZerofill()) continue;
-            if (mem.indexOf(u8, sect.segName(), "ZIG") == null) continue; // Non-Zig sections are handled separately
+            if (!self.isZigSection(atom.out_n_sect)) continue; // Non-Zig sections are handled separately
             if (atom.getRelocs(self).len == 0) continue;
             // TODO: we will resolve and write ZigObject's TLS data twice:
             // once here, and once in writeAtoms
@@ -2231,11 +2231,11 @@ fn initSegments(self: *MachO) !void {
             log.warn("requested __PAGEZERO size (0x{x}) is not page aligned", .{pagezero_size});
             log.warn("  rounding down to 0x{x}", .{aligned_pagezero_size});
         }
-        _ = try self.addSegment("__PAGEZERO", .{ .vmsize = aligned_pagezero_size });
+        self.pagezero_seg_index = try self.addSegment("__PAGEZERO", .{ .vmsize = aligned_pagezero_size });
     }
 
     // __TEXT segment is non-optional
-    _ = try self.addSegment("__TEXT", .{ .prot = getSegmentProt("__TEXT") });
+    self.text_seg_index = try self.addSegment("__TEXT", .{ .prot = getSegmentProt("__TEXT") });
 
     // Next, create segments required by sections
     for (slice.items(.header)) |header| {
@@ -2247,15 +2247,57 @@ fn initSegments(self: *MachO) !void {
     }
 
     // Add __LINKEDIT
-    _ = try self.addSegment("__LINKEDIT", .{ .prot = getSegmentProt("__LINKEDIT") });
+    self.linkedit_seg_index = try self.addSegment("__LINKEDIT", .{ .prot = getSegmentProt("__LINKEDIT") });
 
     // Sort segments
-    const sortFn = struct {
-        fn sortFn(ctx: void, lhs: macho.segment_command_64, rhs: macho.segment_command_64) bool {
-            return segmentLessThan(ctx, lhs.segName(), rhs.segName());
+    const Entry = struct {
+        index: u8,
+
+        pub fn lessThan(macho_file: *MachO, lhs: @This(), rhs: @This()) bool {
+            return segmentLessThan(
+                {},
+                macho_file.segments.items[lhs.index].segName(),
+                macho_file.segments.items[rhs.index].segName(),
+            );
         }
-    }.sortFn;
-    mem.sort(macho.segment_command_64, self.segments.items, {}, sortFn);
+    };
+
+    var entries = try std.ArrayList(Entry).initCapacity(gpa, self.segments.items.len);
+    defer entries.deinit();
+    for (0..self.segments.items.len) |index| {
+        entries.appendAssumeCapacity(.{ .index = @intCast(index) });
+    }
+
+    mem.sort(Entry, entries.items, self, Entry.lessThan);
+
+    const backlinks = try gpa.alloc(u8, entries.items.len);
+    defer gpa.free(backlinks);
+    for (entries.items, 0..) |entry, i| {
+        backlinks[entry.index] = @intCast(i);
+    }
+
+    const segments = try self.segments.toOwnedSlice(gpa);
+    defer gpa.free(segments);
+
+    try self.segments.ensureTotalCapacityPrecise(gpa, segments.len);
+    for (entries.items) |sorted| {
+        self.segments.appendAssumeCapacity(segments[sorted.index]);
+    }
+
+    for (&[_]*?u8{
+        &self.pagezero_seg_index,
+        &self.text_seg_index,
+        &self.linkedit_seg_index,
+        &self.zig_text_seg_index,
+        &self.zig_got_seg_index,
+        &self.zig_const_seg_index,
+        &self.zig_data_seg_index,
+        &self.zig_bss_seg_index,
+    }) |maybe_index| {
+        if (maybe_index.*) |*index| {
+            index.* = backlinks[index.*];
+        }
+    }
 
     // Attach sections to segments
     for (slice.items(.header), slice.items(.segment_id)) |header, *seg_id| {
@@ -2276,15 +2318,6 @@ fn initSegments(self: *MachO) !void {
         segment.nsects += 1;
         seg_id.* = segment_id;
     }
-
-    self.pagezero_seg_index = self.getSegmentByName("__PAGEZERO");
-    self.text_seg_index = self.getSegmentByName("__TEXT").?;
-    self.linkedit_seg_index = self.getSegmentByName("__LINKEDIT").?;
-    self.zig_text_seg_index = self.getSegmentByName("__TEXT_ZIG");
-    self.zig_got_seg_index = self.getSegmentByName("__GOT_ZIG");
-    self.zig_const_seg_index = self.getSegmentByName("__CONST_ZIG");
-    self.zig_data_seg_index = self.getSegmentByName("__DATA_ZIG");
-    self.zig_bss_seg_index = self.getSegmentByName("__BSS_ZIG");
 }
 
 fn allocateSections(self: *MachO) !void {
@@ -2299,8 +2332,8 @@ fn allocateSections(self: *MachO) !void {
 
     const page_size = self.getPageSize();
     const slice = self.sections.slice();
-    const last_index = for (slice.items(.header), 0..) |header, i| {
-        if (mem.indexOf(u8, header.segName(), "ZIG")) |_| break i;
+    const last_index = for (0..slice.items(.header).len) |i| {
+        if (self.isZigSection(@intCast(i))) break i;
     } else slice.items(.header).len;
 
     for (slice.items(.header)[0..last_index], slice.items(.segment_id)[0..last_index]) |*header, curr_seg_id| {
@@ -2353,8 +2386,8 @@ fn allocateSections(self: *MachO) !void {
 /// We allocate segments in a separate step to also consider segments that have no sections.
 fn allocateSegments(self: *MachO) void {
     const first_index = if (self.pagezero_seg_index) |index| index + 1 else 0;
-    const last_index = for (self.segments.items, 0..) |seg, i| {
-        if (mem.indexOf(u8, seg.segName(), "ZIG")) |_| break i;
+    const last_index = for (0..self.segments.items.len) |i| {
+        if (self.isZigSegment(@intCast(i))) break i;
     } else self.segments.items.len;
 
     var vmaddr: u64 = if (self.pagezero_seg_index) |index|
@@ -3620,6 +3653,36 @@ pub fn requiresCodeSig(self: MachO) bool {
 
 inline fn requiresThunks(self: MachO) bool {
     return self.getTarget().cpu.arch == .aarch64;
+}
+
+pub fn isZigSegment(self: MachO, seg_id: u8) bool {
+    inline for (&[_]?u8{
+        self.zig_text_seg_index,
+        self.zig_got_seg_index,
+        self.zig_const_seg_index,
+        self.zig_data_seg_index,
+        self.zig_bss_seg_index,
+    }) |maybe_index| {
+        if (maybe_index) |index| {
+            if (index == seg_id) return true;
+        }
+    }
+    return false;
+}
+
+pub fn isZigSection(self: MachO, sect_id: u8) bool {
+    inline for (&[_]?u8{
+        self.zig_text_sect_index,
+        self.zig_got_sect_index,
+        self.zig_const_sect_index,
+        self.zig_data_sect_index,
+        self.zig_bss_sect_index,
+    }) |maybe_index| {
+        if (maybe_index) |index| {
+            if (index == sect_id) return true;
+        }
+    }
+    return false;
 }
 
 pub fn addSegment(self: *MachO, name: []const u8, opts: struct {

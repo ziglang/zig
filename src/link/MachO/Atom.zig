@@ -119,16 +119,9 @@ pub fn getThunk(self: Atom, macho_file: *MachO) *Thunk {
 
 pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
     const segname, const sectname, const flags = blk: {
-        // Sanitize names produced by Zig self-hosted backends.
-        // TODO perhaps we simply should emit different names instead?
-        const segname = if (mem.indexOf(u8, sect.segName(), "_ZIG")) |idx|
-            sect.segName()[0..idx]
-        else
-            sect.segName();
-        const sectname = if (mem.indexOf(u8, sect.sectName(), "_zig")) |idx|
-            sect.sectName()[0..idx]
-        else
-            sect.sectName();
+        const segname = sect.segName();
+        const sectname = sect.sectName();
+
         if (sect.isCode()) break :blk .{
             "__TEXT",
             sectname,
@@ -150,22 +143,19 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
 
             macho.S_MOD_INIT_FUNC_POINTERS,
             macho.S_MOD_TERM_FUNC_POINTERS,
+            macho.S_LITERAL_POINTERS,
             => break :blk .{ "__DATA_CONST", sectname, sect.flags },
 
-            macho.S_LITERAL_POINTERS,
             macho.S_ZEROFILL,
             macho.S_GB_ZEROFILL,
             macho.S_THREAD_LOCAL_VARIABLES,
             macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
             macho.S_THREAD_LOCAL_REGULAR,
             macho.S_THREAD_LOCAL_ZEROFILL,
-            => break :blk .{ segname, sectname, sect.flags },
+            => break :blk .{ "__DATA", sectname, sect.flags },
 
-            macho.S_COALESCED => break :blk .{
-                segname,
-                sectname,
-                macho.S_REGULAR,
-            },
+            // TODO: do we need this check here?
+            macho.S_COALESCED => break :blk .{ segname, sectname, macho.S_REGULAR },
 
             macho.S_REGULAR => {
                 if (mem.eql(u8, segname, "__DATA")) {
