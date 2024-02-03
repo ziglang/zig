@@ -641,11 +641,13 @@ pub fn addStackTraceTests(
     test_filter: ?[]const u8,
     optimize_modes: []const OptimizeMode,
 ) *Step {
-    const check_exe = b.addExecutable(.{
+    const check_exe = b.addExecutable2(.{
         .name = "check-stack-trace",
-        .root_source_file = .{ .path = "test/src/check-stack-trace.zig" },
-        .target = b.host,
-        .optimize = .Debug,
+        .root_module = b.createModule(.{
+            .root_source_file = .{ .path = "test/src/check-stack-trace.zig" },
+            .target = b.host,
+            .optimize = .Debug,
+        }),
     });
 
     const cases = b.allocator.create(StackTracesContext) catch @panic("OOM");
@@ -681,31 +683,27 @@ pub fn addStandaloneTests(
                 if (os_tag != builtin.os.tag) continue;
             }
 
-            const resolved_target = b.resolveTargetQuery(case.target);
+            const mod = b.createModule(.{
+                .root_source_file = .{ .path = case.src_path },
+                .optimize = optimize,
+                .target = b.resolveTargetQuery(case.target),
+                .link_libc = case.link_libc,
+            });
 
             if (case.is_exe) {
-                const exe = b.addExecutable(.{
+                const exe = b.addExecutable2(.{
                     .name = std.fs.path.stem(case.src_path),
-                    .root_source_file = .{ .path = case.src_path },
-                    .optimize = optimize,
-                    .target = resolved_target,
+                    .root_module = mod,
                 });
-                if (case.link_libc) exe.linkLibC();
-
                 _ = exe.getEmittedBin();
-
                 step.dependOn(&exe.step);
             }
 
             if (case.is_test) {
-                const exe = b.addTest(.{
+                const exe = b.addTest2(.{
                     .name = std.fs.path.stem(case.src_path),
-                    .root_source_file = .{ .path = case.src_path },
-                    .optimize = optimize,
-                    .target = resolved_target,
+                    .root_module = mod,
                 });
-                if (case.link_libc) exe.linkLibC();
-
                 const run = b.addRunArtifact(exe);
                 step.dependOn(&run.step);
             }
@@ -1114,19 +1112,21 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         else
             options.max_rss;
 
-        const these_tests = b.addTest(.{
-            .root_source_file = .{ .path = options.root_src },
-            .optimize = test_target.optimize_mode,
-            .target = resolved_target,
+        const these_tests = b.addTest2(.{
+            .root_module = b.createModule(.{
+                .root_source_file = .{ .path = options.root_src },
+                .optimize = test_target.optimize_mode,
+                .target = resolved_target,
+                .link_libc = test_target.link_libc,
+                .single_threaded = test_target.single_threaded,
+                .pic = test_target.pic,
+                .strip = test_target.strip,
+            }),
             .max_rss = max_rss,
             .filter = options.test_filter,
-            .link_libc = test_target.link_libc,
-            .single_threaded = test_target.single_threaded,
             .use_llvm = test_target.use_llvm,
             .use_lld = test_target.use_lld,
             .zig_lib_dir = .{ .path = "lib" },
-            .pic = test_target.pic,
-            .strip = test_target.strip,
         });
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
@@ -1163,10 +1163,12 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             var altered_query = test_target.target;
             altered_query.ofmt = null;
 
-            const compile_c = b.addExecutable(.{
+            const compile_c = b.addExecutable2(.{
                 .name = qualified_name,
-                .link_libc = test_target.link_libc,
-                .target = b.resolveTargetQuery(altered_query),
+                .root_module = b.createModule(.{
+                    .link_libc = test_target.link_libc,
+                    .target = b.resolveTargetQuery(altered_query),
+                }),
                 .zig_lib_dir = .{ .path = "lib" },
             });
             compile_c.addCSourceFile(.{
@@ -1249,7 +1251,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 continue;
             }
 
-            const test_step = b.addTest(.{
+            const test_step = b.addTest2(.{
                 .name = b.fmt("test-c-abi-{s}-{s}-{s}{s}{s}{s}", .{
                     target.zigTriple(b.allocator) catch @panic("OOM"),
                     target.cpu.model.name,
@@ -1265,14 +1267,16 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                     if (c_abi_target.use_lld == false) "-no-lld" else "",
                     if (c_abi_target.pic == true) "-pic" else "",
                 }),
-                .root_source_file = .{ .path = "test/c_abi/main.zig" },
-                .target = resolved_target,
-                .optimize = optimize_mode,
-                .link_libc = true,
+                .root_module = b.createModule(.{
+                    .root_source_file = .{ .path = "test/c_abi/main.zig" },
+                    .target = resolved_target,
+                    .optimize = optimize_mode,
+                    .link_libc = true,
+                    .pic = c_abi_target.pic,
+                    .strip = c_abi_target.strip,
+                }),
                 .use_llvm = c_abi_target.use_llvm,
                 .use_lld = c_abi_target.use_lld,
-                .pic = c_abi_target.pic,
-                .strip = c_abi_target.strip,
             });
             test_step.addCSourceFile(.{
                 .file = .{ .path = "test/c_abi/cfuncs.c" },

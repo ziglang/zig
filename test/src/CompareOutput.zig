@@ -85,81 +85,53 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
         _ = write_src.add(src_file.filename, src_file.source);
     }
 
-    switch (case.special) {
-        Special.Asm => {
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "run assemble-and-link {s}", .{
-                case.name,
-            }) catch @panic("OOM");
-            if (self.test_filter) |filter| {
-                if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
-            }
+    const case_optimize_modes: []const OptimizeMode = switch (case.special) {
+        .None => self.optimize_modes,
+        .Asm => &.{.Debug},
+        .RuntimeSafety => &.{ .Debug, .ReleaseSafe },
+    };
 
-            const exe = b.addExecutable(.{
-                .name = "test",
-                .target = b.host,
-                .optimize = .Debug,
-            });
-            exe.addAssemblyFile(write_src.files.items[0].getPath());
+    for (case_optimize_modes) |optimize| {
+        const annotated_case_name = b.fmt("run {s} {s} ({s})", .{
+            switch (case.special) {
+                .None => "compare-output",
+                .Asm => "assemble-and-link",
+                .RuntimeSafety => "safety",
+            },
+            case.name,
+            @tagName(optimize),
+        });
 
-            const run = b.addRunArtifact(exe);
-            run.setName(annotated_case_name);
-            run.addArgs(case.cli_args);
-            run.expectStdOutEqual(case.expected_output);
+        if (self.test_filter) |filter| {
+            if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
+        }
 
-            self.step.dependOn(&run.step);
-        },
-        Special.None => {
-            for (self.optimize_modes) |optimize| {
-                const annotated_case_name = fmt.allocPrint(self.b.allocator, "run compare-output {s} ({s})", .{
-                    case.name, @tagName(optimize),
-                }) catch @panic("OOM");
-                if (self.test_filter) |filter| {
-                    if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
-                }
+        const case_mod = b.createModule(.{
+            .target = b.host,
+            .optimize = optimize,
+            .root_source_file = switch (case.special) {
+                .None, .RuntimeSafety => write_src.files.items[0].getPath(),
+                .Asm => null,
+            },
+            .link_libc = case.link_libc,
+        });
+        if (case.special == .Asm) {
+            case_mod.addAssemblyFile(write_src.files.items[0].getPath());
+        }
 
-                const exe = b.addExecutable(.{
-                    .name = "test",
-                    .root_source_file = write_src.files.items[0].getPath(),
-                    .optimize = optimize,
-                    .target = b.host,
-                });
-                if (case.link_libc) {
-                    exe.linkSystemLibrary("c");
-                }
+        const exe = b.addExecutable2(.{
+            .name = "test",
+            .root_module = case_mod,
+        });
+        const run = b.addRunArtifact(exe);
+        run.setName(annotated_case_name);
+        run.addArgs(case.cli_args);
+        switch (case.special) {
+            .None, .Asm => run.expectStdOutEqual(case.expected_output),
+            .RuntimeSafety => run.expectExitCode(126),
+        }
 
-                const run = b.addRunArtifact(exe);
-                run.setName(annotated_case_name);
-                run.addArgs(case.cli_args);
-                run.expectStdOutEqual(case.expected_output);
-
-                self.step.dependOn(&run.step);
-            }
-        },
-        Special.RuntimeSafety => {
-            // TODO iterate over self.optimize_modes and test this in both
-            // debug and release safe mode
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "run safety {s}", .{case.name}) catch @panic("OOM");
-            if (self.test_filter) |filter| {
-                if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
-            }
-
-            const exe = b.addExecutable(.{
-                .name = "test",
-                .root_source_file = write_src.files.items[0].getPath(),
-                .target = b.host,
-                .optimize = .Debug,
-            });
-            if (case.link_libc) {
-                exe.linkSystemLibrary("c");
-            }
-
-            const run = b.addRunArtifact(exe);
-            run.setName(annotated_case_name);
-            run.addArgs(case.cli_args);
-            run.expectExitCode(126);
-
-            self.step.dependOn(&run.step);
-        },
+        self.step.dependOn(&run.step);
     }
 }
 

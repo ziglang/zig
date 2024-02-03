@@ -15,11 +15,13 @@ pub fn build(b: *std.Build) void {
     foo.addImport("bar", bar);
     bar.addImport("foo", foo);
 
-    const exe = b.addExecutable(.{
+    const exe = b.addExecutable2(.{
         .name = "test",
-        .root_source_file = .{ .path = "test.zig" },
-        .target = b.host,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = .{ .path = "test.zig" },
+            .target = b.host,
+            .optimize = optimize,
+        }),
     });
     exe.root_module.addImport("foo", foo);
 
