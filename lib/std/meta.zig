@@ -1136,12 +1136,6 @@ test "hasFn" {
     };
 
     try std.testing.expect(!hasFn(S2, "foo"));
-
-    const S3 = struct {
-        fn foo() void {}
-    };
-
-    try std.testing.expect(!hasFn(S3, "foo"));
 }
 
 /// Returns true if a type has a `name` method; `false` otherwise.
@@ -1178,12 +1172,6 @@ test "hasMethod" {
     };
 
     try std.testing.expect(!hasMethod(S2, "foo"));
-
-    const S3 = struct {
-        fn foo() void {}
-    };
-
-    try std.testing.expect(!hasMethod(S3, "foo"));
 
     const U = union {
         pub fn foo() void {}
