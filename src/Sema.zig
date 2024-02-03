@@ -37125,7 +37125,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
                 const msg = msg: {
                     const ty_src = mod.fieldSrcLoc(union_type.decl, .{
                         .index = field_i,
-                        .range = .type,
+                        .range = .name,
                     }).lazy;
                     const msg = try sema.errMsg(&block_scope, ty_src, "no field named '{}' in enum '{}'", .{
                         field_name.fmt(ip), Type.fromInterned(union_type.tagTypePtr(ip).*).fmt(mod),
@@ -37136,6 +37136,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
                 };
                 return sema.failWithOwnedErrorMsg(&block_scope, msg);
             };
+
             // No check for duplicate because the check already happened in order
             // to create the enum type in the first place.
             assert(!explicit_tags_seen[enum_index]);
@@ -37146,14 +37147,15 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
                 const msg = msg: {
                     const ty_src = mod.fieldSrcLoc(union_type.decl, .{
                         .index = field_i,
-                        .range = .type,
+                        .range = .name,
                     }).lazy;
                     const enum_field_src = mod.fieldSrcLoc(tag_info.decl, .{ .index = enum_index }).lazy;
                     const msg = try sema.errMsg(&block_scope, ty_src, "union field '{}' ordered differently than corresponding enum field", .{
                         field_name.fmt(ip),
                     });
                     errdefer msg.destroy(sema.gpa);
-                    try sema.errNote(&block_scope, enum_field_src, msg, "enum field here", .{});
+                    const decl_ptr = mod.declPtr(tag_info.decl);
+                    try mod.errNoteNonLazy(enum_field_src.toSrcLoc(decl_ptr, mod), msg, "enum field here", .{});
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(&block_scope, msg);
