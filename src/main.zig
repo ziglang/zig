@@ -7246,10 +7246,7 @@ fn accessLibPath(
                 lib_dir_path,
                 target.libPrefix(),
                 lib_name,
-                switch (link_mode) {
-                    .Static => target.staticLibSuffix(),
-                    .Dynamic => target.dynamicLibSuffix(),
-                },
+                target.dynamicLibSuffix(),
                 lib_version.major,
                 lib_version.minor,
             });
