@@ -574,6 +574,69 @@ test "switch prongs with cases with identical payload types" {
     try comptime S.doTheTest();
 }
 
+test "switch prong pointer capture alignment" {
+    const U = union(enum) {
+        a: u8 align(8),
+        b: u8 align(4),
+        c: u8,
+    };
+
+    const S = struct {
+        fn doTheTest() !void {
+            const u = U{ .a = 1 };
+            switch (u) {
+                .a => |*a| try expectEqual(*align(8) const u8, @TypeOf(a)),
+                .b, .c => |*p| {
+                    _ = p;
+                    @panic("fail");
+                },
+            }
+
+            switch (u) {
+                .a, .b => |*p| try expectEqual(*align(4) const u8, @TypeOf(p)),
+                .c => |*p| {
+                    _ = p;
+                    @panic("fail");
+                },
+            }
+
+            switch (u) {
+                .a, .c => |*p| try expectEqual(*const u8, @TypeOf(p)),
+                .b => |*p| {
+                    _ = p;
+                    @panic("fail");
+                },
+            }
+        }
+
+        fn doTheTest2() !void {
+            const un1 = U{ .b = 1 };
+            switch (un1) {
+                .b => |*a| try expectEqual(*align(4) const u8, @TypeOf(a)),
+                .a, .c => |*p| {
+                    _ = p;
+                    @panic("fail");
+                },
+            }
+
+            const un2 = U{ .c = 1 };
+            switch (un2) {
+                .c => |*a| try expectEqual(*const u8, @TypeOf(a)),
+                .a, .b => |*p| {
+                    _ = p;
+                    @panic("fail");
+                },
+            }
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+
+    try S.doTheTest2();
+    try comptime S.doTheTest2();
+}
+
 test "switch on pointer type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
