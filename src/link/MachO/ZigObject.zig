@@ -154,7 +154,7 @@ pub fn getAtomData(self: ZigObject, macho_file: *MachO, atom: Atom, buffer: []u8
             @memset(buffer, 0);
         },
         else => {
-            const file_offset = sect.offset + atom.value - sect.addr;
+            const file_offset = sect.offset + atom.value;
             const amt = try macho_file.base.file.?.preadAll(buffer, file_offset);
             if (amt != buffer.len) return error.InputOutput;
         },
@@ -196,8 +196,10 @@ pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) void {
                 const atom = macho_file.getAtom(atom_index).?;
                 break :blk nlist.n_value - atom.getInputAddress(macho_file);
             } else nlist.n_value;
+            const out_n_sect = if (nlist.sect()) macho_file.getAtom(atom_index).?.out_n_sect else 0;
             symbol.value = value;
             symbol.atom = atom_index;
+            symbol.out_n_sect = out_n_sect;
             symbol.nlist_idx = nlist_idx;
             symbol.file = self.index;
             symbol.flags.weak = nlist.weakDef();
@@ -715,7 +717,7 @@ fn updateDeclCode(
         } else if (code.len < old_size) {
             atom.shrink(macho_file);
         } else if (macho_file.getAtom(atom.next_index) == null) {
-            const needed_size = atom.value + code.len - sect.addr;
+            const needed_size = atom.value + code.len;
             sect.size = needed_size;
         }
     } else {
@@ -733,7 +735,7 @@ fn updateDeclCode(
     }
 
     if (!sect.isZerofill()) {
-        const file_offset = sect.offset + atom.value - sect.addr;
+        const file_offset = sect.offset + atom.value;
         try macho_file.base.file.?.pwriteAll(code, file_offset);
     }
 }
@@ -1036,7 +1038,7 @@ fn lowerConst(
     nlist.n_value = 0;
 
     const sect = macho_file.sections.items(.header)[output_section_index];
-    const file_offset = sect.offset + atom.value - sect.addr;
+    const file_offset = sect.offset + atom.value;
     try macho_file.base.file.?.pwriteAll(code, file_offset);
 
     return .{ .ok = sym_index };
@@ -1213,7 +1215,7 @@ fn updateLazySymbol(
     }
 
     const sect = macho_file.sections.items(.header)[output_section_index];
-    const file_offset = sect.offset + atom.value - sect.addr;
+    const file_offset = sect.offset + atom.value;
     try macho_file.base.file.?.pwriteAll(code, file_offset);
 }
 

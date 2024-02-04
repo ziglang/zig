@@ -15,6 +15,11 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         .os_tag = .macos,
     });
 
+    // Exercise linker with self-hosted backend (no LLVM)
+    macho_step.dependOn(testHelloZig(b, .{ .use_llvm = false, .target = x86_64_target }));
+    macho_step.dependOn(testRelocatableZig(b, .{ .use_llvm = false, .strip = true, .target = x86_64_target }));
+
+    // Exercise linker with LLVM backend
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testEmptyObject(b, .{ .target = default_target }));
     macho_step.dependOn(testEmptyZig(b, .{ .target = default_target }));
@@ -1234,7 +1239,14 @@ fn testRelocatableZig(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.addCheck(.{ .expect_stderr_match = b.dupe("incrFoo=1") });
     run.addCheck(.{ .expect_stderr_match = b.dupe("decrFoo=0") });
-    run.addCheck(.{ .expect_stderr_match = b.dupe("panic: Oh no!") });
+    if (opts.use_llvm) {
+        // TODO: enable this once self-hosted can print panics and stack traces
+        run.addCheck(.{ .expect_stderr_match = b.dupe("panic: Oh no!") });
+    }
+    if (builtin.os.tag == .macos) {
+        const signal: u32 = if (opts.use_llvm) std.os.darwin.SIG.ABRT else std.os.darwin.SIG.TRAP;
+        run.addCheck(.{ .expect_term = .{ .Signal = signal } });
+    }
     test_step.dependOn(&run.step);
 
     return test_step;
@@ -2307,6 +2319,7 @@ fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
     return link.addTestStep(b, "macho-" ++ prefix, opts);
 }
 
+const builtin = @import("builtin");
 const addAsmSourceBytes = link.addAsmSourceBytes;
 const addCSourceBytes = link.addCSourceBytes;
 const addRunArtifact = link.addRunArtifact;
