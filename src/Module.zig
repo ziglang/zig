@@ -144,11 +144,6 @@ global_error_set: GlobalErrorSet = .{},
 /// Maximum amount of distinct error values, set by --error-limit
 error_limit: ErrorInt,
 
-/// Incrementing integer used to compare against the corresponding Decl
-/// field to determine whether a Decl's status applies to an ongoing update, or a
-/// previous analysis.
-generation: u32 = 0,
-
 /// Value is the number of PO or outdated Decls which this Depender depends on.
 potentially_outdated: std.AutoArrayHashMapUnmanaged(InternPool.Depender, u32) = .{},
 /// Value is the number of PO or outdated Decls which this Depender depends on.
@@ -164,6 +159,11 @@ outdated_ready: std.AutoArrayHashMapUnmanaged(InternPool.Depender, void) = .{},
 /// (only the namespace might change). If such a Decl is also `outdated`, the
 /// struct type index must be recreated.
 outdated_file_root: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
+/// This contains a list of Dependers whose analysis or codegen failed, but the
+/// failure was something like running out of disk space, and trying again may
+/// succeed. On the next update, we will flush this list, marking all members of
+/// it as outdated.
+retryable_failures: std.ArrayListUnmanaged(InternPool.Depender) = .{},
 
 stage1_flags: packed struct {
     have_winmain: bool = false,
@@ -380,21 +380,14 @@ pub const Decl = struct {
     alignment: Alignment,
     /// Populated when `has_tv`.
     @"addrspace": std.builtin.AddressSpace,
-    /// The direct parent namespace of the Decl.
-    /// Reference to externally owned memory.
-    /// In the case of the Decl corresponding to a file, this is
-    /// the namespace of the struct, since there is no parent.
+    /// The direct parent namespace of the Decl. In the case of the Decl
+    /// corresponding to a file, this is the namespace of the struct, since
+    /// there is no parent.
     src_namespace: Namespace.Index,
 
-    /// The scope which lexically contains this decl.  A decl must depend
-    /// on its lexical parent, in order to ensure that this pointer is valid.
-    /// This scope is allocated out of the arena of the parent decl.
+    /// The scope which lexically contains this decl.
     src_scope: CaptureScope.Index,
 
-    /// An integer that can be checked against the corresponding incrementing
-    /// generation field of Module. This is used to determine whether `complete` status
-    /// represents pre- or post- re-analysis.
-    generation: u32,
     /// The AST node index of this declaration.
     /// Must be recomputed when the corresponding source file is modified.
     src_node: Ast.Node.Index,
@@ -420,26 +413,19 @@ pub const Decl = struct {
         /// The file corresponding to this Decl had a parse error or ZIR error.
         /// There will be a corresponding ErrorMsg in Module.failed_files.
         file_failure,
-        /// This Decl might be OK but it depends on another one which did not successfully complete
-        /// semantic analysis.
+        /// This Decl might be OK but it depends on another one which did not
+        /// successfully complete semantic analysis.
         dependency_failure,
         /// Semantic analysis failure.
         /// There will be a corresponding ErrorMsg in Module.failed_decls.
         sema_failure,
         /// There will be a corresponding ErrorMsg in Module.failed_decls.
-        /// This indicates the failure was something like running out of disk space,
-        /// and attempting semantic analysis again may succeed.
-        sema_failure_retryable,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
-        liveness_failure,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
         codegen_failure,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
-        /// This indicates the failure was something like running out of disk space,
-        /// and attempting codegen again may succeed.
-        codegen_failure_retryable,
-        /// Sematic analysis of this Decl has succeeded. However, the Decl may
-        /// be outdated due to an incomplete update!
+        /// Sematic analysis and constant value codegen of this Decl has
+        /// succeeded. However, the Decl may be outdated due to an in-progress
+        /// update. Note that for a function, this does not mean codegen of the
+        /// function body succeded: that state is indicated by the function's
+        /// `analysis` field.
         complete,
     },
     /// Whether `typed_value`, `align`, `linksection` and `addrspace` are populated.
@@ -2495,6 +2481,7 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.outdated.deinit(gpa);
     zcu.outdated_ready.deinit(gpa);
     zcu.outdated_file_root.deinit(gpa);
+    zcu.retryable_failures.deinit(gpa);
 
     zcu.test_functions.deinit(gpa);
 
@@ -3257,6 +3244,29 @@ pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?InternPool.Depender {
     return InternPool.Depender.wrap(.{ .decl = chosen_decl_idx.? });
 }
 
+/// During an incremental update, before semantic analysis, call this to flush all values from
+/// `retryable_failures` and mark them as outdated so they get re-analyzed.
+pub fn flushRetryableFailures(zcu: *Zcu) !void {
+    const gpa = zcu.gpa;
+    for (zcu.retryable_failures.items) |depender| {
+        if (zcu.outdated.contains(depender)) continue;
+        if (zcu.potentially_outdated.fetchSwapRemove(depender)) |kv| {
+            // This Depender was already PO, but we now consider it outdated.
+            // Any transitive dependencies are already marked PO.
+            try zcu.outdated.put(gpa, depender, kv.value);
+            continue;
+        }
+        // This Depender was not marked PO, but is now outdated. Mark it as
+        // such, then recursively mark transitive dependencies as PO.
+        try zcu.outdated.put(gpa, depender, 0);
+        switch (depender.unwrap()) {
+            .decl => |decl| try zcu.markDeclDependenciesPotentiallyOutdated(decl),
+            .func => {},
+        }
+    }
+    zcu.retryable_failures.clearRetainingCapacity();
+}
+
 pub fn mapOldZirToNew(
     gpa: Allocator,
     old_zir: Zir,
@@ -3415,15 +3425,11 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     switch (decl.analysis) {
         .in_progress => unreachable,
 
-        .file_failure,
-        .liveness_failure,
-        .codegen_failure,
-        .codegen_failure_retryable,
-        .dependency_failure,
-        => return error.AnalysisFail,
+        .file_failure => return error.AnalysisFail,
 
         .sema_failure,
-        .sema_failure_retryable,
+        .dependency_failure,
+        .codegen_failure,
         => if (!was_outdated) return error.AnalysisFail,
 
         .complete => if (!was_outdated) return,
@@ -3434,6 +3440,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     if (was_outdated) {
         // The exports this Decl performs will be re-discovered, so we remove them here
         // prior to re-analysis.
+        if (build_options.only_c) unreachable;
         try mod.deleteDeclExports(decl_index);
     }
 
@@ -3463,8 +3470,9 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             else => |e| {
-                decl.analysis = .sema_failure_retryable;
+                decl.analysis = .sema_failure;
                 try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
+                try mod.retryable_failures.append(mod.gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
                 mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
                     mod.gpa,
                     decl.srcLoc(mod),
@@ -3504,15 +3512,14 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
         .unreferenced => unreachable,
         .in_progress => unreachable,
 
+        .codegen_failure => unreachable, // functions do not perform constant value generation
+
         .file_failure,
         .sema_failure,
-        .liveness_failure,
-        .codegen_failure,
         .dependency_failure,
-        .sema_failure_retryable,
         => return error.AnalysisFail,
 
-        .complete, .codegen_failure_retryable => {},
+        .complete => {},
     }
 
     const func_as_depender = InternPool.Depender.wrap(.{ .func = func_index });
@@ -3524,11 +3531,14 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
     }
 
     switch (func.analysis(ip).state) {
-        .sema_failure, .dependency_failure => if (!was_outdated) return error.AnalysisFail,
+        .success,
+        .sema_failure,
+        .dependency_failure,
+        .codegen_failure,
+        => if (!was_outdated) return error.AnalysisFail,
         .none, .queued => {},
         .in_progress => unreachable,
         .inline_only => unreachable, // don't queue work for this
-        .success => if (!was_outdated) return,
     }
 
     const gpa = zcu.gpa;
@@ -3592,8 +3602,8 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
                         .{@errorName(err)},
                     ),
                 );
-                decl.analysis = .liveness_failure;
-                return error.AnalysisFail;
+                func.analysis(ip).state = .codegen_failure;
+                return;
             },
         };
     }
@@ -3602,7 +3612,7 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
         lf.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {
-                decl.analysis = .codegen_failure;
+                func.analysis(ip).state = .codegen_failure;
             },
             else => {
                 try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
@@ -3612,7 +3622,8 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
-                decl.analysis = .codegen_failure_retryable;
+                func.analysis(ip).state = .codegen_failure;
+                try zcu.retryable_failures.append(zcu.gpa, InternPool.Depender.wrap(.{ .func = func_index }));
             },
         };
     } else if (zcu.llvm_object) |llvm_object| {
@@ -3620,7 +3631,7 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
         llvm_object.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {
-                decl.analysis = .codegen_failure;
+                func.analysis(ip).state = .codegen_failure;
             },
         };
     }
@@ -3645,14 +3656,11 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
 
         .file_failure,
         .sema_failure,
-        .liveness_failure,
         .codegen_failure,
         .dependency_failure,
-        .sema_failure_retryable,
-        .codegen_failure_retryable,
-        // The function analysis failed, but we've already emitted an error for
-        // that. The callee doesn't need the function to be analyzed right now,
-        // so its analysis can safely continue.
+        // Analysis of the function Decl itself failed, but we've already
+        // emitted an error for that. The callee doesn't need the function to be
+        // analyzed right now, so its analysis can safely continue.
         => return,
 
         .complete => {},
@@ -3660,14 +3668,21 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
 
     assert(decl.has_tv);
 
+    const func_as_depender = InternPool.Depender.wrap(.{ .func = func_index });
+    const is_outdated = mod.outdated.contains(func_as_depender) or
+        mod.potentially_outdated.contains(func_as_depender);
+
     switch (func.analysis(ip).state) {
         .none => {},
         .queued => return,
         // As above, we don't need to forward errors here.
-        .sema_failure, .dependency_failure => return,
+        .sema_failure,
+        .dependency_failure,
+        .codegen_failure,
+        .success,
+        => if (!is_outdated) return,
         .in_progress => return,
         .inline_only => unreachable, // don't queue work for this
-        .success => return,
     }
 
     // Decl itself is safely analyzed, and body analysis is not yet queued
@@ -3727,7 +3742,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     new_decl.@"linksection" = .none;
     new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
     new_decl.analysis = .in_progress;
-    new_decl.generation = mod.generation;
 
     if (file.status != .success_zir) {
         new_decl.analysis = .file_failure;
@@ -3966,7 +3980,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         decl.has_tv = true;
         decl.owns_tv = false;
         decl.analysis = .complete;
-        decl.generation = mod.generation;
 
         // TODO: usingnamespace cannot currently participate in incremental compilation
         return .{
@@ -3997,7 +4010,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
                 decl.has_tv = true;
                 decl.owns_tv = owns_tv;
                 decl.analysis = .complete;
-                decl.generation = mod.generation;
 
                 const is_inline = decl.ty.fnCallingConvention(mod) == .Inline;
                 if (decl.is_exported) {
@@ -4094,7 +4106,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     };
     decl.has_tv = true;
     decl.analysis = .complete;
-    decl.generation = mod.generation;
 
     const result: SemaDeclResult = if (old_has_tv) .{
         .invalidate_decl_val = !decl.ty.eql(old_ty, mod) or !decl.val.eql(old_val, decl.ty, mod),
@@ -5005,7 +5016,6 @@ pub fn allocateNewDecl(
         .analysis = .unreferenced,
         .zir_decl_index = .none,
         .src_scope = src_scope,
-        .generation = 0,
         .is_pub = false,
         .is_exported = false,
         .alive = false,
@@ -5083,7 +5093,6 @@ pub fn initNewAnonDecl(
     new_decl.@"linksection" = .none;
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
-    new_decl.generation = mod.generation;
 }
 
 pub fn errNoteNonLazy(
@@ -5745,7 +5754,8 @@ pub fn linkerUpdateDecl(zcu: *Zcu, decl_index: Decl.Index) !void {
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
-                decl.analysis = .codegen_failure_retryable;
+                decl.analysis = .codegen_failure;
+                try zcu.retryable_failures.append(zcu.gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
             },
         };
     } else if (zcu.llvm_object) |llvm_object| {

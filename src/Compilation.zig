@@ -2141,7 +2141,6 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
 
     if (comp.module) |module| {
         module.compile_log_text.shrinkAndFree(gpa, 0);
-        module.generation += 1;
 
         // Make sure std.zig is inside the import_table. We unconditionally need
         // it for start.zig.
@@ -3491,9 +3490,7 @@ pub fn performAllTheWork(
 
     if (comp.module) |mod| {
         try reportMultiModuleErrors(mod);
-    }
-
-    if (comp.module) |mod| {
+        try mod.flushRetryableFailures();
         mod.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
         mod.sema_prog_node.activate();
     }
@@ -3551,13 +3548,11 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
 
                 .file_failure,
                 .sema_failure,
-                .liveness_failure,
                 .codegen_failure,
                 .dependency_failure,
-                .sema_failure_retryable,
                 => return,
 
-                .complete, .codegen_failure_retryable => {
+                .complete => {
                     const named_frame = tracy.namedFrame("codegen_decl");
                     defer named_frame.end();
 
@@ -3592,17 +3587,15 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
             switch (decl.analysis) {
                 .unreferenced => unreachable,
                 .in_progress => unreachable,
-                .outdated => unreachable,
 
                 .file_failure,
                 .sema_failure,
                 .dependency_failure,
-                .sema_failure_retryable,
                 => return,
 
                 // emit-h only requires semantic analysis of the Decl to be complete,
                 // it does not depend on machine code generation to succeed.
-                .liveness_failure, .codegen_failure, .codegen_failure_retryable, .complete => {
+                .codegen_failure, .complete => {
                     const named_frame = tracy.namedFrame("emit_h_decl");
                     defer named_frame.end();
 
@@ -3674,7 +3667,8 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                     "unable to update line number: {s}",
                     .{@errorName(err)},
                 ));
-                decl.analysis = .codegen_failure_retryable;
+                decl.analysis = .codegen_failure;
+                try module.retryable_failures.append(gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
             };
         },
         .analyze_mod => |pkg| {

@@ -3483,6 +3483,11 @@ pub const FuncAnalysis = packed struct(u32) {
         /// This function might be OK but it depends on another Decl which did not
         /// successfully complete semantic analysis.
         dependency_failure,
+        /// There will be a corresponding ErrorMsg in Module.failed_decls.
+        /// Indicates that semantic analysis succeeded, but code generation for
+        /// this function failed.
+        codegen_failure,
+        /// Semantic analysis and code generation of this function succeeded.
         success,
     };
 };
@@ -6182,7 +6187,6 @@ pub const GetFuncInstanceKey = struct {
     is_noinline: bool,
     generic_owner: Index,
     inferred_error_set: bool,
-    generation: u32,
 };
 
 pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey) Allocator.Error!Index {
@@ -6249,7 +6253,6 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
         generic_owner,
         func_index,
         func_extra_index,
-        arg.generation,
         func_ty,
         arg.section,
     );
@@ -6381,7 +6384,6 @@ pub fn getFuncInstanceIes(
         generic_owner,
         func_index,
         func_extra_index,
-        arg.generation,
         func_ty,
         arg.section,
     );
@@ -6393,7 +6395,6 @@ fn finishFuncInstance(
     generic_owner: Index,
     func_index: Index,
     func_extra_index: u32,
-    generation: u32,
     func_ty: Index,
     section: OptionalNullTerminatedString,
 ) Allocator.Error!Index {
@@ -6413,7 +6414,6 @@ fn finishFuncInstance(
         .analysis = .complete,
         .zir_decl_index = fn_owner_decl.zir_decl_index,
         .src_scope = fn_owner_decl.src_scope,
-        .generation = generation,
         .is_pub = fn_owner_decl.is_pub,
         .is_exported = fn_owner_decl.is_exported,
         .alive = true,

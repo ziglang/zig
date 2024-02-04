@@ -2583,7 +2583,6 @@ fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.ErrorMsg)
         ip.funcAnalysis(sema.owner_func_index).state = .sema_failure;
     } else {
         sema.owner_decl.analysis = .sema_failure;
-        sema.owner_decl.generation = mod.generation;
     }
     if (sema.func_index != .none) {
         ip.funcAnalysis(sema.func_index).state = .sema_failure;
@@ -9468,7 +9467,6 @@ fn funcCommon(
             .inferred_error_set = inferred_error_set,
             .generic_owner = sema.generic_owner,
             .comptime_args = sema.comptime_args,
-            .generation = mod.generation,
         });
         return finishFunc(
             sema,
@@ -25957,7 +25955,6 @@ fn zirBuiltinExtern(
     new_decl.has_tv = true;
     new_decl.owns_tv = true;
     new_decl.analysis = .complete;
-    new_decl.generation = mod.generation;
 
     try sema.ensureDeclAnalyzed(new_decl_index);
 
@@ -36215,10 +36212,8 @@ pub fn resolveTypeFieldsStruct(
         .file_failure,
         .dependency_failure,
         .sema_failure,
-        .sema_failure_retryable,
         => {
             sema.owner_decl.analysis = .dependency_failure;
-            sema.owner_decl.generation = mod.generation;
             return error.AnalysisFail;
         },
         else => {},
@@ -36274,10 +36269,8 @@ pub fn resolveTypeFieldsUnion(sema: *Sema, ty: Type, union_type: InternPool.Key.
         .file_failure,
         .dependency_failure,
         .sema_failure,
-        .sema_failure_retryable,
         => {
             sema.owner_decl.analysis = .dependency_failure;
-            sema.owner_decl.generation = mod.generation;
             return error.AnalysisFail;
         },
         else => {},
