@@ -1,4 +1,4 @@
-/// Address allocated for this Atom.
+/// Address offset allocated for this Atom wrt to its section start address.
 value: u64 = 0,
 
 /// Name of this Atom.
@@ -84,6 +84,11 @@ pub fn getInputAddress(self: Atom, macho_file: *MachO) u64 {
     return self.getInputSection(macho_file).addr + self.off;
 }
 
+pub fn getAddress(self: Atom, macho_file: *MachO) u64 {
+    const header = macho_file.sections.items(.header)[self.out_n_sect];
+    return header.addr + self.value;
+}
+
 pub fn getPriority(self: Atom, macho_file: *MachO) u64 {
     const file = self.getFile(macho_file);
     return (@as(u64, @intCast(file.getIndex())) << 32) | @as(u64, @intCast(self.n_sect));
@@ -114,9 +119,12 @@ pub fn getThunk(self: Atom, macho_file: *MachO) *Thunk {
 
 pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
     const segname, const sectname, const flags = blk: {
+        const segname = sect.segName();
+        const sectname = sect.sectName();
+
         if (sect.isCode()) break :blk .{
             "__TEXT",
-            sect.sectName(),
+            sectname,
             macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         };
 
@@ -127,34 +135,29 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
             => break :blk .{ "__TEXT", "__const", macho.S_REGULAR },
 
             macho.S_CSTRING_LITERALS => {
-                if (mem.startsWith(u8, sect.sectName(), "__objc")) break :blk .{
-                    sect.segName(), sect.sectName(), macho.S_REGULAR,
+                if (mem.startsWith(u8, sectname, "__objc")) break :blk .{
+                    segname, sectname, macho.S_REGULAR,
                 };
                 break :blk .{ "__TEXT", "__cstring", macho.S_CSTRING_LITERALS };
             },
 
             macho.S_MOD_INIT_FUNC_POINTERS,
             macho.S_MOD_TERM_FUNC_POINTERS,
-            => break :blk .{ "__DATA_CONST", sect.sectName(), sect.flags },
-
             macho.S_LITERAL_POINTERS,
+            => break :blk .{ "__DATA_CONST", sectname, sect.flags },
+
             macho.S_ZEROFILL,
             macho.S_GB_ZEROFILL,
             macho.S_THREAD_LOCAL_VARIABLES,
             macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
             macho.S_THREAD_LOCAL_REGULAR,
             macho.S_THREAD_LOCAL_ZEROFILL,
-            => break :blk .{ sect.segName(), sect.sectName(), sect.flags },
+            => break :blk .{ "__DATA", sectname, sect.flags },
 
-            macho.S_COALESCED => break :blk .{
-                sect.segName(),
-                sect.sectName(),
-                macho.S_REGULAR,
-            },
+            // TODO: do we need this check here?
+            macho.S_COALESCED => break :blk .{ segname, sectname, macho.S_REGULAR },
 
             macho.S_REGULAR => {
-                const segname = sect.segName();
-                const sectname = sect.sectName();
                 if (mem.eql(u8, segname, "__DATA")) {
                     if (mem.eql(u8, sectname, "__const") or
                         mem.eql(u8, sectname, "__cfstring") or
@@ -168,7 +171,7 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
                 break :blk .{ segname, sectname, sect.flags };
             },
 
-            else => break :blk .{ sect.segName(), sect.sectName(), sect.flags },
+            else => break :blk .{ segname, sectname, sect.flags },
         }
     };
     const osec = macho_file.getSectionByName(segname, sectname) orelse try macho_file.addSection(
@@ -189,14 +192,17 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
 /// File offset relocation happens transparently, so it is not included in
 /// this calculation.
 pub fn capacity(self: Atom, macho_file: *MachO) u64 {
-    const next_value = if (macho_file.getAtom(self.next_index)) |next| next.value else std.math.maxInt(u32);
-    return next_value - self.value;
+    const next_addr = if (macho_file.getAtom(self.next_index)) |next|
+        next.getAddress(macho_file)
+    else
+        std.math.maxInt(u32);
+    return next_addr - self.getAddress(macho_file);
 }
 
 pub fn freeListEligible(self: Atom, macho_file: *MachO) bool {
     // No need to keep a free list node for the last block.
     const next = macho_file.getAtom(self.next_index) orelse return false;
-    const cap = next.value - self.value;
+    const cap = next.getAddress(macho_file) - self.getAddress(macho_file);
     const ideal_cap = MachO.padToIdeal(self.size);
     if (cap <= ideal_cap) return false;
     const surplus = cap - ideal_cap;
@@ -263,15 +269,15 @@ pub fn allocate(self: *Atom, macho_file: *MachO) !void {
             atom_placement = last.atom_index;
             break :blk new_start_vaddr;
         } else {
-            break :blk sect.addr;
+            break :blk 0;
         }
     };
 
     log.debug("allocated atom({d}) : '{s}' at 0x{x} to 0x{x}", .{
         self.atom_index,
         self.getName(macho_file),
-        self.value,
-        self.value + self.size,
+        self.getAddress(macho_file),
+        self.getAddress(macho_file) + self.size,
     });
 
     const expand_section = if (atom_placement) |placement_index|
@@ -279,7 +285,7 @@ pub fn allocate(self: *Atom, macho_file: *MachO) !void {
     else
         true;
     if (expand_section) {
-        const needed_size = (self.value + self.size) - sect.addr;
+        const needed_size = self.value + self.size;
         try macho_file.growSection(self.out_n_sect, needed_size);
         last_atom_index.* = self.atom_index;
 
@@ -544,7 +550,7 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
     const name = self.getName(macho_file);
     const relocs = self.getRelocs(macho_file);
 
-    relocs_log.debug("{x}: {s}", .{ self.value, name });
+    relocs_log.debug("{x}: {s}", .{ self.getAddress(macho_file), name });
 
     var has_error = false;
     var stream = std.io.fixedBufferStream(buffer);
@@ -569,7 +575,7 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
                     try macho_file.reportParseError2(
                         file.getIndex(),
                         "{s}: 0x{x}: 0x{x}: failed to relax relocation: type {s}, target {s}",
-                        .{ name, self.value, rel.offset, @tagName(rel.type), target },
+                        .{ name, self.getAddress(macho_file), rel.offset, @tagName(rel.type), target },
                     );
                     has_error = true;
                 },
@@ -604,7 +610,7 @@ fn resolveRelocInner(
     const rel_offset = math.cast(usize, rel.offset - self.off) orelse return error.Overflow;
     const seg_id = macho_file.sections.items(.segment_id)[self.out_n_sect];
     const seg = macho_file.segments.items[seg_id];
-    const P = @as(i64, @intCast(self.value)) + @as(i64, @intCast(rel_offset));
+    const P = @as(i64, @intCast(self.getAddress(macho_file))) + @as(i64, @intCast(rel_offset));
     const A = rel.addend + rel.getRelocAddend(cpu_arch);
     const S: i64 = @intCast(rel.getTargetAddress(macho_file));
     const G: i64 = @intCast(rel.getGotTargetAddress(macho_file));
@@ -690,7 +696,7 @@ fn resolveRelocInner(
                 .aarch64 => {
                     const disp: i28 = math.cast(i28, S + A - P) orelse blk: {
                         const thunk = self.getThunk(macho_file);
-                        const S_: i64 = @intCast(thunk.getAddress(rel.target));
+                        const S_: i64 = @intCast(thunk.getTargetAddress(rel.target, macho_file));
                         break :blk math.cast(i28, S_ + A - P) orelse return error.Overflow;
                     };
                     var inst = aarch64.Instruction{
@@ -919,7 +925,7 @@ const x86_64 = struct {
                 var err = try macho_file.addErrorWithNotes(2);
                 try err.addMsg(macho_file, "{s}: 0x{x}: 0x{x}: failed to relax relocation of type {s}", .{
                     self.getName(macho_file),
-                    self.value,
+                    self.getAddress(macho_file),
                     rel.offset,
                     @tagName(rel.type),
                 });
@@ -990,12 +996,11 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: *std.Arra
 
     const cpu_arch = macho_file.getTarget().cpu.arch;
     const relocs = self.getRelocs(macho_file);
-    const sect = macho_file.sections.items(.header)[self.out_n_sect];
     var stream = std.io.fixedBufferStream(code);
 
     for (relocs) |rel| {
         const rel_offset = rel.offset - self.off;
-        const r_address: i32 = math.cast(i32, self.value + rel_offset - sect.addr) orelse return error.Overflow;
+        const r_address: i32 = math.cast(i32, self.value + rel_offset) orelse return error.Overflow;
         const r_symbolnum = r_symbolnum: {
             const r_symbolnum: u32 = switch (rel.tag) {
                 .local => rel.getTargetAtom(macho_file).out_n_sect + 1,
@@ -1062,7 +1067,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: *std.Arra
             .x86_64 => {
                 if (rel.meta.pcrel) {
                     if (rel.tag == .local) {
-                        addend -= @as(i64, @intCast(self.value + rel_offset));
+                        addend -= @as(i64, @intCast(self.getAddress(macho_file) + rel_offset));
                     } else {
                         addend += 4;
                     }
@@ -1143,10 +1148,10 @@ fn format2(
     _ = unused_fmt_string;
     const atom = ctx.atom;
     const macho_file = ctx.macho_file;
-    try writer.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : thunk({d})", .{
-        atom.atom_index,  atom.getName(macho_file), atom.value,
-        atom.out_n_sect,  atom.alignment,           atom.size,
-        atom.thunk_index,
+    try writer.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : nreloc({d}) : thunk({d})", .{
+        atom.atom_index,                atom.getName(macho_file), atom.getAddress(macho_file),
+        atom.out_n_sect,                atom.alignment,           atom.size,
+        atom.getRelocs(macho_file).len, atom.thunk_index,
     });
     if (!atom.flags.alive) try writer.writeAll(" : [*]");
     if (atom.unwind_records.len > 0) {

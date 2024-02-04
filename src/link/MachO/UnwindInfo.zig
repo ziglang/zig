@@ -490,12 +490,12 @@ pub const Record = struct {
 
     pub fn getAtomAddress(rec: Record, macho_file: *MachO) u64 {
         const atom = rec.getAtom(macho_file);
-        return atom.value + rec.atom_offset;
+        return atom.getAddress(macho_file) + rec.atom_offset;
     }
 
     pub fn getLsdaAddress(rec: Record, macho_file: *MachO) u64 {
         const lsda = rec.getLsdaAtom(macho_file) orelse return 0;
-        return lsda.value + rec.lsda_offset;
+        return lsda.getAddress(macho_file) + rec.lsda_offset;
     }
 
     pub fn format(

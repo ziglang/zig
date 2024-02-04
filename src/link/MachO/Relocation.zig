@@ -22,7 +22,7 @@ pub fn getTargetAtom(rel: Relocation, macho_file: *MachO) *Atom {
 
 pub fn getTargetAddress(rel: Relocation, macho_file: *MachO) u64 {
     return switch (rel.tag) {
-        .local => rel.getTargetAtom(macho_file).value,
+        .local => rel.getTargetAtom(macho_file).getAddress(macho_file),
         .@"extern" => rel.getTargetSymbol(macho_file).getAddress(.{}, macho_file),
     };
 }
