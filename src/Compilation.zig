@@ -3548,7 +3548,6 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
             switch (decl.analysis) {
                 .unreferenced => unreachable,
                 .in_progress => unreachable,
-                .outdated => unreachable,
 
                 .file_failure,
                 .sema_failure,
