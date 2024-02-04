@@ -677,6 +677,15 @@ pub const TargetMatcher = struct {
                 const host_target = try targetToAppleString(allocator, cpu_arch, .MACOS);
                 try self.target_strings.append(allocator, host_target);
             },
+            .MACOS => {
+                // Turns out that around 10.13/10.14 macOS release version, Apple changed the target tags in
+                // tbd files from `macosx` to `macos`. In order to be compliant and therefore actually support
+                // linking on older platforms against `libSystem.tbd`, we add `<cpu_arch>-macosx` to target_strings.
+                const fallback_target = try std.fmt.allocPrint(allocator, "{s}-macosx", .{
+                    cpuArchToAppleString(cpu_arch),
+                });
+                try self.target_strings.append(allocator, fallback_target);
+            },
             else => {},
         }
 
