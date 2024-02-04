@@ -3139,6 +3139,8 @@ fn markDeclDependenciesPotentiallyOutdated(zcu: *Zcu, decl_index: Decl.Index) !v
 }
 
 pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?InternPool.Depender {
+    if (!zcu.comp.debug_incremental) return null;
+
     if (zcu.outdated.count() == 0 and zcu.potentially_outdated.count() == 0) {
         log.debug("findOutdatedToAnalyze: no outdated depender", .{});
         return null;

@@ -2788,11 +2788,13 @@ fn zirStructDecl(
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
-    try ip.addDependency(
-        sema.gpa,
-        InternPool.Depender.wrap(.{ .decl = new_decl_index }),
-        .{ .src_hash = try ip.trackZir(sema.gpa, block.getFileScope(mod), inst) },
-    );
+    if (sema.mod.comp.debug_incremental) {
+        try ip.addDependency(
+            sema.gpa,
+            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            .{ .src_hash = try ip.trackZir(sema.gpa, block.getFileScope(mod), inst) },
+        );
+    }
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -2978,11 +2980,13 @@ fn zirEnumDecl(
     new_decl.owns_tv = true;
     errdefer if (!done) mod.abortAnonDecl(new_decl_index);
 
-    try mod.intern_pool.addDependency(
-        sema.gpa,
-        InternPool.Depender.wrap(.{ .decl = new_decl_index }),
-        .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
-    );
+    if (sema.mod.comp.debug_incremental) {
+        try mod.intern_pool.addDependency(
+            sema.gpa,
+            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
+        );
+    }
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -3237,11 +3241,13 @@ fn zirUnionDecl(
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
-    try mod.intern_pool.addDependency(
-        sema.gpa,
-        InternPool.Depender.wrap(.{ .decl = new_decl_index }),
-        .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
-    );
+    if (sema.mod.comp.debug_incremental) {
+        try mod.intern_pool.addDependency(
+            sema.gpa,
+            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
+        );
+    }
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -3336,11 +3342,13 @@ fn zirOpaqueDecl(
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
-    try mod.intern_pool.addDependency(
-        sema.gpa,
-        InternPool.Depender.wrap(.{ .decl = new_decl_index }),
-        .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
-    );
+    if (sema.mod.comp.debug_incremental) {
+        try mod.intern_pool.addDependency(
+            sema.gpa,
+            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
+        );
+    }
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -32435,7 +32443,7 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: InternPool.DeclIndex, analyze_fn
 
     const decl = mod.declPtr(decl_index);
     const decl_tv = try decl.typedValue();
-    // TODO: if this is a `decl_ref`, only depend on decl type
+    // TODO: if this is a `decl_ref` of a non-variable decl, only depend on decl type
     try sema.declareDependency(.{ .decl_val = decl_index });
     const ptr_ty = try sema.ptrType(.{
         .child = decl_tv.ty.toIntern(),
@@ -38925,6 +38933,7 @@ fn ptrType(sema: *Sema, info: InternPool.Key.PtrType) CompileError!Type {
 }
 
 pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
+    if (!sema.mod.comp.debug_incremental) return;
     const depender = InternPool.Depender.wrap(
         if (sema.owner_func_index != .none)
             .{ .func = sema.owner_func_index }
