@@ -142,7 +142,7 @@ pub const Value = union(enum) {
         parsed.arena.* = ArenaAllocator.init(allocator);
         errdefer parsed.arena.deinit();
 
-        parsed.value = try fromAnytypeLeaky(arena.allocator(), value, options);
+        parsed.value = try fromAnytypeLeaky(parsed.arena.allocator(), value, options);
 
         return parsed;
     }

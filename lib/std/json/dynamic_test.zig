@@ -69,12 +69,12 @@ test "parse from string" {
     var parsed = try parseFromSlice(Value, testing.allocator, s, .{});
     defer parsed.deinit();
 
-    var root = parsed.value;
+    const root = parsed.value;
     try validate_image_object(root);
 }
 
 test "parse from zig value" {
-    const Root = struct {
+    const Data = struct {
         Image: struct {
             Width: i32 = 800,
             Height: i32 = 600,
@@ -89,12 +89,14 @@ test "parse from zig value" {
             ArrayOfObject: []const struct { n: []const u8 = "m" } = &.{.{}},
             double: f64 = 1.3412,
             LargeInt: u128 = 18446744073709551615,
-        },
+        } = .{},
     };
-    const root = Root{};
-    const parsed = try Value.fromAnytype(std.testing.allocator, root, .{});
+    const data = Data{};
+    const parsed = try Value.fromAnytype(std.testing.allocator, data, .{});
     defer parsed.deinit();
-    try validate_image_object(parsed.value);
+
+    const root = parsed.value;
+    try validate_image_object(root);
 }
 
 const writeStream = @import("./stringify.zig").writeStream;
