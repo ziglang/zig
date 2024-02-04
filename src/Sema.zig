@@ -20136,6 +20136,7 @@ fn finishStructInit(
         },
         else => |e| return e,
     };
+    try sema.resolveStructFieldInits(struct_ty);
     try sema.queueFullTypeResolution(struct_ty);
     const struct_val = try block.addAggregateInit(struct_ty, field_inits);
     return sema.coerce(block, result_ty, struct_val, init_src);
@@ -35939,7 +35940,7 @@ pub fn resolveTypeFully(sema: *Sema, ty: Type) CompileError!void {
             return sema.resolveTypeFully(ty.childType(mod));
         },
         .Struct => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .struct_type => return sema.resolveStructFully(ty),
+            .struct_type => try sema.resolveStructFully(ty),
             .anon_struct_type => |tuple| {
                 for (tuple.types.get(ip)) |field_ty| {
                     try sema.resolveTypeFully(Type.fromInterned(field_ty));

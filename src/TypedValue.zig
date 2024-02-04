@@ -310,11 +310,6 @@ pub fn print(
                 return writer.writeAll(" }");
             },
             .ptr => |ptr| {
-                if (ptr.addr == .int) {}
-
-                const ptr_ty = ip.indexToKey(ty.toIntern()).ptr_type;
-                if (ptr_ty.flags.size == .Slice) {}
-
                 switch (ptr.addr) {
                     .decl => |decl_index| {
                         const decl = mod.declPtr(decl_index);
@@ -348,7 +343,14 @@ pub fn print(
                             .val = Value.fromInterned(field_val_ip),
                         }, writer, level - 1, mod);
                     },
-                    .int => unreachable,
+                    .int => |int_ip| {
+                        try writer.writeAll("@ptrFromInt(");
+                        try print(.{
+                            .ty = Type.usize,
+                            .val = Value.fromInterned(int_ip),
+                        }, writer, level - 1, mod);
+                        try writer.writeByte(')');
+                    },
                     .eu_payload => |eu_ip| {
                         try writer.writeAll("(payload of ");
                         try print(.{
