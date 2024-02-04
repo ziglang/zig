@@ -78,6 +78,10 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
     off = mem.alignForward(u32, off, @alignOf(u64));
     off = try macho_file.writeStrtab(off);
 
+    // In order to please Apple ld (and possibly other MachO linkers in the wild),
+    // we will now sanitize segment names of Zig-specific segments.
+    sanitizeZigSections(macho_file);
+
     const ncmds, const sizeofcmds = try writeLoadCommands(macho_file);
     try writeHeader(macho_file, ncmds, sizeofcmds);
 }
@@ -242,6 +246,31 @@ fn allocateSections(macho_file: *MachO) !void {
                 return error.Overflow;
         }
         header.addr = macho_file.findFreeSpaceVirtual(header.size, alignment);
+    }
+}
+
+/// Renames segment names in Zig sections to standard MachO segment names such as
+/// `__TEXT`, `__DATA_CONST` and `__DATA`.
+/// TODO: I think I may be able to get rid of this if I rework section/segment
+/// allocation mechanism to not rely so much on having `_ZIG` sections always
+/// pushed to the back. For instance, this is not a problem in ELF linker.
+/// Then, we can create sections with the correct name from the start in `MachO.initMetadata`.
+fn sanitizeZigSections(macho_file: *MachO) void {
+    if (macho_file.zig_text_sect_index) |index| {
+        const header = &macho_file.sections.items(.header)[index];
+        header.segname = MachO.makeStaticString("__TEXT");
+    }
+    if (macho_file.zig_const_sect_index) |index| {
+        const header = &macho_file.sections.items(.header)[index];
+        header.segname = MachO.makeStaticString("__DATA_CONST");
+    }
+    if (macho_file.zig_data_sect_index) |index| {
+        const header = &macho_file.sections.items(.header)[index];
+        header.segname = MachO.makeStaticString("__DATA");
+    }
+    if (macho_file.zig_bss_sect_index) |index| {
+        const header = &macho_file.sections.items(.header)[index];
+        header.segname = MachO.makeStaticString("__DATA");
     }
 }
 
