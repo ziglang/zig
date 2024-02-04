@@ -17,32 +17,7 @@ const ParseOptions = @import("static.zig").ParseOptions;
 const jsonReader = @import("scanner.zig").reader;
 const JsonReader = @import("scanner.zig").Reader;
 
-test "json.parser.dynamic" {
-    const s =
-        \\{
-        \\  "Image": {
-        \\      "Width":  800,
-        \\      "Height": 600,
-        \\      "Title":  "View from 15th Floor",
-        \\      "Thumbnail": {
-        \\          "Url":    "http://www.example.com/image/481989943",
-        \\          "Height": 125,
-        \\          "Width":  100
-        \\      },
-        \\      "Animated" : false,
-        \\      "IDs": [116, 943, 234, 38793],
-        \\      "ArrayOfObject": [{"n": "m"}],
-        \\      "double": 1.3412,
-        \\      "LargeInt": 18446744073709551615
-        \\    }
-        \\}
-    ;
-
-    var parsed = try parseFromSlice(Value, testing.allocator, s, .{});
-    defer parsed.deinit();
-
-    var root = parsed.value;
-
+fn validate_image_object(root: Value) !void {
     var image = root.object.get("Image").?;
 
     const width = image.object.get("Width").?;
@@ -68,6 +43,58 @@ test "json.parser.dynamic" {
 
     const large_int = image.object.get("LargeInt").?;
     try testing.expect(mem.eql(u8, large_int.number_string, "18446744073709551615"));
+}
+
+test "parse from string" {
+    const s =
+        \\{
+        \\  "Image": {
+        \\      "Width":  800,
+        \\      "Height": 600,
+        \\      "Title":  "View from 15th Floor",
+        \\      "Thumbnail": {
+        \\          "Url":    "http://www.example.com/image/481989943",
+        \\          "Height": 125,
+        \\          "Width":  100
+        \\      },
+        \\      "Animated" : false,
+        \\      "IDs": [116, 943, 234, 38793],
+        \\      "ArrayOfObject": [{"n": "m"}],
+        \\      "double": 1.3412,
+        \\      "LargeInt": 18446744073709551615
+        \\    }
+        \\}
+    ;
+
+    var parsed = try parseFromSlice(Value, testing.allocator, s, .{});
+    defer parsed.deinit();
+
+    var root = parsed.value;
+    try validate_image_object(root);
+}
+
+test "parse from zig value" {
+    const Root = struct {
+        Image: struct {
+            Width: i32 = 800,
+            Height: i32 = 600,
+            Title: []const u8 = "View from 15th Floor",
+            Thumbnail: struct {
+                Url: []const u8 = "http://www.example.com/image/481989943",
+                Height: i32 = 125,
+                Width: i32 = 100,
+            } = .{},
+            Animated: bool = false,
+            IDs: []const u32 = .{ 116, 943, 234, 38793 },
+            ArrayOfObject: []const struct { n: []const u8 = "m" } = &.{.{}},
+            double: f64 = 1.3412,
+            LargeInt: u128 = 18446744073709551615,
+        },
+    };
+    const root = Root{};
+    const parsed = try Value.fromAnytype(std.testing.allocator, root, .{});
+    defer parsed.deinit();
+    try validate_image_object(parsed.value);
 }
 
 const writeStream = @import("./stringify.zig").writeStream;

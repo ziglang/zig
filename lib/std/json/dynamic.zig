@@ -10,6 +10,7 @@ const stringify = @import("./stringify.zig").stringify;
 
 const ParseOptions = @import("./static.zig").ParseOptions;
 const ParseError = @import("./static.zig").ParseError;
+const Parsed = @import("./static.zig").Parsed;
 
 const JsonScanner = @import("./scanner.zig").Scanner;
 const AllocWhen = @import("./scanner.zig").AllocWhen;
@@ -130,6 +131,20 @@ pub const Value = union(enum) {
         _ = allocator;
         _ = options;
         return source;
+    }
+
+    pub fn fromAnytype(allocator: std.mem.Allocator, value: anytype, options: StringifyOptions) (std.json.Error || std.mem.Allocator.Error)!Parsed(Value) {
+        var parsed = Parsed(Value){
+            .arena = try allocator.create(ArenaAllocator),
+            .value = undefined,
+        };
+        errdefer allocator.destroy(parsed.arena);
+        parsed.arena.* = ArenaAllocator.init(allocator);
+        errdefer parsed.arena.deinit();
+
+        parsed.value = try fromAnytypeLeaky(arena.allocator(), value, options);
+
+        return parsed;
     }
 
     pub fn fromAnytypeLeaky(a: std.mem.Allocator, value: anytype, options: StringifyOptions) (std.json.Error || std.mem.Allocator.Error)!Value {
