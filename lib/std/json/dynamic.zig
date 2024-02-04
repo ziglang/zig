@@ -222,7 +222,7 @@ pub const Value = union(enum) {
                 } else {
                     var map = ObjectMap.init(allocator);
                     inline for (S.fields) |Field| {
-                        if (options.emit_null_optional_fields == false and @field(value, Field.name) == null) {
+                        if (@typeInfo(Field.type) == .Optional and options.emit_null_optional_fields == false and @field(value, Field.name) == null) {
                             // skip field
                         } else {
                             const field_value = try fromAnytypeLeaky(allocator, @field(value, Field.name));

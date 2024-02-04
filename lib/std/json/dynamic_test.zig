@@ -85,7 +85,7 @@ test "parse from zig value" {
                 Width: i32 = 100,
             } = .{},
             Animated: bool = false,
-            IDs: []const u32 = .{ 116, 943, 234, 38793 },
+            IDs: []const u32 = &.{ 116, 943, 234, 38793 },
             ArrayOfObject: []const struct { n: []const u8 = "m" } = &.{.{}},
             double: f64 = 1.3412,
             LargeInt: u128 = 18446744073709551615,
