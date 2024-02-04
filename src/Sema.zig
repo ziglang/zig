@@ -8599,6 +8599,7 @@ fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         },
     };
     const enum_tag_ty = sema.typeOf(enum_tag);
+    const int_tag_ty = enum_tag_ty.intTagType(mod);
 
     // TODO: use correct solution
     // https://github.com/ziglang/zig/issues/15909
@@ -8608,19 +8609,15 @@ fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         });
     }
 
-    const int_tag_ty = enum_tag_ty.intTagType(mod);
-
-    if (try sema.resolveValue(operand)) |resolved_op| {
-        if (resolved_op.isUndef(mod)) {
-            return mod.undefRef(int_tag_ty);
-        }
-    }
-
     if (try sema.typeHasOnePossibleValue(enum_tag_ty)) |opv| {
         return Air.internedToRef((try mod.getCoerced(opv, int_tag_ty)).toIntern());
     }
 
     if (try sema.resolveValue(enum_tag)) |enum_tag_val| {
+        if (enum_tag_val.isUndef(mod)) {
+            return mod.undefRef(int_tag_ty);
+        }
+
         const val = try enum_tag_val.intFromEnum(enum_tag_ty, mod);
         return Air.internedToRef(val.toIntern());
     }
