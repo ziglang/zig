@@ -138,11 +138,11 @@ test "math.inf" {
     const inf_u64: u64 = 0x7FF0000000000000;
     const inf_u80: u80 = 0x7FFF8000000000000000;
     const inf_u128: u128 = 0x7FFF0000000000000000000000000000;
-    try expectEqual(inf_u16, @bitCast(inf(f16)));
-    try expectEqual(inf_u32, @bitCast(inf(f32)));
-    try expectEqual(inf_u64, @bitCast(inf(f64)));
-    try expectEqual(inf_u80, @bitCast(inf(f80)));
-    try expectEqual(inf_u128, @bitCast(inf(f128)));
+    try expectEqual(inf_u16, @as(u16, @bitCast(inf(f16))));
+    try expectEqual(inf_u32, @as(u32, @bitCast(inf(f32))));
+    try expectEqual(inf_u64, @as(u64, @bitCast(inf(f64))));
+    try expectEqual(inf_u80, @as(u80, @bitCast(inf(f80))));
+    try expectEqual(inf_u128, @as(u128, @bitCast(inf(f128))));
 }
 
 test "math.nan" {
@@ -151,11 +151,11 @@ test "math.nan" {
     const qnan_u64: u64 = 0x7FF8000000000000;
     const qnan_u80: u80 = 0x7FFFC000000000000000;
     const qnan_u128: u128 = 0x7FFF8000000000000000000000000000;
-    try expectEqual(qnan_u16, @bitCast(nan(f16)));
-    try expectEqual(qnan_u32, @bitCast(nan(f32)));
-    try expectEqual(qnan_u64, @bitCast(nan(f64)));
-    try expectEqual(qnan_u80, @bitCast(nan(f80)));
-    try expectEqual(qnan_u128, @bitCast(nan(f128)));
+    try expectEqual(qnan_u16, @as(u16, @bitCast(nan(f16))));
+    try expectEqual(qnan_u32, @as(u32, @bitCast(nan(f32))));
+    try expectEqual(qnan_u64, @as(u64, @bitCast(nan(f64))));
+    try expectEqual(qnan_u80, @as(u80, @bitCast(nan(f80))));
+    try expectEqual(qnan_u128, @as(u128, @bitCast(nan(f128))));
 }
 
 test "math.snan" {
@@ -167,9 +167,9 @@ test "math.snan" {
     const snan_u64: u64 = 0x7FF4000000000000;
     const snan_u80: u80 = 0x7FFFA000000000000000;
     const snan_u128: u128 = 0x7FFF4000000000000000000000000000;
-    try expectEqual(snan_u16, @bitCast(snan(f16)));
-    try expectEqual(snan_u32, @bitCast(snan(f32)));
-    try expectEqual(snan_u64, @bitCast(snan(f64)));
-    try expectEqual(snan_u80, @bitCast(snan(f80)));
-    try expectEqual(snan_u128, @bitCast(snan(f128)));
+    try expectEqual(snan_u16, @as(u16, @bitCast(snan(f16))));
+    try expectEqual(snan_u32, @as(u32, @bitCast(snan(f32))));
+    try expectEqual(snan_u64, @as(u64, @bitCast(snan(f64))));
+    try expectEqual(snan_u80, @as(u80, @bitCast(snan(f80))));
+    try expectEqual(snan_u128, @as(u128, @bitCast(snan(f128))));
 }

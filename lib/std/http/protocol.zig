@@ -84,7 +84,7 @@ pub const HeadersParser = struct {
     /// If the amount returned is less than `bytes.len`, you may assume that the parser is in a content state and the
     /// first byte of content is located at `bytes[result]`.
     pub fn findHeadersEnd(r: *HeadersParser, bytes: []const u8) u32 {
-        const vector_len: comptime_int = @max(std.simd.suggestVectorSize(u8) orelse 1, 8);
+        const vector_len: comptime_int = @max(std.simd.suggestVectorLength(u8) orelse 1, 8);
         const len: u32 = @intCast(bytes.len);
         var index: u32 = 0;
 
@@ -524,7 +524,7 @@ pub const HeadersParser = struct {
     ///
     /// If `skip` is true, the buffer will be unused and the body will be skipped.
     ///
-    /// See `std.http.Client.BufferedConnection for an example of `conn`.
+    /// See `std.http.Client.Connection for an example of `conn`.
     pub fn read(r: *HeadersParser, conn: anytype, buffer: []u8, skip: bool) !usize {
         assert(r.state.isContent());
         if (r.done) return 0;
@@ -543,7 +543,7 @@ pub const HeadersParser = struct {
                         conn.drop(@intCast(nread));
                         r.next_chunk_length -= nread;
 
-                        if (r.next_chunk_length == 0) r.done = true;
+                        if (r.next_chunk_length == 0 or nread == 0) r.done = true;
 
                         return out_index;
                     } else if (out_index < buffer.len) {
@@ -553,7 +553,7 @@ pub const HeadersParser = struct {
                         const nread = try conn.read(buffer[0..can_read]);
                         r.next_chunk_length -= nread;
 
-                        if (r.next_chunk_length == 0) r.done = true;
+                        if (r.next_chunk_length == 0 or nread == 0) r.done = true;
 
                         return nread;
                     } else {

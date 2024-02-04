@@ -47,13 +47,15 @@ pub fn deinit(self: *SharedObject, allocator: Allocator) void {
 }
 
 pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     var stream = std.io.fixedBufferStream(self.data);
     const reader = stream.reader();
 
     self.header = try reader.readStruct(elf.Elf64_Ehdr);
 
-    if (elf_file.base.options.target.cpu.arch != self.header.?.e_machine.toTargetCpuArch().?) {
+    const target = elf_file.base.comp.root_mod.resolved_target.result;
+    if (target.cpu.arch != self.header.?.e_machine.toTargetCpuArch().?) {
         try elf_file.reportParseError2(
             self.index,
             "invalid cpu architecture: {s}",
@@ -82,9 +84,11 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
     try self.shdrs.ensureTotalCapacityPrecise(gpa, shdrs.len);
 
     for (shdrs, 0..) |shdr, i| {
-        if (self.data.len < shdr.sh_offset or self.data.len < shdr.sh_offset + shdr.sh_size) {
-            try elf_file.reportParseError2(self.index, "corrupted section header", .{});
-            return error.MalformedObject;
+        if (shdr.sh_type != elf.SHT_NOBITS) {
+            if (self.data.len < shdr.sh_offset or self.data.len < shdr.sh_offset + shdr.sh_size) {
+                try elf_file.reportParseError2(self.index, "corrupted section header", .{});
+                return error.MalformedObject;
+            }
         }
         self.shdrs.appendAssumeCapacity(try ElfShdr.fromElf64Shdr(shdr));
         switch (shdr.sh_type) {
@@ -100,7 +104,8 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
 }
 
 fn parseVersions(self: *SharedObject, elf_file: *Elf) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const symtab = self.getSymtabRaw();
 
     try self.verstrings.resize(gpa, 2);
@@ -145,7 +150,8 @@ fn parseVersions(self: *SharedObject, elf_file: *Elf) !void {
 }
 
 pub fn init(self: *SharedObject, elf_file: *Elf) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const symtab = self.getSymtabRaw();
     const strtab = self.getStrtabRaw();
 
@@ -294,7 +300,8 @@ pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {
         }
     };
 
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     var aliases = std.ArrayList(Symbol.Index).init(gpa);
     defer aliases.deinit();
     try aliases.ensureTotalCapacityPrecise(self.globals().len);

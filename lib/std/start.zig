@@ -105,7 +105,7 @@ fn main2() callconv(.C) c_int {
     return 0;
 }
 
-fn _start2() noreturn {
+fn _start2() callconv(.C) noreturn {
     callMain2();
 }
 

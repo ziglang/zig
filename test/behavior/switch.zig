@@ -600,9 +600,9 @@ test "switch on pointer type" {
     try expect(1 == S.doTheTest(S.P1));
     try expect(2 == S.doTheTest(S.P2));
     try expect(3 == S.doTheTest(S.P3));
-    try comptime expect(1 == S.doTheTest(S.P1));
-    try comptime expect(2 == S.doTheTest(S.P2));
-    try comptime expect(3 == S.doTheTest(S.P3));
+    comptime assert(1 == S.doTheTest(S.P1));
+    comptime assert(2 == S.doTheTest(S.P2));
+    comptime assert(3 == S.doTheTest(S.P3));
 }
 
 test "switch on error set with single else" {
@@ -830,4 +830,23 @@ test "peer type resolution on switch captures ignores unused payload bits" {
     };
 
     try expect(x == 123);
+}
+
+test "switch prong captures range" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn a(b: []u3, c: u3) void {
+            switch (c) {
+                0...1 => b[c] = c,
+                2...3 => b[c] = c,
+                4...7 => |d| b[d] = c,
+            }
+        }
+    };
+
+    var arr: [8]u3 = undefined;
+    S.a(&arr, 5);
+    try expect(arr[5] == 5);
 }

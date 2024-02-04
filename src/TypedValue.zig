@@ -264,52 +264,56 @@ pub fn print(
             .float => |float| switch (float.storage) {
                 inline else => |x| return writer.print("{d}", .{@as(f64, @floatCast(x))}),
             },
-            .ptr => |ptr| {
-                if (ptr.addr == .int) {
-                    switch (ip.indexToKey(ptr.addr.int)) {
-                        .int => |i| switch (i.storage) {
-                            inline else => |addr| return writer.print("{x:0>8}", .{addr}),
-                        },
-                        .undef => return writer.writeAll("undefined"),
-                        else => unreachable,
-                    }
+            .slice => |slice| {
+                const ptr_ty = switch (ip.indexToKey(slice.ptr)) {
+                    .ptr => |ptr| ty: {
+                        if (ptr.addr == .int) return print(.{
+                            .ty = Type.fromInterned(ptr.ty),
+                            .val = Value.fromInterned(slice.ptr),
+                        }, writer, level - 1, mod);
+                        break :ty ip.indexToKey(ptr.ty).ptr_type;
+                    },
+                    .undef => |ptr_ty| ip.indexToKey(ptr_ty).ptr_type,
+                    else => unreachable,
+                };
+                if (level == 0) {
+                    return writer.writeAll(".{ ... }");
                 }
+                const elem_ty = Type.fromInterned(ptr_ty.child);
+                const len = Value.fromInterned(slice.len).toUnsignedInt(mod);
+                if (elem_ty.eql(Type.u8, mod)) str: {
+                    const max_len = @min(len, max_string_len);
+                    var buf: [max_string_len]u8 = undefined;
+                    for (buf[0..max_len], 0..) |*c, i| {
+                        const maybe_elem = try val.maybeElemValue(mod, i);
+                        const elem = maybe_elem orelse return writer.writeAll(".{ (reinterpreted data) }");
+                        if (elem.isUndef(mod)) break :str;
+                        c.* = @as(u8, @intCast(elem.toUnsignedInt(mod)));
+                    }
+                    const truncated = if (len > max_string_len) " (truncated)" else "";
+                    return writer.print("\"{}{s}\"", .{ std.zig.fmtEscapes(buf[0..max_len]), truncated });
+                }
+                try writer.writeAll(".{ ");
+                const max_len = @min(len, max_aggregate_items);
+                for (0..max_len) |i| {
+                    if (i != 0) try writer.writeAll(", ");
+                    const maybe_elem = try val.maybeElemValue(mod, i);
+                    const elem = maybe_elem orelse return writer.writeAll("(reinterpreted data) }");
+                    try print(.{
+                        .ty = elem_ty,
+                        .val = elem,
+                    }, writer, level - 1, mod);
+                }
+                if (len > max_aggregate_items) {
+                    try writer.writeAll(", ...");
+                }
+                return writer.writeAll(" }");
+            },
+            .ptr => |ptr| {
+                if (ptr.addr == .int) {}
 
                 const ptr_ty = ip.indexToKey(ty.toIntern()).ptr_type;
-                if (ptr_ty.flags.size == .Slice) {
-                    if (level == 0) {
-                        return writer.writeAll(".{ ... }");
-                    }
-                    const elem_ty = Type.fromInterned(ptr_ty.child);
-                    const len = Value.fromInterned(ptr.len).toUnsignedInt(mod);
-                    if (elem_ty.eql(Type.u8, mod)) str: {
-                        const max_len = @min(len, max_string_len);
-                        var buf: [max_string_len]u8 = undefined;
-                        for (buf[0..max_len], 0..) |*c, i| {
-                            const maybe_elem = try val.maybeElemValue(mod, i);
-                            const elem = maybe_elem orelse return writer.writeAll(".{ (reinterpreted data) }");
-                            if (elem.isUndef(mod)) break :str;
-                            c.* = @as(u8, @intCast(elem.toUnsignedInt(mod)));
-                        }
-                        const truncated = if (len > max_string_len) " (truncated)" else "";
-                        return writer.print("\"{}{s}\"", .{ std.zig.fmtEscapes(buf[0..max_len]), truncated });
-                    }
-                    try writer.writeAll(".{ ");
-                    const max_len = @min(len, max_aggregate_items);
-                    for (0..max_len) |i| {
-                        if (i != 0) try writer.writeAll(", ");
-                        const maybe_elem = try val.maybeElemValue(mod, i);
-                        const elem = maybe_elem orelse return writer.writeAll("(reinterpreted data) }");
-                        try print(.{
-                            .ty = elem_ty,
-                            .val = elem,
-                        }, writer, level - 1, mod);
-                    }
-                    if (len > max_aggregate_items) {
-                        try writer.writeAll(", ...");
-                    }
-                    return writer.writeAll(" }");
-                }
+                if (ptr_ty.flags.size == .Slice) {}
 
                 switch (ptr.addr) {
                     .decl => |decl_index| {

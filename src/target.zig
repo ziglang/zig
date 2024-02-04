@@ -2,16 +2,22 @@ const std = @import("std");
 const Type = @import("type.zig").Type;
 const AddressSpace = std.builtin.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
+const Feature = @import("Module.zig").Feature;
+
+pub const default_stack_protector_buffer_size = 4;
 
 pub const ArchOsAbi = struct {
     arch: std.Target.Cpu.Arch,
     os: std.Target.Os.Tag,
     abi: std.Target.Abi,
     os_ver: ?std.SemanticVersion = null,
+
+    // Minimum glibc version that provides support for the arch/os when ABI is GNU.
+    glibc_min: ?std.SemanticVersion = null,
 };
 
 pub const available_libcs = [_]ArchOsAbi{
-    .{ .arch = .aarch64_be, .os = .linux, .abi = .gnu },
+    .{ .arch = .aarch64_be, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 17, .patch = 0 } },
     .{ .arch = .aarch64_be, .os = .linux, .abi = .musl },
     .{ .arch = .aarch64_be, .os = .windows, .abi = .gnu },
     .{ .arch = .aarch64, .os = .linux, .abi = .gnu },
@@ -51,14 +57,14 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .mips, .os = .linux, .abi = .gnueabi },
     .{ .arch = .mips, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .mips, .os = .linux, .abi = .musl },
-    .{ .arch = .powerpc64le, .os = .linux, .abi = .gnu },
+    .{ .arch = .powerpc64le, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 19, .patch = 0 } },
     .{ .arch = .powerpc64le, .os = .linux, .abi = .musl },
     .{ .arch = .powerpc64, .os = .linux, .abi = .gnu },
     .{ .arch = .powerpc64, .os = .linux, .abi = .musl },
     .{ .arch = .powerpc, .os = .linux, .abi = .gnueabi },
     .{ .arch = .powerpc, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .powerpc, .os = .linux, .abi = .musl },
-    .{ .arch = .riscv64, .os = .linux, .abi = .gnu },
+    .{ .arch = .riscv64, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 27, .patch = 0 } },
     .{ .arch = .riscv64, .os = .linux, .abi = .musl },
     .{ .arch = .s390x, .os = .linux, .abi = .gnu },
     .{ .arch = .s390x, .os = .linux, .abi = .musl },
@@ -151,6 +157,12 @@ pub fn canBuildLibC(target: std.Target) bool {
                 const ver = target.os.version_range.semver;
                 return ver.min.order(libc.os_ver.?) != .lt;
             }
+            // Ensure glibc (aka *-linux-gnu) version is supported
+            if (target.isGnuLibC()) {
+                const min_glibc_ver = libc.glibc_min orelse return true;
+                const target_glibc_ver = target.os.version_range.linux.glibc;
+                return target_glibc_ver.order(min_glibc_ver) != .lt;
+            }
             return true;
         }
     }
@@ -204,9 +216,16 @@ pub fn supports_fpic(target: std.Target) bool {
     return target.os.tag != .windows and target.os.tag != .uefi;
 }
 
-pub fn isSingleThreaded(target: std.Target) bool {
+pub fn alwaysSingleThreaded(target: std.Target) bool {
     _ = target;
     return false;
+}
+
+pub fn defaultSingleThreaded(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .wasm32, .wasm64 => true,
+        else => false,
+    };
 }
 
 /// Valgrind supports more, but Zig does not support them yet.
@@ -314,6 +333,14 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
     };
 }
 
+/// The set of targets that Zig supports using LLD to link for.
+pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
+    return switch (ofmt) {
+        .elf, .coff, .wasm => true,
+        else => false,
+    };
+}
+
 /// The set of targets that our own self-hosted backends have robust support for.
 /// Used to select between LLVM backend and self-hosted backend when compiling in
 /// debug mode. A given target should only return true here if it is passing greater
@@ -343,6 +370,13 @@ pub fn supportsStackProtector(target: std.Target, backend: std.builtin.CompilerB
     };
 }
 
+pub fn clangSupportsStackProtector(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .spirv32, .spirv64 => return false,
+        else => true,
+    };
+}
+
 pub fn libcProvidesStackProtector(target: std.Target) bool {
     return !target.isMinGW() and target.os.tag != .wasi and !target.isSpirV();
 }
@@ -354,96 +388,6 @@ pub fn supportsReturnAddress(target: std.Target) bool {
         .spirv32, .spirv64 => false,
         else => true,
     };
-}
-
-fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
-    if (ignore_case) {
-        return std.ascii.eqlIgnoreCase(a, b);
-    } else {
-        return std.mem.eql(u8, a, b);
-    }
-}
-
-pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
-    const ignore_case = target.os.tag == .macos or target.os.tag == .windows;
-
-    if (eqlIgnoreCase(ignore_case, name, "c"))
-        return true;
-
-    if (target.isMinGW()) {
-        if (eqlIgnoreCase(ignore_case, name, "m"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "uuid"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "mingw32"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "msvcrt-os"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "mingwex"))
-            return true;
-
-        return false;
-    }
-
-    if (target.abi.isGnu() or target.abi.isMusl()) {
-        if (eqlIgnoreCase(ignore_case, name, "m"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "rt"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "pthread"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "util"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "xnet"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "resolv"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "dl"))
-            return true;
-    }
-
-    if (target.abi.isMusl()) {
-        if (eqlIgnoreCase(ignore_case, name, "crypt"))
-            return true;
-    }
-
-    if (target.os.tag.isDarwin()) {
-        if (eqlIgnoreCase(ignore_case, name, "System"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "c"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "dbm"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "dl"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "info"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "m"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "poll"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "proc"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "pthread"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "rpcsvc"))
-            return true;
-    }
-
-    if (target.os.isAtLeast(.macos, .{ .major = 10, .minor = 8, .patch = 0 }) orelse false) {
-        if (eqlIgnoreCase(ignore_case, name, "mx"))
-            return true;
-    }
-
-    return false;
-}
-
-pub fn is_libcpp_lib_name(target: std.Target, name: []const u8) bool {
-    const ignore_case = target.os.tag.isDarwin() or target.os.tag == .windows;
-
-    return eqlIgnoreCase(ignore_case, name, "c++") or
-        eqlIgnoreCase(ignore_case, name, "stdc++") or
-        eqlIgnoreCase(ignore_case, name, "c++abi");
 }
 
 pub const CompilerRtClassification = enum { none, only_compiler_rt, only_libunwind, both };
@@ -465,12 +409,16 @@ pub fn classifyCompilerRtLibName(target: std.Target, name: []const u8) CompilerR
 }
 
 pub fn hasDebugInfo(target: std.Target) bool {
-    if (target.cpu.arch.isNvptx()) {
-        // TODO: not sure how to test "ptx >= 7.5" with featureset
-        return std.Target.nvptx.featureSetHas(target.cpu.features, .ptx75);
-    }
-
-    return true;
+    return switch (target.cpu.arch) {
+        .nvptx, .nvptx64 => std.Target.nvptx.featureSetHas(target.cpu.features, .ptx75) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx76) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx77) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx78) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx80) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx81),
+        .bpfel, .bpfeb => false,
+        else => true,
+    };
 }
 
 pub fn defaultCompilerRtOptimizeMode(target: std.Target) std.builtin.OptimizeMode {
@@ -707,5 +655,39 @@ pub fn fnCallConvAllowsZigTypes(target: std.Target, cc: std.builtin.CallingConve
         // integrated CPU/GPU code.
         .Kernel => target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64,
         else => false,
+    };
+}
+
+pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBackend {
+    if (use_llvm) return .stage2_llvm;
+    if (target.ofmt == .c) return .stage2_c;
+    return switch (target.cpu.arch) {
+        .wasm32, .wasm64 => std.builtin.CompilerBackend.stage2_wasm,
+        .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
+        .x86_64 => .stage2_x86_64,
+        .x86 => .stage2_x86,
+        .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
+        .riscv64 => .stage2_riscv64,
+        .sparc64 => .stage2_sparc64,
+        .spirv64 => .stage2_spirv64,
+        else => .other,
+    };
+}
+
+pub fn backendSupportsFeature(
+    cpu_arch: std.Target.Cpu.Arch,
+    ofmt: std.Target.ObjectFormat,
+    use_llvm: bool,
+    feature: Feature,
+) bool {
+    return switch (feature) {
+        .panic_fn => ofmt == .c or use_llvm or cpu_arch == .x86_64,
+        .panic_unwrap_error => ofmt == .c or use_llvm,
+        .safety_check_formatted => ofmt == .c or use_llvm,
+        .error_return_trace => use_llvm,
+        .is_named_enum_value => use_llvm,
+        .error_set_has_value => use_llvm or cpu_arch.isWasm(),
+        .field_reordering => use_llvm,
+        .safety_checked_instructions => use_llvm,
     };
 }

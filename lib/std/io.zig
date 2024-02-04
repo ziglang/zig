@@ -142,7 +142,7 @@ pub fn GenericReader(
             self: Self,
             array_list: *std.ArrayList(u8),
             max_append_size: usize,
-        ) (error{StreamTooLong} || Error)!void {
+        ) (error{StreamTooLong} || Allocator.Error || Error)!void {
             return @errorCast(self.any().readAllArrayList(array_list, max_append_size));
         }
 
@@ -151,7 +151,7 @@ pub fn GenericReader(
             comptime alignment: ?u29,
             array_list: *std.ArrayListAligned(u8, alignment),
             max_append_size: usize,
-        ) (error{StreamTooLong} || Error)!void {
+        ) (error{StreamTooLong} || Allocator.Error || Error)!void {
             return @errorCast(self.any().readAllArrayListAligned(
                 alignment,
                 array_list,
@@ -163,7 +163,7 @@ pub fn GenericReader(
             self: Self,
             allocator: Allocator,
             max_size: usize,
-        ) (Error || error{StreamTooLong})![]u8 {
+        ) (Error || Allocator.Error || error{StreamTooLong})![]u8 {
             return @errorCast(self.any().readAllAlloc(allocator, max_size));
         }
 
@@ -172,7 +172,7 @@ pub fn GenericReader(
             array_list: *std.ArrayList(u8),
             delimiter: u8,
             max_size: usize,
-        ) (NoEofError || error{StreamTooLong})!void {
+        ) (NoEofError || Allocator.Error || error{StreamTooLong})!void {
             return @errorCast(self.any().readUntilDelimiterArrayList(
                 array_list,
                 delimiter,
@@ -185,7 +185,7 @@ pub fn GenericReader(
             allocator: Allocator,
             delimiter: u8,
             max_size: usize,
-        ) (NoEofError || error{StreamTooLong})![]u8 {
+        ) (NoEofError || Allocator.Error || error{StreamTooLong})![]u8 {
             return @errorCast(self.any().readUntilDelimiterAlloc(
                 allocator,
                 delimiter,
@@ -206,7 +206,7 @@ pub fn GenericReader(
             allocator: Allocator,
             delimiter: u8,
             max_size: usize,
-        ) (Error || error{StreamTooLong})!?[]u8 {
+        ) (Error || Allocator.Error || error{StreamTooLong})!?[]u8 {
             return @errorCast(self.any().readUntilDelimiterOrEofAlloc(
                 allocator,
                 delimiter,
@@ -300,8 +300,8 @@ pub fn GenericReader(
             return @errorCast(self.any().readStruct(T));
         }
 
-        pub inline fn readStructBig(self: Self, comptime T: type) NoEofError!T {
-            return @errorCast(self.any().readStructBig(T));
+        pub inline fn readStructEndian(self: Self, comptime T: type, endian: std.builtin.Endian) NoEofError!T {
+            return @errorCast(self.any().readStructEndian(T, endian));
         }
 
         pub const ReadEnumError = NoEofError || error{
@@ -635,7 +635,7 @@ pub fn PollFiles(comptime StreamEnum: type) type {
     var struct_fields: [enum_fields.len]std.builtin.Type.StructField = undefined;
     for (&struct_fields, enum_fields) |*struct_field, enum_field| {
         struct_field.* = .{
-            .name = enum_field.name,
+            .name = enum_field.name ++ "",
             .type = fs.File,
             .default_value = null,
             .is_comptime = false,

@@ -435,6 +435,7 @@ pub fn categorizeOperand(
         },
 
         .ret,
+        .ret_safe,
         .ret_load,
         => {
             const o = air_datas[@intFromEnum(inst)].un_op;
@@ -599,7 +600,7 @@ pub fn categorizeOperand(
 
         .br => {
             const br = air_datas[@intFromEnum(inst)].br;
-            if (br.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .noret);
+            if (br.operand == operand_ref) return matchOperandSmallIndex(l, operand, 0, .noret);
             return .noret;
         },
         .assembly => {
@@ -1070,6 +1071,7 @@ fn analyzeInst(
         },
 
         .ret,
+        .ret_safe,
         .ret_load,
         => {
             const operand = inst_datas[@intFromEnum(inst)].un_op;

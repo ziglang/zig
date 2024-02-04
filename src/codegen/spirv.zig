@@ -191,13 +191,9 @@ pub const Object = struct {
         air: Air,
         liveness: Liveness,
     ) !void {
-        const target = mod.getTarget();
-        // We always want a structured control flow in shaders. This option is only relevant
-        // for OpenCL kernels.
-        const want_structured_cfg = switch (target.os.tag) {
-            .opencl => mod.comp.bin_file.options.want_structured_cfg orelse false,
-            else => true,
-        };
+        const decl = mod.declPtr(decl_index);
+        const namespace = mod.namespacePtr(decl.src_namespace);
+        const structured_cfg = namespace.file_scope.mod.structured_cfg;
 
         var decl_gen = DeclGen{
             .gpa = self.gpa,
@@ -208,7 +204,7 @@ pub const Object = struct {
             .air = air,
             .liveness = liveness,
             .type_map = &self.type_map,
-            .control_flow = switch (want_structured_cfg) {
+            .control_flow = switch (structured_cfg) {
                 true => .{ .structured = .{} },
                 false => .{ .unstructured = .{} },
             },
@@ -859,18 +855,12 @@ const DeclGen = struct {
                 const int_ty = ty.intTagType(mod);
                 return try self.constant(int_ty, int_val, repr);
             },
-            .ptr => |ptr| {
-                const ptr_ty = switch (ptr.len) {
-                    .none => ty,
-                    else => ty.slicePtrFieldType(mod),
-                };
-                const ptr_id = try self.constantPtr(ptr_ty, val);
-                if (ptr.len == .none) {
-                    return ptr_id;
-                }
-
-                const len_id = try self.constant(Type.usize, Value.fromInterned(ptr.len), .indirect);
-                return try self.constructStruct(
+            .ptr => return self.constantPtr(ty, val),
+            .slice => |slice| {
+                const ptr_ty = ty.slicePtrFieldType(mod);
+                const ptr_id = try self.constantPtr(ptr_ty, Value.fromInterned(slice.ptr));
+                const len_id = try self.constant(Type.usize, Value.fromInterned(slice.len), .indirect);
+                return self.constructStruct(
                     ty,
                     &.{ ptr_ty, Type.usize },
                     &.{ ptr_id, len_id },
@@ -2181,6 +2171,7 @@ const DeclGen = struct {
             .cond_br        => return self.airCondBr(inst),
             .loop           => return self.airLoop(inst),
             .ret            => return self.airRet(inst),
+            .ret_safe       => return self.airRet(inst), // TODO
             .ret_load       => return self.airRetLoad(inst),
             .@"try"         => try self.airTry(inst),
             .switch_br      => return self.airSwitchBr(inst),

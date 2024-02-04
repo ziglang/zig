@@ -102,14 +102,34 @@ pub const ReduceOp = enum {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const AtomicRmwOp = enum {
+    /// Exchange - store the operand unmodified.
+    /// Supports enums, integers, and floats.
     Xchg,
+    /// Add operand to existing value.
+    /// Supports integers and floats.
+    /// For integers, two's complement wraparound applies.
     Add,
+    /// Subtract operand from existing value.
+    /// Supports integers and floats.
+    /// For integers, two's complement wraparound applies.
     Sub,
+    /// Perform bitwise AND on existing value with operand.
+    /// Supports integers.
     And,
+    /// Perform bitwise NAND on existing value with operand.
+    /// Supports integers.
     Nand,
+    /// Perform bitwise OR on existing value with operand.
+    /// Supports integers.
     Or,
+    /// Perform bitwise XOR on existing value with operand.
+    /// Supports integers.
     Xor,
+    /// Store operand if it is larger than the existing value.
+    /// Supports integers and floats.
     Max,
+    /// Store operand if it is smaller than the existing value.
+    /// Supports integers and floats.
     Min,
 };
 
@@ -314,7 +334,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const StructField = struct {
-        name: []const u8,
+        name: [:0]const u8,
         type: type,
         default_value: ?*const anyopaque,
         is_comptime: bool,
@@ -348,7 +368,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Error = struct {
-        name: []const u8,
+        name: [:0]const u8,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -358,7 +378,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const EnumField = struct {
-        name: []const u8,
+        name: [:0]const u8,
         value: comptime_int,
     };
 
@@ -374,7 +394,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const UnionField = struct {
-        name: []const u8,
+        name: [:0]const u8,
         type: type,
         alignment: comptime_int,
     };
@@ -436,7 +456,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Declaration = struct {
-        name: []const u8,
+        name: [:0]const u8,
     };
 };
 

@@ -20,7 +20,8 @@ pub fn deinit(self: *Archive, allocator: Allocator) void {
 }
 
 pub fn parse(self: *Archive, elf_file: *Elf) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
 
     var stream = std.io.fixedBufferStream(self.data);
     const reader = stream.reader();
@@ -150,7 +151,8 @@ pub const ArSymtab = struct {
         const hdr = setArHdr(.{ .name = .symtab, .size = @intCast(ar.size(.p64)) });
         try writer.writeAll(mem.asBytes(&hdr));
 
-        const gpa = elf_file.base.allocator;
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
         var offsets = std.AutoHashMap(File.Index, u64).init(gpa);
         defer offsets.deinit();
         try offsets.ensureUnusedCapacity(@intCast(elf_file.objects.items.len + 1));

@@ -477,11 +477,10 @@ pub fn Decompressor(comptime ReaderType: type) type {
             }
         }
 
-        pub fn close(self: *Self) ?Error {
-            if (self.err == @as(?Error, error.EndOfStreamWithNoError)) {
-                return null;
+        pub fn close(self: *Self) Error!void {
+            if (self.err) |err| {
+                if (err != error.EndOfStreamWithNoError) return err;
             }
-            return self.err;
         }
 
         // RFC 1951 section 3.2.7.
@@ -880,7 +879,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
 
         /// Replaces the inner reader and dictionary with new_reader and new_dict.
         /// new_reader must be of the same type as the reader being replaced.
-        pub fn reset(s: *Self, new_reader: ReaderType, new_dict: ?[]const u8) !void {
+        pub fn reset(s: *Self, new_reader: ReaderType, new_dict: ?[]const u8) Error!void {
             s.inner_reader = new_reader;
             s.step = nextBlock;
             s.err = null;
@@ -920,9 +919,7 @@ test "confirm decompressor resets" {
         const buf = try decomp.reader().readAllAlloc(std.testing.allocator, 1024 * 100);
         defer std.testing.allocator.free(buf);
 
-        if (decomp.close()) |err| {
-            return err;
-        }
+        try decomp.close();
 
         try decomp.reset(stream.reader(), null);
     }

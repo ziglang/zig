@@ -47,7 +47,6 @@ static unsigned IndexFromPImgThunkData(PCImgThunkData pitdCur,PCImgThunkData pit
   return (unsigned) (pitdCur - pitdBase);
 }
 
-#define __ImageBase __MINGW_LSYMBOL(_image_base__)
 extern IMAGE_DOS_HEADER __ImageBase;
 
 #define PtrFromRVA(RVA)   (((PBYTE)&__ImageBase) + (RVA))

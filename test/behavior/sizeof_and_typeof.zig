@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -23,24 +24,24 @@ test "@TypeOf() with multiple arguments" {
         var var_2: u8 = undefined;
         var var_3: u64 = undefined;
         _ = .{ &var_1, &var_2, &var_3 };
-        try comptime expect(@TypeOf(var_1, var_2, var_3) == u64);
+        comptime assert(@TypeOf(var_1, var_2, var_3) == u64);
     }
     {
         var var_1: f16 = undefined;
         var var_2: f32 = undefined;
         var var_3: f64 = undefined;
         _ = .{ &var_1, &var_2, &var_3 };
-        try comptime expect(@TypeOf(var_1, var_2, var_3) == f64);
+        comptime assert(@TypeOf(var_1, var_2, var_3) == f64);
     }
     {
         var var_1: u16 = undefined;
         _ = &var_1;
-        try comptime expect(@TypeOf(var_1, 0xffff) == u16);
+        comptime assert(@TypeOf(var_1, 0xffff) == u16);
     }
     {
         var var_1: f32 = undefined;
         _ = &var_1;
-        try comptime expect(@TypeOf(var_1, 3.1415) == f32);
+        comptime assert(@TypeOf(var_1, 3.1415) == f32);
     }
 }
 
@@ -150,7 +151,7 @@ test "@TypeOf() has no runtime side effects" {
     };
     var data: i32 = 0;
     const T = @TypeOf(S.foo(i32, &data));
-    try comptime expect(T == i32);
+    comptime assert(T == i32);
     try expect(data == 0);
 }
 
@@ -165,7 +166,7 @@ test "branching logic inside @TypeOf" {
         }
     };
     const T = @TypeOf(S.foo() catch undefined);
-    try comptime expect(T == i32);
+    comptime assert(T == i32);
     try expect(S.data == 0);
 }
 
@@ -238,7 +239,7 @@ test "hardcoded address in typeof expression" {
         }
     };
     try expect(S.func() == 0);
-    try comptime expect(S.func() == 0);
+    comptime assert(S.func() == 0);
 }
 
 test "array access of generic param in typeof expression" {
@@ -248,7 +249,7 @@ test "array access of generic param in typeof expression" {
         }
     };
     try expect(S.first("a") == 'a');
-    try comptime expect(S.first("a") == 'a');
+    comptime assert(S.first("a") == 'a');
 }
 
 test "lazy size cast to float" {
@@ -313,4 +314,127 @@ test "@bitSizeOf on array of structs" {
     };
 
     try expectEqual(128, @bitSizeOf([2]S));
+}
+
+test "lazy abi size used in comparison" {
+    const S = struct { a: usize };
+    var rhs: i32 = 100;
+    _ = &rhs;
+    try expect(@sizeOf(S) < rhs);
+}
+
+test "peer type resolution with @TypeOf doesn't trigger dependency loop check" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const T = struct {
+        next: @TypeOf(null, @as(*const @This(), undefined)),
+    };
+    var t: T = .{ .next = null };
+    _ = &t;
+    try std.testing.expect(t.next == null);
+}
+
+test "@sizeOf reified union zero-size payload fields" {
+    comptime {
+        try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union {}))));
+        try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union { a: void }))));
+        if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
+            try std.testing.expect(1 == @sizeOf(@Type(@typeInfo(union { a: void, b: void }))));
+            try std.testing.expect(1 == @sizeOf(@Type(@typeInfo(union { a: void, b: void, c: void }))));
+        } else {
+            try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union { a: void, b: void }))));
+            try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union { a: void, b: void, c: void }))));
+        }
+    }
+}
+
+const FILE = extern struct {
+    dummy_field: u8,
+};
+
+extern fn c_printf([*c]const u8, ...) c_int;
+extern fn c_fputs([*c]const u8, noalias [*c]FILE) c_int;
+extern fn c_ftell([*c]FILE) c_long;
+extern fn c_fopen([*c]const u8, [*c]const u8) [*c]FILE;
+
+test "Extern function calls in @TypeOf" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = extern struct {
+        state: c_short,
+
+        extern fn s_do_thing([*c]const @This(), b: c_int) c_short;
+    };
+
+    const Test = struct {
+        fn test_fn_1(a: anytype, b: anytype) @TypeOf(c_printf("%d %s\n", a, b)) {
+            return 0;
+        }
+
+        fn test_fn_2(s: anytype, a: anytype) @TypeOf(s.s_do_thing(a)) {
+            return 1;
+        }
+
+        fn doTheTest() !void {
+            try expect(@TypeOf(test_fn_1(0, 42)) == c_int);
+            try expect(@TypeOf(test_fn_2(&S{ .state = 1 }, 0)) == c_short);
+        }
+    };
+
+    try Test.doTheTest();
+    try comptime Test.doTheTest();
+}
+
+test "Peer resolution of extern function calls in @TypeOf" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Test = struct {
+        fn test_fn() @TypeOf(c_ftell(null), c_fputs(null, null)) {
+            return 0;
+        }
+
+        fn doTheTest() !void {
+            try expect(@TypeOf(test_fn()) == c_long);
+        }
+    };
+
+    try Test.doTheTest();
+    try comptime Test.doTheTest();
+}
+
+test "Extern function calls, dereferences and field access in @TypeOf" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Test = struct {
+        fn test_fn_1(a: c_long) @TypeOf(c_fopen("test", "r").*) {
+            _ = a;
+            return .{ .dummy_field = 0 };
+        }
+
+        fn test_fn_2(a: anytype) @TypeOf(c_fopen("test", "r").*.dummy_field) {
+            _ = a;
+            return 255;
+        }
+
+        fn doTheTest() !void {
+            try expect(@TypeOf(test_fn_1(0)) == FILE);
+            try expect(@TypeOf(test_fn_2(0)) == u8);
+        }
+    };
+
+    try Test.doTheTest();
+    try comptime Test.doTheTest();
+}
+
+test "@sizeOf struct is resolved when used as operand of slicing" {
+    const dummy = struct {};
+    const S = struct {
+        var buf: [1]u8 = undefined;
+    };
+    S.buf[@sizeOf(dummy)..][0] = 0;
+    try expect(S.buf[0] == 0);
 }

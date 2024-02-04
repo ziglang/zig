@@ -209,6 +209,7 @@ extern "C" {
 #define _ungettc ungetwc
 #define _ungettch _ungetwch
 
+#define _tcstof wcstof
 #define _tcstod wcstod
 #define _tcstol wcstol
 #define _tcstoul wcstoul
@@ -218,6 +219,7 @@ extern "C" {
 #define _tstol _wtol
 #define _tstoi _wtoi
 #define _tstoi64 _wtoi64
+#define _tcstof_l _wcstof_l
 #define _tcstod_l _wcstod_l
 #define _tcstol_l _wcstol_l
 #define _tcstoul_l _wcstoul_l
@@ -573,6 +575,7 @@ extern "C" {
 #define _ungettc ungetc
 #define _ungettch _ungetch
 
+#define _tcstof strtof
 #define _tcstod strtod
 #define _tcstol strtol
 #define _tcstoul strtoul
@@ -580,6 +583,7 @@ extern "C" {
 #define _tstol atol
 #define _tstoi atoi
 #define _tstoi64 _atoi64
+#define _tcstof_l _strtof_l
 #define _tcstod_l _strtod_l
 #define _tcstol_l _strtol_l
 #define _tcstoul_l _strtoul_l

@@ -9,6 +9,9 @@ pub fn ParallelHasher(comptime Hasher: type) type {
             chunk_size: u64 = 0x4000,
             max_file_size: ?u64 = null,
         }) !void {
+            const tracy = trace(@src());
+            defer tracy.end();
+
             var wg: WaitGroup = .{};
 
             const file_size = blk: {
@@ -29,7 +32,10 @@ pub fn ParallelHasher(comptime Hasher: type) type {
 
                 for (out, results, 0..) |*out_buf, *result, i| {
                     const fstart = i * chunk_size;
-                    const fsize = if (fstart + chunk_size > file_size) file_size - fstart else chunk_size;
+                    const fsize = if (fstart + chunk_size > file_size)
+                        file_size - fstart
+                    else
+                        chunk_size;
                     wg.start();
                     try self.thread_pool.spawn(worker, .{
                         file,
@@ -61,10 +67,11 @@ pub fn ParallelHasher(comptime Hasher: type) type {
     };
 }
 
-const std = @import("std");
 const assert = std.debug.assert;
 const fs = std.fs;
 const mem = std.mem;
+const std = @import("std");
+const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const ThreadPool = std.Thread.Pool;

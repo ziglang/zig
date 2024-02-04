@@ -426,6 +426,7 @@ pub const Type = struct {
             .empty_enum_value,
             .float,
             .ptr,
+            .slice,
             .opt,
             .aggregate,
             .un,
@@ -651,6 +652,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -758,6 +760,7 @@ pub const Type = struct {
             .empty_enum_value,
             .float,
             .ptr,
+            .slice,
             .opt,
             .aggregate,
             .un,
@@ -1073,6 +1076,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -1380,12 +1384,15 @@ pub const Type = struct {
                         },
                         .eager => {},
                     }
-                    return switch (struct_type.layout) {
-                        .Packed => .{
+                    switch (struct_type.layout) {
+                        .Packed => return .{
                             .scalar = Type.fromInterned(struct_type.backingIntType(ip).*).abiSize(mod),
                         },
-                        .Auto, .Extern => .{ .scalar = struct_type.size(ip).* },
-                    };
+                        .Auto, .Extern => {
+                            assert(struct_type.haveLayout(ip));
+                            return .{ .scalar = struct_type.size(ip).* };
+                        },
+                    }
                 },
                 .anon_struct_type => |tuple| {
                     switch (strat) {
@@ -1411,6 +1418,7 @@ pub const Type = struct {
                         .eager => {},
                     }
 
+                    assert(union_type.haveLayout(ip));
                     return .{ .scalar = union_type.size(ip).* };
                 },
                 .opaque_type => unreachable, // no size available
@@ -1430,6 +1438,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -1603,8 +1612,12 @@ pub const Type = struct {
                 .type_info => unreachable,
             },
             .struct_type => |struct_type| {
-                if (struct_type.layout == .Packed) {
-                    if (opt_sema) |sema| try sema.resolveTypeLayout(ty);
+                const is_packed = struct_type.layout == .Packed;
+                if (opt_sema) |sema| {
+                    try sema.resolveTypeFields(ty);
+                    if (is_packed) try sema.resolveTypeLayout(ty);
+                }
+                if (is_packed) {
                     return try Type.fromInterned(struct_type.backingIntType(ip).*).bitSizeAdvanced(mod, opt_sema);
                 }
                 return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
@@ -1652,6 +1665,7 @@ pub const Type = struct {
             .empty_enum_value,
             .float,
             .ptr,
+            .slice,
             .opt,
             .aggregate,
             .un,
@@ -2187,6 +2201,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -2530,6 +2545,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -2723,6 +2739,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,

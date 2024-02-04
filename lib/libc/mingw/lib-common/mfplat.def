@@ -233,7 +233,6 @@ MFTRegisterLocalByCLSID
 MFTUnregister
 MFTUnregisterLocal
 MFTUnregisterLocalByCLSID
-MFTraceError
 MFTraceFuncEnter
 MFUnblockThread
 MFUnjoinWorkQueue
@@ -245,6 +244,5 @@ MFUnwrapMediaType
 MFValidateMediaTypeSize
 MFWrapMediaType
 MFWrapSocket
-MFllMulDiv
 PropVariantFromStream
 PropVariantToStream

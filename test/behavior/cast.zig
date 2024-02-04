@@ -63,7 +63,7 @@ test "implicit cast comptime numbers to any type when the value fits" {
 }
 
 test "implicit cast comptime_int to comptime_float" {
-    try comptime expect(@as(comptime_float, 10) == @as(f32, 10));
+    comptime assert(@as(comptime_float, 10) == @as(f32, 10));
     try expect(2 == 2.0);
 }
 
@@ -313,11 +313,11 @@ test "peer result null and comptime_int" {
     };
 
     try expect(S.blah(0) == null);
-    try comptime expect(S.blah(0) == null);
+    comptime assert(S.blah(0) == null);
     try expect(S.blah(10).? == 1);
-    try comptime expect(S.blah(10).? == 1);
+    comptime assert(S.blah(10).? == 1);
     try expect(S.blah(-10).? == -1);
-    try comptime expect(S.blah(-10).? == -1);
+    comptime assert(S.blah(-10).? == -1);
 }
 
 test "*const ?[*]const T to [*c]const [*c]const T" {
@@ -393,7 +393,7 @@ test "peer type unsigned int to signed" {
     var y: i32 = -5;
     _ = .{ &w, &x, &y };
     const a = w + y + x;
-    try comptime expect(@TypeOf(a) == i32);
+    comptime assert(@TypeOf(a) == i32);
     try expect(a == 7);
 }
 
@@ -542,9 +542,9 @@ test "peer type resolution: error and [N]T" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
-    try comptime expect(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
+    comptime assert(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
     try expect(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
-    try comptime expect(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
+    comptime assert(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
 }
 
 fn testPeerErrorAndArray(x: u8) anyerror![]const u8 {
@@ -1038,15 +1038,15 @@ test "peer type resolve string lit with sentinel-terminated mutable slice" {
     var array: [4:0]u8 = undefined;
     array[4] = 0; // TODO remove this when #4372 is solved
     const slice: [:0]u8 = array[0..4 :0];
-    try comptime expect(@TypeOf(slice, "hi") == [:0]const u8);
-    try comptime expect(@TypeOf("hi", slice) == [:0]const u8);
+    comptime assert(@TypeOf(slice, "hi") == [:0]const u8);
+    comptime assert(@TypeOf("hi", slice) == [:0]const u8);
 }
 
 test "peer type resolve array pointers, one of them const" {
     var array1: [4]u8 = undefined;
     const array2: [5]u8 = undefined;
-    try comptime expect(@TypeOf(&array1, &array2) == []const u8);
-    try comptime expect(@TypeOf(&array2, &array1) == []const u8);
+    comptime assert(@TypeOf(&array1, &array2) == []const u8);
+    comptime assert(@TypeOf(&array2, &array1) == []const u8);
 }
 
 test "peer type resolve array pointer and unknown pointer" {
@@ -1056,17 +1056,17 @@ test "peer type resolve array pointer and unknown pointer" {
     var ptr: [*]u8 = undefined;
     _ = .{ &const_ptr, &ptr };
 
-    try comptime expect(@TypeOf(&array, ptr) == [*]u8);
-    try comptime expect(@TypeOf(ptr, &array) == [*]u8);
+    comptime assert(@TypeOf(&array, ptr) == [*]u8);
+    comptime assert(@TypeOf(ptr, &array) == [*]u8);
 
-    try comptime expect(@TypeOf(&const_array, ptr) == [*]const u8);
-    try comptime expect(@TypeOf(ptr, &const_array) == [*]const u8);
+    comptime assert(@TypeOf(&const_array, ptr) == [*]const u8);
+    comptime assert(@TypeOf(ptr, &const_array) == [*]const u8);
 
-    try comptime expect(@TypeOf(&array, const_ptr) == [*]const u8);
-    try comptime expect(@TypeOf(const_ptr, &array) == [*]const u8);
+    comptime assert(@TypeOf(&array, const_ptr) == [*]const u8);
+    comptime assert(@TypeOf(const_ptr, &array) == [*]const u8);
 
-    try comptime expect(@TypeOf(&const_array, const_ptr) == [*]const u8);
-    try comptime expect(@TypeOf(const_ptr, &const_array) == [*]const u8);
+    comptime assert(@TypeOf(&const_array, const_ptr) == [*]const u8);
+    comptime assert(@TypeOf(const_ptr, &const_array) == [*]const u8);
 }
 
 test "comptime float casts" {
@@ -1156,7 +1156,7 @@ test "cast function with an opaque parameter" {
         .func = @ptrCast(&Foo.funcImpl),
     };
     c.func(c.ctx);
-    try std.testing.expectEqual(foo, .{ .x = 101, .y = 201 });
+    try std.testing.expectEqual(Foo{ .x = 101, .y = 201 }, foo);
 }
 
 test "implicit ptr to *anyopaque" {
@@ -1214,7 +1214,7 @@ test "implicitly cast from [N]T to ?[]const T" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
-    try comptime expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
+    comptime assert(mem.eql(u8, castToOptionalSlice().?, "hi"));
 }
 
 fn castToOptionalSlice() ?[]const u8 {
@@ -1351,8 +1351,8 @@ test "peer resolve arrays of different size to const slice" {
 
     try expect(mem.eql(u8, boolToStr(true), "true"));
     try expect(mem.eql(u8, boolToStr(false), "false"));
-    try comptime expect(mem.eql(u8, boolToStr(true), "true"));
-    try comptime expect(mem.eql(u8, boolToStr(false), "false"));
+    comptime assert(mem.eql(u8, boolToStr(true), "true"));
+    comptime assert(mem.eql(u8, boolToStr(false), "false"));
 }
 fn boolToStr(b: bool) []const u8 {
     return if (b) "true" else "false";
@@ -1583,6 +1583,13 @@ test "@constCast without a result location" {
     const y = @constCast(&x);
     try expect(@TypeOf(y) == *i32);
     try expect(y.* == 1234);
+}
+
+test "@constCast optional" {
+    const x: u8 = 10;
+    const m: ?*const u8 = &x;
+    const p = @constCast(m);
+    try expect(@TypeOf(p) == ?*u8);
 }
 
 test "@volatileCast without a result location" {
@@ -2520,4 +2527,42 @@ test "@intCast vector of signed integer" {
 test "result type is preserved into comptime block" {
     const x: u32 = comptime @intCast(123);
     try expect(x == 123);
+}
+
+test "implicit cast from ptr to tuple to ptr to struct" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const ComptimeReason = union(enum) {
+        c_import: struct {
+            a: u32,
+        },
+    };
+
+    const Block = struct {
+        reason: ?*const ComptimeReason,
+    };
+
+    var a: u32 = 16;
+    _ = &a;
+    var reason = .{ .c_import = .{ .a = a } };
+    var block = Block{
+        .reason = &reason,
+    };
+    _ = &block;
+    try expect(block.reason.?.c_import.a == 16);
+}
+
+test "bitcast vector" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const u8x32 = @Vector(32, u8);
+    const u32x8 = @Vector(8, u32);
+
+    const zerox32: u8x32 = [_]u8{0} ** 32;
+    const bigsum: u32x8 = @bitCast(zerox32);
+    try std.testing.expectEqual(0, @reduce(.Add, bigsum));
 }

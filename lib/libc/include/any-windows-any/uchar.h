@@ -47,6 +47,8 @@ typedef uint_least32_t char32_t;
 extern "C" {
 #endif
 
+#ifdef _UCRT
+
 size_t mbrtoc16 (char16_t *__restrict__ pc16,
 		 const char *__restrict__ s,
 		 size_t n,
@@ -64,6 +66,8 @@ size_t mbrtoc32 (char32_t *__restrict__ pc32,
 size_t c32rtomb (char *__restrict__ s,
 		 char32_t c32,
 		 mbstate_t *__restrict__ ps);
+
+#endif  /* _UCRT */
 
 #ifdef __cplusplus
 }

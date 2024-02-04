@@ -128,9 +128,7 @@ MprSetupIpInIpInterfaceFriendlyNameFree@4
 RasAdminConnectionClearStats@8
 RasAdminConnectionEnum@28
 RasAdminConnectionGetInfo@16
-MprAdminConnectionRemoveQuarantine@12
 RasAdminGetErrorString@12
-MprAdminGetPDCServer@12
 RasAdminPortClearStats@8
 RasAdminPortDisconnect@8
 RasAdminPortEnum@32

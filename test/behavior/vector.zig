@@ -904,9 +904,9 @@ test "vector @reduce comptime" {
     const value = V{ 1, -1, 1, -1 };
     const result = value > @as(V, @splat(0));
     // result is { true, false, true, false };
-    try comptime expect(@TypeOf(result) == @Vector(4, bool));
+    comptime assert(@TypeOf(result) == @Vector(4, bool));
     const is_all_true = @reduce(.And, result);
-    try comptime expect(@TypeOf(is_all_true) == bool);
+    comptime assert(@TypeOf(is_all_true) == bool);
     try expect(is_all_true == false);
 }
 
@@ -1524,4 +1524,64 @@ test "bitcast to vector with different child type" {
     // Originally reported at https://github.com/ziglang/zig/issues/8184
     try S.doTheTest();
     try comptime S.doTheTest();
+}
+
+test "index into comptime-known vector is comptime-known" {
+    const vec: @Vector(2, f16) = [2]f16{ 1.5, 3.5 };
+    if (vec[0] != 1.5) @compileError("vec should be comptime");
+}
+
+test "arithmetic on zero-length vectors" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    {
+        const a = @Vector(0, i32){};
+        const b = @Vector(0, i32){};
+        _ = a + b;
+    }
+    {
+        const a = @Vector(0, i32){};
+        const b = @Vector(0, i32){};
+        _ = a - b;
+    }
+}
+
+test "@reduce on bool vector" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    if (comptime builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.endian() == .big) {
+        // https://github.com/ziglang/zig/issues/13782
+        return error.SkipZigTest;
+    }
+
+    const a = @Vector(2, bool){ true, true };
+    const b = @Vector(1, bool){true};
+    try std.testing.expect(@reduce(.And, a));
+    try std.testing.expect(@reduce(.And, b));
+}
+
+test "bitcast vector to array of smaller vectors" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const u8x32 = @Vector(32, u8);
+    const u8x64 = @Vector(64, u8);
+    const S = struct {
+        fn doTheTest(input_vec: u8x64) !void {
+            try compare(@bitCast(input_vec));
+        }
+        fn compare(chunks: [2]u8x32) !void {
+            try expectEqual(@as(u8x32, @splat(1)), chunks[0]);
+            try expectEqual(@as(u8x32, @splat(2)), chunks[1]);
+        }
+    };
+    const input: u8x64 = @bitCast([2]u8x32{ @splat(1), @splat(2) });
+    try S.doTheTest(input);
 }

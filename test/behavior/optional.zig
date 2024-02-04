@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
+const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
@@ -20,7 +21,7 @@ test "passing an optional integer as a parameter" {
         }
     };
     try expect(S.entry());
-    try comptime expect(S.entry());
+    comptime assert(S.entry());
 }
 
 pub const EmptyStruct = struct {};
@@ -448,6 +449,23 @@ test "Optional slice size is optimized" {
     try expectEqualStrings(a.?, "hello");
 }
 
+test "Optional slice passed to function" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo(a: ?[]const u8) !void {
+            try std.testing.expectEqualStrings(a.?, "foo");
+        }
+        fn bar(a: ?[]allowzero const u8) !void {
+            try std.testing.expectEqualStrings(@ptrCast(a.?), "bar");
+        }
+    };
+    try S.foo("foo");
+    try S.bar("bar");
+}
+
 test "peer type resolution in nested if expressions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -494,4 +512,18 @@ test "variable of optional of noreturn" {
     var null_opv: ?noreturn = null;
     _ = &null_opv;
     try std.testing.expectEqual(@as(?noreturn, null), null_opv);
+}
+
+test "copied optional doesn't alias source" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var opt_x: ?[3]f32 = [_]f32{0.0} ** 3;
+
+    const x = opt_x.?;
+    opt_x.?[0] = 15.0;
+
+    try expect(x[0] == 0.0);
 }

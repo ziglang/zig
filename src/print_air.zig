@@ -175,6 +175,7 @@ const Writer = struct {
             .int_from_ptr,
             .int_from_bool,
             .ret,
+            .ret_safe,
             .ret_load,
             .is_named_enum_value,
             .tag_name,

@@ -556,7 +556,7 @@ pub fn FieldEnum(comptime T: type) type {
     var decls = [_]std.builtin.Type.Declaration{};
     inline for (field_infos, 0..) |field, i| {
         enumFields[i] = .{
-            .name = field.name,
+            .name = field.name ++ "",
             .value = i,
         };
     }
@@ -628,7 +628,7 @@ pub fn DeclEnum(comptime T: type) type {
     var enumDecls: [fieldInfos.len]std.builtin.Type.EnumField = undefined;
     var decls = [_]std.builtin.Type.Declaration{};
     inline for (fieldInfos, 0..) |field, i| {
-        enumDecls[i] = .{ .name = field.name, .value = i };
+        enumDecls[i] = .{ .name = field.name ++ "", .value = i };
     }
     return @Type(.{
         .Enum = .{
@@ -1015,7 +1015,7 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
         @setEvalBranchQuota(10_000);
         var num_buf: [128]u8 = undefined;
         tuple_fields[i] = .{
-            .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
+            .name = std.fmt.bufPrintZ(&num_buf, "{d}", .{i}) catch unreachable,
             .type = T,
             .default_value = null,
             .is_comptime = false,
@@ -1099,13 +1099,6 @@ test "ArgsTuple forwarding" {
     }
 }
 
-/// TODO: https://github.com/ziglang/zig/issues/425
-pub fn globalOption(comptime name: []const u8, comptime T: type) ?T {
-    if (!@hasDecl(root, name))
-        return null;
-    return @as(T, @field(root, name));
-}
-
 /// Returns whether `error_union` contains an error.
 pub fn isError(error_union: anytype) bool {
     return if (error_union) |_| false else |_| true;
@@ -1127,6 +1120,66 @@ pub inline fn hasFn(comptime T: type, comptime name: []const u8) bool {
         return false;
 
     return @typeInfo(@TypeOf(@field(T, name))) == .Fn;
+}
+
+test "hasFn" {
+    const S1 = struct {
+        pub fn foo() void {}
+    };
+
+    try std.testing.expect(hasFn(S1, "foo"));
+    try std.testing.expect(!hasFn(S1, "bar"));
+    try std.testing.expect(!hasFn(*S1, "foo"));
+
+    const S2 = struct {
+        foo: fn () void,
+    };
+
+    try std.testing.expect(!hasFn(S2, "foo"));
+}
+
+/// Returns true if a type has a `name` method; `false` otherwise.
+/// Result is always comptime-known.
+pub inline fn hasMethod(comptime T: type, comptime name: []const u8) bool {
+    return switch (@typeInfo(T)) {
+        .Pointer => |P| switch (P.size) {
+            .One => hasFn(P.child, name),
+            .Many, .Slice, .C => false,
+        },
+        else => hasFn(T, name),
+    };
+}
+
+test "hasMethod" {
+    try std.testing.expect(!hasMethod(u32, "foo"));
+    try std.testing.expect(!hasMethod([]u32, "len"));
+    try std.testing.expect(!hasMethod(struct { u32, u64 }, "len"));
+
+    const S1 = struct {
+        pub fn foo() void {}
+    };
+
+    try std.testing.expect(hasMethod(S1, "foo"));
+    try std.testing.expect(hasMethod(*S1, "foo"));
+
+    try std.testing.expect(!hasMethod(S1, "bar"));
+    try std.testing.expect(!hasMethod(*[1]S1, "foo"));
+    try std.testing.expect(!hasMethod(*[10]S1, "foo"));
+    try std.testing.expect(!hasMethod([]S1, "foo"));
+
+    const S2 = struct {
+        foo: fn () void,
+    };
+
+    try std.testing.expect(!hasMethod(S2, "foo"));
+
+    const U = union {
+        pub fn foo() void {}
+    };
+
+    try std.testing.expect(hasMethod(U, "foo"));
+    try std.testing.expect(hasMethod(*U, "foo"));
+    try std.testing.expect(!hasMethod(U, "bar"));
 }
 
 /// True if every value of the type `T` has a unique bit pattern representing it.

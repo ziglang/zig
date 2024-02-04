@@ -8,9 +8,12 @@ const windows = std.os.windows;
 const system = std.os.system;
 
 pub const DynLib = switch (builtin.os.tag) {
-    .linux => if (builtin.link_libc) DlDynlib else ElfDynLib,
+    .linux => if (!builtin.link_libc or builtin.abi == .musl and builtin.link_mode == .Static)
+        ElfDynLib
+    else
+        DlDynLib,
     .windows => WindowsDynLib,
-    .macos, .tvos, .watchos, .ios, .freebsd, .netbsd, .openbsd, .dragonfly, .solaris, .illumos => DlDynlib,
+    .macos, .tvos, .watchos, .ios, .freebsd, .netbsd, .openbsd, .dragonfly, .solaris, .illumos => DlDynLib,
     else => void,
 };
 
@@ -317,16 +320,28 @@ pub const WindowsDynLib = struct {
     dll: windows.HMODULE,
 
     pub fn open(path: []const u8) !WindowsDynLib {
+        return openEx(path, .none);
+    }
+
+    pub fn openEx(path: []const u8, flags: windows.LoadLibraryFlags) !WindowsDynLib {
         const path_w = try windows.sliceToPrefixedFileW(null, path);
-        return openW(path_w.span().ptr);
+        return openExW(path_w.span().ptr, flags);
     }
 
     pub fn openZ(path_c: [*:0]const u8) !WindowsDynLib {
+        return openExZ(path_c, .none);
+    }
+
+    pub fn openExZ(path_c: [*:0]const u8, flags: windows.LoadLibraryFlags) !WindowsDynLib {
         const path_w = try windows.cStrToPrefixedFileW(null, path_c);
-        return openW(path_w.span().ptr);
+        return openExW(path_w.span().ptr, flags);
     }
 
     pub fn openW(path_w: [*:0]const u16) !WindowsDynLib {
+        return openExW(path_w, .none);
+    }
+
+    pub fn openExW(path_w: [*:0]const u16, flags: windows.LoadLibraryFlags) !WindowsDynLib {
         var offset: usize = 0;
         if (path_w[0] == '\\' and path_w[1] == '?' and path_w[2] == '?' and path_w[3] == '\\') {
             // + 4 to skip over the \??\
@@ -334,7 +349,7 @@ pub const WindowsDynLib = struct {
         }
 
         return WindowsDynLib{
-            .dll = try windows.LoadLibraryW(path_w + offset),
+            .dll = try windows.LoadLibraryExW(path_w + offset, flags),
         };
     }
 
@@ -352,30 +367,30 @@ pub const WindowsDynLib = struct {
     }
 };
 
-pub const DlDynlib = struct {
+pub const DlDynLib = struct {
     pub const Error = error{FileNotFound};
 
     handle: *anyopaque,
 
-    pub fn open(path: []const u8) !DlDynlib {
+    pub fn open(path: []const u8) !DlDynLib {
         const path_c = try os.toPosixPath(path);
         return openZ(&path_c);
     }
 
-    pub fn openZ(path_c: [*:0]const u8) !DlDynlib {
-        return DlDynlib{
+    pub fn openZ(path_c: [*:0]const u8) !DlDynLib {
+        return DlDynLib{
             .handle = system.dlopen(path_c, system.RTLD.LAZY) orelse {
                 return error.FileNotFound;
             },
         };
     }
 
-    pub fn close(self: *DlDynlib) void {
+    pub fn close(self: *DlDynLib) void {
         _ = system.dlclose(self.handle);
         self.* = undefined;
     }
 
-    pub fn lookup(self: *DlDynlib, comptime T: type, name: [:0]const u8) ?T {
+    pub fn lookup(self: *DlDynLib, comptime T: type, name: [:0]const u8) ?T {
         // dlsym (and other dl-functions) secretly take shadow parameter - return address on stack
         // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=66826
         if (@call(.never_tail, system.dlsym, .{ self.handle, name.ptr })) |symbol| {

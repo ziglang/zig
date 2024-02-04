@@ -946,7 +946,7 @@ test "DC: C returns to Zig" {
     if (comptime builtin.cpu.arch.isRISCV()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
-    try expectEqual(c_ret_DC(), .{ .v1 = -0.25, .v2 = 15 });
+    try expectEqual(DC{ .v1 = -0.25, .v2 = 15 }, c_ret_DC());
 }
 
 pub extern fn c_assert_DC(lv: DC) c_int;
@@ -998,7 +998,7 @@ test "CFF: C returns to Zig" {
     if (comptime builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
-    try expectEqual(c_ret_CFF(), .{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 });
+    try expectEqual(CFF{ .v1 = 39, .v2 = 0.875, .v3 = 1.0 }, c_ret_CFF());
 }
 pub extern fn c_assert_CFF(lv: CFF) c_int;
 pub extern fn c_assert_ret_CFF() c_int;
@@ -1045,7 +1045,7 @@ test "PD: C returns to Zig" {
     if (comptime builtin.cpu.arch.isMIPS() and builtin.mode != .Debug) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC()) return error.SkipZigTest;
     if (comptime builtin.cpu.arch.isPPC64()) return error.SkipZigTest;
-    try expectEqual(c_ret_PD(), .{ .v1 = null, .v2 = 0.5 });
+    try expectEqual(PD{ .v1 = null, .v2 = 0.5 }, c_ret_PD());
 }
 pub extern fn c_assert_PD(lv: PD) c_int;
 pub extern fn c_assert_ret_PD() c_int;

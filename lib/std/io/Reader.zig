@@ -332,9 +332,9 @@ pub fn readStruct(self: Self, comptime T: type) anyerror!T {
     return res[0];
 }
 
-pub fn readStructBig(self: Self, comptime T: type) anyerror!T {
+pub fn readStructEndian(self: Self, comptime T: type, endian: std.builtin.Endian) anyerror!T {
     var res = try self.readStruct(T);
-    if (native_endian != std.builtin.Endian.big) {
+    if (native_endian != endian) {
         mem.byteSwapAllFields(T, &res);
     }
     return res;

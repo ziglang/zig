@@ -86,7 +86,7 @@ fn testSync(level: deflate.Compression, input: []const u8) !void {
             read = try decomp.reader().readAll(&final);
             try testing.expectEqual(@as(usize, 0), read); // expect ended stream to return 0 bytes
 
-            _ = decomp.close();
+            try decomp.close();
         }
     }
 
@@ -102,7 +102,7 @@ fn testSync(level: deflate.Compression, input: []const u8) !void {
     defer testing.allocator.free(decompressed);
 
     _ = try decomp.reader().readAll(decompressed);
-    _ = decomp.close();
+    try decomp.close();
 
     try testing.expectEqualSlices(u8, input, decompressed);
 }
@@ -477,7 +477,7 @@ test "inflate reset" {
         .readAllAlloc(testing.allocator, math.maxInt(usize));
     defer testing.allocator.free(decompressed_1);
 
-    _ = decomp.close();
+    try decomp.close();
 
     try testing.expectEqualSlices(u8, strings[0], decompressed_0);
     try testing.expectEqualSlices(u8, strings[1], decompressed_1);
@@ -524,7 +524,7 @@ test "inflate reset dictionary" {
         .readAllAlloc(testing.allocator, math.maxInt(usize));
     defer testing.allocator.free(decompressed_1);
 
-    _ = decomp.close();
+    try decomp.close();
 
     try testing.expectEqualSlices(u8, strings[0], decompressed_0);
     try testing.expectEqualSlices(u8, strings[1], decompressed_1);

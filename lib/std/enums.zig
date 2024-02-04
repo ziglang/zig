@@ -14,7 +14,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
     var fields: []const StructField = &[_]StructField{};
     for (std.meta.fields(E)) |field| {
         fields = fields ++ &[_]StructField{.{
-            .name = field.name,
+            .name = field.name ++ "",
             .type = Data,
             .default_value = if (field_default) |d| @as(?*const anyopaque, @ptrCast(&d)) else null,
             .is_comptime = false,
@@ -35,8 +35,8 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
 pub inline fn valuesFromFields(comptime E: type, comptime fields: []const EnumField) []const E {
     comptime {
         var result: [fields.len]E = undefined;
-        for (fields, 0..) |f, i| {
-            result[i] = @field(E, f.name);
+        for (&result, fields) |*r, f| {
+            r.* = @enumFromInt(f.value);
         }
         return &result;
     }
@@ -1533,4 +1533,14 @@ test "std.enums.EnumIndexer empty" {
     ensureIndexer(Indexer);
     try testing.expectEqual(E, Indexer.Key);
     try testing.expectEqual(0, Indexer.count);
+}
+
+test "enumValues" {
+    const E = enum {
+        X,
+        Y,
+        Z,
+        pub const X = 1;
+    };
+    try testing.expectEqualSlices(E, &.{ .X, .Y, .Z }, values(E));
 }

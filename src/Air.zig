@@ -516,6 +516,11 @@ pub const Inst = struct {
         /// Uses the `un_op` field.
         /// Triggers `resolveTypeLayout` on the return type.
         ret,
+        /// Same as `ret`, except if the operand is undefined, the
+        /// returned value is 0xaa bytes, and any other safety metadata
+        /// such as Valgrind integrations should be notified of
+        /// this value being undefined.
+        ret_safe,
         /// This instruction communicates that the function's result value is pointed to by
         /// the operand. If the function will pass the result by-ref, the operand is a
         /// `ret_ptr` instruction. Otherwise, this instruction is equivalent to a `load`
@@ -1439,6 +1444,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .cond_br,
         .switch_br,
         .ret,
+        .ret_safe,
         .ret_load,
         .unreach,
         .trap,
@@ -1613,6 +1619,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .dbg_var_ptr,
         .dbg_var_val,
         .ret,
+        .ret_safe,
         .ret_load,
         .store,
         .store_safe,
