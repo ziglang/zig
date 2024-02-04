@@ -147,11 +147,11 @@ pub const Value = union(enum) {
         return parsed;
     }
 
-    pub fn fromAnytypeLeaky(a: std.mem.Allocator, value: anytype, options: StringifyOptions) (std.json.Error || std.mem.Allocator.Error)!Value {
+    pub fn fromAnytypeLeaky(allocator: std.mem.Allocator, value: anytype, options: StringifyOptions) (std.json.Error || std.mem.Allocator.Error)!Value {
         const T = @TypeOf(value);
         switch (@typeInfo(T)) {
             .Void => {
-                return Value{ .object = ObjectMap.init(a) };
+                return Value{ .object = ObjectMap.init(allocator) };
             },
             .Int => |info| {
                 _ = info;
@@ -159,21 +159,21 @@ pub const Value = union(enum) {
                 if (std.math.cast(i64, value)) |x| {
                     return Value{ .integer = x };
                 } else {
-                    return Value{ .number_string = try std.fmt.allocPrint(a, "{}", .{value}) };
+                    return Value{ .number_string = try std.fmt.allocPrint(allocator, "{}", .{value}) };
                 }
             },
             .ComptimeInt => {
                 if (std.math.cast(i64, value)) |x| {
                     return Value{ .integer = x };
                 } else {
-                    return Value{ .number_string = std.fmt.allocPrint(a, "{}", .{value}) };
+                    return Value{ .number_string = std.fmt.allocPrint(allocator, "{}", .{value}) };
                 }
             },
             .Float, .ComptimeFloat => {
                 if (@as(f64, @floatCast(value)) == value) {
                     return Value{ .float = @as(f64, @floatCast(value)) };
                 }
-                return Value{ .number_string = std.fmt.allocPrint(a, "{}", .{value}) };
+                return Value{ .number_string = std.fmt.allocPrint(allocator, "{}", .{value}) };
             },
             .Bool => {
                 return Value{ .bool = value };
@@ -183,7 +183,7 @@ pub const Value = union(enum) {
             },
             .Optional => {
                 if (value) |payload| {
-                    return fromAnytypeLeaky(a, payload);
+                    return fromAnytypeLeaky(allocator, payload);
                 } else {
                     return Value.null;
                 }
@@ -192,14 +192,14 @@ pub const Value = union(enum) {
                 return Value{ .string = @tagName(value) };
             },
             .Union => {
-                var map = ObjectMap.init(a);
+                var map = ObjectMap.init(allocator);
                 const info = @typeInfo(T).Union;
                 if (info.tag_type) |UnionTagType| {
                     inline for (info.fields) |u_field| {
                         if (value == @field(UnionTagType, u_field.name)) {
                             try map.put(
                                 u_field.name,
-                                try fromAnytypeLeaky(a, @field(value, u_field.name)),
+                                try fromAnytypeLeaky(allocator, @field(value, u_field.name)),
                             );
                             break;
                         }
@@ -213,19 +213,19 @@ pub const Value = union(enum) {
             },
             .Struct => |S| {
                 if (S.is_tuple) {
-                    var array = Array.init(a);
+                    var array = Array.init(allocator);
                     inline for (S.fields) |Field| {
-                        const field_value = try fromAnytypeLeaky(a, @field(value, Field.name));
+                        const field_value = try fromAnytypeLeaky(allocator, @field(value, Field.name));
                         try array.append(field_value);
                     }
                     return Value{ .array = array };
                 } else {
-                    var map = ObjectMap.init(a);
+                    var map = ObjectMap.init(allocator);
                     inline for (S.fields) |Field| {
                         if (options.emit_null_optional_fields == false and @field(value, Field.name) == null) {
                             // skip field
                         } else {
-                            const field_value = try fromAnytypeLeaky(a, @field(value, Field.name));
+                            const field_value = try fromAnytypeLeaky(allocator, @field(value, Field.name));
                             try map.put(Field.name, field_value);
                         }
                     }
@@ -233,16 +233,16 @@ pub const Value = union(enum) {
                 }
                 return;
             },
-            .ErrorSet => return fromAnytypeLeaky(a, @errorName(value)),
+            .ErrorSet => return fromAnytypeLeaky(allocator, @errorName(value)),
             .Pointer => |ptr_info| switch (ptr_info.size) {
                 .One => switch (@typeInfo(ptr_info.child)) {
                     .Array => {
                         // Coerce `*[N]T` to `[]const T`.
                         const Slice = []const std.meta.Elem(ptr_info.child);
-                        return fromAnytypeLeaky(a, @as(Slice, value));
+                        return fromAnytypeLeaky(allocator, @as(Slice, value));
                     },
                     else => {
-                        return fromAnytypeLeaky(a, value.*);
+                        return fromAnytypeLeaky(allocator, value.*);
                     },
                 },
                 .Many, .Slice => {
@@ -257,9 +257,9 @@ pub const Value = union(enum) {
                         }
                     }
 
-                    var array = Array.init(a);
+                    var array = Array.init(allocator);
                     for (slice) |x| {
-                        const x_value = try fromAnytypeLeaky(a, x);
+                        const x_value = try fromAnytypeLeaky(allocator, x);
                         try array.append(x_value);
                     }
                     return Value{ .array = array };
@@ -268,11 +268,11 @@ pub const Value = union(enum) {
             },
             .Array => {
                 // Coerce `[N]T` to `*const [N]T` (and then to `[]const T`).
-                return fromAnytypeLeaky(a, &value);
+                return fromAnytypeLeaky(allocator, &value);
             },
             .Vector => |info| {
                 const array: [info.len]info.child = value;
-                return fromAnytypeLeaky(a, &array);
+                return fromAnytypeLeaky(allocator, &array);
             },
             else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
         }
