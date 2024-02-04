@@ -5922,7 +5922,6 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index, force_compt
 
     const result = try sema.resolveBlockBody(parent_block, src, &child_block, body, inst, &label.merges);
     if (null == try sema.resolveValue(result)) {
-        // Couldn't resolve at comptime.
         if (child_block.is_comptime) {
             return sema.fail(parent_block, src, "unable to resolve comptime value", .{});
         }
