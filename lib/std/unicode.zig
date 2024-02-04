@@ -800,6 +800,129 @@ fn testDecode(bytes: []const u8) !u21 {
     return utf8Decode(bytes);
 }
 
+/// Print the given `utf8` string, encoded as UTF-8 bytes.
+/// Ill-formed UTF-8 byte sequences are replaced by the replacement character (U+FFFD)
+/// according to "U+FFFD Substitution of Maximal Subparts" from Chapter 3 of
+/// the Unicode standard, and as specified by https://encoding.spec.whatwg.org/#utf-8-decoder
+fn formatUtf8(
+    utf8: []const u8,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = fmt;
+    _ = options;
+    var buf: [300]u8 = undefined; // just an arbitrary size
+    var u8len: usize = 0;
+
+    // This implementation is based on this specification:
+    // https://encoding.spec.whatwg.org/#utf-8-decoder
+    var codepoint: u21 = 0;
+    var cont_bytes_seen: u3 = 0;
+    var cont_bytes_needed: u3 = 0;
+    var lower_boundary: u8 = 0x80;
+    var upper_boundary: u8 = 0xBF;
+
+    var i: usize = 0;
+    while (i < utf8.len) {
+        const byte = utf8[i];
+        if (cont_bytes_needed == 0) {
+            switch (byte) {
+                0x00...0x7F => {
+                    buf[u8len] = byte;
+                    u8len += 1;
+                },
+                0xC2...0xDF => {
+                    cont_bytes_needed = 1;
+                    codepoint = byte & 0b00011111;
+                },
+                0xE0...0xEF => {
+                    if (byte == 0xE0) lower_boundary = 0xA0;
+                    if (byte == 0xED) upper_boundary = 0x9F;
+                    cont_bytes_needed = 2;
+                    codepoint = byte & 0b00001111;
+                },
+                0xF0...0xF4 => {
+                    if (byte == 0xF0) lower_boundary = 0x90;
+                    if (byte == 0xF4) upper_boundary = 0x8F;
+                    cont_bytes_needed = 3;
+                    codepoint = byte & 0b00000111;
+                },
+                else => {
+                    u8len += utf8Encode(replacement_character, buf[u8len..]) catch unreachable;
+                },
+            }
+            // consume the byte
+            i += 1;
+        } else if (byte < lower_boundary or byte > upper_boundary) {
+            codepoint = 0;
+            cont_bytes_needed = 0;
+            cont_bytes_seen = 0;
+            lower_boundary = 0x80;
+            upper_boundary = 0xBF;
+            u8len += utf8Encode(replacement_character, buf[u8len..]) catch unreachable;
+            // do not consume the current byte, it should now be treated as a possible start byte
+        } else {
+            lower_boundary = 0x80;
+            upper_boundary = 0xBF;
+            codepoint <<= 6;
+            codepoint |= byte & 0b00111111;
+            cont_bytes_seen += 1;
+            // consume the byte
+            i += 1;
+
+            if (cont_bytes_seen == cont_bytes_needed) {
+                const codepoint_len = cont_bytes_seen + 1;
+                const codepoint_start_i = i - codepoint_len;
+                @memcpy(buf[u8len..][0..codepoint_len], utf8[codepoint_start_i..][0..codepoint_len]);
+                u8len += codepoint_len;
+
+                codepoint = 0;
+                cont_bytes_needed = 0;
+                cont_bytes_seen = 0;
+            }
+        }
+        // make sure there's always enough room for another maximum length UTF-8 codepoint
+        if (u8len + 4 > buf.len) {
+            try writer.writeAll(buf[0..u8len]);
+            u8len = 0;
+        }
+    }
+    if (cont_bytes_needed != 0) {
+        // we know there's enough room because we always flush
+        // if there's less than 4 bytes remaining in the buffer.
+        u8len += utf8Encode(replacement_character, buf[u8len..]) catch unreachable;
+    }
+    try writer.writeAll(buf[0..u8len]);
+}
+
+/// Return a Formatter for a (potentially ill-formed) UTF-8 string.
+/// Ill-formed UTF-8 byte sequences are replaced by the replacement character (U+FFFD)
+/// according to "U+FFFD Substitution of Maximal Subparts" from Chapter 3 of
+/// the Unicode standard, and as specified by https://encoding.spec.whatwg.org/#utf-8-decoder
+pub fn fmtUtf8(utf8: []const u8) std.fmt.Formatter(formatUtf8) {
+    return .{ .data = utf8 };
+}
+
+test "fmtUtf8" {
+    const expectFmt = testing.expectFmt;
+    try expectFmt("", "{}", .{fmtUtf8("")});
+    try expectFmt("foo", "{}", .{fmtUtf8("foo")});
+    try expectFmt("𐐷", "{}", .{fmtUtf8("𐐷")});
+
+    // Table 3-8. U+FFFD for Non-Shortest Form Sequences
+    try expectFmt("��������A", "{}", .{fmtUtf8("\xC0\xAF\xE0\x80\xBF\xF0\x81\x82A")});
+
+    // Table 3-9. U+FFFD for Ill-Formed Sequences for Surrogates
+    try expectFmt("��������A", "{}", .{fmtUtf8("\xED\xA0\x80\xED\xBF\xBF\xED\xAFA")});
+
+    // Table 3-10. U+FFFD for Other Ill-Formed Sequences
+    try expectFmt("�����A��B", "{}", .{fmtUtf8("\xF4\x91\x92\x93\xFFA\x80\xBFB")});
+
+    // Table 3-11. U+FFFD for Truncated Sequences
+    try expectFmt("����A", "{}", .{fmtUtf8("\xE1\x80\xE2\xF0\x91\x92\xF1\xBFA")});
+}
+
 fn utf16LeToUtf8ArrayListImpl(array_list: *std.ArrayList(u8), utf16le: []const u16, comptime surrogates: Surrogates) !void {
     // optimistically guess that it will all be ascii.
     try array_list.ensureTotalCapacityPrecise(utf16le.len);
@@ -1264,13 +1387,14 @@ fn formatUtf16Le(
 ) !void {
     _ = fmt;
     _ = options;
-    var buf: [300]u8 = undefined; // just a random size I chose
+    var buf: [300]u8 = undefined; // just an arbitrary size
     var it = Utf16LeIterator.init(utf16le);
     var u8len: usize = 0;
     while (it.nextCodepoint() catch replacement_character) |codepoint| {
         u8len += utf8Encode(codepoint, buf[u8len..]) catch
             utf8Encode(replacement_character, buf[u8len..]) catch unreachable;
-        if (u8len + 3 >= buf.len) {
+        // make sure there's always enough room for another maximum length UTF-8 codepoint
+        if (u8len + 4 > buf.len) {
             try writer.writeAll(buf[0..u8len]);
             u8len = 0;
         }
@@ -1281,7 +1405,9 @@ fn formatUtf16Le(
 /// Deprecated; renamed to fmtUtf16Le
 pub const fmtUtf16le = fmtUtf16Le;
 
-/// Return a Formatter for a Utf16le string
+/// Return a Formatter for a (potentially ill-formed) UTF-16 LE string,
+/// which will be converted to UTF-8 during formatting.
+/// Unpaired surrogates are replaced by the replacement character (U+FFFD).
 pub fn fmtUtf16Le(utf16le: []const u16) std.fmt.Formatter(formatUtf16Le) {
     return .{ .data = utf16le };
 }
