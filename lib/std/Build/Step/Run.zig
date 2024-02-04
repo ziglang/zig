@@ -463,7 +463,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var argv_list = ArrayList([]const u8).init(arena);
     var output_placeholders = ArrayList(IndexedOutput).init(arena);
 
-    var man = b.cache.obtain();
+    var man = b.graph.cache.obtain();
     defer man.deinit();
 
     for (self.argv.items) |arg| {
@@ -1036,7 +1036,7 @@ fn spawnChildAndCollect(
         child.cwd = b.build_root.path;
         child.cwd_dir = b.build_root.handle;
     }
-    child.env_map = self.env_map orelse b.env_map;
+    child.env_map = self.env_map orelse &b.graph.env_map;
     child.request_resource_usage_statistics = true;
 
     child.stdin_behavior = switch (self.stdio) {
