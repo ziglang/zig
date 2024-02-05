@@ -3,7 +3,8 @@ const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "wasm integer division" {
-    // This test is copied from int_div.zig, with additional test cases for @divFloor on floats.
+    // This test is copied from int_div.zig, with additional test cases for @divFloor and @divCeil
+    // on floats.
     // TODO: Remove this test once the division tests in math.zig and int_div.zig pass with the
     // stage2 wasm backend.
     if (builtin.zig_backend != .stage2_wasm) return error.SkipZigTest;
@@ -30,6 +31,20 @@ fn testDivision() !void {
     try expect(divFloor(f16, -43.0, 12.0) == -4.0);
     try expect(divFloor(f64, -90.0, -9.0) == 10.0);
 
+    try expect(divCeil(i8, 5, 3) == 2);
+    try expect(divCeil(i16, -5, 3) == -1);
+    try expect(divCeil(i64, -0x80000000, -2) == 0x40000000);
+    try expect(divCeil(i32, 0, -0x80000000) == 0);
+    try expect(divCeil(i64, -0x40000001, 0x40000000) == -1);
+    try expect(divCeil(i32, -0x80000000, 1) == -0x80000000);
+    try expect(divCeil(i32, 10, 12) == 1);
+    try expect(divCeil(i32, -14, 12) == -1);
+    try expect(divCeil(i32, -2, 12) == 0);
+    try expect(divCeil(f32, 56.0, 9.0) == 7.0);
+    try expect(divCeil(f32, 1053.0, -41.0) == -25.0);
+    try expect(divCeil(f16, -43.0, 12.0) == -3.0);
+    try expect(divCeil(f64, -90.0, -9.0) == 10.0);
+
     try expect(mod(u32, 10, 12) == 10);
     try expect(mod(i32, 10, 12) == 10);
     try expect(mod(i64, -14, 12) == 10);
@@ -45,6 +60,9 @@ fn div(comptime T: type, a: T, b: T) T {
 }
 fn divFloor(comptime T: type, a: T, b: T) T {
     return @divFloor(a, b);
+}
+fn divCeil(comptime T: type, a: T, b: T) T {
+    return @divCeil(a, b);
 }
 fn mod(comptime T: type, a: T, b: T) T {
     return @mod(a, b);

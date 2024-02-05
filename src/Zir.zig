@@ -180,6 +180,9 @@ pub const Inst = struct {
         /// Implements the `@divFloor` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         div_floor,
+        /// Implements the `@divCeil` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        div_ceil,
         /// Implements the `@divTrunc` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         div_trunc,
@@ -1231,6 +1234,7 @@ pub const Inst = struct {
                 .bit_reverse,
                 .div_exact,
                 .div_floor,
+                .div_ceil,
                 .div_trunc,
                 .mod,
                 .rem,
@@ -1527,6 +1531,7 @@ pub const Inst = struct {
                 .bit_reverse,
                 .div_exact,
                 .div_floor,
+                .div_ceil,
                 .div_trunc,
                 .mod,
                 .rem,
@@ -1798,6 +1803,7 @@ pub const Inst = struct {
 
                 .div_exact = .pl_node,
                 .div_floor = .pl_node,
+                .div_ceil = .pl_node,
                 .div_trunc = .pl_node,
                 .mod = .pl_node,
                 .rem = .pl_node,

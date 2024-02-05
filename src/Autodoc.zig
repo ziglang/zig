@@ -1880,6 +1880,7 @@ fn walkInstruction(
         .has_field,
         .div_exact,
         .div_floor,
+        .div_ceil,
         .div_trunc,
         .mod,
         .rem,

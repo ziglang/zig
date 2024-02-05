@@ -8228,7 +8228,7 @@ test "main" {
           <li>{#syntax#}@divExact(a, b) * b == a{#endsyntax#}</li>
       </ul>
       <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divExact{#endsyntax#}.</p>
-      {#see_also|@divTrunc|@divFloor#}
+      {#see_also|@divTrunc|@divFloor|@divCeil#}
       {#header_close#}
       {#header_open|@divFloor#}
       <pre>{#syntax#}@divFloor(numerator: T, denominator: T) T{#endsyntax#}</pre>
@@ -8242,7 +8242,20 @@ test "main" {
           <li>{#syntax#}(@divFloor(a, b) * b) + @mod(a, b) == a{#endsyntax#}</li>
       </ul>
       <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divFloor{#endsyntax#}.</p>
-      {#see_also|@divTrunc|@divExact#}
+      {#see_also|@divTrunc|@divExact|@divCeil#}
+      {#header_close#}
+      {#header_open|@divCeil#}
+      <pre>{#syntax#}@divCeil(numerator: T, denominator: T) T{#endsyntax#}</pre>
+      <p>
+      Ceiling division. Rounds toward positive infinity. Caller guarantees {#syntax#}denominator != 0{#endsyntax#} and
+              {#syntax#}!(@typeInfo(T) == .Int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
+      </p>
+      <ul>
+          <li>{#syntax#}@divCeil(5, 3) == 2{#endsyntax#}</li>
+          <li>{#syntax#}@divCeil(-5, 3) == -1{#endsyntax#}</li>
+      </ul>
+      <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divCeil{#endsyntax#}.</p>
+      {#see_also|@divTrunc|@divExact|@divFloor#}
       {#header_close#}
       {#header_open|@divTrunc#}
       <pre>{#syntax#}@divTrunc(numerator: T, denominator: T) T{#endsyntax#}</pre>
@@ -8256,7 +8269,7 @@ test "main" {
           <li>{#syntax#}(@divTrunc(a, b) * b) + @rem(a, b) == a{#endsyntax#}</li>
       </ul>
       <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divTrunc{#endsyntax#}.</p>
-      {#see_also|@divFloor|@divExact#}
+      {#see_also|@divFloor|@divCeil|@divExact#}
       {#header_close#}
 
       {#header_open|@embedFile#}
