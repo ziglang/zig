@@ -632,10 +632,16 @@ test "lessThan" {
     try testing.expect(lessThan(u8, "", "a"));
 }
 
+const backend_can_use_eql_bytes = switch (builtin.zig_backend) {
+    // The SPIR-V backend does not support the optimized path yet.
+    .stage2_spirv64 => false,
+    else => true,
+};
+
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (@sizeOf(T) == 0) return true;
-    if (!@inComptime() and std.meta.hasUniqueRepresentation(T)) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
+    if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and backend_can_use_eql_bytes) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
 
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
@@ -648,6 +654,10 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 
 /// std.mem.eql heavily optimized for slices of bytes.
 fn eqlBytes(a: []const u8, b: []const u8) bool {
+    if (!backend_can_use_eql_bytes) {
+        return eql(u8, a, b);
+    }
+
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
 

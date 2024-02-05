@@ -322,24 +322,24 @@ pub fn generateSymbol(
             },
             .f128 => |f128_val| writeFloat(f128, f128_val, target, endian, try code.addManyAsArray(16)),
         },
-        .ptr => |ptr| {
-            // generate ptr
-            switch (try lowerParentPtr(bin_file, src_loc, switch (ptr.len) {
-                .none => typed_value.val,
-                else => typed_value.val.slicePtr(mod),
-            }.toIntern(), code, debug_output, reloc_info)) {
+        .ptr => switch (try lowerParentPtr(bin_file, src_loc, typed_value.val.toIntern(), code, debug_output, reloc_info)) {
+            .ok => {},
+            .fail => |em| return .{ .fail = em },
+        },
+        .slice => |slice| {
+            switch (try generateSymbol(bin_file, src_loc, .{
+                .ty = typed_value.ty.slicePtrFieldType(mod),
+                .val = Value.fromInterned(slice.ptr),
+            }, code, debug_output, reloc_info)) {
                 .ok => {},
                 .fail => |em| return .{ .fail = em },
             }
-            if (ptr.len != .none) {
-                // generate len
-                switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = Type.usize,
-                    .val = Value.fromInterned(ptr.len),
-                }, code, debug_output, reloc_info)) {
-                    .ok => {},
-                    .fail => |em| return Result{ .fail = em },
-                }
+            switch (try generateSymbol(bin_file, src_loc, .{
+                .ty = Type.usize,
+                .val = Value.fromInterned(slice.len),
+            }, code, debug_output, reloc_info)) {
+                .ok => {},
+                .fail => |em| return .{ .fail = em },
             }
         },
         .opt => {
@@ -676,7 +676,6 @@ fn lowerParentPtr(
 ) CodeGenError!Result {
     const mod = bin_file.comp.module.?;
     const ptr = mod.intern_pool.indexToKey(parent_ptr).ptr;
-    assert(ptr.len == .none);
     return switch (ptr.addr) {
         .decl => |decl| try lowerDeclRef(bin_file, src_loc, decl, code, debug_output, reloc_info),
         .mut_decl => |md| try lowerDeclRef(bin_file, src_loc, md.decl, code, debug_output, reloc_info),

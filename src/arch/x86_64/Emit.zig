@@ -62,7 +62,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .pcrel = true,
                             .has_subtractor = false,
                             .length = 2,
-                            .symbolnum = 0,
+                            .symbolnum = @intCast(symbol.sym_index),
                         },
                     });
                 } else if (emit.lower.bin_file.cast(link.File.Coff)) |coff_file| {
@@ -165,7 +165,9 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const @"type": link.File.MachO.Relocation.Type = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
                         .zig_got_load
                     else if (sym.flags.needs_got)
-                        .got_load
+                        // TODO: it is possible to emit .got_load here that can potentially be relaxed
+                        // however this requires always to use a MOVQ mnemonic
+                        .got
                     else if (sym.flags.tlv)
                         .tlv
                     else
@@ -180,7 +182,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .pcrel = true,
                             .has_subtractor = false,
                             .length = 2,
-                            .symbolnum = 0,
+                            .symbolnum = @intCast(data.sym_index),
                         },
                     });
                 } else unreachable,

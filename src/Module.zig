@@ -5278,9 +5278,12 @@ pub fn populateTestFunctions(
 
             const test_fn_fields = .{
                 // name
-                try mod.intern(.{ .ptr = .{
+                try mod.intern(.{ .slice = .{
                     .ty = .slice_const_u8_type,
-                    .addr = .{ .decl = test_name_decl_index },
+                    .ptr = try mod.intern(.{ .ptr = .{
+                        .ty = .manyptr_const_u8_type,
+                        .addr = .{ .decl = test_name_decl_index },
+                    } }),
                     .len = try mod.intern(.{ .int = .{
                         .ty = .usize_type,
                         .storage = .{ .u64 = test_decl_name.len },
@@ -5331,9 +5334,12 @@ pub fn populateTestFunctions(
             },
         });
         const new_val = decl.val;
-        const new_init = try mod.intern(.{ .ptr = .{
+        const new_init = try mod.intern(.{ .slice = .{
             .ty = new_ty.toIntern(),
-            .addr = .{ .decl = array_decl_index },
+            .ptr = try mod.intern(.{ .ptr = .{
+                .ty = new_ty.slicePtrFieldType(mod).toIntern(),
+                .addr = .{ .decl = array_decl_index },
+            } }),
             .len = (try mod.intValue(Type.usize, mod.test_functions.count())).toIntern(),
         } });
         ip.mutateVarInit(decl.val.toIntern(), new_init);
@@ -5423,16 +5429,17 @@ pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
             .err_name => {},
             .payload => |payload| try mod.markReferencedDeclsAlive(Value.fromInterned(payload)),
         },
-        .ptr => |ptr| {
-            switch (ptr.addr) {
-                .decl => |decl| try mod.markDeclIndexAlive(decl),
-                .anon_decl => {},
-                .mut_decl => |mut_decl| try mod.markDeclIndexAlive(mut_decl.decl),
-                .int, .comptime_field => {},
-                .eu_payload, .opt_payload => |parent| try mod.markReferencedDeclsAlive(Value.fromInterned(parent)),
-                .elem, .field => |base_index| try mod.markReferencedDeclsAlive(Value.fromInterned(base_index.base)),
-            }
-            if (ptr.len != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(ptr.len));
+        .slice => |slice| {
+            try mod.markReferencedDeclsAlive(Value.fromInterned(slice.ptr));
+            try mod.markReferencedDeclsAlive(Value.fromInterned(slice.len));
+        },
+        .ptr => |ptr| switch (ptr.addr) {
+            .decl => |decl| try mod.markDeclIndexAlive(decl),
+            .anon_decl => {},
+            .mut_decl => |mut_decl| try mod.markDeclIndexAlive(mut_decl.decl),
+            .int, .comptime_field => {},
+            .eu_payload, .opt_payload => |parent| try mod.markReferencedDeclsAlive(Value.fromInterned(parent)),
+            .elem, .field => |base_index| try mod.markReferencedDeclsAlive(Value.fromInterned(base_index.base)),
         },
         .opt => |opt| if (opt.val != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(opt.val)),
         .aggregate => |aggregate| for (aggregate.storage.values()) |elem|

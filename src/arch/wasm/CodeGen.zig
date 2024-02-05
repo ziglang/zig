@@ -3179,9 +3179,6 @@ fn lowerAnonDeclRef(
 
 fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: InternPool.DeclIndex, offset: u32) InnerError!WValue {
     const mod = func.bin_file.base.comp.module.?;
-    if (tv.ty.isSlice(mod)) {
-        return WValue{ .memory = try func.bin_file.lowerUnnamedConst(tv, decl_index) };
-    }
 
     const decl = mod.declPtr(decl_index);
     // check if decl is an alias to a function, in which case we
@@ -3334,6 +3331,18 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             .f32 => |f32_val| return WValue{ .float32 = f32_val },
             .f64 => |f64_val| return WValue{ .float64 = f64_val },
             else => unreachable,
+        },
+        .slice => |slice| {
+            var ptr = ip.indexToKey(slice.ptr).ptr;
+            const owner_decl = while (true) switch (ptr.addr) {
+                .decl => |decl| break decl,
+                .mut_decl => |mut_decl| break mut_decl.decl,
+                .int, .anon_decl => return func.fail("Wasm TODO: lower slice where ptr is not owned by decl", .{}),
+                .opt_payload, .eu_payload => |base| ptr = ip.indexToKey(base).ptr,
+                .elem, .field => |base_index| ptr = ip.indexToKey(base_index.base).ptr,
+                .comptime_field => unreachable,
+            };
+            return .{ .memory = try func.bin_file.lowerUnnamedConst(.{ .ty = ty, .val = val }, owner_decl) };
         },
         .ptr => |ptr| switch (ptr.addr) {
             .decl => |decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl, 0),

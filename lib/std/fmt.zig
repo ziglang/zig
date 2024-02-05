@@ -2255,6 +2255,24 @@ test "slice" {
         try expectFmt("int: { 1, 1000, 5fad3, 423a35c7 }", "int: {x}", .{int_slice[runtime_zero..]});
         try expectFmt("int: { 00001, 01000, 5fad3, 423a35c7 }", "int: {x:0>5}", .{int_slice[runtime_zero..]});
     }
+    {
+        const S1 = struct {
+            x: u8,
+        };
+        const struct_slice: []const S1 = &[_]S1{ S1{ .x = 8 }, S1{ .x = 42 } };
+        try expectFmt("slice: { fmt.test.slice.S1{ .x = 8 }, fmt.test.slice.S1{ .x = 42 } }", "slice: {any}", .{struct_slice});
+    }
+    {
+        const S2 = struct {
+            x: u8,
+
+            pub fn format(s: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+                try writer.print("S2({})", .{s.x});
+            }
+        };
+        const struct_slice: []const S2 = &[_]S2{ S2{ .x = 8 }, S2{ .x = 42 } };
+        try expectFmt("slice: { S2(8), S2(42) }", "slice: {any}", .{struct_slice});
+    }
 }
 
 test "escape non-printable" {

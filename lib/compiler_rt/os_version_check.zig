@@ -2,10 +2,13 @@ const std = @import("std");
 const testing = std.testing;
 const builtin = @import("builtin");
 const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const panic = @import("common.zig").panic;
+
+const have_availability_version_check = builtin.os.tag.isDarwin() and
+    builtin.os.version_range.semver.min.order(.{ .major = 10, .minor = 15, .patch = 0 }).compare(.gte);
 
 comptime {
-    if (builtin.os.tag.isDarwin()) {
+    if (have_availability_version_check) {
         @export(__isPlatformVersionAtLeast, .{ .name = "__isPlatformVersionAtLeast", .linkage = linkage });
     }
 }
@@ -25,7 +28,7 @@ comptime {
 // the newer codepath, which merely calls out to the Darwin _availability_version_check API which is
 // available on macOS 10.15+, iOS 13+, tvOS 13+ and watchOS 6+.
 
-const __isPlatformVersionAtLeast = if (builtin.os.tag.isDarwin()) struct {
+const __isPlatformVersionAtLeast = if (have_availability_version_check) struct {
     inline fn constructVersion(major: u32, minor: u32, subminor: u32) u32 {
         return ((major & 0xffff) << 16) | ((minor & 0xff) << 8) | (subminor & 0xff);
     }
@@ -50,7 +53,7 @@ const __isPlatformVersionAtLeast = if (builtin.os.tag.isDarwin()) struct {
 }.__isPlatformVersionAtLeast else struct {};
 
 test "isPlatformVersionAtLeast" {
-    if (!comptime builtin.os.tag.isDarwin()) return error.SkipZigTest;
+    if (!have_availability_version_check) return error.SkipZigTest;
 
     // Note: this test depends on the actual host OS version since it is merely calling into the
     // native Darwin API.

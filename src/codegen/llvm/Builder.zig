@@ -9978,10 +9978,10 @@ fn fnTypeAssumeCapacity(
         }
         pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
             const rhs_data = ctx.builder.type_items.items[rhs_index];
+            if (rhs_data.tag != tag) return false;
             var rhs_extra = ctx.builder.typeExtraDataTrail(Type.Function, rhs_data.data);
             const rhs_params = rhs_extra.trail.next(rhs_extra.data.params_len, Type, ctx.builder);
-            return rhs_data.tag == tag and lhs_key.ret == rhs_extra.data.ret and
-                std.mem.eql(Type, lhs_key.params, rhs_params);
+            return lhs_key.ret == rhs_extra.data.ret and std.mem.eql(Type, lhs_key.params, rhs_params);
         }
     };
     const gop = self.type_map.getOrPutAssumeCapacityAdapted(
@@ -10161,9 +10161,10 @@ fn structTypeAssumeCapacity(
         }
         pub fn eql(ctx: @This(), lhs_key: []const Type, _: void, rhs_index: usize) bool {
             const rhs_data = ctx.builder.type_items.items[rhs_index];
+            if (rhs_data.tag != tag) return false;
             var rhs_extra = ctx.builder.typeExtraDataTrail(Type.Structure, rhs_data.data);
             const rhs_fields = rhs_extra.trail.next(rhs_extra.data.fields_len, Type, ctx.builder);
-            return rhs_data.tag == tag and std.mem.eql(Type, lhs_key, rhs_fields);
+            return std.mem.eql(Type, lhs_key, rhs_fields);
         }
     };
     const gop = self.type_map.getOrPutAssumeCapacityAdapted(fields, Adapter{ .builder = self });

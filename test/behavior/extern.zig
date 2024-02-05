@@ -5,6 +5,7 @@ const expect = std.testing.expect;
 test "anyopaque extern symbol" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const a = @extern(*anyopaque, .{ .name = "a_mystery_symbol" });
     const b: *i32 = @alignCast(@ptrCast(a));
@@ -17,6 +18,7 @@ test "function extern symbol" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const a = @extern(*const fn () callconv(.C) i32, .{ .name = "a_mystery_function" });
     try expect(a() == 4567);

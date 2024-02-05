@@ -562,7 +562,7 @@ pub fn lowerToBuildSteps(
         run.setName(incr_case.base_path);
         run.addArgs(&.{
             case_base_path_with_dir,
-            b.zig_exe,
+            b.graph.zig_exe,
         });
         run.expectStdOutEqual("");
         parent_step.dependOn(&run.step);
@@ -653,7 +653,7 @@ pub fn lowerToBuildSteps(
                         break :no_exec;
                     }
                     const run_c = b.addSystemCommand(&.{
-                        b.zig_exe,
+                        b.graph.zig_exe,
                         "run",
                         "-cflags",
                         "-Ilib",
