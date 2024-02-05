@@ -13715,7 +13715,9 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
             .load_frame => |frame_addr| try self.moveStrategy(
                 ty,
                 dst_reg.class(),
-                self.getFrameAddrAlignment(frame_addr).compare(.gte, ty.abiAlignment(mod)),
+                self.getFrameAddrAlignment(frame_addr).compare(.gte, Alignment.fromLog2Units(
+                    std.math.log2_int_ceil(u10, @divExact(dst_reg.bitSize(), 8)),
+                )),
             ),
             .lea_frame => .{ .move = .{ ._, .lea } },
             else => unreachable,
