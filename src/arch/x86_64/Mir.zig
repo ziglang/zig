@@ -325,6 +325,8 @@ pub const Inst = struct {
         cwd,
         /// Convert word to doubleword
         cwde,
+        /// Decrement by 1
+        dec,
         /// Unsigned division
         /// Signed division
         /// Divide packed single-precision floating-point values
@@ -332,7 +334,9 @@ pub const Inst = struct {
         /// Divide packed double-precision floating-point values
         /// Divide scalar double-precision floating-point values
         div,
-        ///
+        /// Increment by 1
+        inc,
+        /// Call to interrupt procedure
         int3,
         /// Conditional jump
         j,
