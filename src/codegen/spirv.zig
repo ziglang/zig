@@ -451,12 +451,12 @@ const DeclGen = struct {
         const spv_decl_index = blk: {
             const entry = try self.object.anon_decl_link.getOrPut(self.object.gpa, .{ val, storage_class });
             if (entry.found_existing) {
-                try self.func.decl_deps.put(self.spv.gpa, entry.value_ptr.*, {});
+                try self.addFunctionDep(entry.value_ptr.*, storage_class);
                 return self.spv.declPtr(entry.value_ptr.*).result_id;
             }
 
             const spv_decl_index = try self.spv.allocDecl(.global);
-            try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
+            try self.addFunctionDep(spv_decl_index, storage_class);
             entry.value_ptr.* = spv_decl_index;
             break :blk spv_decl_index;
         };
@@ -527,6 +527,37 @@ const DeclGen = struct {
         try self.spv.debugNameFmt(initializer_id, "initializer of __anon_{d}", .{@intFromEnum(val)});
 
         return var_id;
+    }
+
+    fn addFunctionDep(self: *DeclGen, decl_index: SpvModule.Decl.Index, storage_class: StorageClass) !void {
+        const target = self.getTarget();
+        if (target.os.tag == .vulkan) {
+            // Shader entry point dependencies must be variables with Input or Output storage class
+            switch (storage_class) {
+                .Input, .Output => {
+                    try self.func.decl_deps.put(self.spv.gpa, decl_index, {});
+                },
+                else => {},
+            }
+        } else {
+            try self.func.decl_deps.put(self.spv.gpa, decl_index, {});
+        }
+    }
+
+    fn castToGeneric(self: *DeclGen, type_id: IdRef, ptr_id: IdRef) !IdRef {
+        const target = self.getTarget();
+
+        if (target.os.tag == .vulkan) {
+            return ptr_id;
+        } else {
+            const result_id = self.spv.allocId();
+            try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
+                .id_result_type = type_id,
+                .id_result = result_id,
+                .pointer = ptr_id,
+            });
+            return result_id;
+        }
     }
 
     /// Start a new SPIR-V block, Emits the label of the new block, and stores which
@@ -710,6 +741,30 @@ const DeclGen = struct {
                 .object = constitent_id,
             });
         }
+        return try self.load(ty, ptr_composite_id, .{});
+    }
+
+    /// Construct a vector at runtime.
+    /// ty must be an vector type.
+    /// Constituents should be in `indirect` representation (as the elements of an vector should be).
+    /// Result is in `direct` representation.
+    fn constructVector(self: *DeclGen, ty: Type, constituents: []const IdRef) !IdRef {
+        // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
+        // operands are not constant.
+        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
+        // For now, just initialize the struct by setting the fields manually...
+        // TODO: Make this OpCompositeConstruct when we can
+        const mod = self.module;
+        const ptr_composite_id = try self.alloc(ty, .{ .storage_class = .Function });
+        const ptr_elem_ty_ref = try self.ptrType(ty.elemType2(mod), .Function);
+        for (constituents, 0..) |constitent_id, index| {
+            const ptr_id = try self.accessChain(ptr_elem_ty_ref, ptr_composite_id, &.{@as(u32, @intCast(index))});
+            try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                .pointer = ptr_id,
+                .object = constitent_id,
+            });
+        }
+
         return try self.load(ty, ptr_composite_id, .{});
     }
 
@@ -932,13 +987,16 @@ const DeclGen = struct {
                     }
 
                     switch (tag) {
-                        inline .array_type => if (array_type.sentinel != .none) {
-                            constituents[constituents.len - 1] = try self.constant(elem_ty, Value.fromInterned(array_type.sentinel), .indirect);
+                        inline .array_type => {
+                            if (array_type.sentinel != .none) {
+                                const sentinel = Value.fromInterned(array_type.sentinel);
+                                constituents[constituents.len - 1] = try self.constant(elem_ty, sentinel, .indirect);
+                            }
+                            return self.constructArray(ty, constituents);
                         },
-                        else => {},
+                        inline .vector_type => return self.constructVector(ty, constituents),
+                        else => unreachable,
                     }
-
-                    return try self.constructArray(ty, constituents);
                 },
                 .struct_type => {
                     const struct_type = mod.typeToStruct(ty).?;
@@ -1019,7 +1077,7 @@ const DeclGen = struct {
 
                 // TODO: Can we consolidate this in ptrElemPtr?
                 const elem_ty = parent_ptr_ty.elemType2(mod); // use elemType() so that we get T for *[N]T.
-                const elem_ptr_ty_ref = try self.ptrType(elem_ty, spvStorageClass(parent_ptr_ty.ptrAddressSpace(mod)));
+                const elem_ptr_ty_ref = try self.ptrType(elem_ty, self.spvStorageClass(parent_ptr_ty.ptrAddressSpace(mod)));
 
                 if (elem_ptr_ty_ref == result_ty_ref) {
                     return elem_ptr_id;
@@ -1074,7 +1132,7 @@ const DeclGen = struct {
             unreachable; // TODO
         }
 
-        const final_storage_class = spvStorageClass(ty.ptrAddressSpace(mod));
+        const final_storage_class = self.spvStorageClass(ty.ptrAddressSpace(mod));
         const actual_storage_class = switch (final_storage_class) {
             .Generic => .CrossWorkgroup,
             else => |other| other,
@@ -1084,15 +1142,7 @@ const DeclGen = struct {
         const decl_ptr_ty_ref = try self.ptrType(decl_ty, final_storage_class);
 
         const ptr_id = switch (final_storage_class) {
-            .Generic => blk: {
-                const result_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
-                    .id_result_type = self.typeId(decl_ptr_ty_ref),
-                    .id_result = result_id,
-                    .pointer = decl_id,
-                });
-                break :blk result_id;
-            },
+            .Generic => try self.castToGeneric(self.typeId(decl_ptr_ty_ref), decl_id),
             else => decl_id,
         };
 
@@ -1115,6 +1165,7 @@ const DeclGen = struct {
         const ty_ref = try self.resolveType(ty, .direct);
         const ty_id = self.typeId(ty_ref);
         const decl = mod.declPtr(decl_index);
+
         switch (mod.intern_pool.indexToKey(decl.val.ip_index)) {
             .func => {
                 // TODO: Properly lower function pointers. For now we are going to hack around it and
@@ -1133,23 +1184,13 @@ const DeclGen = struct {
         const spv_decl_index = try self.object.resolveDecl(mod, decl_index);
 
         const decl_id = self.spv.declPtr(spv_decl_index).result_id;
-        try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
-
-        const final_storage_class = spvStorageClass(decl.@"addrspace");
+        const final_storage_class = self.spvStorageClass(decl.@"addrspace");
+        try self.addFunctionDep(spv_decl_index, final_storage_class);
 
         const decl_ptr_ty_ref = try self.ptrType(decl.ty, final_storage_class);
 
         const ptr_id = switch (final_storage_class) {
-            .Generic => blk: {
-                // Pointer should be Generic, but is actually placed in CrossWorkgroup.
-                const result_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
-                    .id_result_type = self.typeId(decl_ptr_ty_ref),
-                    .id_result = result_id,
-                    .pointer = decl_id,
-                });
-                break :blk result_id;
-            },
+            .Generic => try self.castToGeneric(self.typeId(decl_ptr_ty_ref), decl_id),
             else => decl_id,
         };
 
@@ -1195,8 +1236,12 @@ const DeclGen = struct {
             // An array of largestSupportedIntBits.
             return self.todo("Implement {s} composite int type of {} bits", .{ @tagName(signedness), bits });
         };
+
         // Kernel only supports unsigned ints.
-        // TODO: Only do this with Kernels
+        if (self.getTarget().os.tag == .vulkan) {
+            return self.spv.intType(signedness, backing_bits);
+        }
+
         return self.spv.intType(.unsigned, backing_bits);
     }
 
@@ -1453,7 +1498,7 @@ const DeclGen = struct {
                 // Note: Don't cache this pointer type, it would mess up the recursive pointer functionality
                 // in ptrType()!
 
-                const storage_class = spvStorageClass(ptr_info.flags.address_space);
+                const storage_class = self.spvStorageClass(ptr_info.flags.address_space);
                 const ptr_ty_ref = try self.ptrType(Type.fromInterned(ptr_info.child), storage_class);
 
                 if (ptr_info.flags.size != .Slice) {
@@ -1474,8 +1519,14 @@ const DeclGen = struct {
 
                 const elem_ty = ty.childType(mod);
                 const elem_ty_ref = try self.resolveType(elem_ty, .indirect);
+                const len = ty.vectorLen(mod);
+                const is_scalar = elem_ty.isNumeric(mod) or elem_ty.toIntern() == .bool_type;
 
-                const ty_ref = try self.spv.arrayType(ty.vectorLen(mod), elem_ty_ref);
+                const ty_ref = if (is_scalar and len > 1 and len <= 4)
+                    try self.spv.vectorType(ty.vectorLen(mod), elem_ty_ref)
+                else
+                    try self.spv.arrayType(ty.vectorLen(mod), elem_ty_ref);
+
                 try self.type_map.put(self.gpa, ty.toIntern(), .{ .ty_ref = ty_ref });
                 return ty_ref;
             },
@@ -1634,13 +1685,20 @@ const DeclGen = struct {
         }
     }
 
-    fn spvStorageClass(as: std.builtin.AddressSpace) StorageClass {
+    fn spvStorageClass(self: *DeclGen, as: std.builtin.AddressSpace) StorageClass {
+        const target = self.getTarget();
         return switch (as) {
-            .generic => .Generic,
+            .generic => switch (target.os.tag) {
+                .vulkan => .Private,
+                else => .Generic,
+            },
             .shared => .Workgroup,
             .local => .Private,
             .global => .CrossWorkgroup,
             .constant => .UniformConstant,
+            .input => .Input,
+            .output => .Output,
+            .uniform => .Uniform,
             .gs,
             .fs,
             .ss,
@@ -1920,7 +1978,7 @@ const DeclGen = struct {
         // point name is the same as a different OpName.
         const test_name = try std.fmt.allocPrint(self.gpa, "test {s}", .{name});
         defer self.gpa.free(test_name);
-        try self.spv.declareEntryPoint(spv_decl_index, test_name);
+        try self.spv.declareEntryPoint(spv_decl_index, test_name, .Kernel);
     }
 
     fn genDecl(self: *DeclGen) !void {
@@ -1928,6 +1986,7 @@ const DeclGen = struct {
         const ip = &mod.intern_pool;
         const decl = mod.declPtr(self.decl_index);
         const spv_decl_index = try self.object.resolveDecl(mod, self.decl_index);
+        const target = self.getTarget();
 
         const decl_id = self.spv.declPtr(spv_decl_index).result_id;
 
@@ -1994,30 +2053,24 @@ const DeclGen = struct {
                 try self.generateTestEntryPoint(fqn, spv_decl_index);
             }
         } else {
-            const init_val = if (decl.val.getVariable(mod)) |payload|
-                Value.fromInterned(payload.init)
-            else
-                decl.val;
-
-            if (init_val.ip_index == .unreachable_value) {
-                return self.todo("importing extern variables", .{});
-            }
-
-            // Currently, initializers for CrossWorkgroup variables is not implemented
-            // in Mesa. Therefore we generate an initialization kernel instead.
-
-            const void_ty_ref = try self.resolveType(Type.void, .direct);
-
-            const initializer_proto_ty_ref = try self.spv.resolve(.{ .function_type = .{
-                .return_type = void_ty_ref,
-                .parameters = &.{},
-            } });
+            const opt_init_val: ?Value = blk: {
+                if (decl.val.getVariable(mod)) |payload| {
+                    if (payload.is_extern) break :blk null;
+                    break :blk Value.fromInterned(payload.init);
+                }
+                break :blk decl.val;
+            };
 
             // Generate the actual variable for the global...
-            const final_storage_class = spvStorageClass(decl.@"addrspace");
-            const actual_storage_class = switch (final_storage_class) {
-                .Generic => .CrossWorkgroup,
-                else => final_storage_class,
+            const final_storage_class = self.spvStorageClass(decl.@"addrspace");
+            const actual_storage_class = blk: {
+                if (target.os.tag != .vulkan) {
+                    break :blk switch (final_storage_class) {
+                        .Generic => .CrossWorkgroup,
+                        else => final_storage_class,
+                    };
+                }
+                break :blk final_storage_class;
             };
 
             const ptr_ty_ref = try self.ptrType(decl.ty, actual_storage_class);
@@ -2028,37 +2081,51 @@ const DeclGen = struct {
                 .id_result = decl_id,
                 .storage_class = actual_storage_class,
             });
-
-            // Now emit the instructions that initialize the variable.
-            const initializer_id = self.spv.allocId();
-            try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
-                .id_result_type = self.typeId(void_ty_ref),
-                .id_result = initializer_id,
-                .function_control = .{},
-                .function_type = self.typeId(initializer_proto_ty_ref),
-            });
-            const root_block_id = self.spv.allocId();
-            try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
-                .id_result = root_block_id,
-            });
-            self.current_block_label = root_block_id;
-
-            const val_id = try self.constant(decl.ty, init_val, .indirect);
-            try self.func.body.emit(self.spv.gpa, .OpStore, .{
-                .pointer = decl_id,
-                .object = val_id,
-            });
-
-            // TODO: We should be able to get rid of this by now...
-            self.spv.endGlobal(spv_decl_index, begin, decl_id, initializer_id);
-
-            try self.func.body.emit(self.spv.gpa, .OpReturn, {});
-            try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
-            try self.spv.addFunction(spv_decl_index, self.func);
-
             const fqn = ip.stringToSlice(try decl.getFullyQualifiedName(self.module));
             try self.spv.debugName(decl_id, fqn);
-            try self.spv.debugNameFmt(initializer_id, "initializer of {s}", .{fqn});
+
+            if (opt_init_val) |init_val| {
+                // Currently, initializers for CrossWorkgroup variables is not implemented
+                // in Mesa. Therefore we generate an initialization kernel instead.
+                const void_ty_ref = try self.resolveType(Type.void, .direct);
+
+                const initializer_proto_ty_ref = try self.spv.resolve(.{ .function_type = .{
+                    .return_type = void_ty_ref,
+                    .parameters = &.{},
+                } });
+
+                // Now emit the instructions that initialize the variable.
+                const initializer_id = self.spv.allocId();
+                try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
+                    .id_result_type = self.typeId(void_ty_ref),
+                    .id_result = initializer_id,
+                    .function_control = .{},
+                    .function_type = self.typeId(initializer_proto_ty_ref),
+                });
+                const root_block_id = self.spv.allocId();
+                try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
+                    .id_result = root_block_id,
+                });
+                self.current_block_label = root_block_id;
+
+                const val_id = try self.constant(decl.ty, init_val, .indirect);
+                try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                    .pointer = decl_id,
+                    .object = val_id,
+                });
+
+                // TODO: We should be able to get rid of this by now...
+                self.spv.endGlobal(spv_decl_index, begin, decl_id, initializer_id);
+
+                try self.func.body.emit(self.spv.gpa, .OpReturn, {});
+                try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
+                try self.spv.addFunction(spv_decl_index, self.func);
+
+                try self.spv.debugNameFmt(initializer_id, "initializer of {s}", .{fqn});
+            } else {
+                self.spv.endGlobal(spv_decl_index, begin, decl_id, null);
+                try self.spv.declareDeclDeps(spv_decl_index, &.{});
+            }
         }
     }
 
@@ -3654,7 +3721,19 @@ const DeclGen = struct {
                     constituents[0..index],
                 );
             },
-            .Vector, .Array => {
+            .Vector => {
+                const n_elems = result_ty.vectorLen(mod);
+                const elem_ids = try self.gpa.alloc(IdRef, n_elems);
+                defer self.gpa.free(elem_ids);
+
+                for (elements, 0..) |element, i| {
+                    const id = try self.resolve(element);
+                    elem_ids[i] = try self.convertToIndirect(result_ty.childType(mod), id);
+                }
+
+                return try self.constructVector(result_ty, elem_ids);
+            },
+            .Array => {
                 const array_info = result_ty.arrayInfo(mod);
                 const n_elems: usize = @intCast(result_ty.arrayLenIncludingSentinel(mod));
                 const elem_ids = try self.gpa.alloc(IdRef, n_elems);
@@ -3761,7 +3840,7 @@ const DeclGen = struct {
         const mod = self.module;
         // Construct new pointer type for the resulting pointer
         const elem_ty = ptr_ty.elemType2(mod); // use elemType() so that we get T for *[N]T.
-        const elem_ptr_ty_ref = try self.ptrType(elem_ty, spvStorageClass(ptr_ty.ptrAddressSpace(mod)));
+        const elem_ptr_ty_ref = try self.ptrType(elem_ty, self.spvStorageClass(ptr_ty.ptrAddressSpace(mod)));
         if (ptr_ty.isSinglePointer(mod)) {
             // Pointer-to-array. In this case, the resulting pointer is not of the same type
             // as the ptr_ty (we want a *T, not a *[N]T), and hence we need to use accessChain.
@@ -3835,7 +3914,7 @@ const DeclGen = struct {
         const vector_ty = vector_ptr_ty.childType(mod);
         const scalar_ty = vector_ty.scalarType(mod);
 
-        const storage_class = spvStorageClass(vector_ptr_ty.ptrAddressSpace(mod));
+        const storage_class = self.spvStorageClass(vector_ptr_ty.ptrAddressSpace(mod));
         const scalar_ptr_ty_ref = try self.ptrType(scalar_ty, storage_class);
 
         const vector_ptr = try self.resolve(data.vector_ptr);
@@ -3858,7 +3937,7 @@ const DeclGen = struct {
         if (layout.tag_size == 0) return;
 
         const tag_ty = un_ty.unionTagTypeSafety(mod).?;
-        const tag_ptr_ty_ref = try self.ptrType(tag_ty, spvStorageClass(un_ptr_ty.ptrAddressSpace(mod)));
+        const tag_ptr_ty_ref = try self.ptrType(tag_ty, self.spvStorageClass(un_ptr_ty.ptrAddressSpace(mod)));
 
         const union_ptr_id = try self.resolve(bin_op.lhs);
         const new_tag_id = try self.resolve(bin_op.rhs);
@@ -4079,7 +4158,7 @@ const DeclGen = struct {
                         return try self.spv.constUndef(result_ty_ref);
                     }
 
-                    const storage_class = spvStorageClass(object_ptr_ty.ptrAddressSpace(mod));
+                    const storage_class = self.spvStorageClass(object_ptr_ty.ptrAddressSpace(mod));
                     const pl_ptr_ty_ref = try self.ptrType(layout.payload_ty, storage_class);
                     const pl_ptr_id = try self.accessChain(pl_ptr_ty_ref, object_ptr, &.{layout.payload_index});
 
@@ -4134,17 +4213,16 @@ const DeclGen = struct {
             .initializer = options.initializer,
         });
 
+        const target = self.getTarget();
+        if (target.os.tag == .vulkan) {
+            return var_id;
+        }
+
         switch (options.storage_class) {
             .Generic => {
                 const ptr_gn_ty_ref = try self.ptrType(ty, .Generic);
                 // Convert to a generic pointer
-                const result_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
-                    .id_result_type = self.typeId(ptr_gn_ty_ref),
-                    .id_result = result_id,
-                    .pointer = var_id,
-                });
-                return result_id;
+                return self.castToGeneric(self.typeId(ptr_gn_ty_ref), var_id);
             },
             .Function => return var_id,
             else => unreachable,
@@ -4880,7 +4958,7 @@ const DeclGen = struct {
         const is_non_null_id = blk: {
             if (is_pointer) {
                 if (payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-                    const storage_class = spvStorageClass(operand_ty.ptrAddressSpace(mod));
+                    const storage_class = self.spvStorageClass(operand_ty.ptrAddressSpace(mod));
                     const bool_ptr_ty = try self.ptrType(Type.bool, storage_class);
                     const tag_ptr_id = try self.accessChain(bool_ptr_ty, operand_id, &.{1});
                     break :blk try self.load(Type.bool, tag_ptr_id, .{});

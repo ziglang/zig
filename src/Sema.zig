@@ -9741,6 +9741,10 @@ fn finishFunc(
             .nvptx, .nvptx64, .amdgcn, .spirv32, .spirv64 => null,
             else => "nvptx, amdgcn and SPIR-V",
         },
+        .Fragment, .Vertex => switch (arch) {
+            .spirv32, .spirv64 => null,
+            else => "SPIR-V",
+        },
     })) |allowed_platform| {
         return sema.fail(block, cc_src, "callconv '{s}' is only available on {s}, not {s}", .{
             @tagName(cc_resolved),
@@ -37917,6 +37921,7 @@ pub fn analyzeAddressSpace(
         .gs, .fs, .ss => (arch == .x86 or arch == .x86_64) and ctx == .pointer,
         // TODO: check that .shared and .local are left uninitialized
         .param => is_nv,
+        .input, .output, .uniform => is_spirv,
         .global, .shared, .local => is_gpu,
         .constant => is_gpu and (ctx == .constant),
         // TODO this should also check how many flash banks the cpu has

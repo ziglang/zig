@@ -10848,6 +10848,7 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) Builder
             .amdgcn => .amdgpu_kernel,
             else => unreachable,
         },
+        .Vertex, .Fragment => unreachable,
     };
 }
 

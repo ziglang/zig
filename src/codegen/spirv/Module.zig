@@ -92,7 +92,7 @@ pub const Global = struct {
     /// The past-end offset into `self.flobals.section`.
     end_inst: u32,
     /// The result-id of the function that initializes this value.
-    initializer_id: IdRef,
+    initializer_id: ?IdRef,
 };
 
 /// This models a kernel entry point.
@@ -101,6 +101,8 @@ pub const EntryPoint = struct {
     decl_index: Decl.Index,
     /// The name of the kernel to be exported.
     name: CacheString,
+    /// Calling Convention
+    execution_model: spec.ExecutionModel,
 };
 
 /// A general-purpose allocator which may be used to allocate resources for this module
@@ -313,7 +315,7 @@ fn entryPoints(self: *Module) !Section {
 
         const entry_point_id = self.declPtr(entry_point.decl_index).result_id;
         try entry_points.emit(self.gpa, .OpEntryPoint, .{
-            .execution_model = .Kernel,
+            .execution_model = entry_point.execution_model,
             .entry_point = entry_point_id,
             .name = self.cache.getString(entry_point.name).?,
             .interface = interface.items,
@@ -362,11 +364,13 @@ fn initializer(self: *Module, entry_points: *Section) !Section {
 
     for (self.globals.globals.keys(), self.globals.globals.values()) |decl_index, global| {
         try self.addEntryPointDeps(decl_index, &seen, &interface);
-        try section.emit(self.gpa, .OpFunctionCall, .{
-            .id_result_type = void_ty_id,
-            .id_result = self.allocId(),
-            .function = global.initializer_id,
-        });
+        if (global.initializer_id) |initializer_id| {
+            try section.emit(self.gpa, .OpFunctionCall, .{
+                .id_result_type = void_ty_id,
+                .id_result = self.allocId(),
+                .function = initializer_id,
+            });
+        }
     }
 
     try section.emit(self.gpa, .OpReturn, {});
@@ -390,7 +394,7 @@ fn initializer(self: *Module, entry_points: *Section) !Section {
 }
 
 /// Emit this module as a spir-v binary.
-pub fn flush(self: *Module, file: std.fs.File) !void {
+pub fn flush(self: *Module, file: std.fs.File, target: std.Target) !void {
     // See SPIR-V Spec section 2.3, "Physical Layout of a SPIR-V Module and Instruction"
 
     // TODO: Perform topological sort on the globals.
@@ -403,14 +407,25 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
     var types_constants = try self.cache.materialize(self);
     defer types_constants.deinit(self.gpa);
 
-    var init_func = try self.initializer(&entry_points);
+    // TODO: Vulkan doesn't support initializer kernel
+    var init_func = if (target.os.tag != .vulkan)
+        try self.initializer(&entry_points)
+    else
+        Section{};
     defer init_func.deinit(self.gpa);
 
     const header = [_]Word{
         spec.magic_number,
         // TODO: From cpu features
-        //   Emit SPIR-V 1.4 for now. This is the highest version that Intel's CPU OpenCL supports.
-        (1 << 16) | (4 << 8),
+        spec.Version.toWord(.{
+            .major = 1,
+            .minor = switch (target.os.tag) {
+                // Emit SPIR-V 1.3 for now. This is the highest version that Vulkan 1.1 supports.
+                .vulkan => 3,
+                // Emit SPIR-V 1.4 for now. This is the highest version that Intel's CPU OpenCL supports.
+                else => 4,
+            },
+        }),
         0, // TODO: Register Zig compiler magic number.
         self.idBound(),
         0, // Schema (currently reserved for future use)
@@ -490,6 +505,13 @@ pub fn intType(self: *Module, signedness: std.builtin.Signedness, bits: u16) !Ca
     return try self.resolve(.{ .int_type = .{
         .signedness = signedness,
         .bits = bits,
+    } });
+}
+
+pub fn vectorType(self: *Module, len: u32, elem_ty_ref: CacheRef) !CacheRef {
+    return try self.resolve(.{ .vector_type = .{
+        .component_type = elem_ty_ref,
+        .component_count = len,
     } });
 }
 
@@ -617,7 +639,13 @@ pub fn beginGlobal(self: *Module) u32 {
     return @as(u32, @intCast(self.globals.section.instructions.items.len));
 }
 
-pub fn endGlobal(self: *Module, global_index: Decl.Index, begin_inst: u32, result_id: IdRef, initializer_id: IdRef) void {
+pub fn endGlobal(
+    self: *Module,
+    global_index: Decl.Index,
+    begin_inst: u32,
+    result_id: IdRef,
+    initializer_id: ?IdRef,
+) void {
     const global = self.globalPtr(global_index).?;
     global.* = .{
         .result_id = result_id,
@@ -627,10 +655,16 @@ pub fn endGlobal(self: *Module, global_index: Decl.Index, begin_inst: u32, resul
     };
 }
 
-pub fn declareEntryPoint(self: *Module, decl_index: Decl.Index, name: []const u8) !void {
+pub fn declareEntryPoint(
+    self: *Module,
+    decl_index: Decl.Index,
+    name: []const u8,
+    execution_model: spec.ExecutionModel,
+) !void {
     try self.entry_points.append(self.gpa, .{
         .decl_index = decl_index,
         .name = try self.resolveString(name),
+        .execution_model = execution_model,
     });
 }
 
