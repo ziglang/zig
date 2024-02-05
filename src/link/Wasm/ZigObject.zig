@@ -1137,14 +1137,20 @@ pub fn parseSymbolIntoAtom(zig_object: *ZigObject, wasm_file: *Wasm, index: u32)
             .R_WASM_TABLE_INDEX_SLEB,
             .R_WASM_TABLE_INDEX_SLEB64,
             => {
-                try wasm_file.function_table.put(gpa, loc, 0);
+                try wasm_file.function_table.put(gpa, .{
+                    .file = zig_object.index,
+                    .index = reloc.index,
+                }, 0);
             },
             .R_WASM_GLOBAL_INDEX_I32,
             .R_WASM_GLOBAL_INDEX_LEB,
             => {
                 const sym = zig_object.symbol(reloc.index);
                 if (sym.tag != .global) {
-                    try wasm_file.got_symbols.append(gpa, loc);
+                    try wasm_file.got_symbols.append(gpa, .{
+                        .file = zig_object.index,
+                        .index = reloc.index,
+                    });
                 }
             },
             else => {},

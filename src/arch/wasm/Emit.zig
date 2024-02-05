@@ -385,7 +385,19 @@ fn emitCallIndirect(emit: *Emit, inst: Mir.Inst.Index) !void {
     try emit.code.append(std.wasm.opcode(.call_indirect));
     // NOTE: If we remove unused function types in the future for incremental
     // linking, we must also emit a relocation for this `type_index`
-    try leb128.writeULEB128(emit.code.writer(), type_index);
+    const call_offset = emit.offset();
+    var buf: [5]u8 = undefined;
+    leb128.writeUnsignedFixed(5, &buf, type_index);
+    try emit.code.appendSlice(&buf);
+    if (type_index != 0) {
+        const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
+        const atom = emit.bin_file.getAtomPtr(atom_index);
+        try atom.relocs.append(emit.bin_file.base.comp.gpa, .{
+            .offset = call_offset,
+            .index = type_index,
+            .relocation_type = .R_WASM_TYPE_INDEX_LEB,
+        });
+    }
     try leb128.writeULEB128(emit.code.writer(), @as(u32, 0)); // TODO: Emit relocation for table index
 }
 

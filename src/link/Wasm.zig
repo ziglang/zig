@@ -3057,7 +3057,9 @@ fn writeToFile(
         try leb.writeULEB128(binary_writer, @as(u32, @intCast(wasm.function_table.count())));
         var symbol_it = wasm.function_table.keyIterator();
         while (symbol_it.next()) |symbol_loc_ptr| {
-            const sym = symbol_loc_ptr.*.getSymbol(wasm);
+            const sym = symbol_loc_ptr.getSymbol(wasm);
+            std.debug.assert(sym.isAlive());
+            std.debug.assert(sym.index < wasm.functions.count() + wasm.imported_functions_count);
             try leb.writeULEB128(binary_writer, sym.index);
         }
 
