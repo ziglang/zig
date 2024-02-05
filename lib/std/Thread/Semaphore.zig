@@ -48,7 +48,7 @@ pub fn timedWait(sem: *Semaphore, timeout_ns: u64) error{Timeout}!void {
     defer sem.mutex.unlock();
 
     while (sem.permits == 0)
-        sem.cond.timedWait(&sem.mutex, timeout_ns);
+        try sem.cond.timedWait(&sem.mutex, timeout_ns);
 
     sem.permits -= 1;
     if (sem.permits > 0)
@@ -87,4 +87,17 @@ test "Thread.Semaphore" {
     for (threads) |t| t.join();
     sem.wait();
     try testing.expect(n == num_threads);
+}
+
+test "Thread.Semaphore - timedWait" {
+    var sem = Semaphore{};
+    try testing.expectEqual(@as(usize, @intCast(0)), sem.permits);
+
+    try testing.expectError(error.Timeout, sem.timedWait(1));
+
+    sem.post();
+    try testing.expectEqual(@as(usize, @intCast(1)), sem.permits);
+
+    try sem.timedWait(1);
+    try testing.expectEqual(@as(usize, @intCast(0)), sem.permits);
 }
