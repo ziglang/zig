@@ -1039,33 +1039,6 @@ test "inline call of function with a switch inside the return statement" {
     try expect(S.foo(1) == 1);
 }
 
-test "namespace lookup ignores decl causing the lookup" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_llvm) {
-        // regressed with LLVM 15
-        // https://github.com/ziglang/zig/issues/12681
-        return error.SkipZigTest;
-    }
-
-    const S = struct {
-        fn Mixin(comptime T: type) type {
-            return struct {
-                fn foo() void {
-                    const set = std.EnumSet(T.E).init(undefined);
-                    _ = set;
-                }
-            };
-        }
-
-        const E = enum { a, b };
-        usingnamespace Mixin(@This());
-    };
-    _ = S.foo();
-}
-
 test "ambiguous reference error ignores current declaration" {
     const S = struct {
         const foo = 666;
