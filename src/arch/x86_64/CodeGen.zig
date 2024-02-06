@@ -1900,7 +1900,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     const air_tags = self.air.instructions.items(.tag);
 
     for (body) |inst| {
-
         if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) continue;
         wip_mir_log.debug("{}", .{self.fmtAir(inst)});
         verbose_tracking_log.debug("{}", .{self.fmtTracking()});
