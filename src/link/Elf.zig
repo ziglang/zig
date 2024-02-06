@@ -1164,10 +1164,10 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
 
                 success: {
                     if (!self.base.isStatic()) {
-                        if (try self.accessLibPath(&test_path, &checked_paths, lc.crt_dir.?, lib_name, .Dynamic))
+                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .Dynamic))
                             break :success;
                     }
-                    if (try self.accessLibPath(&test_path, &checked_paths, lc.crt_dir.?, lib_name, .Static))
+                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .Static))
                         break :success;
 
                     try self.reportMissingLibraryError(
@@ -1997,10 +1997,10 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
                 // Maybe we should hoist search-strategy all the way here?
                 for (self.lib_dirs) |lib_dir| {
                     if (!self.base.isStatic()) {
-                        if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, lib_name, .Dynamic))
+                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .Dynamic))
                             break :success;
                     }
-                    if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, lib_name, .Static))
+                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .Static))
                         break :success;
                 }
             } else {
@@ -2011,9 +2011,9 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
                     break :success;
                 } else |_| {}
 
-                try checked_paths.append(try gpa.dupe(u8, scr_obj.path));
+                try checked_paths.append(try arena.dupe(u8, scr_obj.path));
                 for (self.lib_dirs) |lib_dir| {
-                    if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, scr_obj.path, null))
+                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, scr_obj.path, null))
                         break :success;
                 }
             }
@@ -2046,13 +2046,13 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
 
 fn accessLibPath(
     self: *Elf,
+    arena: Allocator,
     test_path: *std.ArrayList(u8),
     checked_paths: ?*std.ArrayList([]const u8),
     lib_dir_path: []const u8,
     lib_name: []const u8,
     link_mode: ?std.builtin.LinkMode,
 ) !bool {
-    const gpa = self.base.comp.gpa;
     const sep = fs.path.sep_str;
     const target = self.base.comp.root_mod.resolved_target.result;
     test_path.clearRetainingCapacity();
@@ -2068,7 +2068,7 @@ fn accessLibPath(
         suffix,
     });
     if (checked_paths) |cpaths| {
-        try cpaths.append(try gpa.dupe(u8, test_path.items));
+        try cpaths.append(try arena.dupe(u8, test_path.items));
     }
     fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
