@@ -91,13 +91,13 @@ test "Thread.Semaphore" {
 
 test "Thread.Semaphore - timedWait" {
     var sem = Semaphore{};
-    try testing.expectEqual(@as(usize, @intCast(0)), sem.permits);
+    try testing.expectEqual(0, sem.permits);
 
     try testing.expectError(error.Timeout, sem.timedWait(1));
 
     sem.post();
-    try testing.expectEqual(@as(usize, @intCast(1)), sem.permits);
+    try testing.expectEqual(1, sem.permits);
 
     try sem.timedWait(1);
-    try testing.expectEqual(@as(usize, @intCast(0)), sem.permits);
+    try testing.expectEqual(0, sem.permits);
 }
