@@ -6993,7 +6993,7 @@ fn packedLoad(self: *Self, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) Inn
 
     if (val_abi_size > 8) return self.fail("TODO implement packed load of {}", .{val_ty.fmt(mod)});
 
-    const limb_abi_size: u32 = @min(val_abi_size, 8);
+    const limb_abi_size: u31 = @min(val_abi_size, 8);
     const limb_abi_bits = limb_abi_size * 8;
     const val_byte_off: i32 = @intCast(ptr_bit_off / limb_abi_bits * limb_abi_size);
     const val_bit_off = ptr_bit_off % limb_abi_bits;
@@ -7041,7 +7041,7 @@ fn packedLoad(self: *Self, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) Inn
             .base = .{ .reg = ptr_reg },
             .mod = .{ .rm = .{
                 .size = Memory.Size.fromSize(val_abi_size),
-                .disp = val_byte_off + 1,
+                .disp = val_byte_off + limb_abi_size,
             } },
         });
         try self.spillEflagsIfOccupied();
