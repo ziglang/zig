@@ -101,17 +101,6 @@ embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .{},
 /// is not yet implemented.
 intern_pool: InternPool = .{},
 
-/// The index type for this array is `CaptureScope.Index` and the elements here are
-/// the indexes of the parent capture scopes.
-/// Memory is owned by gpa; garbage collected.
-capture_scope_parents: std.ArrayListUnmanaged(CaptureScope.Index) = .{},
-/// Value is index of type
-/// Memory is owned by gpa; garbage collected.
-runtime_capture_scopes: std.AutoArrayHashMapUnmanaged(CaptureScope.Key, InternPool.Index) = .{},
-/// Value is index of value
-/// Memory is owned by gpa; garbage collected.
-comptime_capture_scopes: std.AutoArrayHashMapUnmanaged(CaptureScope.Key, InternPool.Index) = .{},
-
 /// To be eliminated in a future commit by moving more data into InternPool.
 /// Current uses that must be eliminated:
 /// * comptime pointer mutation
@@ -305,28 +294,6 @@ pub const Export = struct {
     }
 };
 
-pub const CaptureScope = struct {
-    pub const Key = extern struct {
-        zir_index: Zir.Inst.Index,
-        index: Index,
-    };
-
-    /// Index into `capture_scope_parents` which uniquely identifies a capture scope.
-    pub const Index = enum(u32) {
-        none = std.math.maxInt(u32),
-        _,
-
-        pub fn parent(i: Index, mod: *Module) Index {
-            return mod.capture_scope_parents.items[@intFromEnum(i)];
-        }
-    };
-};
-
-pub fn createCaptureScope(mod: *Module, parent: CaptureScope.Index) error{OutOfMemory}!CaptureScope.Index {
-    try mod.capture_scope_parents.append(mod.gpa, parent);
-    return @enumFromInt(mod.capture_scope_parents.items.len - 1);
-}
-
 const ValueArena = struct {
     state: std.heap.ArenaAllocator.State,
     state_acquired: ?*std.heap.ArenaAllocator.State = null,
@@ -385,9 +352,6 @@ pub const Decl = struct {
     /// corresponding to a file, this is the namespace of the struct, since
     /// there is no parent.
     src_namespace: Namespace.Index,
-
-    /// The scope which lexically contains this decl.
-    src_scope: CaptureScope.Index,
 
     /// The AST node index of this declaration.
     /// Must be recomputed when the corresponding source file is modified.
@@ -792,11 +756,41 @@ pub const Namespace = struct {
     /// These are only declarations named directly by the AST; anonymous
     /// declarations are not stored here.
     decls: std.ArrayHashMapUnmanaged(Decl.Index, void, DeclContext, true) = .{},
-
     /// Key is usingnamespace Decl itself. To find the namespace being included,
     /// the Decl Value has to be resolved as a Type which has a Namespace.
     /// Value is whether the usingnamespace decl is marked `pub`.
     usingnamespace_set: std.AutoHashMapUnmanaged(Decl.Index, bool) = .{},
+    /// Allocated into `gpa`.
+    /// The ordered set of values captured in this type's closure.
+    /// `closure_get` instructions look up values in this list.
+    captures: []CaptureValue,
+
+    /// A single value captured in a container's closure. This is not an
+    /// `InternPool.Index` so we can differentiate between runtime-known values
+    /// (where only the type is comptime-known) and comptime-known values.
+    pub const CaptureValue = enum(u32) {
+        _,
+        pub const Unwrapped = union(enum) {
+            /// Index refers to the value.
+            @"comptime": InternPool.Index,
+            /// Index refers to the type.
+            runtime: InternPool.Index,
+        };
+        pub fn wrap(val: Unwrapped) CaptureValue {
+            return switch (val) {
+                .@"comptime" => |i| @enumFromInt(@intFromEnum(i)),
+                .runtime => |i| @enumFromInt((1 << 31) | @intFromEnum(i)),
+            };
+        }
+        pub fn unwrap(val: CaptureValue) Unwrapped {
+            const tag: u1 = @intCast(@intFromEnum(val) >> 31);
+            const raw = @intFromEnum(val);
+            return switch (tag) {
+                0 => .{ .@"comptime" = @enumFromInt(raw) },
+                1 => .{ .runtime = @enumFromInt(@as(u31, @truncate(raw))) },
+            };
+        }
+    };
 
     const Index = InternPool.NamespaceIndex;
     const OptionalIndex = InternPool.OptionalNamespaceIndex;
@@ -2135,15 +2129,12 @@ pub fn deinit(zcu: *Zcu) void {
         while (it.next()) |namespace| {
             namespace.decls.deinit(gpa);
             namespace.usingnamespace_set.deinit(gpa);
+            gpa.free(namespace.captures);
         }
     }
 
     zcu.intern_pool.deinit(gpa);
     zcu.tmp_hack_arena.deinit();
-
-    zcu.capture_scope_parents.deinit(gpa);
-    zcu.runtime_capture_scopes.deinit(gpa);
-    zcu.comptime_capture_scopes.deinit(gpa);
 }
 
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
@@ -3362,11 +3353,12 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         .parent = .none,
         .decl_index = undefined,
         .file_scope = file,
+        .captures = &.{},
     });
     const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer mod.destroyNamespace(new_namespace_index);
 
-    const new_decl_index = try mod.allocateNewDecl(new_namespace_index, 0, .none);
+    const new_decl_index = try mod.allocateNewDecl(new_namespace_index, 0);
     const new_decl = mod.declPtr(new_decl_index);
     errdefer @panic("TODO error handling");
 
@@ -3420,9 +3412,18 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     const struct_ty = sema.getStructType(
         new_decl_index,
         new_namespace_index,
+        null,
         try mod.intern_pool.trackZir(gpa, file, .main_struct_inst),
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
+        // The following errors are from resolving capture values, but the root
+        // struct of a file has no captures.
+        error.AnalysisFail,
+        error.NeededSourceLocation,
+        error.GenericPoison,
+        error.ComptimeReturn,
+        error.ComptimeBreak,
+        => unreachable,
     };
     // TODO: figure out InternPool removals for incremental compilation
     //errdefer ip.remove(struct_ty);
@@ -3573,7 +3574,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         .sema = &sema,
         .src_decl = decl_index,
         .namespace = decl.src_namespace,
-        .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -4205,7 +4205,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
     );
     const comp = zcu.comp;
     if (!gop.found_existing) {
-        const new_decl_index = try zcu.allocateNewDecl(namespace_index, decl_node, iter.parent_decl.src_scope);
+        const new_decl_index = try zcu.allocateNewDecl(namespace_index, decl_node);
         const new_decl = zcu.declPtr(new_decl_index);
         new_decl.kind = kind;
         new_decl.name = decl_name;
@@ -4438,7 +4438,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .sema = &sema,
         .src_decl = decl_index,
         .namespace = decl.src_namespace,
-        .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = false,
@@ -4639,7 +4638,6 @@ pub fn allocateNewDecl(
     mod: *Module,
     namespace: Namespace.Index,
     src_node: Ast.Node.Index,
-    src_scope: CaptureScope.Index,
 ) !Decl.Index {
     const ip = &mod.intern_pool;
     const gpa = mod.gpa;
@@ -4657,7 +4655,6 @@ pub fn allocateNewDecl(
         .@"addrspace" = .generic,
         .analysis = .unreferenced,
         .zir_decl_index = .none,
-        .src_scope = src_scope,
         .is_pub = false,
         .is_exported = false,
         .alive = false,
@@ -4697,17 +4694,16 @@ pub fn errorSetBits(mod: *Module) u16 {
 
 pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedValue) !Decl.Index {
     const src_decl = mod.declPtr(block.src_decl);
-    return mod.createAnonymousDeclFromDecl(src_decl, block.namespace, block.wip_capture_scope, typed_value);
+    return mod.createAnonymousDeclFromDecl(src_decl, block.namespace, typed_value);
 }
 
 pub fn createAnonymousDeclFromDecl(
     mod: *Module,
     src_decl: *Decl,
     namespace: Namespace.Index,
-    src_scope: CaptureScope.Index,
     tv: TypedValue,
 ) !Decl.Index {
-    const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node, src_scope);
+    const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node);
     errdefer mod.destroyDecl(new_decl_index);
     const name = try mod.intern_pool.getOrPutStringFmt(mod.gpa, "{}__anon_{d}", .{
         src_decl.name.fmt(&mod.intern_pool), @intFromEnum(new_decl_index),
@@ -5276,7 +5272,7 @@ pub fn populateTestFunctions(
                     .len = test_decl_name.len,
                     .child = .u8_type,
                 });
-                const test_name_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .none, .{
+                const test_name_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .{
                     .ty = test_name_decl_ty,
                     .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
                         .ty = test_name_decl_ty.toIntern(),
@@ -5322,7 +5318,7 @@ pub fn populateTestFunctions(
             .child = test_fn_ty.toIntern(),
             .sentinel = .none,
         });
-        const array_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .none, .{
+        const array_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .{
             .ty = array_decl_ty,
             .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = array_decl_ty.toIntern(),

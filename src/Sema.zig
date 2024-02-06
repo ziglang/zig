@@ -155,7 +155,6 @@ const Namespace = Module.Namespace;
 const CompileError = Module.CompileError;
 const SemaError = Module.SemaError;
 const Decl = Module.Decl;
-const CaptureScope = Module.CaptureScope;
 const LazySrcLoc = std.zig.LazySrcLoc;
 const RangeSet = @import("RangeSet.zig");
 const target_util = @import("target.zig");
@@ -331,8 +330,6 @@ pub const Block = struct {
     /// used to add a `func_instance` into the `InternPool`.
     params: std.MultiArrayList(Param) = .{},
 
-    wip_capture_scope: CaptureScope.Index,
-
     label: ?*Label = null,
     inlining: ?*Inlining,
     /// If runtime_index is not 0 then one of these is guaranteed to be non null.
@@ -475,7 +472,6 @@ pub const Block = struct {
             .src_decl = parent.src_decl,
             .namespace = parent.namespace,
             .instructions = .{},
-            .wip_capture_scope = parent.wip_capture_scope,
             .label = null,
             .inlining = parent.inlining,
             .is_comptime = parent.is_comptime,
@@ -974,12 +970,6 @@ fn analyzeBodyInner(
 
     try sema.inst_map.ensureSpaceForInstructions(sema.gpa, body);
 
-    // Most of the time, we don't need to construct a new capture scope for a
-    // block. However, successive iterations of comptime loops can capture
-    // different values for the same Zir.Inst.Index, so in those cases, we will
-    // have to create nested capture scopes; see the `.repeat` case below.
-    const parent_capture_scope = block.wip_capture_scope;
-
     const mod = sema.mod;
     const map = &sema.inst_map;
     const tags = sema.code.instructions.items(.tag);
@@ -1028,7 +1018,6 @@ fn analyzeBodyInner(
             .c_import                     => try sema.zirCImport(block, inst),
             .call                         => try sema.zirCall(block, inst, .direct),
             .field_call                   => try sema.zirCall(block, inst, .field),
-            .closure_get                  => try sema.zirClosureGet(block, inst),
             .cmp_lt                       => try sema.zirCmp(block, inst, .lt),
             .cmp_lte                      => try sema.zirCmp(block, inst, .lte),
             .cmp_eq                       => try sema.zirCmpEq(block, inst, .eq, Air.Inst.Tag.fromCmpOp(.eq, block.float_mode == .Optimized)),
@@ -1275,6 +1264,7 @@ fn analyzeBodyInner(
                     .work_group_size    => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .work_group_id      => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .in_comptime        => try sema.zirInComptime(        block),
+                    .closure_get        => try sema.zirClosureGet(        block, extended),
                     // zig fmt: on
 
                     .fence => {
@@ -1453,11 +1443,6 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
-            .closure_capture => {
-                try sema.zirClosureCapture(block, inst);
-                i += 1;
-                continue;
-            },
             .memcpy => {
                 try sema.zirMemcpy(block, inst);
                 i += 1;
@@ -1534,11 +1519,6 @@ fn analyzeBodyInner(
                     // Send comptime control flow back to the beginning of this block.
                     const src = LazySrcLoc.nodeOffset(datas[@intFromEnum(inst)].node);
                     try sema.emitBackwardBranch(block, src);
-
-                    // We need to construct new capture scopes for the next loop iteration so it
-                    // can capture values without clobbering the earlier iteration's captures.
-                    block.wip_capture_scope = try mod.createCaptureScope(parent_capture_scope);
-
                     i = 0;
                     continue;
                 } else {
@@ -1552,11 +1532,6 @@ fn analyzeBodyInner(
                 // Send comptime control flow back to the beginning of this block.
                 const src = LazySrcLoc.nodeOffset(datas[@intFromEnum(inst)].node);
                 try sema.emitBackwardBranch(block, src);
-
-                // We need to construct new capture scopes for the next loop iteration so it
-                // can capture values without clobbering the earlier iteration's captures.
-                block.wip_capture_scope = try mod.createCaptureScope(parent_capture_scope);
-
                 i = 0;
                 continue;
             },
@@ -1855,10 +1830,6 @@ fn analyzeBodyInner(
         map.putAssumeCapacity(inst, air_inst);
         i += 1;
     }
-
-    // We may have overwritten the capture scope due to a `repeat` instruction where
-    // the body had a capture; restore it now.
-    block.wip_capture_scope = parent_capture_scope;
 }
 
 pub fn resolveInstAllowNone(sema: *Sema, zir_ref: Zir.Inst.Ref) !Air.Inst.Ref {
@@ -2698,10 +2669,41 @@ fn analyzeAsInt(
     return (try val.getUnsignedIntAdvanced(mod, sema)).?;
 }
 
+/// Given a ZIR extra index which points to a list of `Zir.Inst.Capture`,
+/// resolves this into a list of `Namespace.CaptureValue` allocated by `gpa`.
+/// Caller owns returned memory.
+fn getCaptures(sema: *Sema, parent_namespace: ?InternPool.NamespaceIndex, extra_index: usize, captures_len: u32) ![]Namespace.CaptureValue {
+    const gpa = sema.gpa;
+    const parent_captures: []const Namespace.CaptureValue = if (parent_namespace) |p| parent: {
+        break :parent sema.mod.namespacePtr(p).captures;
+    } else &.{};
+
+    const captures = try gpa.alloc(Namespace.CaptureValue, captures_len);
+    errdefer gpa.free(captures);
+
+    for (sema.code.extra[extra_index..][0..captures_len], captures) |raw, *capture| {
+        const zir_capture: Zir.Inst.Capture = @enumFromInt(raw);
+        capture.* = switch (zir_capture.unwrap()) {
+            .inst => |inst| Namespace.CaptureValue.wrap(capture: {
+                const air_ref = try sema.resolveInst(inst.toRef());
+                if (try sema.resolveValue(air_ref)) |val| {
+                    break :capture .{ .@"comptime" = val.toIntern() };
+                }
+                break :capture .{ .runtime = sema.typeOf(air_ref).toIntern() };
+            }),
+            .nested => |parent_idx| parent_captures[parent_idx],
+        };
+    }
+
+    return captures;
+}
+
 pub fn getStructType(
     sema: *Sema,
     decl: InternPool.DeclIndex,
     namespace: InternPool.NamespaceIndex,
+    /// The direct parent Namespace for resolving nested capture values.
+    parent_namespace: ?InternPool.NamespaceIndex,
     tracked_inst: InternPool.TrackedInst.Index,
 ) !InternPool.Index {
     const mod = sema.mod;
@@ -2713,6 +2715,11 @@ pub fn getStructType(
     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
 
     var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
+    const captures_len = if (small.has_captures_len) blk: {
+        const captures_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        break :blk captures_len;
+    } else 0;
     const fields_len = if (small.has_fields_len) blk: {
         const fields_len = sema.code.extra[extra_index];
         extra_index += 1;
@@ -2723,6 +2730,9 @@ pub fn getStructType(
         extra_index += 1;
         break :blk decls_len;
     } else 0;
+
+    mod.namespacePtr(namespace).captures = try sema.getCaptures(parent_namespace, extra_index, captures_len);
+    extra_index += captures_len;
 
     if (small.has_backing_int) {
         const backing_int_body_len = sema.code.extra[extra_index];
@@ -2791,12 +2801,13 @@ fn zirStructDecl(
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
+        .captures = &.{}, // Will be set by `getStructType`
     });
     errdefer mod.destroyNamespace(new_namespace_index);
 
     const struct_ty = ty: {
         const tracked_inst = try ip.trackZir(mod.gpa, block.getFileScope(mod), inst);
-        const ty = try sema.getStructType(new_decl_index, new_namespace_index, tracked_inst);
+        const ty = try sema.getStructType(new_decl_index, new_namespace_index, block.namespace, tracked_inst);
         if (sema.builtin_type_target_index != .none) {
             ip.resolveBuiltinType(sema.builtin_type_target_index, ty);
             break :ty sema.builtin_type_target_index;
@@ -2827,10 +2838,9 @@ fn createAnonymousDeclTypeNamed(
     const ip = &mod.intern_pool;
     const gpa = sema.gpa;
     const namespace = block.namespace;
-    const src_scope = block.wip_capture_scope;
     const src_decl = mod.declPtr(block.src_decl);
     const src_node = src_decl.relativeToNodeIndex(src.node_offset.x);
-    const new_decl_index = try mod.allocateNewDecl(namespace, src_node, src_scope);
+    const new_decl_index = try mod.allocateNewDecl(namespace, src_node);
     errdefer mod.destroyDecl(new_decl_index);
 
     switch (name_strategy) {
@@ -2935,6 +2945,12 @@ fn zirEnumDecl(
         break :blk tag_type_ref;
     } else .none;
 
+    const captures_len = if (small.has_captures_len) blk: {
+        const captures_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        break :blk captures_len;
+    } else 0;
+
     const body_len = if (small.has_body_len) blk: {
         const body_len = sema.code.extra[extra_index];
         extra_index += 1;
@@ -2974,10 +2990,14 @@ fn zirEnumDecl(
         );
     }
 
+    const captures = try sema.getCaptures(block.namespace, extra_index, captures_len);
+    extra_index += captures_len;
+
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
+        .captures = captures,
     });
     errdefer if (!done) mod.destroyNamespace(new_namespace_index);
 
@@ -3054,7 +3074,6 @@ fn zirEnumDecl(
             .sema = sema,
             .src_decl = new_decl_index,
             .namespace = new_namespace_index,
-            .wip_capture_scope = try mod.createCaptureScope(new_decl.src_scope),
             .instructions = .{},
             .inlining = null,
             .is_comptime = true,
@@ -3197,6 +3216,11 @@ fn zirUnionDecl(
     const src = extra.data.src();
 
     extra_index += @intFromBool(small.has_tag_type);
+    const captures_len = if (small.has_captures_len) blk: {
+        const captures_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        break :blk captures_len;
+    } else 0;
     extra_index += @intFromBool(small.has_body_len);
     const fields_len = if (small.has_fields_len) blk: {
         const fields_len = sema.code.extra[extra_index];
@@ -3230,10 +3254,14 @@ fn zirUnionDecl(
         );
     }
 
+    const captures = try sema.getCaptures(block.namespace, extra_index, captures_len);
+    extra_index += captures_len;
+
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
+        .captures = captures,
     });
     errdefer mod.destroyNamespace(new_namespace_index);
 
@@ -3300,6 +3328,12 @@ fn zirOpaqueDecl(
 
     const src = extra.data.src();
 
+    const captures_len = if (small.has_captures_len) blk: {
+        const captures_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        break :blk captures_len;
+    } else 0;
+
     const decls_len = if (small.has_decls_len) blk: {
         const decls_len = sema.code.extra[extra_index];
         extra_index += 1;
@@ -3326,10 +3360,14 @@ fn zirOpaqueDecl(
         );
     }
 
+    const captures = try sema.getCaptures(block.namespace, extra_index, captures_len);
+    extra_index += captures_len;
+
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
+        .captures = captures,
     });
     errdefer mod.destroyNamespace(new_namespace_index);
 
@@ -5780,7 +5818,6 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         .sema = sema,
         .src_decl = parent_block.src_decl,
         .namespace = parent_block.namespace,
-        .wip_capture_scope = parent_block.wip_capture_scope,
         .instructions = .{},
         .inlining = parent_block.inlining,
         .is_comptime = true,
@@ -5900,7 +5937,6 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index, force_compt
         .sema = sema,
         .src_decl = parent_block.src_decl,
         .namespace = parent_block.namespace,
-        .wip_capture_scope = parent_block.wip_capture_scope,
         .instructions = .{},
         .label = &label,
         .inlining = parent_block.inlining,
@@ -7515,7 +7551,6 @@ fn analyzeCall(
             .sema = sema,
             .src_decl = module_fn.owner_decl,
             .namespace = fn_owner_decl.src_namespace,
-            .wip_capture_scope = try mod.createCaptureScope(fn_owner_decl.src_scope),
             .instructions = .{},
             .label = null,
             .inlining = &inlining,
@@ -8036,7 +8071,6 @@ fn instantiateGenericCall(
         .sema = &child_sema,
         .src_decl = generic_owner_func.owner_decl,
         .namespace = namespace_index,
-        .wip_capture_scope = try mod.createCaptureScope(fn_owner_decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -11409,7 +11443,6 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         .sema = sema,
         .src_decl = block.src_decl,
         .namespace = block.namespace,
-        .wip_capture_scope = block.wip_capture_scope,
         .instructions = .{},
         .label = &label,
         .inlining = block.inlining,
@@ -12117,7 +12150,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         .sema = sema,
         .src_decl = block.src_decl,
         .namespace = block.namespace,
-        .wip_capture_scope = block.wip_capture_scope,
         .instructions = .{},
         .label = &label,
         .inlining = block.inlining,
@@ -12281,7 +12313,6 @@ fn analyzeSwitchRuntimeBlock(
         extra_index += info.body_len;
 
         case_block.instructions.shrinkRetainingCapacity(0);
-        case_block.wip_capture_scope = try mod.createCaptureScope(child_block.wip_capture_scope);
 
         const item = case_vals.items[scalar_i];
         // `item` is already guaranteed to be constant known.
@@ -12339,7 +12370,6 @@ fn analyzeSwitchRuntimeBlock(
         case_val_idx += items_len;
 
         case_block.instructions.shrinkRetainingCapacity(0);
-        case_block.wip_capture_scope = child_block.wip_capture_scope;
 
         // Generate all possible cases as scalar prongs.
         if (info.is_inline) {
@@ -12371,7 +12401,6 @@ fn analyzeSwitchRuntimeBlock(
                     const item_ref = Air.internedToRef(item.toIntern());
 
                     case_block.instructions.shrinkRetainingCapacity(0);
-                    case_block.wip_capture_scope = child_block.wip_capture_scope;
 
                     if (emit_bb) sema.emitBackwardBranch(block, .unneeded) catch |err| switch (err) {
                         error.NeededSourceLocation => {
@@ -12411,7 +12440,6 @@ fn analyzeSwitchRuntimeBlock(
                 cases_len += 1;
 
                 case_block.instructions.shrinkRetainingCapacity(0);
-                case_block.wip_capture_scope = child_block.wip_capture_scope;
 
                 const analyze_body = if (union_originally) blk: {
                     const item_val = sema.resolveConstDefinedValue(block, .unneeded, item, undefined) catch unreachable;
@@ -12557,7 +12585,6 @@ fn analyzeSwitchRuntimeBlock(
             defer gpa.free(cond_body);
 
             case_block.instructions.shrinkRetainingCapacity(0);
-            case_block.wip_capture_scope = try mod.createCaptureScope(child_block.wip_capture_scope);
 
             const body = sema.code.bodySlice(extra_index, info.body_len);
             extra_index += info.body_len;
@@ -12618,7 +12645,6 @@ fn analyzeSwitchRuntimeBlock(
                     const item_ref = Air.internedToRef(item_val.toIntern());
 
                     case_block.instructions.shrinkRetainingCapacity(0);
-                    case_block.wip_capture_scope = child_block.wip_capture_scope;
 
                     const analyze_body = if (union_originally) blk: {
                         const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
@@ -12669,7 +12695,6 @@ fn analyzeSwitchRuntimeBlock(
                     const item_ref = Air.internedToRef(item_val);
 
                     case_block.instructions.shrinkRetainingCapacity(0);
-                    case_block.wip_capture_scope = child_block.wip_capture_scope;
 
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
@@ -12700,7 +12725,6 @@ fn analyzeSwitchRuntimeBlock(
                     const item_ref = Air.internedToRef(cur);
 
                     case_block.instructions.shrinkRetainingCapacity(0);
-                    case_block.wip_capture_scope = child_block.wip_capture_scope;
 
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
@@ -12728,7 +12752,6 @@ fn analyzeSwitchRuntimeBlock(
                     cases_len += 1;
 
                     case_block.instructions.shrinkRetainingCapacity(0);
-                    case_block.wip_capture_scope = child_block.wip_capture_scope;
 
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
@@ -12754,7 +12777,6 @@ fn analyzeSwitchRuntimeBlock(
                     cases_len += 1;
 
                     case_block.instructions.shrinkRetainingCapacity(0);
-                    case_block.wip_capture_scope = child_block.wip_capture_scope;
 
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
@@ -12783,7 +12805,6 @@ fn analyzeSwitchRuntimeBlock(
         };
 
         case_block.instructions.shrinkRetainingCapacity(0);
-        case_block.wip_capture_scope = try mod.createCaptureScope(child_block.wip_capture_scope);
 
         if (mod.backendSupportsFeature(.is_named_enum_value) and
             special.body.len != 0 and block.wantSafety() and
@@ -17264,49 +17285,16 @@ fn zirThis(
     return sema.analyzeDeclVal(block, src, this_decl_index);
 }
 
-fn zirClosureCapture(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    const gpa = sema.gpa;
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_tok;
-    // Closures are not necessarily constant values. For example, the
-    // code might do something like this:
-    // fn foo(x: anytype) void { const S = struct {field: @TypeOf(x)}; }
-    // ...in which case the closure_capture instruction has access to a runtime
-    // value only. In such case only the type is saved into the scope.
-    const operand = try sema.resolveInst(inst_data.operand);
-    const ty = sema.typeOf(operand);
-    const key: CaptureScope.Key = .{
-        .zir_index = inst,
-        .index = block.wip_capture_scope,
-    };
-    if (try sema.resolveValue(operand)) |val| {
-        try mod.comptime_capture_scopes.put(gpa, key, try val.intern(ty, mod));
-    } else {
-        try mod.runtime_capture_scopes.put(gpa, key, ty.toIntern());
-    }
-}
+    const captures = mod.namespacePtr(block.namespace).captures;
 
-fn zirClosureGet(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const mod = sema.mod;
-    //const ip = &mod.intern_pool;
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].inst_node;
-    var scope: CaptureScope.Index = mod.declPtr(block.src_decl).src_scope;
-    assert(scope != .none);
-    // Note: The target closure must be in this scope list.
-    // If it's not here, the zir is invalid, or the list is broken.
-    const capture_ty = while (true) {
-        // Note: We don't need to add a dependency here, because
-        // decls always depend on their lexical parents.
-        const key: CaptureScope.Key = .{
-            .zir_index = inst_data.inst,
-            .index = scope,
-        };
-        if (mod.comptime_capture_scopes.get(key)) |val|
-            return Air.internedToRef(val);
-        if (mod.runtime_capture_scopes.get(key)) |ty|
-            break ty;
-        scope = scope.parent(mod);
-        assert(scope != .none);
+    const src_node: i32 = @bitCast(extended.operand);
+    const src = LazySrcLoc.nodeOffset(src_node);
+
+    const capture_ty = switch (captures[extended.small].unwrap()) {
+        .@"comptime" => |index| return Air.internedToRef(index),
+        .runtime => |index| index,
     };
 
     // The comptime case is handled already above. Runtime case below.
@@ -17322,15 +17310,15 @@ fn zirClosureGet(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
                     });
                     break :name null;
                 };
-                const node = sema.owner_decl.relativeToNodeIndex(inst_data.src_node);
+                const node = sema.owner_decl.relativeToNodeIndex(src_node);
                 const token = tree.nodes.items(.main_token)[node];
                 break :name tree.tokenSlice(token);
             };
 
             const msg = if (name) |some|
-                try sema.errMsg(block, inst_data.src(), "'{s}' not accessible outside function scope", .{some})
+                try sema.errMsg(block, src, "'{s}' not accessible outside function scope", .{some})
             else
-                try sema.errMsg(block, inst_data.src(), "variable not accessible outside function scope", .{});
+                try sema.errMsg(block, src, "variable not accessible outside function scope", .{});
             errdefer msg.destroy(sema.gpa);
 
             // TODO add "declared here" note
@@ -17350,15 +17338,15 @@ fn zirClosureGet(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
                     });
                     break :name null;
                 };
-                const node = sema.owner_decl.relativeToNodeIndex(inst_data.src_node);
+                const node = sema.owner_decl.relativeToNodeIndex(src_node);
                 const token = tree.nodes.items(.main_token)[node];
                 break :name tree.tokenSlice(token);
             };
 
             const msg = if (name) |some|
-                try sema.errMsg(block, inst_data.src(), "'{s}' not accessible from inner function", .{some})
+                try sema.errMsg(block, src, "'{s}' not accessible from inner function", .{some})
             else
-                try sema.errMsg(block, inst_data.src(), "variable not accessible from inner function", .{});
+                try sema.errMsg(block, src, "variable not accessible from inner function", .{});
             errdefer msg.destroy(sema.gpa);
 
             try sema.errNote(block, LazySrcLoc.nodeOffset(0), msg, "crossed function definition here", .{});
@@ -18631,7 +18619,6 @@ fn zirTypeofBuiltin(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
         .sema = sema,
         .src_decl = block.src_decl,
         .namespace = block.namespace,
-        .wip_capture_scope = block.wip_capture_scope,
         .instructions = .{},
         .inlining = block.inlining,
         .is_comptime = false,
@@ -18710,7 +18697,6 @@ fn zirTypeofPeer(
         .sema = sema,
         .src_decl = block.src_decl,
         .namespace = block.namespace,
-        .wip_capture_scope = block.wip_capture_scope,
         .instructions = .{},
         .inlining = block.inlining,
         .is_comptime = false,
@@ -19186,7 +19172,6 @@ fn ensurePostHoc(sema: *Sema, block: *Block, dest_block: Zir.Inst.Index) !*Label
             .sema = sema,
             .src_decl = block.src_decl,
             .namespace = block.namespace,
-            .wip_capture_scope = block.wip_capture_scope,
             .instructions = .{},
             .label = &labeled_block.label,
             .inlining = block.inlining,
@@ -21462,6 +21447,7 @@ fn zirReify(
                 .parent = block.namespace.toOptional(),
                 .decl_index = new_decl_index,
                 .file_scope = block.getFileScope(mod),
+                .captures = &.{},
             });
             errdefer mod.destroyNamespace(new_namespace_index);
 
@@ -21670,6 +21656,7 @@ fn zirReify(
                 .parent = block.namespace.toOptional(),
                 .decl_index = new_decl_index,
                 .file_scope = block.getFileScope(mod),
+                .captures = &.{},
             });
             errdefer mod.destroyNamespace(new_namespace_index);
 
@@ -25919,7 +25906,7 @@ fn zirBuiltinExtern(
 
     // TODO check duplicate extern
 
-    const new_decl_index = try mod.allocateNewDecl(sema.owner_decl.src_namespace, sema.owner_decl.src_node, .none);
+    const new_decl_index = try mod.allocateNewDecl(sema.owner_decl.src_namespace, sema.owner_decl.src_node);
     errdefer mod.destroyDecl(new_decl_index);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.name = options.name;
@@ -26515,7 +26502,6 @@ fn addSafetyCheck(
         .sema = sema,
         .src_decl = parent_block.src_decl,
         .namespace = parent_block.namespace,
-        .wip_capture_scope = parent_block.wip_capture_scope,
         .instructions = .{},
         .inlining = parent_block.inlining,
         .is_comptime = false,
@@ -26624,7 +26610,6 @@ fn panicUnwrapError(
         .sema = sema,
         .src_decl = parent_block.src_decl,
         .namespace = parent_block.namespace,
-        .wip_capture_scope = parent_block.wip_capture_scope,
         .instructions = .{},
         .inlining = parent_block.inlining,
         .is_comptime = false,
@@ -26741,7 +26726,6 @@ fn safetyCheckFormatted(
         .sema = sema,
         .src_decl = parent_block.src_decl,
         .namespace = parent_block.namespace,
-        .wip_capture_scope = parent_block.wip_capture_scope,
         .instructions = .{},
         .inlining = parent_block.inlining,
         .is_comptime = false,
@@ -35766,7 +35750,6 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.Key.StructType) Comp
         .sema = &sema,
         .src_decl = decl_index,
         .namespace = struct_type.namespace.unwrap() orelse decl.src_namespace,
-        .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -35789,8 +35772,15 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.Key.StructType) Comp
 
     if (small.has_backing_int) {
         var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
+        const captures_len = if (small.has_captures_len) blk: {
+            const captures_len = zir.extra[extra_index];
+            extra_index += 1;
+            break :blk captures_len;
+        } else 0;
         extra_index += @intFromBool(small.has_fields_len);
         extra_index += @intFromBool(small.has_decls_len);
+
+        extra_index += captures_len;
 
         const backing_int_body_len = zir.extra[extra_index];
         extra_index += 1;
@@ -36500,6 +36490,12 @@ fn structZirInfo(zir: Zir, zir_index: Zir.Inst.Index) struct {
     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
     var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
 
+    const captures_len = if (small.has_captures_len) blk: {
+        const captures_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk captures_len;
+    } else 0;
+
     const fields_len = if (small.has_fields_len) blk: {
         const fields_len = zir.extra[extra_index];
         extra_index += 1;
@@ -36511,6 +36507,8 @@ fn structZirInfo(zir: Zir, zir_index: Zir.Inst.Index) struct {
         extra_index += 1;
         break :decls_len decls_len;
     } else 0;
+
+    extra_index += captures_len;
 
     // The backing integer cannot be handled until `resolveStructLayout()`.
     if (small.has_backing_int) {
@@ -36584,7 +36582,6 @@ fn semaStructFields(
         .sema = &sema,
         .src_decl = decl_index,
         .namespace = namespace_index,
-        .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -36842,7 +36839,6 @@ fn semaStructFieldInits(
         .sema = &sema,
         .src_decl = decl_index,
         .namespace = namespace_index,
-        .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -36974,6 +36970,12 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
         break :blk ty_ref;
     } else .none;
 
+    const captures_len = if (small.has_captures_len) blk: {
+        const captures_len = zir.extra[extra_index];
+        extra_index += 1;
+        break :blk captures_len;
+    } else 0;
+
     const body_len = if (small.has_body_len) blk: {
         const body_len = zir.extra[extra_index];
         extra_index += 1;
@@ -36992,8 +36994,8 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
         break :decls_len decls_len;
     } else 0;
 
-    // Skip over decls.
-    extra_index += decls_len;
+    // Skip over captures and decls.
+    extra_index += captures_len + decls_len;
 
     const body = zir.bodySlice(extra_index, body_len);
     extra_index += body.len;
@@ -37028,7 +37030,6 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
         .sema = &sema,
         .src_decl = decl_index,
         .namespace = union_type.namespace,
-        .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -37372,7 +37373,7 @@ fn generateUnionTagTypeNumbered(
     const ip = &mod.intern_pool;
 
     const src_decl = mod.declPtr(block.src_decl);
-    const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope);
+    const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node);
     errdefer mod.destroyDecl(new_decl_index);
     const fqn = try decl.fullyQualifiedName(mod);
     const name = try ip.getOrPutStringFmt(gpa, "@typeInfo({}).Union.tag_type.?", .{fqn.fmt(ip)});
@@ -37425,7 +37426,7 @@ fn generateUnionTagTypeSimple(
         };
         const fqn = try mod.declPtr(decl_index).fullyQualifiedName(mod);
         const src_decl = mod.declPtr(block.src_decl);
-        const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope);
+        const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node);
         errdefer mod.destroyDecl(new_decl_index);
         const name = try ip.getOrPutStringFmt(gpa, "@typeInfo({}).Union.tag_type.?", .{fqn.fmt(ip)});
         try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, .{
@@ -37460,7 +37461,6 @@ fn generateUnionTagTypeSimple(
 }
 
 fn getBuiltin(sema: *Sema, name: []const u8) CompileError!Air.Inst.Ref {
-    const mod = sema.mod;
     const gpa = sema.gpa;
     const src = LazySrcLoc.nodeOffset(0);
 
@@ -37469,7 +37469,6 @@ fn getBuiltin(sema: *Sema, name: []const u8) CompileError!Air.Inst.Ref {
         .sema = sema,
         .src_decl = sema.owner_decl_index,
         .namespace = sema.owner_decl.src_namespace,
-        .wip_capture_scope = try mod.createCaptureScope(sema.owner_decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -37510,7 +37509,6 @@ fn getBuiltinDecl(sema: *Sema, block: *Block, name: []const u8) CompileError!Int
 }
 
 fn getBuiltinType(sema: *Sema, name: []const u8) CompileError!Type {
-    const mod = sema.mod;
     const ty_inst = try sema.getBuiltin(name);
 
     var block: Block = .{
@@ -37518,7 +37516,6 @@ fn getBuiltinType(sema: *Sema, name: []const u8) CompileError!Type {
         .sema = sema,
         .src_decl = sema.owner_decl_index,
         .namespace = sema.owner_decl.src_namespace,
-        .wip_capture_scope = try mod.createCaptureScope(sema.owner_decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,

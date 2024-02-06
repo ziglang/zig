@@ -1,7 +1,6 @@
 //! All interned objects have both a value and a type.
 //! This data structure is self-contained, with the following exceptions:
 //! * Module.Namespace has a pointer to Module.File
-//! * Module.Decl has a pointer to Module.CaptureScope
 
 /// Maps `Key` to `Index`. `Key` objects are not stored anywhere; they are
 /// constructed lazily.
@@ -6395,7 +6394,6 @@ fn finishFuncInstance(
         .@"addrspace" = fn_owner_decl.@"addrspace",
         .analysis = .complete,
         .zir_decl_index = fn_owner_decl.zir_decl_index,
-        .src_scope = fn_owner_decl.src_scope,
         .is_pub = fn_owner_decl.is_pub,
         .is_exported = fn_owner_decl.is_exported,
         .alive = true,
@@ -7891,6 +7889,7 @@ pub fn destroyNamespace(ip: *InternPool, gpa: Allocator, index: NamespaceIndex) 
         .parent = undefined,
         .file_scope = undefined,
         .decl_index = undefined,
+        .captures = undefined,
     };
     ip.namespaces_free_list.append(gpa, index) catch {
         // In order to keep `destroyNamespace` a non-fallible function, we ignore memory
