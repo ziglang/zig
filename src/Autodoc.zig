@@ -3497,7 +3497,7 @@ fn walkInstruction(
                     };
 
                     const small = @as(Zir.Inst.UnionDecl.Small, @bitCast(extended.small));
-                    var extra_index: usize = extended.operand;
+                    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.UnionDecl).Struct.fields.len;
 
                     const src_node: ?i32 = if (small.has_src_node) blk: {
                         const src_node = @as(i32, @bitCast(file.zir.extra[extra_index]));
@@ -3627,7 +3627,7 @@ fn walkInstruction(
                     };
 
                     const small = @as(Zir.Inst.EnumDecl.Small, @bitCast(extended.small));
-                    var extra_index: usize = extended.operand;
+                    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.EnumDecl).Struct.fields.len;
 
                     const src_node: ?i32 = if (small.has_src_node) blk: {
                         const src_node = @as(i32, @bitCast(file.zir.extra[extra_index]));
@@ -3778,7 +3778,7 @@ fn walkInstruction(
                     };
 
                     const small = @as(Zir.Inst.StructDecl.Small, @bitCast(extended.small));
-                    var extra_index: usize = extended.operand;
+                    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
 
                     const src_node: ?i32 = if (small.has_src_node) blk: {
                         const src_node = @as(i32, @bitCast(file.zir.extra[extra_index]));

@@ -2583,7 +2583,6 @@ fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.ErrorMsg)
         ip.funcAnalysis(sema.owner_func_index).state = .sema_failure;
     } else {
         sema.owner_decl.analysis = .sema_failure;
-        sema.owner_decl.generation = mod.generation;
     }
     if (sema.func_index != .none) {
         ip.funcAnalysis(sema.func_index).state = .sema_failure;
@@ -2718,7 +2717,7 @@ pub fn getStructType(
     assert(extended.opcode == .struct_decl);
     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
 
-    var extra_index: usize = extended.operand;
+    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
     extra_index += @intFromBool(small.has_src_node);
     const fields_len = if (small.has_fields_len) blk: {
         const fields_len = sema.code.extra[extra_index];
@@ -2748,7 +2747,7 @@ pub fn getStructType(
     const ty = try ip.getStructType(gpa, .{
         .decl = decl,
         .namespace = namespace.toOptional(),
-        .zir_index = tracked_inst,
+        .zir_index = tracked_inst.toOptional(),
         .layout = small.layout,
         .known_non_opv = small.known_non_opv,
         .is_tuple = small.is_tuple,
@@ -2773,7 +2772,7 @@ fn zirStructDecl(
     const ip = &mod.intern_pool;
     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
     const src: LazySrcLoc = if (small.has_src_node) blk: {
-        const node_offset: i32 = @bitCast(sema.code.extra[extended.operand]);
+        const node_offset: i32 = @bitCast(sema.code.extra[extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len]);
         break :blk LazySrcLoc.nodeOffset(node_offset);
     } else sema.src;
 
@@ -2788,6 +2787,14 @@ fn zirStructDecl(
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
+
+    if (sema.mod.comp.debug_incremental) {
+        try ip.addDependency(
+            sema.gpa,
+            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            .{ .src_hash = try ip.trackZir(sema.gpa, block.getFileScope(mod), inst) },
+        );
+    }
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -2927,7 +2934,7 @@ fn zirEnumDecl(
     const mod = sema.mod;
     const gpa = sema.gpa;
     const small: Zir.Inst.EnumDecl.Small = @bitCast(extended.small);
-    var extra_index: usize = extended.operand;
+    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.EnumDecl).Struct.fields.len;
 
     const src: LazySrcLoc = if (small.has_src_node) blk: {
         const node_offset: i32 = @bitCast(sema.code.extra[extra_index]);
@@ -2973,6 +2980,14 @@ fn zirEnumDecl(
     new_decl.owns_tv = true;
     errdefer if (!done) mod.abortAnonDecl(new_decl_index);
 
+    if (sema.mod.comp.debug_incremental) {
+        try mod.intern_pool.addDependency(
+            sema.gpa,
+            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
+        );
+    }
+
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .ty = undefined,
@@ -3008,6 +3023,7 @@ fn zirEnumDecl(
                 .auto
             else
                 .explicit,
+            .zir_index = (try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst)).toOptional(),
         });
         if (sema.builtin_type_target_index != .none) {
             mod.intern_pool.resolveBuiltinType(sema.builtin_type_target_index, incomplete_enum.index);
@@ -3191,7 +3207,7 @@ fn zirUnionDecl(
     const mod = sema.mod;
     const gpa = sema.gpa;
     const small: Zir.Inst.UnionDecl.Small = @bitCast(extended.small);
-    var extra_index: usize = extended.operand;
+    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.UnionDecl).Struct.fields.len;
 
     const src: LazySrcLoc = if (small.has_src_node) blk: {
         const node_offset: i32 = @bitCast(sema.code.extra[extra_index]);
@@ -3225,6 +3241,14 @@ fn zirUnionDecl(
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
+    if (sema.mod.comp.debug_incremental) {
+        try mod.intern_pool.addDependency(
+            sema.gpa,
+            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
+        );
+    }
+
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .ty = undefined,
@@ -3254,7 +3278,7 @@ fn zirUnionDecl(
             },
             .decl = new_decl_index,
             .namespace = new_namespace_index,
-            .zir_index = try mod.intern_pool.trackZir(gpa, block.getFileScope(mod), inst),
+            .zir_index = (try mod.intern_pool.trackZir(gpa, block.getFileScope(mod), inst)).toOptional(),
             .fields_len = fields_len,
             .enum_tag_ty = .none,
             .field_types = &.{},
@@ -3318,6 +3342,14 @@ fn zirOpaqueDecl(
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
+    if (sema.mod.comp.debug_incremental) {
+        try mod.intern_pool.addDependency(
+            sema.gpa,
+            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
+        );
+    }
+
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .ty = undefined,
@@ -3329,6 +3361,7 @@ fn zirOpaqueDecl(
     const opaque_ty = try mod.intern(.{ .opaque_type = .{
         .decl = new_decl_index,
         .namespace = new_namespace_index,
+        .zir_index = (try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst)).toOptional(),
     } });
     // TODO: figure out InternPool removals for incremental compilation
     //errdefer mod.intern_pool.remove(opaque_ty);
@@ -7890,6 +7923,8 @@ fn instantiateGenericCall(
     const generic_owner_func = mod.intern_pool.indexToKey(generic_owner).func;
     const generic_owner_ty_info = mod.typeToFunc(Type.fromInterned(generic_owner_func.ty)).?;
 
+    try sema.declareDependency(.{ .src_hash = generic_owner_func.zir_body_inst });
+
     // Even though there may already be a generic instantiation corresponding
     // to this callsite, we must evaluate the expressions of the generic
     // function signature with the values of the callsite plugged in.
@@ -9440,7 +9475,6 @@ fn funcCommon(
             .inferred_error_set = inferred_error_set,
             .generic_owner = sema.generic_owner,
             .comptime_args = sema.comptime_args,
-            .generation = mod.generation,
         });
         return finishFunc(
             sema,
@@ -13598,6 +13632,12 @@ fn zirHasDecl(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     });
 
     try sema.checkNamespaceType(block, lhs_src, container_type);
+    if (container_type.typeDeclInst(mod)) |type_decl_inst| {
+        try sema.declareDependency(.{ .namespace_name = .{
+            .namespace = type_decl_inst,
+            .name = decl_name,
+        } });
+    }
 
     const namespace = container_type.getNamespaceIndex(mod).unwrap() orelse
         return .bool_false;
@@ -17450,6 +17490,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const ty = try sema.resolveType(block, src, inst_data.operand);
     const type_info_ty = try sema.getBuiltinType("Type");
     const type_info_tag_ty = type_info_ty.unionTagType(mod).?;
+
+    if (ty.typeDeclInst(mod)) |type_decl_inst| {
+        try sema.declareDependency(.{ .namespace = type_decl_inst });
+    }
 
     switch (ty.zigTypeTag(mod)) {
         .Type,
@@ -21318,6 +21362,7 @@ fn zirReify(
                 else
                     .explicit,
                 .tag_ty = int_tag_ty.toIntern(),
+                .zir_index = .none,
             });
             // TODO: figure out InternPool removals for incremental compilation
             //errdefer ip.remove(incomplete_enum.index);
@@ -21415,6 +21460,7 @@ fn zirReify(
             const opaque_ty = try mod.intern(.{ .opaque_type = .{
                 .decl = new_decl_index,
                 .namespace = new_namespace_index,
+                .zir_index = .none,
             } });
             // TODO: figure out InternPool removals for incremental compilation
             //errdefer ip.remove(opaque_ty);
@@ -21633,7 +21679,7 @@ fn zirReify(
                 .namespace = new_namespace_index,
                 .enum_tag_ty = enum_tag_ty,
                 .fields_len = fields_len,
-                .zir_index = try ip.trackZir(gpa, block.getFileScope(mod), inst), // TODO: should reified types be handled differently?
+                .zir_index = .none,
                 .flags = .{
                     .layout = layout,
                     .status = .have_field_types,
@@ -21801,7 +21847,7 @@ fn reifyStruct(
     const ty = try ip.getStructType(gpa, .{
         .decl = new_decl_index,
         .namespace = .none,
-        .zir_index = try mod.intern_pool.trackZir(gpa, block.getFileScope(mod), inst), // TODO: should reified types be handled differently?
+        .zir_index = .none,
         .layout = layout,
         .known_non_opv = false,
         .fields_len = fields_len,
@@ -25922,7 +25968,6 @@ fn zirBuiltinExtern(
     new_decl.has_tv = true;
     new_decl.owns_tv = true;
     new_decl.analysis = .complete;
-    new_decl.generation = mod.generation;
 
     try sema.ensureDeclAnalyzed(new_decl_index);
 
@@ -26421,6 +26466,7 @@ fn prepareSimplePanic(sema: *Sema, block: *Block) !void {
         // owns the function.
         try sema.ensureDeclAnalyzed(decl_index);
         const tv = try mod.declPtr(decl_index).typedValue();
+        try sema.declareDependency(.{ .decl_val = decl_index });
         assert(tv.ty.zigTypeTag(mod) == .Fn);
         assert(try sema.fnHasRuntimeBits(tv.ty));
         const func_index = tv.val.toIntern();
@@ -26842,6 +26888,13 @@ fn fieldVal(
             const val = (try sema.resolveDefinedValue(block, object_src, dereffed_type)).?;
             const child_type = val.toType();
 
+            if (child_type.typeDeclInst(mod)) |type_decl_inst| {
+                try sema.declareDependency(.{ .namespace_name = .{
+                    .namespace = type_decl_inst,
+                    .name = field_name,
+                } });
+            }
+
             switch (try child_type.zigTypeTagOrPoison(mod)) {
                 .ErrorSet => {
                     switch (ip.indexToKey(child_type.toIntern())) {
@@ -27064,6 +27117,13 @@ fn fieldPtr(
 
             const val = (sema.resolveDefinedValue(block, src, inner) catch unreachable).?;
             const child_type = val.toType();
+
+            if (child_type.typeDeclInst(mod)) |type_decl_inst| {
+                try sema.declareDependency(.{ .namespace_name = .{
+                    .namespace = type_decl_inst,
+                    .name = field_name,
+                } });
+            }
 
             switch (child_type.zigTypeTag(mod)) {
                 .ErrorSet => {
@@ -31134,6 +31194,7 @@ fn beginComptimePtrLoad(
                 const is_mutable = ptr.addr == .mut_decl;
                 const decl = mod.declPtr(decl_index);
                 const decl_tv = try decl.typedValue();
+                try sema.declareDependency(.{ .decl_val = decl_index });
                 if (decl.val.getVariable(mod) != null) return error.RuntimeLoad;
 
                 const layout_defined = decl.ty.hasWellDefinedLayout(mod);
@@ -32387,6 +32448,8 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: InternPool.DeclIndex, analyze_fn
 
     const decl = mod.declPtr(decl_index);
     const decl_tv = try decl.typedValue();
+    // TODO: if this is a `decl_ref` of a non-variable decl, only depend on decl type
+    try sema.declareDependency(.{ .decl_val = decl_index });
     const ptr_ty = try sema.ptrType(.{
         .child = decl_tv.ty.toIntern(),
         .flags = .{
@@ -35683,13 +35746,13 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.Key.StructType) Comp
         break :blk accumulator;
     };
 
-    const zir_index = struct_type.zir_index.resolve(ip);
+    const zir_index = struct_type.zir_index.unwrap().?.resolve(ip);
     const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .struct_decl);
     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
 
     if (small.has_backing_int) {
-        var extra_index: usize = extended.operand;
+        var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
         extra_index += @intFromBool(small.has_src_node);
         extra_index += @intFromBool(small.has_fields_len);
         extra_index += @intFromBool(small.has_decls_len);
@@ -36162,10 +36225,8 @@ pub fn resolveTypeFieldsStruct(
         .file_failure,
         .dependency_failure,
         .sema_failure,
-        .sema_failure_retryable,
         => {
             sema.owner_decl.analysis = .dependency_failure;
-            sema.owner_decl.generation = mod.generation;
             return error.AnalysisFail;
         },
         else => {},
@@ -36221,10 +36282,8 @@ pub fn resolveTypeFieldsUnion(sema: *Sema, ty: Type, union_type: InternPool.Key.
         .file_failure,
         .dependency_failure,
         .sema_failure,
-        .sema_failure_retryable,
         => {
             sema.owner_decl.analysis = .dependency_failure;
-            sema.owner_decl.generation = mod.generation;
             return error.AnalysisFail;
         },
         else => {},
@@ -36404,7 +36463,7 @@ fn structZirInfo(zir: Zir, zir_index: Zir.Inst.Index) struct {
     const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .struct_decl);
     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
-    var extra_index: usize = extended.operand;
+    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
 
     extra_index += @intFromBool(small.has_src_node);
 
@@ -36448,7 +36507,7 @@ fn semaStructFields(
     const decl = mod.declPtr(decl_index);
     const namespace_index = struct_type.namespace.unwrap() orelse decl.src_namespace;
     const zir = mod.namespacePtr(namespace_index).file_scope.zir;
-    const zir_index = struct_type.zir_index.resolve(ip);
+    const zir_index = struct_type.zir_index.unwrap().?.resolve(ip);
 
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
@@ -36719,7 +36778,7 @@ fn semaStructFieldInits(
     const decl = mod.declPtr(decl_index);
     const namespace_index = struct_type.namespace.unwrap() orelse decl.src_namespace;
     const zir = mod.namespacePtr(namespace_index).file_scope.zir;
-    const zir_index = struct_type.zir_index.resolve(ip);
+    const zir_index = struct_type.zir_index.unwrap().?.resolve(ip);
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
     var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
@@ -36868,11 +36927,11 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
     const ip = &mod.intern_pool;
     const decl_index = union_type.decl;
     const zir = mod.namespacePtr(union_type.namespace).file_scope.zir;
-    const zir_index = union_type.zir_index.resolve(ip);
+    const zir_index = union_type.zir_index.unwrap().?.resolve(ip);
     const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .union_decl);
     const small: Zir.Inst.UnionDecl.Small = @bitCast(extended.small);
-    var extra_index: usize = extended.operand;
+    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.UnionDecl).Struct.fields.len;
 
     const src = LazySrcLoc.nodeOffset(0);
     extra_index += @intFromBool(small.has_src_node);
@@ -37312,6 +37371,7 @@ fn generateUnionTagTypeNumbered(
         .names = enum_field_names,
         .values = enum_field_vals,
         .tag_mode = .explicit,
+        .zir_index = .none,
     });
 
     new_decl.ty = Type.type;
@@ -37362,6 +37422,7 @@ fn generateUnionTagTypeSimple(
         .names = enum_field_names,
         .values = &.{},
         .tag_mode = .auto,
+        .zir_index = .none,
     });
 
     const new_decl = mod.declPtr(new_decl_index);
@@ -38875,4 +38936,15 @@ fn ptrType(sema: *Sema, info: InternPool.Key.PtrType) CompileError!Type {
         _ = try sema.typeAbiAlignment(Type.fromInterned(info.child));
     }
     return sema.mod.ptrType(info);
+}
+
+pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
+    if (!sema.mod.comp.debug_incremental) return;
+    const depender = InternPool.Depender.wrap(
+        if (sema.owner_func_index != .none)
+            .{ .func = sema.owner_func_index }
+        else
+            .{ .decl = sema.owner_decl_index },
+    );
+    try sema.mod.intern_pool.addDependency(sema.gpa, depender, dependee);
 }

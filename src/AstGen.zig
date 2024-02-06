@@ -4815,6 +4815,7 @@ fn structDeclInner(
             .any_comptime_fields = false,
             .any_default_inits = false,
             .any_aligned_fields = false,
+            .fields_hash = std.zig.hashSrc(@tagName(layout)),
         });
         return decl_inst.toRef();
     }
@@ -4936,6 +4937,12 @@ fn structDeclInner(
         }
     };
 
+    var fields_hasher = std.zig.SrcHasher.init(.{});
+    fields_hasher.update(@tagName(layout));
+    if (backing_int_node != 0) {
+        fields_hasher.update(tree.getNodeSource(backing_int_node));
+    }
+
     var sfba = std.heap.stackFallback(256, astgen.arena);
     const sfba_allocator = sfba.get();
 
@@ -4955,6 +4962,8 @@ fn structDeclInner(
             .decl => continue,
             .field => |field| field,
         };
+
+        fields_hasher.update(tree.getNodeSource(member_node));
 
         if (!is_tuple) {
             const field_name = try astgen.identAsString(member.ast.main_token);
@@ -5083,6 +5092,9 @@ fn structDeclInner(
         return error.AnalysisFail;
     }
 
+    var fields_hash: std.zig.SrcHash = undefined;
+    fields_hasher.final(&fields_hash);
+
     try gz.setStruct(decl_inst, .{
         .src_node = node,
         .layout = layout,
@@ -5096,6 +5108,7 @@ fn structDeclInner(
         .any_comptime_fields = any_comptime_fields,
         .any_default_inits = any_default_inits,
         .any_aligned_fields = any_aligned_fields,
+        .fields_hash = fields_hash,
     });
 
     wip_members.finishBits(bits_per_field);
@@ -5174,6 +5187,13 @@ fn unionDeclInner(
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
+    var fields_hasher = std.zig.SrcHasher.init(.{});
+    fields_hasher.update(@tagName(layout));
+    fields_hasher.update(&.{@intFromBool(auto_enum_tok != null)});
+    if (arg_node != 0) {
+        fields_hasher.update(astgen.tree.getNodeSource(arg_node));
+    }
+
     var sfba = std.heap.stackFallback(256, astgen.arena);
     const sfba_allocator = sfba.get();
 
@@ -5188,6 +5208,7 @@ fn unionDeclInner(
             .decl => continue,
             .field => |field| field,
         };
+        fields_hasher.update(astgen.tree.getNodeSource(member_node));
         member.convertToNonTupleLike(astgen.tree.nodes);
         if (member.ast.tuple_like) {
             return astgen.failTok(member.ast.main_token, "union field missing name", .{});
@@ -5289,6 +5310,9 @@ fn unionDeclInner(
         return error.AnalysisFail;
     }
 
+    var fields_hash: std.zig.SrcHash = undefined;
+    fields_hasher.final(&fields_hash);
+
     if (!block_scope.isEmpty()) {
         _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
     }
@@ -5305,6 +5329,7 @@ fn unionDeclInner(
         .decls_len = decl_count,
         .auto_enum_tag = auto_enum_tok != null,
         .any_aligned_fields = any_aligned_fields,
+        .fields_hash = fields_hash,
     });
 
     wip_members.finishBits(bits_per_field);
@@ -5498,6 +5523,12 @@ fn containerDecl(
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, @intCast(counts.decls), @intCast(counts.total_fields), bits_per_field, max_field_size);
             defer wip_members.deinit();
 
+            var fields_hasher = std.zig.SrcHasher.init(.{});
+            if (container_decl.ast.arg != 0) {
+                fields_hasher.update(tree.getNodeSource(container_decl.ast.arg));
+            }
+            fields_hasher.update(&.{@intFromBool(nonexhaustive)});
+
             var sfba = std.heap.stackFallback(256, astgen.arena);
             const sfba_allocator = sfba.get();
 
@@ -5510,6 +5541,7 @@ fn containerDecl(
             for (container_decl.ast.members) |member_node| {
                 if (member_node == counts.nonexhaustive_node)
                     continue;
+                fields_hasher.update(tree.getNodeSource(member_node));
                 namespace.base.tag = .namespace;
                 var member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
                     .decl => continue,
@@ -5590,6 +5622,9 @@ fn containerDecl(
                 _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
             }
 
+            var fields_hash: std.zig.SrcHash = undefined;
+            fields_hasher.final(&fields_hash);
+
             const body = block_scope.instructionsSlice();
             const body_len = astgen.countBodyLenAfterFixups(body);
 
@@ -5600,6 +5635,7 @@ fn containerDecl(
                 .body_len = body_len,
                 .fields_len = @intCast(counts.total_fields),
                 .decls_len = @intCast(counts.decls),
+                .fields_hash = fields_hash,
             });
 
             wip_members.finishBits(bits_per_field);
@@ -11900,8 +11936,8 @@ const GenZir = struct {
 
         var body: []Zir.Inst.Index = &[0]Zir.Inst.Index{};
         var ret_body: []Zir.Inst.Index = &[0]Zir.Inst.Index{};
-        var src_locs_buffer: [3]u32 = undefined;
-        var src_locs: []u32 = src_locs_buffer[0..0];
+        var src_locs_and_hash_buffer: [7]u32 = undefined;
+        var src_locs_and_hash: []u32 = src_locs_and_hash_buffer[0..0];
         if (args.body_gz) |body_gz| {
             const tree = astgen.tree;
             const node_tags = tree.nodes.items(.tag);
@@ -11916,10 +11952,27 @@ const GenZir = struct {
             const rbrace_column: u32 = @intCast(astgen.source_column);
 
             const columns = args.lbrace_column | (rbrace_column << 16);
-            src_locs_buffer[0] = args.lbrace_line;
-            src_locs_buffer[1] = rbrace_line;
-            src_locs_buffer[2] = columns;
-            src_locs = &src_locs_buffer;
+
+            const proto_hash: std.zig.SrcHash = switch (node_tags[fn_decl]) {
+                .fn_decl => sig_hash: {
+                    const proto_node = node_datas[fn_decl].lhs;
+                    break :sig_hash std.zig.hashSrc(tree.getNodeSource(proto_node));
+                },
+                .test_decl => std.zig.hashSrc(""), // tests don't have a prototype
+                else => unreachable,
+            };
+            const proto_hash_arr: [4]u32 = @bitCast(proto_hash);
+
+            src_locs_and_hash_buffer = .{
+                args.lbrace_line,
+                rbrace_line,
+                columns,
+                proto_hash_arr[0],
+                proto_hash_arr[1],
+                proto_hash_arr[2],
+                proto_hash_arr[3],
+            };
+            src_locs_and_hash = &src_locs_and_hash_buffer;
 
             body = body_gz.instructionsSlice();
             if (args.ret_gz) |ret_gz|
@@ -11953,7 +12006,7 @@ const GenZir = struct {
                     fancyFnExprExtraLen(astgen, section_body, args.section_ref) +
                     fancyFnExprExtraLen(astgen, cc_body, args.cc_ref) +
                     fancyFnExprExtraLen(astgen, ret_body, ret_ref) +
-                    body_len + src_locs.len +
+                    body_len + src_locs_and_hash.len +
                     @intFromBool(args.lib_name != .empty) +
                     @intFromBool(args.noalias_bits != 0),
             );
@@ -12040,7 +12093,7 @@ const GenZir = struct {
             }
 
             astgen.appendBodyWithFixups(body);
-            astgen.extra.appendSliceAssumeCapacity(src_locs);
+            astgen.extra.appendSliceAssumeCapacity(src_locs_and_hash);
 
             // Order is important when unstacking.
             if (args.body_gz) |body_gz| body_gz.unstack();
@@ -12068,7 +12121,7 @@ const GenZir = struct {
                 gpa,
                 @typeInfo(Zir.Inst.Func).Struct.fields.len + 1 +
                     fancyFnExprExtraLen(astgen, ret_body, ret_ref) +
-                    body_len + src_locs.len,
+                    body_len + src_locs_and_hash.len,
             );
 
             const ret_body_len = if (ret_body.len != 0)
@@ -12092,7 +12145,7 @@ const GenZir = struct {
                 astgen.extra.appendAssumeCapacity(@intFromEnum(ret_ref));
             }
             astgen.appendBodyWithFixups(body);
-            astgen.extra.appendSliceAssumeCapacity(src_locs);
+            astgen.extra.appendSliceAssumeCapacity(src_locs_and_hash);
 
             // Order is important when unstacking.
             if (args.body_gz) |body_gz| body_gz.unstack();
@@ -12853,12 +12906,20 @@ const GenZir = struct {
         any_comptime_fields: bool,
         any_default_inits: bool,
         any_aligned_fields: bool,
+        fields_hash: std.zig.SrcHash,
     }) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
 
-        try astgen.extra.ensureUnusedCapacity(gpa, 6);
-        const payload_index: u32 = @intCast(astgen.extra.items.len);
+        const fields_hash_arr: [4]u32 = @bitCast(args.fields_hash);
+
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.StructDecl).Struct.fields.len + 6);
+        const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.StructDecl{
+            .fields_hash_0 = fields_hash_arr[0],
+            .fields_hash_1 = fields_hash_arr[1],
+            .fields_hash_2 = fields_hash_arr[2],
+            .fields_hash_3 = fields_hash_arr[3],
+        });
 
         if (args.src_node != 0) {
             const node_offset = gz.nodeIndexToRelative(args.src_node);
@@ -12908,12 +12969,20 @@ const GenZir = struct {
         layout: std.builtin.Type.ContainerLayout,
         auto_enum_tag: bool,
         any_aligned_fields: bool,
+        fields_hash: std.zig.SrcHash,
     }) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
 
-        try astgen.extra.ensureUnusedCapacity(gpa, 5);
-        const payload_index: u32 = @intCast(astgen.extra.items.len);
+        const fields_hash_arr: [4]u32 = @bitCast(args.fields_hash);
+
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.UnionDecl).Struct.fields.len + 5);
+        const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.UnionDecl{
+            .fields_hash_0 = fields_hash_arr[0],
+            .fields_hash_1 = fields_hash_arr[1],
+            .fields_hash_2 = fields_hash_arr[2],
+            .fields_hash_3 = fields_hash_arr[3],
+        });
 
         if (args.src_node != 0) {
             const node_offset = gz.nodeIndexToRelative(args.src_node);
@@ -12958,12 +13027,20 @@ const GenZir = struct {
         fields_len: u32,
         decls_len: u32,
         nonexhaustive: bool,
+        fields_hash: std.zig.SrcHash,
     }) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
 
-        try astgen.extra.ensureUnusedCapacity(gpa, 5);
-        const payload_index: u32 = @intCast(astgen.extra.items.len);
+        const fields_hash_arr: [4]u32 = @bitCast(args.fields_hash);
+
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.EnumDecl).Struct.fields.len + 5);
+        const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.EnumDecl{
+            .fields_hash_0 = fields_hash_arr[0],
+            .fields_hash_1 = fields_hash_arr[1],
+            .fields_hash_2 = fields_hash_arr[2],
+            .fields_hash_3 = fields_hash_arr[3],
+        });
 
         if (args.src_node != 0) {
             const node_offset = gz.nodeIndexToRelative(args.src_node);
