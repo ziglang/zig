@@ -824,6 +824,10 @@ pub fn addIncludePath(self: *Compile, lazy_path: LazyPath) void {
     self.root_module.addIncludePath(lazy_path);
 }
 
+pub fn addOtherIncludePath(self: *Compile, other: *Step.Compile) void {
+    self.root_module.addOtherIncludePath(other);
+}
+
 pub fn addConfigHeader(self: *Compile, config_header: *Step.ConfigHeader) void {
     self.root_module.addConfigHeader(config_header);
 }
