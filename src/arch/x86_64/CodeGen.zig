@@ -109,12 +109,7 @@ frame_locs: std.MultiArrayList(Mir.FrameLoc) = .{},
 /// Debug field, used to find bugs in the compiler.
 air_bookkeeping: @TypeOf(air_bookkeeping_init) = air_bookkeeping_init,
 
-/// For mir debug info, maps a mir index to a air index
-mir_to_air_map: @TypeOf(mir_to_air_map_init) = mir_to_air_map_init,
-
 const air_bookkeeping_init = if (std.debug.runtime_safety) @as(usize, 0) else {};
-
-const mir_to_air_map_init = if (builtin.mode == .Debug) std.AutoHashMapUnmanaged(Mir.Inst.Index, Air.Inst.Index){} else {};
 
 const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
 const RegisterOffset = struct { reg: Register, off: i32 = 0 };
@@ -837,7 +832,6 @@ pub fn generate(
         function.exitlude_jump_relocs.deinit(gpa);
         function.mir_instructions.deinit(gpa);
         function.mir_extra.deinit(gpa);
-        if (builtin.mode == .Debug) function.mir_to_air_map.deinit(gpa);
     }
 
     wip_mir_log.debug("{}:", .{function.fmtDecl(func.owner_decl)});
@@ -1906,11 +1900,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     const air_tags = self.air.instructions.items(.tag);
 
     for (body) |inst| {
-        if (builtin.mode == .Debug) {
-            const mir_inst: Mir.Inst.Index = @intCast(self.mir_instructions.len);
-            try self.mir_to_air_map.put(self.gpa, mir_inst, inst);
-        }
-
         if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) continue;
         wip_mir_log.debug("{}", .{self.fmtAir(inst)});
         verbose_tracking_log.debug("{}", .{self.fmtTracking()});
