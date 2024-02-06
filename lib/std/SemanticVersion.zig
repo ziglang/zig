@@ -82,7 +82,11 @@ pub fn order(lhs: Version, rhs: Version) std.math.Order {
     }
 }
 
-pub fn parse(text: []const u8) !Version {
+const ParseOptions = struct {
+    omit_patch: bool = false,
+};
+
+pub fn parse(text: []const u8, options: ParseOptions) !Version {
     // Parse the required major, minor, and patch numbers.
     const extra_index = std.mem.indexOfAny(u8, text, "-+");
     const required = text[0..(extra_index orelse text.len)];
@@ -90,7 +94,7 @@ pub fn parse(text: []const u8) !Version {
     var ver = Version{
         .major = try parseNum(it.first()),
         .minor = try parseNum(it.next() orelse return error.InvalidVersion),
-        .patch = try parseNum(it.next() orelse return error.InvalidVersion),
+        .patch = try parseNum(it.next() orelse if (options.omit_patch) "0" else return error.InvalidVersion),
     };
     if (it.next() != null) return error.InvalidVersion;
     if (extra_index == null) return ver;
@@ -166,6 +170,34 @@ pub fn format(
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 
+test "SemanticVersion incomplete format" {
+    const expected = [_][]const u8{
+        "1.0.0",
+        "1.2.0",
+        "0.4.0",
+        "10.2.0",
+        "1.2.0-beta",
+        "1.10.0----R-S.12.9.1--.12+meta",
+    };
+
+    // Valid version strings should be accepted.
+    for ([_][]const u8{
+        "1.0",
+        "1.2",
+        "0.4",
+        "10.2",
+        "1.2-beta",
+        "1.10----R-S.12.9.1--.12+meta",
+    }, 0..) |version, k| try std.testing.expectFmt(expected[k], "{}", .{try parse(version, .{ .omit_patch = true })});
+
+    // Invalid version strings should be rejected.
+    for ([_][]const u8{
+        "1",
+        "15",
+        "22222",
+    }) |invalid| try expectError(error.InvalidVersion, parse(invalid, .{}));
+}
+
 test "SemanticVersion format" {
     // Many of these test strings are from https://github.com/semver/semver.org/issues/59#issuecomment-390854010.
 
@@ -202,7 +234,7 @@ test "SemanticVersion format" {
         "1.0.0+0.build.1-rc.10000aaa-kk-0.1",
         "5.4.0-1018-raspi",
         "5.7.123",
-    }) |valid| try std.testing.expectFmt(valid, "{}", .{try parse(valid)});
+    }) |valid| try std.testing.expectFmt(valid, "{}", .{try parse(valid, .{})});
 
     // Invalid version strings should be rejected.
     for ([_][]const u8{
@@ -264,37 +296,37 @@ test "SemanticVersion format" {
         "+4",
         ".",
         "....3",
-    }) |invalid| try expectError(error.InvalidVersion, parse(invalid));
+    }) |invalid| try expectError(error.InvalidVersion, parse(invalid, .{}));
 
     // Valid version string that may overflow.
     const big_valid = "99999999999999999999999.999999999999999999.99999999999999999";
-    if (parse(big_valid)) |ver| {
+    if (parse(big_valid, .{})) |ver| {
         try std.testing.expectFmt(big_valid, "{}", .{ver});
     } else |err| try expect(err == error.Overflow);
 
     // Invalid version string that may overflow.
     const big_invalid = "99999999999999999999999.999999999999999999.99999999999999999----RC-SNAPSHOT.12.09.1--------------------------------..12";
-    if (parse(big_invalid)) |ver| std.debug.panic("expected error, found {}", .{ver}) else |_| {}
+    if (parse(big_invalid, .{})) |ver| std.debug.panic("expected error, found {}", .{ver}) else |_| {}
 }
 
 test "SemanticVersion precedence" {
     // SemVer 2 spec 11.2 example: 1.0.0 < 2.0.0 < 2.1.0 < 2.1.1.
-    try expect(order(try parse("1.0.0"), try parse("2.0.0")) == .lt);
-    try expect(order(try parse("2.0.0"), try parse("2.1.0")) == .lt);
-    try expect(order(try parse("2.1.0"), try parse("2.1.1")) == .lt);
+    try expect(order(try parse("1.0.0", .{}), try parse("2.0.0", .{})) == .lt);
+    try expect(order(try parse("2.0.0", .{}), try parse("2.1.0", .{})) == .lt);
+    try expect(order(try parse("2.1.0", .{}), try parse("2.1.1", .{})) == .lt);
 
     // SemVer 2 spec 11.3 example: 1.0.0-alpha < 1.0.0.
-    try expect(order(try parse("1.0.0-alpha"), try parse("1.0.0")) == .lt);
+    try expect(order(try parse("1.0.0-alpha", .{}), try parse("1.0.0", .{})) == .lt);
 
     // SemVer 2 spec 11.4 example: 1.0.0-alpha < 1.0.0-alpha.1 < 1.0.0-alpha.beta < 1.0.0-beta <
     // 1.0.0-beta.2 < 1.0.0-beta.11 < 1.0.0-rc.1 < 1.0.0.
-    try expect(order(try parse("1.0.0-alpha"), try parse("1.0.0-alpha.1")) == .lt);
-    try expect(order(try parse("1.0.0-alpha.1"), try parse("1.0.0-alpha.beta")) == .lt);
-    try expect(order(try parse("1.0.0-alpha.beta"), try parse("1.0.0-beta")) == .lt);
-    try expect(order(try parse("1.0.0-beta"), try parse("1.0.0-beta.2")) == .lt);
-    try expect(order(try parse("1.0.0-beta.2"), try parse("1.0.0-beta.11")) == .lt);
-    try expect(order(try parse("1.0.0-beta.11"), try parse("1.0.0-rc.1")) == .lt);
-    try expect(order(try parse("1.0.0-rc.1"), try parse("1.0.0")) == .lt);
+    try expect(order(try parse("1.0.0-alpha", .{}), try parse("1.0.0-alpha.1", .{})) == .lt);
+    try expect(order(try parse("1.0.0-alpha.1", .{}), try parse("1.0.0-alpha.beta", .{})) == .lt);
+    try expect(order(try parse("1.0.0-alpha.beta", .{}), try parse("1.0.0-beta", .{})) == .lt);
+    try expect(order(try parse("1.0.0-beta", .{}), try parse("1.0.0-beta.2", .{})) == .lt);
+    try expect(order(try parse("1.0.0-beta.2", .{}), try parse("1.0.0-beta.11", .{})) == .lt);
+    try expect(order(try parse("1.0.0-beta.11", .{}), try parse("1.0.0-rc.1", .{})) == .lt);
+    try expect(order(try parse("1.0.0-rc.1", .{}), try parse("1.0.0", .{})) == .lt);
 }
 
 test "zig_version" {

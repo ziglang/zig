@@ -63,7 +63,7 @@ fn iterateAndFilterBySemVer(
                 else => normalized_name_w.print("{s}+build.0", .{subfolder_name}) catch unreachable, // 17.0.0 => 17.0.0+build.0
             }
             const subfolder_name_normalized: []const u8 = normalized_name_fbs.getWritten();
-            const sem_ver = std.SemanticVersion.parse(subfolder_name_normalized);
+            const sem_ver = std.SemanticVersion.parse(subfolder_name_normalized, .{});
             _ = sem_ver catch continue :iterate_folder;
         }
         // entry.name passed check

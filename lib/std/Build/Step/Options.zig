@@ -350,7 +350,7 @@ test Options {
     options.addOption([2][2]u16, "nested_array", nested_array);
     options.addOption([]const []const u16, "nested_slice", nested_slice);
     options.addOption(KeywordEnum, "keyword_enum", .@"0.8.1");
-    options.addOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
+    options.addOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar", .{}));
     options.addOption(NormalEnum, "normal1", NormalEnum.foo);
     options.addOption(NormalEnum, "normal2", NormalEnum.bar);
 

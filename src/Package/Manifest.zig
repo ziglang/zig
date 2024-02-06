@@ -237,14 +237,14 @@ const Parse = struct {
             } else if (mem.eql(u8, field_name, "version")) {
                 p.version_node = field_init;
                 const version_text = try parseString(p, field_init);
-                p.version = std.SemanticVersion.parse(version_text) catch |err| v: {
+                p.version = std.SemanticVersion.parse(version_text, {}) catch |err| v: {
                     try appendError(p, main_tokens[field_init], "unable to parse semantic version: {s}", .{@errorName(err)});
                     break :v undefined;
                 };
                 have_version = true;
             } else if (mem.eql(u8, field_name, "minimum_zig_version")) {
                 const version_text = try parseString(p, field_init);
-                p.minimum_zig_version = std.SemanticVersion.parse(version_text) catch |err| v: {
+                p.minimum_zig_version = std.SemanticVersion.parse(version_text, .{}) catch |err| v: {
                     try appendError(p, main_tokens[field_init], "unable to parse semantic version: {s}", .{@errorName(err)});
                     break :v null;
                 };

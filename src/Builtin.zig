@@ -34,7 +34,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         \\const std = @import("std");
         \\/// Zig version. When writing code that supports multiple versions of Zig, prefer
         \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
-        \\pub const zig_version = std.SemanticVersion.parse(zig_version_string) catch unreachable;
+        \\pub const zig_version = std.SemanticVersion.parse(zig_version_string, .{}) catch unreachable;
         \\pub const zig_version_string = "{s}";
         \\pub const zig_backend = std.builtin.CompilerBackend.{};
         \\

@@ -296,7 +296,7 @@ pub fn build(b: *std.Build) !void {
                 const commit_height = it.next().?;
                 const commit_id = it.next().?;
 
-                const ancestor_ver = try std.SemanticVersion.parse(tagged_ancestor);
+                const ancestor_ver = try std.SemanticVersion.parse(tagged_ancestor, .{});
                 if (zig_version.order(ancestor_ver) != .gt) {
                     std.debug.print("Zig version '{}' must be greater than tagged ancestor '{}'\n", .{ zig_version, ancestor_ver });
                     std.process.exit(1);
@@ -358,7 +358,7 @@ pub fn build(b: *std.Build) !void {
         }
     }
 
-    const semver = try std.SemanticVersion.parse(version);
+    const semver = try std.SemanticVersion.parse(version, .{});
     exe_options.addOption(std.SemanticVersion, "semver", semver);
 
     exe_options.addOption(bool, "enable_logging", enable_logging);
@@ -560,7 +560,7 @@ pub fn build(b: *std.Build) !void {
 }
 
 fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
-    const semver = try std.SemanticVersion.parse(version);
+    const semver = try std.SemanticVersion.parse(version, .{});
 
     var target_query: std.zig.CrossTarget = .{
         .cpu_arch = .wasm32,

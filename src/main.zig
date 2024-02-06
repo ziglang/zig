@@ -1245,7 +1245,7 @@ fn buildOutputType(
                         try create_module.framework_dirs.append(arena, path); // Forward to the backend as -F
                     } else if (mem.eql(u8, arg, "--version")) {
                         const next_arg = args_iter.nextOrFatal();
-                        version = std.SemanticVersion.parse(next_arg) catch |err| {
+                        version = std.SemanticVersion.parse(next_arg, .{}) catch |err| {
                             fatal("unable to parse --version '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
                         have_version = true;
@@ -2388,12 +2388,12 @@ fn buildOutputType(
                     });
                 } else if (mem.eql(u8, arg, "-compatibility_version")) {
                     const compat_version = linker_args_it.nextOrFatal();
-                    compatibility_version = std.SemanticVersion.parse(compat_version) catch |err| {
+                    compatibility_version = std.SemanticVersion.parse(compat_version, .{}) catch |err| {
                         fatal("unable to parse -compatibility_version '{s}': {s}", .{ compat_version, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-current_version")) {
                     const curr_version = linker_args_it.nextOrFatal();
-                    version = std.SemanticVersion.parse(curr_version) catch |err| {
+                    version = std.SemanticVersion.parse(curr_version, .{}) catch |err| {
                         fatal("unable to parse -current_version '{s}': {s}", .{ curr_version, @errorName(err) });
                     };
                     have_version = true;
@@ -2443,7 +2443,7 @@ fn buildOutputType(
                 } else if (mem.startsWith(u8, arg, "/version:")) {
                     var split_it = mem.splitBackwardsScalar(u8, arg, ':');
                     const version_arg = split_it.first();
-                    version = std.SemanticVersion.parse(version_arg) catch |err| {
+                    version = std.SemanticVersion.parse(version_arg, .{}) catch |err| {
                         fatal("unable to parse /version '{s}': {s}", .{ arg, @errorName(err) });
                     };
                     have_version = true;

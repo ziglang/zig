@@ -10,4 +10,4 @@ pub const CallingConvention = enum {
 };
 
 pub const version_str = @import("build_options").version_str;
-pub const version = @import("std").SemanticVersion.parse(version_str) catch unreachable;
+pub const version = @import("std").SemanticVersion.parse(version_str, .{}) catch unreachable;
