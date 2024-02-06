@@ -452,3 +452,24 @@ pub extern "kernel32" fn RegOpenKeyExW(
 ) callconv(WINAPI) LSTATUS;
 
 pub extern "kernel32" fn GetPhysicallyInstalledSystemMemory(TotalMemoryInKilobytes: *ULONGLONG) BOOL;
+
+pub const LPPROC_THREAD_ATTRIBUTE_LIST = *anyopaque;
+pub const PROC_THREAD_ATTRIBUTE = struct {
+    pub const GROUP_AFFINITY: u32 = 0x30003;
+    pub const HANDLE_LIST: u32 = 0x20002;
+    pub const IDEAL_PROCESSOR: u32 = 0x30005;
+    pub const MACHINE_TYPE: u32 = 0x20019;
+    pub const MITIGATION_POLICY: u32 = 0x20007;
+    pub const PARENT_PROCESS: u32 = 0x20000;
+    pub const PREFERRED_NODE: u32 = 0x20004;
+    pub const UMS_THREAD: u32 = 0x30006;
+    pub const SECURITY_CAPABILITIES: u32 = 0x20009;
+    pub const PROTECTION_LEVEL: u32 = 0x2000B;
+    pub const CHILD_PROCESS_POLICY: u32 = 0x2000E;
+    pub const DESKTOP_APP_POLICY: u32 = 0x20012;
+    pub const JOB_LIST: u32 = 0x2000D;
+    pub const ENABLE_OPTIONAL_XSTATE_FEATURES: u32 = 0x3001B;
+};
+pub extern "kernel32" fn InitializeProcThreadAttributeList(lpAttributeList: ?LPPROC_THREAD_ATTRIBUTE_LIST, dwAttributeCount: DWORD, dwFlags: DWORD, lpSize: ?*usize) BOOL;
+pub extern "kernel32" fn DeleteProcThreadAttributeList(lpAttributeList: ?LPPROC_THREAD_ATTRIBUTE_LIST) void;
+pub extern "kernel32" fn UpdateProcThreadAttribute(lpAttributeList: ?LPPROC_THREAD_ATTRIBUTE_LIST, dwFlags: DWORD, attribute: usize, lpValue: ?*anyopaque, cbSize: SIZE_T, lpPreviousValue: ?*anyopaque, lpReturnSize: ?*anyopaque) BOOL;

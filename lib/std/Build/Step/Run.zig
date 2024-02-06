@@ -1064,6 +1064,19 @@ fn spawnChildAndCollect(
         child.stdin_behavior = .Pipe;
     }
 
+    switch (self.stdin) {
+        .lazy_path => |lazy_path| {
+            const path = lazy_path.getPath(self.step.owner);
+            const file = self.step.owner.build_root.handle.openFile(path, .{}) catch |err| {
+                return self.step.fail("unable to open stdin file: {s}", .{@errorName(err)});
+            };
+
+            child.stdin_behavior = std.process.Child.StdIo.File;
+            child.stdin = file;
+        },
+        else => {},
+    }
+
     try child.spawn();
     var timer = try std.time.Timer.start();
 
@@ -1295,19 +1308,7 @@ fn evalGeneric(self: *Run, child: *std.process.Child) !StdIoResult {
             child.stdin.?.close();
             child.stdin = null;
         },
-        .lazy_path => |lazy_path| {
-            const path = lazy_path.getPath(self.step.owner);
-            const file = self.step.owner.build_root.handle.openFile(path, .{}) catch |err| {
-                return self.step.fail("unable to open stdin file: {s}", .{@errorName(err)});
-            };
-            defer file.close();
-            child.stdin.?.writeFileAll(file, .{}) catch |err| {
-                return self.step.fail("unable to write file to stdin: {s}", .{@errorName(err)});
-            };
-            child.stdin.?.close();
-            child.stdin = null;
-        },
-        .none => {},
+        .lazy_path, .none => {},
     }
 
     var stdout_bytes: ?[]const u8 = null;
