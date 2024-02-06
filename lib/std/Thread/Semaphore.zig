@@ -47,12 +47,11 @@ pub fn timedWait(sem: *Semaphore, timeout_ns: u64) error{Timeout}!void {
     sem.mutex.lock();
     defer sem.mutex.unlock();
 
-    const deadline = std.time.nanoTimestamp() + @as(i128, @intCast(timeout_ns));
-    while (sem.permits == 0) {
-        const local_timeout_ns: i64 = @intCast(deadline - std.time.nanoTimestamp());
+    if (sem.permits == 0)
+        try sem.cond.timedWait(&sem.mutex, timeout_ns);
 
-        try sem.cond.timedWait(&sem.mutex, @bitCast(local_timeout_ns));
-    }
+    while (sem.permits == 0)
+        try sem.cond.timedWait(&sem.mutex, 0);
 
     sem.permits -= 1;
     if (sem.permits > 0)
