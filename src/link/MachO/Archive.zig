@@ -73,24 +73,25 @@ pub fn deinit(self: *Archive, allocator: Allocator) void {
     self.objects.deinit(allocator);
 }
 
-pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, file: std.fs.File, fat_arch: ?fat.Arch) !void {
+pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index: File.HandleIndex, fat_arch: ?fat.Arch) !void {
     const gpa = macho_file.base.comp.gpa;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
+    const handle = macho_file.getFileHandle(handle_index);
     const offset = if (fat_arch) |ar| ar.offset else 0;
-    const size = if (fat_arch) |ar| ar.size else (try file.stat()).size;
-    try file.seekTo(offset);
+    const size = if (fat_arch) |ar| ar.size else (try handle.stat()).size;
+    try handle.seekTo(offset);
 
-    const reader = file.reader();
+    const reader = handle.reader();
     _ = try reader.readBytesNoEof(Archive.SARMAG);
 
     var pos: usize = Archive.SARMAG;
     while (true) {
         if (pos >= size) break;
         if (!mem.isAligned(pos, 2)) {
-            try file.seekBy(1);
+            try handle.seekBy(1);
             pos += 1;
         }
 
@@ -118,7 +119,7 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, file: std.fs.
             unreachable;
         };
         defer {
-            _ = file.seekBy(hdr_size) catch {};
+            _ = handle.seekBy(hdr_size) catch {};
             pos += hdr_size;
         }
 
@@ -130,7 +131,7 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, file: std.fs.
                 .offset = offset + pos,
             },
             .path = try gpa.dupe(u8, name),
-            .file = try std.fs.cwd().openFile(path, .{}),
+            .file_handle = handle_index,
             .index = undefined,
             .alive = false,
             .mtime = hdr.date() catch 0,
@@ -150,5 +151,6 @@ const std = @import("std");
 
 const Allocator = mem.Allocator;
 const Archive = @This();
+const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
