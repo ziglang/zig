@@ -224,7 +224,7 @@ pub const Mnemonic = enum {
     // General-purpose
     adc, add, @"and",
     bsf, bsr, bswap, bt, btc, btr, bts,
-    call, cbw, cdq, cdqe,
+    call, cbw, cdq, cdqe, clflush,
     cmova, cmovae, cmovb, cmovbe, cmovc, cmove, cmovg, cmovge, cmovl, cmovle, cmovna,
     cmovnae, cmovnb, cmovnbe, cmovnc, cmovne, cmovng, cmovnge, cmovnl, cmovnle, cmovno,
     cmovnp, cmovns, cmovnz, cmovo, cmovp, cmovpe, cmovpo, cmovs, cmovz,
