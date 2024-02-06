@@ -144,6 +144,10 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
         const ncmds, const sizeofcmds = try writeLoadCommands(macho_file);
         try writeHeader(macho_file, ncmds, sizeofcmds);
+
+        // TODO we can avoid reading in the file contents we just wrote if we give the linker
+        // ability to write directly to a buffer.
+        try zo.readFileContents(macho_file);
     }
 
     var err = try macho_file.addErrorWithNotes(0);

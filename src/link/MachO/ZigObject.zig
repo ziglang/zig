@@ -1,3 +1,4 @@
+data: std.ArrayListUnmanaged(u8) = .{},
 /// Externally owned memory.
 path: []const u8,
 index: File.Index,
@@ -57,6 +58,7 @@ pub fn init(self: *ZigObject, macho_file: *MachO) !void {
 }
 
 pub fn deinit(self: *ZigObject, allocator: Allocator) void {
+    self.data.deinit(allocator);
     self.symtab.deinit(allocator);
     self.strtab.deinit(allocator);
     self.symbols.deinit(allocator);
@@ -277,6 +279,22 @@ pub fn checkDuplicates(self: *ZigObject, dupes: anytype, macho_file: *MachO) !vo
             try gop.value_ptr.append(macho_file.base.comp.gpa, self.index);
         }
     }
+}
+
+/// This is just a temporary helper function that allows us to re-read what we wrote to file into a buffer.
+/// We need this so that we can write to an archive.
+/// TODO implement writing ZigObject data directly to a buffer instead.
+pub fn readFileContents(self: *ZigObject, macho_file: *MachO) !void {
+    const gpa = macho_file.base.comp.gpa;
+    var end_pos: u64 = 0;
+    for (macho_file.segments.items) |seg| {
+        end_pos = @max(end_pos, seg.fileoff + seg.filesize);
+    }
+    const size = std.math.cast(usize, end_pos) orelse return error.Overflow;
+    try self.data.resize(gpa, size);
+
+    const amt = try macho_file.base.file.?.preadAll(self.data.items, 0);
+    if (amt != size) return error.InputOutput;
 }
 
 pub fn scanRelocs(self: *ZigObject, macho_file: *MachO) !void {
