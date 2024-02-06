@@ -58,7 +58,7 @@ pub fn getData(self: Atom, macho_file: *MachO, buffer: []u8) !void {
     assert(buffer.len == self.size);
     switch (self.getFile(macho_file)) {
         .internal => |x| try x.getAtomData(self, buffer),
-        .object => |x| try x.getAtomData(self, buffer),
+        .object => |x| try x.getAtomData(macho_file, self, buffer),
         .zig_object => |x| try x.getAtomData(macho_file, self, buffer),
         else => unreachable,
     }

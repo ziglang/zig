@@ -10,6 +10,10 @@ d_sym: ?DebugSymbols = null,
 /// Index of each input file also encodes the priority or precedence of one input file
 /// over another.
 files: std.MultiArrayList(File.Entry) = .{},
+/// Long-lived list of all file descriptors.
+/// We store them globally rather than per actual File so that we can re-use
+/// one file handle per every object file within an archive.
+file_handles: std.ArrayListUnmanaged(File.Handle) = .{},
 zig_object: ?File.Index = null,
 internal_object: ?File.Index = null,
 objects: std.ArrayListUnmanaged(File.Index) = .{},
@@ -315,6 +319,11 @@ pub fn deinit(self: *MachO) void {
         d_sym.deinit();
     }
 
+    for (self.file_handles.items) |handle| {
+        handle.close();
+    }
+    self.file_handles.deinit(gpa);
+
     for (self.files.items(.tags), self.files.items(.data)) |tag, *data| switch (tag) {
         .null => {},
         .zig_object => data.zig_object.deinit(gpa),
@@ -394,8 +403,6 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    const target = comp.root_mod.resolved_target.result;
-    _ = target;
     const directory = self.base.emit.directory;
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
     const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
@@ -985,6 +992,8 @@ fn parseObject(self: *MachO, path: []const u8) ParseError!void {
 
     const gpa = self.base.comp.gpa;
     const file = try std.fs.cwd().openFile(path, .{});
+    errdefer file.close();
+    const handle = try self.addFileHandle(file);
     const mtime: u64 = mtime: {
         const stat = file.stat() catch break :mtime 0;
         break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
@@ -992,7 +1001,7 @@ fn parseObject(self: *MachO, path: []const u8) ParseError!void {
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .object = .{
         .path = try gpa.dupe(u8, path),
-        .file = file,
+        .file_handle = handle,
         .mtime = mtime,
         .index = index,
     } });
@@ -1020,11 +1029,12 @@ fn parseArchive(self: *MachO, lib: SystemLib, must_link: bool, fat_arch: ?fat.Ar
     const gpa = self.base.comp.gpa;
 
     const file = try std.fs.cwd().openFile(lib.path, .{});
-    defer file.close();
+    errdefer file.close();
+    const handle = try self.addFileHandle(file);
 
     var archive = Archive{};
     defer archive.deinit(gpa);
-    try archive.parse(self, lib.path, file, fat_arch);
+    try archive.parse(self, lib.path, handle, fat_arch);
 
     var has_parse_error = false;
     for (archive.objects.items) |extracted| {
@@ -3796,6 +3806,19 @@ pub fn getInternalObject(self: *MachO) ?*InternalObject {
     return self.getFile(index).?.internal;
 }
 
+pub fn addFileHandle(self: *MachO, file: std.fs.File) !File.HandleIndex {
+    const gpa = self.base.comp.gpa;
+    const index: File.HandleIndex = @intCast(self.file_handles.items.len);
+    const fh = try self.file_handles.addOne(gpa);
+    fh.* = file;
+    return index;
+}
+
+pub fn getFileHandle(self: MachO, index: File.HandleIndex) File.Handle {
+    assert(index < self.file_handles.items.len);
+    return self.file_handles.items[index];
+}
+
 pub fn addAtom(self: *MachO) error{OutOfMemory}!Atom.Index {
     const index = @as(Atom.Index, @intCast(self.atoms.items.len));
     const atom = try self.atoms.addOne(self.base.comp.gpa);
@@ -4616,7 +4639,6 @@ const Cache = std.Build.Cache;
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
 pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
-const Dwarf = File.Dwarf;
 const DwarfInfo = @import("MachO/DwarfInfo.zig");
 const Dylib = @import("MachO/Dylib.zig");
 const ExportTrieSection = synthetic.ExportTrieSection;

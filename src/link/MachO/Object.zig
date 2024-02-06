@@ -1,6 +1,6 @@
 archive: ?Archive = null,
 path: []const u8,
-file: std.fs.File,
+file_handle: File.HandleIndex,
 mtime: u64,
 index: File.Index,
 
@@ -43,7 +43,6 @@ pub fn isObject(path: []const u8) !bool {
 }
 
 pub fn deinit(self: *Object, allocator: Allocator) void {
-    self.file.close();
     if (self.archive) |*ar| allocator.free(ar.path);
     allocator.free(self.path);
     for (self.sections.items(.relocs), self.sections.items(.subsections)) |*relocs, *sub| {
@@ -73,10 +72,11 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
 
     const gpa = macho_file.base.comp.gpa;
     const offset = if (self.archive) |ar| ar.offset else 0;
+    const handle = macho_file.getFileHandle(self.file_handle);
 
     var header_buffer: [@sizeOf(macho.mach_header_64)]u8 = undefined;
     {
-        const amt = try self.file.preadAll(&header_buffer, offset);
+        const amt = try handle.preadAll(&header_buffer, offset);
         if (amt != @sizeOf(macho.mach_header_64)) return error.InputOutput;
     }
     self.header = @as(*align(1) const macho.mach_header_64, @ptrCast(&header_buffer)).*;
@@ -97,7 +97,7 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
     const lc_buffer = try gpa.alloc(u8, self.header.?.sizeofcmds);
     defer gpa.free(lc_buffer);
     {
-        const amt = try self.file.preadAll(lc_buffer, offset + @sizeOf(macho.mach_header_64));
+        const amt = try handle.preadAll(lc_buffer, offset + @sizeOf(macho.mach_header_64));
         if (amt != self.header.?.sizeofcmds) return error.InputOutput;
     }
 
@@ -124,14 +124,14 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
             const cmd = lc.cast(macho.symtab_command).?;
             try self.strtab.resize(gpa, cmd.strsize);
             {
-                const amt = try self.file.preadAll(self.strtab.items, cmd.stroff + offset);
+                const amt = try handle.preadAll(self.strtab.items, cmd.stroff + offset);
                 if (amt != self.strtab.items.len) return error.InputOutput;
             }
 
             const symtab_buffer = try gpa.alloc(u8, cmd.nsyms * @sizeOf(macho.nlist_64));
             defer gpa.free(symtab_buffer);
             {
-                const amt = try self.file.preadAll(symtab_buffer, cmd.symoff + offset);
+                const amt = try handle.preadAll(symtab_buffer, cmd.symoff + offset);
                 if (amt != symtab_buffer.len) return error.InputOutput;
             }
             const symtab = @as([*]align(1) const macho.nlist_64, @ptrCast(symtab_buffer.ptr))[0..cmd.nsyms];
@@ -149,7 +149,7 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
             const buffer = try gpa.alloc(u8, cmd.datasize);
             defer gpa.free(buffer);
             {
-                const amt = try self.file.preadAll(buffer, offset + cmd.dataoff);
+                const amt = try handle.preadAll(buffer, offset + cmd.dataoff);
                 if (amt != buffer.len) return error.InputOutput;
             }
             const ndice = @divExact(cmd.datasize, @sizeOf(macho.data_in_code_entry));
@@ -697,7 +697,7 @@ fn initEhFrameRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
     const relocs = slice.items(.relocs)[sect_id];
 
     // TODO: read into buffer directly
-    const data = try self.getSectionData(gpa, sect_id);
+    const data = try self.getSectionData(sect_id, macho_file);
     defer gpa.free(data);
 
     try self.eh_frame_data.ensureTotalCapacityPrecise(gpa, data.len);
@@ -800,7 +800,7 @@ fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
     };
 
     const gpa = macho_file.base.comp.gpa;
-    const data = try self.getSectionData(gpa, sect_id);
+    const data = try self.getSectionData(sect_id, macho_file);
     defer gpa.free(data);
     const nrecs = @divExact(data.len, @sizeOf(macho.compact_unwind_entry));
     const recs = @as([*]align(1) const macho.compact_unwind_entry, @ptrCast(data.ptr))[0..nrecs];
@@ -1019,11 +1019,11 @@ fn initDwarfInfo(self: *Object, macho_file: *MachO) !void {
 
     if (debug_info_index == null or debug_abbrev_index == null) return;
 
-    const debug_info = try self.getSectionData(gpa, @intCast(debug_info_index.?));
+    const debug_info = try self.getSectionData(@intCast(debug_info_index.?), macho_file);
     defer gpa.free(debug_info);
-    const debug_abbrev = try self.getSectionData(gpa, @intCast(debug_abbrev_index.?));
+    const debug_abbrev = try self.getSectionData(@intCast(debug_abbrev_index.?), macho_file);
     defer gpa.free(debug_abbrev);
-    const debug_str = if (debug_str_index) |index| try self.getSectionData(gpa, @intCast(index)) else &[0]u8{};
+    const debug_str = if (debug_str_index) |index| try self.getSectionData(@intCast(index), macho_file) else &[0]u8{};
     defer gpa.free(debug_str);
 
     var dwarf_info = DwarfInfo{};
@@ -1589,25 +1589,28 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO, ctx: anytype) error{O
     }
 }
 
-fn getSectionData(self: *const Object, allocator: Allocator, index: u32) ![]u8 {
+fn getSectionData(self: *const Object, index: u32, macho_file: *MachO) ![]u8 {
+    const gpa = macho_file.base.comp.gpa;
     const slice = self.sections.slice();
     assert(index < slice.items(.header).len);
     const sect = slice.items(.header)[index];
+    const handle = macho_file.getFileHandle(self.file_handle);
     const offset = if (self.archive) |ar| ar.offset else 0;
     const size = math.cast(usize, sect.size) orelse return error.Overflow;
-    const buffer = try allocator.alloc(u8, size);
-    errdefer allocator.free(buffer);
-    const amt = try self.file.preadAll(buffer, sect.offset + offset);
+    const buffer = try gpa.alloc(u8, size);
+    errdefer gpa.free(buffer);
+    const amt = try handle.preadAll(buffer, sect.offset + offset);
     if (amt != buffer.len) return error.InputOutput;
     return buffer;
 }
 
-pub fn getAtomData(self: *const Object, atom: Atom, buffer: []u8) !void {
+pub fn getAtomData(self: *const Object, macho_file: *MachO, atom: Atom, buffer: []u8) !void {
     assert(buffer.len == atom.size);
     const slice = self.sections.slice();
+    const handle = macho_file.getFileHandle(self.file_handle);
     const offset = if (self.archive) |ar| ar.offset else 0;
     const sect = slice.items(.header)[atom.n_sect];
-    const amt = try self.file.preadAll(buffer, sect.offset + offset + atom.off);
+    const amt = try handle.preadAll(buffer, sect.offset + offset + atom.off);
     if (amt != buffer.len) return error.InputOutput;
 }
 
@@ -1885,16 +1888,17 @@ const x86_64 = struct {
     ) !void {
         const gpa = macho_file.base.comp.gpa;
 
+        const handle = macho_file.getFileHandle(self.file_handle);
         const offset = if (self.archive) |ar| ar.offset else 0;
         const relocs_buffer = try gpa.alloc(u8, sect.nreloc * @sizeOf(macho.relocation_info));
         defer gpa.free(relocs_buffer);
         {
-            const amt = try self.file.preadAll(relocs_buffer, sect.reloff + offset);
+            const amt = try handle.preadAll(relocs_buffer, sect.reloff + offset);
             if (amt != relocs_buffer.len) return error.InputOutput;
         }
         const relocs = @as([*]align(1) const macho.relocation_info, @ptrCast(relocs_buffer.ptr))[0..sect.nreloc];
 
-        const code = try self.getSectionData(gpa, @intCast(n_sect));
+        const code = try self.getSectionData(@intCast(n_sect), macho_file);
         defer gpa.free(code);
 
         try out.ensureTotalCapacityPrecise(gpa, relocs.len);
@@ -2047,16 +2051,17 @@ const aarch64 = struct {
     ) !void {
         const gpa = macho_file.base.comp.gpa;
 
+        const handle = macho_file.getFileHandle(self.file_handle);
         const offset = if (self.archive) |ar| ar.offset else 0;
         const relocs_buffer = try gpa.alloc(u8, sect.nreloc * @sizeOf(macho.relocation_info));
         defer gpa.free(relocs_buffer);
         {
-            const amt = try self.file.preadAll(relocs_buffer, sect.reloff + offset);
+            const amt = try handle.preadAll(relocs_buffer, sect.reloff + offset);
             if (amt != relocs_buffer.len) return error.InputOutput;
         }
         const relocs = @as([*]align(1) const macho.relocation_info, @ptrCast(relocs_buffer.ptr))[0..sect.nreloc];
 
-        const code = try self.getSectionData(gpa, @intCast(n_sect));
+        const code = try self.getSectionData(@intCast(n_sect), macho_file);
         defer gpa.free(code);
 
         try out.ensureTotalCapacityPrecise(gpa, relocs.len);
