@@ -1462,6 +1462,6 @@ const Relocation = @import("Relocation.zig");
 const Symbol = @import("Symbol.zig");
 const StringTable = @import("../StringTable.zig");
 const Type = @import("../../type.zig").Type;
-const Value = @import("../../value.zig").Value;
+const Value = @import("../../Value.zig");
 const TypedValue = @import("../../TypedValue.zig");
 const ZigObject = @This();

@@ -149,7 +149,7 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.sema);
 
 const Sema = @This();
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 const Air = @import("Air.zig");

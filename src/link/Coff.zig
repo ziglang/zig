@@ -2753,7 +2753,7 @@ const Relocation = @import("Coff/Relocation.zig");
 const TableSection = @import("table_section.zig").TableSection;
 const StringTable = @import("StringTable.zig");
 const Type = @import("../type.zig").Type;
-const Value = @import("../value.zig").Value;
+const Value = @import("../Value.zig");
 const TypedValue = @import("../TypedValue.zig");
 
 pub const base_tag: link.File.Tag = .coff;

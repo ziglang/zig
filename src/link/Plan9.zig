@@ -14,7 +14,7 @@ const build_options = @import("build_options");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Type = @import("../type.zig").Type;
-const Value = @import("../value.zig").Value;
+const Value = @import("../Value.zig");
 const TypedValue = @import("../TypedValue.zig");
 
 const std = @import("std");
