@@ -143,7 +143,18 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index:
     }
 }
 
+pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+    _ = comp;
+    _ = module_obj_path;
+
+    var err = try macho_file.addErrorWithNotes(0);
+    try err.addMsg(macho_file, "TODO implement flushStaticLib", .{});
+
+    return error.FlushFailure;
+}
+
 const fat = @import("fat.zig");
+const link = @import("../../link.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
@@ -151,6 +162,7 @@ const std = @import("std");
 
 const Allocator = mem.Allocator;
 const Archive = @This();
+const Compilation = @import("../../Compilation.zig");
 const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");

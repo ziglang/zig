@@ -379,10 +379,6 @@ pub fn deinit(self: *MachO) void {
 }
 
 pub fn flush(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    // TODO: I think this is just a temp and can be removed once we can emit static archives
-    if (self.base.isStaticLib() and build_options.have_llvm) {
-        return self.base.linkAsArchive(arena, prog_node);
-    }
     try self.flushModule(arena, prog_node);
 }
 
@@ -395,8 +391,6 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
 
     if (self.llvm_object) |llvm_object| {
         try self.base.emitLlvmObject(arena, llvm_object, prog_node);
-        // TODO: I think this is just a temp and can be removed once we can emit static archives
-        if (self.base.isStaticLib() and build_options.have_llvm) return;
     }
 
     var sub_prog_node = prog_node.start("MachO Flush", 0);
@@ -417,7 +411,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     if (comp.verbose_link) try self.dumpArgv(comp);
 
     if (self.getZigObject()) |zo| try zo.flushModule(self);
-    if (self.base.isStaticLib()) return self.flushStaticLib(comp, module_obj_path);
+    if (self.base.isStaticLib()) return Archive.flush(self, comp, module_obj_path);
     if (self.base.isObject()) return relocatable.flush(self, comp, module_obj_path);
 
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
@@ -890,16 +884,6 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
     }
 
     Compilation.dump_argv(argv.items);
-}
-
-fn flushStaticLib(self: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
-    _ = comp;
-    _ = module_obj_path;
-
-    var err = try self.addErrorWithNotes(0);
-    try err.addMsg(self, "TODO implement flushStaticLib", .{});
-
-    return error.FlushFailure;
 }
 
 pub fn resolveLibSystem(
