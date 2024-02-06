@@ -1,6 +1,6 @@
 const std = @import("std");
 const Type = @import("type.zig").Type;
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Module = @import("Module.zig");
 const Allocator = std.mem.Allocator;
 const TypedValue = @This();

@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const assert = std.debug.assert;
 const Target = std.Target;
 const Module = @import("Module.zig");

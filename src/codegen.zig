@@ -20,7 +20,7 @@ const Module = @import("Module.zig");
 const Target = std.Target;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Zir = @import("Zir.zig");
 const Alignment = InternPool.Alignment;
 

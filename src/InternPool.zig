@@ -6147,7 +6147,7 @@ fn finishFuncInstance(
         .has_tv = true,
         .owns_tv = true,
         .ty = @import("type.zig").Type.fromInterned(func_ty),
-        .val = @import("value.zig").Value.fromInterned(func_index),
+        .val = @import("Value.zig").fromInterned(func_index),
         .alignment = .none,
         .@"linksection" = section,
         .@"addrspace" = fn_owner_decl.@"addrspace",

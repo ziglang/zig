@@ -33,7 +33,7 @@ const Alignment = InternPool.Alignment;
 const Target = std.Target;
 const Type = @import("../../type.zig").Type;
 const TypedValue = @import("../../TypedValue.zig");
-const Value = @import("../../value.zig").Value;
+const Value = @import("../../Value.zig");
 const Instruction = @import("encoder.zig").Instruction;
 
 const abi = @import("abi.zig");
