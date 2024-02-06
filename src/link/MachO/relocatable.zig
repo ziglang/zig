@@ -46,8 +46,8 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
 
     try macho_file.addUndefinedGlobals();
     try macho_file.resolveSymbols();
-    try markExports(macho_file);
-    try claimUnresolved(macho_file);
+    markExports(macho_file);
+    claimUnresolved(macho_file);
     try initOutputSections(macho_file);
     try macho_file.sortSections();
     try macho_file.addAtomsToSections();
@@ -86,54 +86,21 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
     try writeHeader(macho_file, ncmds, sizeofcmds);
 }
 
-fn markExports(macho_file: *MachO) error{OutOfMemory}!void {
-    var objects = try std.ArrayList(File.Index).initCapacity(macho_file.base.comp.gpa, macho_file.objects.items.len + 1);
-    defer objects.deinit();
-    if (macho_file.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
-    objects.appendSliceAssumeCapacity(macho_file.objects.items);
-
-    for (objects.items) |index| {
-        for (macho_file.getFile(index).?.getSymbols()) |sym_index| {
-            const sym = macho_file.getSymbol(sym_index);
-            const file = sym.getFile(macho_file) orelse continue;
-            if (sym.visibility != .global) continue;
-            if (file.getIndex() == index) {
-                sym.flags.@"export" = true;
-            }
-        }
+fn markExports(macho_file: *MachO) void {
+    if (macho_file.getZigObject()) |zo| {
+        zo.asFile().markExportsRelocatable(macho_file);
+    }
+    for (macho_file.objects.items) |index| {
+        macho_file.getFile(index).?.markExportsRelocatable(macho_file);
     }
 }
 
-fn claimUnresolved(macho_file: *MachO) error{OutOfMemory}!void {
-    var objects = try std.ArrayList(File.Index).initCapacity(macho_file.base.comp.gpa, macho_file.objects.items.len + 1);
-    defer objects.deinit();
-    if (macho_file.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
-    objects.appendSliceAssumeCapacity(macho_file.objects.items);
-
-    for (objects.items) |index| {
-        const file = macho_file.getFile(index).?;
-
-        for (file.getSymbols(), 0..) |sym_index, i| {
-            const nlist_idx = @as(Symbol.Index, @intCast(i));
-            const nlist = switch (file) {
-                .object => |x| x.symtab.items(.nlist)[nlist_idx],
-                .zig_object => |x| x.symtab.items(.nlist)[nlist_idx],
-                else => unreachable,
-            };
-            if (!nlist.ext()) continue;
-            if (!nlist.undf()) continue;
-
-            const sym = macho_file.getSymbol(sym_index);
-            if (sym.getFile(macho_file) != null) continue;
-
-            sym.value = 0;
-            sym.atom = 0;
-            sym.nlist_idx = nlist_idx;
-            sym.file = index;
-            sym.flags.weak_ref = nlist.weakRef();
-            sym.flags.import = true;
-            sym.visibility = .global;
-        }
+pub fn claimUnresolved(macho_file: *MachO) void {
+    if (macho_file.getZigObject()) |zo| {
+        zo.asFile().claimUnresolvedRelocatable(macho_file);
+    }
+    for (macho_file.objects.items) |index| {
+        macho_file.getFile(index).?.claimUnresolvedRelocatable(macho_file);
     }
 }
 
