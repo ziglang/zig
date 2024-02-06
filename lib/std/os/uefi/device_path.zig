@@ -25,8 +25,8 @@ pub const DevicePathNode = union(Type) {
 
     pub fn toGeneric(self: *const DevicePathNode) *const Generic {
         switch (self) {
-            inline else => |typ| switch (typ) {
-                inline else => |subtype| return @ptrCast(subtype),
+            else => |typ| switch (typ) {
+                else => |subtype| return @ptrCast(subtype),
             },
         }
     }
@@ -351,7 +351,17 @@ pub const DevicePathNode = union(Type) {
             length: u16 align(1) = 8,
 
             /// NFIT device handle
-            handle: u32,
+            handle: u32 align(1),
+
+            comptime {
+                assert(8 == @sizeOf(Nvdimm));
+                assert(1 == @alignOf(Nvdimm));
+
+                assert(0 == @offsetOf(Nvdimm, "type"));
+                assert(1 == @offsetOf(Nvdimm, "subtype"));
+                assert(2 == @offsetOf(Nvdimm, "length"));
+                assert(4 == @offsetOf(Nvdimm, "handle"));
+            }
         };
     };
 
@@ -359,23 +369,23 @@ pub const DevicePathNode = union(Type) {
         atapi: *const Atapi,
         scsi: *const Scsi,
         fibre_channel: *const FibreChannel,
-        fibre_channel_ex: *const FibreChannelEx,
         @"1394": *const F1394,
         usb: *const Usb,
-        sata: *const Sata,
-        usb_wwid: *const UsbWwid,
-        lun: *const DeviceLogicalUnit,
-        usb_class: *const UsbClass,
         i2o: *const I2o,
+        infiniband: *const InfiniBand,
+        vendor: *const Vendor,
         mac_address: *const MacAddress,
         ipv4: *const Ipv4,
         ipv6: *const Ipv6,
-        vlan: *const Vlan,
-        infiniband: *const InfiniBand,
         uart: *const Uart,
-        vendor: *const Vendor,
-        scsi_extended: *const ScsiExtended,
+        usb_class: *const UsbClass,
+        usb_wwid: *const UsbWwid,
+        lun: *const DeviceLogicalUnit,
+        sata: *const Sata,
         iscsi: *const Iscsi,
+        vlan: *const Vlan,
+        fibre_channel_ex: *const FibreChannelEx,
+        scsi_extended: *const ScsiExtended,
         nvme_namespace: *const NvmeNamespace,
         uri: *const Uri,
         ufs: *const Ufs,
@@ -410,7 +420,7 @@ pub const DevicePathNode = union(Type) {
             vlan = 20,
             fibre_channel_ex = 21,
             scsi_extended = 22,
-            nvme = 23,
+            nvme_namespace = 23,
             uri = 24,
             ufs = 25,
             sd = 26,
@@ -981,6 +991,8 @@ pub const DevicePathNode = union(Type) {
             /// SAS Address for the SCSI Target port
             address: [8]u8,
 
+            _pad: [8]u8,
+
             /// SAS Logical unit number
             logical_unit_number: [8]u8,
 
@@ -1044,7 +1056,7 @@ pub const DevicePathNode = union(Type) {
 
         pub const NvmeNamespace = extern struct {
             type: Type = .messaging,
-            subtype: Subtype = .nvme,
+            subtype: Subtype = .nvme_namespace,
             length: u16 align(1) = 16,
 
             /// Namespace ID, 0 and 0xFFFFFFFF are invalid.
@@ -1119,7 +1131,7 @@ pub const DevicePathNode = union(Type) {
             slot_number: u8,
 
             comptime {
-                assert(6 == @sizeOf(Sd));
+                assert(5 == @sizeOf(Sd));
                 assert(1 == @alignOf(Sd));
 
                 assert(0 == @offsetOf(Sd, "type"));
@@ -1297,7 +1309,7 @@ pub const DevicePathNode = union(Type) {
         pub const NvmeOverFabric = extern struct {
             type: Type = .messaging,
             subtype: Subtype = .nvme_over_fabric,
-            length: u16 align(1), // 20 + x
+            length: u16 align(1), // 21 + x
 
             /// Namespace identifier type
             nidt: u8,
@@ -1313,13 +1325,14 @@ pub const DevicePathNode = union(Type) {
             }
 
             comptime {
-                assert(16 == @sizeOf(NvmeOverFabric));
+                assert(21 == @sizeOf(NvmeOverFabric));
                 assert(1 == @alignOf(NvmeOverFabric));
 
                 assert(0 == @offsetOf(NvmeOverFabric, "type"));
                 assert(1 == @offsetOf(NvmeOverFabric, "subtype"));
                 assert(2 == @offsetOf(NvmeOverFabric, "length"));
-                assert(4 == @offsetOf(NvmeOverFabric, "namespace_uuid"));
+                assert(4 == @offsetOf(NvmeOverFabric, "nidt"));
+                assert(5 == @offsetOf(NvmeOverFabric, "nid"));
             }
         };
     };
@@ -1472,7 +1485,7 @@ pub const DevicePathNode = union(Type) {
             subtype: Subtype = .file_path,
             length: u16 align(1), // 4 + x
 
-            ///A NULL-terminated Path string including directory and file names. The length of this string n can be
+            /// A NULL-terminated Path string including directory and file names. The length of this string n can be
             /// determined by subtracting 4 from the Length entry. A device path may contain one or more of these
             /// nodes. Each node can optionally add a “" separator to the beginning and/or the end of the Path Name
             /// string. The complete path to a file can be found by logically concatenating all the Path Name
@@ -1481,7 +1494,20 @@ pub const DevicePathNode = union(Type) {
                 const ptr: [*:0]align(1) const u16 = @ptrCast(self);
 
                 const entries = @divExact(self.length, 2);
-                return ptr[2..entries];
+                return ptr[2 .. entries - 1 :0];
+            }
+
+            /// Creates a new file path device path node.
+            pub fn create(allocator: std.mem.Allocator, filepath: []const u16) !DevicePathNode {
+                const buffer = try allocator.alloc(u8, 4 + filepath.len + 1);
+                const ptr: *FilePath = @ptrCast(buffer);
+
+                ptr = .{ .length = 4 + filepath.len + 1 };
+
+                @memcpy(buffer[4 .. buffer.len - 1], filepath);
+                buffer[buffer.len - 1] = 0;
+
+                return DevicePathNode{ .media = .{ .file_path = ptr } };
             }
 
             comptime {

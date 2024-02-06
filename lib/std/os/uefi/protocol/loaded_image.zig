@@ -13,7 +13,7 @@ pub const LoadedImage = extern struct {
     parent_handle: Handle,
     system_table: *table.System,
     device_handle: ?Handle,
-    file_path: *protocol.DevicePath,
+    file_path: *const protocol.DevicePath,
     reserved: *anyopaque,
     load_options_size: u32,
     load_options: ?*anyopaque,

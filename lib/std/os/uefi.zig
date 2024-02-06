@@ -23,6 +23,9 @@ pub var handle: bits.Handle = undefined;
 /// A pointer to the EFI System Table that is passed to the EFI image's entry point.
 pub var system_table: *table.System = undefined;
 
+// A reasonable default value, UEFI does not specify an upper limit.
+pub const PATH_MAX = 4096;
+
 pub const ino_t = u64;
 pub const mode_t = u64;
 

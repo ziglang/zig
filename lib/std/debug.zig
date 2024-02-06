@@ -690,15 +690,8 @@ pub const StackIterator = struct {
             return true;
         } else if (native_os == .uefi) {
             if (uefi.system_table.boot_services) |boot_services| {
-                var buffer = uefi.global_page_allocator.allocator().alloc(u8, 4096) catch return true;
-                defer uefi.global_page_allocator.allocator().free(buffer);
-
-                while (boot_services.getMemoryMapSize(buffer.len) catch return true) |new_len| {
-                    buffer = uefi.global_page_allocator.allocator().realloc(buffer, new_len) catch return true;
-                }
-
-                var map = uefi.table.BootServices.MemoryMap.initFromBuffer(buffer);
-                boot_services.getMemoryMap(&map) catch return true;
+                var map = boot_services.getMemoryMap(std.heap.page_allocator) catch return true;
+                defer map.deinit(std.heap.page_allocator);
 
                 var it = map.iterator();
                 while (it.next()) |entry| {
@@ -2027,7 +2020,7 @@ pub const DebugInfo = struct {
             defer boot_services.freePool(mem.sliceAsBytes(handles));
 
             for (handles) |handle| {
-                const loaded_image: *const uefi.protocol.LoadedImage = try boot_services.openProtocol(handle, uefi.protocol.LoadedImage, uefi.handle, null, .{ .by_handle_protocol = true }) orelse continue;
+                const loaded_image: *const uefi.protocol.LoadedImage = try boot_services.openProtocol(handle, uefi.protocol.LoadedImage, .{});
 
                 if (address >= @intFromPtr(loaded_image.image_base) and address < @intFromPtr(loaded_image.image_base) + loaded_image.image_size) {
                     if (self.address_map.get(@intFromPtr(loaded_image.image_base))) |obj_di| {

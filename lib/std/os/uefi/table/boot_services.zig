@@ -458,6 +458,9 @@ pub const BootServices = extern struct {
         /// The length of the memory map in bytes.
         size: usize,
 
+        /// Allocated size
+        allocated_size: usize,
+
         /// The key for the current memory map.
         key: Key,
 
@@ -494,6 +497,7 @@ pub const BootServices = extern struct {
             return .{
                 .map = @ptrCast(buffer.ptr),
                 .size = buffer.len,
+                .allocated_size = buffer.len,
                 .key = @enumFromInt(0),
                 .descriptor_size = 0,
                 .descriptor_version = 0,
@@ -505,10 +509,17 @@ pub const BootServices = extern struct {
             return .{
                 .map = @ptrCast(list.ptr),
                 .size = list.len * @sizeOf(bits.MemoryDescriptor),
+                .allocated_size = list.len * @sizeOf(bits.MemoryDescriptor),
                 .key = 0,
                 .descriptor_size = @sizeOf(bits.MemoryDescriptor),
                 .descriptor_version = bits.MemoryDescriptor.revision,
             };
+        }
+
+        /// Uses the provided allocator to free the memory map.
+        pub fn deinit(self: *MemoryMap, allocator: std.mem.Allocator) void {
+            const bytes: [*]const u8 = @ptrCast(self.map);
+            allocator.free(bytes[0..self.allocated_size]);
         }
 
         /// Returns an iterator over the memory map.
@@ -550,14 +561,17 @@ pub const BootServices = extern struct {
         switch (self._getMemoryMap(&mmap_size, null, &mmap_key, &descriptor_size, &descriptor_version)) {
             .buffer_too_small => return mmap_size,
             .invalid_parameter => return null,
-            else => |s| { try s.err(); unreachable; },
+            else => |s| {
+                try s.err();
+                unreachable;
+            },
         }
     }
 
     /// Fetches the current memory map.
     ///
     /// Use `getMemoryMapSize()` to determine the size of the buffer to allocate.
-    pub fn getMemoryMap(
+    pub fn fillMemoryMap(
         self: *const BootServices,
         /// The memory map to fill.
         map: *MemoryMap,
@@ -573,6 +587,25 @@ pub const BootServices = extern struct {
         map.key = mmap_key;
         map.descriptor_size = descriptor_size;
         map.descriptor_version = descriptor_version;
+    }
+
+    /// Fetches the current memory map using the provided allocator to allocate the buffer.
+    pub fn getMemoryMap(
+        self: *const BootServices,
+        /// The allocator to use to allocate the buffer.
+        allocator: std.mem.Allocator,
+    ) !MemoryMap {
+        var buf = try allocator.alloc(u8, 1024);
+        errdefer allocator.free(buf);
+
+        while (try self.getMemoryMapSize(buf.len)) |new_len| {
+            buf = try allocator.realloc(buf, new_len);
+        }
+
+        var map = MemoryMap.initFromBuffer(buf);
+        try self.fillMemoryMap(&map);
+
+        return map;
     }
 
     /// Allocates pool memory.
@@ -798,6 +831,20 @@ pub const BootServices = extern struct {
         reserved: u26 = 0,
     };
 
+    pub const OpenProtocolOptions = struct {
+        /// The GUID of the protocol to open, will use the GUID of the associated Protocol type if omitted.
+        protocol_guid: ?*align(8) const Guid = null,
+
+        /// The handle of the agent that is opening the protocol interface specified by `protocol`.
+        agent_handle: ?Handle = null,
+
+        /// The handle of the controller that requires the protocol interface.
+        controller_handle: ?Handle = null,
+
+        /// Attributes to open the protocol with. Defaults to behaving like handleProtocol() would.
+        attributes: OpenProtocolAttributes = .{ .by_handle_protocol = true },
+    };
+
     /// Queries a handle to determine if it supports a specified protocol. If the protocol is supported by the handle,
     /// it opens the protocol on behalf of the calling agent.
     pub fn openProtocol(
@@ -806,16 +853,22 @@ pub const BootServices = extern struct {
         handle: Handle,
         /// The protocol to open.
         comptime Protocol: type,
-        /// The handle of the agent that is opening the protocol interface specified by `protocol`.
-        agent_handle: ?Handle,
-        /// The handle of the controller that requires the protocol interface.
-        controller_handle: ?Handle,
-        /// Attributes to open the protocol with.
-        attributes: OpenProtocolAttributes,
-    ) !?*const Protocol {
+        /// The options to open the protocol with.
+        options: OpenProtocolOptions,
+    ) !*const Protocol {
         var interface: ?ProtocolInterface = undefined;
-        try self._openProtocol(handle, &Protocol.guid, &interface, agent_handle, controller_handle, attributes).err();
-        return @ptrCast(@alignCast(interface));
+        try self._openProtocol(
+            handle,
+            options.protocol_guid orelse &Protocol.guid,
+            &interface,
+            options.agent_handle,
+            options.controller_handle,
+            options.attributes,
+        ).err();
+        if (interface == null)
+            return error.MissingProtocol;
+
+        return @ptrCast(@alignCast(interface.?));
     }
 
     /// Closes a protocol on a handle that was opened using `openProtocol()`.
@@ -929,19 +982,30 @@ pub const BootServices = extern struct {
         return handle_buffer[0..num_handles];
     }
 
+    pub const LocateProtocolOptions = struct {
+        /// The GUID of the protocol to locate. Will use the GUID of the associated Protocol type if omitted.
+        protocol_guid: ?*align(8) const Guid = null,
+
+        /// An optional registration key returned from `registerProtocolNotify()`.
+        registration: ?*const anyopaque = null,
+    };
+
     /// Returns the first protocol instance that matches the given protocol.
     pub fn locateProtocol(
         self: *const BootServices,
         /// The protocol to locate.
         comptime Protocol: type,
-        /// An optional registration key returned from `registerProtocolNotify()`.
-        registration: ?*const anyopaque,
+        /// The options to locate the protocol with.
+        options: LocateProtocolOptions,
     ) !?*const Protocol {
         var interface: ?ProtocolInterface = undefined;
-        switch (self._locateProtocol(&Protocol.guid, registration, &interface)) {
+        switch (self._locateProtocol(options.protocol_guid orelse &Protocol.guid, options.registration, &interface)) {
             .success => return @ptrCast(@alignCast(interface)),
             .not_found => return null,
-            else => |status| return status.err(),
+            else => |status| {
+                try status.err();
+                unreachable;
+            },
         }
     }
 

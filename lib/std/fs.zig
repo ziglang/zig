@@ -53,7 +53,7 @@ pub const MAX_PATH_BYTES = max_path_bytes;
 /// * On other platforms, `[]u8` file paths are opaque sequences of bytes with
 ///   no particular encoding.
 pub const max_path_bytes = switch (native_os) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi => posix.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi, .uefi => posix.PATH_MAX,
     // Each WTF-16LE code unit may be expanded to 3 WTF-8 bytes.
     // If it would require 4 WTF-8 bytes, then there would be a surrogate
     // pair in the WTF-16LE, and we (over)account 3 bytes for it that way.
@@ -274,11 +274,30 @@ pub fn defaultUefiCwd() Dir {
     const uefi = std.os.uefi;
 
     if (uefi.system_table.boot_services) |boot_services| blk: {
-        const loaded_image = boot_services.openProtocol(uefi.handle, uefi.protocol.LoadedImage, uefi.handle, null, .{ .by_handle_protocol = true }) catch break :blk orelse break :blk;
+        const loaded_image = boot_services.openProtocol(uefi.handle, uefi.protocol.LoadedImage, .{}) catch break :blk;
 
-        const simple_file_system = boot_services.openProtocol(loaded_image.device_handle.?, uefi.protocol.SimpleFileSystem, uefi.handle, null, .{ .by_handle_protocol = true }) catch break :blk orelse break :blk;
+        const file_path = if (loaded_image.file_path.node()) |node| file_path: {
+            if (node == .media and node.media == .file_path)
+                break :file_path node.media.file_path.path();
 
-        return Dir{ .fd = .{ .file = simple_file_system.openVolume() catch break :blk } };
+            break :blk;
+        } else break :blk;
+
+        if (file_path.len + 4 > MAX_PATH_BYTES) break :blk;
+
+        // required because device paths are not aligned
+        var path_buffer: [MAX_PATH_BYTES]u16 = undefined;
+        @memcpy(path_buffer[0..file_path.len], file_path);
+        path_buffer[file_path.len] = '\\';
+        path_buffer[file_path.len + 1] = '.';
+        path_buffer[file_path.len + 2] = '.';
+        path_buffer[file_path.len + 3] = 0;
+
+        const file_system = boot_services.openProtocol(loaded_image.device_handle.?, uefi.protocol.SimpleFileSystem, .{}) catch break :blk;
+
+        const volume = file_system.openVolume() catch break :blk;
+        const fd = volume.open(path_buffer[0 .. file_path.len + 3 :0], .{}, .{}) catch break :blk;
+        return Dir{ .fd = .{ .file = fd } };
     }
 
     return Dir{ .fd = .none };

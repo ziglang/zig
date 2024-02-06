@@ -8,6 +8,9 @@ pub const LoadedImage = @import("protocol/loaded_image.zig").LoadedImage;
 
 // 10. Device Path
 pub const DevicePath = @import("protocol/device_path.zig").DevicePath;
+// DevicePathUtilities
+pub const DevicePathToText = @import("protocol/device_path/path_to_text.zig").PathToText;
+// DevicePathFromText
 
 // 12. Console Support
 pub const SimpleTextInputEx = @import("protocol/console/simple_text_input_ex.zig").SimpleTextInputEx;

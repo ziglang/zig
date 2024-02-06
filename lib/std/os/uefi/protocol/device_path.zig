@@ -1,6 +1,7 @@
 const std = @import("../../../std.zig");
 const bits = @import("../bits.zig");
 
+const uefi = std.os.uefi;
 const mem = std.mem;
 const cc = bits.cc;
 const DevicePathNode = @import("../device_path.zig").DevicePathNode;
@@ -37,25 +38,71 @@ pub const DevicePath = extern struct {
         .node = [_]u8{ 0x2d, 0x3b, 0x36, 0xd7, 0x50, 0xdf },
     };
 
-    /// Returns the next DevicePath node in the sequence, if any.
-    fn next(self: *const DevicePath) ?*const DevicePath {
-        const subtype: DevicePathNode.End.Subtype = @enumFromInt(self.subtype);
-        if (self.type != .end or subtype != .entire)
-            return null;
-
+    /// Return the next node in this device path instance, if any.
+    pub fn next(self: *const DevicePath) ?*const DevicePath {
         const next_addr = @intFromPtr(self) + self.length;
-        return @ptrFromInt(next_addr);
+        const next_node: *const DevicePath = @ptrFromInt(next_addr);
+
+        if (next_node.type == .end) {
+            const subtype: DevicePathNode.End.Subtype = @enumFromInt(next_node.subtype);
+            if (subtype == .entire or subtype == .this_instance)
+                return null;
+        }
+
+        return next_node;
+    }
+
+    /// Returns the next instance in this device path, if any, skipping over any remaining nodes if present.
+    pub fn nextInstance(self: *const DevicePath) ?*const DevicePath {
+        var this_node: *const DevicePath = self;
+        while (true) {
+            const next_addr = @intFromPtr(this_node) + this_node.length;
+            const next_node: *const DevicePath = @ptrFromInt(next_addr);
+
+            if (this_node.type == .end) {
+                const subtype: DevicePathNode.End.Subtype = @enumFromInt(this_node.subtype);
+                if (subtype == .entire) {
+                    return null;
+                } else if (subtype == .this_instance) {
+                    return next_node;
+                }
+            }
+
+            this_node = next_node;
+        }
+    }
+
+    /// Calculates the length of this device path instance in bytes, including the end of device path node.
+    pub fn size(self: *const DevicePath) usize {
+        var this_node: *const DevicePath = self;
+        while (true) {
+            const next_addr = @intFromPtr(this_node) + this_node.length;
+            const next_node: *const DevicePath = @ptrFromInt(next_addr);
+
+            if (this_node.type == .end) {
+                return next_addr - @intFromPtr(self);
+            }
+
+            this_node = next_node;
+        }
     }
 
     /// Calculates the total length of the device path structure in bytes, including the end of device path node.
-    pub fn size(self: *const DevicePath) usize {
-        var cur_node = self;
+    pub fn sizeEntire(self: *const DevicePath) usize {
+        var this_node: *const DevicePath = self;
+        while (true) {
+            const next_addr = @intFromPtr(this_node) + this_node.length;
+            const next_node: *const DevicePath = @ptrFromInt(next_addr);
 
-        while (cur_node.next()) |next_node| {
-            cur_node = next_node;
+            if (this_node.type == .end) {
+                const subtype: DevicePathNode.End.Subtype = @enumFromInt(this_node.subtype);
+                if (subtype == .entire) {
+                    return next_addr - @intFromPtr(self);
+                }
+            }
+
+            this_node = next_node;
         }
-
-        return (@intFromPtr(cur_node) + cur_node.length) - @intFromPtr(self);
     }
 
     /// Creates a new device path with only the end entire node. The device path will be owned by the caller.
@@ -72,11 +119,11 @@ pub const DevicePath = extern struct {
 
     /// Appends a device path node to the end of an existing device path. `allocator` must own the memory of the
     /// existing device path. The existing device path must be the start of the entire device path chain.
-    /// 
+    ///
     /// This will reallocate the existing device path. The pointer returned here must be used instead of any dangling
     /// references to the previous device path.
-    pub fn append(self: *DevicePath, allocator: Allocator, node_to_append: DevicePathNode) !*DevicePath {
-        const original_size = self.size();
+    pub fn appendNode(self: *DevicePath, allocator: Allocator, node_to_append: *const DevicePathNode) !*DevicePath {
+        const original_size = self.sizeEntire();
         const new_size = original_size + node_to_append.toGeneric().length;
 
         const original_bytes: [*]u8 = @ptrCast(self);
@@ -91,6 +138,62 @@ pub const DevicePath = extern struct {
         @memcpy(new_bytes[original_size - 4 .. new_size - 4], node_bytes[0..node_to_append.toGeneric().length]);
 
         return @ptrCast(new_bytes);
+    }
+
+    /// Appends a device path to the end of an existing device path. `allocator` must own the memory of the existing
+    /// device path. The existing device path must be the start of the entire device path chain.
+    ///
+    /// This will reallocate the existing device path. The pointer returned here must be used instead of any dangling
+    /// references to the previous device path.
+    pub fn appendPath(self: *DevicePath, allocator: Allocator, path: *DevicePath) !*DevicePath {
+        const original_size = self.sizeEntire();
+        const other_size = path.sizeEntire();
+
+        const new_size = original_size + other_size - 4;
+
+        const original_bytes: [*]u8 = @ptrCast(self);
+        const new_bytes = try allocator.realloc(original_bytes[0..original_size], new_size);
+
+        const path_bytes: [*]const u8 = @ptrCast(path);
+
+        // Copy path on top of the previous end entire node.
+        @memcpy(new_bytes[original_size - 4 ..], path_bytes[0..other_size]);
+
+        return @ptrCast(new_bytes);
+    }
+
+    /// Appends a device path instance to the end of an existing device path. `allocator` must own the memory of the existing
+    /// device path. The existing device path must be the start of the entire device path chain.
+    ///
+    /// The end of entire device path node will be replaced with the end of this instance node.
+    /// The end of entire device path node will be copied from the appended device path instance.
+    ///
+    /// This will reallocate the existing device path. The pointer returned here must be used instead of any dangling
+    /// references to the previous device path.
+    pub fn appendPathInstance(self: *DevicePath, allocator: Allocator, path: *DevicePath) !*DevicePath {
+        const original_size = self.sizeEntire();
+        const other_size = path.sizeEntire();
+
+        const new_size = original_size + other_size;
+
+        const original_bytes: [*]u8 = @ptrCast(self);
+        const new_bytes = try allocator.realloc(original_bytes[0..original_size], new_size);
+
+        const path_bytes: [*]const u8 = @ptrCast(path);
+
+        // Copy path after of the previous end entire node.
+        @memcpy(new_bytes[original_size..], path_bytes[0..other_size]);
+
+        // change end entire node to end this instance node
+        const end_of_existing: *DevicePath = @ptrCast(new_bytes + original_size - 4);
+        end_of_existing.subtype = @intFromEnum(DevicePathNode.End.Subtype.this_instance);
+
+        return @ptrCast(new_bytes);
+    }
+
+    /// Returns true if this device path is a multi-instance device path.
+    pub fn isMultiInstance(self: *const DevicePath) bool {
+        return self.nextInstance() != null;
     }
 
     /// Returns the DevicePathNode union for this device path protocol
