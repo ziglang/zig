@@ -10,7 +10,7 @@ const Module = @import("Module.zig");
 const TypedValue = @import("TypedValue.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
-pub const Value = @This();
+const Value = @This();
 
 /// We are migrating towards using this for every Value object. However, many
 /// values are still represented the legacy way. This is indicated by using
