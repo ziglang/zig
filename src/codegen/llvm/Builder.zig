@@ -577,6 +577,7 @@ pub const Type = enum(u32) {
 
     pub fn isSized(self: Type, builder: *const Builder) Allocator.Error!bool {
         var visited: IsSizedVisited = .{};
+        defer visited.deinit(builder.gpa);
         const result = try self.isSizedVisited(&visited, builder);
         if (builder.useLibLlvm()) assert(result == self.toLlvm(builder).isSized().toBool());
         return result;
@@ -4766,6 +4767,7 @@ pub const Function = struct {
         if (self.metadata) |metadata| gpa.free(metadata[0..self.instructions.len]);
         gpa.free(self.names[0..self.instructions.len]);
         self.instructions.deinit(gpa);
+        gpa.free(self.blocks);
         self.* = undefined;
     }
 
@@ -6579,10 +6581,16 @@ pub const WipFunction = struct {
 
     pub fn deinit(self: *WipFunction) void {
         self.extra.deinit(self.builder.gpa);
+        self.metadata.deinit(self.builder.gpa);
+        self.names.deinit(self.builder.gpa);
         self.instructions.deinit(self.builder.gpa);
         for (self.blocks.items) |*b| b.instructions.deinit(self.builder.gpa);
         self.blocks.deinit(self.builder.gpa);
-        if (self.builder.useLibLlvm()) self.llvm.builder.dispose();
+        if (self.builder.useLibLlvm()) {
+            self.llvm.instructions.deinit(self.builder.gpa);
+            self.llvm.blocks.deinit(self.builder.gpa);
+            self.llvm.builder.dispose();
+        }
         self.* = undefined;
     }
 
