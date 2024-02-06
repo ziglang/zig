@@ -8629,6 +8629,7 @@ fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     .{src},
                 );
             };
+
             break :blk try sema.unionToTag(block, tag_ty, operand, operand_src);
         },
         else => {
@@ -8638,14 +8639,25 @@ fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         },
     };
     const enum_tag_ty = sema.typeOf(enum_tag);
-
     const int_tag_ty = enum_tag_ty.intTagType(mod);
+
+    // TODO: use correct solution
+    // https://github.com/ziglang/zig/issues/15909
+    if (enum_tag_ty.enumFieldCount(mod) == 0 and !enum_tag_ty.isNonexhaustiveEnum(mod)) {
+        return sema.fail(block, operand_src, "cannot use @intFromEnum on empty enum '{}'", .{
+            enum_tag_ty.fmt(mod),
+        });
+    }
 
     if (try sema.typeHasOnePossibleValue(enum_tag_ty)) |opv| {
         return Air.internedToRef((try mod.getCoerced(opv, int_tag_ty)).toIntern());
     }
 
     if (try sema.resolveValue(enum_tag)) |enum_tag_val| {
+        if (enum_tag_val.isUndef(mod)) {
+            return mod.undefRef(int_tag_ty);
+        }
+
         const val = try enum_tag_val.intFromEnum(enum_tag_ty, mod);
         return Air.internedToRef(val.toIntern());
     }
@@ -20944,6 +20956,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     if (enum_ty.enumFieldCount(mod) == 0) {
         // TODO I don't think this is the correct way to handle this but
         // it prevents a crash.
+        // https://github.com/ziglang/zig/issues/15909
         return sema.fail(block, operand_src, "cannot get @tagName of empty enum '{}'", .{
             enum_ty.fmt(mod),
         });
