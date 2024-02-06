@@ -1671,8 +1671,26 @@ pub fn standardDynamicLinkerPath_cpu_os_abi(cpu: Cpu, os_tag: Os.Tag, abi: Abi) 
                 else => "/lib64/ld-linux-x86-64.so.2",
             }),
 
-            .riscv32 => return copy(&result, "/lib/ld-linux-riscv32-ilp32.so.1"),
-            .riscv64 => return copy(&result, "/lib/ld-linux-riscv64-lp64.so.1"),
+            .riscv32 => {
+                var fpstyle: [:0]const u8 = "";
+                if (std.Target.riscv.featureSetHas(cpu.features, .d)) {
+                    fpstyle = "d";
+                } else if (abi == .gnueabihf or abi == .musleabihf or abi == .eabihf) {
+                    fpstyle = "f"; // AFAICT, "float" ABIs are not supported with a dynamically linked executable
+                } else if (std.Target.riscv.featureSetHas(cpu.features, .e)) {
+                    fpstyle = "e";
+                }
+                return print(&result, "/lib/ld-linux-riscv32-ilp32{s}.so.1", .{fpstyle});
+            },
+            .riscv64 => {
+                var fpstyle: [:0]const u8 = "";
+                if (std.Target.riscv.featureSetHas(cpu.features, .d)) {
+                    fpstyle = "d";
+                } else if (abi == .gnueabihf or abi == .musleabihf or abi == .eabihf) {
+                    fpstyle = "f"; // AFAICT, "float" ABIs are not supported with a dynamically linked executable
+                }
+                return print(&result, "/lib/ld-linux-riscv64-lp64{s}.so.1", .{fpstyle});
+            },
 
             // Architectures in this list have been verified as not having a standard
             // dynamic linker path.
