@@ -1,4 +1,4 @@
-pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
     const gpa = macho_file.base.comp.gpa;
 
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
@@ -84,6 +84,72 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
 
     const ncmds, const sizeofcmds = try writeLoadCommands(macho_file);
     try writeHeader(macho_file, ncmds, sizeofcmds);
+}
+
+pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+    const gpa = comp.gpa;
+
+    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
+    defer positionals.deinit();
+
+    try positionals.ensureUnusedCapacity(comp.objects.len);
+    positionals.appendSliceAssumeCapacity(comp.objects);
+
+    for (comp.c_object_table.keys()) |key| {
+        try positionals.append(.{ .path = key.status.success.object_path });
+    }
+
+    if (module_obj_path) |path| try positionals.append(.{ .path = path });
+
+    for (positionals.items) |obj| {
+        // TODO: parse for archive meaning don't unpack objects
+        _ = obj;
+    }
+
+    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+
+    // First, we flush relocatable object file generated with our backends.
+    if (macho_file.getZigObject()) |zo| {
+        zo.resolveSymbols(macho_file);
+        zo.asFile().claimUnresolvedRelocatable(macho_file);
+        try macho_file.sortSections();
+        try macho_file.addAtomsToSections();
+        try calcSectionSizes(macho_file);
+        try createSegment(macho_file);
+        try allocateSections(macho_file);
+        allocateSegment(macho_file);
+
+        var off = off: {
+            const seg = macho_file.segments.items[0];
+            const off = math.cast(u32, seg.fileoff + seg.filesize) orelse return error.Overflow;
+            break :off mem.alignForward(u32, off, @alignOf(macho.relocation_info));
+        };
+        off = allocateSectionsRelocs(macho_file, off);
+
+        state_log.debug("{}", .{macho_file.dumpState()});
+
+        try macho_file.calcSymtabSize();
+        try writeAtoms(macho_file);
+
+        off = mem.alignForward(u32, off, @alignOf(u64));
+        off = try macho_file.writeDataInCode(0, off);
+        off = mem.alignForward(u32, off, @alignOf(u64));
+        off = try macho_file.writeSymtab(off);
+        off = mem.alignForward(u32, off, @alignOf(u64));
+        off = try macho_file.writeStrtab(off);
+
+        // In order to please Apple ld (and possibly other MachO linkers in the wild),
+        // we will now sanitize segment names of Zig-specific segments.
+        sanitizeZigSections(macho_file);
+
+        const ncmds, const sizeofcmds = try writeLoadCommands(macho_file);
+        try writeHeader(macho_file, ncmds, sizeofcmds);
+    }
+
+    var err = try macho_file.addErrorWithNotes(0);
+    try err.addMsg(macho_file, "TODO implement flushStaticLib", .{});
+
+    return error.FlushFailure;
 }
 
 fn markExports(macho_file: *MachO) void {

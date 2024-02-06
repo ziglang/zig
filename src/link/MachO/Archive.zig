@@ -143,51 +143,15 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index:
     }
 }
 
-pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
-    const gpa = comp.gpa;
-
-    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
-    defer positionals.deinit();
-
-    try positionals.ensureUnusedCapacity(comp.objects.len);
-    positionals.appendSliceAssumeCapacity(comp.objects);
-
-    for (comp.c_object_table.keys()) |key| {
-        try positionals.append(.{ .path = key.status.success.object_path });
-    }
-
-    if (module_obj_path) |path| try positionals.append(.{ .path = path });
-
-    for (positionals.items) |obj| {
-        // TODO: parse for archive meaning don't unpack objects
-        _ = obj;
-    }
-
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
-
-    // First, we flush relocatable object file generated with our backends.
-    if (macho_file.getZigObject()) |zo| {
-        zo.resolveSymbols(macho_file);
-        zo.asFile().claimUnresolvedRelocatable(macho_file);
-    }
-
-    var err = try macho_file.addErrorWithNotes(0);
-    try err.addMsg(macho_file, "TODO implement flushStaticLib", .{});
-
-    return error.FlushFailure;
-}
-
 const fat = @import("fat.zig");
 const link = @import("../../link.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
-const relocatable = @import("relocatable.zig");
 const std = @import("std");
 
 const Allocator = mem.Allocator;
 const Archive = @This();
-const Compilation = @import("../../Compilation.zig");
 const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
