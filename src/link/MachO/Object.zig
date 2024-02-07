@@ -1332,8 +1332,10 @@ pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writ
     const file = macho_file.getFileHandle(self.file_handle);
     // TODO try using copyRangeAll
     const gpa = macho_file.base.comp.gpa;
-    const data = try file.readToEndAlloc(gpa, size);
+    const data = try gpa.alloc(u8, size);
     defer gpa.free(data);
+    const amt = try file.preadAll(data, 0);
+    if (amt != size) return error.InputOutput;
     try writer.writeAll(data);
 }
 
