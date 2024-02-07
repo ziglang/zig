@@ -1205,8 +1205,7 @@ fn transStmt(
             return transExpr(c, scope, gen_sel.getResultExpr(), result_used);
         },
         .ConvertVectorExprClass => {
-            const conv_vec = @as(*const clang.ConvertVectorExpr, @ptrCast(stmt));
-            const conv_vec_node = try transConvertVectorExpr(c, scope, conv_vec);
+            const conv_vec_node = try transCStyleCastExprClass(c, scope, @as(*const clang.CStyleCastExpr, @ptrCast(stmt)), result_used);
             return maybeSuppressResult(c, result_used, conv_vec_node);
         },
         .ShuffleVectorExprClass => {
@@ -1233,68 +1232,6 @@ fn transStmt(
         => return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)}),
         else => return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "unsupported stmt class {s}", .{@tagName(sc)}),
     }
-}
-
-/// See https://clang.llvm.org/docs/LanguageExtensions.html#langext-builtin-convertvector
-fn transConvertVectorExpr(
-    c: *Context,
-    scope: *Scope,
-    expr: *const clang.ConvertVectorExpr,
-) TransError!Node {
-    const base_stmt = @as(*const clang.Stmt, @ptrCast(expr));
-
-    var block_scope = try Scope.Block.init(c, scope, true);
-    defer block_scope.deinit();
-
-    const src_expr = expr.getSrcExpr();
-    const src_type = qualTypeCanon(src_expr.getType());
-    const src_vector_ty = @as(*const clang.VectorType, @ptrCast(src_type));
-    const src_element_qt = src_vector_ty.getElementType();
-
-    const src_expr_node = try transExpr(c, &block_scope.base, src_expr, .used);
-
-    const dst_qt = expr.getTypeSourceInfo_getType();
-    const dst_type_node = try transQualType(c, &block_scope.base, dst_qt, base_stmt.getBeginLoc());
-    const dst_vector_ty = @as(*const clang.VectorType, @ptrCast(qualTypeCanon(dst_qt)));
-    const num_elements = dst_vector_ty.getNumElements();
-    const dst_element_qt = dst_vector_ty.getElementType();
-
-    // workaround for https://github.com/ziglang/zig/issues/8322
-    // we store the casted results into temp variables and use those
-    // to initialize the vector. Eventually we can just directly
-    // construct the init_list from casted source members
-    var i: usize = 0;
-    while (i < num_elements) : (i += 1) {
-        const mangled_name = try block_scope.makeMangledName(c, "tmp");
-        const value = try Tag.array_access.create(c.arena, .{
-            .lhs = src_expr_node,
-            .rhs = try transCreateNodeNumber(c, i, .int),
-        });
-        const tmp_decl_node = try Tag.var_simple.create(c.arena, .{
-            .name = mangled_name,
-            .init = try transCCast(c, &block_scope.base, base_stmt.getBeginLoc(), dst_element_qt, src_element_qt, value),
-        });
-        try block_scope.statements.append(tmp_decl_node);
-    }
-
-    const init_list = try c.arena.alloc(Node, num_elements);
-    for (init_list, 0..) |*init, init_index| {
-        const tmp_decl = block_scope.statements.items[init_index];
-        const name = tmp_decl.castTag(.var_simple).?.data.name;
-        init.* = try Tag.identifier.create(c.arena, name);
-    }
-
-    const vec_init = try Tag.array_init.create(c.arena, .{
-        .cond = dst_type_node,
-        .cases = init_list,
-    });
-
-    const break_node = try Tag.break_val.create(c.arena, .{
-        .label = block_scope.label,
-        .val = vec_init,
-    });
-    try block_scope.statements.append(break_node);
-    return block_scope.complete(c);
 }
 
 fn makeShuffleMask(c: *Context, scope: *Scope, expr: *const clang.ShuffleVectorExpr, vector_len: Node) TransError!Node {
@@ -1653,7 +1590,6 @@ fn transCStyleCastExprClass(
     const sub_expr = stmt.getSubExpr();
     const dst_type = stmt.getType();
     const src_type = sub_expr.getType();
-    const sub_expr_node = try transExpr(c, scope, sub_expr, .used);
     const loc = stmt.getBeginLoc();
 
     const cast_node = if (cast_expr.getCastKind() == .ToUnion) blk: {
@@ -1661,6 +1597,7 @@ fn transCStyleCastExprClass(
         const field_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(field_decl)).getName_bytes_begin());
 
         const union_ty = try transQualType(c, scope, dst_type, loc);
+        const sub_expr_node = try transExpr(c, scope, sub_expr, .used);
 
         const inits = [1]ast.Payload.ContainerInit.Initializer{.{ .name = field_name, .value = sub_expr_node }};
         break :blk try Tag.container_init.create(c.arena, .{
@@ -1673,7 +1610,7 @@ fn transCStyleCastExprClass(
         loc,
         dst_type,
         src_type,
-        sub_expr_node,
+        sub_expr,
     ));
     return maybeSuppressResult(c, result_used, cast_node);
 }
@@ -1881,8 +1818,7 @@ fn transImplicitCastExpr(
     const src_type = getExprQualType(c, sub_expr);
     switch (expr.getCastKind()) {
         .BitCast, .FloatingCast, .FloatingToIntegral, .IntegralToFloating, .IntegralCast, .PointerToIntegral, .IntegralToPointer => {
-            const sub_expr_node = try transExpr(c, scope, sub_expr, .used);
-            const casted = try transCCast(c, scope, expr.getBeginLoc(), dest_type, src_type, sub_expr_node);
+            const casted = try transCCast(c, scope, expr.getBeginLoc(), dest_type, src_type, sub_expr);
             return maybeSuppressResult(c, result_used, casted);
         },
         .LValueToRValue, .NoOp, .FunctionToPointerDecay => {
@@ -2303,32 +2239,54 @@ fn transCCast(
     loc: clang.SourceLocation,
     dst_type: clang.QualType,
     src_type: clang.QualType,
-    expr: Node,
+    expr: *const clang.Expr,
 ) !Node {
-    if (qualTypeCanon(dst_type).isVoidType()) return expr;
-    if (dst_type.eq(src_type)) return expr;
+    var expr_node = try transExpr(c, scope, expr, .used);
+    if (qualTypeCanon(dst_type).isVoidType()) return expr_node;
+    if (dst_type.eq(src_type)) return expr_node;
     if (qualTypeIsPtr(dst_type) and qualTypeIsPtr(src_type))
-        return transCPtrCast(c, scope, loc, dst_type, src_type, expr);
+        return transCPtrCast(c, scope, loc, dst_type, src_type, expr_node);
     if (cIsEnum(dst_type)) return transCCast(c, scope, loc, cIntTypeForEnum(dst_type), src_type, expr);
     if (cIsEnum(src_type)) return transCCast(c, scope, loc, dst_type, cIntTypeForEnum(src_type), expr);
 
     const dst_node = try transQualType(c, scope, dst_type, loc);
-    if (cIsInteger(dst_type) and cIsInteger(src_type)) {
-        // 1. If src_type is an enum, determine the underlying signed int type
+    var dst_qt = dst_type;
+    var src_qt = src_type;
+    var src_expr = expr;
+    // See https://clang.llvm.org/docs/LanguageExtensions.html#langext-builtin-convertvector
+    if (expr.getStmtClass() == .ConvertVectorExprClass) {
+        const vec_expr = @as(*const clang.ConvertVectorExpr, @ptrCast(expr));
+        src_expr = vec_expr.getSrcExpr();
+        expr_node = try transExpr(c, scope, src_expr, .used);
+        const src_vec_qt = qualTypeCanon(src_expr.getType());
+        const src_vector_ty = @as(*const clang.VectorType, @ptrCast(src_vec_qt));
+        const dst_vec_qt = vec_expr.getTypeSourceInfo_getType();
+        const dst_vector_ty = @as(*const clang.VectorType, @ptrCast(qualTypeCanon(dst_vec_qt)));
+
+        // __builtin_convert_vector applies a C-style expression to the elements of a vector.
+        // Luckily, in Zig we can directly cast the elements of a vector, so here we unwrap
+        // the vector to the element type, and then continue as if we're creating a cast for
+        // the element type.
+        src_qt = src_vector_ty.getElementType();
+        dst_qt = dst_vector_ty.getElementType();
+    }
+
+    if (cIsInteger(dst_qt) and cIsInteger(src_qt)) {
+        // 1. If src_qt is an enum, determine the underlying signed int type
         // 2. Extend or truncate without changing signed-ness.
         // 3. Bit-cast to correct signed-ness
-        const src_type_is_signed = cIsSignedInteger(src_type);
-        var src_int_expr = expr;
+        const src_qt_is_signed = cIsSignedInteger(src_qt);
+        var src_int_expr = expr_node;
 
         if (isBoolRes(src_int_expr)) {
             src_int_expr = try Tag.int_from_bool.create(c.arena, src_int_expr);
             return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = src_int_expr });
         }
 
-        switch (cIntTypeCmp(dst_type, src_type)) {
+        switch (cIntTypeCmp(dst_qt, src_qt)) {
             .lt => {
                 // @truncate(SameSignSmallerInt, src_int_expr)
-                const ty_node = try transQualTypeIntWidthOf(c, dst_type, src_type_is_signed);
+                const ty_node = try transQualTypeIntWidthOf(c, dst_qt, src_qt_is_signed);
                 src_int_expr = try Tag.as.create(c.arena, .{
                     .lhs = ty_node,
                     .rhs = try Tag.truncate.create(c.arena, src_int_expr),
@@ -2336,7 +2294,7 @@ fn transCCast(
             },
             .gt => {
                 // @as(SameSignBiggerInt, src_int_expr)
-                const ty_node = try transQualTypeIntWidthOf(c, dst_type, src_type_is_signed);
+                const ty_node = try transQualTypeIntWidthOf(c, dst_qt, src_qt_is_signed);
                 src_int_expr = try Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = src_int_expr });
             },
             .eq => {
@@ -2349,15 +2307,15 @@ fn transCCast(
             .rhs = try Tag.bit_cast.create(c.arena, src_int_expr),
         });
     }
-    if (cIsVector(src_type) or cIsVector(dst_type)) {
+    if (cIsVector(src_qt) or cIsVector(dst_qt)) {
         // C cast where at least 1 operand is a vector requires them to be same size
         // @as(dest_type, @bitCast(val))
         return Tag.as.create(c.arena, .{
             .lhs = dst_node,
-            .rhs = try Tag.bit_cast.create(c.arena, expr),
+            .rhs = try Tag.bit_cast.create(c.arena, expr_node),
         });
     }
-    if (qualTypeIsPtr(src_type) and cIsInteger(dst_type)) {
+    if (qualTypeIsPtr(src_qt) and cIsInteger(dst_qt)) {
         // Steps:
         // 1. @intFromPtr(src_ptr)
         // 2. Truncate if pointer width is wider than dst int
@@ -2380,11 +2338,12 @@ fn transCCast(
 
         var block_scope = try Scope.Block.init(c, scope, true);
         defer block_scope.deinit();
+        expr_node = try transExpr(c, &block_scope.base, src_expr, .used);
 
-        var src_ptr_expr = try Tag.int_from_ptr.create(c.arena, expr);
+        var src_ptr_expr = try Tag.int_from_ptr.create(c.arena, expr_node);
         var src_ptr_expr_with_truncate = try Tag.truncate.create(c.arena, src_ptr_expr);
 
-        const ty_node = try transQualTypeIntWidthOf(c, dst_type, false);
+        const ty_node = try transQualTypeIntWidthOf(c, dst_qt, false);
         src_ptr_expr = try Tag.as.create(c.arena, .{
             .lhs = ty_node,
             .rhs = src_ptr_expr,
@@ -2394,13 +2353,13 @@ fn transCCast(
             .rhs = src_ptr_expr_with_truncate,
         });
 
-        const src_node = try transQualType(c, scope, src_type, loc);
+        const src_node = try transQualType(c, scope, src_qt, loc);
         const type_size_cond_stmt = try Tag.greater_than.create(c.arena, .{
             .lhs = try Tag.sizeof.create(c.arena, src_node),
             .rhs = try Tag.sizeof.create(c.arena, dst_node),
         });
 
-        if (cIsSignedInteger(dst_type)) {
+        if (cIsSignedInteger(dst_qt)) {
             src_ptr_expr = try Tag.as.create(c.arena, .{
                 .lhs = dst_node,
                 .rhs = try Tag.bit_cast.create(c.arena, src_ptr_expr),
@@ -2435,12 +2394,12 @@ fn transCCast(
         try block_scope.statements.append(if_node);
         return block_scope.complete(c);
     }
-    if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
+    if (cIsInteger(src_qt) and qualTypeIsPtr(dst_qt)) {
         // Steps:
         // 1. If src int is wider than ptr width, truncate
         // 2. If src int is signed, cast to isize and then bitCast
         // 3. Cast to usize
-        // 4. @as(dst_type, @ptrFromInt(usizeFromInt))
+        // 4. @as(dst_qt, @ptrFromInt(usizeFromInt))
         //
         // We don't know if the dst pointer type has a shorter width than the src
         // int, until compile-time, so we need to add a check in the generated
@@ -2458,12 +2417,13 @@ fn transCCast(
 
         var block_scope = try Scope.Block.init(c, scope, true);
         defer block_scope.deinit();
+        expr_node = try transExpr(c, &block_scope.base, src_expr, .used);
 
-        var src_int_expr = expr;
+        var src_int_expr = expr_node;
         var src_int_expr_with_truncate = try Tag.truncate.create(c.arena, src_int_expr);
 
         // @bitCast(@as(isize, signedInt))
-        if (cIsSignedInteger(src_type)) {
+        if (cIsSignedInteger(src_qt)) {
             src_int_expr = try Tag.as.create(c.arena, .{
                 .lhs = try Tag.type.create(c.arena, "isize"),
                 .rhs = src_int_expr,
@@ -2487,7 +2447,7 @@ fn transCCast(
             .rhs = src_int_expr_with_truncate,
         });
 
-        const src_node = try transQualType(c, scope, src_type, loc);
+        const src_node = try transQualType(c, scope, src_qt, loc);
         const type_size_cond_stmt = try Tag.greater_than.create(c.arena, .{
             .lhs = try Tag.sizeof.create(c.arena, src_node),
             .rhs = try Tag.sizeof.create(c.arena, dst_node),
@@ -2527,18 +2487,18 @@ fn transCCast(
         try block_scope.statements.append(if_node);
         return block_scope.complete(c);
     }
-    if (cIsFloating(src_type) and cIsFloating(dst_type)) {
+    if (cIsFloating(src_qt) and cIsFloating(dst_qt)) {
         // @as(dest_type, @floatCast(val))
         return Tag.as.create(c.arena, .{
             .lhs = dst_node,
-            .rhs = try Tag.float_cast.create(c.arena, expr),
+            .rhs = try Tag.float_cast.create(c.arena, expr_node),
         });
     }
-    if (cIsFloating(src_type) and !cIsFloating(dst_type)) {
+    if (cIsFloating(src_qt) and !cIsFloating(dst_qt)) {
         // bool expression: floating val != 0
-        if (qualTypeIsBoolean(dst_type)) {
+        if (qualTypeIsBoolean(dst_qt)) {
             return Tag.not_equal.create(c.arena, .{
-                .lhs = expr,
+                .lhs = expr_node,
                 .rhs = Tag.zero_literal.init(),
             });
         }
@@ -2546,27 +2506,27 @@ fn transCCast(
         // @as(dest_type, @intFromFloat(val))
         return Tag.as.create(c.arena, .{
             .lhs = dst_node,
-            .rhs = try Tag.int_from_float.create(c.arena, expr),
+            .rhs = try Tag.int_from_float.create(c.arena, expr_node),
         });
     }
-    if (!cIsFloating(src_type) and cIsFloating(dst_type)) {
-        var rhs = expr;
-        if (qualTypeIsBoolean(src_type) or isBoolRes(rhs)) rhs = try Tag.int_from_bool.create(c.arena, expr);
+    if (!cIsFloating(src_qt) and cIsFloating(dst_qt)) {
+        var rhs = expr_node;
+        if (qualTypeIsBoolean(src_qt) or isBoolRes(rhs)) rhs = try Tag.int_from_bool.create(c.arena, expr_node);
         // @as(dest_type, @floatFromInt(val))
         return Tag.as.create(c.arena, .{
             .lhs = dst_node,
             .rhs = try Tag.float_from_int.create(c.arena, rhs),
         });
     }
-    if (qualTypeIsBoolean(src_type) and !qualTypeIsBoolean(dst_type)) {
+    if (qualTypeIsBoolean(src_qt) and !qualTypeIsBoolean(dst_qt)) {
         // @intFromBool returns a u1
-        // TODO: if dst_type is 1 bit & signed (bitfield) we need @bitCast
+        // TODO: if dst_qt is 1 bit & signed (bitfield) we need @bitCast
         // instead of @as
-        const int_from_bool = try Tag.int_from_bool.create(c.arena, expr);
+        const int_from_bool = try Tag.int_from_bool.create(c.arena, expr_node);
         return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = int_from_bool });
     }
     // @as(dest_type, val)
-    return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+    return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = expr_node });
 }
 
 fn transExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: ResultUsed) TransError!Node {
@@ -3986,7 +3946,7 @@ fn transCreateCompoundAssign(
         if (is_ptr_op_signed) rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
 
         if ((is_mod or is_div) and is_signed) {
-            if (requires_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
+            if (requires_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs);
             const operands = .{ .lhs = lhs_node, .rhs = rhs_node };
             const builtin = if (is_mod)
                 try Tag.signed_remainder.create(c.arena, operands)
@@ -3999,7 +3959,7 @@ fn transCreateCompoundAssign(
         if (is_shift) {
             rhs_node = try Tag.int_cast.create(c.arena, rhs_node);
         } else if (requires_cast) {
-            rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
+            rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs);
         }
         return transCreateNodeInfixOp(c, op, lhs_node, rhs_node, .used);
     }
@@ -4025,7 +3985,7 @@ fn transCreateCompoundAssign(
     var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
     if (is_ptr_op_signed) rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
     if ((is_mod or is_div) and is_signed) {
-        if (requires_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
+        if (requires_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs);
         const operands = .{ .lhs = ref_node, .rhs = rhs_node };
         const builtin = if (is_mod)
             try Tag.signed_remainder.create(c.arena, operands)
@@ -4038,7 +3998,7 @@ fn transCreateCompoundAssign(
         if (is_shift) {
             rhs_node = try Tag.int_cast.create(c.arena, rhs_node);
         } else if (requires_cast) {
-            rhs_node = try transCCast(c, &block_scope.base, loc, lhs_qt, rhs_qt, rhs_node);
+            rhs_node = try transCCast(c, &block_scope.base, loc, lhs_qt, rhs_qt, rhs);
         }
 
         const assign = try transCreateNodeInfixOp(c, op, ref_node, rhs_node, .used);

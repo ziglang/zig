@@ -932,19 +932,19 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = &func_ptr;
         \\    var typed_func_ptr: ?*const fn () callconv(.C) void = blk: {
         \\        if (@sizeOf(c_ulong) > @sizeOf(?*const fn () callconv(.C) void)) {
-        \\            break :blk @as(?*const fn () callconv(.C) void, @ptrFromInt(@as(usize, @truncate(blk: {
+        \\            break :blk @as(?*const fn () callconv(.C) void, @ptrFromInt(@as(usize, @truncate(blk_1: {
         \\                if (@sizeOf(?*anyopaque) > @sizeOf(c_ulong)) {
-        \\                    break :blk @as(c_ulong, @truncate(@intFromPtr(func_ptr)));
+        \\                    break :blk_1 @as(c_ulong, @truncate(@intFromPtr(func_ptr)));
         \\                } else {
-        \\                    break :blk @as(c_ulong, @intFromPtr(func_ptr));
+        \\                    break :blk_1 @as(c_ulong, @intFromPtr(func_ptr));
         \\                }
         \\            }))));
         \\        } else {
-        \\            break :blk @as(?*const fn () callconv(.C) void, @ptrFromInt(@as(usize, blk: {
+        \\            break :blk @as(?*const fn () callconv(.C) void, @ptrFromInt(@as(usize, blk_1: {
         \\                if (@sizeOf(?*anyopaque) > @sizeOf(c_ulong)) {
-        \\                    break :blk @as(c_ulong, @truncate(@intFromPtr(func_ptr)));
+        \\                    break :blk_1 @as(c_ulong, @truncate(@intFromPtr(func_ptr)));
         \\                } else {
-        \\                    break :blk @as(c_ulong, @intFromPtr(func_ptr));
+        \\                    break :blk_1 @as(c_ulong, @intFromPtr(func_ptr));
         \\                }
         \\            })));
         \\        }
