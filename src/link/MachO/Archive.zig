@@ -90,7 +90,7 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index:
 
 pub fn writeHeader(
     object_name: []const u8,
-    object_size: u32,
+    object_size: usize,
     format: Format,
     writer: anytype,
 ) !void {
@@ -110,7 +110,7 @@ pub fn writeHeader(
     }
     @memcpy(&hdr.ar_fmag, ARFMAG);
 
-    const object_name_len = mem.alignForward(u32, object_name.len + 1, format.ptrWidth());
+    const object_name_len = mem.alignForward(usize, object_name.len + 1, ptrWidth(format));
     const total_object_size = object_size + object_name_len;
 
     {
@@ -142,12 +142,12 @@ pub const SARMAG: u4 = 8;
 /// String in ar_fmag at the end of each header.
 const ARFMAG: *const [2:0]u8 = "`\n";
 
-const SYMDEF = "__.SYMDEF";
-const SYMDEF64 = "__.SYMDEF_64";
-const SYMDEF_SORTED = "__.SYMDEF SORTED";
-const SYMDEF64_SORTED = "__.SYMDEF_64 SORTED";
+pub const SYMDEF = "__.SYMDEF";
+pub const SYMDEF64 = "__.SYMDEF_64";
+pub const SYMDEF_SORTED = "__.SYMDEF SORTED";
+pub const SYMDEF64_SORTED = "__.SYMDEF_64 SORTED";
 
-const ar_hdr = extern struct {
+pub const ar_hdr = extern struct {
     /// Member file name, sometimes / terminated.
     ar_name: [16]u8,
 
@@ -197,7 +197,6 @@ const ar_hdr = extern struct {
 pub const ArSymtab = struct {
     entries: std.ArrayListUnmanaged(Entry) = .{},
     strtab: StringTable = .{},
-    format: Format = .p32,
 
     pub fn deinit(ar: *ArSymtab, allocator: Allocator) void {
         ar.entries.deinit(allocator);
@@ -208,16 +207,16 @@ pub const ArSymtab = struct {
         mem.sort(Entry, ar.entries.items, {}, Entry.lessThan);
     }
 
-    pub fn size(ar: ArSymtab) usize {
-        const ptr_width = ar.format.ptrWidth();
+    pub fn size(ar: ArSymtab, format: Format) usize {
+        const ptr_width = ptrWidth(format);
         return ptr_width + ar.entries.items.len * 2 * ptr_width + ptr_width + mem.alignForward(usize, ar.strtab.buffer.items.len, ptr_width);
     }
 
-    pub fn write(ar: ArSymtab, macho_file: *MachO, writer: anytype) !void {
+    pub fn write(ar: ArSymtab, format: Format, macho_file: *MachO, writer: anytype) !void {
         // Header
-        try writeHeader(SYMDEF, ar.size());
+        try writeHeader(SYMDEF, ar.size(format), format, writer);
         // Symtab size
-        try ar.writeInt(ar.entries.items.len * 2);
+        try writeInt(format, ar.entries.items.len * 2, writer);
         // Symtab entries
         for (ar.entries.items) |entry| {
             const file_off = switch (macho_file.getFile(entry.file).?) {
@@ -226,25 +225,18 @@ pub const ArSymtab = struct {
                 else => unreachable,
             };
             // Name offset
-            try ar.writeInt(entry.off);
+            try writeInt(format, entry.off, writer);
             // File offset
-            try ar.writeInt(file_off);
+            try writeInt(format, file_off, writer);
         }
         // Strtab size
-        const strtab_size = mem.alignForward(u64, ar.strtab.buffer.items.len, ar.format.ptrWidth());
+        const strtab_size = mem.alignForward(u64, ar.strtab.buffer.items.len, ptrWidth(format));
         const padding = strtab_size - ar.strtab.buffer.items.len;
-        try ar.writeInt(strtab_size);
+        try writeInt(format, strtab_size, writer);
         // Strtab
         try writer.writeAll(ar.strtab.buffer.items);
         if (padding > 0) {
             try writer.writeByteNTimes(0, padding);
-        }
-    }
-
-    fn writeInt(ar: ArSymtab, value: u64, writer: anytype) !void {
-        switch (ar.format) {
-            .p32 => try writer.writeInt(u32, std.math.cast(u32, value) orelse return error.Overflow, .little),
-            .p64 => try writer.writeInt(u64, value, .little),
         }
     }
 
@@ -288,17 +280,24 @@ pub const ArSymtab = struct {
     };
 };
 
-const Format = enum {
+pub const Format = enum {
     p32,
     p64,
-
-    fn ptrWidth(self: Format) usize {
-        return switch (self) {
-            .p32 => @as(usize, 4),
-            .p64 => 8,
-        };
-    }
 };
+
+pub fn ptrWidth(format: Format) usize {
+    return switch (format) {
+        .p32 => @as(usize, 4),
+        .p64 => 8,
+    };
+}
+
+pub fn writeInt(format: Format, value: u64, writer: anytype) !void {
+    switch (format) {
+        .p32 => try writer.writeInt(u32, std.math.cast(u32, value) orelse return error.Overflow, .little),
+        .p64 => try writer.writeInt(u64, value, .little),
+    }
+}
 
 pub const ArState = struct {
     /// File offset of the ar_hdr describing the contributing

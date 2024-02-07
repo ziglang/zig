@@ -1248,14 +1248,15 @@ pub fn updateArSize(self: *Object, macho_file: *MachO) !void {
     self.output_ar_state.size = size;
 }
 
-pub fn writeAr(self: Object, macho_file: *MachO, writer: anytype) !void {
+pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writer: anytype) !void {
     // Header
-    try Archive.writeHeader(self.path, self.output_ar_state.size, writer);
+    const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
+    try Archive.writeHeader(self.path, size, ar_format, writer);
     // Data
     const file = macho_file.getFileHandle(self.file_handle);
     // TODO try using copyRangeAll
     const gpa = macho_file.base.comp.gpa;
-    const data = try file.readToEndAlloc(gpa, self.output_ar_state.size);
+    const data = try file.readToEndAlloc(gpa, size);
     defer gpa.free(data);
     try writer.writeAll(data);
 }

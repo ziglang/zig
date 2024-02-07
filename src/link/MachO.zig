@@ -380,7 +380,7 @@ pub fn deinit(self: *MachO) void {
 
 pub fn flush(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
     // TODO: I think this is just a temp and can be removed once we can emit static archives
-    if (self.base.isStaticLib() and build_options.have_llvm) {
+    if (self.base.isStaticLib() and build_options.have_llvm and self.base.comp.config.use_llvm) {
         return self.base.linkAsArchive(arena, prog_node);
     }
     try self.flushModule(arena, prog_node);
@@ -396,7 +396,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     if (self.llvm_object) |llvm_object| {
         try self.base.emitLlvmObject(arena, llvm_object, prog_node);
         // TODO: I think this is just a temp and can be removed once we can emit static archives
-        if (self.base.isStaticLib() and build_options.have_llvm) return;
+        if (self.base.isStaticLib() and build_options.have_llvm and self.base.comp.config.use_llvm) return;
     }
 
     var sub_prog_node = prog_node.start("MachO Flush", 0);

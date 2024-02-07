@@ -161,6 +161,9 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     if (macho_file.getZigObject()) |zo| files.appendAssumeCapacity(zo.index);
     for (macho_file.objects.items) |index| files.appendAssumeCapacity(index);
 
+    const format: Archive.Format = .p32;
+    const ptr_width = Archive.ptrWidth(format);
+
     // Update ar symtab from parsed objects
     var ar_symtab: Archive.ArSymtab = .{};
     defer ar_symtab.deinit(gpa);
@@ -171,14 +174,71 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
     ar_symtab.sort();
 
+    // Update sizes of contributing objects
+    for (files.items) |index| {
+        try macho_file.getFile(index).?.updateArSize(macho_file);
+    }
+
+    // Update file offsets of contributing objects
+    const total_size: usize = blk: {
+        var pos: usize = Archive.SARMAG;
+        pos += @sizeOf(Archive.ar_hdr) + Archive.SYMDEF.len + 1;
+        pos = mem.alignForward(usize, pos, ptr_width);
+        pos += ar_symtab.size(format);
+
+        for (files.items) |index| {
+            const file = macho_file.getFile(index).?;
+            const state = switch (file) {
+                .zig_object => |x| &x.output_ar_state,
+                .object => |x| &x.output_ar_state,
+                else => unreachable,
+            };
+            const path = switch (file) {
+                .zig_object => |x| x.path,
+                .object => |x| x.path,
+                else => unreachable,
+            };
+            pos = mem.alignForward(usize, pos, ptr_width);
+            state.file_off = pos;
+            pos += @sizeOf(Archive.ar_hdr) + path.len + 1;
+            pos = mem.alignForward(usize, pos, ptr_width);
+            pos += math.cast(usize, state.size) orelse return error.Overflow;
+        }
+
+        break :blk pos;
+    };
+
     if (build_options.enable_logging) {
         state_log.debug("ar_symtab\n{}\n", .{ar_symtab.fmt(macho_file)});
     }
 
-    var err = try macho_file.addErrorWithNotes(0);
-    try err.addMsg(macho_file, "TODO implement flushStaticLib", .{});
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+    try buffer.ensureTotalCapacityPrecise(total_size);
+    const writer = buffer.writer();
 
-    return error.FlushFailure;
+    // Write magic
+    try writer.writeAll(Archive.ARMAG);
+
+    // Write symtab
+    try ar_symtab.write(format, macho_file, writer);
+
+    // Write object files
+    for (files.items) |index| {
+        const aligned = mem.alignForward(usize, buffer.items.len, ptr_width);
+        const padding = aligned - buffer.items.len;
+        if (padding > 0) {
+            try writer.writeByteNTimes(0, padding);
+        }
+        try macho_file.getFile(index).?.writeAr(format, macho_file, writer);
+    }
+
+    assert(buffer.items.len == total_size);
+
+    try macho_file.base.file.?.setEndPos(total_size);
+    try macho_file.base.file.?.pwriteAll(buffer.items, 0);
+
+    if (comp.link_errors.items.len > 0) return error.FlushFailure;
 }
 
 fn markExports(macho_file: *MachO) void {
