@@ -35,7 +35,7 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
         hint,
         aligned_len,
         os.PROT.READ | os.PROT.WRITE,
-        os.MAP.PRIVATE | os.MAP.ANONYMOUS,
+        .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
         -1,
         0,
     ) catch return null;

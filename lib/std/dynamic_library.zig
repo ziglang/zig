@@ -127,7 +127,7 @@ pub const ElfDynLib = struct {
             null,
             mem.alignForward(usize, size, mem.page_size),
             os.PROT.READ,
-            os.MAP.PRIVATE,
+            .{ .TYPE = .PRIVATE },
             fd,
             0,
         );
@@ -165,7 +165,7 @@ pub const ElfDynLib = struct {
             null,
             virt_addr_end,
             os.PROT.NONE,
-            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
         );
@@ -197,7 +197,7 @@ pub const ElfDynLib = struct {
                                 ptr,
                                 extended_memsz,
                                 prot,
-                                os.MAP.PRIVATE | os.MAP.FIXED,
+                                .{ .TYPE = .PRIVATE, .FIXED = true },
                                 fd,
                                 ph.p_offset - extra_bytes,
                             );
@@ -206,7 +206,7 @@ pub const ElfDynLib = struct {
                                 ptr,
                                 extended_memsz,
                                 prot,
-                                os.MAP.PRIVATE | os.MAP.FIXED | os.MAP.ANONYMOUS,
+                                .{ .TYPE = .PRIVATE, .FIXED = true, .ANONYMOUS = true },
                                 -1,
                                 0,
                             );

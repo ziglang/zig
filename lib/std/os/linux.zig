@@ -109,36 +109,136 @@ pub const SYS = switch (@import("builtin").cpu.arch) {
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
 
-pub const MAP = struct {
-    pub usingnamespace arch_bits.MAP;
+pub const MAP_TYPE = enum(u4) {
+    SHARED = 0x01,
+    PRIVATE = 0x02,
+    SHARED_VALIDATE = 0x03,
+};
 
-    /// Share changes
-    pub const SHARED = 0x01;
-    /// Changes are private
-    pub const PRIVATE = 0x02;
-    /// share + validate extension flags
-    pub const SHARED_VALIDATE = 0x03;
-    /// Mask for type of mapping
-    pub const TYPE = 0x0f;
-    /// Interpret addr exactly
-    pub const FIXED = 0x10;
-    /// don't use a file
-    pub const ANONYMOUS = if (is_mips) 0x800 else 0x20;
-    // MAP_ 0x0100 - 0x4000 flags are per architecture
-    /// populate (prefault) pagetables
-    pub const POPULATE = if (is_mips) 0x10000 else 0x8000;
-    /// do not block on IO
-    pub const NONBLOCK = if (is_mips) 0x20000 else 0x10000;
-    /// give out an address that is best suited for process/thread stacks
-    pub const STACK = if (is_mips) 0x40000 else 0x20000;
-    /// create a huge page mapping
-    pub const HUGETLB = if (is_mips) 0x80000 else 0x40000;
-    /// perform synchronous page faults for the mapping
-    pub const SYNC = 0x80000;
-    /// MAP_FIXED which doesn't unmap underlying mapping
-    pub const FIXED_NOREPLACE = 0x100000;
-    /// For anonymous mmap, memory could be uninitialized
-    pub const UNINITIALIZED = 0x4000000;
+pub const MAP = switch (native_arch) {
+    .x86_64, .x86 => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        @"32BIT": bool = false,
+        _7: u1 = 0,
+        GROWSDOWN: bool = false,
+        _9: u2 = 0,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        LOCKED: bool = false,
+        NORESERVE: bool = false,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _21: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
+    .aarch64, .aarch64_be, .arm, .thumb => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        _6: u2 = 0,
+        GROWSDOWN: bool = false,
+        _9: u2 = 0,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        LOCKED: bool = false,
+        NORESERVE: bool = false,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _21: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
+    .riscv64 => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        _6: u9 = 0,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _21: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
+    .sparc64 => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        NORESERVE: bool = false,
+        _7: u1 = 0,
+        LOCKED: bool = false,
+        GROWSDOWN: bool = false,
+        _10: u1 = 0,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        _13: u2 = 0,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _21: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
+    .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        _5: u1 = 0,
+        @"32BIT": bool = false,
+        _7: u3 = 0,
+        NORESERVE: bool = false,
+        ANONYMOUS: bool = false,
+        GROWSDOWN: bool = false,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        LOCKED: bool = false,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _21: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        NORESERVE: bool = false,
+        LOCKED: bool = false,
+        GROWSDOWN: bool = false,
+        _9: u2 = 0,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        _13: u2 = 0,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _21: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
+    else => @compileError("missing std.os.linux.MAP constants for this architecture"),
 };
 
 pub const O = struct {

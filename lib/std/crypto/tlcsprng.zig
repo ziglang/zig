@@ -83,7 +83,7 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
                 null,
                 @sizeOf(Context),
                 os.PROT.READ | os.PROT.WRITE,
-                os.MAP.PRIVATE | os.MAP.ANONYMOUS,
+                .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
                 -1,
                 0,
             ) catch {

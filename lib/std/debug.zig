@@ -1652,7 +1652,7 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
             null,
             file_len,
             os.PROT.READ,
-            os.MAP.SHARED,
+            .{ .TYPE = .SHARED },
             file.handle,
             0,
         );

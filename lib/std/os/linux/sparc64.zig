@@ -248,19 +248,6 @@ pub const LOCK = struct {
     pub const UN = 8;
 };
 
-pub const MAP = struct {
-    /// stack-like segment
-    pub const GROWSDOWN = 0x0200;
-    /// ETXTBSY
-    pub const DENYWRITE = 0x0800;
-    /// mark it as an executable
-    pub const EXECUTABLE = 0x1000;
-    /// pages are locked
-    pub const LOCKED = 0x0100;
-    /// don't check for reservations
-    pub const NORESERVE = 0x0040;
-};
-
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_2.6";

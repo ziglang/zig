@@ -211,15 +211,6 @@ pub const LOCK = struct {
     pub const UN = 8;
 };
 
-pub const MAP = struct {
-    pub const NORESERVE = 0x4000;
-    pub const GROWSDOWN = 0x0100;
-    pub const DENYWRITE = 0x0800;
-    pub const EXECUTABLE = 0x1000;
-    pub const LOCKED = 0x2000;
-    pub const @"32BIT" = 0x40;
-};
-
 pub const MMAP2_UNIT = 4096;
 
 pub const VDSO = struct {
