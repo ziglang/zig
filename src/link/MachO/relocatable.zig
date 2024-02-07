@@ -152,7 +152,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
         // TODO we can avoid reading in the file contents we just wrote if we give the linker
         // ability to write directly to a buffer.
-        try zo.readFileContents(macho_file);
+        try zo.readFileContents(off, macho_file);
     }
 
     var files = std.ArrayList(File.Index).init(gpa);

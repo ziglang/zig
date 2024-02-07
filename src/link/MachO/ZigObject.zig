@@ -285,15 +285,9 @@ pub fn checkDuplicates(self: *ZigObject, dupes: anytype, macho_file: *MachO) !vo
 /// This is just a temporary helper function that allows us to re-read what we wrote to file into a buffer.
 /// We need this so that we can write to an archive.
 /// TODO implement writing ZigObject data directly to a buffer instead.
-pub fn readFileContents(self: *ZigObject, macho_file: *MachO) !void {
+pub fn readFileContents(self: *ZigObject, size: usize, macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
-    var end_pos: u64 = 0;
-    for (macho_file.segments.items) |seg| {
-        end_pos = @max(end_pos, seg.fileoff + seg.filesize);
-    }
-    const size = std.math.cast(usize, end_pos) orelse return error.Overflow;
     try self.data.resize(gpa, size);
-
     const amt = try macho_file.base.file.?.preadAll(self.data.items, 0);
     if (amt != size) return error.InputOutput;
 }
