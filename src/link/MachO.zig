@@ -606,7 +606,9 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     self.allocateSyntheticSymbols();
     try self.allocateLinkeditSegment();
 
-    state_log.debug("{}", .{self.dumpState()});
+    if (build_options.enable_logging) {
+        state_log.debug("{}", .{self.dumpState()});
+    }
 
     try self.initDyldInfoSections();
 

@@ -175,6 +175,13 @@ pub const File = union(enum) {
         };
     }
 
+    pub fn updateArSymtab(file: File, ar_symtab: *Archive.ArSymtab, macho_file: *MachO) error{OutOfMemory}!void {
+        return switch (file) {
+            .dylib, .internal => unreachable,
+            inline else => |x| x.updateArSymtab(ar_symtab, macho_file),
+        };
+    }
+
     pub fn calcSymtabSize(file: File, macho_file: *MachO) !void {
         return switch (file) {
             inline else => |x| x.calcSymtabSize(macho_file),
@@ -206,6 +213,7 @@ const macho = std.macho;
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
+const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const InternalObject = @import("InternalObject.zig");
 const MachO = @import("../MachO.zig");

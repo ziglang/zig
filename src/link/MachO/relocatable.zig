@@ -64,7 +64,9 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
     };
     off = allocateSectionsRelocs(macho_file, off);
 
-    state_log.debug("{}", .{macho_file.dumpState()});
+    if (build_options.enable_logging) {
+        state_log.debug("{}", .{macho_file.dumpState()});
+    }
 
     try macho_file.calcSymtabSize();
     try writeAtoms(macho_file);
@@ -111,6 +113,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     // First, we flush relocatable object file generated with our backends.
     if (macho_file.getZigObject()) |zo| {
         zo.resolveSymbols(macho_file);
+        zo.asFile().markExportsRelocatable(macho_file);
         zo.asFile().claimUnresolvedRelocatable(macho_file);
         try macho_file.sortSections();
         try macho_file.addAtomsToSections();
@@ -126,7 +129,9 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
         };
         off = allocateSectionsRelocs(macho_file, off);
 
-        state_log.debug("{}", .{macho_file.dumpState()});
+        if (build_options.enable_logging) {
+            state_log.debug("{}", .{macho_file.dumpState()});
+        }
 
         try macho_file.calcSymtabSize();
         try writeAtoms(macho_file);
@@ -148,6 +153,26 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
         // TODO we can avoid reading in the file contents we just wrote if we give the linker
         // ability to write directly to a buffer.
         try zo.readFileContents(macho_file);
+    }
+
+    var files = std.ArrayList(File.Index).init(gpa);
+    defer files.deinit();
+    try files.ensureTotalCapacityPrecise(macho_file.objects.items.len + 1);
+    if (macho_file.getZigObject()) |zo| files.appendAssumeCapacity(zo.index);
+    for (macho_file.objects.items) |index| files.appendAssumeCapacity(index);
+
+    // Update ar symtab from parsed objects
+    var ar_symtab: Archive.ArSymtab = .{};
+    defer ar_symtab.deinit(gpa);
+
+    for (files.items) |index| {
+        try macho_file.getFile(index).?.updateArSymtab(&ar_symtab, macho_file);
+    }
+
+    ar_symtab.sort();
+
+    if (build_options.enable_logging) {
+        state_log.debug("ar_symtab\n{}\n", .{ar_symtab.fmt(macho_file)});
     }
 
     var err = try macho_file.addErrorWithNotes(0);
@@ -646,6 +671,7 @@ fn writeHeader(macho_file: *MachO, ncmds: usize, sizeofcmds: usize) !void {
 }
 
 const assert = std.debug.assert;
+const build_options = @import("build_options");
 const eh_frame = @import("eh_frame.zig");
 const link = @import("../../link.zig");
 const load_commands = @import("load_commands.zig");
@@ -657,6 +683,7 @@ const state_log = std.log.scoped(.link_state);
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
 
+const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Compilation = @import("../../Compilation.zig");
 const File = @import("file.zig").File;

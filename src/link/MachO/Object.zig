@@ -1,4 +1,4 @@
-archive: ?Archive = null,
+archive: ?InArchive = null,
 path: []const u8,
 file_handle: File.HandleIndex,
 mtime: u64,
@@ -29,8 +29,9 @@ hidden: bool = false,
 
 dynamic_relocs: MachO.DynamicRelocs = .{},
 output_symtab_ctx: MachO.SymtabCtx = .{},
+output_ar_state: Archive.ArState = .{},
 
-const Archive = struct {
+const InArchive = struct {
     path: []const u8,
     offset: u64,
 };
@@ -1232,6 +1233,33 @@ fn addSection(self: *Object, allocator: Allocator, segname: []const u8, sectname
     return n_sect;
 }
 
+pub fn updateArSymtab(self: Object, ar_symtab: *Archive.ArSymtab, macho_file: *MachO) error{OutOfMemory}!void {
+    const gpa = macho_file.base.comp.gpa;
+    for (self.symtab.items(.nlist)) |nlist| {
+        if (!nlist.ext() or (nlist.undf() and !nlist.tentative())) continue;
+        const off = try ar_symtab.strtab.insert(gpa, self.getString(nlist.n_strx));
+        try ar_symtab.entries.append(gpa, .{ .off = off, .file = self.index });
+    }
+}
+
+pub fn updateArSize(self: *Object, macho_file: *MachO) !void {
+    const file = macho_file.getFileHandle(self.file_handle);
+    const size = (try file.stat()).size;
+    self.output_ar_state.size = size;
+}
+
+pub fn writeAr(self: Object, macho_file: *MachO, writer: anytype) !void {
+    // Header
+    try Archive.writeHeader(self.path, self.output_ar_state.size, writer);
+    // Data
+    const file = macho_file.getFileHandle(self.file_handle);
+    // TODO try using copyRangeAll
+    const gpa = macho_file.base.comp.gpa;
+    const data = try file.readToEndAlloc(gpa, self.output_ar_state.size);
+    defer gpa.free(data);
+    try writer.writeAll(data);
+}
+
 pub fn calcSymtabSize(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2241,6 +2269,7 @@ const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
 
 const Allocator = mem.Allocator;
+const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Cie = eh_frame.Cie;
 const DwarfInfo = @import("DwarfInfo.zig");

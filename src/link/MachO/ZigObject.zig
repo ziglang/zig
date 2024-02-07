@@ -48,6 +48,7 @@ relocs: RelocationTable = .{},
 
 dynamic_relocs: MachO.DynamicRelocs = .{},
 output_symtab_ctx: MachO.SymtabCtx = .{},
+output_ar_state: Archive.ArState = .{},
 
 pub fn init(self: *ZigObject, macho_file: *MachO) !void {
     const comp = macho_file.base.comp;
@@ -295,6 +296,29 @@ pub fn readFileContents(self: *ZigObject, macho_file: *MachO) !void {
 
     const amt = try macho_file.base.file.?.preadAll(self.data.items, 0);
     if (amt != size) return error.InputOutput;
+}
+
+pub fn updateArSymtab(self: ZigObject, ar_symtab: *Archive.ArSymtab, macho_file: *MachO) error{OutOfMemory}!void {
+    const gpa = macho_file.base.comp.gpa;
+    for (self.symbols.items) |sym_index| {
+        const sym = macho_file.getSymbol(sym_index);
+        const file = sym.getFile(macho_file).?;
+        assert(file.getIndex() == self.index);
+        if (!sym.flags.@"export") continue;
+        const off = try ar_symtab.strtab.insert(gpa, sym.getName(macho_file));
+        try ar_symtab.entries.append(gpa, .{ .off = off, .file = self.index });
+    }
+}
+
+pub fn updateArSize(self: *ZigObject) void {
+    self.output_ar_state.size = self.data.items.len;
+}
+
+pub fn writeAr(self: ZigObject, writer: anytype) !void {
+    // Header
+    try Archive.writeHeader(self.path, self.output_ar_state.size, writer);
+    // Data
+    try writer.writeAll(self.data.items);
 }
 
 pub fn scanRelocs(self: *ZigObject, macho_file: *MachO) !void {
