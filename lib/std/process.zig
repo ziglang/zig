@@ -247,7 +247,7 @@ test "EnvMap" {
 }
 
 /// Returns a snapshot of the environment variables of the current process.
-/// Any modifications to the resulting EnvMap will not be not reflected in the environment, and
+/// Any modifications to the resulting EnvMap will not be reflected in the environment, and
 /// likewise, any future modifications to the environment will not be reflected in the EnvMap.
 /// Caller owns resulting `EnvMap` and should call its `deinit` fn when done.
 pub fn getEnvMap(allocator: Allocator) !EnvMap {
