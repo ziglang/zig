@@ -213,10 +213,11 @@ pub const ArSymtab = struct {
     }
 
     pub fn write(ar: ArSymtab, format: Format, macho_file: *MachO, writer: anytype) !void {
+        const ptr_width = ptrWidth(format);
         // Header
         try writeHeader(SYMDEF, ar.size(format), format, writer);
         // Symtab size
-        try writeInt(format, ar.entries.items.len * 2, writer);
+        try writeInt(format, ar.entries.items.len * 2 * ptr_width, writer);
         // Symtab entries
         for (ar.entries.items) |entry| {
             const file_off = switch (macho_file.getFile(entry.file).?) {
@@ -230,7 +231,7 @@ pub const ArSymtab = struct {
             try writeInt(format, file_off, writer);
         }
         // Strtab size
-        const strtab_size = mem.alignForward(u64, ar.strtab.buffer.items.len, ptrWidth(format));
+        const strtab_size = mem.alignForward(u64, ar.strtab.buffer.items.len, ptr_width);
         const padding = strtab_size - ar.strtab.buffer.items.len;
         try writeInt(format, strtab_size, writer);
         // Strtab
