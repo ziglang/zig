@@ -44,14 +44,19 @@ pub fn wait(sem: *Semaphore) void {
 }
 
 pub fn timedWait(sem: *Semaphore, timeout_ns: u64) error{Timeout}!void {
+    var timeout_timer = std.time.Timer.start() catch unreachable;
+
     sem.mutex.lock();
     defer sem.mutex.unlock();
 
-    if (sem.permits == 0)
-        try sem.cond.timedWait(&sem.mutex, timeout_ns);
+    while (sem.permits == 0) {
+        const elapsed = timeout_timer.read();
+        if (elapsed > timeout_ns)
+            return error.Timeout;
 
-    while (sem.permits == 0)
-        try sem.cond.timedWait(&sem.mutex, 0);
+        const local_timeout_ns = timeout_ns - elapsed;
+        try sem.cond.timedWait(&sem.mutex, local_timeout_ns);
+    }
 
     sem.permits -= 1;
     if (sem.permits > 0)
