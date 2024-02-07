@@ -484,7 +484,6 @@ int main(int argc, char **argv) {
 
     (void)InputStream_skipToSection(&in, WasmSectionId_elem);
     {
-        uint32_t table_i = 0;
         uint32_t len = InputStream_readLeb128_u32(&in);
         fputs("static void init_elem(void) {\n", out);
         for (uint32_t segment_i = 0; segment_i < len; segment_i += 1) {
@@ -518,7 +517,7 @@ int main(int argc, char **argv) {
         for (uint32_t func_i = 0; func_i < len; func_i += 1) {
             FuncGen_reset(&fg);
 
-            uint32_t code_len = InputStream_readLeb128_u32(&in);
+            InputStream_readLeb128_u32(&in);
             const struct FuncType *func_type = &types[funcs[func_i].type_idx];
             fputs("static ", out);
             switch (func_type->result->len) {
