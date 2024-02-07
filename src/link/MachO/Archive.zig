@@ -231,7 +231,7 @@ pub const ArSymtab = struct {
             try writeInt(format, file_off, writer);
         }
         // Strtab size
-        const strtab_size = mem.alignForward(u64, ar.strtab.buffer.items.len, ptr_width);
+        const strtab_size = mem.alignForward(usize, ar.strtab.buffer.items.len, ptr_width);
         const padding = strtab_size - ar.strtab.buffer.items.len;
         try writeInt(format, strtab_size, writer);
         // Strtab
