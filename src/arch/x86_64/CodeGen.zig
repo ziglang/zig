@@ -8181,13 +8181,13 @@ fn genShiftBinOp(
         lhs_ty.fmt(mod),
     });
 
-    assert(rhs_ty.abiSize(mod) == 1);
     try self.spillEflagsIfOccupied();
 
     const lhs_abi_size = lhs_ty.abiSize(mod);
     if (lhs_abi_size > 16) return self.fail("TODO implement genShiftBinOp for {}", .{
         lhs_ty.fmt(mod),
     });
+    assert(rhs_ty.abiSize(mod) == 1);
 
     try self.register_manager.getReg(.rcx, null);
     const rcx_lock = self.register_manager.lockRegAssumeUnused(.rcx);
